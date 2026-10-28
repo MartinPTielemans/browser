@@ -19,6 +19,7 @@ fn main() {
     } else {
         host.file("platform/mac/host.mm")
             .file("platform/mac/drive.mm")
+            .file("platform/mac/menu_window.mm")
             .file("platform/mac/emoji.mm")
             .file("platform/mac/dock.mm")
             .flag("-std=c++20")

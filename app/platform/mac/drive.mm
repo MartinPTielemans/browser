@@ -127,6 +127,7 @@
 
 #include "browser_core.h"
 #include "../host.h"
+#include "menu_window.h"
 
 // A drag from another app, as AppKit describes it to the view under the pointer: what it carries
 // and where it is.
@@ -1200,8 +1201,8 @@ bool Run(const std::string& line, void (^done)(void)) {
   }
   if (action == "choose") {
     std::string title = line.substr(std::min(line.size(), action.size() + 1));
-    if (!host_choose(title.c_str()) && !ChooseTracked(@(title.c_str())) &&
-        !ChooseModal(@(title.c_str()))) {
+    if (!host_menu_window_choose(title.c_str()) && !host_choose(title.c_str()) &&
+        !ChooseTracked(@(title.c_str())) && !ChooseModal(@(title.c_str()))) {
       return false;
     }
     // Once the menu or alert has closed, which GCD's main queue waits for.
@@ -1209,7 +1210,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "dismiss") {
-    if (!host_dismiss_menu()) {
+    if (!host_menu_window_dismiss() && !host_dismiss_menu()) {
       return false;
     }
     dispatch_async(dispatch_get_main_queue(), done);

@@ -127,6 +127,29 @@ fn remove_theme_color_takes_the_space_back_to_the_accent(cx: &mut TestAppContext
     assert!(!titles.iter().any(|(title, _)| title == "Remove Theme Color"));
 }
 
+/// ilo's menu is Paper in a Space whose theme is light and Ink in the others, and the Space's menu
+/// keeps Delete Space apart, below a line.
+#[gpui::test]
+fn the_menu_takes_a_light_themes_look(cx: &mut TestAppContext) {
+    use crate::menu::Look;
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    let light = Theme { appearance: crate::theme::Appearance::Light, ..Theme::at(0.5, 0.) };
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(Some(light.main_color()), Some(light))], cx);
+        shell.set_space(1, cx);
+        shell.space_menu(1, point(px(100.), px(112.)), cx);
+        shell.set_spaces(vec![entry(Some(BLUE), Some(Theme::at(0.5, 0.)))], cx);
+        shell.space_menu(1, point(px(100.), px(112.)), cx);
+    });
+    assert_eq!(*host.menu_looks.borrow(), [Look::Light, Look::Dark]);
+    let entries = host.entries.borrow();
+    let [.., line, delete] = &entries[..] else { panic!("no menu") };
+    assert_eq!((line.title.as_ref(), delete.title.as_ref()), ("", "Delete Space"));
+    assert!(delete.destructive && line.parent.is_none());
+}
+
 /// The shell with Space 1 as `entry` has it, on a host that records what it asks of the core.
 fn recorded(
     color: Option<u32>,

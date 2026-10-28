@@ -8,7 +8,11 @@ use super::{
     undo::{Prop, Value},
     user_keys,
 };
-use crate::space_icon::{SpaceIcon, has_icon};
+use crate::{
+    menu::Look,
+    space_icon::{SpaceIcon, has_icon},
+    theme::Appearance,
+};
 
 /// What an item of a menu does once chosen.
 pub(super) type MenuAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
@@ -24,6 +28,8 @@ pub struct MenuEntry {
     pub parent: Option<usize>,
     /// Whether it shows a check mark.
     pub checked: bool,
+    /// Whether it deletes something, which ilo's menu shows in red.
+    pub destructive: bool,
 }
 
 impl MenuEntry {
@@ -34,6 +40,7 @@ impl MenuEntry {
             shortcut: None,
             parent: None,
             checked: false,
+            destructive: false,
         }
     }
 
@@ -48,6 +55,10 @@ impl MenuEntry {
 
     pub(super) fn checked(self, checked: bool) -> Self {
         MenuEntry { checked, ..self }
+    }
+
+    pub(super) fn destructive(self) -> Self {
+        MenuEntry { destructive: true, ..self }
     }
 
     /// Shows the shortcut that runs `command`.
@@ -90,11 +101,53 @@ impl Shell {
         }
         profiles.extend(deletes);
         items.extend(profiles.into_iter().map(|(entry, action)| (entry.under(at), action)));
+        items.push((MenuEntry::line(), Box::new(|_, _| {})));
         items.push((
-            MenuEntry::new("Delete Space", self.spaces.len() > 1),
+            MenuEntry::new("Delete Space", self.spaces.len() > 1).destructive(),
             Box::new(move |shell, cx| shell.delete_space(space, cx)),
         ));
-        self.show_menu(items, position, None, cx);
+        let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
+        self.context_menu(
+            entries,
+            position,
+            Box::new(move |chosen, shell, cx| {
+                if let Some((_, action)) = chosen.and_then(|at| items.into_iter().nth(at)) {
+                    action(shell, cx)
+                }
+            }),
+            cx,
+        );
+    }
+
+    /// Shows `entries` in ilo's own menu at `position` in the sidebar, in the window or the
+    /// reveal's panel, in the Space's look, and calls `chosen` once it closes.
+    pub(super) fn context_menu(
+        &mut self,
+        entries: Vec<MenuEntry>,
+        position: Point<Pixels>,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut Shell, &mut Context<Shell>)>,
+        cx: &mut Context<Self>,
+    ) {
+        // Light only where the Space's theme asks for it: the rest of the window is dark.
+        let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
+        let look = if light && !self.private { Look::Light } else { Look::Dark };
+        self.menu_open = true;
+        let shell = cx.weak_entity();
+        self.browser.context_menu(
+            entries,
+            position,
+            self.sidebar_hidden,
+            look,
+            Box::new(move |index, cx| {
+                shell
+                    .update(cx, |shell, cx| {
+                        shell.menu_open = false;
+                        chosen(index, shell, cx);
+                    })
+                    .ok();
+            }),
+            cx,
+        );
     }
 
     /// Shows `items` at `position`, or the one at `over` there, and does what the one chosen does.
@@ -188,7 +241,7 @@ impl Shell {
             })
             .map(|(profile, name)| {
                 let (profile, name) = (*profile, name.clone());
-                let entry = MenuEntry::new(format!("Delete “{name}”"), true);
+                let entry = MenuEntry::new(format!("Delete “{name}”"), true).destructive();
                 let action: MenuAction =
                     Box::new(move |shell, cx| shell.delete_profile(profile, name, cx));
                 (entry, action)
@@ -274,28 +327,21 @@ impl Shell {
             self.today_tab_menu(keys, tab)
         };
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
-        let shell = cx.weak_entity();
-        self.browser.menu(
+        self.context_menu(
             entries,
             position,
-            None,
-            self.sidebar_hidden,
-            Box::new(move |chosen, cx| {
-                shell
-                    .update(cx, |shell, cx| {
-                        // The fill goes as the pointer leaving the row takes it.
-                        shell.menu_row = None;
-                        if shell.hovered != Some(row) {
-                            shell.unhover(row);
-                        }
-                        cx.notify();
-                        let item = chosen.and_then(|at| items.into_iter().nth(at));
-                        if let Some((_, name, action)) = item {
-                            log!("browser: command {name} via tab menu");
-                            action(shell, cx)
-                        }
-                    })
-                    .ok();
+            Box::new(move |chosen, shell, cx| {
+                // The fill goes as the pointer leaving the row takes it.
+                shell.menu_row = None;
+                if shell.hovered != Some(row) {
+                    shell.unhover(row);
+                }
+                cx.notify();
+                let item = chosen.and_then(|at| items.into_iter().nth(at));
+                if let Some((_, name, action)) = item {
+                    log!("browser: command {name} via tab menu");
+                    action(shell, cx)
+                }
             }),
             cx,
         );
@@ -353,7 +399,7 @@ impl Shell {
             ),
             (MenuEntry::line(), "", Box::new(|_, _| {})),
             (
-                MenuEntry::new("Delete Folder", true),
+                MenuEntry::new("Delete Folder", true).destructive(),
                 "delete-folder",
                 Box::new(move |shell, cx| shell.delete_folder_now(folder, cx)),
             ),
@@ -557,15 +603,12 @@ impl Shell {
     pub(super) fn plus_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let items = [("New Space…", Command::NewSpace), ("New Folder…", Command::NewFolder)];
         let entries = items.iter().map(|&(title, _)| MenuEntry::new(title, true)).collect();
-        let shell = cx.weak_entity();
-        self.browser.menu(
+        self.context_menu(
             entries,
             position,
-            None,
-            self.sidebar_hidden,
-            Box::new(move |chosen, cx| {
+            Box::new(move |chosen, shell, cx| {
                 if let Some(&(_, command)) = chosen.and_then(|at| items.get(at)) {
-                    shell.update(cx, |shell, cx| shell.run(command, "footer", cx)).ok();
+                    shell.run(command, "footer", cx);
                 }
             }),
             cx,
