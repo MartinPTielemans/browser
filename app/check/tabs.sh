@@ -15,9 +15,12 @@
 # a space after its keyword, searches with that engine alone until ⌫ leaves, ↩ on a sum's row copies
 # its result, and a right-click in its field shows the field's menu, with Paste and Go. The command
 # bar's tests, in src/command_bar/tests.rs, have the rest of its keys and what the menu's items do.
-# A tab unseen for 2 hours lets go of its page as another is shown, unless it plays sound, its page
-# asks before it's left or a split shows it, and loads it back with its history once shown, and
-# Settings' Unload switch turns that off and on. Reports how long switches take.
+# A tab's menu walks by its keys past lines and dimmed items, selects by typing, opens a submenu by
+# → and by the pointer, which crosses a row on its way there without taking it, picks what a
+# press-drag-release ends on and closes on a click outside. A tab unseen for 2 hours lets go of its
+# page as another is shown, unless it plays sound, its page asks before it's left or a split shows
+# it, and loads it back with its history once shown, and Settings' Unload switch turns that off and
+# on. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, p in it plays a quiet tone until x, and u has it ask before it's left, or stop asking. The
@@ -179,6 +182,68 @@ expect '^browser: menu window hidden$' "choosing Select All didn't close the fie
 none_since '^browser: command bar hidden$' || fail "choosing in the field's menu closed the command bar"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
+
+# ilo's menu as #324 has it. The keys walk it past the line and the dimmed Mute, and typing selects
+# by a title's start.
+post rightclick $(row 0)
+expect '^browser: menu shown Copy Link, .*, Mute (disabled), .*, Duplicate, Move to › ' \
+  "a right-click on the top Today row didn't show its tab's menu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+send key down
+expect '^browser: menu highlights Copy Link at ' "↓ didn't highlight the menu's first item"
+send key d
+expect '^browser: menu highlights Duplicate at ' "typing d didn't select Duplicate"
+send key escape
+expect '^browser: menu closed$' "escape didn't close the menu"
+# m passes the dimmed Mute for Move to, → opens its submenu on its first item, and escape closes
+# only the submenu.
+post rightclick $(row 0)
+expect '^browser: menu shown Copy Link, ' "a right-click on the top Today row didn't show its menu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+send key m
+expect '^browser: menu highlights Move to at ' "typing m didn't pass the dimmed Mute for Move to"
+send key right
+expect '^browser: menu submenu Move to shown$' "→ didn't open Move to's submenu"
+expect '^browser: menu highlights Move to › ' "→ didn't highlight the submenu's first item"
+send key escape
+expect '^browser: menu submenu Move to hidden$' "escape didn't close Move to's submenu"
+none_since '^browser: menu closed$' || fail "escape in the submenu closed the whole menu"
+send key escape
+expect '^browser: menu closed$' "escape didn't close the menu after its submenu"
+# The safe triangle: on its way to the submenu, the pointer crosses the row under Move to without
+# taking the highlight, until it rests there.
+post rightclick $(row 0)
+expect '^browser: menu shown Copy Link, ' "a right-click on the top Today row didn't show its menu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+send key m
+expect '^browser: menu highlights Move to at ' "typing m didn't select Move to"
+set -- $(grep '^browser: menu highlights Move to at ' "$log" | tail -1 | sed 's/.* at //')
+send move $(($1 + $3 / 2)) $(($2 + $4 / 2))
+expect '^browser: menu submenu Move to shown$' "the pointer on Move to didn't open its submenu"
+send move $(($1 + $3 - 4)) $(($2 + $4 + 12))
+none_since '^browser: menu highlights ' ||
+  fail "the pointer on its way to the submenu took the highlight of the row it crossed"
+none_since '^browser: menu submenu Move to hidden$' ||
+  fail "the pointer on its way to the submenu closed it"
+expect '^browser: menu submenu Move to hidden$' "resting under Move to didn't close its submenu"
+send key escape
+expect '^browser: menu closed$' "escape didn't close the menu"
+# Press, drag and release: a right press opens the menu, and letting go on an item picks it.
+set -- $(row 0)
+send rightpress $1 $2
+expect '^browser: menu shown Copy Link, ' "a right press on the top Today row didn't show its menu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+send rightdragto $(($1 + 60)) $(($2 + 16))
+expect '^browser: menu highlights Copy Link at ' "dragging onto Copy Link didn't highlight it"
+send rightrelease $(($1 + 60)) $(($2 + 16))
+expect '^browser: menu chose Copy Link$' "letting go on Copy Link didn't pick it"
+# A click outside closes the menu, and goes no further.
+post rightclick $(row 0)
+expect '^browser: menu shown Copy Link, ' "a right-click on the top Today row didn't show its menu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+send click $page_point
+expect '^browser: menu closed$' "a click outside didn't close the menu"
+expect '^browser: menu window hidden$' "a click outside left the menu's window up"
 
 # Before anything is typed, the bar lists the Space's other tabs, as Arc's does: those shown most
 # recently first, then the rest, such as favorites never shown.

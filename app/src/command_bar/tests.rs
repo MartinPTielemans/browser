@@ -224,7 +224,7 @@ impl Bar {
         let shown: Rc<RefCell<Option<(Vec<String>, Chosen)>>> = Rc::default();
         let menu = shown.clone();
         self.cx.cx.update(|cx| {
-            cx.set_global(FieldMenu(Rc::new(move |items, _, _, chosen, _| {
+            cx.set_global(FieldMenu(Rc::new(move |items, _, _, _, chosen, _| {
                 let items = (items.into_iter())
                     .map(|(title, enabled)| match enabled || title.is_empty() {
                         true => title.to_string(),
@@ -1222,4 +1222,32 @@ fn the_inputs_menu_is_ilos_and_pastes_and_goes(cx: &mut TestAppContext) {
     bar.copy_text("  example.org\n");
     assert!(choose(&mut bar, "Paste and Go"));
     assert_eq!(bar.calls(), ["open https://example.org/", "hide"]);
+}
+
+/// ⇧F10 in the field opens its menu under the caret with the first item it can choose
+/// highlighted, which VoiceOver reads as it opens, and return picks it.
+#[gpui::test]
+fn shift_f10_opens_the_fields_menu_on_its_first_item(cx: &mut TestAppContext) {
+    use crate::menu;
+    let window = cx.update(|cx| menu::open(Rc::new(MenuWindow), cx)).expect("no window for the menu");
+    let mut in_menu = VisualTestContext::from_window(window.into(), cx);
+    in_menu.simulate_a11y_activation();
+    cx.update(|cx| {
+        cx.set_global(menu::field_menu(Rc::new(|_, request, cx| {
+            let area = gpui::Bounds::new(point(px(0.), px(0.)), gpui::size(px(2000.), px(2000.)));
+            menu::show(menu::Request { area, ..request }, cx);
+        })))
+    });
+    let mut bar = Bar::new(cx);
+    bar.type_text("docs");
+    bar.copy_text(".test");
+    bar.keys("shift-f10");
+    in_menu.run_until_parked();
+    let tree = in_menu.a11y_tree().expect("GPUI built a tree");
+    let focused = tree.nodes.iter().find(|(id, _)| *id == tree.focus).map(|(_, node)| node);
+    assert_eq!(focused.and_then(|node| node.label()), Some("Paste"), "Cut and Copy are dimmed");
+    in_menu.simulate_keystrokes("enter");
+    bar.cx.run_until_parked();
+    let text = bar.window.update(&mut bar.cx.cx, |bar, _, cx| bar.input.read(cx).text().to_owned());
+    assert_eq!(text.unwrap(), "docs.test");
 }

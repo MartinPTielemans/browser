@@ -14,13 +14,16 @@
 //   rightclickkey <x> <y>                 a right click in the key window
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   press <x> <y>                         presses at (x, y), for a drag in steps
+//   rightpress, rightdragto, rightrelease <x> <y>
+//                                         as press, dragto and release, with the right button,
+//                                         as a press-drag-release through a context menu
 //   dragto <x> <y>                        moves the pointer pressed to (x, y)
 //   release <x> <y>                       lets go of it at (x, y)
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "-", "+",
 //                                         "[", "]", return, escape, tab, space, backspace,
 //                                         delete (forward), pageup, pagedown, up, down, left,
-//                                         right or f12. "+" is on "-"'s key, as on a Danish
+//                                         right, f12 or f10. "+" is on "-"'s key, as on a Danish
 //                                         keyboard
 //   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
 //                                         down or up; key holds them only for its own key
@@ -183,10 +186,11 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
     {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
     {"pageup", 116}, {"pagedown", 121}, {"/", 44}, {"?", 44}, {"=", 24}, {"&", 26}, {"_", 27},
-    {":", 41}, {"@", 19}, {"f12", 111},
+    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
-// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey and NSF12FunctionKey.
+// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey and
+// NSF10FunctionKey.
 const std::map<std::string, std::string> kCharacters = {
     {"return", "\r"},
     {"tab", "\t"},
@@ -201,6 +205,7 @@ const std::map<std::string, std::string> kCharacters = {
     {"pageup", "\xEF\x9C\xAC"},
     {"pagedown", "\xEF\x9C\xAD"},
     {"f12", "\xEF\x9C\x8F"},
+    {"f10", "\xEF\x9C\x8D"},
 };
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
@@ -358,7 +363,8 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
   // keys.
   if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
-  } else if (key == "delete" || key == "pageup" || key == "pagedown" || key == "f12") {
+  } else if (key == "delete" || key == "pageup" || key == "pagedown" || key == "f12" ||
+             key == "f10") {
     flags |= NSEventModifierFlagFunction;
   }
   for (NSEventType type : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {
@@ -894,6 +900,26 @@ bool Run(const std::string& line, void (^done)(void)) {
   }
   // A drag in steps goes to the window the press went to, as AppKit sends it.
   static NSWindow* pressed;
+  if (action == "rightpress" || action == "rightdragto" || action == "rightrelease") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    if (action == "rightpress") {
+      pressed = WindowAt(window, x, y);
+    }
+    NSWindow* target = pressed ?: window;
+    Convert(window, target, &x, &y);
+    NSEventType type = action == "rightpress"    ? NSEventTypeRightMouseDown
+                       : action == "rightdragto" ? NSEventTypeRightMouseDragged
+                                                 : NSEventTypeRightMouseUp;
+    PostMouse(target, type, x, y, 1);
+    if (action == "rightrelease") {
+      pressed = nil;
+    }
+    done();
+    return true;
+  }
   if (action == "press" || action == "dragto" || action == "release") {
     double x, y;
     if (!(words >> x >> y)) {

@@ -726,6 +726,9 @@ struct Shown {
     /// Where its window's top left is in the browser window's content.
     origin: Point<Pixels>,
     chosen: Option<Box<dyn FnOnce(Option<usize>, &mut App)>>,
+    /// The highlighted item the log last named, and the items whose submenus it said were open.
+    logged: Option<usize>,
+    logged_open: Vec<usize>,
 }
 
 /// The menu's window's view.
@@ -828,12 +831,27 @@ pub fn show(request: Request, cx: &mut App) {
             look: request.look,
             origin,
             chosen: Some(request.chosen),
+            logged: None,
+            logged_open: Vec::new(),
         });
         window.focus(&menu.focus, cx);
         // After a hide that `close` asked for, so the new menu stays.
         let host = menu.host.clone();
         cx.defer(move |_| host.show(frame));
         cx.notify();
+    });
+}
+
+/// Highlights the first item of the menu that shows, as a menu opened from the keyboard (⇧F10)
+/// does, so VoiceOver reads it with the menu.
+pub fn highlight_first(cx: &mut App) {
+    update(cx, |menu, _, cx| {
+        let Some(shown) = menu.shown.as_mut() else { return };
+        if shown.tracking.open[0].highlight.is_none() {
+            let outcome = shown.tracking.key(Key::First, Instant::now());
+            menu.outcome(outcome, cx);
+            menu.log_highlight();
+        }
     });
 }
 
@@ -852,7 +870,10 @@ pub enum Pointer {
 /// Returns whether the menu takes it, so the window under it never hears it.
 pub fn pointer(event: Pointer, at: Point<Pixels>, cx: &mut App) -> bool {
     let mut taken = false;
-    update(cx, |menu, _, cx| taken = menu.pointer(event, at, cx));
+    update(cx, |menu, _, cx| {
+        taken = menu.pointer(event, at, cx);
+        menu.log_highlight();
+    });
     taken
 }
 
@@ -883,7 +904,7 @@ pub type ShowOver = dyn Fn(AnyWindowHandle, Request, &mut App);
 /// browser window and dark elsewhere, once the update that asked is over. The item chosen runs in
 /// the field's window, which has the keyboard back by then, as the menu gives it back as it closes.
 pub fn field_menu(show: Rc<ShowOver>) -> FieldMenu {
-    FieldMenu(Rc::new(move |items, at, window, chosen, cx| {
+    FieldMenu(Rc::new(move |items, at, from_keys, window, chosen, cx| {
         let handle = window.window_handle();
         let show = show.clone();
         cx.defer(move |cx| {
@@ -900,6 +921,9 @@ pub fn field_menu(show: Rc<ShowOver>) -> FieldMenu {
                 }
             });
             show(handle, Request { items, at, area: Bounds::default(), look, chosen }, cx);
+            if from_keys {
+                highlight_first(cx);
+            }
         });
     }))
 }
@@ -980,6 +1004,7 @@ impl ContextMenu {
             menu.update(cx, |menu, cx| {
                 if let Some(shown) = menu.shown.as_mut() {
                     shown.tracking.rested(Instant::now());
+                    menu.log_highlight();
                     cx.notify();
                 }
             })
@@ -997,7 +1022,49 @@ impl ContextMenu {
         if let Some(key) = key_of(event) {
             let outcome = shown.tracking.key(key, Instant::now());
             self.outcome(outcome, cx);
+            self.log_highlight();
         }
+    }
+
+    /// Logs the highlight as it moves, with its row in the browser window's content, for check.sh
+    /// to follow the keys and the pointer: the deepest level's, else the row whose submenu shows.
+    /// And each submenu as it opens and closes.
+    fn log_highlight(&mut self) {
+        let Some(shown) = self.shown.as_mut() else { return };
+        let tracking = &shown.tracking;
+        let open: Vec<usize> =
+            tracking.open[1..].iter().filter_map(|open| tracking.layout.levels[open.level].parent).collect();
+        let kept = open.iter().zip(&shown.logged_open).take_while(|(a, b)| a == b).count();
+        for &closed in shown.logged_open[kept..].iter().rev() {
+            log!("browser: menu submenu {} hidden", tracking.entries[closed].title);
+        }
+        for &opened in &open[kept..] {
+            log!("browser: menu submenu {} shown", tracking.entries[opened].title);
+        }
+        shown.logged_open = open;
+        let lit = tracking.open.iter().rev().find_map(|open| open.highlight.map(|item| (open.level, item)));
+        if lit.map(|(_, item)| item) == shown.logged {
+            return;
+        }
+        shown.logged = lit.map(|(_, item)| item);
+        let Some((level, item)) = lit else {
+            return log!("browser: menu highlights nothing");
+        };
+        let entry = &tracking.entries[item];
+        let title = match entry.parent {
+            Some(parent) => format!("{} › {}", tracking.entries[parent].title, entry.title),
+            None => entry.title.to_string(),
+        };
+        let lay = &tracking.layout.levels[level];
+        let row = lay.items.iter().position(|&each| each == item).unwrap_or_default();
+        let at = lay.row_bounds(row, &tracking.entries);
+        log!(
+            "browser: menu highlights {title} at {:.0} {:.0} {:.0} {:.0}",
+            f32::from(at.origin.x),
+            f32::from(at.origin.y),
+            f32::from(at.size.width),
+            f32::from(at.size.height)
+        );
     }
 
     fn row(&self, shown: &Shown, level: usize, row: usize, lit: Option<usize>, open: bool) -> gpui::AnyElement {
@@ -1011,7 +1078,10 @@ impl ContextMenu {
         let placed = div().absolute().left(px(PADDING)).top(top).w(bounds.size.width).h(bounds.size.height);
         if entry.title.is_empty() {
             let line = div().mx(px(ROW_X)).h(px(1.)).bg(rgba(palette.line));
-            return placed.flex().items_center().child(div().flex_1().child(line)).into_any_element();
+            return (placed.id(("menu-line", item)).flex().items_center())
+                .when(self.a11y, |row| row.role(Role::Splitter))
+                .child(div().flex_1().child(line))
+                .into_any_element();
         }
         let lit = lit == Some(item);
         let (fill, on_fill) = match entry.destructive {
@@ -1071,6 +1141,9 @@ impl ContextMenu {
         let name = entry.title.clone();
         let (enabled, checked, keys) = (entry.enabled, entry.checked, shortcut.clone());
         let radio = checked && level != 0;
+        // Where it stands among the level's items, as VoiceOver says it: "3 of 11".
+        let titled = |items: &[usize]| items.iter().filter(|&&i| !tracking.entries[i].title.is_empty()).count();
+        let (position, of) = (titled(&lay.items[..row]) + 1, titled(&lay.items));
         placed
             .id(("menu-item", item))
             .rounded(px(ROW_RADIUS))
@@ -1092,6 +1165,8 @@ impl ContextMenu {
                 };
                 row.role(role)
                     .aria_label(name)
+                    .aria_position_in_set(position)
+                    .aria_size_of_set(of)
                     .when(checked, |row| row.aria_toggled(gpui::accesskit::Toggled::True))
                     .when_some(keys, |row, keys| row.aria_keyshortcuts(keys))
                     .when(submenu, |row| row.aria_expanded(open))
@@ -1141,7 +1216,8 @@ impl ContextMenu {
             }])
             .text_size(px(TEXT))
             .children(rows)
-            .when(self.a11y, |panel| panel.role(Role::Menu).aria_label(name))
+            // The root level's rows go under the window's own node, which has the keyboard.
+            .when(self.a11y && level.parent.is_some(), |panel| panel.role(Role::Menu).aria_label(name))
             .into_any_element()
     }
 }
@@ -1151,7 +1227,12 @@ impl Render for ContextMenu {
         self.a11y = window.is_a11y_active();
         // Keys go to the last frame's listeners, so a key typed before the window draws a menu it
         // was just given still reaches it.
+        let shows = self.shown.is_some();
+        // The menu has the keyboard, so VoiceOver says "menu" as it opens, and the highlighted row
+        // as its active descendant as the keys move it.
         let root = div()
+            .id("menu-window")
+            .when(self.a11y && shows, |root| root.role(Role::Menu).aria_label("Menu"))
             .size_full()
             .font_family(".SystemUIFont")
             .track_focus(&self.focus)
