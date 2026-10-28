@@ -55,9 +55,6 @@ struct SavedTab {
 // |contents|'s history, with the page it's loading, or waiting to load, if it has no page yet.
 SavedTab SaveTab(content::WebContents& contents);
 
-// Opens |saved| unloaded in |window|, as the tab it was. Returns its id, or 0.
-bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved);
-
 // A folder of pinned tabs, as the session file keeps it.
 struct SavedFolder {
   std::string name;
@@ -146,6 +143,8 @@ struct Settings {
   bool warn_moving_profiles = true;
   // Who shares the favorites: a BC_FAVORITES_ value.
   int favorites_scope = BC_FAVORITES_PROFILE;
+  // Whether a tab no window has shown for a while lets go of its page (UnloadIdleTabsSoon).
+  bool unload_idle_tabs = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.
