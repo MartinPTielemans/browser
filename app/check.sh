@@ -5,7 +5,7 @@
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites extensions windows private capture passwords links access trouble dialogs
 # The store run installs from Google's Web Store, so it needs the network and runs only when named:
-# ./check.sh store.
+# ./check.sh store. The mirror run is the live-mirror spike's measure (#359), only when named.
 # Every run but load needs Browser to be the active app, and window and find take it full screen
 # for a moment.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites extensions windows private capture passwords links access trouble"
 runs="$runs dialogs"
-named="store"
+named="store mirror"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;

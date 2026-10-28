@@ -944,6 +944,10 @@ void Tab::RenderFrameHostChanged(content::RenderFrameHost* old_host,
   if (page_color_ && new_host == web_contents()->GetPrimaryMainFrame() && new_host->GetView()) {
     new_host->GetView()->SetBackgroundColor(*page_color_);
   }
+  // Spike (#359): a mirror follows the page into its new view.
+  if (new_host == web_contents()->GetPrimaryMainFrame()) {
+    Window::UpdateMirrors();
+  }
 }
 
 void Tab::RenderViewReady() {
@@ -1058,6 +1062,8 @@ void Tab::DidUpdateAudioMutingState(bool muted) {
 }
 
 void Tab::OnVisibilityChanged(content::Visibility visibility) {
+  // Spike (#359): a mirror of the page shows only while it draws.
+  Window::UpdateMirrors();
   // As Chrome loads a restored tab once it's shown. Posted: the page view is being shown now.
   if (visibility == content::Visibility::VISIBLE && waiting_) {
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
