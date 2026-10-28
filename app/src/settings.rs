@@ -884,11 +884,13 @@ impl Settings {
                 .into(),
         };
         let clients = Client::ALL.map(|client| self.client(agents, client, cx));
-        // A list for each agent, as each has its own Space (decision 8).
+        // A list for each agent, as each has its own Space (decision 8): what the user let it do
+        // or never do on a site, to revoke, then what it did.
         let model = agents.read(cx);
         let now = std::time::SystemTime::now();
         let lists: Vec<gpui::Div> = (Client::ALL.into_iter())
             .filter_map(|client| {
+                let grants = self.grants(agents, client, cx);
                 let entries: Vec<gpui::Div> = (model.activity(client.id()).take(ACTIVITY_SHOWN))
                     .map(|entry| {
                         let what = agents::tools::describe(&entry.action);
@@ -901,8 +903,11 @@ impl Settings {
                         described(None, what.into(), detail).child(ago.child(agents::ago(entry.at, now)))
                     })
                     .collect();
-                (!entries.is_empty()).then(|| {
-                    div().flex().flex_col().child(header(client.name())).child(group(entries))
+                (grants.is_some() || !entries.is_empty()).then(|| {
+                    let entries = (!entries.is_empty()).then(|| group(entries));
+                    let groups = div().flex().flex_col().gap(px(BOX_GAP));
+                    let groups = groups.children(grants).children(entries);
+                    div().flex().flex_col().child(header(client.name())).child(groups)
                 })
             })
             .collect();
@@ -927,6 +932,35 @@ impl Settings {
             .child(group(clients))
             .child(activity.mt(px(SECTION_GAP - BOX_GAP)))
             .into_any_element()
+    }
+
+    /// The sites where the user answered the agent for good, each with Revoke, and Revoke All
+    /// for several; None for none.
+    fn grants(&self, agents: &Entity<Agents>, client: Client, cx: &App) -> Option<gpui::Div> {
+        let grants = agents.read(cx).grants(client.id());
+        let revoke = |site: Option<SharedString>, title| {
+            let id = format!("revoke-{}-{}", client.id(), site.as_deref().unwrap_or(""));
+            let agents = agents.clone();
+            button(gpui::ElementId::Name(id.into()), title).ml(px(PADDING)).on_click(
+                move |_, _, cx| {
+                    agents.update(cx, |agents, cx| {
+                        agents.revoke(client.id(), site.as_deref(), cx)
+                    })
+                },
+            )
+        };
+        let several = grants.len() > 1;
+        let mut rows: Vec<gpui::Div> = (grants.into_iter())
+            .map(|(site, may)| {
+                let answer = if may { "Always Allow" } else { "Never" };
+                let row = described(None, site.clone(), Some(answer.into()));
+                row.child(revoke(Some(site), "Revoke"))
+            })
+            .collect();
+        if several {
+            rows.push(described(None, "All sites".into(), None).child(revoke(None, "Revoke All")));
+        }
+        (!rows.is_empty()).then(|| group(rows))
     }
 
     /// A client's row: whether it's connected, and Connect, or Disconnect, with Copy Setup for a

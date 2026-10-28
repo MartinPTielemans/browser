@@ -6,7 +6,9 @@
 # none of their values: typed, filled in or a password, in its text and in its outline, and the
 # agent can't type into the password field. It types into another, opens a page, clicks its link,
 # scrolls and takes a screenshot, and a bank's site asks first, in a card whose Allow Once opens
-# it. Closing the client's end ends its session with the tab.
+# it. Always Allow opens it from then on, until Revoke Permission in the Space's menu takes that
+# back. Closing the client's end ends its session with the tab, and turning Settings › Agents off
+# takes the socket away and drops a client connected.
 
 log="$out/mcp.log"
 step=0
@@ -25,6 +27,15 @@ await '^browser: agents server on /.*/Agents\.sock$' || fail "the saved switch d
 socket=$(grep '^browser: agents server on' "$log" | tail -1 | sed 's/^browser: agents server on //')
 bridge="$app/Contents/MacOS/mcp-bridge"
 await_log() { await "$1" || fail "$2"; }
+# Waits for more lines matching $1 than the $2 there were.
+await_more() {
+  for _ in $(seq 300); do
+    [ "$(grep -c "$1" "$log")" -gt "$2" ] && return 0
+    kill -0 "$pid" 2>/dev/null || fail "the app exited"
+    sleep 0.1
+  done
+  return 1
+}
 
 [ -S "$socket" ] || fail "there's no socket at $socket"
 [ "$(stat -f %Lp "$socket")" = 600 ] || fail "the socket is $(stat -f %Lp "$socket"), not the user's alone"
@@ -197,23 +208,43 @@ note.oninput = () => document.title = "noted";
   case "$picture" in "image/jpeg "[1-9]*) ;; *) fail "screenshot answered: $picture" ;; esac
 
   # A bank's site asks first, in a card in the window, and Allow Once opens it.
-  request open_tab "{\"url\":\"bank.localhost:$port/fields.html\"}" >&4
-  await_log '^browser: agent mcp-client asks [0-9]*: open bank\.localhost$' "a bank's site didn't ask first"
-  q=$(grep '^browser: agent mcp-client asks' "$log" | tail -1 | cut -d' ' -f5 | tr -d :)
-  await_log "^browser: agent question $q at " "the agent's question wasn't drawn"
-  read -r qx qy qw qh <<CARD
+  bank="{\"url\":\"bank.localhost:$port/fields.html\"}"
+  asks='^browser: agent mcp-client asks [0-9]*: open bank\.localhost$'
+  # Opens the bank's site, which asks, and answers $1 with a click at the card's foot: Allow Once
+  # in the middle of the buttons' row, Always Allow at its right end. Sets allowed to the answer.
+  answer_bank() {
+    before=$(grep -c "$asks" "$log")
+    request open_tab "$bank" >&4
+    await_more "$asks" "$before" || fail "a bank's site didn't ask first"
+    q=$(grep '^browser: agent mcp-client asks' "$log" | tail -1 | cut -d' ' -f5 | tr -d :)
+    await_log "^browser: agent question $q at " "the agent's question wasn't drawn"
+    read -r qx qy qw qh <<CARD
 $(grep "^browser: agent question $q at " "$log" | tail -1 | cut -d' ' -f6-)
 CARD
-  ../tools/window-screenshot.sh "$pid" "$out/agent-question.png" || fail "no window to capture"
-  # Allow Once, the middle of the buttons' row, at the card's foot.
-  send click $((qx + qw / 2)) $((qy + qh - 26))
-  await_log "^browser: agent mcp-client answered $q Once\$" "Allow Once didn't answer the question"
-  read -r -t 30 allowed <&5 || fail "the browser didn't answer the bank's open_tab"
-  allowed=$(echo "$allowed" | answered)
-  case "$allowed" in
-    "Opened tab "*) ;;
-    *) fail "the allowed open_tab answered: $allowed" ;;
-  esac
+    ../tools/window-screenshot.sh "$pid" "$out/agent-question.png" || fail "no window to capture"
+    case "$1" in Once) x=$((qw / 2)) ;; Always) x=$((qw - 16)) ;; esac
+    send click $((qx + x)) $((qy + qh - 26))
+    await_log "^browser: agent mcp-client answered $q $1\$" "$1 didn't answer the question"
+    read -r -t 30 allowed <&5 || fail "the browser didn't answer the bank's open_tab"
+    allowed=$(echo "$allowed" | answered)
+  }
+  answer_bank Once
+  case "$allowed" in "Opened tab "*) ;; *) fail "the allowed open_tab answered: $allowed" ;; esac
+  answer_bank Always
+  case "$allowed" in "Opened tab "*) ;; *) fail "the always allowed open_tab answered: $allowed" ;; esac
+  before=$(grep -c "$asks" "$log")
+  allowed=$(call open_tab "$bank")
+  case "$allowed" in "Opened tab "*) ;; *) fail "after Always Allow, open_tab answered: $allowed" ;; esac
+  [ "$(grep -c "$asks" "$log")" = "$before" ] || fail "Always Allow asked again"
+
+  # The Space's menu lists the permission, and revoking it asks again.
+  post rightclick $(row 9)
+  expect '^browser: menu shown .*Revoke Permission › Always Allow on bank\.localhost' \
+    "the agent's Space's menu didn't list its permission on the bank's site"
+  send choose Revoke Permission › Always Allow on bank.localhost
+  await_log '^browser: agent mcp-client revoked bank\.localhost$' "Revoke didn't revoke the permission"
+  request open_tab "$bank" >&4
+  await_more "$asks" "$before" || fail "a revoked permission didn't ask again"
 fi
 # The client closing its end ends its session, which ends its session with the tab.
 exec 4>&-
@@ -224,11 +255,42 @@ if [ "$driven" = 1 ]; then
   await_log "^browser: agent session ended mcp-client $agent_tab disconnected\$" \
     "ending the client's session didn't end its session with the tab"
   await_log "^browser: agent mcp-client done in $agent_tab\$" "the tab still shows a gone agent at work"
+
+  # Off in Settings › Agents takes the socket away and drops a client connected.
+  rm -f "$out/mcp-in" "$out/mcp-out"
+  mkfifo "$out/mcp-in" "$out/mcp-out"
+  BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" \
+    2>> "$out/mcp-bridge.log" &
+  bridge_pid=$!
+  exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+  hello='^browser: agent mcp-client hello from check$'
+  hellos=$(grep -c "$hello" "$log")
+  mcp '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' \
+    > /dev/null
+  await_more "$hello" "$hellos" || fail "the app didn't hear the second client's hello"
+  send menu Settings…
+  expect '^browser: settings shown ' "Settings… didn't show Settings"
+  # The fourth tab, and the switch at the end of the first row.
+  send clickkey 399 60
+  expect '^browser: settings tab Agents$' "a click on Agents didn't show its tab"
+  ../tools/window-screenshot.sh "$pid" "$out/settings-agents.png" || fail "no window to capture"
+  send clickkey 592 134
+  expect '^browser: agents off$' "a click on the switch didn't turn agents off"
+  for _ in $(seq 30); do [ -e "$socket" ] || break; sleep 0.1; done
+  [ -e "$socket" ] && fail "the socket stayed once agents were off"
+  for _ in $(seq 100); do kill -0 "$bridge_pid" 2>/dev/null || break; sleep 0.1; done
+  kill -0 "$bridge_pid" 2>/dev/null && fail "the client stayed connected once agents were off"
+  exec 4>&- 5<&-
+  if BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < /dev/null > /dev/null 2>&1; then
+    fail "the bridge got in once agents were off"
+  fi
+  send key w cmd
+  expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 fi
 quit
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, and a bank's site asks first"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi
