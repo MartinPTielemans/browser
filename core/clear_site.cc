@@ -54,11 +54,12 @@ class WhenCleared : public content::BrowsingDataRemover::Observer {
 }  // namespace
 
 void ClearSiteAndReload(bc_id tab, bool cookies) {
-  content::WebContents* contents = Tab::FromId(tab);
-  if (!contents) {
+  // A tab without its page has nothing to reload, and loads afresh once shown.
+  const Tab* clearing = Tab::Get(tab);
+  if (!clearing || !clearing->profile()) {
     return;
   }
-  const GURL url = Tab::PageUrl(contents);
+  const GURL url = clearing->Url();
   if (!url.SchemeIsHTTPOrHTTPS()) {
     return;
   }
@@ -72,11 +73,11 @@ void ClearSiteAndReload(bc_id tab, bool cookies) {
   auto filter = content::BrowsingDataFilterBuilder::Create(
       content::BrowsingDataFilterBuilder::Mode::kDelete);
   filter->AddRegisterableDomain(domain);
-  content::BrowsingDataRemover* remover = contents->GetBrowserContext()->GetBrowsingDataRemover();
+  Profile* profile = clearing->profile();
+  content::BrowsingDataRemover* remover = profile->GetBrowsingDataRemover();
   // The system's engine keeps the site's data apart, once the profile has used it, and the page
   // loads again once both have let it go. The cache's reload also fetches again what the page
   // loads from other sites.
-  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
   const bool system_store = system_engine::StoreUsed(profile);
   const base::RepeatingClosure done =
       base::BarrierClosure(system_store ? 2 : 1, base::BindOnce(&Reload, tab, !cookies));

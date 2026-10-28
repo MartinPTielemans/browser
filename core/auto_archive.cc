@@ -47,14 +47,14 @@ base::WallClockTimer& Timer() {
 
 bool g_schedule_posted = false;
 
-// Each Today tab no window shows.
-void ForEachUnseen(base::FunctionRef<void(bc_id, content::WebContents*, Tab*)> each) {
+// Each Today tab no window shows, with its page or without.
+void ForEachUnseen(base::FunctionRef<void(bc_id, Tab*)> each) {
   for (Space* space : Space::All()) {
     // A copy, as closing a tab takes it out.
     for (bc_id id : std::vector<bc_id>(space->today())) {
-      content::WebContents* contents = Tab::FromId(id);
-      if (contents && !Window::Showing(id)) {
-        each(id, contents, Tab::FromWebContents(contents));
+      Tab* tab = Tab::Get(id);
+      if (tab && !Window::Showing(id)) {
+        each(id, tab);
       }
     }
   }
@@ -68,13 +68,13 @@ void ArchiveDue() {
   }
   const base::Time now = base::Time::Now();
   std::vector<bc_id> due;
-  ForEachUnseen([&](bc_id id, content::WebContents* contents, Tab* tab) {
+  ForEachUnseen([&](bc_id id, Tab* tab) {
     if (tab->last_seen() + ArchiveAfter() > now) {
       return;
     }
     // Seen now, so one playing sound, or one its page keeps open, waits another interval.
     tab->set_last_seen(now);
-    if (!contents->IsCurrentlyAudible()) {
+    if (!tab->web_contents() || !tab->web_contents()->IsCurrentlyAudible()) {
       due.push_back(id);
     }
   });
@@ -87,7 +87,7 @@ void ArchiveDue() {
 void Schedule() {
   g_schedule_posted = false;
   std::optional<base::Time> next;
-  ForEachUnseen([&](bc_id, content::WebContents*, Tab* tab) {
+  ForEachUnseen([&](bc_id, Tab* tab) {
     const base::Time due = tab->last_seen() + ArchiveAfter();
     next = next ? std::min(*next, due) : due;
   });

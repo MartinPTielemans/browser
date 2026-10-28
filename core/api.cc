@@ -20,6 +20,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
 #include "browser_core/host.h"
+#include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/password_offer.h"
@@ -72,15 +73,14 @@ size_t CopyString(const std::string& text, char* to, size_t capacity) {
 
 // The page |id| is at, which pinning it pins it at.
 GURL PageUrlOf(bc_id id) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  return contents ? browser_core::Tab::PageUrl(contents) : GURL();
+  const browser_core::Tab* tab = browser_core::Tab::Get(id);
+  return tab ? tab->Url() : GURL();
 }
 
 // After |id| was pinned, unpinned or moved, with the rest of its split.
 void SplitMoved(browser_core::Space& space, bc_id id) {
   for (bc_id pane : space.Panes(id)) {
-    if (content::WebContents* contents = browser_core::Tab::FromId(pane)) {
-      browser_core::Tab* tab = browser_core::Tab::FromWebContents(contents);
+    if (browser_core::Tab* tab = browser_core::Tab::Get(pane)) {
       // Handled now, so a pinned tab unpinned unseen has 12 hours in Today before it's archived.
       tab->set_last_seen(base::Time::Now());
       // Whether it's away from its pinned URL.
@@ -99,9 +99,10 @@ Profile* ProfileOf(const browser_core::Window& window) {
                                                      : profile;
 }
 
-// Loads |url| in the tab, as Chrome loads what's typed in its location bar or a bookmark.
+// Loads |url| in the tab, as Chrome loads what's typed in its location bar or a bookmark, giving a
+// tab without its page one first.
 void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
+  content::WebContents* contents = browser_core::Window::PageOf(id);
   tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   if (!tab) {
     return;
@@ -403,8 +404,9 @@ void bc_folder_delete(bc_id folder) {
 }
 
 bc_id bc_tab_profile(bc_id id) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  return contents ? browser_core::ProfileId(browser_core::DirOf(contents)) : 0;
+  const browser_core::Tab* tab = browser_core::Tab::Get(id);
+  Profile* profile = tab ? tab->profile() : nullptr;
+  return profile ? browser_core::ProfileId(browser_core::DirOf(profile)) : 0;
 }
 
 size_t bc_favorites(bc_id* tabs, size_t capacity) {
@@ -668,6 +670,20 @@ void bc_set_warn_moving_profiles(bool warn) {
   browser_core::SessionChanged();
 }
 
+bool bc_unload_idle_tabs(void) {
+  return browser_core::UserSettings().unload_idle_tabs;
+}
+
+void bc_set_unload_idle_tabs(bool unload) {
+  browser_core::UserSettings().unload_idle_tabs = unload;
+  browser_core::SessionChanged();
+  browser_core::UnloadIdleTabsSoon();
+}
+
+void bc_age_tabs_for_testing(double seconds) {
+  browser_core::AgeTabsForTesting(base::Seconds(seconds));
+}
+
 void bc_page_favicon(const char* url) {
   if (url) {
     browser_core::FindFavicon(url);
@@ -719,7 +735,7 @@ size_t bc_search_url(const char* keyword, const char* text, char* url, size_t ca
 }
 
 void bc_tab_show(bc_id id, bc_rect frame) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
+  content::WebContents* contents = browser_core::Window::PageOf(id);
   tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   browser_core::Window* window =
       tab ? browser_core::Window::ForBrowser(tab->GetBrowserWindowInterface()) : nullptr;
@@ -730,13 +746,11 @@ void bc_tab_show(bc_id id, bc_rect frame) {
 
 void bc_tab_navigate(bc_id id, const char* url) {
   const GURL to(url);
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  browser_core::Window* window =
-      tab ? browser_core::Window::ForBrowser(tab->GetBrowserWindowInterface()) : nullptr;
+  const browser_core::Tab* tab = browser_core::Tab::Get(id);
+  browser_core::Window* window = tab ? browser_core::Window::Holding(id) : nullptr;
   browser_core::Space* space = browser_core::Space::Holding(id);
   // As in Arc, a pinned tab keeps what it was pinned as: another address opens in a tab of its own.
-  if (window && space && space->IsPinned(id) && browser_core::Tab::PageUrl(contents) != to) {
+  if (window && space && space->IsPinned(id) && tab->Url() != to) {
     window->OpenFromPinned(id, to);
     return;
   }
@@ -745,31 +759,31 @@ void bc_tab_navigate(bc_id id, const char* url) {
 
 void bc_tab_back_to_pinned_url(bc_id id) {
   browser_core::Space* space = browser_core::Space::Holding(id);
-  content::WebContents* contents = browser_core::Tab::FromId(id);
+  const browser_core::Tab* tab = browser_core::Tab::Get(id);
   const GURL url = space ? space->PinnedUrl(id) : browser_core::Favorites::Url(id);
-  if (!url.is_valid() || !contents) {
+  if (!url.is_valid() || !tab) {
     return;
   }
   // A tab already there doesn't load it again.
-  if (browser_core::Tab::PageUrl(contents) != url) {
+  if (tab->Url() != url) {
     LoadInTab(id, url, ui::PAGE_TRANSITION_AUTO_BOOKMARK);
   }
 }
 
 void bc_tab_go_back(bc_id id) {
-  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->GoBack();
   }
 }
 
 void bc_tab_go_forward(bc_id id) {
-  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->GoForward();
   }
 }
 
 void bc_tab_reload(bc_id id, bool bypass_cache) {
-  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->Reload(bypass_cache);
   }
 }
@@ -907,8 +921,7 @@ void bc_tab_jump_to_selection(bc_id id) {
 
 void bc_tab_set_pinned(bc_id id, bool pinned) {
   browser_core::Space* space = browser_core::Space::Holding(id);
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  if (!space || !contents) {
+  if (!space || !browser_core::Tab::Get(id)) {
     return;
   }
   if (pinned) {
@@ -929,8 +942,7 @@ void bc_tab_move(bc_id id, bool pinned, bc_id folder, size_t index) {
     return;
   }
   browser_core::Space* space = browser_core::Space::Holding(id);
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  if (!space || !contents) {
+  if (!space || !browser_core::Tab::Get(id)) {
     return;
   }
   space->Move(id, pinned, folder, index, &PageUrlOf);
@@ -1006,10 +1018,7 @@ void bc_window_task_manager(bc_id window_id) {
 }
 
 bc_id bc_tab_duplicate(bc_id id) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  browser_core::Window* window =
-      tab ? browser_core::Window::ForBrowser(tab->GetBrowserWindowInterface()) : nullptr;
+  browser_core::Window* window = browser_core::Window::Holding(id);
   return window ? window->Duplicate(id) : 0;
 }
 
@@ -1026,9 +1035,8 @@ void bc_download_icon(bc_id download) {
 }
 
 size_t bc_tab_name(bc_id id, char* name, size_t capacity) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  return CopyString(contents ? browser_core::Tab::FromWebContents(contents)->name() : std::string(),
-                    name, capacity);
+  const browser_core::Tab* tab = browser_core::Tab::Get(id);
+  return CopyString(tab ? tab->name() : std::string(), name, capacity);
 }
 
 size_t bc_tab_pinned_url(bc_id id, char* url, size_t capacity) {
@@ -1038,8 +1046,8 @@ size_t bc_tab_pinned_url(bc_id id, char* url, size_t capacity) {
 }
 
 void bc_tab_set_pinned_url(bc_id id, const char* url) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  if (!url || !contents) {
+  browser_core::Tab* tab = browser_core::Tab::Get(id);
+  if (!url || !tab) {
     return;
   }
   if (browser_core::Space* space = browser_core::Space::Holding(id)) {
@@ -1048,24 +1056,24 @@ void bc_tab_set_pinned_url(bc_id id, const char* url) {
     browser_core::Favorites::SetUrl(id, GURL(url));
   }
   // Whether the page is away from it may have changed.
-  browser_core::Tab::FromWebContents(contents)->StateChanged();
+  tab->StateChanged();
 }
 
 void bc_tab_rename(bc_id id, const char* name) {
-  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
-    browser_core::Tab::FromWebContents(contents)->Rename(name);
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->Rename(name);
   }
 }
 
 void bc_tab_set_icon(bc_id id, const char* icon) {
-  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
-    browser_core::Tab::FromWebContents(contents)->SetIcon(icon ? icon : "");
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->SetIcon(icon ? icon : "");
   }
 }
 
 void bc_tab_set_muted(bc_id id, bool muted) {
-  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
-    browser_core::Tab::FromWebContents(contents)->SetMuted(muted);
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->SetMuted(muted);
   }
 }
 

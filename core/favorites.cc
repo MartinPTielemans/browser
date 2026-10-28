@@ -187,6 +187,12 @@ bc_id AnyInstanceOf(const State& state, int site) {
   return 0;
 }
 
+// The directory of |tab|'s profile, with its page or without, or empty.
+std::string ProfileDirOf(bc_id tab) {
+  const Tab* of = Tab::Get(tab);
+  return of && of->profile() ? DirOf(of->profile()) : std::string();
+}
+
 // What a new tab for a site is made from.
 struct Template {
   GURL url;
@@ -197,10 +203,14 @@ struct Template {
 
 Template TemplateOf(const State& state, bc_id tab) {
   Template made{.url = state.favs.at(tab).url};
-  if (content::WebContents* contents = Tab::FromId(tab)) {
-    made.title = base::UTF16ToUTF8(contents->GetTitle());
-    made.name = Tab::FromWebContents(contents)->name();
-    made.icon = Tab::FromWebContents(contents)->icon();
+  // With its page or without.
+  if (const Tab* from = Tab::Get(tab)) {
+    const SavedTab saved = from->Save();
+    if (!saved.history.empty()) {
+      made.title = base::UTF16ToUTF8(saved.history[saved.current].title());
+    }
+    made.name = from->name();
+    made.icon = from->icon();
   }
   return made;
 }
@@ -226,7 +236,7 @@ bc_id Make(State& state,
   page.set_title(base::UTF8ToUTF16(made.title));
   saved.name = made.name;
   saved.icon = made.icon;
-  const bc_id tab = RestoreSavedTab(*window, in, saved);
+  const bc_id tab = Tab::Restore(in, saved);
   if (!tab) {
     return 0;
   }
@@ -237,7 +247,7 @@ bc_id Make(State& state,
 
 // Closes the tab of a favorite taken out of its list, which |Remove| forgets once it has.
 void Retire(bc_id tab) {
-  if (Tab::FromId(tab)) {
+  if (Tab::Get(tab)) {
     Window::CloseTab(tab);
   } else {
     Favorites::Remove(tab);
@@ -552,7 +562,7 @@ void Favorites::Add(bc_id tab, GURL url, size_t index, bc_id space) {
   }
   const bool each_space = CurrentScope() == BC_FAVORITES_SPACE;
   state.favs[tab] = {.url = std::move(url),
-                     .profile = DirOf(Tab::FromId(tab)),
+                     .profile = ProfileDirOf(tab),
                      .space = each_space ? space : 0,
                      .site = state.next_site++};
   Insert(state, tab, index);
@@ -577,7 +587,7 @@ void Favorites::Restore(bc_id tab, GURL url, bc_id space, int site) {
   const int named = site > 0 ? site : state.next_site;
   state.next_site = std::max(state.next_site, named + 1);
   state.favs[tab] = {
-      .url = std::move(url), .profile = DirOf(Tab::FromId(tab)), .space = space, .site = named};
+      .url = std::move(url), .profile = ProfileDirOf(tab), .space = space, .site = named};
   Insert(state, tab, kEnd);
   ReportChanged();
 }

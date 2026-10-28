@@ -207,7 +207,7 @@ void CloseMediaNote(content::WebContents* contents) {
                            Tab::PageUrl(contents));
   // Each asks its own profile, so a private window's closing leaves its profile's tabs alone, and
   // the profile's reaches its private windows, which read its sites.
-  for (content::WebContents* each : Tab::All()) {
+  for (content::WebContents* each : Tab::Pages()) {
     if (Unsupported* unsupported = Unsupported::FromWebContents(each)) {
       unsupported->Closed();
     }
