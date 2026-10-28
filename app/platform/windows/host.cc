@@ -22,8 +22,9 @@
 
 #include "../host.h"
 
-// UrlCreateFromPathW, for the files dragged onto the UI.
+// UrlCreateFromPathW, for the files dragged onto the UI, and the shell's drag image helper's id.
 #pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "uuid.lib")
 
 namespace {
 
@@ -325,7 +326,7 @@ std::vector<std::string> DraggedFiles(IDataObject* data) {
 class DropTarget final : public IDropTarget {
  public:
   explicit DropTarget(HWND holder) : holder_(holder) {
-    CoCreateInstance(__uuidof(DragDropHelper), nullptr, CLSCTX_INPROC_SERVER,
+    CoCreateInstance(CLSID_DragDropHelper, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&helper_));
   }
 
