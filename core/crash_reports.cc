@@ -198,8 +198,8 @@ int g_round = 0;
 
 // The report the browser offered to send, until the user answers.
 std::optional<crashpad::UUID>& Offered() {
-  static base::NoDestructor<std::optional<crashpad::UUID>> offered;
-  return *offered;
+  static std::optional<crashpad::UUID> offered;
+  return offered;
 }
 
 std::unique_ptr<network::SimpleURLLoader>& Loader() {
