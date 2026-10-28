@@ -20,7 +20,8 @@ pub const INSTRUCTIONS: &str = concat!(
      Payments, orders, sending messages and banks' sites ask the user first. If they say no, \
      don't try again. You can never type into a password field: a sign-in, a 2FA prompt or a \
      CAPTCHA is the user's to do, so hand the tab to them with hand_off. The user can take a tab \
-     over too; it's theirs until they hand it back. Use run_steps for several actions in a row."
+     over too; it's theirs until they hand it back, and ask_for_tab asks them for it. Use \
+     run_steps for several actions in a row."
 );
 /// A page's text an agent gets at most, as a long page would fill its context.
 pub const MAX_TEXT: usize = 40_000;
@@ -188,6 +189,20 @@ pub fn list() -> Value {
             },
             "annotations": { "readOnlyHint": true, "openWorldHint": false },
         },
+        {
+            "name": "ask_for_tab",
+            "title": "Ask for a tab back",
+            "description": "Ask the user to hand back a tab they took over. They're asked in the browser, and this waits for their answer: the tab back, or that they keep it. Don't ask again for a tab they keep.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "reason": { "type": "string", "description": "Why you need the tab, in a short sentence." },
+                    "tab": tab,
+                },
+                "required": ["reason"],
+            },
+            "annotations": { "readOnlyHint": true, "openWorldHint": false },
+        },
     ])
 }
 
@@ -263,6 +278,8 @@ pub fn describe(action: &str) -> &'static str {
         "handed back" => "You handed the tab back",
         "stopped" => "You stopped it",
         "hand_off" => "Handed you a tab",
+        "ask_for_tab" => "Asked for a tab back",
+        "kept" => "You kept the tab",
         "run_steps" => "Ran steps",
         "revoked" => "You revoked its permission",
         "revoked all" => "You revoked all its permissions",

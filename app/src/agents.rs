@@ -76,6 +76,9 @@ pub struct Question {
     pub why: SharedString,
     /// The tab an agent handed to the user (hand_off), whose card shows the tab or hands it back.
     pub handoff: Option<u64>,
+    /// Whether the agent asks for that tab back (ask_for_tab), which Keep refuses, rather than
+    /// handing it to the user.
+    pub back: bool,
 }
 
 /// What an agent is doing, and what the user holds from it, for the bar in its Space.
@@ -345,9 +348,12 @@ struct Held {
     agent: String,
     /// What the agent asked the user to do, or empty if they took it over.
     why: String,
-    /// The handoff's question, for its card.
+    /// The handoff's question, or the agent's asking for the tab back, for its card.
     question: u64,
-    /// The handoff's call, which waits for the tab to come back, while its agent's session lasts.
+    /// Why the agent asks for the tab back (ask_for_tab), while its call waits for the answer.
+    back: Option<String>,
+    /// The handoff's or ask_for_tab's call, which waits for the tab to come back, while its
+    /// agent's session lasts.
     reply: Option<mpsc::Sender<ToolResult>>,
 }
 
@@ -813,7 +819,42 @@ impl Agents {
                 let question = self.next_request;
                 self.next_request += 1;
                 let why = page::clip(why, 200);
-                self.held.insert(tab, Held { agent, why, question, reply: Some(reply) });
+                let held = Held { agent, why, question, back: None, reply: Some(reply) };
+                self.held.insert(tab, held);
+                self.asked(cx);
+            }
+            "ask_for_tab" => {
+                let Some(tab) = self.tab_for(client, &arguments, &reply, cx) else {
+                    return;
+                };
+                let why = arguments.get("reason").and_then(Value::as_str).unwrap_or("").trim();
+                if why.is_empty() {
+                    _ = reply.send(ToolResult::error(
+                        "reason is why you need the tab, in a short sentence.",
+                    ));
+                    return;
+                }
+                let site = site(&self.browser.tab(tab, cx).url);
+                let refused = match self.held.get(&tab) {
+                    Some(held) if held.agent != agent => NOT_HELD,
+                    None => NOT_HELD,
+                    Some(held) if held.reply.is_some() => {
+                        "You're waiting on the user for this tab already."
+                    }
+                    Some(_) => "",
+                };
+                self.note(&agent, "ask_for_tab", &site, refused);
+                if !refused.is_empty() {
+                    _ = reply.send(ToolResult::error(refused));
+                    return;
+                }
+                // check.sh reads this line.
+                log!("browser: agent {agent} asks for {tab} back: {why}");
+                let question = self.next_request;
+                self.next_request += 1;
+                let held = self.held.get_mut(&tab).expect("held, as matched");
+                (held.question, held.back) = (question, Some(page::clip(why, 200)));
+                held.reply = Some(reply);
                 self.asked(cx);
             }
             _ => _ = reply.send(ToolResult::error(format!("There's no tool {tool}."))),
@@ -910,7 +951,8 @@ impl Agents {
         log!("browser: agent {agent} taken over in {tab}");
         let question = self.next_request;
         self.next_request += 1;
-        let held = Held { agent: agent.into(), why: String::new(), question, reply: None };
+        let why = String::new();
+        let held = Held { agent: agent.into(), why, question, back: None, reply: None };
         self.held.insert(tab, held);
         // The core ends the agent's session there, which logs it.
         self.browser.take_back(tab, cx);
@@ -954,6 +996,7 @@ impl Agents {
             _ = asking.act.reply.send(stopped());
         }
         for held in self.held.values_mut().filter(|held| held.agent == agent) {
+            held.back = None;
             if let Some(reply) = held.reply.take() {
                 _ = reply.send(stopped());
             }
@@ -1149,6 +1192,7 @@ impl Agents {
             what: act.what.clone().into(),
             why: why.into(),
             handoff: None,
+            back: false,
         };
         self.next_request += 1;
         // check.sh reads this line.
@@ -1164,7 +1208,7 @@ impl Agents {
     /// The user's answer to the question `id`.
     pub fn answer(&mut self, id: u64, answer: Answer, cx: &mut Context<Self>) {
         let Some(at) = self.asking.iter().position(|asking| asking.question.id == id) else {
-            return;
+            return self.answer_back(id, answer, cx);
         };
         let Asking { site, act, .. } = self.asking.remove(at);
         // check.sh reads this line.
@@ -1178,6 +1222,31 @@ impl Agents {
             Answer::Once | Answer::Always => self.run(act, cx),
             Answer::Never | Answer::Dismiss => self.refuse(act, &site, SAID_NO, cx),
         }
+        self.asked(cx);
+    }
+
+    /// The user's answer to an agent asking for a tab back: Hand Back, or Keep, which refuses it.
+    fn answer_back(&mut self, id: u64, answer: Answer, cx: &mut Context<Self>) {
+        let asked = self.held.iter().find(|(_, held)| {
+            held.question == id && held.back.is_some() && held.reply.is_some()
+        });
+        let Some((&tab, held)) = asked else {
+            return;
+        };
+        // check.sh reads this line.
+        log!("browser: agent {} answered {id} {answer:?}", held.agent);
+        if let Answer::Once | Answer::Always = answer {
+            return self.hand_back(tab, cx);
+        }
+        let held = self.held.get_mut(&tab).expect("held, as found");
+        held.back = None;
+        if let Some(reply) = held.reply.take() {
+            _ = reply.send(ToolResult::error(format!(
+                "The user keeps tab {tab}. Don't ask for it again unless they say so."
+            )));
+        }
+        let (agent, site) = (held.agent.clone(), site(&self.browser.tab(tab, cx).url));
+        self.note(&agent, "kept", &site, "");
         self.asked(cx);
     }
 
@@ -1230,9 +1299,13 @@ impl Agents {
         handoff.map(|(&tab, held)| Question {
             id: held.question,
             agent: name(&held.agent).into(),
-            what: "hand you a tab".into(),
-            why: held.why.clone().into(),
+            what: match held.back {
+                Some(_) => "have a tab back".into(),
+                None => "hand you a tab".into(),
+            },
+            why: held.back.as_ref().unwrap_or(&held.why).clone().into(),
             handoff: Some(tab),
+            back: held.back.is_some(),
         })
     }
 
@@ -1248,7 +1321,7 @@ impl Agents {
         self.acting.retain(|_, acting| acting.agent != agent);
         self.runs.retain(|run| run.agent != agent);
         for held in self.held.values_mut().filter(|held| held.agent == agent) {
-            held.reply = None;
+            (held.back, held.reply) = (None, None);
         }
         if self.question().map(|question| question.id) != asked {
             self.asked(cx);
@@ -1450,11 +1523,11 @@ impl Agents {
         self.acting.clear();
         self.runs.clear();
         for held in self.held.values_mut() {
-            held.reply = None;
+            (held.back, held.reply) = (None, None);
         }
-        if !std::mem::take(&mut self.asking).is_empty() {
-            self.browser.ask(None, cx);
-        }
+        // A handoff's card goes too, the user still holding its tab.
+        self.asking.clear();
+        self.browser.ask(None, cx);
         for agent in std::mem::take(&mut self.live) {
             self.browser.disconnected(&agent, cx);
             self.note(&agent, "disconnected", "", "");
@@ -1505,6 +1578,7 @@ fn name(agent: &str) -> &str {
 
 /// What a call of an agent's the user stopped answers.
 const STOPPED: &str = "The user stopped you. Don't carry on until they ask you to.";
+const NOT_HELD: &str = "The user doesn't have that tab from you, so there's nothing to ask for.";
 
 /// What the log says of an action the user refused, now or for good on its site.
 const SAID_NO: &str = "You said no.";
