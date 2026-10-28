@@ -3,12 +3,14 @@
 //! starts it, and Help › Welcome to ilo plays it again, so a normal launch never draws or loads any
 //! of it. Any key or click skips the intro; Esc or Skip goes on from a step, and the last step's
 //! leaves the flow for the first Space's welcome. A page shown ends it, as the page would cover it.
+//! A step's button does what it offers, such as asking the system to make ilo the default browser
+//! or giving the first Space its colour; Skip doesn't.
 
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, Bounds, Context, Keystroke, MouseButton, PathBuilder, Rgba, Window, canvas, div,
-    fill, point, prelude::*, px, rgb, size,
+    AnyElement, Bounds, Context, Entity, Keystroke, MouseButton, PathBuilder, Rgba, Subscription,
+    Window, canvas, div, fill, point, prelude::*, px, rgb, size,
 };
 
 use super::{
@@ -16,12 +18,18 @@ use super::{
     display_face::{cap_top, display_text},
     cubic_bezier, fade_at,
 };
+use crate::import::{ImportEvent, ImportView};
+use crate::theme::Theme;
+use crate::theme_picker::SWATCHES;
 use crate::tokens::palette::{INK, PAPER};
 use crate::tokens::shell::onboarding::BUTTON_GAP;
 use crate::tokens::shell::onboarding::BUTTON_HEIGHT;
 use crate::tokens::shell::onboarding::BUTTON_INSET;
 use crate::tokens::shell::onboarding::BUTTON_RADIUS;
 use crate::tokens::shell::onboarding::BUTTON_SIZE;
+use crate::tokens::shell::onboarding::IMPORT_INSET;
+use crate::tokens::shell::onboarding::IMPORT_RADIUS;
+use crate::tokens::shell::onboarding::IMPORT_WIDTH;
 use crate::tokens::shell::onboarding::CHIP;
 use crate::tokens::shell::onboarding::CHIP_GAP;
 use crate::tokens::shell::onboarding::CHIP_HEIGHT;
@@ -36,6 +44,11 @@ use crate::tokens::shell::onboarding::SIGNAL;
 use crate::tokens::shell::onboarding::SKIP_CHIP;
 use crate::tokens::shell::onboarding::SKIP_MARGIN;
 use crate::tokens::shell::onboarding::SKIP_SIZE;
+use crate::tokens::shell::onboarding::SWATCH;
+use crate::tokens::shell::onboarding::SWATCH_EDGE;
+use crate::tokens::shell::onboarding::SWATCH_GAP;
+use crate::tokens::shell::onboarding::SWATCH_PITCH;
+use crate::tokens::shell::onboarding::SWATCH_RING;
 use crate::tokens::shell::onboarding::TAGLINE_GAP;
 use crate::tokens::shell::onboarding::TAGLINE_LINE;
 use crate::tokens::shell::onboarding::TAGLINE_SIZE;
@@ -47,11 +60,16 @@ use crate::tokens::shell::onboarding::WORDMARK_SCALE;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Step {
     Intro,
-    /// What comes along from another browser. A placeholder until the import view (#453) lands.
+    /// What comes along from another browser: the import view (crate::import), which Settings ›
+    /// Import shows too.
     Import,
+    /// Asks the system to open links with ilo; left out when it already does.
+    DefaultBrowser,
+    /// The first Space's colour, from the theme picker's swatches.
+    Color,
 }
 
-const STEPS: [Step; 2] = [Step::Intro, Step::Import];
+const STEPS: [Step; 4] = [Step::Intro, Step::Import, Step::DefaultBrowser, Step::Color];
 
 impl Step {
     /// What check.sh calls it.
@@ -59,21 +77,29 @@ impl Step {
         match self {
             Step::Intro => "intro",
             Step::Import => "import",
+            Step::DefaultBrowser => "default-browser",
+            Step::Color => "color",
         }
-    }
-
-    fn next(self) -> Option<Step> {
-        let at = STEPS.iter().position(|&step| step == self)?;
-        STEPS.get(at + 1).copied()
     }
 
     /// The step's one message: its title, its line and its button's words.
     fn message(self) -> (&'static str, &'static str, &'static str) {
         match self {
             Step::Intro => ("", "", ""),
+            // The import view's own buttons are the step's.
             Step::Import => (
                 "Bring your stuff.",
-                "Spaces, tabs, bookmarks, history and passwords from the browser you used come here soon.",
+                "Spaces, pinned tabs, folders and favorites from the browser you used.",
+                "",
+            ),
+            Step::DefaultBrowser => (
+                concat!("Make ", env!("APP_NAME"), " your default browser."),
+                "Links from other apps open here. macOS asks you first, and System Settings › Desktop & Dock changes it back.",
+                "Make Default",
+            ),
+            Step::Color => (
+                "Pick a colour for your first Space.",
+                "The window takes it. Each Space can have its own, from its name in the sidebar.",
                 "Continue",
             ),
         }
@@ -155,9 +181,19 @@ fn ease_out(x: f32) -> f32 {
     cubic_bezier(0., 0., 0.58, 1., x)
 }
 
+/// The import view the first launch shows, and what it tells the flow.
+pub(super) struct Importing {
+    pub(super) view: Entity<ImportView>,
+    _events: Subscription,
+}
+
 /// The flow while it shows.
 pub(super) struct Onboarding {
+    /// The steps this launch shows, in order: STEPS but for those already done.
+    steps: Vec<Step>,
     pub(super) step: Step,
+    /// The swatch picked at the colour step, if one is.
+    pub(super) picked: Option<usize>,
     /// When the step came, which its motion runs from.
     pub(super) since: Instant,
     /// The step before, leaving as this one comes, and how far into it it was when it left.
@@ -179,10 +215,38 @@ impl Shell {
     /// "light" or "dark", else the window's own.
     pub fn start_onboarding(&mut self, appearance: Option<&str>, cx: &mut Context<Self>) {
         // check.sh waits for these lines.
+        let default_browser = self.browser.is_default_browser();
+        let steps: Vec<Step> = STEPS
+            .into_iter()
+            .filter(|&step| step != Step::DefaultBrowser || !default_browser)
+            .collect();
+        let names: Vec<&str> = steps.iter().map(|step| step.name()).collect();
+        // Once a window, as an import under way in it goes on; played again, it lists the browsers
+        // anew.
+        match &self.importing {
+            Some(importing) => importing.view.update(cx, |view, cx| view.refresh(cx)),
+            None => {
+                let view = cx.new(|_| ImportView::new(self.browser.import_host(), false));
+                let events = cx.subscribe(&view, |shell, _, event, cx| {
+                    let on_it = shell.onboarding.as_ref().is_some_and(|o| o.step == Step::Import);
+                    if on_it {
+                        let how = match event {
+                            ImportEvent::Done => "import",
+                            ImportEvent::Skipped => "skip",
+                        };
+                        shell.onboarding_next(how, cx);
+                    }
+                });
+                self.importing = Some(Importing { view, _events: events });
+            }
+        }
         log!("browser: onboarding started");
+        log!("browser: onboarding steps {}", names.join(" "));
         log!("browser: onboarding step intro");
         self.onboarding = Some(Onboarding {
+            steps,
             step: Step::Intro,
+            picked: None,
             since: Instant::now(),
             leaving: None,
             ending: None,
@@ -215,7 +279,8 @@ impl Shell {
         };
         let step = onboarding.step;
         log!("browser: onboarding left {} via {how}", step.name());
-        match step.next() {
+        let at = onboarding.steps.iter().position(|&each| each == step);
+        match at.and_then(|at| onboarding.steps.get(at + 1)).copied() {
             Some(next) => {
                 let elapsed = onboarding.since.elapsed().as_secs_f32();
                 onboarding.leaving = Some((step, elapsed));
@@ -231,13 +296,35 @@ impl Shell {
 
     /// The step's button: what it offers, then on, as Skip goes.
     fn onboarding_continue(&mut self, how: &str, cx: &mut Context<Self>) {
+        let Some(onboarding) = self.onboarding.as_ref().filter(|o| o.ending.is_none()) else {
+            return;
+        };
+        match (onboarding.step, onboarding.picked) {
+            (Step::DefaultBrowser, _) => self.browser.make_default_browser(cx),
+            (Step::Color, Some(picked)) => {
+                let color = SWATCHES[picked];
+                // check.sh reads this line.
+                log!("browser: onboarding picked color {color:06x}");
+                self.theme_changed(self.space, Theme::of_color(color), true, cx);
+            }
+            _ => {}
+        }
         self.onboarding_next(how, cx);
     }
 
+    /// Picks swatch `index` at the colour step.
+    fn onboarding_pick(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(onboarding) = self.onboarding.as_mut() {
+            onboarding.picked = Some(index.min(SWATCHES.len() - 1));
+            cx.notify();
+        }
+    }
+
     /// A key in the window: any skips the intro, and in a step Esc skips it and return is its
-    /// button. A shortcut still does its own thing first.
+    /// button; at the colour step the arrows go along the swatches. A shortcut still does its own
+    /// thing first.
     fn onboarding_key(&mut self, key: &Keystroke, cx: &mut Context<Self>) {
-        let Some(step) = self.onboarding.as_ref().map(|onboarding| onboarding.step) else {
+        let Some((step, picked)) = self.onboarding.as_ref().map(|o| (o.step, o.picked)) else {
             return;
         };
         if ["shift", "control", "alt", "platform", "function"].contains(&key.key.as_str()) {
@@ -246,6 +333,13 @@ impl Shell {
         match (step, key.key.as_str()) {
             (Step::Intro, _) => self.onboarding_next("key", cx),
             (_, "escape") => self.onboarding_next("escape", cx),
+            // From none picked, → starts at the first and ← at the last.
+            (Step::Color, "right") => self.onboarding_pick(picked.map_or(0, |at| at + 1), cx),
+            (Step::Color, "left") => {
+                self.onboarding_pick(picked.map_or(SWATCHES.len(), |at| at.max(1)) - 1, cx)
+            }
+            // The import's buttons are its own.
+            (Step::Import, _) => {}
             (_, "enter") if !key.modifiers.modified() => self.onboarding_continue("return", cx),
             _ => {}
         }
@@ -379,6 +473,10 @@ impl Shell {
             );
         }
         let (title, line, button) = step.message();
+        let swatches = (step == Step::Color).then(|| {
+            let picked = self.onboarding.as_ref().and_then(|onboarding| onboarding.picked);
+            swatch_row(picked, colors, cx)
+        });
         let chip = |keys: &'static str, fill: Rgba| {
             div()
                 .h(px(CHIP_HEIGHT))
@@ -389,25 +487,41 @@ impl Shell {
                 .bg(fill)
                 .child(keys)
         };
-        let button = div()
-            .id("onboarding-continue")
-            .mt(px(BUTTON_GAP))
-            .h(px(BUTTON_HEIGHT))
-            .px(px(BUTTON_INSET))
-            .flex()
-            .items_center()
-            .gap(px(CHIP_GAP))
-            .rounded(px(BUTTON_RADIUS))
-            .bg(rgb(SIGNAL))
-            .text_color(rgb(PAPER))
-            .text_size(px(BUTTON_SIZE))
-            .font_weight(gpui::FontWeight::MEDIUM)
-            // The dialog's Delete darkens as much under the pointer.
-            .hover(|style| style.opacity(0.9))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(|shell, _, _, cx| shell.onboarding_continue("button", cx)))
-            .child(button)
-            .child(chip("↩", with_alpha(PAPER, CHIP)));
+        let import = (step == Step::Import).then(|| {
+            // Settings' own ground and words, which the view is drawn for.
+            let view = self.importing.as_ref().map(|importing| importing.view.clone());
+            div()
+                .mt(px(BUTTON_GAP))
+                .w(px(IMPORT_WIDTH))
+                .p(px(IMPORT_INSET))
+                .rounded(px(IMPORT_RADIUS))
+                .bg(rgb(crate::tokens::settings::BACKGROUND))
+                .text_color(rgb(crate::tokens::settings::TEXT))
+                .text_size(px(crate::tokens::text::BODY))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .children(view)
+        });
+        let button = (!button.is_empty()).then(|| {
+            div()
+                    .id("onboarding-continue")
+                    .mt(px(BUTTON_GAP))
+                    .h(px(BUTTON_HEIGHT))
+                    .px(px(BUTTON_INSET))
+                    .flex()
+                    .items_center()
+                    .gap(px(CHIP_GAP))
+                    .rounded(px(BUTTON_RADIUS))
+                    .bg(rgb(SIGNAL))
+                    .text_color(rgb(PAPER))
+                    .text_size(px(BUTTON_SIZE))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    // The dialog's Delete darkens as much under the pointer.
+                    .hover(|style| style.opacity(0.9))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|shell, _, _, cx| shell.onboarding_continue("button", cx)))
+                    .child(button)
+                    .child(chip("↩", with_alpha(PAPER, CHIP)))
+        });
         layer.child(
             div()
                 .flex()
@@ -424,7 +538,9 @@ impl Shell {
                         .text_color(colors.ink(QUIET))
                         .child(line),
                 )
-                .child(button),
+                .children(swatches)
+                .children(import)
+                .children(button),
         )
     }
 
@@ -455,6 +571,38 @@ impl Shell {
             .child("Skip")
             .child(chip)
     }
+}
+
+/// The theme picker's swatches in a row, the one picked ringed in the ink, each with a hairline
+/// edge so the lightest still reads on Paper.
+fn swatch_row(
+    picked: Option<usize>,
+    colors: Colors,
+    cx: &mut Context<Shell>,
+) -> impl IntoElement + use<> {
+    // Each swatch's ring and the gap inside it, on both sides.
+    let ringed = SWATCH + 4. * SWATCH_RING;
+    div().mt(px(SWATCH_GAP)).flex().gap(px(SWATCH_PITCH - ringed)).children(
+        SWATCHES.iter().enumerate().map(|(index, &color)| {
+            let ring = if picked == Some(index) { colors.ink(1.) } else { colors.ink(0.) };
+            div()
+                .id(("onboarding-swatch", index))
+                .p(px(SWATCH_RING))
+                .rounded_full()
+                .border(px(SWATCH_RING))
+                .border_color(ring)
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |shell, _, _, cx| shell.onboarding_pick(index, cx)))
+                .child(
+                    div()
+                        .size(px(SWATCH))
+                        .rounded_full()
+                        .bg(rgb(color))
+                        .border_1()
+                        .border_color(colors.ink(SWATCH_EDGE)),
+                )
+        }),
+    )
 }
 
 /// The flow's two colours: the ground, and the ink drawn on it.

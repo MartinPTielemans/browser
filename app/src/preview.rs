@@ -975,6 +975,11 @@ impl Browser for Fake {
     // The preview has one window.
     fn new_window(&self, _: &mut App) {}
 
+    // So the onboarding shows its step for it.
+    fn is_default_browser(&self) -> bool {
+        false
+    }
+
     fn new_private_window(&self, _: &mut App) {}
 
     fn close_window(&self, cx: &mut App) {
