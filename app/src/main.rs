@@ -2289,6 +2289,10 @@ impl Browser for Engine {
         unsafe { bc::bc_restart() };
     }
 
+    fn playready_needs(&self) -> shell::PlayReady {
+        shell::PlayReady::from_core(unsafe { bc::bc_playready_needs() })
+    }
+
     fn share_services(&self, url: &str) -> Vec<SharedString> {
         unsafe extern "C" fn each(context: *mut c_void, name: *const c_char) {
             let names = unsafe { &mut *(context as *mut Vec<SharedString>) };
