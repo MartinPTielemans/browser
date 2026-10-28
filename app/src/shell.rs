@@ -2172,11 +2172,25 @@ impl Shell {
     /// The core let the agent with the id `agent` act in `tab`, for the activity log: it's at work
     /// there now, and no longer in the tab it acted in before.
     pub fn agent_acted(&mut self, agent: SharedString, tab: u64, cx: &mut Context<Self>) {
-        let before = self.agents_at.insert(agent, tab);
+        let before = self.agents_at.insert(agent.clone(), tab);
         if before != Some(tab) {
+            // check.sh reads this line.
+            log!("browser: agent {agent} at work in {tab}");
             for tab in before.into_iter().chain([tab]) {
                 self.tab_changed(tab, true, cx);
             }
+        }
+    }
+
+    /// The core ended the session of the agent with the id `agent` with `tab`: its client
+    /// disconnected, it released the tab or the user took it back. It's no longer at work there,
+    /// though it still is in another tab it has since acted in.
+    pub fn agent_session_ended(&mut self, agent: &str, tab: u64, cx: &mut Context<Self>) {
+        if self.agents_at.get(agent) == Some(&tab) {
+            self.agents_at.remove(agent);
+            // check.sh reads this line.
+            log!("browser: agent {agent} done in {tab}");
+            self.tab_changed(tab, true, cx);
         }
     }
 

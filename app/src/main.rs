@@ -3215,6 +3215,27 @@ unsafe extern "C" fn agent_activity(_: *mut c_void, entry: *const bc::bc_agent_a
     }
 }
 
+/// The core ended an agent's session with a tab: its client disconnected, it released the tab or
+/// the user took the tab back. The activity log has it beside what the agent did, and the agent is
+/// no longer at work in the tab.
+unsafe extern "C" fn agent_session_ended(
+    _: *mut c_void,
+    agent: *const c_char,
+    tab: bc::bc_id,
+    why: c_int,
+) {
+    let agent = unsafe { CStr::from_ptr(agent) }.to_string_lossy().into_owned();
+    let why = match why as u32 {
+        bc::BC_AGENT_SESSION_DISCONNECTED => "disconnected",
+        bc::BC_AGENT_SESSION_RELEASED => "released",
+        bc::BC_AGENT_SESSION_TAKEN_BACK => "taken back",
+        _ => "ended",
+    };
+    // check.sh reads this line.
+    log!("browser: agent session ended {agent} {tab} {why}");
+    update_shells(|shell, cx| shell.agent_session_ended(&agent, tab, cx));
+}
+
 /// The page menu's Open Link in New Window and Open Link in Incognito Window: `url` opens in a
 /// window from `window` as ⌘N's, or with `private` in a private one in `profile`'s session as
 /// ⇧⌘N's, and shows there.
@@ -4191,6 +4212,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         agent_activity: Some(agent_activity),
         #[cfg(target_os = "linux")]
         window_resized: Some(window_resized),
+        agent_session_ended: Some(agent_session_ended),
         ..Default::default()
     };
     (args, host)
