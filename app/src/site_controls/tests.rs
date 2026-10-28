@@ -57,7 +57,9 @@ impl Host for Recorder {
     fn set_system_engine(&self, tab: u64, on: bool) {
         self.push(format!("system engine {tab} {on}"));
     }
-
+    fn allow_saving(&self, tab: u64, login: &Login) {
+        self.push(format!("allow saving {tab} {}", login.site));
+    }
     fn set_ad_blocking(&self, tab: u64, on: bool) {
         self.push(format!("ad blocking {tab} {on}"));
     }
@@ -76,6 +78,8 @@ impl Host for Recorder {
                 format!("extension {id} {x} {y} {width} {height}")
             }
             Run::Certificate => "certificate".into(),
+            Run::RemoveLogin(login) => format!("remove login {} {}", login.site, login.username),
+            Run::Passwords => "passwords".into(),
         };
         self.push(format!("run {run} {tab}"));
     }
@@ -134,6 +138,16 @@ fn site() -> Site {
         reset: Some("Reset permissions".into()),
         system_engine: None,
         ad_blocking: None,
+        logins: vec![],
+    }
+}
+
+fn login(username: &str, never: bool) -> Login {
+    Login {
+        site: "example.com".into(),
+        username: username.to_string().into(),
+        never,
+        key: "https://example.com/".into(),
     }
 }
 
@@ -506,6 +520,68 @@ fn without_the_offer_there_is_no_engine_row(cx: &mut TestAppContext) {
     panel.host.answer.set(None);
     panel.click(row(0));
     assert_eq!(panel.calls(), ["menu Allow, Block, Ask*"]);
+}
+
+/// A site with logins lists them under the engine's row and over the permissions; Remove closes the
+/// panel for the browser window to ask, Never's way back acts at once, and the last item opens them
+/// all in Settings.
+#[gpui::test]
+fn the_passwords_row_removes_a_login_or_takes_back_never(cx: &mut TestAppContext) {
+    let logins = vec![login("me", false), login("", true)];
+    let mut panel = Panel::new(cx, Site { system_engine: Some(true), logins, ..site() });
+    panel.calls();
+    let menu = "menu Remove “me”…, Offer to Save Passwords, , All Passwords…";
+    panel.host.answer.set(Some(1));
+    panel.click(row(1));
+    assert_eq!(panel.calls(), [menu, &format!("allow saving {TAB} example.com")]);
+    panel.host.answer.set(Some(0));
+    panel.click(row(1));
+    let remove = format!("run remove login example.com me {TAB}");
+    assert_eq!(panel.calls(), [menu, "release", "stop", &remove, "hide"]);
+    panel.show(under_button(), window());
+    panel.changed(Site { logins: vec![login("me", false)], ..site() });
+    panel.calls();
+    panel.host.answer.set(Some(2));
+    panel.click(row(0));
+    let menu = "menu Remove “me”…, , All Passwords…";
+    assert_eq!(panel.calls(), [menu, "release", "stop", &format!("run passwords {TAB}"), "hide"]);
+}
+
+/// The row says what the site keeps and pushes the permissions a row down; with none it isn't
+/// there.
+#[gpui::test]
+fn the_passwords_row_shows_only_for_a_site_with_logins(cx: &mut TestAppContext) {
+    let plain = Panel::new(cx, site()).calls();
+    let mut panel = Panel::new(cx, Site { logins: vec![login("me", false)], ..site() });
+    let with = panel.calls();
+    let height = |calls: &[String]| -> f32 {
+        calls[0].rsplit(' ').next().unwrap().parse().unwrap()
+    };
+    assert_eq!(height(&with) - height(&plain), ROW_PITCH);
+    panel.host.answer.set(Some(1));
+    panel.click(row(2));
+    assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
+}
+
+/// With every row: Safari's engine, ad blocking, Passwords, the permissions, then Reset, the
+/// seven making the panel two rows taller than ad blocking's alone.
+#[gpui::test]
+fn the_rows_go_engine_ad_blocking_passwords_permissions_reset(cx: &mut TestAppContext) {
+    let logins = vec![login("me", false)];
+    let site = Site { system_engine: Some(true), ad_blocking: Some(true), logins, ..site() };
+    let mut panel = Panel::new(cx, site);
+    assert_eq!(panel.calls(), ["show 88 78.5 236 524.5"]);
+    panel.host.answer.set(None);
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On*, Off"]);
+    panel.click(row(1));
+    assert_eq!(panel.calls(), [format!("ad blocking {TAB} false")]);
+    panel.click(row(2));
+    assert_eq!(panel.calls(), ["menu Remove “me”…, , All Passwords…"]);
+    panel.click(row(3));
+    assert_eq!(panel.calls(), ["menu Allow, Block, Ask*"]);
+    panel.click(row(4));
+    assert_eq!(panel.calls(), ["menu Allow*, Block, Ask"]);
 }
 
 /// A value a policy set shows, but isn't the user's to change.

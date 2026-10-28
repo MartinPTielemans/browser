@@ -280,6 +280,18 @@ typedef struct bc_site_permission {
 #define BC_PICTURE_IN_PICTURE_ENTER 1
 #define BC_PICTURE_IN_PICTURE_EXIT 2
 
+// A login Chrome's password manager keeps in a profile, without its password, which never leaves
+// the core, or a site set to Never, where it doesn't offer to save one.
+typedef struct bc_login {
+  // The site as the user should see it, such as "accounts.example.com".
+  const char* site;
+  // The username, "" for a login without one and for a site set to Never.
+  const char* username;
+  bool never;
+  // What bc_profile_remove_login takes back to name it, with the username; not for showing.
+  const char* key;
+} bc_login;
+
 // Whether the ad blocker runs on the site of a tab's page, as its Site Controls show: not the
 // user's to change there (a page that isn't http(s), one the system's engine shows, a private
 // window, or ad blocking off), on, or turned off for the site.
@@ -313,9 +325,14 @@ typedef struct bc_site_controls {
   // only it plays, the user closed the site's note (bc_tab_close_media_note), or it's a listed
   // service the user turned off. bc_tab_set_system_engine turns it on.
   bool system_engine_offered;
+  // The logins the profile keeps for the site, |login_count| of them: those saved for its domain,
+  // as Chrome's password manager offers them there, then the site set to Never, if it is.
+  const bc_login* logins;
+  size_t login_count;
   // A BC_AD_BLOCKING_ value, which bc_tab_set_ad_blocking changes.
   int ad_blocking;
 } bc_site_controls;
+
 
 // An agent's call the core checked, for the activity log (bc_agent_may_act).
 typedef struct bc_agent_activity {
@@ -608,6 +625,15 @@ typedef struct bc_host {
   // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
   // agents hear none, as it names the user's login.
   void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
+  // The tab's key icon changed: what Chrome's password manager has for its page, a BC_PASSWORDS_
+  // value, as Chrome's toolbar would show its key for it. The user's alone: agents hear none.
+  void (*tab_passwords_changed)(void* context, bc_id tab, int passwords);
+  // The profile's logins, after bc_profile_read_logins, and again each time they change: the saved
+  // ones by site, then the sites set to Never. The user's alone: agents hear none.
+  void (*profile_logins_changed)(void* context,
+                                 bc_id profile,
+                                 const bc_login* logins,
+                                 size_t count);
   // Another app asked the browser to open |urls|, |count| http, https or file URLs: a link clicked
   // in Mail or Slack, `open https://…`, an .html file from Finder. Open each in a new tab of the
   // user's, in front. Those that launched the browser come as AppKit finishes launching the app,
@@ -1444,10 +1470,35 @@ BC_EXPORT void bc_tab_show_certificate(bc_id tab);
 // agents get none, as saving a password is the user's to decide.
 BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
 
+// What tab_passwords_changed says Chrome's password manager has for a tab's page, as its key icon:
+// nothing, so no key shows;
+#define BC_PASSWORDS_NONE 0
+// the site's saved logins, filled in or just saved, which the Site Controls list;
+#define BC_PASSWORDS_SAVED 1
+// or an offer to save or update the page's login, which bc_tab_show_offer brings back once closed.
+#define BC_PASSWORDS_OFFER 2
+
+// Brings back the tab's offer, closed by showing another tab, as Chrome's key icon does, if the
+// password manager still holds the login. Then tab_offer_changed. Does nothing for a tab without
+// BC_PASSWORDS_OFFER. The user's: agents get none, as the offer names the user's login.
+BC_EXPORT void bc_tab_show_offer(bc_id tab);
+
 // Closes the page menu tab_page_menu showed for |tab|, after running its row with |command|, as
 // Chrome's menu runs the row the user chose, or none with 0. Does nothing if the tab's menu isn't
 // open. The user's: agents get none, as they have no page menu.
 BC_EXPORT void bc_tab_close_page_menu(bc_id tab, int command);
+
+// User-only on purpose, unlike the rest of the API: agents get sessions, never secrets.
+// Reads the profile's logins, then profile_logins_changed, and again each time they change while
+// the profile is loaded.
+BC_EXPORT void bc_profile_read_logins(bc_id profile);
+// Removes the profile's login of |key| and |username|, as bc_login gives them, or takes its site
+// off Never if |never|, so the offer comes there again. Then profile_logins_changed, if read, and
+// tab_site_controls for a site the Site Controls show.
+BC_EXPORT void bc_profile_remove_login(bc_id profile,
+                                       const char* key,
+                                       const char* username,
+                                       bool never);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.

@@ -1,7 +1,7 @@
 //! The sidebar's header: the buttons to hide the sidebar and go back, forward and
 //! reload, and the URL field under them.
 
-use std::time::Instant;
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Instant};
 
 use crate::command_bar::PLACEHOLDER_TEXT;
 use crate::site_controls::Place;
@@ -32,6 +32,10 @@ pub(super) enum TipSide {
     Beside,
 }
 
+use crate::passwords::Key;
+use crate::tokens::shell::header::KEY_GAP;
+use crate::tokens::shell::header::KEY_GLYPH;
+use crate::tokens::shell::header::KEY_REACH;
 use crate::tokens::shell::header::SITE_CONTROLS_END;
 use crate::tokens::shell::header::TOOL_PITCH;
 use crate::tokens::shell::header::URL_PLACEHOLDER;
@@ -316,6 +320,28 @@ impl Shell {
                 )
         });
         let engine = self.engine_mark(self.selected);
+        // The password manager's key, after the host (ours, for Chrome's key icon): a click brings
+        // back the offer showing another tab closed, or opens the Site Controls, which list the
+        // site's logins. On the press, as Site Controls' button opens them.
+        let key = (self.selected != 0).then(|| self.keys.get(&self.selected).copied()).flatten();
+        let key = key.map(|key| {
+            div()
+                .id("key")
+                .flex_none()
+                .ml(px(KEY_GAP - KEY_REACH))
+                .p(px(KEY_REACH))
+                .when(self.a11y, |button| button.button_named("Passwords"))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |shell, _, _, cx| {
+                        cx.stop_propagation();
+                        shell.key_clicked(key, cx);
+                    }),
+                )
+                .relative()
+                .child(self.key_glyph())
+                .child(div().absolute().inset_0().child(key_frame(self.button_frames.clone())))
+        });
         let text_end = match tools {
             true => end + TOOL_PITCH + URL_BUTTON_SIZE,
             false if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
@@ -353,6 +379,7 @@ impl Shell {
             .text_size(px(text::BODY))
             .child(div().min_w(px(0.)).truncate().text_color(color).child(words))
             .children(engine)
+            .children(key)
             .children(copy)
             .children(site_controls)
             .children(actions)
@@ -374,6 +401,34 @@ impl Shell {
             true if button(self.site_controls_end() + TOOL_PITCH) => AtRest::CopyUrl,
             _ => AtRest::Field,
         }
+    }
+
+    /// The password manager's key for `tab`'s page, or none for a page it has nothing for.
+    pub fn set_key(&mut self, tab: u64, key: Option<Key>, cx: &mut Context<Self>) {
+        let changed = match key {
+            Some(key) => self.keys.insert(tab, key) != Some(key),
+            None => self.keys.remove(&tab).is_some(),
+        };
+        if changed && tab == self.selected {
+            cx.notify();
+        }
+    }
+
+    fn key_clicked(&mut self, key: Key, cx: &mut Context<Self>) {
+        let tab = self.selected;
+        // check.sh reads this line.
+        log!("browser: key {tab} clicked");
+        match key {
+            Key::Offer => self.browser.show_offer(tab),
+            Key::Saved => self.run(Command::SiteControls, "key", cx),
+        }
+    }
+
+    /// The key's glyph, quiet as the engine's mark.
+    fn key_glyph(&self) -> gpui::Svg {
+        let mut quiet = self.palette.text(SECONDARY);
+        quiet.a *= 0.6;
+        svg().path("icons/key-round.svg").size(px(KEY_GLYPH)).text_color(quiet)
     }
 
     /// A tab showing its page in Safari's engine says so after the host, quietly (ours): the Site
@@ -429,6 +484,10 @@ impl Shell {
             .text_size(px(text::BODY))
             .child(div().min_w(px(0.)).truncate().text_color(color).child(words))
             .children(self.engine_mark(tab))
+            .children(self.keys.contains_key(&tab).then(|| {
+                let reach = div().flex_none().ml(px(KEY_GAP - KEY_REACH)).p(px(KEY_REACH));
+                reach.child(self.key_glyph())
+            }))
             .when(tools, |field| {
                 field
                     .child(tool(SITE_CONTROLS_END + TOOL_PITCH, LINK))
@@ -488,6 +547,21 @@ impl Shell {
             log!("browser: sidebar tools {}", if shown { "shown" } else { "hidden" });
         }
     }
+}
+
+/// Keeps the frame the key is drawn in, as button_frame does, and says where it is when it moves,
+/// for check.sh to click.
+fn key_frame(frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>) -> impl IntoElement {
+    canvas(
+        move |bounds, _, _| {
+            if frames.borrow_mut().insert("key", bounds) != Some(bounds) {
+                let at = bounds.center();
+                log!("browser: key drawn at {:.0} {:.0}", f32::from(at.x), f32::from(at.y));
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .size_full()
 }
 
 /// The header's reload, which is stop while the page loads.

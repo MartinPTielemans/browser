@@ -17,6 +17,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/link_target.h"
+#include "browser_core/password_offer.h"
 #include "browser_core/script_dialog.h"
 #include "browser_core/session.h"
 #include "browser_core/drm_request.h"
@@ -757,6 +758,7 @@ bool Tab::muted() const {
 
 void Tab::DidStartNavigation(content::NavigationHandle* navigation) {
   if (navigation->IsInPrimaryMainFrame()) {
+    PasswordOffer::WatchKey(web_contents());
     StateChanged();
     // The page under the pointer is going; the new one tells where the pointer is on it. A link
     // that scrolls the same page keeps it.
