@@ -225,3 +225,117 @@ fn later(dismissed: extern "C" fn()) {
             .detach();
     }
 }
+
+/// The dialog's view, and while it shows, the browser window it's over (its UI's view and the
+/// core's id) and how far it's inset from that one's content's edges, left, top, right and bottom:
+/// a page's over its tab's card, the rest over all of it.
+struct Dialog {
+    view: *mut c_void,
+    over: Option<(*mut c_void, bc::bc_id)>,
+    insets: [f64; 4],
+}
+
+thread_local! {
+    static DIALOG: RefCell<Dialog> = const {
+        RefCell::new(Dialog { view: std::ptr::null_mut(), over: None, insets: [0.; 4] })
+    };
+}
+
+/// Where the dialog goes in the content of the browser window of `ui_view`, and its corners: a
+/// tab's card's, or the window's.
+fn dialog_bounds(ui_view: *mut c_void, insets: [f64; 4]) -> Option<(Bounds<Pixels>, Pixels)> {
+    let content = gpui_linux::embedder_size(ui_view)?;
+    let [left, top, right, bottom] = insets.map(|inset| px(inset as f32));
+    let bounds = Bounds::new(
+        point(left, top),
+        size(
+            content.width - left - right,
+            content.height - top - bottom,
+        ),
+    );
+    let card = insets != [0.; 4];
+    Some((bounds, px(if card { browser::shell::CARD_RADIUS } else { 0. })))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_add_dialog(dialog_view: *mut c_void) {
+    DIALOG.with_borrow_mut(|dialog| dialog.view = dialog_view);
+}
+
+/// Shows the dialog over all of the browser window of `ui_view`, or over the tab's card at `x`,
+/// `y`, `width` and `height` in its content, with the keyboard, as it's answered before anything
+/// else. Asked again, it goes where the card went, such as when the sidebar hid.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_show_dialog(ui_view: *mut c_void, x: f64, y: f64, width: f64, height: f64) {
+    let Some(content) = gpui_linux::embedder_size(ui_view) else {
+        return;
+    };
+    let insets = match width > 0. {
+        true => [
+            x,
+            y,
+            f64::from(content.width) - x - width,
+            f64::from(content.height) - y - height,
+        ],
+        false => [0.; 4],
+    };
+    let (view, over) = DIALOG.with_borrow_mut(|dialog| {
+        if dialog.over.is_none_or(|(over, _)| over == ui_view) {
+            dialog.insets = insets;
+        }
+        (dialog.view, dialog.over)
+    });
+    if view.is_null() {
+        return;
+    }
+    if over.is_some() {
+        place_dialog(ui_view);
+        return;
+    }
+    let Some((bounds, radius)) = dialog_bounds(ui_view, insets) else {
+        return;
+    };
+    let window = crate::window_with_view(ui_view);
+    DIALOG.with_borrow_mut(|dialog| dialog.over = Some((ui_view, window)));
+    lend_keyboard(window, view, true);
+    gpui_linux::show_overlay(view, ui_view, bounds, radius, true, left_dialog);
+    // check.sh reads this line.
+    eprintln!("browser: dialog window shown");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_hide_dialog() {
+    let (view, over) = DIALOG.with_borrow_mut(|dialog| (dialog.view, dialog.over.take()));
+    let Some((_, window)) = over else {
+        return;
+    };
+    gpui_linux::hide_overlay(view, move || lend_keyboard(window, view, false));
+    eprintln!("browser: dialog window hidden");
+}
+
+/// Places the dialog again if it shows over the browser window of `ui_view`, as its content
+/// changed size.
+pub(crate) fn place_dialog(ui_view: *mut c_void) {
+    let (view, over, insets) =
+        DIALOG.with_borrow(|dialog| (dialog.view, dialog.over, dialog.insets));
+    if over.is_some_and(|(over, _)| over == ui_view)
+        && let Some((bounds, radius)) = dialog_bounds(ui_view, insets)
+    {
+        gpui_linux::move_overlay(view, bounds, radius);
+    }
+}
+
+/// Hides the dialog if it shows over the browser window of `ui_view`, which is closing.
+pub(crate) fn forget_window(ui_view: *mut c_void) {
+    if DIALOG.with_borrow(|dialog| dialog.over.is_some_and(|(over, _)| over == ui_view)) {
+        host_hide_dialog();
+    }
+}
+
+/// The user left the dialog, such as for the sidebar beside a page's, or Chromium took its
+/// window's keyboard as a page committed: it takes the keyboard back, unless another app has it.
+fn left_dialog(view: *mut c_void) {
+    if DIALOG.with_borrow(|dialog| dialog.over.is_some()) {
+        gpui_linux::take_overlay_keyboard(view, left_dialog);
+    }
+}
