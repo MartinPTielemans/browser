@@ -42,6 +42,9 @@ mod overlays;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/panels.rs"]
 mod panels;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/settings_window.rs"]
+mod settings_window;
 mod reveal;
 mod settings;
 
