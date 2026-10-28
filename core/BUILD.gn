@@ -29,6 +29,8 @@ config("exports") {
 
 source_set("browser_core") {
   sources = [
+    "agent_session.cc",
+    "agent_session.h",
     "api.cc",
     "archive.cc",
     "archive.h",

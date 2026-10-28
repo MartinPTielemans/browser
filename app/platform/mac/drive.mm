@@ -102,6 +102,13 @@
 //                                         to the tab, as "browser: agent <agent> may act on
 //                                         <tab>: <0|1>", and if not "browser: agent <agent>
 //                                         refused <tab>: <reason>"
+//   agentrelease <agent> <tab>            the agent releases the tab, as agent code will, logging
+//                                         "browser: agent <agent> released <tab>: <0|1>", whether
+//                                         it had a session there
+//   agentdisconnect <agent>               the agent's client disconnects, logging "browser: agent
+//                                         <agent> disconnected, <n> sessions ended"
+//   takeback <tab>                        the user takes the tab back from its agent, logging
+//                                         "browser: took back <tab>: <0|1>"
 //   age <seconds>                         makes every tab look <seconds> longer unseen, as hours
 //                                         later, for the next tab shown to unload those
 //                                         bc_unload_idle_tabs lets go. From then each check logs
@@ -1093,6 +1100,38 @@ bool Run(const std::string& line, void (^done)(void)) {
       fprintf(stderr, "browser: agent %s refused %llu: %s\n", agent.c_str(),
               (unsigned long long)tab, reason);
     }
+    done();
+    return true;
+  }
+  if (action == "agentrelease") {
+    std::string agent;
+    bc_id tab;
+    if (!(words >> agent >> tab)) {
+      return false;
+    }
+    const bool released = bc_agent_release_tab(agent.c_str(), tab);
+    fprintf(stderr, "browser: agent %s released %llu: %d\n", agent.c_str(),
+            (unsigned long long)tab, released);
+    done();
+    return true;
+  }
+  if (action == "agentdisconnect") {
+    std::string agent;
+    if (!(words >> agent)) {
+      return false;
+    }
+    const size_t ended = bc_agent_disconnected(agent.c_str());
+    fprintf(stderr, "browser: agent %s disconnected, %zu sessions ended\n", agent.c_str(), ended);
+    done();
+    return true;
+  }
+  if (action == "takeback") {
+    bc_id tab;
+    if (!(words >> tab)) {
+      return false;
+    }
+    const bool took = bc_tab_take_back(tab);
+    fprintf(stderr, "browser: took back %llu: %d\n", (unsigned long long)tab, took);
     done();
     return true;
   }

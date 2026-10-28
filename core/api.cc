@@ -9,6 +9,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/capture.h"
@@ -230,7 +231,22 @@ bool bc_agent_may_act(const char* agent,
     };
     browser_core::Host().agent_activity(browser_core::Host().context, &entry);
   }
+  if (refused.empty()) {
+    browser_core::AgentActed(agent, tab);
+  }
   return refused.empty();
+}
+
+bool bc_agent_release_tab(const char* agent, bc_id tab) {
+  return agent && browser_core::EndAgentSession(agent, tab, BC_AGENT_SESSION_RELEASED);
+}
+
+size_t bc_agent_disconnected(const char* agent) {
+  return agent ? browser_core::EndAgentSessions(agent, BC_AGENT_SESSION_DISCONNECTED) : 0;
+}
+
+bool bc_tab_take_back(bc_id tab) {
+  return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
 }
 
 bc_id bc_space_profile(bc_id id) {

@@ -2,7 +2,9 @@
 # switcher as the agent's, and comes back the agent's, with its owner, after a quit. The agent may
 # act only on the tabs of its own Space: not on the user's, nor another agent's on its. ⌃2 shows it
 # as any second Space, a tab opened there is the agent's, and the user's tab's Move to leaves it
-# out, listing only the user's own Space, checked, and New Space….
+# out, listing only the user's own Space, checked, and New Space…. The agent's mark on its tab
+# goes as its session there ends: it releases the tab, its client disconnects, or the user takes
+# the tab back.
 
 log="$out/agents.log"
 step=0
@@ -35,6 +37,30 @@ if [ "$driven" = 1 ]; then
   send agentmayact claude-code "$agent_tab"
   expect "^browser: agent claude-code may act on $agent_tab: 1\$" \
     "the agent may not act on a tab of its own Space"
+  expect "^browser: agent claude-code at work in $agent_tab\$" "the agent's tab didn't show it at work"
+  # Each way an agent's session with the tab ends takes its mark off, with an activity-log entry.
+  send agentrelease claude-code "$agent_tab"
+  expect "^browser: agent claude-code released $agent_tab: 1\$" "the core had no session to release"
+  expect "^browser: agent session ended claude-code $agent_tab released\$" \
+    "the released session didn't reach the activity log"
+  expect "^browser: agent claude-code done in $agent_tab\$" "the released tab still shows the agent at work"
+  send agentrelease claude-code "$agent_tab"
+  expect "^browser: agent claude-code released $agent_tab: 0\$" "a session ended twice"
+  send agentmayact claude-code "$agent_tab"
+  expect "^browser: agent claude-code at work in $agent_tab\$" "acting again didn't show the agent at work"
+  send agentdisconnect claude-code
+  expect "^browser: agent claude-code disconnected, 1 sessions ended\$" \
+    "the disconnect didn't end the agent's session"
+  expect "^browser: agent session ended claude-code $agent_tab disconnected\$" \
+    "the disconnect didn't reach the activity log"
+  expect "^browser: agent claude-code done in $agent_tab\$" "the tab still shows a disconnected agent at work"
+  send agentmayact claude-code "$agent_tab"
+  expect "^browser: agent claude-code at work in $agent_tab\$" "acting again didn't show the agent at work"
+  send takeback "$agent_tab"
+  expect "^browser: took back $agent_tab: 1\$" "the user couldn't take the tab back"
+  expect "^browser: agent session ended claude-code $agent_tab taken back\$" \
+    "taking the tab back didn't reach the activity log"
+  expect "^browser: agent claude-code done in $agent_tab\$" "the tab taken back still shows the agent at work"
   send agentmayact codex "$agent_tab"
   expect "^browser: agent codex may act on $agent_tab: 0\$" "another agent may act on its tab"
   send key 1 ctrl
@@ -74,7 +100,7 @@ if [ "$driven" = 1 ]; then
 fi
 quit
 if [ "$driven" = 1 ]; then
-  echo "ok: an agent's Space shows and switches as the user's, keeps the user's tabs out, and comes back the agent's"
+  echo "ok: an agent's Space shows and switches as the user's, keeps the user's tabs out, clears its mark as each session ends, and comes back the agent's"
 else
   echo "ok: an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
 fi
