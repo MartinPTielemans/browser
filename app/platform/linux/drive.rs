@@ -85,11 +85,14 @@ fn idle(task: Box<dyn FnOnce() + Send>) {
 
 /// Reports command `n` done once Chromium and GPUI have handled its events: once the X server has
 /// handed them over, and the main loop has read them. Twice, as the server may write the windows'
-/// clients' events after its answer to the driver's.
+/// clients' events after its answer to the driver's. GPUI's are handled as it syncs, since xcb
+/// may have read them into its queue already, where they don't wake the loop.
 fn settle(n: u64) {
     sync();
+    gpui_linux::sync_display();
     idle(Box::new(move || {
         sync();
+        gpui_linux::sync_display();
         idle(Box::new(move || {
             let (key, focus, active) = keyboard();
             log!(
