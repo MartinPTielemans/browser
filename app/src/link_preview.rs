@@ -71,12 +71,12 @@ pub enum KeyAction {
 }
 
 /// What `keystroke` does in the preview, as the page hands it back: before the page sees it if
-/// it's `reserved`, else once the page hasn't kept it. Nothing else of the window's keys acts on
+/// it's `reserved`, else once the page hasn't kept it. Esc is reserved, so it closes the preview
+/// even on a page that keeps it, as Chromium's stop does. Nothing else of the window's keys acts on
 /// it, as they would on the window's own tab.
 pub fn key_action(keystroke: &str, reserved: bool) -> Option<KeyAction> {
     match (keystroke, reserved) {
-        ("cmd-w", true) => Some(KeyAction::Close),
-        ("escape", false) => Some(KeyAction::Close),
+        ("cmd-w" | "escape", true) => Some(KeyAction::Close),
         ("cmd-enter", false) => Some(KeyAction::Keep),
         _ => None,
     }
@@ -255,9 +255,22 @@ pub struct LinkPreview {
     preview: Option<Preview>,
 }
 
-struct LinkPreviewWindow(WindowHandle<LinkPreview>);
+pub struct LinkPreviewWindow(WindowHandle<LinkPreview>);
 
 impl Global for LinkPreviewWindow {}
+
+impl LinkPreviewWindow {
+    /// Whether a key the core reports from `tab`'s page, in the browser window `window`, or 0 for
+    /// none, comes from the preview's page. The core names the tab Chromium's window shows for a key
+    /// from any of its pages, which the preview's never is, so while the preview shows, with the
+    /// keyboard, its window's keys are its own.
+    pub fn holds(&self, window: u64, tab: u64, cx: &App) -> bool {
+        let shown = self.0.read(cx).ok().and_then(|preview| preview.preview.as_ref());
+        shown.is_some_and(|shown| {
+            shown.tab == tab || (window != 0 && shown.window == window && shown.leaving.is_none())
+        })
+    }
+}
 
 /// Opens the preview's window, hidden, for `host` to show over a browser window, ahead of time as
 /// the dialog's is.
@@ -381,18 +394,18 @@ pub fn tab(cx: &mut App) -> Option<u64> {
     update(cx, |preview, _, _| preview.preview.as_ref().map(|shown| shown.tab)).flatten()
 }
 
-/// What `keystroke` from `tab`'s page does, if it's the preview's: it's done, and whether the
-/// page loses it. None for another tab's page.
-pub fn key(tab: u64, keystroke: &str, reserved: bool, cx: &mut App) -> Option<bool> {
-    update(cx, |preview, _, cx| {
-        preview.preview.as_ref().filter(|shown| shown.tab == tab)?;
-        Some(match key_action(keystroke, reserved) {
-            Some(KeyAction::Close) => preview.close(keystroke, cx),
-            Some(KeyAction::Keep) => preview.keep(keystroke, cx),
-            None => false,
-        })
+/// What `keystroke` from `tab`'s page in the browser window `window` does, if it's the preview's
+/// (LinkPreviewWindow::holds): it's done, and whether the page loses it. None for another page.
+pub fn key(window: u64, tab: u64, keystroke: &str, reserved: bool, cx: &mut App) -> Option<bool> {
+    let holds = cx.try_global::<LinkPreviewWindow>().is_some_and(|it| it.holds(window, tab, cx));
+    if !holds {
+        return None;
+    }
+    update(cx, |preview, _, cx| match key_action(keystroke, reserved) {
+        Some(KeyAction::Close) => preview.close(keystroke, cx),
+        Some(KeyAction::Keep) => preview.keep(keystroke, cx),
+        None => false,
     })
-    .flatten()
 }
 
 /// The user left the preview for another window. The host has released it already.
