@@ -337,3 +337,64 @@ fn presses_land_on_what_is_drawn_there() {
     assert_eq!(target(TRACK_LEFT + 1., SLIDER_Y, None), Some(Target::Intensity));
     assert_eq!(target(DIAL.0, DIAL.1 + DIAL_RING, None), Some(Target::Grain));
 }
+
+#[test]
+fn minus_and_plus_read_on_the_field_and_off_reads_as_off() {
+    let paper = Hsla::from(rgb(palette::PAPER));
+    let light = Theme { appearance: Appearance::Light, ..Theme::of_color(SWATCHES[0]) };
+    let dark = Theme { appearance: Appearance::Dark, ..Theme::of_color(SWATCHES[8]) };
+    for theme in [light, dark] {
+        let palette = Palette::of(Some(&theme));
+        let states = [
+            ("enabled", true, false, 0.65),
+            ("pressed", true, true, 0.9),
+            ("disabled", false, false, 0.3),
+            ("disabled, pressed", false, true, 0.3),
+        ];
+        for (state, enabled, pressed, alpha) in states {
+            let color = count_color(&palette, enabled, pressed);
+            assert_eq!(color, paper.opacity(alpha), "{state} on {:?}", theme.appearance);
+        }
+        // On the plain field, where there are no dots, over the card as it's drawn off the Mac:
+        // enabled reads as a glyph and pressed more, and disabled stands out more than a dot does
+        // but less than a glyph has to, so it reads as there and off.
+        let card = palette::over(rgb(palette::OVERLAY_DARK), palette.card, palette.card.a);
+        let field = palette::over(card, palette.ink, FIELD_FILL);
+        let on_field =
+            |color: Hsla| palette::contrast(palette::over(field, palette.ink, color.a), field);
+        let enabled = on_field(count_color(&palette, true, false));
+        let pressed = on_field(count_color(&palette, true, true));
+        let disabled = on_field(count_color(&palette, false, false));
+        let dot = on_field(paper.opacity(DOT_ALPHA));
+        assert!(enabled >= palette::GLYPH, "enabled {enabled:.2}");
+        assert!(pressed > enabled, "pressed {pressed:.2}, enabled {enabled:.2}");
+        let off = dot < disabled && disabled < palette::GLYPH;
+        assert!(off, "disabled {disabled:.2}, dot {dot:.2}");
+    }
+}
+
+#[test]
+fn the_field_has_no_dots_under_minus_and_plus() {
+    let dots = dots_image();
+    let bytes = dots.as_bytes(0).unwrap();
+    let side = (FIELD * 2.) as usize;
+    let reach = COUNT_TARGET / 2.;
+    let middle = COUNT_Y - FIELD_INSET;
+    for at in [REMOVE_X, ADD_X].map(|x| x - FIELD_INSET) {
+        // Every 2× pixel inside the target is clear, and the grid goes on just outside it.
+        let mut around = 0;
+        for y in 0..side {
+            for x in 0..side {
+                let centre = ((x as f32 + 0.5) / 2., (y as f32 + 0.5) / 2.);
+                let distance = (centre.0 - at).hypot(centre.1 - middle);
+                let lit = bytes[(y * side + x) * 4 + 3] > 0;
+                if distance < reach - 0.5 {
+                    assert!(!lit, "a dot at {centre:?}");
+                } else if lit && distance < reach + DOT_PITCH + 1. {
+                    around += 1;
+                }
+            }
+        }
+        assert!(around > 0, "no dots round the target at {at}");
+    }
+}

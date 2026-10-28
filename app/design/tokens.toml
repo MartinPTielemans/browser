@@ -1202,7 +1202,7 @@ field-radius = 12.0
 field-fill = 0.03
 field-rim = 0.2
 dot-pitch = 4.3
-# The field's dots.
+# The field's dots, left out under − and +'s targets so the glyphs sit on the plain field (ours).
 dot-alpha = 0.25
 appearance-y = 49.0
 appearance-x = [137.9, 178.3, 218.7]
@@ -1216,10 +1216,13 @@ count-y = 316.5
 remove-x = 158.5
 add-x = 198.5
 count-glyph = 12.0
-count-color = 0.35
-count-pressed = 0.65
-# Ours: Arc's with one colour or three wasn't recorded. It needn't read, so it isn't raised.
-count-disabled = 0.12
+# Ours (#419): Arc's 0.35 doesn't read on our field, so they take the appearance glyphs' 0.65,
+# raised to the overlay's glyph floor as those are, and go brighter pressed.
+count-color = 0.65
+count-pressed = 0.9
+# With one colour or three (ours): about 2:1 on the plain field, over the dots' 0.25 so it reads
+# as there, and under the glyph floor's 3:1 so it reads as off. Not raised, which would undo that.
+count-disabled = 0.3
 count-target = 24.0
 swatch-y = 380.0
 swatches = [0xf0eae5, 0xe59eba, 0x9e749b, 0xe1676f, 0xef8c63, 0xf2d46c, 0x73e49b, 0x7eb6d5, 0x656786]
