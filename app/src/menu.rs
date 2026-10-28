@@ -314,8 +314,10 @@ pub(crate) struct Tracking {
     layout: Layout,
     /// Root first, then each submenu open in the one before.
     open: Vec<Open>,
-    /// The press that opened the menu, until its release.
-    press: Option<Point<Pixels>>,
+    /// The press that opened the menu, until its release: where it was, or for a pop-up's menu,
+    /// which opens over its button's title wherever the press was, where the pointer first moved
+    /// to while it's held.
+    press: Option<Option<Point<Pixels>>>,
     /// A button went down on the menu and hasn't come up.
     pressed: bool,
     pointer: Option<Point<Pixels>>,
@@ -362,7 +364,7 @@ impl Tracking {
             entries,
             layout,
             open: vec![Open { level: 0, highlight: over }],
-            press: Some(at),
+            press: Some(over.is_none().then_some(at)),
             pressed: false,
             pointer: Some(at),
             resting: None,
@@ -464,6 +466,9 @@ impl Tracking {
     /// The pointer moved to `at` at `now`. Returns whether it's resting in the safe triangle, for
     /// `rested` to be called once SAFE_TIMEOUT has passed.
     pub(crate) fn moved(&mut self, at: Point<Pixels>, now: Instant) -> bool {
+        if let Some(press) = self.press.as_mut() {
+            press.get_or_insert(at);
+        }
         // A move to where the pointer already is, as AppKit can deliver one move twice, isn't one:
         // it would end a rest in the triangle before its time.
         if self.pointer == Some(at) {
@@ -504,12 +509,15 @@ impl Tracking {
     }
 
     /// The button came up at `at`: on an item it picks it, as does a release after a drag from
-    /// the press that opened the menu, which outside closes it.
+    /// the press that opened the menu, which outside closes it. The release of a click that opened
+    /// it picks nothing, as AppKit's menus and pop-ups leave theirs open.
     pub(crate) fn released(&mut self, at: Point<Pixels>) -> Outcome {
         let opening = self.press.take();
         let pressed = std::mem::replace(&mut self.pressed, false);
         match opening {
-            Some(press) => {
+            // A pop-up's press the pointer never moved from.
+            Some(None) => return Outcome::Stay,
+            Some(Some(press)) => {
                 let (dx, dy) = (f32::from(at.x - press.x), f32::from(at.y - press.y));
                 if dx.hypot(dy) <= DRAG_SLOP {
                     return Outcome::Stay;

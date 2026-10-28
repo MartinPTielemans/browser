@@ -462,16 +462,42 @@ fn a_pop_ups_menu_opens_with_its_choice_over_the_buttons_title() {
     assert_eq!(lay_out_over(&plain, button, area(), &width_of), lay_out(&plain, button, area(), &width_of));
 }
 
-/// A press-drag from a pop-up button onto another choice picks it, as AppKit's do.
+/// A press-drag from a pop-up button onto another choice picks it, as AppKit's do: from where the
+/// pointer first moved while the button was held, as the menu opens over the button's title
+/// wherever the press was on it.
 #[test]
 fn a_drag_from_a_pop_up_button_picks_where_it_ends() {
     let entries = pop_up();
     let button = at(400., 300.);
     let layout = lay_out_over(&entries, button, area(), &width_of);
     let mut menu = Tracking::new(entries, layout, button);
+    let press = button + point(px(150.), px(8.));
+    menu.moved(press + point(px(1.), px(-1.)), Instant::now());
     let default = row_of(&menu, 0);
     menu.moved(default, Instant::now());
     assert_eq!(menu.released(default), Outcome::Pick(0));
+}
+
+/// The release of the click that opened a pop-up's menu picks nothing, wherever on the button it
+/// was, under another choice or off the menu; then a press and release on a choice picks it.
+#[test]
+fn the_click_that_opens_a_pop_ups_menu_picks_nothing() {
+    let entries = pop_up();
+    let button = at(400., 300.);
+    let opened = || {
+        let layout = lay_out_over(&entries, button, area(), &width_of);
+        Tracking::new(entries.clone(), layout, button)
+    };
+    let mut menu = opened();
+    let default = row_of(&menu, 0);
+    assert_eq!(menu.released(default), Outcome::Stay, "released over another choice");
+    menu.moved(default, Instant::now());
+    assert!(menu.pressed(default));
+    assert_eq!(menu.released(default), Outcome::Pick(0));
+    let mut menu = opened();
+    let chevrons = button + point(px(400.), px(8.));
+    menu.moved(chevrons, Instant::now());
+    assert_eq!(menu.released(chevrons), Outcome::Stay, "released off the menu, where it was pressed");
 }
 
 /// A Space's swatch gets a ring only where it would fade into the panel (#320), by the palette's
