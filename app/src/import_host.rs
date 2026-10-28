@@ -13,7 +13,7 @@ use browser::import::sources::{Os, Roots};
 use browser::theme::Theme;
 use gpui::App;
 
-use crate::{bc, front, ids, name, open_tab_behind};
+use crate::{bc, front, ids, name, open_tab_behind, platform};
 
 thread_local! {
     /// What waits for the Spaces to change, such as an import for its new profiles to load.
@@ -22,6 +22,15 @@ thread_local! {
     /// answers in.
     static HISTORY: RefCell<VecDeque<Box<dyn FnOnce(usize, &mut App)>>> =
         const { RefCell::new(VecDeque::new()) };
+    /// What waits for the app to come back to the front, such as an import for Full Disk Access.
+    static ACTIVE: RefCell<Vec<Box<dyn FnOnce(&mut App)>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Runs what waited for the app to become the active one.
+pub fn became_active(cx: &mut App) {
+    for then in ACTIVE.take() {
+        then(cx);
+    }
 }
 
 /// Runs what waited for the Spaces to change.
@@ -236,5 +245,13 @@ impl browser::import::Host for CoreImport {
 
     fn when_spaces_change(&self, then: Box<dyn FnOnce(&mut App)>) {
         WAITING.with_borrow_mut(|waiting| waiting.push(then));
+    }
+
+    fn open_full_disk_access(&self) {
+        unsafe { platform::host_open_full_disk_access() };
+    }
+
+    fn when_active(&self, then: Box<dyn FnOnce(&mut App)>) {
+        ACTIVE.with_borrow_mut(|waiting| waiting.push(then));
     }
 }
