@@ -23,7 +23,7 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..a76f9f69a2 100644
+index a5390e77f8..853ab6e28a 100644
 --- i/crates/gpui_linux/src/gpui_linux.rs
 +++ w/crates/gpui_linux/src/gpui_linux.rs
 @@ -1,4 +1,12 @@
@@ -34,14 +34,14 @@ index a5390e77f8..a76f9f69a2 100644
 +#[cfg(feature = "x11")]
 +pub use linux::open_next_window_in;
 +pub use linux::{
-+    EmbeddedKeyboard, current_platform, dispatch_embedded, embed, embed_wayland, embedded_fd,
-+    embedder_size, hide_overlay, leave_overlay, linux_platform, move_overlay, new_host_window,
-+    show_overlay,
++    EmbeddedKeyboard, current_platform, dispatch_embedded, dispatch_embedded_after_read, embed,
++    embed_wayland, embedded_fd, embedder_size, hide_overlay, leave_overlay, linux_platform,
++    move_overlay, new_host_window, overlay_size, show_overlay,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{open_next_window_in_surface, resize_embedded};
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..928d78891d 100644
+index e4da54b52b..493d6fc704 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
 @@ -2,6 +2,7 @@ mod dispatcher;
@@ -52,14 +52,17 @@ index e4da54b52b..928d78891d 100644
  mod platform;
  mod system_notifications;
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -18,11 +19,19 @@ pub use dispatcher::*;
+@@ -18,11 +19,22 @@ pub use dispatcher::*;
  pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
  pub(crate) use headless::*;
  pub(crate) use keyboard::*;
-+pub use overlay::{embedder_size, hide_overlay, leave_overlay, move_overlay, show_overlay};
++pub use overlay::{
++    embedder_size, hide_overlay, leave_overlay, move_overlay, overlay_size, show_overlay,
++};
  pub(crate) use platform::*;
 +pub use platform::{
-+    EmbeddedKeyboard, dispatch_embedded, embed, embed_wayland, embedded_fd, new_host_window,
++    EmbeddedKeyboard, dispatch_embedded, dispatch_embedded_after_read, embed, embed_wayland,
++    embedded_fd, new_host_window,
 +};
  #[cfg(any(feature = "wayland", feature = "x11"))]
  pub(crate) use text_system::*;
@@ -74,10 +77,10 @@ index e4da54b52b..928d78891d 100644
  
 diff --git i/crates/gpui_linux/src/linux/overlay.rs w/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..7554fc893d
+index 0000000000..d655b54160
 --- /dev/null
 +++ w/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,355 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a child of the X window GPUI's window is held in. One shown
@@ -86,6 +89,9 @@ index 0000000000..7554fc893d
 +//!
 +//! The embedder asks from inside GPUI's updates, where the overlay can't draw, so what it asks of
 +//! the display happens once GPUI's loop next runs, in order, as does telling it the user left.
++//! Under Wayland that waits for the embedder to have read its display
++//! (`dispatch_embedded_after_read`): Vulkan sets a surface up with a roundtrip, which would wait
++//! forever for a read the embedder has prepared and not finished.
 +
 +use std::{cell::RefCell, collections::VecDeque, ffi::c_void};
 +
@@ -100,6 +106,9 @@ index 0000000000..7554fc893d
 +struct Shown {
 +    view: usize,
 +    keyboard: bool,
++    /// Shown, with the keys from now on: the key that asked for it, which reaches GPUI too, isn't
++    /// the overlay's.
++    ready: bool,
 +    /// Told once the user leaves the overlay; the embedder hides it then.
 +    left: Option<fn(*mut c_void)>,
 +}
@@ -124,6 +133,9 @@ index 0000000000..7554fc893d
 +        hidden: Box<dyn FnOnce()>,
 +    },
 +    Left(usize),
++    /// The keyboard left the embedder's window, unless it's back by the time this runs, as a
++    /// compositor sends a leave and an enter together when the keyboard's keymap changes.
++    KeyboardLeft,
 +}
 +
 +thread_local! {
@@ -160,6 +172,7 @@ index 0000000000..7554fc893d
 +        all.push(Shown {
 +            view,
 +            keyboard,
++            ready: false,
 +            left: Some(left),
 +        })
 +    });
@@ -207,7 +220,20 @@ index 0000000000..7554fc893d
 +        #[cfg(feature = "wayland")]
 +        DisplayConnection::Wayland(_) => super::wayland::embedded_size(parent),
 +        #[cfg(feature = "x11")]
-+        DisplayConnection::X11(x11) => x11.0.borrow().embedded_size(parent as u32).log_err(),
++        DisplayConnection::X11(x11) => x11.0.borrow().window_size(parent as u32).log_err(),
++        #[allow(unreachable_patterns)]
++        _ => None,
++    })
++    .flatten()
++}
++
++/// The size of the overlay `view`, as GPUI opened it or it last showed, in logical pixels.
++pub fn overlay_size(view: *mut c_void) -> Option<Size<Pixels>> {
++    super::platform::with_embedded_connection(|connection| match connection {
++        #[cfg(feature = "wayland")]
++        DisplayConnection::Wayland(_) => super::wayland::overlay_size(view),
++        #[cfg(feature = "x11")]
++        DisplayConnection::X11(x11) => x11.0.borrow().window_size(view as u32).log_err(),
 +        #[allow(unreachable_patterns)]
 +        _ => None,
 +    })
@@ -224,7 +250,7 @@ index 0000000000..7554fc893d
 +    SHOWN.with_borrow(|all| {
 +        all.iter()
 +            .rev()
-+            .find(|shown| shown.keyboard)
++            .find(|shown| shown.keyboard && shown.ready)
 +            .map(|shown| shown.view)
 +    })
 +}
@@ -256,7 +282,9 @@ index 0000000000..7554fc893d
 +/// The keyboard went to another window, away from each overlay.
 +#[allow(dead_code)]
 +pub(crate) fn left_all() {
-+    pressed(None);
++    if SHOWN.with_borrow(|all| !all.is_empty()) {
++        later(Op::KeyboardLeft);
++    }
 +}
 +
 +fn later(op: Op) {
@@ -274,13 +302,45 @@ index 0000000000..7554fc893d
 +fn make_ping() -> Option<Ping> {
 +    let handle = super::platform::embedded_loop_handle()?;
 +    let (ping, source) = calloop::ping::make_ping().log_err()?;
-+    handle.insert_source(source, |_, _, _| run()).ok()?;
++    handle
++        .insert_source(source, |_, _, _| run_when_free())
++        .ok()?;
 +    Some(ping)
++}
++
++fn run_when_free() {
++    let wayland = super::platform::with_embedded_connection(|connection| {
++        #[cfg(feature = "wayland")]
++        if let DisplayConnection::Wayland(_) = connection {
++            return true;
++        }
++        false
++    });
++    #[cfg(feature = "wayland")]
++    if wayland == Some(true) {
++        // After the events read with it, such as the key that asked for an overlay (`ready`).
++        if !super::platform::embedder_has_read() {
++            // The compositor's answer has the embedder read, and then dispatch GPUI.
++            super::wayland::wake_after_read();
++        }
++        return;
++    }
++    run();
++}
++
++/// Runs what the embedder asked, once it has read its Wayland display.
++pub(crate) fn run_after_read() {
++    if OPS.with_borrow(|ops| !ops.is_empty()) {
++        run();
++    }
 +}
 +
 +fn run() {
 +    while let Some(op) = OPS.with_borrow_mut(|ops| ops.pop_front()) {
 +        match op {
++            #[cfg(feature = "wayland")]
++            Op::KeyboardLeft if super::wayland::keyboard_entered() => {}
++            Op::KeyboardLeft => pressed(None),
 +            Op::Left(view) => {
 +                let left = SHOWN.with_borrow_mut(|all| {
 +                    let shown = all.iter_mut().find(|shown| shown.view == view)?;
@@ -303,7 +363,20 @@ index 0000000000..7554fc893d
 +                super::platform::with_embedded_connection(|connection| apply(op, connection));
 +                hidden();
 +            }
-+            op => _ = super::platform::with_embedded_connection(|connection| apply(op, connection)),
++            op => {
++                let shown = match op {
++                    Op::Show { view, .. } => Some(view),
++                    _ => None,
++                };
++                super::platform::with_embedded_connection(|connection| apply(op, connection));
++                if let Some(view) = shown {
++                    SHOWN.with_borrow_mut(|all| {
++                        all.iter_mut()
++                            .filter(|each| each.view == view)
++                            .for_each(|each| each.ready = true)
++                    });
++                }
++            }
 +        }
 +    }
 +}
@@ -324,7 +397,7 @@ index 0000000000..7554fc893d
 +            }
 +            Op::Move { view, bounds, .. } => super::wayland::move_overlay(view as _, bounds),
 +            Op::Hide { view, keyboard, .. } => super::wayland::hide_overlay(view as _, keyboard),
-+            Op::Left(_) => {}
++            Op::Left(_) | Op::KeyboardLeft => {}
 +        },
 +        #[cfg(feature = "x11")]
 +        DisplayConnection::X11(x11) => {
@@ -356,7 +429,7 @@ index 0000000000..7554fc893d
 +                    });
 +                    x11.hide_overlay(view as _, from.unwrap_or(0)).log_err();
 +                }
-+                Op::Left(_) => {}
++                Op::Left(_) | Op::KeyboardLeft => {}
 +            }
 +        }
 +        #[allow(unreachable_patterns)]
@@ -364,7 +437,7 @@ index 0000000000..7554fc893d
 +    }
 +}
 diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
-index 0c5370db6c..629efe9c54 100644
+index 0c5370db6c..e49a99be7c 100644
 --- i/crates/gpui_linux/src/linux/platform.rs
 +++ w/crates/gpui_linux/src/linux/platform.rs
 @@ -11,7 +11,7 @@ use std::{
@@ -376,12 +449,13 @@ index 0c5370db6c..629efe9c54 100644
  };
  
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -269,6 +269,186 @@ async fn listen_for_system_power_events(
+@@ -269,6 +269,204 @@ async fn listen_for_system_power_events(
      Ok(())
  }
  
 +thread_local! {
 +    static EMBEDDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++    static EMBEDDER_HAS_READ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 +    static EMBEDDED_WAYLAND_DISPLAY: std::cell::Cell<*mut std::ffi::c_void> =
 +        const { std::cell::Cell::new(std::ptr::null_mut()) };
 +    static EMBEDDED_PLATFORM: std::cell::Cell<*const LinuxPlatform> =
@@ -526,6 +600,23 @@ index 0c5370db6c..629efe9c54 100644
 +    crate::linux::wayland::dispatch_embedded_queue();
 +}
 +
++/// What `dispatch_embedded` does, for an embedder that has just read and dispatched its Wayland
++/// display (`embed_wayland`): until it prepares its next read, GPUI may make a roundtrip on it, as
++/// Vulkan does to set a surface up and may to present, so GPUI's frames wait for this.
++pub fn dispatch_embedded_after_read() {
++    EMBEDDER_HAS_READ.set(true);
++    dispatch_embedded();
++    crate::linux::overlay::run_after_read();
++    #[cfg(feature = "wayland")]
++    crate::linux::wayland::run_deferred_frames();
++    EMBEDDER_HAS_READ.set(false);
++}
++
++/// Whether the embedder has read its Wayland display, and prepares no read now.
++pub(crate) fn embedder_has_read() -> bool {
++    EMBEDDER_HAS_READ.get()
++}
++
 +/// The loop GPUI's events are dispatched on, once it has launched embedded.
 +pub(crate) fn embedded_loop_handle() -> Option<LoopHandle<'static, ()>> {
 +    let platform = EMBEDDED_PLATFORM.get();
@@ -563,7 +654,7 @@ index 0c5370db6c..629efe9c54 100644
  /// GPUI's platform for Linux and FreeBSD.
  ///
  /// One event loop serves the whole process. The foreground executor and power listener are
-@@ -617,9 +797,23 @@ impl Platform for LinuxPlatform {
+@@ -617,9 +815,23 @@ impl Platform for LinuxPlatform {
      }
  
      fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
@@ -603,7 +694,7 @@ index cbc962bcff..bcad8dfaae 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git i/crates/gpui_linux/src/linux/wayland/client.rs w/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..46ddefcb5c 100644
+index 2d40cf7fa9..cc6990ec06 100644
 --- i/crates/gpui_linux/src/linux/wayland/client.rs
 +++ w/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -932,7 +1023,7 @@ index 2d40cf7fa9..46ddefcb5c 100644
                          if let Some(window) = state.keyboard_focused_window.clone() {
                              if state.composing && state.text_input.is_some() {
                                  drop(state);
-@@ -3479,3 +3581,111 @@ mod tests {
+@@ -3479,3 +3581,178 @@ mod tests {
          );
      }
  }
@@ -941,6 +1032,40 @@ index 2d40cf7fa9..46ddefcb5c 100644
 +    static EMBEDDED_CLIENT: RefCell<Option<std::rc::Weak<RefCell<WaylandClientState>>>> =
 +        const { RefCell::new(None) };
 +    static EMBEDDED_QUEUE: RefCell<Option<Box<dyn FnMut()>>> = const { RefCell::new(None) };
++    static DEFERRED_FRAMES: RefCell<Vec<(WaylandWindowStatePtr, Option<Instant>, gpui::FrameRequestSource)>> =
++        const { RefCell::new(Vec::new()) };
++}
++
++/// Whether `window`'s frame waits for the embedder to have read its display: Vulkan's present
++/// can read it too, which waits forever for a read the embedder has prepared and not finished.
++pub(crate) fn defer_frame(
++    window: &WaylandWindowStatePtr,
++    signal_at: Option<Instant>,
++    source: gpui::FrameRequestSource,
++) -> bool {
++    if crate::linux::platform::embedder_has_read()
++        || EMBEDDED_CLIENT.with_borrow(|client| client.is_none())
++    {
++        return false;
++    }
++    let first = DEFERRED_FRAMES.with_borrow_mut(|frames| {
++        let first = frames.is_empty();
++        if !frames.iter().any(|(each, ..)| each.ptr_eq(window)) {
++            frames.push((window.clone(), signal_at, source));
++        }
++        first
++    });
++    if first {
++        wake_after_read();
++    }
++    true
++}
++
++/// Draws the frames that waited for the embedder's read (`defer_frame`).
++pub(crate) fn run_deferred_frames() {
++    for (window, signal_at, source) in DEFERRED_FRAMES.take() {
++        window.deferred_frame_fired(signal_at, source);
++    }
 +}
 +
 +fn embedded_windows() -> Vec<WaylandWindowStatePtr> {
@@ -996,6 +1121,11 @@ index 2d40cf7fa9..46ddefcb5c 100644
 +    Some(embedded_window_with_parent(parent)?.bounds_size())
 +}
 +
++/// The size of the overlay window of the `view` surface.
++pub(crate) fn overlay_size(view: *mut std::ffi::c_void) -> Option<Size<Pixels>> {
++    Some(overlay_window(view)?.bounds_size())
++}
++
 +fn overlay_window(view: *mut std::ffi::c_void) -> Option<WaylandWindowStatePtr> {
 +    let client = EMBEDDED_CLIENT.with_borrow(|client| client.as_ref()?.upgrade())?;
 +    let state = client.borrow();
@@ -1006,6 +1136,34 @@ index 2d40cf7fa9..46ddefcb5c 100644
 +    if let Some(backend) = window.surface().backend().upgrade() {
 +        backend.flush().ok();
 +    }
++}
++
++/// Whether the compositor has given the keyboard to one of GPUI's windows or the embedder's.
++pub(crate) fn keyboard_entered() -> bool {
++    EMBEDDED_CLIENT
++        .with_borrow(|client| client.as_ref()?.upgrade())
++        .is_some_and(|client| client.borrow().keyboard_focused_window.is_some())
++}
++
++/// Has the compositor answer GPUI on the embedder's display, which the embedder reads, and then
++/// dispatches GPUI (`crate::linux::dispatch_embedded_after_read`).
++pub(crate) fn wake_after_read() {
++    let Some(client) = EMBEDDED_CLIENT.with_borrow(|client| client.as_ref()?.upgrade()) else {
++        return;
++    };
++    let Some(window) = embedded_windows().into_iter().next() else {
++        return;
++    };
++    let Some(backend) = window.surface().backend().upgrade() else {
++        return;
++    };
++    let connection = Connection::from_backend(backend);
++    let Ok(qh) = client.try_borrow().map(|client| client.globals.qh.clone()) else {
++        return;
++    };
++    // A callback for no surface, which its handler ignores.
++    connection.display().sync(&qh, ObjectId::null());
++    connection.flush().ok();
 +}
 +
 +/// Shows the overlay window of the `view` surface over the embedder's `parent` surface
@@ -1045,7 +1203,7 @@ index 2d40cf7fa9..46ddefcb5c 100644
 +    }
 +}
 diff --git i/crates/gpui_linux/src/linux/wayland/window.rs w/crates/gpui_linux/src/linux/wayland/window.rs
-index 8d92234ef1..9332769dc9 100644
+index 8d92234ef1..bd9eaef43f 100644
 --- i/crates/gpui_linux/src/linux/wayland/window.rs
 +++ w/crates/gpui_linux/src/linux/wayland/window.rs
 @@ -11,12 +11,13 @@ use calloop::ping::Ping;
@@ -1308,7 +1466,42 @@ index 8d92234ef1..9332769dc9 100644
      pub fn toplevel(&self) -> Option<xdg_toplevel::XdgToplevel> {
          self.state.borrow().surface_state.toplevel().cloned()
      }
-@@ -2046,6 +2226,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -936,6 +1116,21 @@ impl WaylandWindowStatePtr {
+     }
+ 
+     pub fn frame(&self, signal_at: Option<Instant>, signal_source: FrameRequestSource) {
++        // A hidden overlay has no role, so what it presented would neither show nor be released.
++        if matches!(
++            self.state.borrow().surface_state,
++            WaylandSurfaceState::Unshown
++        ) {
++            self.state.borrow_mut().redraw_requested = true;
++            if self.frame_loop.get() != FrameLoop::Unconfigured {
++                self.frame_loop.set(FrameLoop::Parked);
++            }
++            return;
++        }
++        if super::client::defer_frame(self, signal_at, signal_source) {
++            self.frame_loop.set(FrameLoop::Scheduled);
++            return;
++        }
+         self.frame_loop.set(FrameLoop::Ticking);
+         let mut state = self.state.borrow_mut();
+         state.resize_throttle = false;
+@@ -1024,6 +1219,12 @@ impl WaylandWindowStatePtr {
+         }
+     }
+ 
++    pub fn deferred_frame_fired(&self, signal_at: Option<Instant>, source: FrameRequestSource) {
++        if self.frame_loop.get() == FrameLoop::Scheduled {
++            self.frame(signal_at, source);
++        }
++    }
++
+     pub fn retry_timer_fired(&self, signal_at: Instant) {
+         if self.frame_loop.get() == FrameLoop::RetryScheduled {
+             self.frame(
+@@ -2046,6 +2247,11 @@ impl PlatformWindow for WaylandWindow {
          if renderer.draw(scene) {
              state.presentation = PresentationState::Presented;
              self.0.frame_loop.set(FrameLoop::AwaitingCallback);
@@ -1332,7 +1525,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..f4310df7b4 100644
+index e21f019c64..cef2c80773 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1550,9 +1743,9 @@ index e21f019c64..f4310df7b4 100644
 +        Ok(())
 +    }
 +
-+    /// The size of the embedder's `parent`, in logical pixels.
-+    pub(crate) fn embedded_size(&self, parent: xproto::Window) -> anyhow::Result<Size<Pixels>> {
-+        let geometry = self.xcb_connection.get_geometry(parent)?.reply()?;
++    /// The size of `window`, such as the embedder's or an overlay, in logical pixels.
++    pub(crate) fn window_size(&self, window: xproto::Window) -> anyhow::Result<Size<Pixels>> {
++        let geometry = self.xcb_connection.get_geometry(window)?.reply()?;
 +        Ok(size(
 +            px(f32::from(geometry.width) / self.scale_factor),
 +            px(f32::from(geometry.height) / self.scale_factor),

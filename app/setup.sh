@@ -13,8 +13,11 @@ if [ ! -d .deps/zed ]; then
     https://github.com/zed-industries/zed .deps/zed
   git -C .deps/zed checkout -q "$ZED_REV"
 fi
-git -C .deps/zed checkout -q -- crates/gpui crates/gpui_macos crates/gpui_windows crates/gpui_linux \
-  crates/gpui_wgpu
+PATCHED="crates/gpui crates/gpui_macos crates/gpui_windows crates/gpui_linux crates/gpui_wgpu"
+# The files a patch adds go too; `git add -N` them to see them in a regenerated patch.
+git -C .deps/zed reset -q -- $PATCHED
+git -C .deps/zed checkout -q -- $PATCHED
+git -C .deps/zed clean -fdq -- $PATCHED
 # A checkout made for an earlier pin moves to this one.
 if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
   git -C .deps/zed fetch -q origin "$ZED_REV"

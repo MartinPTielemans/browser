@@ -2625,7 +2625,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
     #[cfg(target_os = "linux")]
     let wayland = {
         extern "C" fn dispatched() {
-            gpui_linux::dispatch_embedded();
+            gpui_linux::dispatch_embedded_after_read();
         }
         // Every key reaches the browser window and the UI alike there, and the core says whose
         // they are, as the X server does by its focus.
