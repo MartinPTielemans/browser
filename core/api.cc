@@ -117,6 +117,11 @@ void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
   if (!tab) {
     return;
   }
+  // Not a link: the user starts something else in the tab, so closing a tab no longer leads back
+  // to where it came from, as Chrome's tab strip forgets on a typed or bookmark navigation.
+  if (browser_core::Space* space = browser_core::Space::Holding(id)) {
+    space->ForgetOpeners();
+  }
   browser_core::Tab::FromWebContents(contents)->Load(url, [&] {
     NavigateParams params(tab->GetBrowserWindowInterface(), url, transition);
     params.disposition = WindowOpenDisposition::CURRENT_TAB;
@@ -646,6 +651,17 @@ void bc_window_page_moving(bc_id window_id, bool moving) {
 
 void bc_window_select(bc_id window_id, bc_id tab) {
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    // The user's switch, which Chrome's tab strip judges by where the two tabs came from. The
+    // core's own, as after a close, leave the openers be.
+    const bc_id was = window->selected();
+    browser_core::Space* from = browser_core::Space::Holding(was);
+    browser_core::Space* to = browser_core::Space::Holding(tab);
+    if (to) {
+      to->UserShowed(was, tab);
+    }
+    if (from && from != to) {
+      from->UserShowed(was, tab);
+    }
     window->Select(tab);
   }
 }
