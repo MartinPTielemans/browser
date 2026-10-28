@@ -13,6 +13,7 @@ use super::{
     CHECK, GAP, Key, Layout, Look, Outcome, PADDING, Pointer, ROW_X, Request, Swatch, Tracking,
     described, key_of, lay_out, lay_out_over,
 };
+use crate::elevation::Level as Elevation;
 use crate::shell::MenuEntry;
 
 /// Seven points a character, near enough to SF's 13 pt for where things go.
@@ -215,6 +216,21 @@ fn a_menu_opens_at_the_pointer_and_flips_where_the_screen_ends() {
     let short = Bounds::new(point(px(0.), px(0.)), size(px(1280.), px(150.)));
     let menu = lay_out(&tab_menu(), at(100., 60.), short, &width_of);
     assert_eq!(level_of(&menu, None).origin.y, px(8.));
+}
+
+#[test]
+fn the_menus_window_sits_on_whole_points_round_its_shadow() {
+    for at in [at(100., 100.), at(1000., 100.), at(100.5, 700.25)] {
+        let menu = lay_out(&tab_menu(), at, area(), &width_of);
+        let (origin, end) = (menu.frame.origin, menu.frame.bottom_right());
+        for value in [origin.x, origin.y, end.x, end.y] {
+            assert_eq!(value, value.round(), "{:?} isn't on whole points", menu.frame);
+        }
+        let union = menu.levels.iter().fold(menu.levels[0].bounds, |all, level| all.union(&level.bounds));
+        let reach = Elevation::Popover.reach();
+        assert!(origin.x <= union.left() - px(reach.sides) && origin.y <= union.top() - px(reach.above));
+        assert!(end.x >= union.right() + px(reach.sides) && end.y >= union.bottom() + px(reach.below));
+    }
 }
 
 #[test]

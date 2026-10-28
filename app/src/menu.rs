@@ -253,12 +253,14 @@ pub(crate) fn lay_out(
         let bounds = Bounds::new(origin, gpui::size(px(size.0), px(size.1)));
         levels.push(Level { parent, items, bounds, tops, checks });
     }
-    // The window's room around the panels for their shadow.
+    // The window's room around the panels for their shadow, out to whole points. A window put at
+    // a fraction of one lands on a pixel, so each pointer move reached the menu twice, a quarter
+    // point apart, and the second left the safe triangle.
     let reach = Elevation::Popover.reach();
     let union = (levels.iter().skip(1)).fold(levels[0].bounds, |all, level| all.union(&level.bounds));
     let frame = Bounds::from_corners(
-        union.origin - point(px(reach.sides), px(reach.above)),
-        union.bottom_right() + point(px(reach.sides), px(reach.below)),
+        (union.origin - point(px(reach.sides), px(reach.above))).map(|at| at.floor()),
+        (union.bottom_right() + point(px(reach.sides), px(reach.below))).map(|at| at.ceil()),
     );
     Layout { levels, frame }
 }
