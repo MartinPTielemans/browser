@@ -21,9 +21,11 @@ jobs:
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
-      WORK: ${{ runner.temp }}/point-release
     steps:
       - uses: actions/checkout@v4
+
+      # The runner context isn't there yet when the job's env is read.
+      - run: echo "WORK=$RUNNER_TEMP/point-release" >> "$GITHUB_ENV"
 
       - run: engine/point-release.sh "$WORK"
 
