@@ -432,6 +432,13 @@ pub trait Browser {
     fn revoke_agent(&self, space: u64, site: Option<SharedString>, cx: &mut App);
     /// Disconnects the agent whose Space is `space`, whose token then stops working.
     fn disconnect_agent(&self, space: u64, cx: &mut App);
+    /// The user takes over `tab`, where the agent with the id `agent` is at work: it may not act
+    /// there until they hand it back.
+    fn take_over(&self, agent: SharedString, tab: u64, cx: &mut App);
+    /// The user hands `tab` back to its agent.
+    fn hand_back(&self, tab: u64, cx: &mut App);
+    /// The user stops the agent with the id `agent`: what it's doing and asking ends.
+    fn stop_agent(&self, agent: SharedString, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.

@@ -19,7 +19,8 @@ pub const INSTRUCTIONS: &str = concat!(
      read_page for a long page's text and screenshot when the layout matters.\n\n\
      Payments, orders, sending messages and banks' sites ask the user first. If they say no, \
      don't try again. You can never type into a password field: a sign-in, a 2FA prompt or a \
-     CAPTCHA is the user's to do, so ask them."
+     CAPTCHA is the user's to do, so hand the tab to them with hand_off. The user can take a tab \
+     over too; it's theirs until they hand it back. Use run_steps for several actions in a row."
 );
 /// A page's text an agent gets at most, as a long page would fill its context.
 pub const MAX_TEXT: usize = 40_000;
@@ -141,8 +142,59 @@ pub fn list() -> Value {
             "inputSchema": { "type": "object", "properties": { "tab": tab } },
             "annotations": { "readOnlyHint": true, "openWorldHint": true },
         },
+        {
+            "name": "run_steps",
+            "title": "Run steps",
+            "description": "Run several actions in a tab in one call, in order: each is checked as it would be alone. Stops at the first that fails, asks the user first, or is refused. Answers with what each did and the last one's outline.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": MAX_STEPS,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "action": { "type": "string", "enum": STEPS },
+                                "ref": element,
+                                "text": { "type": "string" },
+                                "submit": { "type": "boolean" },
+                                "key": { "type": "string", "enum": page::KEYS },
+                                "url": { "type": "string" },
+                                "direction": { "type": "string", "enum": ["down", "up"] },
+                            },
+                            "required": ["action"],
+                        },
+                        "description": "Each step is an action and what that tool takes: click and scroll a ref, type a ref and text, press_key a key, navigate a url.",
+                    },
+                    "tab": tab,
+                },
+                "required": ["steps"],
+            },
+            "annotations": acts,
+        },
+        {
+            "name": "hand_off",
+            "title": "Hand off to the user",
+            "description": "Hand a tab to the user for a step only they may do: a sign-in, 2FA, a CAPTCHA, or a choice that's theirs. They're asked in the browser, and this waits until they hand the tab back. Meanwhile the tab is theirs, and calls on it are refused.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "reason": { "type": "string", "description": "What the user is to do, in a short sentence." },
+                    "tab": tab,
+                },
+                "required": ["reason"],
+            },
+            "annotations": { "readOnlyHint": true, "openWorldHint": false },
+        },
     ])
 }
+
+/// The actions run_steps takes: those of the tools that act in a tab, not a screenshot.
+pub const STEPS: [&str; 6] = ["navigate", "snapshot", "click", "type", "press_key", "scroll"];
+/// The steps one run_steps takes at most.
+pub const MAX_STEPS: usize = 20;
 
 /// list_tabs' answer.
 pub fn tab_list(tabs: &[TabInfo], current: Option<u64>) -> String {
@@ -207,7 +259,11 @@ pub fn describe(action: &str) -> &'static str {
         "connected" => "Connected",
         "disconnected" => "Disconnected",
         "released" => "Let go of the tab",
-        "taken back" => "You took the tab back",
+        "taken back" => "You took the tab over",
+        "handed back" => "You handed the tab back",
+        "stopped" => "You stopped it",
+        "hand_off" => "Handed you a tab",
+        "run_steps" => "Ran steps",
         "revoked" => "You revoked its permission",
         "revoked all" => "You revoked all its permissions",
         _ => "Acted",

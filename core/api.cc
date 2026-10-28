@@ -352,6 +352,8 @@ bool bc_agent_may_act(const char* agent,
   std::string refused;
   if (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab)) {
     refused = "The tab isn't in the agent's own Space.";
+  } else if (browser_core::IsHeld(tab)) {
+    refused = "The tab is handed off to the user until they hand it back.";
   } else if (contents && browser_core::Tab::FromWebContents(contents)->system_page()) {
     // Its Space never switches a tab there, but the rule is the core's to keep, not the UI's.
     refused =
@@ -383,7 +385,24 @@ size_t bc_agent_disconnected(const char* agent) {
 }
 
 bool bc_tab_take_back(bc_id tab) {
+  browser_core::Hold(tab);
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
+}
+
+bool bc_agent_hand_off(const char* agent, bc_id tab) {
+  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || browser_core::IsHeld(tab)) {
+    return false;
+  }
+  browser_core::Hold(tab);
+  return true;
+}
+
+bool bc_tab_hand_back(bc_id tab) {
+  return browser_core::HandBack(tab);
+}
+
+bool bc_tab_held(bc_id tab) {
+  return browser_core::IsHeld(tab);
 }
 
 bc_id bc_agent_open_tab(const char* agent, const char* url) {
@@ -421,8 +440,8 @@ bc_id bc_agent_open_tab(const char* agent, const char* url) {
 
 bool bc_agent_navigate(const char* agent, bc_id tab, const char* url) {
   const GURL target(url ? url : "");
-  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || !target.SchemeIsHTTPOrHTTPS() ||
-      !browser_core::Window::PageOf(tab)) {
+  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || browser_core::IsHeld(tab) ||
+      !target.SchemeIsHTTPOrHTTPS() || !browser_core::Window::PageOf(tab)) {
     return false;
   }
   LoadInTab(tab, target, ui::PAGE_TRANSITION_TYPED);
@@ -435,7 +454,8 @@ void bc_agent_page(const char* agent,
                    int action,
                    int64_t element,
                    const char* text) {
-  const bool may = agent && browser_core::Space::AgentMayAct(agent, tab);
+  const bool may =
+      agent && browser_core::Space::AgentMayAct(agent, tab) && !browser_core::IsHeld(tab);
   // A tab the browser unloaded to save memory gets its page back, not shown.
   content::WebContents* contents = may ? browser_core::Window::PageOf(tab) : nullptr;
   if (!contents) {
