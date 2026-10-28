@@ -245,6 +245,159 @@ fn linux_finds_each_browser_where_it_keeps_its_profiles() {
     fs::remove_dir_all(home).unwrap();
 }
 
+/// The names the browsers found under `roots` are listed by, the one used last first.
+fn listed(roots: &Roots) -> Vec<String> {
+    sources::find(roots).iter().map(sources::Source::name).collect()
+}
+
+/// A Chromium user data folder with its default profile, used `ago` seconds ago.
+fn chromium_dir(dir: PathBuf, ago: u64) {
+    used(&write(dir.join("Default/Preferences"), "{}"), ago);
+}
+
+/// A Firefox folder with one profile, used `ago` seconds ago.
+fn firefox_dir(dir: PathBuf, ago: u64) {
+    write(dir.join("profiles.ini"), "[Profile0]\nName=default\nPath=p.default\n");
+    used(&write(dir.join("p.default/places.sqlite"), ""), ago);
+}
+
+/// On Linux, each browser where its Flatpak, its Snap or Firefox's newer `~/.config/mozilla`
+/// keeps it, named by how it was installed only beside another install of the same browser, and a
+/// folder linked from another place the table names found once.
+#[test]
+fn linux_finds_flatpak_snap_and_xdg_installs() {
+    let home = home("linux-installs");
+    let chrome = |dir: &str, ago| chromium_dir(home.join(dir), ago);
+    firefox_dir(home.join(".config/mozilla/firefox"), 10);
+    chrome("snap/chromium/common/chromium", 20);
+    chrome(".var/app/com.google.Chrome/config/google-chrome", 30);
+    chrome(".config/google-chrome", 40);
+    firefox_dir(home.join("snap/firefox/common/.mozilla/firefox"), 50);
+    firefox_dir(home.join(".config/zen"), 60);
+    chrome(".var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser", 70);
+    chrome("snap/opera/current/.config/opera", 80);
+    chrome(".var/app/com.vivaldi.Vivaldi/config/vivaldi", 90);
+    chrome(".var/app/com.microsoft.Edge/config/microsoft-edge", 100);
+    write(
+        home.join(".var/app/io.gitlab.librewolf-community/.librewolf/profiles.ini"),
+        "[Profile0]\nName=default\nPath=p.default\n",
+    );
+    fs::create_dir_all(home.join(".var/app/io.gitlab.librewolf-community/.librewolf/p.default"))
+        .unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(home.join(".config/mozilla"), home.join(".mozilla")).unwrap();
+    assert_eq!(
+        listed(&Roots::under(&home, Os::Linux)),
+        [
+            "Firefox",
+            "Chromium",
+            "Chrome (Flatpak)",
+            "Chrome",
+            "Firefox (Snap)",
+            "Zen",
+            "Brave",
+            "Opera",
+            "Vivaldi",
+            "Edge",
+            "LibreWolf",
+        ]
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// On Windows, the Chromium family in Local AppData, Opera's one profile in Roaming, and Firefox
+/// from its Microsoft Store package beside the one from its installer; none of Linux's folders.
+#[test]
+fn windows_finds_the_chromium_family_operas_profile_and_store_installs() {
+    let home = home("windows-installs");
+    let local = home.join("AppData/Local");
+    let chrome = |dir: &str, ago| chromium_dir(local.join(dir), ago);
+    firefox_dir(home.join("AppData/Roaming/Mozilla/Firefox"), 10);
+    firefox_dir(
+        local.join("Packages/Mozilla.Firefox_n80bbvh6b1yt2/LocalCache/Roaming/Mozilla/Firefox"),
+        20,
+    );
+    used(
+        &write(home.join("AppData/Roaming/Opera Software/Opera Stable/Preferences"), "{}"),
+        30,
+    );
+    chrome("Microsoft/Edge/User Data", 40);
+    chrome("BraveSoftware/Brave-Browser/User Data", 50);
+    chrome("Vivaldi/User Data", 60);
+    chrome("Chromium/User Data", 70);
+    chrome("imput/Helium/User Data", 80);
+    firefox_dir(home.join("AppData/Roaming/zen"), 90);
+    firefox_dir(home.join("AppData/Roaming/librewolf"), 100);
+    write(home.join(".config/google-chrome/Default/Preferences"), "{}");
+    firefox_dir(home.join(".mozilla/firefox"), 5);
+    assert_eq!(
+        listed(&Roots::under(&home, Os::Windows)),
+        [
+            "Firefox",
+            "Firefox (Microsoft Store)",
+            "Opera",
+            "Edge",
+            "Brave",
+            "Vivaldi",
+            "Chromium",
+            "Helium",
+            "Zen",
+            "LibreWolf",
+        ]
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// Inside a Flatpak, `XDG_CONFIG_HOME` is the app's own, so the browsers are looked for in the
+/// user's `~/.config`, or where the host moved it.
+#[test]
+fn a_flatpak_looks_for_browsers_in_the_users_config() {
+    let home = Path::new("/home/u");
+    let config = |vars: &[(&str, &str)]| {
+        let var = |name: &str| {
+            let found = vars.iter().find(|(each, _)| *each == name);
+            found.map(|(_, value)| PathBuf::from(value))
+        };
+        sources::config_home(var, home)
+    };
+    assert_eq!(config(&[]), home.join(".config"));
+    assert_eq!(config(&[("XDG_CONFIG_HOME", "/x")]), Path::new("/x"));
+    let flatpak = [
+        ("FLATPAK_ID", "app.ilo.Browser"),
+        ("XDG_CONFIG_HOME", "/home/u/.var/app/app.ilo.Browser/config"),
+    ];
+    assert_eq!(config(&flatpak), home.join(".config"));
+    let moved = [flatpak[0], flatpak[1], ("HOST_XDG_CONFIG_HOME", "/x")];
+    assert_eq!(config(&moved), Path::new("/x"));
+}
+
+/// The Passwords box names where each browser found exports, once a browser however many
+/// installs, else the browsers most people on that system come from, which on Linux and Windows
+/// aren't Safari.
+#[test]
+fn the_passwords_box_names_exports_for_the_system() {
+    let names = |places: Vec<String>| -> Vec<String> {
+        let name = |place: &String| place.split(':').next().unwrap().to_string();
+        places.iter().map(name).collect()
+    };
+    assert_eq!(names(super::export_places(&[], Os::Mac)), ["Arc", "Chrome", "Firefox", "Safari"]);
+    assert_eq!(names(super::export_places(&[], Os::Windows)), ["Chrome", "Edge", "Firefox", "Arc"]);
+    assert_eq!(
+        names(super::export_places(&[], Os::Linux)),
+        ["Firefox", "Chrome", "Chromium", "Brave"]
+    );
+    let home = home("passwords-places");
+    let chrome = |dir: &str| write(home.join(dir).join("Default/Preferences"), "{}");
+    chrome(".config/google-chrome");
+    chrome(".var/app/com.google.Chrome/config/google-chrome");
+    let found = sources::find(&Roots::under(&home, Os::Linux));
+    assert_eq!(
+        super::export_places(&found, Os::Linux),
+        ["Chrome: chrome://password-manager/settings › Export passwords"]
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
 /// The browser as the import sees it: profiles, Spaces with their pinned rows, and favorites.
 /// A Space's profile changes only once `load` stands in for the profile having loaded.
 #[derive(Default)]
