@@ -86,6 +86,10 @@ void host_watch_key_window(void (*changed)(void* ui_view));
 // macOS's transition is over.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 
+// Asks |swiped| about each swipe between pages in a browser window, at its point in |ui_view|
+// from the top left, in points; one it takes, by returning true, goes no further.
+void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back));
+
 // Calls |resigning| as the app is about to stop being the active one, its windows still shown.
 void host_watch_resigning_active(void (*resigning)(void));
 

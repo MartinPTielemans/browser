@@ -147,6 +147,8 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {}
 
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
+void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
+
 void host_watch_resigning_active(void (*resigning)(void)) {}
 
 void host_watch_active(void (*became_active)(void)) {}

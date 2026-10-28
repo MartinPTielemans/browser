@@ -377,9 +377,13 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn go_back(&self, _: u64, _: &mut App) {}
+    fn go_back(&self, tab: u64, _: &mut App) {
+        self.record(format!("back {tab}"))
+    }
 
-    fn go_forward(&self, _: u64, _: &mut App) {}
+    fn go_forward(&self, tab: u64, _: &mut App) {
+        self.record(format!("forward {tab}"))
+    }
 
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
         self.record(format!("reload {tab}{}", if bypass_cache { " bypassing cache" } else { "" }))
