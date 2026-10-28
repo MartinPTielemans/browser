@@ -3427,9 +3427,9 @@ unsafe extern "C" fn agent_activity(_: *mut c_void, entry: *const bc::bc_agent_a
     }
 }
 
-/// The core ended an agent's session with a tab: its client disconnected, it released the tab or
-/// the user took the tab back. The activity log has it beside what the agent did, and the agent is
-/// no longer at work in the tab.
+/// The core ended an agent's session with a tab: its client disconnected, it released the tab, the
+/// user took the tab back or its page asked for the user's passkey. The activity log has it beside
+/// what the agent did, and the agent is no longer at work in the tab.
 unsafe extern "C" fn agent_session_ended(
     _: *mut c_void,
     agent: *const c_char,
@@ -3441,6 +3441,7 @@ unsafe extern "C" fn agent_session_ended(
         bc::BC_AGENT_SESSION_DISCONNECTED => "disconnected",
         bc::BC_AGENT_SESSION_RELEASED => "released",
         bc::BC_AGENT_SESSION_TAKEN_BACK => "taken back",
+        bc::BC_AGENT_SESSION_PASSKEY => "passkey",
         _ => "ended",
     };
     // check.sh reads this line.
