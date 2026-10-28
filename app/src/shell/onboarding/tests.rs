@@ -267,29 +267,50 @@ fn welcome_to_ilo_plays_it_again(cx: &mut TestAppContext) {
     assert!(host.take().contains(&"welcome window".to_string()));
 }
 
-/// The import step is the import view Settings shows, and its Done goes on. The view outlives the
-/// flow, so an import under way goes on, and Welcome to ilo shows the same one again.
+/// The import step is the import view Settings shows: an import begun goes on to the next step
+/// while it runs, which the flow then says quietly, and so does what it brought in. Its Done goes
+/// on too. The view outlives the flow, so an import under way goes on, and Welcome to ilo shows
+/// the same one again.
 #[gpui::test]
 fn the_import_step_is_the_import_view(cx: &mut TestAppContext) {
     let (shell, cx, _) = first_window(cx);
     let view = |shell: &Entity<Shell>, cx: &VisualTestContext| {
         shell.read_with(cx, |shell, _| shell.importing.as_ref().map(|i| i.view.clone()))
     };
+    let line = |shell: &Entity<Shell>, cx: &VisualTestContext| {
+        shell.read_with(cx, |shell, cx| shell.import_line(cx))
+    };
     started(&shell, cx);
     skip_to(&shell, cx, Step::Import);
     let shown = view(&shell, cx).expect("the import view");
+    assert!(!shown.read_with(cx, |view, _| view.is_empty()), "it found the made-up Arc");
+    shown.update(cx, |_, cx| cx.emit(ImportEvent::Started));
+    assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser), "an import begun goes on");
+    let said: gpui::SharedString = "2 Spaces came in from Arc.".into();
+    shown.update(cx, |_, cx| cx.emit(ImportEvent::Finished(said.clone())));
+    assert_eq!(line(&shell, cx), Some(said), "what came in, said quietly");
+    assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser), "only its own step goes on");
+
+    started(&shell, cx);
+    assert_eq!(line(&shell, cx), None, "played again, it has nothing to say yet");
+    skip_to(&shell, cx, Step::Import);
+    assert_eq!(view(&shell, cx).map(|v| v.entity_id()), Some(shown.entity_id()), "the same view");
     shown.update(cx, |_, cx| cx.emit(ImportEvent::Done));
     assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser), "its Done goes on");
-    shown.update(cx, |_, cx| cx.emit(ImportEvent::Done));
-    assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser), "only from its own step");
 
     skip_to(&shell, cx, Step::Color);
     cx.simulate_keystrokes("escape");
     later(&shell, cx, END_FADE);
     assert_eq!(step(&shell, cx), None);
     assert_eq!(view(&shell, cx).map(|v| v.entity_id()), Some(shown.entity_id()), "it lives on");
+}
 
-    shell.update(cx, |shell, cx| shell.run(Command::Welcome, "menu", cx));
-    cx.run_until_parked();
-    assert_eq!(view(&shell, cx).map(|v| v.entity_id()), Some(shown.entity_id()));
+/// With no browser to import from, the import step is left out.
+#[gpui::test]
+fn no_browser_found_leaves_the_import_out(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    host.no_browsers.set(true);
+    started(&shell, cx);
+    cx.simulate_keystrokes("a");
+    assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser));
 }
