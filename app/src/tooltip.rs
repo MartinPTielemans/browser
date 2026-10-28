@@ -14,7 +14,7 @@ use std::{
 use gpui::{
     App, Bounds, Context, Div, FontWeight, Global, Pixels, SharedString, Size, Task, TextRun,
     TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
-    WindowOptions, WindowTextSystem, div, font, point, prelude::*, px, rgb, rgba, size,
+    WindowOptions, WindowTextSystem, div, font, point, prelude::*, px, rgb, size,
 };
 
 // Arc's delay was seen once at 0.73 s from the hover plate, and again at 1.03 s with the pointer
@@ -38,7 +38,7 @@ pub const WINDOW_HEIGHT: f32 = HEIGHT;
 const RADIUS: f32 = HEIGHT / 2.;
 use crate::tokens::tooltip::NEAR_RADIUS;
 use crate::tokens::tooltip::RIM;
-use crate::tokens::tooltip::RIM_COLOR;
+use crate::elevation::{Level, WINDOW_MARGIN};
 use crate::tokens::tooltip::TEXT_X;
 use crate::tokens::tooltip::END;
 use crate::tokens::tooltip::TEXT_SIZE;
@@ -277,7 +277,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<Tooltip>> {
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
-            size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)),
+            size(px(WINDOW_WIDTH + 2. * WINDOW_MARGIN), px(WINDOW_HEIGHT + 2. * WINDOW_MARGIN)),
         ))),
         titlebar: Some(TitlebarOptions {
             title: None,
@@ -389,7 +389,8 @@ fn label(tip: &Tip) -> String {
 
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let root = div().size_full().font_family(".SystemUIFont");
+        // The plate is inset by the margin, which its shadow draws in.
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
         let Some((tip, layout, near)) = self.drawn.clone() else {
             return root;
         };
@@ -440,9 +441,10 @@ impl Render for Tooltip {
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.
         let rim = shape(div().absolute().size_full())
             .border(px(RIM))
-            .border_color(rgba(RIM_COLOR));
+            .border_color(Level::Popover.rim());
         root.child(
             shape(div().relative().w(px(layout.width)).h(px(HEIGHT)))
+                .shadow(Level::Popover.shadow())
                 .bg(rgb(FILL))
                 .child(text)
                 .children(chips)

@@ -39,7 +39,7 @@ pub const WINDOW_HEIGHT: f32 = HEIGHT;
 use crate::tokens::link_target::PAD_X;
 use crate::tokens::link_target::RADIUS;
 use crate::tokens::link_target::RIM;
-use crate::tokens::link_target::RIM_COLOR;
+use crate::elevation::{Level, WINDOW_MARGIN};
 use crate::tokens::link_target::TEXT_SIZE;
 /// The address in the secondary text colour, but its site in the primary, so one that differs from
 /// the site it passes for stands out.
@@ -227,7 +227,7 @@ pub fn open(
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
-            size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)),
+            size(px(WINDOW_WIDTH + 2. * WINDOW_MARGIN), px(WINDOW_HEIGHT + 2. * WINDOW_MARGIN)),
         ))),
         titlebar: Some(TitlebarOptions {
             title: None,
@@ -338,7 +338,8 @@ impl LinkTarget {
 
 impl Render for LinkTarget {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let root = div().size_full().font_family(".SystemUIFont");
+        // The plate is inset by the margin, which its shadow draws in.
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
         let Some(plate) = self.drawn.clone() else {
             return root;
         };
@@ -360,13 +361,14 @@ impl Render for LinkTarget {
             .size_full()
             .rounded(px(RADIUS))
             .border(px(RIM))
-            .border_color(rgba(RIM_COLOR));
+            .border_color(Level::Popover.rim());
         root.child(
             div()
                 .relative()
                 .w(px(plate.width))
                 .h(px(HEIGHT))
                 .rounded(px(RADIUS))
+                .shadow(Level::Popover.shadow())
                 .bg((self.fill)(cx))
                 .child(text)
                 .child(rim),

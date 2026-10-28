@@ -11,7 +11,7 @@ use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode,
-    Hsla, Image, KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
+    Hsla, Image, KeyBinding, Pixels, Rgba, ScrollHandle, SharedString, TitlebarOptions, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
     img, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -66,8 +66,7 @@ const FIELD_INPUT: f32 = ROW_HEIGHT;
 use crate::tokens::command_bar::FIELD_INPUT_TEXT;
 use crate::tokens::command_bar::BESIDE_END;
 use crate::tokens::command_bar::FILL;
-pub(crate) use crate::tokens::command_bar::OUTLINE;
-pub(crate) use crate::tokens::command_bar::EDGE;
+use crate::elevation::Level;
 use crate::tokens::command_bar::LINE_COLOR;
 use crate::tokens::command_bar::TITLE;
 use crate::tokens::command_bar::DIM;
@@ -1529,7 +1528,7 @@ impl Render for CommandBar {
         };
         // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
         let hairline = 1. / window.scale_factor();
-        let edge = |inset: f32, width: f32, color: u32| {
+        let edge = |inset: f32, width: f32, color: Rgba| {
             div()
                 .absolute()
                 .top(px(inset))
@@ -1538,7 +1537,7 @@ impl Render for CommandBar {
                 .bottom(px(inset))
                 .rounded(px(radius - inset))
                 .border(px(width))
-                .border_color(rgb(color))
+                .border_color(color)
         };
         // The browser's shortcuts work here too, below the bar's own keys.
         div().key_context(shell::KEY_CONTEXT).size_full().child(
@@ -1628,9 +1627,8 @@ impl Render for CommandBar {
                     )
                 })
                 .children(self.a11y.then(|| self.announcer()))
-                // Arc's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
-                .child(edge(0., hairline, OUTLINE))
-                .child(edge(hairline, 1., EDGE)),
+                // The modal level's rim; its outline and shadow are the host's, round the window.
+                .child(edge(0., 1., Level::Modal.rim())),
         )
     }
 }

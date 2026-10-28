@@ -15,7 +15,7 @@ use std::{
 
 use browser::window_frames::{self, Frame};
 use browser::{
-    capture, command_bar, dialog, dock_dot, icon_picker, link_target, log, menu, offer, site_controls,
+    capture, command_bar, dialog, dock_dot, elevation::Level, icon_picker, link_target, log, menu, offer, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -43,6 +43,8 @@ mod settings;
 const COMMAND_BAR: c_int = 0;
 const ICON_PICKER: c_int = 1;
 const THEME_PICKER: c_int = 2;
+/// The Site Controls aren't one of the host's overlays, but its elevation call takes them too.
+const SITE_CONTROLS: c_int = 3;
 
 use browser::bc;
 
@@ -100,6 +102,14 @@ mod platform {
             overlay_view: *mut c_void,
             radius: f64,
             dismissed: extern "C" fn(),
+        );
+        pub fn host_set_overlay_elevation(
+            overlay: c_int,
+            outline_opacity: f32,
+            outline_radius: f64,
+            shadow_opacity: f32,
+            shadow_radius: f64,
+            shadow_drop: f64,
         );
         pub fn host_set_overlay_shape(overlay: c_int, corners: *const f64, count: usize);
         pub fn host_set_overlay_radius(overlay: c_int, radius: f64);
@@ -262,10 +272,14 @@ mod platform {
         pub fn host_toast_takes_clicks(takes: bool);
         pub fn host_show_toast(ui_view: *mut c_void);
         pub fn host_hide_toast();
-        pub fn host_add_tooltip(tooltip_view: *mut c_void, away: extern "C" fn());
+        pub fn host_add_tooltip(tooltip_view: *mut c_void, margin: f64, away: extern "C" fn());
         pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_tooltip(fade: f64);
-        pub fn host_add_link_target(link_view: *mut c_void, pointer: extern "C" fn(f64, f64));
+        pub fn host_add_link_target(
+            link_view: *mut c_void,
+            margin: f64,
+            pointer: extern "C" fn(f64, f64),
+        );
         pub fn host_show_link_target(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_link_target(fade: f64);
     }
@@ -2693,6 +2707,7 @@ fn finish_opening(
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
     {
         let radius = command_bar::RADIUS.into();
+        elevate(COMMAND_BAR, Level::Modal);
         unsafe { platform::host_add_overlay(COMMAND_BAR, view, radius, command_bar_dismissed) };
     }
     if let Some(picker) = icon_picker::open(Rc::new(PickerHost), recent_emoji(), cx)
@@ -2702,6 +2717,7 @@ fn finish_opening(
             .iter()
             .flat_map(|&(x, y, radius)| [x, y, radius].map(f64::from))
             .collect();
+        elevate(ICON_PICKER, Level::Modal);
         unsafe {
             platform::host_add_overlay(ICON_PICKER, view, 0., icon_picker_dismissed);
             platform::host_set_overlay_shape(ICON_PICKER, corners.as_ptr(), corners.len() / 3);
@@ -2712,6 +2728,7 @@ fn finish_opening(
     if let Some(picker) = theme_picker::open(Rc::new(ThemeHost), cx)
         && let Ok(view) = picker.update(cx, |_, window, _| ns_view(window))
     {
+        elevate(THEME_PICKER, Level::Modal);
         unsafe {
             platform::host_add_overlay(THEME_PICKER, view, 0., theme_picker_dismissed);
             platform::host_set_overlay_shrink(THEME_PICKER);
@@ -2745,6 +2762,7 @@ fn finish_opening(
         && let Ok(view) = panel.update(cx, |_, window, _| ns_view(window))
     {
         host.view.set(view);
+        elevate(SITE_CONTROLS, Level::Popover);
         unsafe { platform::host_add_site_controls(view, site_controls_dismissed) };
     }
     if let Some(menu) = menu::open(Rc::new(MenuHost), cx)
@@ -2752,16 +2770,18 @@ fn finish_opening(
     {
         unsafe { platform::host_add_menu_window(view, menu_pointer, menu_dismissed, menu_choose) };
     }
+    // Their windows reach this far past the plate, for its shadow.
+    let margin = f64::from(browser::elevation::WINDOW_MARGIN);
     if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
         && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
     {
-        unsafe { platform::host_add_tooltip(view, tooltip_away) };
+        unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
     if let Some(target) =
         link_target::open(Rc::new(LinkTargetHost), move |cx| fill(cx).unwrap_or_default(), cx)
         && let Ok(view) = target.update(cx, |_, window, _| ns_view(window))
     {
-        unsafe { platform::host_add_link_target(view, link_pointer) };
+        unsafe { platform::host_add_link_target(view, margin, link_pointer) };
     }
     if let Some(hud) = zoom_hud::open(Rc::new(HudHost), cx)
         && let Ok(view) = hud.update(cx, |_, window, _| ns_view(window))
@@ -2771,6 +2791,21 @@ fn finish_opening(
         unsafe { platform::host_add_hud(view, f64::from(right), f64::from(top), margin) };
     }
     drop_targets::open(cx);
+}
+
+/// Gives an overlay's shadow window its level's shadow, before the overlay is added.
+fn elevate(overlay: c_int, level: Level) {
+    let shadow = level.host_shadow();
+    unsafe {
+        platform::host_set_overlay_elevation(
+            overlay,
+            shadow.outline_opacity,
+            shadow.outline_radius,
+            shadow.shadow_opacity,
+            shadow.shadow_radius,
+            shadow.shadow_drop,
+        )
+    };
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {

@@ -10,9 +10,9 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, BoxShadow, ClickEvent, Context, FontWeight, Global, Hsla, Pixels, Point, Role,
+    App, Bounds, ClickEvent, Context, FontWeight, Global, Hsla, Pixels, Point, Role,
     SharedString, Task, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, hsla, linear_color_stop, linear_gradient, point,
+    WindowHandle, WindowKind, WindowOptions, div, linear_color_stop, linear_gradient, point,
     accesskit::Live, prelude::*, px, rgb, rgba, size, svg,
 };
 
@@ -37,7 +37,7 @@ use crate::tokens::toast::CHIP_HOVERED;
 use crate::tokens::toast::CHIP_GLYPH;
 use crate::tokens::toast::KEY_GAP;
 use crate::tokens::toast::KEY_COLOR;
-use crate::tokens::toast::EDGE;
+use crate::elevation::Level;
 use crate::tokens::toast::SHADE;
 pub use crate::tokens::toast::WINDOW_WIDTH;
 pub use crate::tokens::toast::WINDOW_HEIGHT;
@@ -55,7 +55,6 @@ const NOTE: &str = "To exit full screen, press ⎋.";
 use crate::tokens::toast::NOTE_HEIGHT;
 use crate::tokens::toast::NOTE_TOP;
 use crate::tokens::toast::TEXT;
-use crate::tokens::toast::SHADOW;
 const NOTE_RIGHT: f32 = CARD_INSET;
 const NOTE_TIME: Duration = Duration::from_millis(4800);
 
@@ -417,16 +416,6 @@ impl Toast {
     }
 }
 
-pub(crate) fn shadow(color: Hsla, y: f32, blur: f32) -> BoxShadow {
-    BoxShadow {
-        color,
-        offset: point(px(0.), px(y)),
-        blur_radius: px(blur),
-        spread_radius: px(0.),
-        inset: false,
-    }
-}
-
 impl Render for Toast {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div().size_full().flex().justify_end().items_start();
@@ -515,9 +504,9 @@ impl Render for Toast {
             .gap(px(CHIP_GAP))
             .rounded(px(RADIUS))
             .border(px(0.5))
-            .border_color(rgba(EDGE))
+            .border_color(Level::Popover.rim())
             .bg(linear_gradient(180., linear_color_stop(fill, 0.), linear_color_stop(bottom, 1.)))
-            .shadow(vec![shadow(hsla(0., 0., 0., SHADOW), 4., 12.)])
+            .shadow(Level::Popover.shadow())
             .opacity(pose.opacity)
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)

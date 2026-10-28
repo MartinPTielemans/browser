@@ -10,12 +10,13 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, AsyncApp, Bounds, BoxShadow, Context, Corners, MouseButton, Pixels, RenderImage,
-    Task, WeakEntity, Window, canvas, div, hsla, point, prelude::*, px, rgba, size,
+    AnyElement, AsyncApp, Bounds, Context, Corners, MouseButton, Pixels, RenderImage, Task,
+    WeakEntity, Window, canvas, div, hsla, point, prelude::*, px, size,
 };
 use image::{Frame, RgbaImage};
 
-use super::{CARD_RADIUS, Shell, new_space::ease_out, pane_frames, permission::EDGE};
+use super::{CARD_RADIUS, Shell, new_space::ease_out, pane_frames};
+use crate::elevation::Level;
 
 use crate::tokens::shell::picture::REST;
 /// It steps back from the card's size to REST as the page goes to the other window, and comes
@@ -24,9 +25,6 @@ const STEP_BACK: f32 = 0.2;
 const COME_BACK: f32 = 0.12;
 use crate::tokens::shell::picture::VEIL;
 use crate::tokens::shell::picture::RIM;
-use crate::tokens::shell::picture::SHADOW;
-use crate::tokens::shell::picture::SHADOW_BLUR;
-use crate::tokens::shell::picture::SHADOW_DROP;
 /// What a request for a picture is numbered from, above the numbers capture mode's count up from.
 const FIRST_REQUEST: u64 = 1 << 63;
 
@@ -289,13 +287,6 @@ impl Shell {
         let veil = VEIL * (1. - (scale - REST) / (1. - REST)).clamp(0., 1.);
         let image = ready.image.clone();
         let radius = px(CARD_RADIUS);
-        let shadow = BoxShadow {
-            color: hsla(0., 0., 0., SHADOW),
-            offset: point(px(0.), px(SHADOW_DROP)),
-            blur_radius: px(SHADOW_BLUR),
-            spread_radius: px(0.),
-            inset: false,
-        };
         let picture = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
@@ -315,7 +306,7 @@ impl Shell {
                 .w(bounds.size.width)
                 .h(bounds.size.height)
                 .rounded(radius)
-                .shadow(vec![shadow])
+                .shadow(Level::Resting.shadow())
                 .cursor_pointer()
                 // A press here is the picture's, not the window background's, which moves the
                 // window.
@@ -342,7 +333,7 @@ impl Shell {
                         .size_full()
                         .rounded(radius)
                         .border(px(RIM))
-                        .border_color(rgba(EDGE)),
+                        .border_color(Level::Resting.rim()),
                 )
                 .into_any_element(),
         )

@@ -17,7 +17,7 @@ use gpui::{
 };
 
 use crate::{
-    command_bar,
+    elevation::Level,
     shell::{KEY_CONTEXT, cubic_bezier},
     space_icon::{self, GLYPHS, SpaceIcon, has_icon},
     text_input::{self, TextInput},
@@ -774,25 +774,18 @@ pub(crate) fn outline(
     path.close();
 }
 
-/// A popover's card through `corners` at `origin`: its fill, and the command bar's edge round it.
+/// A popover's card through `corners` at `origin`: its fill, and the modal level's rim round it.
 pub(crate) fn paint_card(origin: Point<Pixels>, corners: &[(f32, f32, f32)], window: &mut Window) {
     let mut fill = PathBuilder::fill();
     outline(&mut fill, origin, corners, 0.);
     if let Ok(path) = fill.build() {
         window.paint_path(path, rgba(FILL));
     }
-    // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
-    let hairline = 1. / window.scale_factor();
-    // The command bar's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
-    for (inset, width, color) in [
-        (hairline / 2., hairline, command_bar::OUTLINE),
-        (hairline + 0.5, 1., command_bar::EDGE),
-    ] {
-        let mut edge = PathBuilder::stroke(px(width));
-        outline(&mut edge, origin, corners, inset);
-        if let Ok(path) = edge.build() {
-            window.paint_path(path, rgb(color));
-        }
+    // The modal level's rim, 1 pt inside the edge; its outline and shadow are the host's.
+    let mut edge = PathBuilder::stroke(px(1.));
+    outline(&mut edge, origin, corners, 0.5);
+    if let Ok(path) = edge.build() {
+        window.paint_path(path, Level::Modal.rim());
     }
 }
 

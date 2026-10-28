@@ -6,6 +6,7 @@
 use std::{cell::RefCell, collections::HashMap, ffi::CString, ffi::c_void};
 
 use browser::{
+    elevation::Level,
     log,
     shell,
     text_input::TextInput,
@@ -420,6 +421,7 @@ impl Render for FindBar {
                 .on_action(cx.listener(Self::select_all))
                 .on_action(cx.listener(Self::close))
                 .size_full()
+                .relative()
                 .flex()
                 .items_center()
                 .px(px(INSET))
@@ -440,7 +442,18 @@ impl Render for FindBar {
                 .child(status)
                 .when(!not_found, |bar| bar.child(previous).child(next))
                 .child(divider)
-                .child(close),
+                .child(close)
+                // The popover level's rim, its own layer so the border doesn't move the bar's
+                // parts. Its shadow is the window's, which the host's find bar still takes from
+                // the system.
+                .child(
+                    div()
+                        .absolute()
+                        .size_full()
+                        .rounded(px(RADIUS))
+                        .border(px(0.5))
+                        .border_color(Level::Popover.rim()),
+                ),
         )
     }
 }
