@@ -9,9 +9,12 @@
 //! hands the server first. Each tool call
 //! reaches the UI thread as an event, and the tools answer through the core, which checks each
 //! call on a tab with bc_agent_may_act. That check's answer is the call's activity-log entry.
+//! A payment, an order, a message sent or a bank's site asks the user first, in a card in each
+//! window: once, always or never on that site, for that agent.
 
 pub mod bridge;
 pub mod clients;
+pub mod page;
 mod server;
 pub mod tools;
 
@@ -44,6 +47,46 @@ pub struct TabInfo {
     pub url: SharedString,
 }
 
+/// What the core does in an agent's tab (bc_agent_page).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PageAction {
+    Snapshot,
+    Click,
+    Type,
+    TypeSubmit,
+    Key,
+    ScrollDown,
+    ScrollUp,
+    Back,
+    Forward,
+    Screenshot,
+}
+
+/// What an agent asks the user's leave for, as the card in each window asks it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Question {
+    pub id: u64,
+    /// The agent's name, as its Space has it.
+    pub agent: SharedString,
+    /// What it would do, following "wants to", such as "click “Place order” on shop.example".
+    pub what: SharedString,
+    /// Why that asks, such as "It looks like a payment or an order."
+    pub why: SharedString,
+}
+
+/// The user's answer to an agent's question.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Answer {
+    /// This once.
+    Once,
+    /// Now and whenever the agent asks on the site again.
+    Always,
+    /// Not now, nor when it asks on the site again.
+    Never,
+    /// Not now: the ×.
+    Dismiss,
+}
+
 /// What the agents ask of the browser: the core, in main.rs, or what a test makes up. Calls into
 /// the core take the app, as one may tell the windows something before it returns.
 pub trait Browser {
@@ -63,6 +106,26 @@ pub trait Browser {
     fn read_text(&self, tab: u64, request: u64);
     /// Tells the core the agent's client went (bc_agent_disconnected).
     fn disconnected(&self, agent: &str, cx: &mut App);
+    /// Opens `url`, http(s) only, in a new tab at the top of the agent's Space, not shown
+    /// (bc_agent_open_tab): the tab, or 0 if it couldn't.
+    fn open_tab(&self, agent: &str, url: &str, cx: &mut App) -> u64;
+    /// Loads `url`, http(s) only, in the agent's `tab` (bc_agent_navigate).
+    fn navigate(&self, agent: &str, tab: u64, url: &str, cx: &mut App) -> bool;
+    /// Asks the core to do `action` in the agent's `tab` (bc_agent_page), to the element whose
+    /// node is `element`, with `text`. Its answer comes to `Agents::page_done` with `request`.
+    fn page(
+        &self,
+        agent: &str,
+        tab: u64,
+        request: u64,
+        action: PageAction,
+        element: i64,
+        text: &str,
+    );
+    /// The URL the address bar goes to for `text`: the page it names, else a search for it.
+    fn url_for(&self, text: &str) -> Option<String>;
+    /// Shows the question for the user to answer, in every window, or takes it away (None).
+    fn ask(&self, question: Option<Question>, cx: &mut App);
 }
 
 /// What the server's threads hand the UI thread.
@@ -92,6 +155,8 @@ pub struct Call {
 pub struct ToolResult {
     pub text: String,
     pub error: bool,
+    /// A picture, as a JPEG in base64.
+    pub image: Option<String>,
 }
 
 impl ToolResult {
@@ -99,6 +164,7 @@ impl ToolResult {
         ToolResult {
             text: text.into(),
             error: false,
+            image: None,
         }
     }
 
@@ -106,12 +172,64 @@ impl ToolResult {
         ToolResult {
             text: text.into(),
             error: true,
+            image: None,
+        }
+    }
+
+    pub fn image(jpeg: String) -> Self {
+        ToolResult {
+            text: String::new(),
+            error: false,
+            image: Some(jpeg),
         }
     }
 
     pub fn to_json(&self) -> Value {
-        json!({ "content": [{ "type": "text", "text": self.text }], "isError": self.error })
+        match &self.image {
+            Some(jpeg) => json!({
+                "content": [{ "type": "image", "data": jpeg, "mimeType": "image/jpeg" }],
+                "isError": self.error,
+            }),
+            None => {
+                json!({ "content": [{ "type": "text", "text": self.text }], "isError": self.error })
+            }
+        }
     }
+}
+
+/// An agent's action, from its call until the core answers, and through the question it asks the
+/// user first if it does.
+struct Act {
+    agent: String,
+    /// What the activity log names it, as `tools::describe` knows it.
+    action: &'static str,
+    /// The tab, or 0 for open_tab, which makes it.
+    tab: u64,
+    /// Where open_tab and navigate go.
+    url: String,
+    page: PageAction,
+    element: i64,
+    text: String,
+    /// What the answer says it did, before the outline.
+    note: String,
+    /// What it would do, as a question has it.
+    what: String,
+    reply: mpsc::Sender<ToolResult>,
+}
+
+/// An action that waits on the core's answer.
+struct Acting {
+    agent: String,
+    tab: u64,
+    note: String,
+    reply: mpsc::Sender<ToolResult>,
+}
+
+/// An action that waits on the user.
+struct Asking {
+    question: Question,
+    site: String,
+    act: Act,
 }
 
 /// An entry of the activity log: what an agent did, or was refused, where and when.
@@ -164,6 +282,14 @@ pub struct Agents {
     next_request: u64,
     /// The tab each agent used last, which a call without a tab uses.
     current: HashMap<String, u64>,
+    /// The actions waiting on the core, by request.
+    acting: HashMap<u64, Acting>,
+    /// Each tab's refs, from its outlines.
+    refs: HashMap<u64, page::Refs>,
+    /// The actions waiting on the user, the first asked now.
+    asking: Vec<Asking>,
+    /// The sites where each agent may (true) or may never (false) do what asks first.
+    grants: HashMap<String, HashMap<String, bool>>,
 }
 
 /// The app's agents, once main.rs has made them.
@@ -203,6 +329,10 @@ impl Agents {
             reading: HashMap::new(),
             next_request: 1,
             current: HashMap::new(),
+            acting: HashMap::new(),
+            refs: HashMap::new(),
+            asking: Vec::new(),
+            grants: HashMap::new(),
         }
     }
 
@@ -222,6 +352,18 @@ impl Agents {
             })
             .collect();
         self.tokens_changed();
+        let grants = saved.get("grants").and_then(Value::as_object).into_iter().flatten();
+        self.grants = (grants.filter_map(|(agent, sites)| {
+            let sites = (sites.as_object()?.iter())
+                .filter_map(|(site, grant)| match grant.as_str()? {
+                    "always" => Some((site.clone(), true)),
+                    "never" => Some((site.clone(), false)),
+                    _ => None,
+                })
+                .collect();
+            Some((agent.clone(), sites))
+        }))
+        .collect();
         self.on = saved.get("on").and_then(Value::as_bool).unwrap_or(false);
         if self.on {
             self.start(cx);
@@ -355,6 +497,7 @@ impl Agents {
         self.tokens_changed();
         self.save();
         self.reading.retain(|_, (agent, _, _)| agent != client.id());
+        self.forget_waiting(client.id(), cx);
         if let Some((server, _)) = &self.server {
             server.disconnect(client.id());
         }
@@ -456,6 +599,7 @@ impl Agents {
             }
             Event::Bye { agent } => {
                 if self.live.remove(&agent) {
+                    self.forget_waiting(&agent, cx);
                     self.browser.disconnected(&agent, cx);
                     self.note(&agent, "disconnected", "", "");
                     cx.notify();
@@ -515,8 +659,343 @@ impl Agents {
                 self.reading.insert(request, (agent, tab, reply));
                 self.browser.read_text(tab, request);
             }
+            "open_tab" => {
+                let Some(url) = self.url_argument(&arguments, &reply) else {
+                    return;
+                };
+                let host = site(&url);
+                let act = Act {
+                    agent: agent.clone(),
+                    action: "open_tab",
+                    tab: 0,
+                    what: format!("open {host}"),
+                    url,
+                    page: PageAction::Snapshot,
+                    element: 0,
+                    text: String::new(),
+                    note: String::new(),
+                    reply,
+                };
+                if !is_web(&act.url) {
+                    return self.refuse(act, &host, WEB_ONLY, cx);
+                }
+                let risk = page::opening_risk(&host);
+                self.check(act, host, risk, cx);
+            }
+            "navigate" | "snapshot" | "click" | "type" | "press_key" | "scroll" | "screenshot" => {
+                let tab = match tools::tab_argument(&arguments) {
+                    Ok(Some(tab)) => tab,
+                    Ok(None) => match self.default_tab(client, cx) {
+                        Some(tab) => tab,
+                        None => {
+                            _ = reply.send(ToolResult::error(
+                                "You have no tab open yet. Open one with open_tab.",
+                            ));
+                            return;
+                        }
+                    },
+                    Err(why) => {
+                        _ = reply.send(ToolResult::error(why));
+                        return;
+                    }
+                };
+                self.page_tool(&agent, &tool, tab, &arguments, reply, cx);
+            }
             _ => _ = reply.send(ToolResult::error(format!("There's no tool {tool}."))),
         }
+    }
+
+    /// A tool that acts in a tab or looks at it: what it asks of the core, and whether it asks the
+    /// user first.
+    fn page_tool(
+        &mut self,
+        agent: &str,
+        tool: &str,
+        tab: u64,
+        arguments: &Value,
+        reply: mpsc::Sender<ToolResult>,
+        cx: &mut Context<Self>,
+    ) {
+        let host = site(&self.browser.tab(tab, cx).url);
+        let string = |name: &str| arguments.get(name).and_then(Value::as_str).map(str::to_string);
+        let element = match string("ref") {
+            Some(name) => match self.refs.get(&tab).and_then(|refs| refs.get(&name)) {
+                Some(element) => Some(element.clone()),
+                None => {
+                    _ = reply.send(ToolResult::error(format!(
+                        "There's no element {name} in tab {tab}. Use a ref from its latest outline."
+                    )));
+                    return;
+                }
+            },
+            None => None,
+        };
+        let label = |element: &page::Element| match element.name.is_empty() {
+            true => element.role.clone(),
+            false => format!("“{}”", page::clip(&element.name, 60)),
+        };
+        let mut act = Act {
+            agent: agent.into(),
+            action: "snapshot",
+            tab,
+            url: String::new(),
+            page: PageAction::Snapshot,
+            element: element.as_ref().map_or(0, |element| element.node),
+            text: String::new(),
+            note: String::new(),
+            what: String::new(),
+            reply,
+        };
+        let mut risk = None;
+        match tool {
+            "navigate" => {
+                let url = string("url").unwrap_or_default();
+                match url.trim() {
+                    "back" => {
+                        (act.action, act.page, act.note) =
+                            ("back", PageAction::Back, "Went back.".into())
+                    }
+                    "forward" => {
+                        (act.action, act.page, act.note) =
+                            ("forward", PageAction::Forward, "Went forward.".into())
+                    }
+                    _ => {
+                        let Some(url) = self.url_argument(arguments, &act.reply) else {
+                            return;
+                        };
+                        let to = site(&url);
+                        act.action = "navigate";
+                        act.what = format!("open {to}");
+                        act.url = url;
+                        if !is_web(&act.url) {
+                            return self.refuse(act, &to, WEB_ONLY, cx);
+                        }
+                        // What asks is the site it goes to.
+                        return self.check(act, to.clone(), page::opening_risk(&to), cx);
+                    }
+                }
+            }
+            "snapshot" => {}
+            "screenshot" => (act.action, act.page) = ("screenshot", PageAction::Screenshot),
+            "click" => {
+                let Some(element) = &element else {
+                    _ = act.reply.send(ToolResult::error("click needs a ref."));
+                    return;
+                };
+                act.action = "click";
+                act.page = PageAction::Click;
+                act.note = format!("Clicked {} {}.", element.role, label(element));
+                act.what = format!("click {} on {host}", label(element));
+                risk = page::risk(&host, &element.name);
+            }
+            "type" => {
+                let (Some(element), Some(text)) = (&element, string("text")) else {
+                    _ = act.reply.send(ToolResult::error("type needs a ref and text."));
+                    return;
+                };
+                act.action = "type";
+                if element.password {
+                    return self.refuse(act, &host, PASSWORDS, cx);
+                }
+                let submit = arguments.get("submit").and_then(Value::as_bool).unwrap_or(false);
+                act.page = if submit { PageAction::TypeSubmit } else { PageAction::Type };
+                act.note = format!(
+                    "Typed into {}{}.",
+                    label(element),
+                    if submit { " and pressed Enter" } else { "" }
+                );
+                act.what = format!("send “{}” on {host}", page::clip(&text, 60));
+                act.text = text;
+                risk = submit.then(|| page::risk(&host, "send")).flatten();
+            }
+            "press_key" => {
+                let key = string("key").unwrap_or_default();
+                if !page::KEYS.contains(&key.as_str()) {
+                    let keys = page::KEYS.join(", ");
+                    _ = act.reply.send(ToolResult::error(format!("key is one of {keys}.")));
+                    return;
+                }
+                act.action = "press_key";
+                act.page = PageAction::Key;
+                act.note = format!("Pressed {key}.");
+                act.what = format!("press Enter to send on {host}");
+                risk = (key == "Enter").then(|| page::risk(&host, "send")).flatten();
+                act.text = key;
+            }
+            _ => {
+                let up = string("direction").as_deref() == Some("up");
+                act.action = "scroll";
+                act.page = if up { PageAction::ScrollUp } else { PageAction::ScrollDown };
+                act.note = match &element {
+                    Some(element) => format!("Scrolled to {}.", label(element)),
+                    None => format!("Scrolled {}.", if up { "up" } else { "down" }),
+                };
+            }
+        }
+        self.check(act, host, risk, cx);
+    }
+
+    /// The `url` argument as the address bar takes it, or None once the call has its error.
+    fn url_argument(&self, arguments: &Value, reply: &mpsc::Sender<ToolResult>) -> Option<String> {
+        let typed = arguments.get("url").and_then(Value::as_str).unwrap_or_default();
+        let url = (!typed.trim().is_empty()).then(|| self.browser.url_for(typed)).flatten();
+        if url.is_none() {
+            _ = reply.send(ToolResult::error("url is a URL, or words to search for."));
+        }
+        url
+    }
+
+    /// Runs the action, unless what it does on `site` asks the user first (`why`): then it waits
+    /// for the user's answer, or the one they gave for good.
+    fn check(&mut self, act: Act, site: String, why: Option<&'static str>, cx: &mut Context<Self>) {
+        let Some(why) = why else {
+            return self.run(act, cx);
+        };
+        match self.grants.get(&act.agent).and_then(|sites| sites.get(&site)) {
+            Some(true) => return self.run(act, cx),
+            Some(false) => return self.refuse(act, &site, SAID_NEVER, cx),
+            None => {}
+        }
+        // A tab not the agent's is the core's to refuse, without a question.
+        let space = self.browser.agent_space(&act.agent);
+        if act.tab != 0 && !self.browser.space_tabs(space, cx).iter().any(|tab| tab.id == act.tab) {
+            return self.run(act, cx);
+        }
+        let name = Client::from_id(&act.agent).map_or(act.agent.as_str(), |client| client.name());
+        let question = Question {
+            id: self.next_request,
+            agent: name.to_string().into(),
+            what: act.what.clone().into(),
+            why: why.into(),
+        };
+        self.next_request += 1;
+        // check.sh reads this line.
+        log!("browser: agent {} asks {}: {}", act.agent, question.id, act.what);
+        self.asking.push(Asking {
+            question,
+            site,
+            act,
+        });
+        self.asked(cx);
+    }
+
+    /// The user's answer to the question `id`.
+    pub fn answer(&mut self, id: u64, answer: Answer, cx: &mut Context<Self>) {
+        let Some(at) = self.asking.iter().position(|asking| asking.question.id == id) else {
+            return;
+        };
+        let Asking { site, act, .. } = self.asking.remove(at);
+        // check.sh reads this line.
+        log!("browser: agent {} answered {id} {answer:?}", act.agent);
+        if let Answer::Always | Answer::Never = answer {
+            let sites = self.grants.entry(act.agent.clone()).or_default();
+            sites.insert(site.clone(), answer == Answer::Always);
+            self.save();
+        }
+        match answer {
+            Answer::Once | Answer::Always => self.run(act, cx),
+            Answer::Never | Answer::Dismiss => self.refuse(act, &site, SAID_NO, cx),
+        }
+        self.asked(cx);
+    }
+
+    /// The question asked now, if any.
+    pub fn question(&self) -> Option<&Question> {
+        self.asking.first().map(|asking| &asking.question)
+    }
+
+    fn asked(&self, cx: &mut Context<Self>) {
+        self.browser.ask(self.question().cloned(), cx);
+        cx.notify();
+    }
+
+    /// The agent went: what waits for it goes unanswered, its questions with it.
+    fn forget_waiting(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let asked = self.question().map(|question| question.id);
+        self.asking.retain(|asking| asking.act.agent != agent);
+        self.acting.retain(|_, acting| acting.agent != agent);
+        if self.question().map(|question| question.id) != asked {
+            self.asked(cx);
+        }
+    }
+
+    /// Answers the action with why it's refused, which the log has.
+    fn refuse(&mut self, act: Act, site: &str, why: &str, cx: &mut Context<Self>) {
+        self.note(&act.agent, act.action, site, why);
+        cx.notify();
+        let answer = match why {
+            SAID_NO => format!("The user said no: you can't {}. Don't try again.", act.what),
+            SAID_NEVER => {
+                format!("The user said never on {site}: you can't {}. Don't try again.", act.what)
+            }
+            _ => why.to_string(),
+        };
+        _ = act.reply.send(ToolResult::error(answer));
+    }
+
+    /// Does the action: the core checks it and logs it, and answers with the page.
+    fn run(&mut self, act: Act, cx: &mut Context<Self>) {
+        let Act {
+            agent,
+            action,
+            mut tab,
+            url,
+            page,
+            element,
+            text,
+            mut note,
+            reply,
+            ..
+        } = act;
+        if action == "open_tab" {
+            let site = site(&url);
+            tab = self.browser.open_tab(&agent, &url, cx);
+            if tab == 0 {
+                self.note(&agent, action, &site, "The tab couldn't open.");
+                cx.notify();
+                _ = reply.send(ToolResult::error("The tab couldn't open."));
+                return;
+            }
+            self.note(&agent, action, &site, "");
+            cx.notify();
+            self.current.insert(agent.clone(), tab);
+            note = format!("Opened tab {tab}.");
+        } else {
+            if !self.act(&agent, tab, action, &reply, cx) {
+                return;
+            }
+            if action == "navigate" && !self.browser.navigate(&agent, tab, &url, cx) {
+                _ = reply.send(ToolResult::error("The tab couldn't go there."));
+                return;
+            }
+        }
+        let request = self.next_request;
+        self.next_request += 1;
+        self.acting.insert(request, Acting { agent: agent.clone(), tab, note, reply });
+        self.browser.page(&agent, tab, request, page, element, &text);
+    }
+
+    /// The core's answer to the action `request`: with `error`, why it couldn't; else a
+    /// screenshot's JPEG in base64, or the nodes of the page's tree, which the answer outlines.
+    pub fn page_done(&mut self, request: u64, text: String, error: bool, cx: &mut Context<Self>) {
+        let Some(Acting { tab, note, reply, .. }) = self.acting.remove(&request) else {
+            return;
+        };
+        if error {
+            _ = reply.send(ToolResult::error(text));
+            return;
+        }
+        if !text.starts_with('[') {
+            _ = reply.send(ToolResult::image(text));
+            return;
+        }
+        let nodes: Vec<Value> = serde_json::from_str(&text).unwrap_or_default();
+        let info = self.browser.tab(tab, cx);
+        let outline = page::outline(&info, &nodes, self.refs.entry(tab).or_default());
+        _ = reply.send(ToolResult::text(match note.is_empty() {
+            true => outline,
+            false => format!("{note}\n\n{outline}"),
+        }));
     }
 
     /// Asks the core whether the agent may do `action` to `tab`, and logs the answer. A refusal
@@ -614,6 +1093,10 @@ impl Agents {
         self.server = None;
         self.trouble = None;
         self.reading.clear();
+        self.acting.clear();
+        if !std::mem::take(&mut self.asking).is_empty() {
+            self.browser.ask(None, cx);
+        }
         for agent in std::mem::take(&mut self.live) {
             self.browser.disconnected(&agent, cx);
             self.note(&agent, "disconnected", "", "");
@@ -633,11 +1116,33 @@ impl Agents {
         let agents: Vec<Value> = (self.agents.iter())
             .map(|agent| json!({ "client": agent.client.id(), "token": agent.token }))
             .collect();
-        let saved = json!({ "on": self.on, "agents": agents });
+        let grants: serde_json::Map<String, Value> = (self.grants.iter())
+            .map(|(agent, sites)| {
+                let sites = (sites.iter())
+                    .map(|(site, &may)| {
+                        (site.clone(), json!(if may { "always" } else { "never" }))
+                    });
+                (agent.clone(), Value::Object(sites.collect()))
+            })
+            .collect();
+        let saved = json!({ "on": self.on, "agents": agents, "grants": grants });
         if let Err(error) = clients::write_private(path, saved.to_string().as_bytes()) {
             log!("couldn't save the agents' settings: {error}");
         }
     }
+}
+
+/// What the log says of an action the user refused, now or for good on its site.
+const SAID_NO: &str = "You said no.";
+const SAID_NEVER: &str = "You said never on this site.";
+/// Why an agent can't open a page that isn't on the web.
+const WEB_ONLY: &str = "Agents may open only http and https pages.";
+/// Why an agent can't type into a password field.
+const PASSWORDS: &str =
+    "Password fields are off limits to agents: signing in is the user's to do. Ask them to.";
+
+fn is_web(url: &str) -> bool {
+    url.starts_with("https://") || url.starts_with("http://")
 }
 
 /// A new token: 32 random bytes, in hex.

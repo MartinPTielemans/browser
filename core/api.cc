@@ -13,6 +13,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/agent_page.h"
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
@@ -429,6 +430,76 @@ size_t bc_agent_disconnected(const char* agent) {
 
 bool bc_tab_take_back(bc_id tab) {
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
+}
+
+bc_id bc_agent_open_tab(const char* agent, const char* url) {
+  const GURL target(url ? url : "");
+  if (!agent || !*agent || !target.SchemeIsHTTPOrHTTPS()) {
+    return 0;
+  }
+  browser_core::Space* space = nullptr;
+  for (browser_core::Space* each : browser_core::Space::All()) {
+    if (each->agent() && each->agent()->id == agent) {
+      space = each;
+    }
+  }
+  // The window showing the agent's Space, or else the first of the user's, for its Browser.
+  browser_core::Window* window = nullptr;
+  for (browser_core::Window* each : browser_core::Window::All()) {
+    if (!each->off_the_record() && (!window || (space && each->space() == space->id()))) {
+      window = each;
+    }
+  }
+  Profile* profile = space ? browser_core::ProfileFor(space->profile()) : nullptr;
+  content::WebContents* contents =
+      window && profile ? window->OpenTab(profile, target, /*when_shown=*/false) : nullptr;
+  if (!contents) {
+    return 0;
+  }
+  const bc_id tab = browser_core::Tab::IdOf(contents);
+  space->Add(tab, /*opener=*/0, /*foreground=*/false);
+  browser_core::AgentActed(agent, tab);
+  if (browser_core::Host().tab_opened) {
+    browser_core::Host().tab_opened(browser_core::Host().context, window->id(), tab, 0, false);
+  }
+  return tab;
+}
+
+bool bc_agent_navigate(const char* agent, bc_id tab, const char* url) {
+  const GURL target(url ? url : "");
+  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || !target.SchemeIsHTTPOrHTTPS() ||
+      !browser_core::Window::PageOf(tab)) {
+    return false;
+  }
+  LoadInTab(tab, target, ui::PAGE_TRANSITION_TYPED);
+  return true;
+}
+
+void bc_agent_page(const char* agent,
+                   bc_id tab,
+                   uint64_t request,
+                   int action,
+                   int64_t element,
+                   const char* text) {
+  const bool may = agent && browser_core::Space::AgentMayAct(agent, tab);
+  // A tab the browser unloaded to save memory gets its page back, not shown.
+  content::WebContents* contents = may ? browser_core::Window::PageOf(tab) : nullptr;
+  if (!contents) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](bc_id tab, uint64_t request) {
+                         if (browser_core::Host().agent_page_done) {
+                           browser_core::Host().agent_page_done(
+                               browser_core::Host().context, tab, request,
+                               "The tab isn't in the agent's own Space.", true);
+                         }
+                       },
+                       tab, request));
+    return;
+  }
+  browser_core::AgentPage::CreateForWebContents(contents);
+  browser_core::AgentPage::FromWebContents(contents)->Act(request, action, element,
+                                                          text ? text : "");
 }
 
 bc_id bc_space_profile(bc_id id) {

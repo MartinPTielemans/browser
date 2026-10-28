@@ -190,7 +190,21 @@ fn the_server_answers_what_needs_no_browser() {
     let names: Vec<_> = (list["result"]["tools"].as_array().unwrap().iter())
         .map(|tool| tool["name"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(names, ["list_tabs", "read_page"]);
+    assert_eq!(
+        names,
+        [
+            "list_tabs",
+            "open_tab",
+            "navigate",
+            "snapshot",
+            "read_page",
+            "click",
+            "type",
+            "press_key",
+            "scroll",
+            "screenshot"
+        ]
+    );
     assert_eq!(list["id"], "a");
     client.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
     // The next line is the ping's, so the notification had none.
