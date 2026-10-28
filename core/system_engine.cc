@@ -646,7 +646,7 @@ void ReturnToChromium(Profile* profile, const GURL& url) {
   const std::string site = SiteOf(url);
   std::vector<bc_id> tabs;
   std::vector<platform::SystemPage*> pages;
-  for (content::WebContents* each : Tab::All()) {
+  for (content::WebContents* each : Tab::Pages()) {
     platform::SystemPage* page = Tab::FromWebContents(each)->system_page();
     if (each->GetBrowserContext() == profile && page && SiteOf(page->url()) == site) {
       tabs.push_back(Tab::IdOf(each));

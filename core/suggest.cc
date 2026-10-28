@@ -77,8 +77,9 @@ bc_id TabAt(const GURL& url, const Window& window, bc_id shown, const TemplateUR
   }
   for (const std::vector<bc_id>* tabs : lists) {
     for (bc_id tab : *tabs) {
-      content::WebContents* contents = Tab::FromId(tab);
-      if (tab != shown && contents && Stripped(Tab::PageUrl(contents), engines) == url) {
+      // With its page or without, which it gets back as the window shows it.
+      const Tab* open = Tab::Get(tab);
+      if (tab != shown && open && Stripped(open->Url(), engines) == url) {
         return tab;
       }
     }

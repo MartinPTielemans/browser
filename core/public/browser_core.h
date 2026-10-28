@@ -65,8 +65,8 @@ typedef struct bc_tab_state {
   bool can_go_forward;
   // The page is loading, so reload shows as stop. A page changing its own URL in place isn't.
   bool loading;
-  // The tab has no page loaded, as a tab put back and not yet shown, or a pinned tab closed. It
-  // loads once it's shown.
+  // The tab has no page loaded, as a tab put back and not yet shown, a pinned tab closed, or a tab
+  // unloaded unseen (bc_unload_idle_tabs). It loads once it's shown.
   bool unloaded;
   // The tab is pinned or a favorite, and its page isn't the one it was pinned or made a favorite
   // at. bc_tab_back_to_pinned_url goes back there.
@@ -980,6 +980,20 @@ BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);
 BC_EXPORT void bc_set_warn_moving_profiles(bool warn);
+// Whether a tab no window has shown for 2 hours lets go of its page, as the user chose, on by
+// default. It keeps its place, history, title and favicon, and is unloaded in its tab_state_changed
+// until it's shown and loads again. Checked as a window shows another tab or becomes key, and
+// under memory pressure, which unloads the tabs unseen longest first, whatever their age. Never a
+// tab shown, or pictured in a window while another shows it, nor one playing sound, capturing, in
+// picture-in-picture, with DevTools open, a beforeunload handler or typed form text, showing its
+// page in the system's engine, in a private window or in an agent's Space. Turning it on checks
+// at once. The core keeps it with the Spaces.
+BC_EXPORT bool bc_unload_idle_tabs(void);
+BC_EXPORT void bc_set_unload_idle_tabs(bool unload);
+// For check.sh: makes every tab look |seconds| longer unseen, so the check needn't wait 2 hours.
+// The next tab shown checks which to unload, as it would then, and from now each check logs
+// "browser: idle tabs checked" once it's done.
+BC_EXPORT void bc_age_tabs_for_testing(double seconds);
 
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
