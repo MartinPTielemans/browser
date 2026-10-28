@@ -1097,24 +1097,26 @@ beak-foot-radius = 3.0
 below-field = 9.0
 # Ours: how close to the browser window's edges the body comes.
 window-margin = 8.0
-# The see-through fill over the host's blur, fitted over the sidebar and over the page.
-fill = 0x7073874d
-text = 0xffffffcc
-secondary = 0xffffff73
+# The panel is the palette's overlay, opaque over the host's blur (#350), and what's on it the
+# palette's ink: plates at these alphas in Paper's terms, text and glyphs at these alphas raised
+# to the overlay's floors (palette.rs). Arc's are white over its see-through blue-grey. Its rim is
+# the popover level's, in the ink.
+text = 0.8
+secondary = 0.45
 # "Manage" and "More", which the headings show under the pointer.
-link = 0xffffff7a
+link = 0.48
 tile-width = 48.0
 tile-height = 32.0
 tile-radius = 6.0
-# An action tile is opaque, lighter at its top, with a light line along its top inside.
-tile-top = 0x282828ff
-tile-bottom = 0x161616ff
-tile-highlight = 0xffffff33
+# An action tile is a plate, stronger at its top, with a line of the ink along its top inside.
+tile-top = 0.1
+tile-bottom = 0.04
+tile-highlight = 0.2
 # The + tile's, an extension's and the lock button's plate.
-plate = 0xffffff0d
+plate = 0.05
 # Ours: a tile or the "…" button under the pointer, and a plate.
-hovered = 0xffffff0d
-plate-hovered = 0xffffff1a
+hovered = 0.05
+plate-hovered = 0.1
 # Ours: an extension's icon, as the toolbar's is.
 extension-icon = 16.0
 plus-glyph = 16.5
@@ -1124,16 +1126,14 @@ name-size = 13.0
 state-size = 13.0
 circle = 32.0
 row-pitch = 43.0
-# A permission's circle when it isn't allowed and when it is, with its glyph darker, as if cut
-# out of it.
-off = 0xffffff4d
-on = 0xffffffeb
-off-glyph = 0x00000080
-on-glyph = 0x000000a8
+# A permission's circle when it isn't allowed, a plate with the ink's glyph on it; allowed, it's
+# the accent with its label (#350), where Arc's is white with its glyph cut out.
+off = 0.3
+off-glyph = 0.9
 row-glyph = 17.0
 # Ours: a policy's row, which the user can't change.
 managed-opacity = 0.5
-divider = 0xffffff2b
+divider = 0.17
 footer = 32.0
 lock-radius = 6.0
 lock-left = 10.0
@@ -1145,7 +1145,7 @@ lock-right = 8.0
 lock-cap = 11.5
 # Ours: the lock button with no certificate to show.
 disabled-opacity = 0.5
-more-fill = 0x0000000a
+more-fill = 0.05
 more-glyph = 17.5
 heading-to-tiles = 23.0
 heading-to-rows = 25.0
@@ -1200,25 +1200,29 @@ margin = 8.0
 field-inset = 8.5
 field = 340.0
 field-radius = 12.0
-field-fill = 0xffff_ff08
-field-rim = 0xffff_ff33
+# The panel is the pickers' card (palette.rs), and what's on it the palette's ink at Arc's
+# alphas (#350): plates, and glyphs raised to the overlay's floors where Arc's don't read.
+field-fill = 0.03
+field-rim = 0.2
 dot-pitch = 4.3
+# The field's dots.
+dot-alpha = 0.25
 appearance-y = 49.0
 appearance-x = [137.9, 178.3, 218.7]
 appearance-plate = 31.5
 appearance-radius = 6.0
-appearance-chosen = 0xffff_ff14
+appearance-chosen = 0.08
 appearance-glyph = 16.0
-appearance-color = 0xffff_ffa6
+appearance-color = 0.65
 # − and +, at the field's foot.
 count-y = 316.5
 remove-x = 158.5
 add-x = 198.5
 count-glyph = 12.0
-count-color = 0xffff_ff59
-count-pressed = 0xffff_ffa6
-# Ours: Arc's with one colour or three wasn't recorded.
-count-disabled = 0xffff_ff1f
+count-color = 0.35
+count-pressed = 0.65
+# Ours: Arc's with one colour or three wasn't recorded. It needn't read, so it isn't raised.
+count-disabled = 0.12
 count-target = 24.0
 swatch-y = 380.0
 swatches = [0xf0eae5, 0xe59eba, 0x9e749b, 0xe1676f, 0xef8c63, 0xf2d46c, 0x73e49b, 0x7eb6d5, 0x656786]
@@ -1230,15 +1234,16 @@ slider-y = 452.0
 track-left = 18.5
 track-right = 242.5
 track-height = 16.0
-track-fill = 0xffff_ff1a
+track-fill = 0.1
 wave-left = 26.5
 wave-right = 235.5
 wave-periods = 7.0
 wave-stroke = 4.0
 # Half the wave's height at full intensity: 12.25 at 0.81.
 wave-amplitude = 15.0
-wave-on = 0xffff_ff8c
-wave-off = 0xffff_ff40
+# The wave left of the knob, and right of it.
+wave-on = 0.55
+wave-off = 0.25
 knob-width = 23.0
 knob-height = 55.5
 # The knob's middle at intensity 0 and at 1.
@@ -1246,23 +1251,21 @@ knob-left = 30.0
 knob-right = 231.0
 dial-ring = 32.0
 dial-dot = 4.0
-dial-swept = 0xffff_ff8a
-dial-dim = 0xffff_ff29
+# The dots the knob has swept, and the rest.
+dial-swept = 0.54
+dial-dim = 0.16
 dial-disc = 20.0
 dial-disc-fill = 0x0000_001a
-dial-disc-rim = 0xffff_ff4d
+dial-disc-rim = 0.3
 # How far from the dial's middle a press turns it (ours).
 dial-reach = 44.0
-# The handles: the main colour's 44 pt with a 3 pt white ring, the others 26 pt.
+# The handles: the main colour's 44 pt with a 3 pt ring of the ink (Arc's is white), the others
+# 26 pt.
 main-handle = 44.0
 main-ring = 3.0
 handle = 26.0
 # Ours: the small handles' ring isn't measured; the main one's, scaled.
 handle-ring = 2.0
-# The hint over an empty field, the ring round the chosen swatch, and the knobs.
-hint-color = 0xffffff
-swatch-ring-color = 0xffffff
-knob-color = 0xffffff
 
 [toast]
 height = 46.5

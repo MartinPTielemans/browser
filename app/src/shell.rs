@@ -2841,7 +2841,7 @@ impl Shell {
                 let width = self.segment_width(space.depth(tab), panes.len());
                 let segments = panes
                     .iter()
-                    .map(|&pane| self.segment(pane, width, pane == tab, pane == selected));
+                    .map(|&pane| self.segment(&self.palette, pane, width, pane == tab, pane == selected));
                 return row.child(
                     split_plate(segments)
                         .when(panes.contains(&selected), |plate| selected_plate(&self.palette, plate, 1., 0.)),
