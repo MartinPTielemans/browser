@@ -15,13 +15,15 @@
 # a space after its keyword, searches with that engine alone until ⌫ leaves, ↩ on a sum's row copies
 # its result, and a right-click in its field shows the field's menu, with Paste and Go. The command
 # bar's tests, in src/command_bar/tests.rs, have the rest of its keys and what the menu's items do.
-# Reports how long switches take.
+# A tab unseen for 2 hours lets go of its page as another is shown, unless it plays sound, its page
+# asks before it's left or a split shows it, and loads it back with its history once shown, and
+# Settings' Unload switch turns that off and on. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
-# does, and p in it plays a quiet tone until x. The app asks Chrome to trace its tab switches, timed
-# as Chrome times its own: from the tab strip's change to the first frame shown. The trace is
-# written as the app quits. In a handler attribute a bare open() is document.open(), which would
-# blank the page instead.
+# does, p in it plays a quiet tone until x, and u has it ask before it's left, or stop asking. The
+# app asks Chrome to trace its tab switches, timed as Chrome times its own: from the tab strip's
+# change to the first frame shown. The trace is written as the app quits. In a handler attribute a
+# bare open() is document.open(), which would blank the page instead.
 page='data:text/html,<title>loading</title>
 <button onclick=window.open() style="font:24px system-ui">Open a tab</button>
 <script>
@@ -38,6 +40,10 @@ onkeydown = e => {
     document.title = "playing";
   }
   if (e.key == "x") sound.close();
+  if (e.key == "u") {
+    onbeforeunload = onbeforeunload ? null : e => e.preventDefault();
+    document.title = onbeforeunload ? "asks" : "lets go";
+  }
 };
 </script>'
 log="$out/tabs.log"
@@ -225,6 +231,97 @@ expect_tabs "$c $b $a $d" "$d" "a tab the page opened"
 send key w cmd
 expect_tabs "$c $b $a" "$a" "after closing the page's tab"
 
+# A tab unseen for 2 hours lets go of its page as another is shown, keeping its row, and shown
+# again it loads its page back with its history. One that plays sound, whose page asks before it's
+# left, or that the window shows beside another in a split keeps its page. The driver's age makes
+# every tab 2 hours older, which the run can't wait. Settings' switch turns it off, and back on.
+# A copy of the page's tab, whose page asks before it's left.
+bar_command duplicate-tab "Duplicate Current Tab" duplicate
+expect "^browser: today $c $b $a [0-9][0-9]*\$" "Duplicate Current Tab didn't copy the tab under it"
+asks=$(today | cut -d' ' -f4)
+expect "^browser: title $asks ready\$" "the copy's page didn't draw"
+send click $page_point
+send key u
+expect "^browser: title $asks asks\$" "u didn't have the copy's page ask before it's left"
+# The page's tab plays its sound, muted.
+switch "3 cmd" "$a"
+bar_command toggle-mute "Mute/Unmute Tab" mute
+expect "^browser: page $a audible 0 muted 1\$" "Mute/Unmute Tab didn't mute the tab"
+send click $page_point
+send key p
+expect "^browser: page $a audible 1 muted 1\$" "the muted tab's sound didn't show"
+# example.org beside b's page.
+switch "2 cmd" "$b"
+send menu Add Split View
+expect '^browser: command bar shown$' "Add Split View didn't open the command bar"
+send type example.org
+send key return
+expect "^browser: panes $b [0-9][0-9]*\$" "Add Split View didn't show a page beside b's"
+n=$(grep '^browser: panes' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: loaded $n https://example.org/\$" "example.org didn't load beside b's page"
+# The x of each pane, left to right.
+send layout
+panes_x=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
+  grep -o 'WebContentsViewCocoa [0-9]*' | cut -d' ' -f2)
+left_x=$(echo "$panes_x" | head -1)
+right_x=$(echo "$panes_x" | tail -1)
+# Lines logged since the driver's command $1.
+since() {
+  sed -n "/^browser: drive $1: /,\$p" "$log"
+}
+c_page=$(grep "^browser: page $c back" "$log" | tail -1)
+send age 7200
+aged=$step
+send click $((left_x + 100)) 400
+expect "^browser: selected $b\$" "a click in the left pane didn't focus it"
+expect 'browser: idle tabs checked$' "showing a tab didn't check for tabs unseen 2 hours"
+since $aged | grep -q "browser: tab $c without its page\$" || fail "a tab unseen 2 hours kept its page"
+expect "^browser: page $c unloaded 1\$" "c's row didn't show its tab without its page"
+for kept in "$a playing sound" "$asks asking before it's left" "$b shown" "$n shown beside it"; do
+  since $aged | grep -q "browser: tab ${kept%% *} without its page\$" &&
+    fail "the tab ${kept#* } let go of its page"
+done
+../tools/window-screenshot.sh "$pid" "$out/idle-unloaded.png" || fail "no window to capture"
+switch "1 cmd" "$c"
+expect "browser: tab $c has its page\$" "c's tab didn't get its page back once shown"
+expect "^browser: loaded $c https://example.com/\$" "c's page didn't load once shown"
+expect "^$c_page\$" "c's tab came back without its history: $(grep "^browser: page $c back" "$log" | tail -1)"
+# With the switch off, a tab 2 hours unseen keeps its page, and turned on, it lets go.
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show General"
+send clickkey 592 209
+expect '^browser: unload idle tabs off$' "a click on Unload tabs' switch didn't turn it off"
+post clickkey 16 16
+expect '^browser: settings hidden$' "the close button didn't hide Settings"
+switch "2 cmd" "$b"
+send age 7200
+aged=$step
+send click $((right_x + 100)) 400
+expect "^browser: selected $n\$" "a click in the right pane didn't focus it"
+expect 'browser: idle tabs checked$' "showing a tab didn't check for tabs unseen 2 hours"
+since $aged | grep -q "browser: tab $c without its page\$" && fail "a tab let go of its page with the switch off"
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show General"
+send clickkey 592 209
+expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
+expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
+post clickkey 16 16
+expect '^browser: settings hidden$' "the close button didn't hide Settings"
+# Back to the page's tab alone, as the run had them.
+send key w cmd
+expect "^browser: tab $n closed\$" "⌘W didn't close the right pane"
+expect "^browser: panes $b\$" "⌘W on the right pane didn't leave b's page alone"
+switch "4 cmd" "$asks"
+send click $page_point
+send key u
+expect "^browser: title $asks lets go\$" "u didn't have the copy's page stop asking before it's left"
+send key w cmd
+expect_tabs "$c $b $a" "$a" "after closing the copy"
+send click $page_point
+send key x
+bar_command toggle-mute "Mute/Unmute Tab" mute
+expect "^browser: page $a audible [01] muted 0\$" "Mute/Unmute Tab didn't unmute the tab"
+
 switch "1 cmd" "$c"
 send key w cmd
 expect_tabs "$b $a" "$b" "after closing the top tab"
@@ -376,6 +473,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"
