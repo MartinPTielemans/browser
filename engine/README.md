@@ -89,6 +89,16 @@ ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patch
   - **How responses are checked.** CUP signatures and the CRX3 publisher key, as in Chrome.
 - **Extension kill switch.** The extension update check's `_malware`, `_policy_violation` and `_potentially_uws` answers blocklist or disable the extension, as in Chrome. That check covers only Web Store extensions, which install and update again through `patches/ours/chromium-extensions-web-store.patch`.
 
+## Crash reports
+
+Crashpad writes a minidump of every crash, on every platform, as Chrome's does
+(`patches/ours/chromium-crashpad-start.patch` and, on the Mac, `chromium-crashpad-mac-handler.patch`
+undo ungoogled-chromium's two switches that stopped it). Its handler never uploads one:
+ungoogled-chromium's hunk that takes out the handler's upload thread and its URL stays. The reports
+are in the profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On Windows,
+`chrome_elf` starts Crashpad before the core runs, so they're in Chromium's default folder,
+`%LOCALAPPDATA%\Chromium\User Data\Crashpad`.
+
 ## Rules
 
 - Keep patches small and separate. New code goes in new files under `//browser_core` where possible. Patches to Chrome's files add hooks; they don't move logic.
