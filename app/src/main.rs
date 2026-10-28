@@ -1869,14 +1869,18 @@ impl Browser for Engine {
         agents_core::update(move |agents, cx| agents.answer(question, answer, cx));
     }
 
-    fn agent_permissions(&self, space: u64, cx: &App) -> (Vec<(SharedString, bool)>, bool) {
+    fn agent_permissions(&self, space: u64, cx: &App) -> shell::AgentGrants {
         let agent = name(bc::bc_space_agent, space);
         let Some(agents) = browser::agents::global(cx) else {
-            return (Vec::new(), false);
+            return Default::default();
         };
         let agents = agents.read(cx);
         let client = browser::agents::Client::from_id(&agent);
-        (agents.grants(&agent), client.is_some_and(|client| agents.is_connected(client)))
+        shell::AgentGrants {
+            sites: agents.grants(&agent),
+            connected: client.is_some_and(|client| agents.is_connected(client)),
+            tabs: !agents.tabs_to_take(&agent, cx).is_empty(),
+        }
     }
 
     fn revoke_agent(&self, space: u64, site: Option<SharedString>, _: &mut App) {
@@ -1901,6 +1905,11 @@ impl Browser for Engine {
         if let Some(client) = browser::agents::Client::from_id(&agent) {
             agents_core::update(move |agents, cx| agents.disconnect(client, cx));
         }
+    }
+
+    fn take_back_agent_tabs(&self, space: u64, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        agents_core::update(move |agents, cx| agents.take_back_all(&agent, cx));
     }
 
     fn show_page_dialog(&self, shown: Option<shell::ShownPageDialog>, cx: &mut App) {

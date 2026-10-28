@@ -160,6 +160,10 @@ impl Browser for Made {
     fn hand_back(&self, tab: u64) -> bool {
         self.held.borrow_mut().remove(&tab)
     }
+
+    fn close_tab(&self, tab: u64, _: &mut App) {
+        self.tabs.borrow_mut().retain(|each| each.0 != tab);
+    }
 }
 
 /// The clients' configs as Connect and Disconnect left them.
@@ -1012,6 +1016,48 @@ fn a_pages_passkey_hands_its_tab_to_the_user(cx: &mut TestAppContext) {
     let status = agents.read_with(cx, |agents, _| agents.status());
     assert!(status.iter().all(|status| status.held.is_empty()));
     assert_eq!(log(&agents, "claude-code", cx)[0].0, "handed back");
+}
+
+/// close_tab closes the agent's own tab, which goes to the archive, with its entry in the log.
+/// The user's tab, and one the user holds, are refused.
+#[gpui::test]
+fn an_agent_closes_only_its_own_tabs(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let refused = call(&agents, "claude-code", "close_tab", json!({ "tab": 10 }), cx);
+    assert_eq!(refused.recv().unwrap().text, "The tab isn't in the agent's own Space.");
+    agents.update(cx, |agents, cx| agents.take_over("claude-code", 20, cx));
+    let held = call(&agents, "claude-code", "close_tab", json!({ "tab": 20 }), cx);
+    assert_eq!(held.recv().unwrap().text, HELD);
+    agents.update(cx, |agents, cx| agents.hand_back(20, cx));
+
+    let closed = call(&agents, "claude-code", "close_tab", json!({ "tab": 20 }), cx);
+    let closed = closed.recv().unwrap();
+    assert!(!closed.error);
+    assert_eq!(closed.text, "Closed tab 20. The user can still find it in the archive.");
+    assert!(browser.tabs.borrow().iter().all(|tab| tab.0 != 20));
+    let entry = log(&agents, "claude-code", cx).remove(0);
+    assert_eq!(entry, ("close_tab".into(), "example.com".into(), "".into()));
+    assert_eq!(tools::describe(&entry.0), "Closed a tab");
+}
+
+/// Take Back All Tabs, in the agent's Space's menu, takes over each tab there the user doesn't
+/// hold, which the agent is refused until the user hands it back.
+#[gpui::test]
+fn the_user_takes_back_all_of_an_agents_tabs(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    browser.tabs.borrow_mut().push((21, 2, "Shop", "https://shop.example/"));
+    agents.update(cx, |agents, cx| agents.take_over("claude-code", 21, cx));
+    let to_take = agents.read_with(cx, |agents, cx| agents.tabs_to_take("claude-code", cx));
+    assert_eq!(to_take, [20]);
+
+    agents.update(cx, |agents, cx| agents.take_back_all("claude-code", cx));
+    assert_eq!(*browser.held.borrow(), HashSet::from([20, 21]));
+    assert!(agents.read_with(cx, |agents, cx| agents.tabs_to_take("claude-code", cx)).is_empty());
+    let refused = call(&agents, "claude-code", "scroll", json!({ "tab": 20 }), cx);
+    assert_eq!(refused.recv().unwrap().text, HELD);
+    agents.update(cx, |agents, cx| agents.hand_back(20, cx));
+    let to_take = agents.read_with(cx, |agents, cx| agents.tabs_to_take("claude-code", cx));
+    assert_eq!(to_take, [20]);
 }
 
 /// run_steps takes its steps one at a time, each checked and logged as alone, under the run's one
