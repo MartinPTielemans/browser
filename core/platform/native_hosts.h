@@ -12,6 +12,10 @@
 
 namespace browser_core::platform {
 
+// The folder that holds the other browsers' folders, in place of the platform's: the check's own,
+// so it never reads or writes the user's. Not on Windows, whose browsers keep registry keys.
+inline constexpr char kOtherBrowsersDir[] = "other-browsers-dir";
+
 // The manifest of the host |name| that the first of Chrome's channels, Chromium, Edge's channels,
 // Brave, Arc and Vivaldi has, in that order and of those the platform has, or an empty path.
 // Blocks on the disk.
