@@ -2309,6 +2309,54 @@ unsafe extern "C" fn tab_key_before_page(
     false
 }
 
+/// Gives the keys the core held from a page since a shortcut that opens a field (bc_hold_keys) to
+/// the overlay of `view`, which now has the keyboard, in the order typed.
+#[cfg(target_os = "linux")]
+fn give_held_keys(view: *mut c_void) {
+    unsafe extern "C" fn take(held: *mut c_void, keys: *const bc::bc_key, count: usize) {
+        let held = unsafe { &mut *held.cast::<Vec<gpui::Keystroke>>() };
+        for key in unsafe { std::slice::from_raw_parts(keys, count) } {
+            let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+            let has = |flag| key.modifiers & flag != 0;
+            let modifiers = gpui::Modifiers {
+                control: has(bc::BC_MODIFIER_CONTROL),
+                alt: has(bc::BC_MODIFIER_ALT),
+                shift: has(bc::BC_MODIFIER_SHIFT),
+                platform: has(bc::BC_MODIFIER_META),
+                function: false,
+            };
+            held.push(shell::web_keystroke(&name, modifiers));
+        }
+    }
+    let mut held: Vec<gpui::Keystroke> = Vec::new();
+    unsafe { bc::bc_give_held_keys(Some(take), (&raw mut held).cast()) };
+    let Some(cx) = CX.with_borrow(Clone::clone).filter(|_| !held.is_empty()) else {
+        return;
+    };
+    // check.sh reads this line.
+    log!("browser: held {} key events", held.len());
+    // After the update that showed the overlay, which a key would come inside, and before GPUI
+    // reads the keys typed since, as the task runs before it dispatches its Wayland queue.
+    let app = cx.clone();
+    cx.foreground_executor()
+        .spawn(async move {
+            app.update(|cx| {
+                let overlay = cx.windows().into_iter().find(|window| {
+                    window.update(cx, |_, window, _| ns_view(window) == view).unwrap_or(false)
+                });
+                if let Some(overlay) = overlay {
+                    let typed = |_: gpui::AnyView, window: &mut Window, cx: &mut App| {
+                        for keystroke in held {
+                            window.dispatch_keystroke(keystroke, cx);
+                        }
+                    };
+                    overlay.update(cx, typed).ok();
+                }
+            })
+        })
+        .detach();
+}
+
 unsafe extern "C" fn tab_key_unhandled(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -4422,6 +4470,8 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         agent_activity: Some(agent_activity),
         #[cfg(target_os = "linux")]
         window_resized: Some(window_resized),
+        #[cfg(target_os = "linux")]
+        window_full_screen_changed: Some(window_full_screen_changed),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
         ..Default::default()
@@ -4455,6 +4505,22 @@ unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f6
     if let Some(ui_view) = ui_view {
         gpui_linux::resize_embedded(ui_view, width as f32, height as f32);
     }
+}
+
+/// A browser window has gone full screen or left it, which on Linux only Chromium's window hears.
+/// Windows' host can't hear it either: setting this there too stands in for its
+/// host_watch_full_screen.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_full_screen_changed(_: *mut c_void, window: bc::bc_id, entered: bool) {
+    // The core can say it during a call the app makes in an update, such as bc_window_restore's.
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
+        return;
+    };
+    cx.foreground_executor()
+        .spawn(async move {
+            update_window(window, |shell, cx| shell.set_full_screen(entered, cx));
+        })
+        .detach();
 }
 
 /// On Linux this program only says where the browser is: chrome runs it from libBrowser.so.

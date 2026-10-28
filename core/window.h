@@ -302,6 +302,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
   void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
   void OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) override;
+  void OnWidgetShowStateChanged(views::Widget* widget) override;
 
  private:
   class ClientView;
@@ -396,6 +397,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::vector<double> shares_;
   // The tab of the split that took the card, else 0: its shares_ are worked out from the frame.
   bc_id expanded_ = 0;
+  // Whether the window was full screen as the app last heard (window_full_screen_changed).
+  bool full_screen_ = false;
   uint32_t focus_color_ = 0;
   std::optional<uint32_t> page_color_;
   bc_id space_ = 0;

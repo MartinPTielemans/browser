@@ -2230,6 +2230,16 @@ bool Window::FullScreenForPage() const {
   return false;
 }
 
+void Window::OnWidgetShowStateChanged(views::Widget* widget) {
+  // Off the Mac only Chromium's window hears it, as the window manager answers its request.
+  const bool full_screen = widget->IsFullscreen();
+  if (full_screen == full_screen_ || !Host().window_full_screen_changed) {
+    return;
+  }
+  full_screen_ = full_screen;
+  Host().window_full_screen_changed(Host().context, id_, full_screen);
+}
+
 void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
   // The session keeps each regular window's frame, saved a while after it moves, so a crash
   // keeps it too.

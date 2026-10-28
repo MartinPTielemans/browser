@@ -649,6 +649,10 @@ typedef struct bc_host {
   // On Linux under Wayland: |window|'s content is |width| by |height| points now. The app's UI is a
   // subsurface there (bc_window_wayland_surface), which no compositor sizes.
   void (*window_resized)(void* context, bc_id window, double width, double height);
+  // |window| went full screen, or came back with |entered| false, once it's done, by the user, a
+  // page or the window manager: once each change. On Linux and Windows only Chromium's window hears
+  // it. The Mac's app hears it from AppKit and leaves this unset.
+  void (*window_full_screen_changed)(void* context, bc_id window, bool entered);
   // The agent with the id |agent| is done in |tab|: its session there ended for |why|, a
   // BC_AGENT_SESSION_ value. Also an entry for the activity log. Not for a tab that closed or left
   // the agent's Space, which tab_closed and spaces_changed tell.
@@ -726,6 +730,20 @@ BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 // neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
 // to have them back once the overlay gives them up (|takes| false).
 BC_EXPORT void bc_window_overlay_takes_keyboard(bc_id window, bool takes);
+
+// During tab_key_before_page: holds the keys typed in the tab's page after the one asked about,
+// which opens a field of the app's, such as ⌃L's address field. A shortcut the page gets first
+// comes back to the app only after the keys typed behind it reached the page, and they belong in
+// the field. bc_give_held_keys gives them to the field once it has the keyboard. If nothing takes
+// them in 400 ms, the page kept the shortcut, and it gets them as typed. Keys an input method
+// composes aren't held. For hosts that can't hold the keys themselves, as on Linux, where a page's
+// keys reach Chromium's window first.
+BC_EXPORT void bc_hold_keys(void);
+
+// Ends a hold (bc_hold_keys): |take| gets the keys held, |count| of them in the order typed, during
+// the call, for the field that now has the keyboard. Not called if nothing was held.
+BC_EXPORT void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                                 void* context);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its

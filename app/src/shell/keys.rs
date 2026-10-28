@@ -4,7 +4,7 @@
 //! change reaches them at once.
 
 use gpui::{
-    Action, App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction,
+    Action, App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, Modifiers, NoAction,
     OperatingSystem,
 };
 
@@ -158,6 +158,27 @@ fn pressed_off_the_mac(key: &str) -> Vec<String> {
     }
     let chrome = CHROME_ALT_KEYS.iter().filter(|&&(_, ours)| ours == Some(key));
     std::iter::once(pressed).chain(chrome.map(|&(chrome, _)| chrome.to_string())).collect()
+}
+
+/// The keystroke GPUI has for the key the web names `key`, such as "G" or "ArrowLeft", with
+/// `modifiers` held, and the text it types if it's a character without ctrl, alt or cmd: one the
+/// core held from the page for a field of the app's (bc_hold_keys).
+pub fn web_keystroke(key: &str, modifiers: Modifiers) -> Keystroke {
+    let name = match key {
+        "ArrowDown" => "down".to_string(),
+        "ArrowUp" => "up".to_string(),
+        "ArrowLeft" => "left".to_string(),
+        "ArrowRight" => "right".to_string(),
+        " " => "space".to_string(),
+        name => name.to_lowercase(),
+    };
+    let shortcut = modifiers.control || modifiers.alt || modifiers.platform;
+    let types = key.chars().count() == 1 && !shortcut;
+    Keystroke {
+        modifiers,
+        key: name,
+        key_char: types.then(|| key.to_string()),
+    }
 }
 
 /// The key `keystroke`, as this platform names it, as SHORTCUTS writes it: cmd-t for ctrl-t and

@@ -44,6 +44,8 @@ extern "C" unsigned g_unix_fd_add_full(int priority,
                                        void* data,
                                        void (*notify)(void* data)) __attribute__((weak));
 constexpr unsigned kGlibIoIn = 1;
+// The core's (core/public/browser_core.h), in the chrome that loads the app. Weak, as GLib's are.
+extern "C" void bc_hold_keys(void) __attribute__((weak));
 // Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
 // checks only the sources as urgent as the most urgent ready one, and the display's check is where
 // Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
@@ -145,6 +147,8 @@ void host_activate(void* ui_view) {}
 
 void host_watch_key_window(void (*changed)(void* ui_view)) {}
 
+// Only Chromium's window hears the window manager's answer, so the core reports it
+// (window_full_screen_changed).
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
@@ -183,7 +187,14 @@ bool host_can_draw_emoji(const char*) {
   return true;
 }
 
-void host_hold_keys(void) {}
+// A page's keys reach Chromium's window first, as GPUI's Wayland surface is under it and its X11
+// window doesn't have the focus, so the core holds them, and an overlay that takes the keyboard
+// takes them (overlays.rs).
+void host_hold_keys(void) {
+  if (bc_hold_keys) {
+    bc_hold_keys();
+  }
+}
 
 void host_add_offer(void* ui_view, void* offer_view, double right, double top) {}
 
