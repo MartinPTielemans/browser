@@ -36,6 +36,9 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod drop_targets;
 mod find_bar;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/overlays.rs"]
+mod overlays;
 mod reveal;
 mod settings;
 
