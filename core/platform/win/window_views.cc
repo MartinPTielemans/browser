@@ -326,8 +326,13 @@ bool KeyboardForPage(views::Widget* widget) {
     return false;
   }
   for (Slot& slot : views->panes()) {
-    if (!slot.widget || focus != views::HWNDForWidget(slot.widget.get())) {
+    HWND hwnd = slot.widget ? views::HWNDForWidget(slot.widget.get()) : nullptr;
+    if (!hwnd || (focus != hwnd && !IsChild(hwnd, focus))) {
       continue;
+    }
+    // A window of the pane's own, as a system page's WebView2 is, is the page's.
+    if (focus != hwnd) {
+      return true;
     }
     aura::client::FocusClient* client =
         aura::client::GetFocusClient(slot.widget->GetNativeView());

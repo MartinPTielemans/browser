@@ -133,3 +133,36 @@ unapply_history() {
     done
   done
 }
+
+# WebView2's SDK, at the version pins.ini names, in a Windows tree as //third_party/webview2 for
+# the system page: its header, the static loader and their BSD licence, with the README.chromium
+# the credits read. From NuGet, checked against the pinned sha256, and kept while its version does.
+webview2_sdk() {
+  local dir=$1/third_party/webview2 version sha256 tmp
+  version=$(git config -f "$engine/pins.ini" webview2.version)
+  sha256=$(git config -f "$engine/pins.ini" webview2.sha256)
+  [ "$(cat "$dir/VERSION" 2>/dev/null)" = "$version" ] && return
+  tmp=$(mktemp -d)
+  curl -fsSL -o "$tmp/sdk.nupkg" "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/$version/microsoft.web.webview2.$version.nupkg"
+  if ! echo "$sha256  $tmp/sdk.nupkg" | sha256sum -c --status; then
+    rm -rf "$tmp"
+    echo "WebView2's SDK $version doesn't match its sha256 in pins.ini" >&2
+    exit 1
+  fi
+  rm -rf "$dir"
+  mkdir -p "$dir/include" "$dir/x64"
+  unzip -q -j "$tmp/sdk.nupkg" build/native/include/WebView2.h -d "$dir/include"
+  unzip -q -j "$tmp/sdk.nupkg" build/native/x64/WebView2LoaderStatic.lib -d "$dir/x64"
+  unzip -q -j "$tmp/sdk.nupkg" LICENSE.txt -d "$dir"
+  rm -rf "$tmp"
+  cat >"$dir/README.chromium" <<README
+Name: Microsoft Edge WebView2 SDK
+URL: https://www.nuget.org/packages/Microsoft.Web.WebView2
+Version: $version
+License: BSD-3-Clause
+License File: LICENSE.txt
+Security Critical: yes
+Shipped: yes
+README
+  echo "$version" >"$dir/VERSION"
+}

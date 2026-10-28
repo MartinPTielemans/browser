@@ -286,10 +286,16 @@ pub trait Browser {
     }
     /// Opens `url` in Safari, leaving the tab as it is.
     fn open_in_safari(&self, _url: &str, _cx: &mut App) {}
-    /// Whether the platform has Safari's engine for a tab's page, which plays the protected video
-    /// Chromium can't: macOS 14 or later. Where it hasn't, the note offers Safari instead.
+    /// Whether the platform has a system engine for a tab's page, which plays the protected video
+    /// Chromium can't: Safari's on macOS 14 or later, or Microsoft Edge's WebView2 on Windows
+    /// where Chromium's PlayReady can't play. Where it hasn't, the note offers Safari instead.
     fn can_use_system_engine(&self) -> bool {
         false
+    }
+    /// Whether `tab`'s protected-media note offers the system's engine: where it plays what the
+    /// page was refused, as WebView2 does on Windows only where Chromium's PlayReady can't.
+    fn system_engine_offered(&self, _tab: u64) -> bool {
+        self.can_use_system_engine()
     }
     /// Shows `tab`'s page in Safari's engine, in the tab, and has its profile keep the site for it.
     /// The user's: agents get none.

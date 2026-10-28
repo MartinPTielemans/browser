@@ -1,7 +1,8 @@
-// A page shown by the system's own web view in place of Chromium's: WebKit's on the Mac. A tab
-// switches to one for a site whose protected video only the system's engine plays
-// (docs/decisions.md, decision 1). The tab keeps its id, its Space and its place; only its pane's
-// view and what it reports come from here.
+// A page shown by the system's own web view in place of Chromium's: WebKit's on the Mac, and on
+// Windows Microsoft Edge's WebView2, where Chromium's PlayReady can't play. A tab switches to one
+// for a site whose protected video only the system's engine plays (docs/decisions.md, decision 1).
+// The tab keeps its id, its Space and its place; only its pane's view and what it reports come from
+// here.
 
 #ifndef BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_
 #define BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_
@@ -76,9 +77,17 @@ class SystemPage {
     virtual ~Delegate() = default;
   };
 
-  // Whether the platform has a system engine that keeps a store per profile: macOS 14 or later.
-  // Answers without loading it.
+  // Whether the platform has a system engine that keeps a store per profile: macOS 14 or later, or
+  // Windows with WebView2's runtime where Chromium's PlayReady can't play everywhere. Answers
+  // without loading it.
   static bool Available();
+  // Whether the built-in list of streaming services opens in it from their first load: where
+  // Chromium can play none of them. Elsewhere only a site the user switched, from the note, does.
+  static bool OpensListedSites();
+  // Whether the note and Site Controls offer it for a page that was refused |system|, a key system
+  // as the core names it, in a private window or not: where it plays what Chromium couldn't. An
+  // empty |system| is a site whose note was closed, offered where a PlayReady site would be.
+  static bool Offered(std::string_view system, bool private_window);
   // A page for |url| in |store|, with the system's engine loaded the first time. It loads nothing
   // until Start. Null where there's none.
   static std::unique_ptr<SystemPage> Create(const SystemStore& store,

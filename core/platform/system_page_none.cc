@@ -6,10 +6,17 @@
 
 namespace browser_core::platform {
 
-// No system engine off the Mac: Windows plays protected video with Chromium's own PlayReady
-// (decision 1).
+// No system engine on Linux, where Chromium's own Widevine plays (decision 1).
 
 bool SystemPage::Available() {
+  return false;
+}
+
+bool SystemPage::OpensListedSites() {
+  return false;
+}
+
+bool SystemPage::Offered(std::string_view, bool) {
   return false;
 }
 

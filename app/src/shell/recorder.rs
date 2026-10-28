@@ -105,9 +105,10 @@ pub(super) struct Recorder {
     pub(super) undo_toast: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
     /// The Edit menu's Undo and Redo titles it was last given.
     pub(super) edit_titles: RefCell<(Option<String>, Option<String>)>,
-    /// The platform has Apple's engine for a tab's page.
-    /// The platform has Safari's engine for a tab's page.
+    /// The platform has a system engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
+    /// Whether the core offers it for a note, if not wherever there's one.
+    pub(super) offered: Cell<Option<bool>>,
     /// What it says PlayReady needs.
     pub(super) playready: Cell<super::PlayReady>,
     /// The shell it answers each picture asked of it for with this picture, at once, inside the
@@ -407,6 +408,10 @@ impl Browser for Recorder {
 
     fn can_use_system_engine(&self) -> bool {
         self.system_engine.get()
+    }
+
+    fn system_engine_offered(&self, _: u64) -> bool {
+        self.offered.get().unwrap_or(self.system_engine.get())
     }
 
     fn playready_needs(&self) -> super::PlayReady {
