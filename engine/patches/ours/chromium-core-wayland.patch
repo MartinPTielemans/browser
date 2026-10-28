@@ -1,0 +1,159 @@
+Lets the app's UI share Chromium's Wayland display on Linux (decision 3), as a subsurface of the
+browser window: chrome exports its libwayland's client API, so the app's calls reach the copy the
+display came from; Chromium tags its surfaces, so pointer events on the UI's aren't taken for its
+own; the core can reach a window's surface through the WaylandProxy, made outside tests too; and
+a hook runs the core after each dispatch of Chromium's events, for the UI's that its reads queued.
+Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
+
+--- a/build/linux/chrome.map
++++ b/build/linux/chrome.map
+@@ -115,6 +115,10 @@ global:
+   # The core's C API, for the app the core loads (browser_core/platform/linux/app_library.cc).
+   bc_*;
+ 
++  # libwayland's client API, which the app's UI calls on the display it shares with Chromium:
++  # one copy, as a wl_display works only with the library that made it.
++  wl_*;
++
+ local:
+   *;
+ };
+--- a/third_party/wayland/BUILD.gn
++++ b/third_party/wayland/BUILD.gn
+@@ -64,7 +64,7 @@ if (!use_system_libwayland) {
+ 
+     configs -= [ "//build/config/compiler:chromium_code" ]
+     configs += [
+-      ":wayland_build_workaround_hide_symbols",
++      # browser_core: kept visible, so chrome can export libwayland's client API (chrome.map).
+       "//build/config/compiler:no_chromium_code",
+     ]
+ 
+@@ -161,13 +161,17 @@ if (!use_system_libwayland) {
+ 
+     configs -= [ "//build/config/compiler:chromium_code" ]
+     configs += [
+-      ":wayland_build_workaround_hide_symbols",
++      # browser_core: kept visible, so chrome can export libwayland's client API (chrome.map).
+       ":wayland_build_workaround_private_config",
+       "//build/config/compiler:no_chromium_code",
+       "//build/config/linux/libffi",
+     ]
+ 
+     public_configs = [ ":wayland_config" ]
++
++    # browser_core: the app's UI, in a library chrome loads, shares this copy, whose dispatch calls
++    # the UI's handlers there, which Clang's indirect-call check traps on.
++    cflags = [ "-fno-sanitize=cfi-icall" ]
+   }
+ 
+   # TODO(crbug.com/362674381) Convert to testonly.
+--- a/ui/events/platform/wayland/wayland_event_watcher.cc
++++ b/ui/events/platform/wayland/wayland_event_watcher.cc
+@@ -20,6 +20,12 @@
+ #include "components/crash/core/common/crash_key.h"
+ #include "third_party/re2/src/re2/re2.h"
+ 
++// browser_core: other code on Chromium's display, the app's UI, whose events Chromium's reads leave
++// waiting in their own queue. Runs after each dispatch and round trip, only from glib's dispatch
++// phase: never inside its prepare or check, where Chromium holds a prepared read that another
++// reader on the display would wait on forever.
++void (*g_browser_core_wayland_dispatched)() = nullptr;
++
+ namespace ui {
+ 
+ namespace {
+@@ -197,6 +203,9 @@ void WaylandEventWatcher::RoundTripQueue() {
+     WlDisplayCancelRead();
+   }
+   wl_display_roundtrip_queue(display_, event_queue_);
++  if (g_browser_core_wayland_dispatched) {
++    g_browser_core_wayland_dispatched();
++  }
+ }
+ 
+ void WaylandEventWatcher::StopProcessingEvents() {
+@@ -300,6 +309,9 @@ void WaylandEventWatcher::WlDisplayDispatchPendingQueueInternal(
+   if (wl_display_dispatch_queue_pending(display_, event_queue_) < 0) {
+     WlDisplayCheckForErrors();
+   }
++  if (g_browser_core_wayland_dispatched) {
++    g_browser_core_wayland_dispatched();
++  }
+ }
+ 
+ void WaylandEventWatcher::WlDisplayCheckForErrors() {
+--- a/ui/ozone/platform/wayland/BUILD.gn
++++ b/ui/ozone/platform/wayland/BUILD.gn
+@@ -674,6 +674,8 @@ component("wayland_proxy") {
+   visibility += [
+     ":ui_test_support",
+     ":wayland",
++    # Puts the app's UI in a window's surface (browser_core/platform/linux/wayland.cc).
++    "//browser_core/*",
+   ]
+ 
+   sources = [
+--- a/ui/ozone/platform/wayland/common/wayland_util.cc
++++ b/ui/ozone/platform/wayland/common/wayland_util.cc
+@@ -270,9 +270,18 @@ gfx::SizeF ApplyWaylandTransform(const gfx::SizeF& size,
+   return result;
+ }
+ 
++// browser_core: what TagSurface marks Chromium's surfaces with; its address is the tag.
++const char* const kChromiumSurfaceTag = "chromium";
++
++void TagSurface(wl_surface* surface) {
++  wl_proxy_set_tag(reinterpret_cast<wl_proxy*>(surface), &kChromiumSurfaceTag);
++}
++
+ ui::WaylandWindow* RootWindowFromWlSurface(wl_surface* surface) {
+   if (!surface)
+     return nullptr;
++  if (wl_proxy_get_tag(reinterpret_cast<wl_proxy*>(surface)) != &kChromiumSurfaceTag)
++    return nullptr;
+   auto* wayland_surface = static_cast<ui::WaylandSurface*>(
+       wl_proxy_get_user_data(reinterpret_cast<wl_proxy*>(surface)));
+   if (!wayland_surface)
+--- a/ui/ozone/platform/wayland/common/wayland_util.h
++++ b/ui/ozone/platform/wayland/common/wayland_util.h
+@@ -94,7 +94,12 @@ gfx::RectF ApplyWaylandTransform(const gfx::RectF& rect,
+ gfx::SizeF ApplyWaylandTransform(const gfx::SizeF& size,
+                                  wl_output_transform transform);
+ 
+-// Returns the root WaylandWindow for the given wl_surface.
++// browser_core: marks |surface| as one of Chromium's. Another client of the display in this process,
++// the app's UI, gets the same pointer and keyboard events, and its surfaces' user data isn't a
++// WaylandSurface.
++void TagSurface(wl_surface* surface);
++
++// Returns the root WaylandWindow for the given wl_surface, or null if it isn't Chromium's.
+ ui::WaylandWindow* RootWindowFromWlSurface(wl_surface* surface);
+ 
+ // Returns bounds of the given window, adjusted to its subsurface. We need to
+--- a/ui/ozone/platform/wayland/host/wayland_connection.cc
++++ b/ui/ozone/platform/wayland/host/wayland_connection.cc
+@@ -286,8 +286,8 @@ bool WaylandConnection::Initialize(bool use_threaded_polling) {
+   if (!seat_)
+     LOG(WARNING) << "No wl_seat object. The functionality may suffer.";
+ 
+-  if (UseTestConfigForPlatformWindows())
+-    wayland_proxy_ = std::make_unique<wl::WaylandProxyImpl>(this);
++  // browser_core: always, as the core reaches a window's surface through it to put the app's UI in.
++  wayland_proxy_ = std::make_unique<wl::WaylandProxyImpl>(this);
+   return true;
+ }
+ 
+@@ -345,8 +345,10 @@ bool WaylandConnection::IsKeyboardAvailable() const {
+ 
+ wl::Object<wl_surface> WaylandConnection::CreateSurface() {
+   DCHECK(compositor_);
+-  return wl::Object<wl_surface>(
+-      wl_compositor_create_surface(compositor_.get()));
++  wl::Object<wl_surface> surface(wl_compositor_create_surface(compositor_.get()));
++  // browser_core: the app's UI shares the display (common/wayland_util.h).
++  wl::TagSurface(surface.get());
++  return surface;
+ }
+ 
+ void WaylandConnection::RegisterGlobalObjectFactory(
