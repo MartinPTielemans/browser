@@ -8,6 +8,7 @@ use std::{cell::RefCell, collections::HashMap, ffi::CString, ffi::c_void};
 use browser::{
     elevation::Level,
     log,
+    palette::{Palette, STATE_HOVERED, STATE_PRESSED},
     shell,
     text_input::TextInput,
 };
@@ -39,7 +40,6 @@ use browser::tokens::find_bar::COUNT_GAP;
 use browser::tokens::find_bar::GLYPH;
 use browser::tokens::find_bar::GLYPH_COLOR;
 use browser::tokens::find_bar::GLYPH_DISABLED;
-use browser::tokens::find_bar::HOVERED;
 use browser::tokens::find_bar::DIVIDER;
 use browser::tokens::find_bar::DIVIDER_HEIGHT;
 use browser::tokens::find_bar::TEXT;
@@ -347,7 +347,11 @@ impl FindBar {
             .items_center()
             .justify_center()
             .rounded(px(RADIUS))
-            .when(enabled, |button| button.hover(|style| style.bg(rgba(HOVERED))))
+            .when(enabled, |button| {
+                button
+                    .hover(|style| style.bg(Palette::on_dark(STATE_HOVERED)))
+                    .active(|style| style.bg(Palette::on_dark(STATE_PRESSED)))
+            })
             .child(svg().path(icon).size(px(GLYPH)).text_color(rgba(if enabled {
                 GLYPH_COLOR
             } else {

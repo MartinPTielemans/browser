@@ -20,6 +20,7 @@ use gpui::{
 
 use crate::{bc, ns_view, platform, show_menu};
 use browser::menu::Look;
+use browser::palette::{Palette, STATE_HOVERED, STATE_PRESSED, state_alpha};
 
 actions!(settings, [CloseSettings]);
 
@@ -86,7 +87,8 @@ use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
-use browser::tokens::settings::CHIP_HOVERED;
+/// The chip's plate, as Paper's alpha, for the ladder to go over.
+const CHIP_ALPHA: f32 = (CHIP & 0xff) as f32 / 255.;
 use browser::tokens::settings::CHIP_RADIUS;
 use browser::tokens::settings::RESTORE_RADIUS;
 use browser::tokens::settings::TILE_GLYPH_COLOR;
@@ -930,14 +932,16 @@ impl Settings {
                 .items_center()
                 .justify_center()
                 .rounded(px(RESTORE_RADIUS))
-                .hover(|restore| restore.bg(rgba(CHIP)))
+                .hover(|restore| restore.bg(Palette::on_dark(STATE_HOVERED)))
+                .active(|restore| restore.bg(Palette::on_dark(STATE_PRESSED)))
                 .child("↺")
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
             .id(command.name())
             .when(recording, |chip| chip.border_1().border_color(accent))
-            .hover(|chip| chip.bg(rgba(CHIP_HOVERED)))
+            .hover(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_HOVERED))))
+            .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
             .on_click(cx.listener(move |settings, _, window, cx| {
                 settings.start_recording(command, window, cx)
             }));
