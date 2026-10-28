@@ -29,8 +29,11 @@ fi
 open_from_bar example.com
 b=$tab
 expect_tabs "$b $a" "$b" "after opening example.com"
-# The page hidden is pictured once the switch is quiet, never the one shown.
-expect "^browser: hover card pictured $a\$" "the tab hidden wasn't pictured once the switch was quiet"
+# The page hidden is pictured once the switch is quiet, drawn unseen for it, never the one shown.
+expect "^browser: hover card \(not \)\{0,1\}pictured $a\$" \
+  "the core never answered for the tab hidden once the switch was quiet"
+none_since "^browser: hover card not pictured $a\$" \
+  || fail "the core's picture of the tab hidden came back empty once the switch was quiet"
 none_since "^browser: hover card pictured $b\$" || fail "the tab shown was pictured"
 
 # Resting on the hidden tab's row, its card shows with its picture beside the rows, where the UI

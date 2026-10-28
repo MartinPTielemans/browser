@@ -1385,8 +1385,9 @@ BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_re
 // own, never inside this call. Its pixels as GPUI draws them rather than a PNG, which takes longer
 // to make and to read than the move it's shown for. With |width| and |height| above 0, it's scaled
 // down to fit them, its shape kept, as the compositor copies it, for a small picture such as a
-// sidebar tab's hover card shows of a tab that's hidden: the last frame drawn before it was. The
-// user's: agents get none, as with bc_tab_capture.
+// sidebar tab's hover card shows of a tab that's hidden, which draws once for it, unseen and still
+// hidden to the page, as Chrome's tab previews do. The user's: agents get none, as with
+// bc_tab_capture.
 BC_EXPORT void bc_tab_picture(bc_id tab, uint64_t request, int width, int height);
 
 // Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the
