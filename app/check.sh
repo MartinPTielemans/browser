@@ -12,6 +12,8 @@
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
 # another; BROWSER_DISPLAY=main opens it on the main display.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
+# BROWSER_PROFILE_DIR gives the app and the runs another profile directory, such as a new one for
+# each run, since one an earlier run left can lack what a run expects, such as its search engines.
 # On Windows it runs under Git Bash, with python3 on the PATH, on the app the engine's chrome.exe
 # runs from build/Browser. The runs need what the Windows driver (platform/windows/drive.cc) does
 # so far: load, tabs and dialogs.
@@ -58,6 +60,10 @@ else
   browser="$app/Contents/MacOS/Browser"
   procs="$app/Contents"
   profile_dir="$HOME/Library/Caches/browser-app"
+fi
+if [ -n "${BROWSER_PROFILE_DIR:-}" ]; then
+  profile_dir="$BROWSER_PROFILE_DIR"
+  ! windows || profile_dir="$(cygpath -u "$profile_dir")"
 fi
 # Another Browser holds the profile directory, so this one couldn't start.
 if pgrep -f "$procs" > /dev/null; then
