@@ -113,7 +113,9 @@ profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On W
 - **What's sent.** With Send Crash Reports on, the core sends each report not yet sent to the build's
   collector, the minidump alone, without cookies, and deletes it once the collector has it. One
   that fails waits for the next launch: the handler's own upload thread would wake every 15
-  minutes, and no timer replaces it. Turning it off deletes the reports not yet sent.
+  minutes, and no timer replaces it. Turning it off deletes the reports not yet sent. While it's
+  off, the launch after the browser crashed offers once to send that crash's report alone, and
+  Don't Send deletes it.
 - **Pages left out.** Chrome records the page's URL in crash keys; the core's content client
   doesn't. Reports leave out the memory that pointers on the stack lead to, which can hold a
   page's, and Chrome's dumps of processes that didn't crash. The stacks can still hold a URL or
