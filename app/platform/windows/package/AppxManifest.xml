@@ -27,6 +27,18 @@
       <uap:VisualElements DisplayName="@NAME@" Description="@NAME@" BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png" />
+      <!-- So a packaged ilo is a default-browser choice in Settings. A packaged app's http/https
+           UserChoice names the package's own generated ProgId, not the installer's IloHTML, so
+           host_is_default_browser matches only the per-user installer; packaged detection waits for
+           the engine that lets the MSIX run (it's app-only at 0.1.0). -->
+      <Extensions>
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="http" />
+        </uap:Extension>
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="https" />
+        </uap:Extension>
+      </Extensions>
     </Application>
   </Applications>
   <Capabilities>
