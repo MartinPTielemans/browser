@@ -28,6 +28,11 @@ use crate::tokens::shell::picture::RIM;
 
 static REQUESTS: AtomicU64 = AtomicU64::new(1);
 
+/// The id of a new request for a picture, which no other request of the app's has.
+pub(crate) fn next_request() -> u64 {
+    REQUESTS.fetch_add(1, Ordering::Relaxed)
+}
+
 thread_local! {
     /// The pictures the windows show, by tab, held by the windows alone: the window a page leaves
     /// shows at once the one the window taking it showed, of the page as it was here.
@@ -67,6 +72,15 @@ impl PagePicture {
             image: Arc::new(RenderImage::new(vec![Frame::new(image)])),
             size: (width as f32, height as f32),
         })
+    }
+
+    /// The picture as GPUI draws it, and its size in pixels.
+    pub(crate) fn image(&self) -> Arc<RenderImage> {
+        self.image.clone()
+    }
+
+    pub(crate) fn size(&self) -> (f32, f32) {
+        self.size
     }
 
     /// The one a window shows of `tab`, if any does.
@@ -186,7 +200,7 @@ impl Shell {
         let Some(picture) = &mut self.picture else {
             return;
         };
-        picture.request = REQUESTS.fetch_add(1, Ordering::Relaxed);
+        picture.request = next_request();
         picture.pending = true;
         let (tab, request) = (picture.tab, picture.request);
         let window = self.browser.window();

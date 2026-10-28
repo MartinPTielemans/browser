@@ -3,7 +3,7 @@
 # Each run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
-#   split favorites extensions adblock windows private capture passwords links access trouble
+#   split favorites cards extensions adblock windows private capture passwords links access trouble
 #   dialogs crash
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
@@ -19,7 +19,7 @@ set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
-runs="$runs split favorites extensions adblock windows private capture passwords links access"
+runs="$runs split favorites cards extensions adblock windows private capture passwords links access"
 runs="$runs trouble dialogs crash"
 named="store adblock-live"
 for run in "$@"; do

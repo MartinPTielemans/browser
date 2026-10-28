@@ -938,6 +938,11 @@ impl Browser for Fake {
     // The tooltip's window is the app's, over the page, which the preview has neither of.
     fn tooltip(&self, _: Option<(browser::tooltip::Tip, browser::tooltip::Anchor)>, _: &mut App) {}
 
+    // So is the hover card's, and there's no engine to picture a page.
+    fn hover_card(&self, _: browser::hover_card::Hover, _: &mut App) {}
+
+    fn card_picture(&self, _: u64, _: &mut App) {}
+
     // The same for the link target's, which the preview's made-up pages have no links for.
     fn link_target(
         &self,

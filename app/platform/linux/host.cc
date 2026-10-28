@@ -194,6 +194,15 @@ void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
 
 void host_share_png(const uint8_t* png, size_t size, void* view, double x, double y, double width, double height, bool messages) {}
 
+// shortcut: no hover card on Linux yet; its window is never shown, so the card is off.
+void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {}
+
+void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {}
+
+void host_hide_hover_card(double fade) {}
+
+void host_watch_memory_pressure(void (*pressed)(void)) {}
+
 void host_focus(void* view) {}
 
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {

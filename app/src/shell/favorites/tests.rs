@@ -1,4 +1,4 @@
-//! Where the tooltips of the favorites' tiles hang, and what a click on one asks for, on a host
+//! Where the hover cards of the favorites' tiles go, and what a click on one asks for, on a host
 //! that records them.
 
 use std::rc::Rc;
@@ -6,14 +6,9 @@ use std::rc::Rc;
 use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
 use crate::{
-    shell::{Folders, Row, Shell, TILE_HEIGHT, recorder::Recorder},
-    tooltip::{Anchor, GAP, place},
+    hover_card::Anchor,
+    shell::{Folders, PLATE_INSET, Row, Shell, TILE_HEIGHT, recorder::Recorder},
 };
-
-/// The widths of a short title's tooltip and a long one's, and their height.
-const SHORT: f32 = 150.;
-const LONG: f32 = 306.;
-const HEIGHT: f32 = 27.;
 
 /// A drawn shell with the favorites 10, 11 and 12.
 fn with_tiles(
@@ -34,57 +29,59 @@ fn with_tiles(
     (shell, cx, host)
 }
 
-/// The anchor of the tooltip the shell asked for as the pointer moved onto `tab`'s tile from
-/// wherever it was, and the tile's middle.
+/// Where the card the shell asked for as the pointer moved onto `tab`'s tile from wherever it was
+/// goes from, and the tile's frame.
 fn hover_tile(
     shell: &gpui::Entity<Shell>,
     cx: &mut VisualTestContext,
     host: &Recorder,
     tab: u64,
-) -> (Anchor, f32) {
+) -> (Anchor, gpui::Bounds<gpui::Pixels>) {
     let frame = shell.read_with(cx, |shell, _| shell.tip_frames.borrow()[&tab]);
-    host.anchors.borrow_mut().clear();
+    host.card.borrow_mut().take();
     cx.simulate_mouse_move(frame.center(), None, Modifiers::none());
     cx.run_until_parked();
-    let anchor = host.anchors.borrow().last().copied().expect("no tooltip asked for");
-    (anchor, f32::from(frame.center().x))
+    let rest = host.card.borrow().clone().expect("no card asked for");
+    assert_eq!(rest.card.tab, tab);
+    (rest.anchor, frame)
 }
 
-/// Each tile's tooltip hangs from the tile it names, the pointer coming straight from the last
-/// tile's, so the tooltip follows with no frame of the old one's place: its square corner is under
-/// the tile's middle, 6 under it, going right from there.
+/// The sidebar's rows' right edge in the window, which a card starts GAP past.
+fn rows_right(shell: &gpui::Entity<Shell>, cx: &mut VisualTestContext) -> f32 {
+    shell.read_with(cx, |shell, _| {
+        f32::from(shell.sidebar_origin.get().x) + shell.width() - PLATE_INSET
+    })
+}
+
+/// Each tile's card goes beside the sidebar's rows, not over the tiles beside it, its top at the
+/// tile's, the pointer coming straight from the last tile's.
 #[gpui::test]
-fn each_tiles_tooltip_hangs_from_that_tile(cx: &mut TestAppContext) {
+fn each_tiles_card_goes_beside_the_rows_at_its_top(cx: &mut TestAppContext) {
     let (shell, cx, host) = with_tiles(cx);
+    let right = rows_right(&shell, cx);
     for tab in [10, 11, 12, 11, 10] {
-        let (anchor, middle) = hover_tile(&shell, cx, &host, tab);
-        let (bottom, window) =
-            shell.read_with(cx, |shell, _| (shell.tip_frames.borrow()[&tab].bottom(), shell.viewport));
-        assert_eq!(anchor.x, middle, "tile {tab}'s tooltip hangs from another place");
-        assert_eq!(anchor.window, (f32::from(window.width), f32::from(window.height)));
-        let (left, top) = place(anchor, (SHORT, HEIGHT));
-        assert_eq!(left, middle, "tile {tab}: its corner isn't under its middle");
-        assert_eq!(top, f32::from(bottom) + GAP, "tile {tab}: not 6 under it");
-        let (left, _) = place(anchor, (LONG, HEIGHT));
-        assert_eq!(left, middle, "tile {tab}: a long title's corner isn't under its middle");
+        let (anchor, frame) = hover_tile(&shell, cx, &host, tab);
+        let window = shell.read_with(cx, |shell, _| shell.viewport);
+        assert_eq!(anchor.window, window);
+        assert_eq!(anchor.row.top(), frame.top(), "tile {tab}");
+        assert_eq!(f32::from(anchor.row.right()), right, "tile {tab}");
     }
 }
 
-/// In a sidebar as narrow as it goes, where the third tile wraps to a second row, the tiles still
-/// each hang from their own middle and bottom.
+/// In a sidebar as narrow as it goes, where the third tile wraps to a second row, each tile's card
+/// still starts at its own top.
 #[gpui::test]
-fn a_narrow_sidebars_tiles_hang_from_their_own_middles(cx: &mut TestAppContext) {
+fn a_narrow_sidebars_tiles_have_cards_at_their_own_tops(cx: &mut TestAppContext) {
     let (shell, cx, host) = with_tiles(cx);
     shell.update(cx, |shell, cx| {
         shell.sidebar_width = 164.;
         cx.notify();
     });
     cx.run_until_parked();
+    let right = rows_right(&shell, cx);
     for tab in [10, 11, 12] {
-        let bottom =
-            shell.read_with(cx, |shell, _| f32::from(shell.tip_frames.borrow()[&tab].bottom()));
-        let (anchor, middle) = hover_tile(&shell, cx, &host, tab);
-        assert_eq!((anchor.x, anchor.bottom), (middle, bottom), "tile {tab}");
+        let (anchor, frame) = hover_tile(&shell, cx, &host, tab);
+        assert_eq!((anchor.row.top(), f32::from(anchor.row.right())), (frame.top(), right), "tile {tab}");
     }
 }
 
@@ -106,11 +103,16 @@ fn with_docs(
     (shell, cx, host)
 }
 
-/// A drop that leaves the pointer on a tile, which the drag had it hover, gives the tile's
-/// tooltip once the tile has settled: no hover change comes to ask for it, and not before, as
-/// a tile still sliding would hang it from where the tile was.
+fn cards_for(host: &Recorder, tab: u64) -> usize {
+    let rest = format!("card rest {tab} ");
+    host.take().iter().filter(|call| call.starts_with(&rest)).count()
+}
+
+/// A drop that leaves the pointer on a tile, which the drag had it hover, asks for the tile's
+/// card once the tile has settled: no hover change comes to ask for it, and not before, as a tile
+/// still sliding would put it beside where the tile was.
 #[gpui::test]
-fn a_tile_under_the_pointer_after_a_drag_names_itself(cx: &mut TestAppContext) {
+fn a_tile_under_the_pointer_after_a_drag_has_its_card(cx: &mut TestAppContext) {
     let (shell, cx, host) = with_docs(cx);
     let (x, y) = shell.update(cx, |shell, _| {
         let [left, top, width] = shell.tile_places(1)[0];
@@ -119,10 +121,10 @@ fn a_tile_under_the_pointer_after_a_drag_names_itself(cx: &mut TestAppContext) {
     shell.update(cx, |shell, _| shell.press_tile(10, point(px(x), px(y))));
     shell.update(cx, |shell, cx| shell.drag_to(point(px(x), px(y + 30.)), cx));
     assert!(shell.read_with(cx, |shell, _| shell.dragging().is_some()));
-    // The tile is hovered under the drag, which keeps its tooltip.
+    // The tile is hovered under the drag, which keeps its card.
     shell.update(cx, |shell, cx| shell.hover(Row::Tab(10), true, cx));
     cx.run_until_parked();
-    assert!(!host.take().iter().any(|call| call.starts_with("tooltip Docs")));
+    assert_eq!(cards_for(&host, 10), 0);
 
     shell.update(cx, |shell, cx| {
         assert!(shell.cancel_drag(cx));
@@ -131,17 +133,17 @@ fn a_tile_under_the_pointer_after_a_drag_names_itself(cx: &mut TestAppContext) {
         cx.notify();
     });
     cx.run_until_parked();
-    assert!(!host.take().iter().any(|call| call.starts_with("tooltip Docs")), "while it slides");
+    assert_eq!(cards_for(&host, 10), 0, "while it slides");
 
     shell.update(cx, |shell, cx| {
         shell.tile_slides.clear();
         cx.notify();
     });
     cx.run_until_parked();
-    assert_eq!(host.take().iter().filter(|call| call.starts_with("tooltip Docs")).count(), 1);
+    assert_eq!(cards_for(&host, 10), 1);
     shell.update(cx, |_, cx| cx.notify());
     cx.run_until_parked();
-    assert!(!host.take().iter().any(|call| call.starts_with("tooltip Docs")), "only once");
+    assert_eq!(cards_for(&host, 10), 0, "only once");
 }
 
 /// A click on a tile shows its tab and gives its page the keyboard, as a press on a row does.
