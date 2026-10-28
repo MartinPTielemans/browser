@@ -536,6 +536,7 @@ fn ns_view(window: &Window) -> *mut c_void {
         Ok(RawWindowHandle::AppKit(handle)) => handle.ns_view.as_ptr(),
         Ok(RawWindowHandle::Win32(handle)) => handle.hwnd.get() as *mut c_void,
         Ok(RawWindowHandle::Xcb(handle)) => handle.window.get() as usize as *mut c_void,
+        Ok(RawWindowHandle::Wayland(handle)) => handle.surface.as_ptr(),
         _ => panic!("the window has no native view"),
     }
 }
@@ -2585,6 +2586,17 @@ fn open_window_as(
     let ui_view = gpui_linux::new_host_window().unwrap_or(0) as usize as *mut c_void;
     let after = from.as_ref().map(|from| from.ui_view);
     let id = open_browser_window(ui_view, after, private, saved)?;
+    // Under Wayland, the window's surface, which GPUI's goes in as a subsurface, is the view, and
+    // GPUI's window starts at its size.
+    #[cfg(target_os = "linux")]
+    let (ui_view, wayland_size) = {
+        let (mut width, mut height) = (0., 0.);
+        let surface = unsafe { bc::bc_window_wayland_surface(id, &mut width, &mut height) };
+        match surface.is_null() {
+            true => (ui_view, None),
+            false => (surface, Some(size(px(width as f32), px(height as f32)))),
+        }
+    };
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
     // Its Space, which the core made with the window.
     let private_space = private.map(|profile| (unsafe { bc::bc_window_space(id) }, profile));
@@ -2598,10 +2610,16 @@ fn open_window_as(
     #[cfg(target_os = "windows")]
     gpui_windows::open_next_window_in(ui_view);
     #[cfg(target_os = "linux")]
-    gpui_linux::open_next_window_in(ui_view as usize as u32);
+    match wayland_size {
+        Some(_) => gpui_linux::open_next_window_in_surface(ui_view, 0, 0),
+        None => gpui_linux::open_next_window_in(ui_view as usize as u32),
+    }
     // Transparent, over the window's material.
     let options = WindowOptions {
         window_background: WindowBackgroundAppearance::Transparent,
+        #[cfg(target_os = "linux")]
+        window_bounds: wayland_size
+            .map(|size| gpui::WindowBounds::Windowed(Bounds::new(point(px(0.), px(0.)), size))),
         ..Default::default()
     };
     let window = cx.open_window(options, |window, cx| {
@@ -2940,18 +2958,32 @@ unsafe extern "C" fn started(_: *mut c_void) {
     // Chromium's message loop dispatches GPUI's messages, as its run loop does on the Mac.
     #[cfg(target_os = "windows")]
     gpui_windows::embed();
+    // Under Wayland GPUI joins Chromium's display, and Chromium dispatches GPUI's events after its
+    // own, as what it reads can include them. On X11 GPUI has a connection of its own.
     #[cfg(target_os = "linux")]
-    gpui_linux::embed();
+    let wayland = {
+        extern "C" fn dispatched() {
+            gpui_linux::dispatch_embedded();
+        }
+        let display = unsafe { bc::bc_wayland_display(Some(dispatched)) };
+        match display.is_null() {
+            true => gpui_linux::embed(),
+            false => gpui_linux::embed_wayland(display),
+        }
+        !display.is_null()
+    };
     let application = gpui_platform::application().with_assets(shell::Assets);
-    // X11, as Chromium is (decision 3): the core puts GPUI's window in the browser's, which
-    // Wayland can't do across two connections. Under Wayland that's XWayland.
+    // On X11, as Chromium is, even with a Wayland display in the environment.
     #[cfg(target_os = "linux")]
-    let application = application.with_windowing(gpui::WindowingRequest::Windowed(
-        gpui::GraphicalEnvironment {
-            wayland_display: None,
-            ..gpui::GraphicalEnvironment::detect()
-        },
-    ));
+    let application = match wayland {
+        true => application,
+        false => application.with_windowing(gpui::WindowingRequest::Windowed(
+            gpui::GraphicalEnvironment {
+                wayland_display: None,
+                ..gpui::GraphicalEnvironment::detect()
+            },
+        )),
+    };
     let app = application.run_embedded(|cx| {
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
@@ -4182,6 +4214,8 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_offer_changed: Some(tab_offer_changed),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),
+        #[cfg(target_os = "linux")]
+        window_resized: Some(window_resized),
         ..Default::default()
     };
     (args, host)
@@ -4201,6 +4235,18 @@ fn main() {
 fn main() {
     log!("browser: on Windows, run chrome.exe beside Browser.dll, which windows/ builds");
     std::process::exit(1);
+}
+
+/// Sizes GPUI's window in `window` to its content, under Wayland, where it's a subsurface that only
+/// the browser window's layout sizes.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f64, height: f64) {
+    let ui_view = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == window).map(|w| w.ui_view)
+    });
+    if let Some(ui_view) = ui_view {
+        gpui_linux::resize_embedded(ui_view, width as f32, height as f32);
+    }
 }
 
 /// On Linux this program only says where the browser is: chrome runs it from libBrowser.so.

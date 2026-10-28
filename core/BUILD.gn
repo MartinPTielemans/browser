@@ -31,7 +31,12 @@ config("linux_exports") {
   # On Linux the core is in the chrome executable, which exports nothing unless asked: the app
   # library it loads (platform/linux/app_library.cc) calls the C API from there.
   # engine/patches/ours/chromium-core-link-linux.patch lists it in chrome.map too.
-  ldflags = [ "-Wl,--export-dynamic-symbol=bc_*" ]
+  # So is libwayland's client API, Chromium's copy, which the app's UI calls on Chromium's display
+  # (platform/linux/wayland.cc).
+  ldflags = [
+    "-Wl,--export-dynamic-symbol=bc_*",
+    "-Wl,--export-dynamic-symbol=wl_*",
+  ]
 }
 
 config("app_calls") {
@@ -252,12 +257,18 @@ source_set("browser_core") {
   if (is_linux) {
     sources += [
       "platform/linux/app_library.cc",
+      "platform/linux/wayland.cc",
+      "platform/linux/wayland.h",
       "platform/linux/window_views.cc",
     ]
     deps += [
+      "//third_party/wayland:wayland_client",
       "//ui/aura",
+      "//ui/compositor",
       "//ui/gfx/x",
       "//ui/ozone",
+      "//ui/ozone/platform/wayland:wayland_proxy",
+      "//ui/platform_window",
     ]
     all_dependent_configs = [ ":linux_exports" ]
   }

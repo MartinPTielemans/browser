@@ -110,4 +110,9 @@ extern void (*g_browser_core_offline_game)(content::WebContents* contents, bool 
 // Runs where Chrome looks in its own, on a thread that may block.
 extern base::FilePath (*g_browser_core_find_native_host)(const std::string& name);
 
+// ui/events/platform/wayland/wayland_event_watcher.cc: Chromium has dispatched its Wayland
+// display's events, which the app's UI shares (platform/linux/wayland.cc). Never called while
+// Chromium has a read prepared.
+extern void (*g_browser_core_wayland_dispatched)();
+
 #endif  // BROWSER_CORE_HOOKS_H_
