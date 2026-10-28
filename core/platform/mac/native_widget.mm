@@ -2,10 +2,12 @@
 
 #import <AppKit/AppKit.h>
 
+#include <cstdio>
 #include <utility>
 
 #include "base/functional/callback.h"
 #import "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
+#include "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
 #include "components/remote_cocoa/common/native_widget_ns_window.mojom.h"
 #include "ui/base/cocoa/window_size_constants.h"
 #include "ui/views/widget/native_widget_mac.h"
@@ -60,9 +62,84 @@ constexpr CGFloat kButtonInset = 13;
 @end
 
 @interface BrowserCoreNSWindow : NativeWidgetMacNSWindow
+// Ends a way out of full screen AppKit took the window and didn't finish, as it says it has.
+- (void)finishFullScreenExit;
 @end
 
-@implementation BrowserCoreNSWindow
+@implementation BrowserCoreNSWindow {
+  // AppKit said it's taking the window out of full screen and hasn't said it's done, from which
+  // display, and whether the window has gone to another meanwhile.
+  BOOL _leaving;
+  NSNumber* _leavingFrom;
+  BOOL _leavingMoved;
+}
+
+- (instancetype)initWithContentRect:(NSRect)contentRect
+                          styleMask:(NSUInteger)windowStyle
+                            backing:(NSBackingStoreType)bufferingType
+                              defer:(BOOL)deferCreation {
+  if ((self = [super initWithContentRect:contentRect
+                               styleMask:windowStyle
+                                 backing:bufferingType
+                                   defer:deferCreation])) {
+    NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+    [center addObserver:self
+               selector:@selector(willExitFullScreen:)
+                   name:NSWindowWillExitFullScreenNotification
+                 object:self];
+    [center addObserver:self
+               selector:@selector(didExitFullScreen:)
+                   name:NSWindowDidExitFullScreenNotification
+                 object:self];
+    [center addObserver:self
+               selector:@selector(didChangeScreen:)
+                   name:NSWindowDidChangeScreenNotification
+                 object:self];
+  }
+  return self;
+}
+
+- (void)willExitFullScreen:(NSNotification*)notification {
+  _leaving = YES;
+  _leavingFrom = self.screen.deviceDescription[@"NSScreenNumber"];
+  _leavingMoved = NO;
+}
+
+- (void)didExitFullScreen:(NSNotification*)notification {
+  _leaving = NO;
+}
+
+- (void)didChangeScreen:(NSNotification*)notification {
+  // AppKit says the screen changed on its way out on the same display too.
+  _leavingMoved |=
+      _leaving && ![_leavingFrom isEqual:self.screen.deviceDescription[@"NSScreenNumber"]];
+  [self finishFullScreenExit];
+}
+
+- (void)finishFullScreenExit {
+  // A window whose display goes away can come out of full screen on another with AppKit's will
+  // and no did (#415), or with neither. Chrome's widget then waits for the end of a transition
+  // that never comes, holding the page full screen and every request to go in or out, and the
+  // app keeps its full-screen layout. Any windowed window that Chrome still holds full screen, or
+  // that AppKit started out and moved without finishing, gets AppKit's missing notifications, as
+  // AppKit would have sent them, so Chrome's widget, its observers and the app all hear one end.
+  // A window AppKit is still taking out on its own screen is left to finish.
+  if (self.styleMask & NSWindowStyleMaskFullScreen) {
+    return;
+  }
+  remote_cocoa::NativeWidgetNSWindowBridge* bridge = self.bridge;
+  const bool held =
+      bridge && bridge->target_fullscreen_state() && !bridge->in_fullscreen_transition();
+  if (!held && !(_leaving && _leavingMoved)) {
+    return;
+  }
+  fprintf(stderr, "browser: window full screen exit finished for AppKit\n");
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  if (!_leaving) {
+    [center postNotificationName:NSWindowWillExitFullScreenNotification object:self];
+  }
+  [center postNotificationName:NSWindowDidExitFullScreenNotification object:self];
+}
 
 + (Class)frameViewClassForStyleMask:(NSWindowStyleMask)windowStyle {
   // Nil if a future macOS has no NSThemeFrame, which leaves AppKit's own.
@@ -82,6 +159,15 @@ class NativeWidget : public views::NativeWidgetMac {
  public:
   NativeWidget(views::Widget* widget, base::RepeatingClosure leaving_full_screen)
       : views::NativeWidgetMac(widget), leaving_full_screen_(std::move(leaving_full_screen)) {}
+
+  void SetFullscreen(bool fullscreen, int64_t target_display_id) override {
+    // A way out AppKit didn't finish is over first, so the request isn't kept waiting for it.
+    NSWindow* window = GetNativeWindow().GetNativeNSWindow();
+    if ([window isKindOfClass:[BrowserCoreNSWindow class]]) {
+      [(BrowserCoreNSWindow*)window finishFullScreenExit];
+    }
+    views::NativeWidgetMac::SetFullscreen(fullscreen, target_display_id);
+  }
 
   void OnWindowFullscreenTransitionStart() override {
     // Chrome's widget counts the window windowed from here, though its observers hear only once
