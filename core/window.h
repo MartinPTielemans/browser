@@ -317,6 +317,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The Browser for |profile|'s tabs in this window, made when there's none or it's closing. Null
   // while the window is closing or Chromium is quitting.
   BrowserWindowInterface* BrowserFor(Profile* profile);
+  // From the platform's window, as it starts to leave full screen: a page full screen leaves now.
+  void LeavingFullScreen();
 
   // Opens |saved|, a closed tab, without its page, at |index| in |space|'s Today tabs, else at the
   // top of the Space the window shows. Returns its id, or 0.

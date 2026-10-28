@@ -2,7 +2,9 @@
 # and the window's buttons stay in the header row. A page that goes full screen takes the window
 # with it, and escape or the page leaving brings both back, the page resized once each way, straight
 # to its new size, and its leaving reported once, timed from the page's request to the window's and
-# the UI's steps, going in and out. The footer's menu flips up at the screen's bottom in full screen.
+# the UI's steps, going in and out. The window leaving full screen by its green button takes the page
+# out with it and brings back the sidebar and the card, and the page's full screen takes the window
+# again after. The footer's menu flips up at the screen's bottom in full screen.
 # The command bar opens in full screen and keeps the keyboard when a page commits under it, then
 # gives the keyboard to the new page, and scrolling a long page doesn't stutter. Dragging the
 # window's background moves the window, and the buttons, URL field and rows keep their presses. A
@@ -56,6 +58,10 @@ page=$(base64 << 'HTML' | tr -d '\n'
     if (e.metaKey) return;
     if (e.key == "f") document.documentElement.requestFullscreen();
     if (e.key == "x" && document.fullscreenElement) document.exitFullscreen();
+  });
+  // Its full screen shows in the title as the document's changes.
+  document.addEventListener("fullscreenchange", () => {
+    document.title = `fullscreen ${document.fullscreenElement ? 1 : 0}`;
   });
   // Each resize counts in the title, with the size it left the page at.
   let resizes = 0;
@@ -251,6 +257,49 @@ left=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: page l
 [ "$left" = 1 ] || fail "the page leaving full screen itself was reported $left times"
 check_layout "after the page left full screen itself"
 resized_once "the page leaving full screen itself" "${view#* }"
+
+# The window leaving full screen by its green button, as ⌃⌘F and its display going away do, takes
+# the page out with it, as Chrome's does, and the sidebar and the card come back (#415). The page's
+# full screen then takes the window again, and escape brings both back. The empty sidebar's colour,
+# where the page would be if it still filled the window, is the same as before each time.
+windowed=$content
+../tools/window-screenshot.sh "$pid" "$out/before-green-button.png" || fail "no window to capture"
+sidebar_at="$(awk -v w="$width" 'BEGIN { print 110 / w }') 0.6"
+sidebar=$(pixel "$out/before-green-button.png" $sidebar_at)
+# The sidebar in capture $1 has its colour from before, within 8 in each channel.
+sidebar_back() {
+  sidebar_now=$(pixel "$1" $sidebar_at)
+  echo "$sidebar_now $sidebar" |
+    awk '{ for (i = 1; i <= 3; i++) if ($i - $(i + 3) > 8 || $(i + 3) - $i > 8) exit 1 }'
+}
+send key f
+expect '^browser: page entered full screen$' "the page didn't go full screen before the green button"
+expect '^browser: window entered full screen$' "the page didn't take the window full screen before the green button"
+expect '^browser: title [0-9]* fullscreen 1$' "the page didn't say it's full screen before the green button"
+check_layout "with the page full screen before the green button" fills
+send fullscreen
+expect '^browser: page left full screen$' "the green button took the window out and left the page full screen"
+expect '^browser: title [0-9]* fullscreen 0$' "the page's document stayed full screen after the green button"
+expect '^browser: window left full screen$' "the green button didn't take the window out of full screen"
+check_layout "after the green button took the page's window out of full screen"
+check_buttons "after the green button took the page's window out of full screen"
+[ "$content" = "$windowed" ] ||
+  fail "after the green button the window's content is $content, not $windowed as before"
+../tools/window-screenshot.sh "$pid" "$out/green-button.png" || fail "no window to capture"
+sidebar_back "$out/green-button.png" ||
+  fail "after the green button the sidebar is $sidebar_now, not $sidebar: the page still covers it"
+send key f
+expect '^browser: page entered full screen$' "the page didn't go full screen after the green button"
+expect '^browser: window entered full screen$' "the page didn't take the window full screen after the green button"
+check_layout "with the page full screen after the green button" fills
+send key escape
+expect '^browser: page left full screen$' "escape didn't take the page out of full screen after the green button"
+expect '^browser: window left full screen$' "the window didn't leave full screen with the page after the green button"
+check_layout "after the page's full screen after the green button"
+check_buttons "after the page's full screen after the green button"
+../tools/window-screenshot.sh "$pid" "$out/green-button-again.png" || fail "no window to capture"
+sidebar_back "$out/green-button-again.png" ||
+  fail "after the page's next full screen the sidebar is $sidebar_now, not $sidebar: the page still covers it"
 
 # A page's full screen timed three times each way, entered by a key as a video's button is and left
 # by the page, as its button leaves, and then by escape. The steps run from the core's line to the
@@ -526,4 +575,4 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"

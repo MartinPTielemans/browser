@@ -2,6 +2,9 @@
 
 #import <AppKit/AppKit.h>
 
+#include <utility>
+
+#include "base/functional/callback.h"
 #import "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
 #include "components/remote_cocoa/common/native_widget_ns_window.mojom.h"
 #include "ui/base/cocoa/window_size_constants.h"
@@ -77,7 +80,16 @@ namespace {
 
 class NativeWidget : public views::NativeWidgetMac {
  public:
-  using views::NativeWidgetMac::NativeWidgetMac;
+  NativeWidget(views::Widget* widget, base::RepeatingClosure leaving_full_screen)
+      : views::NativeWidgetMac(widget), leaving_full_screen_(std::move(leaving_full_screen)) {}
+
+  void OnWindowFullscreenTransitionStart() override {
+    // Chrome's widget counts the window windowed from here, though its observers hear only once
+    // AppKit is done, and AppKit may never be, as when the window's display goes away (#415).
+    if (!IsFullscreen()) {
+      leaving_full_screen_.Run();
+    }
+  }
 
  protected:
   // As NativeWidgetNSWindowBridge::CreateNSWindow makes a default window, with the frame above.
@@ -97,13 +109,17 @@ class NativeWidget : public views::NativeWidgetMac {
     }
     return window;
   }
+
+ private:
+  base::RepeatingClosure leaving_full_screen_;
 };
 
 }  // namespace
 
-views::NativeWidget* NewNativeWidget(views::Widget* widget) {
+views::NativeWidget* NewNativeWidget(views::Widget* widget,
+                                     base::RepeatingClosure leaving_full_screen) {
   // It deletes itself as its window closes.
-  return new NativeWidget(widget);
+  return new NativeWidget(widget, std::move(leaving_full_screen));
 }
 
 }  // namespace browser_core::platform

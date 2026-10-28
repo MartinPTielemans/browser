@@ -47,6 +47,8 @@
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/create_browser_window.h"
 #include "chrome/browser/ui/browser_window/public/desktop_browser_window_capabilities.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/extensions/extension_side_panel_utils.h"
 #include "chrome/browser/ui/interaction/browser_elements.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -895,7 +897,8 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind)
   views::Widget::InitParams params(views::Widget::InitParams::CLIENT_OWNS_WIDGET,
                                    views::Widget::InitParams::TYPE_WINDOW);
   params.delegate = delegate_.get();
-  params.native_widget = platform::NewNativeWidget(widget_.get());
+  params.native_widget = platform::NewNativeWidget(
+      widget_.get(), base::BindRepeating(&Window::LeavingFullScreen, weak_factory_.GetWeakPtr()));
   params.bounds = bounds;
   params.name = "BrowserCoreWindow";
 #if BUILDFLAG(IS_LINUX)
@@ -2046,6 +2049,20 @@ void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
   // A page view hidden with the keyboard gives it to another view.
   page_had_keyboard_ = page_had_keyboard_ || platform::KeyboardForPage(widget_.get());
   platform::HidePages(widget_.get());
+}
+
+void Window::LeavingFullScreen() {
+  // Chrome's controller keeps a page full screen until it hears the window is out, ignoring the
+  // page's own exit meanwhile, so a window AppKit took out (its green button, ⌃⌘F, its display
+  // going) without finishing kept the page full screen in a window that wasn't. Chrome lets go of
+  // the page before leaving when it asks itself, so only the window's own exit gets here with one.
+  for (const auto& [profile, held] : browsers_) {
+    ExclusiveAccessManager* manager = ExclusiveAccessManager::From(held.browser);
+    FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+    if (controller && controller->IsWindowFullscreenForTabOrPending()) {
+      controller->WindowFullscreenStateChanged();
+    }
+  }
 }
 
 void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
