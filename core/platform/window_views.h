@@ -24,8 +24,10 @@ class Widget;
 namespace browser_core::platform {
 
 // The native window for |widget|, whose title bar is the app's: on the Mac, the UI fills it and
-// the window's buttons sit in the app's header row.
-views::NativeWidget* NewNativeWidget(views::Widget* widget);
+// the window's buttons sit in the app's header row. |leaving_full_screen| runs as the window starts
+// to leave full screen, on a platform whose window can be taken out without finishing (the Mac's).
+views::NativeWidget* NewNativeWidget(views::Widget* widget,
+                                     base::RepeatingClosure leaving_full_screen);
 
 // Fills |widget|'s window with the view pages are shown in, holding the app's |ui_view| under
 // them: an NSView on the Mac, or null.
