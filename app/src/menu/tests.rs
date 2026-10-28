@@ -10,8 +10,8 @@ use gpui::{
 };
 
 use super::{
-    CHECK, GAP, Key, Layout, Look, Outcome, PADDING, Pointer, ROW_X, Request, Swatch, Tracking, contrast,
-    described, key_of, lay_out, lay_out_over, swatch_ring,
+    CHECK, GAP, Key, Layout, Look, Outcome, PADDING, Pointer, ROW_X, Request, Swatch, Tracking,
+    described, key_of, lay_out, lay_out_over,
 };
 use crate::shell::MenuEntry;
 
@@ -472,20 +472,22 @@ fn a_drag_from_a_pop_up_button_picks_where_it_ends() {
     assert_eq!(menu.released(default), Outcome::Pick(0));
 }
 
-/// A Space's swatch gets a ring only where an end of it would fade into the panel (#320): a dark
-/// one on the dark panel, a pale one on the light panel, Paper and Ink each reading 3:1 there.
+/// A Space's swatch gets a ring only where it would fade into the panel (#320), by the palette's
+/// rule for a theme's swatch: a dark one on the dark panel takes Paper, a pale one on the light
+/// panel Ink, and one whose ends lie either side of the panel always takes one.
 #[test]
 fn a_swatch_is_ringed_only_where_its_edge_fades_into_the_panel() {
-    let ink_like = Swatch { from: 0x1a1a1a, to: 0x303030 };
-    let vivid = Swatch { from: 0x4f94ff, to: 0xff7a3c };
-    let pale = Swatch { from: 0xfaf6ea, to: 0xffd9a0 };
-    assert_eq!(swatch_ring(vivid, Look::Dark), None);
-    assert_eq!(swatch_ring(ink_like, Look::Dark), Some(super::DARK_SWATCH_RING));
-    assert_eq!(swatch_ring(pale, Look::Light), Some(super::LIGHT_SWATCH_RING));
-    assert_eq!(swatch_ring(ink_like, Look::Light), None);
-    for (ring, fill) in [(super::DARK_SWATCH_RING, super::DARK_FILL), (super::LIGHT_SWATCH_RING, super::LIGHT_FILL)] {
-        assert!(contrast(ring >> 8, fill >> 8) >= super::SWATCH_CONTRAST, "the ring itself reads");
-    }
+    use crate::palette::{INK, PAPER, Palette};
+    use gpui::rgb;
+    let ring = |from: u32, to: u32, fill: u32| Palette::swatch_ring_of(rgb(from), rgb(to), &[rgb(fill >> 8)]);
+    let (ink_like, vivid, pale) = ((0x1a1a1a, 0x303030), (0x4f94ff, 0xff7a3c), (0xfaf6ea, 0xffd9a0));
+    let (dark, light) = (super::DARK_FILL, super::LIGHT_FILL);
+    assert_eq!(ring(vivid.0, vivid.1, dark), None);
+    assert_eq!(ring(ink_like.0, ink_like.1, dark), Some(rgb(PAPER)));
+    assert_eq!(ring(pale.0, pale.1, light), Some(rgb(INK)));
+    assert_eq!(ring(ink_like.0, ink_like.1, light), None);
+    // Black to white reads at each end on a mid grey, but passes through it.
+    assert!(ring(0x000000, 0xffffff, 0x777777ff).is_some());
 }
 
 /// Swatches take room before the titles, so a submenu with them is wider by one and a gap.

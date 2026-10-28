@@ -51,7 +51,6 @@ struct Palette {
     line: u32,
     disabled: u32,
     destructive: u32,
-    swatch_ring: u32,
 }
 
 const DARK: Palette = Palette {
@@ -63,7 +62,6 @@ const DARK: Palette = Palette {
     line: DARK_LINE,
     disabled: DARK_DISABLED,
     destructive: DARK_DESTRUCTIVE,
-    swatch_ring: DARK_SWATCH_RING,
 };
 
 const LIGHT: Palette = Palette {
@@ -75,7 +73,6 @@ const LIGHT: Palette = Palette {
     line: LIGHT_LINE,
     disabled: LIGHT_DISABLED,
     destructive: LIGHT_DESTRUCTIVE,
-    swatch_ring: LIGHT_SWATCH_RING,
 };
 
 /// The highlight and the label on it, which the palette (#335) replaces with the Space's accent
@@ -90,31 +87,6 @@ fn highlight() -> (u32, u32) {
 pub struct Swatch {
     pub from: u32,
     pub to: u32,
-}
-
-/// WCAG's relative luminance of 0xRRGGBB.
-fn luminance(color: u32) -> f32 {
-    let linear = |shift: u32| {
-        let c = ((color >> shift) & 0xff) as f32 / 255.;
-        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
-    };
-    0.2126 * linear(16) + 0.7152 * linear(8) + 0.0722 * linear(0)
-}
-
-/// WCAG's contrast ratio between two 0xRRGGBB colours.
-pub(crate) fn contrast(a: u32, b: u32) -> f32 {
-    let (a, b) = (luminance(a), luminance(b));
-    (a.max(b) + 0.05) / (a.min(b) + 0.05)
-}
-
-/// The hairline ring, 0xRRGGBBAA, that `swatch` needs on `look`'s panel: none where both its ends
-/// reach SWATCH_CONTRAST against the panel, else Paper on a dark panel and Ink on a light one. The
-/// palette's swatch ring (#346) takes its place once it lands.
-pub(crate) fn swatch_ring(swatch: Swatch, look: Look) -> Option<u32> {
-    let palette = look.palette();
-    let panel = palette.fill >> 8;
-    let reads = [swatch.from, swatch.to].iter().all(|&end| contrast(end, panel) >= SWATCH_CONTRAST);
-    (!reads).then_some(palette.swatch_ring)
 }
 
 /// The menu's look: the panel's material is Ink in a dark window and Paper in a light one.
@@ -1044,13 +1016,14 @@ impl ContextMenu {
                 linear_color_stop(rgb(swatch.to), 1.),
             )
             .color_space(gpui::ColorSpace::Oklab);
-            let ring = swatch_ring(swatch, shown.look);
+            let panel = rgb(palette.fill >> 8);
+            let ring = crate::palette::Palette::swatch_ring_of(rgb(swatch.from), rgb(swatch.to), &[panel]);
             div()
                 .size(px(SWATCH))
                 .flex_none()
                 .rounded_full()
                 .bg(gradient)
-                .when_some(ring, |dot, ring| dot.border_1().border_color(rgba(ring)))
+                .when_some(ring, |dot, ring| dot.border_1().border_color(ring))
         });
         let trailing = match (&shortcut, submenu) {
             (_, true) => Some(

@@ -324,6 +324,15 @@ impl Palette {
         Swatch::of_theme(theme).ring_on(behind)
     }
 
+    /// The ring a swatch of two colours alone needs on any of `behind`, by the same rule as a
+    /// theme's: a Space's swatch in a menu, `from` at its top left to `to` at its bottom right.
+    pub fn swatch_ring_of(from: Rgba, to: Rgba, behind: &[Rgba]) -> Option<Rgba> {
+        let (a, b) = (luminance(from), luminance(to));
+        let (darkest, lightest) = (a.min(b), a.max(b));
+        let swatch = Swatch { from, to, angle: 135., to_at: 1., third: None, darkest, lightest };
+        swatch.ring_on(behind)
+    }
+
     /// Where a swatch ring is checked against this palette's window: every point checked, over
     /// both backdrops.
     pub fn window_samples(&self, theme: Option<&Theme>) -> Vec<Rgba> {
