@@ -248,9 +248,12 @@ class WindowViews : public views::WidgetObserver,
         slot.bottom_corners_only ? gfx::RoundedCornersF(0, 0, r, r) : gfx::RoundedCornersF(r));
   }
 
-  // Lets the UI show, and take the clicks, but where the pages shown are.
+  // Lets the UI show, and take the clicks, but where the pages shown are and in the band at the
+  // window's edges that resizes it, whose presses Chromium's hit test takes (wayland.cc).
   void ShowThrough() {
     const float scale = ScaleOf(widget_);
+    const int edge = static_cast<int>(std::lround(ResizeEdgeOf(widget_) * scale));
+    const gfx::Size pixels = ContentPixelsOf(widget_);
     std::vector<const Slot*> shown;
     auto add = [&](const Slot& slot) {
       if (slot.holder && slot.page && slot.holder->IsVisible()) {
@@ -265,6 +268,14 @@ class WindowViews : public views::WidgetObserver,
       std::vector<gfx::Rect> region;
       for (const Slot* slot : shown) {
         region.push_back(gfx::ScaleToEnclosingRect(slot->holder->bounds(), scale));
+      }
+      if (edge) {
+        const int w = pixels.width();
+        const int h = pixels.height();
+        region.push_back(gfx::Rect(0, 0, w, edge));
+        region.push_back(gfx::Rect(0, h - edge, w, edge));
+        region.push_back(gfx::Rect(0, edge, edge, h - 2 * edge));
+        region.push_back(gfx::Rect(w - edge, edge, edge, h - 2 * edge));
       }
       // No rects is the whole surface; one empty rect is none of it.
       if (region.empty()) {
@@ -284,7 +295,18 @@ class WindowViews : public views::WidgetObserver,
         .destination_kind = x11::Shape::Sk::Bounding,
         .ordering = x11::ClipOrdering::Unsorted,
         .destination_window = ui_,
-        .rectangles = {XRectangle(gfx::Rect(ContentPixelsOf(widget_)))},
+        .rectangles = {XRectangle(gfx::Rect(pixels))},
+    });
+    // The band takes no input in the UI's window, so it goes to the browser window under it, still
+    // showing the UI.
+    gfx::Rect input(pixels);
+    input.Inset(gfx::Insets(edge));
+    shape.Rectangles(x11::Shape::RectanglesRequest{
+        .operation = x11::Shape::So::Set,
+        .destination_kind = x11::Shape::Sk::Input,
+        .ordering = x11::ClipOrdering::Unsorted,
+        .destination_window = ui_,
+        .rectangles = {XRectangle(input)},
     });
     for (const Slot* slot : shown) {
       const gfx::Rect frame = gfx::ScaleToEnclosingRect(slot->holder->bounds(), scale);
@@ -372,6 +394,10 @@ class WindowViews : public views::WidgetObserver,
       }
     }
   }
+
+  // Maximized or full screen, the window has no band to resize by, and back from either has it
+  // again, which the window manager may say after the bounds have changed.
+  void OnWidgetShowStateChanged(views::Widget*) override { ShowThrough(); }
 
   void OnWidgetDestroying(views::Widget*) override {
     x11_observation_.Reset();
