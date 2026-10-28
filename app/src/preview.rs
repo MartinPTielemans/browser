@@ -1183,7 +1183,9 @@ fn main() {
                 browser.report_downloads(cx);
                 // PREVIEW_EMPTY=1 shows no page, as a fresh ⌘N window does; =reading does so in the
                 // second Space, for its colour, and =private in a private window with no tabs.
-                let empty = std::env::var("PREVIEW_EMPTY").ok();
+                // PREVIEW_WELCOME=1 shows no page with the first run's welcome.
+                let welcome = std::env::var_os("PREVIEW_WELCOME").is_some();
+                let empty = std::env::var("PREVIEW_EMPTY").ok().or(welcome.then(|| "1".into()));
                 let mut shell = match empty.as_deref() {
                     Some("private") => {
                         Shell::private_window(browser, first_space, "Private".into(), 0, cx)
@@ -1280,6 +1282,9 @@ fn main() {
                 };
                 if let Some((tab, trouble)) = trouble {
                     shell.set_page(tab, Page { trouble, ..shell.page(tab) }, cx);
+                }
+                if welcome {
+                    shell.set_welcome(cx);
                 }
                 shell
             });

@@ -174,3 +174,10 @@ names and groups, which are Unicode's and CLDR's, and their shortcodes, which ar
   not be used in advertising or otherwise to promote the sale, use or other
   dealings in these Data Files or Software without prior written
   authorization of the copyright holder.
+
+Outfit (https://github.com/Outfitio/Outfit-Fonts), SIL Open Font License 1.1
+Used in app/assets/fonts/Outfit-Medium.ttf, unmodified, at commit
+902773808eb372f70fb34e8946dd1ffe604efc79. The license's full text is next to it, in
+app/assets/fonts/OFL.txt.
+
+  Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts)

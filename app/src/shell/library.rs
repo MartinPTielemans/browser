@@ -19,6 +19,7 @@ use super::{
     Shell, Space, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
     name_box, plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
     header::TipSide,
+    display_face::{cap_top, display_text},
 };
 use crate::{menu::Look, text_input::TextInput};
 
@@ -63,6 +64,10 @@ use crate::tokens::shell::library::SECTION_GLYPH_Y;
 use crate::tokens::shell::library::SECTION_LABEL_Y;
 use crate::tokens::shell::library::SECTION_LABEL_HEIGHT;
 use crate::tokens::shell::library::SECTION_LABEL;
+use crate::tokens::shell::library::TITLE_SIZE;
+use crate::tokens::shell::library::TITLE_LINE;
+use crate::tokens::shell::library::TITLE_X;
+use crate::tokens::shell::library::TITLE_CAP;
 use crate::tokens::shell::library::SECTION_GLYPH_UNSELECTED;
 use crate::tokens::shell::library::SECTION_HOVERED;
 use crate::tokens::shell::library::SECTION_GAP;
@@ -794,6 +799,12 @@ impl Shell {
                 shell.run(Command::ViewLibrary, "library", cx)
             }))
             .child(svg().path("icons/arrow-left.svg").size(px(16.)).text_color(rgba(NAV)));
+        // Placed by its caps and its L's stem, not its line's box.
+        let heading = display_text("Library", TITLE_SIZE, TITLE_LINE, cx)
+            .absolute()
+            .left(px(TITLE_X + past))
+            .top(px(TITLE_CAP - cap_top(TITLE_SIZE, TITLE_LINE)))
+            .text_color(rgba(SECTION_LABEL));
         let column = div()
             .absolute()
             .left(px(-past))
@@ -804,6 +815,7 @@ impl Shell {
             .flex()
             .items_center()
             .pl(px(SECTION_X + past))
+            .child(heading)
             .child(sections)
             .child(back)
             // Where the window's own sit, so they slide in with the panel, and stay put on the
