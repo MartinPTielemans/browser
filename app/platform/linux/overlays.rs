@@ -1,6 +1,7 @@
 //! The overlays of platform/host.h on Linux: GPUI's Linux platform shows each over the browser
-//! window as a child of it, a subsurface under Wayland and a child window on X11, and the core
-//! lends it the window's keyboard while it shows.
+//! window: a subsurface of it under Wayland, and on X11 a window of its own over it, as the X
+//! server blends no child window's edges and a compositor blends a window's. The core lends it the
+//! window's keyboard while it shows.
 //!
 //! shortcut: no blur, shadow or growth yet.
 
