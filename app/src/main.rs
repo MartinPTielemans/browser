@@ -3059,6 +3059,17 @@ unsafe extern "C" fn started(_: *mut c_void) {
             is_ui: |surface| {
                 window_in(surface).is_some_and(|window| unsafe { bc::bc_window_keyboard_is_ui(window) })
             },
+            text_input: |surface, caret| {
+                if let Some(window) = window_in(surface) {
+                    let caret = caret.map(|caret| {
+                        (f32::from(caret.origin.x), f32::from(caret.origin.y), f32::from(caret.size.height))
+                    });
+                    let (x, y, height) = caret.unwrap_or_default();
+                    unsafe {
+                        bc::bc_window_ui_text_input(window, caret.is_some(), x as f64, y as f64, height as f64)
+                    };
+                }
+            },
         };
         let display = unsafe { bc::bc_wayland_display(Some(dispatched)) };
         match display.is_null() {
@@ -4481,6 +4492,10 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         window_resized: Some(window_resized),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
+        #[cfg(target_os = "linux")]
+        ui_composed: Some(ui_composed),
+        #[cfg(target_os = "linux")]
+        ui_committed: Some(ui_committed),
         ..Default::default()
     };
     (args, host)
@@ -4523,12 +4538,32 @@ fn main() {
 /// the browser window's layout sizes.
 #[cfg(target_os = "linux")]
 unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f64, height: f64) {
-    let ui_view = WINDOWS.with_borrow(|windows| {
-        windows.iter().find(|w| w.id == window).map(|w| w.ui_view)
-    });
-    if let Some(ui_view) = ui_view {
+    if let Some(ui_view) = ui_view_of(window) {
         gpui_linux::resize_embedded(ui_view, width as f32, height as f32);
     }
+}
+
+/// Under Wayland the window's input method composes `text` in the UI's text field that has the keys.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn ui_composed(_: *mut c_void, window: bc::bc_id, text: *const c_char) {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    if let Some(ui_view) = ui_view_of(window) {
+        gpui_linux::compose_embedded(ui_view, &text);
+    }
+}
+
+/// As `ui_composed`: the input method commits `text`.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn ui_committed(_: *mut c_void, window: bc::bc_id, text: *const c_char) {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    if let Some(ui_view) = ui_view_of(window) {
+        gpui_linux::commit_embedded(ui_view, &text);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ui_view_of(window: bc::bc_id) -> Option<*mut c_void> {
+    WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == window).map(|w| w.ui_view))
 }
 
 /// On Linux this program only says where the browser is: chrome runs it from libBrowser.so.
