@@ -1624,6 +1624,8 @@ impl site_controls::Host for PreviewSiteControls {
 
     fn set_system_engine(&self, _: u64, _: bool) {}
 
+    fn allow_saving(&self, _: u64, _: &browser::passwords::Login) {}
+
     fn set_ad_blocking(&self, _: u64, _: bool) {}
 
     fn run(&self, _: site_controls::Run, _: u64, _: &mut App) {}
@@ -1669,6 +1671,7 @@ fn preview_site() -> Site {
         ],
         reset: Some("Reset permissions".into()),
         system_engine: None,
+        logins: Vec::new(),
         ad_blocking: Some(true),
     }
 }
