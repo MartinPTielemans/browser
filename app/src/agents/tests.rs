@@ -746,6 +746,50 @@ fn an_order_asks_the_user_first(cx: &mut TestAppContext) {
     std::fs::remove_dir_all(dir).ok();
 }
 
+/// What the user answered for good is listed, by site, and once revoked, one site or all, what
+/// asks first there asks again. Each revoke is logged.
+#[gpui::test]
+fn a_permission_given_for_good_is_listed_and_revoked(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    page_done(&agents, &browser, answer, shop_tree(), cx);
+    let order = |cx: &mut TestAppContext| {
+        call(&agents, "claude-code", "click", json!({ "tab": 20, "ref": "e3" }), cx)
+    };
+    let answer = order(cx);
+    let question = browser.asked.borrow().clone().unwrap();
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Always, cx));
+    page_done(&agents, &browser, answer, shop_tree(), cx);
+    let answer = call(&agents, "claude-code", "open_tab", json!({ "url": "chase.com" }), cx);
+    let question = browser.asked.borrow().clone().unwrap();
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Never, cx));
+    assert!(answer.recv().unwrap().error);
+    let grants = |cx: &mut TestAppContext| {
+        agents.read_with(cx, |agents, _| agents.grants("claude-code"))
+    };
+    assert_eq!(grants(cx), [("chase.com".into(), false), ("example.com".into(), true)]);
+
+    agents.update(cx, |agents, cx| agents.revoke("claude-code", Some("example.com"), cx));
+    assert_eq!(grants(cx), [("chase.com".into(), false)]);
+    assert_eq!(
+        log(&agents, "claude-code", cx)[0],
+        ("revoked".into(), "example.com".into(), "".into())
+    );
+    let answer = order(cx);
+    let question = browser.asked.borrow().clone().expect("a revoked Always didn't ask again");
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Once, cx));
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+
+    agents.update(cx, |agents, cx| agents.revoke("claude-code", None, cx));
+    assert!(grants(cx).is_empty());
+    assert_eq!(log(&agents, "claude-code", cx)[0], ("revoked all".into(), "".into(), "".into()));
+    let entries = log(&agents, "claude-code", cx).len();
+    agents.update(cx, |agents, cx| agents.revoke("claude-code", None, cx));
+    assert_eq!(log(&agents, "claude-code", cx).len(), entries, "revoking nothing was logged");
+    call(&agents, "claude-code", "open_tab", json!({ "url": "chase.com" }), cx);
+    assert!(browser.asked.borrow().is_some(), "a revoked Never didn't ask again");
+}
+
 /// A bank's site asks before it opens. No, or the ×, refuses it, and Never refuses it from then
 /// on without asking; each is logged.
 #[gpui::test]

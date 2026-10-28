@@ -208,6 +208,8 @@ pub fn describe(action: &str) -> &'static str {
         "disconnected" => "Disconnected",
         "released" => "Let go of the tab",
         "taken back" => "You took the tab back",
+        "revoked" => "You revoked its permission",
+        "revoked all" => "You revoked all its permissions",
         _ => "Acted",
     }
 }
