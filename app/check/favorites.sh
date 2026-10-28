@@ -331,6 +331,9 @@ expect '^browser: drag put back$' "Escape's put-back didn't finish"
 send drag $(tiled_row 0) 200 112
 expect "^browser: dragged $x to favorites 1\$" "a row dragged right of the tile didn't go there"
 expect '^browser: tiles settled$' "the tiles didn't settle after the second drop"
+# The tiles can settle before the drop, and the rows close up over the row that left after it, so
+# the next press waits for them, or it lands on that row's old place.
+expect '^browser: rows settled$' "the rows didn't close up after the second drop"
 send drag $(tiled_row 0) 200 112
 expect "^browser: dragged $y to favorites 2\$" "a row dragged right of the tiles didn't go last"
 expect "^browser: favorites $a $x $y\$" "the tiles aren't three: the favorites are \"$(favorites)\""
