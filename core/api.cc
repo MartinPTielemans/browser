@@ -207,6 +207,7 @@ void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
 #if BUILDFLAG(IS_LINUX)
   if (browser_core::Window* window = browser_core::Window::FromId(id)) {
     browser_core::platform::OverlayTakesKeyboard(window->widget(), takes);
+    window->OverlayTakesKeyboard(takes);
   }
 #endif
 }

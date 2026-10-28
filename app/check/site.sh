@@ -45,6 +45,13 @@ onkeydown = e => {
 };
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
+# Its text field takes the keyboard as it loads, and the title says "ready" once it's drawn and
+# what's typed in it after that.
+printf '%s' '<title>loading</title><textarea id=text autofocus></textarea>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+text.oninput = () => document.title = "value " + text.value;
+</script>' > "$out/site/autofocus.html"
 # Its title says "login" once it's drawn, and "filled" once Chrome has filled in a saved password.
 printf '%s' '<title>loading</title>
 <form method="post" action="login">
