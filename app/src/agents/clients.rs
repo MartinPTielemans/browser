@@ -1,13 +1,15 @@
-//! Connect and Disconnect: the browser's server in an agent client's own config, and out of it
-//! again, and nothing else of the config changed. Claude Code's is in ~/.claude.json, which the
+//! Connect and Disconnect: the browser's bridge in an agent client's own config, as a stdio MCP
+//! server with the agent's token, and out of it again, and nothing else of the config changed. Claude Code's is in ~/.claude.json, which the
 //! running client rewrites, so its own `claude mcp` command changes it; Codex's is
 //! ~/.codex/config.toml, which Codex only reads, so the browser edits its one table. Any other
-//! MCP client gets the server's address and its token to paste.
+//! MCP client gets the bridge's command and its token to paste.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde_json::json;
+use serde_json::{Value, json};
+
+use super::bridge;
 
 /// The agent clients Settings › Agents connects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,8 +60,22 @@ impl Client {
 pub struct Entry {
     /// The name the client lists it by: the browser's.
     pub name: String,
-    pub url: String,
+    /// The bridge the client runs, and the server's socket, its argument.
+    pub bridge: String,
+    pub socket: String,
     pub token: String,
+}
+
+impl Entry {
+    /// The server as most clients' JSON names a stdio one.
+    pub fn json(&self) -> Value {
+        json!({
+            "type": "stdio",
+            "command": self.bridge,
+            "args": [self.socket],
+            "env": { bridge::TOKEN: self.token },
+        })
+    }
 }
 
 /// What writes the clients' configs: the system's, or the tests' stand-in.
@@ -110,21 +126,10 @@ impl Clients for System {
 
 /// `claude`'s arguments that add the server for every project, as the user's.
 pub fn claude_add(entry: &Entry) -> Vec<String> {
-    let server = json!({
-        "type": "http",
-        "url": entry.url,
-        "headers": { "Authorization": format!("Bearer {}", entry.token) },
-    });
-    [
-        "mcp",
-        "add-json",
-        "--scope",
-        "user",
-        &entry.name,
-        &server.to_string(),
-    ]
-    .map(String::from)
-    .into()
+    let server = entry.json().to_string();
+    ["mcp", "add-json", "--scope", "user", &entry.name, &server]
+        .map(String::from)
+        .into()
 }
 
 /// Runs Claude Code's `claude` with `arguments`. The app may not have the user's PATH, so it runs
@@ -188,11 +193,13 @@ pub fn codex_with(text: &str, entry: &Entry) -> String {
     if !text.is_empty() && !text.ends_with("\n\n") {
         text += if text.ends_with('\n') { "\n" } else { "\n\n" };
     }
-    let header = toml_string(&format!("Bearer {}", entry.token));
     text += &format!(
-        "{}\nurl = {}\nhttp_headers = {{ \"Authorization\" = {header} }}\n",
+        "{}\ncommand = {}\nargs = [{}]\nenv = {{ {} = {} }}\n",
         codex_table(&entry.name),
-        toml_string(&entry.url),
+        toml_string(&entry.bridge),
+        toml_string(&entry.socket),
+        toml_string(bridge::TOKEN),
+        toml_string(&entry.token),
     );
     text
 }
@@ -250,7 +257,8 @@ mod tests {
     fn entry() -> Entry {
         Entry {
             name: "ilo".into(),
-            url: "http://127.0.0.1:47615/mcp".into(),
+            bridge: "/Applications/ilo.app/Contents/MacOS/mcp-bridge".into(),
+            socket: "/Users/me/Library/Application Support/ilo/Agents.sock".into(),
             token: "t0k".into(),
         }
     }
@@ -264,8 +272,9 @@ mod tests {
         assert_eq!(
             once,
             "model = \"o3\"\n\n[mcp_servers.other]\ncommand = \"x\"\n\n[mcp_servers.ilo]\n\
-             url = \"http://127.0.0.1:47615/mcp\"\n\
-             http_headers = { \"Authorization\" = \"Bearer t0k\" }\n"
+             command = \"/Applications/ilo.app/Contents/MacOS/mcp-bridge\"\n\
+             args = [\"/Users/me/Library/Application Support/ilo/Agents.sock\"]\n\
+             env = { \"BROWSER_AGENT_TOKEN\" = \"t0k\" }\n"
         );
         let new_token = Entry {
             token: "n3w".into(),
@@ -273,7 +282,7 @@ mod tests {
         };
         let twice = codex_with(&once, &new_token);
         assert_eq!(twice.matches("[mcp_servers.ilo]").count(), 1);
-        assert!(twice.contains("Bearer n3w") && !twice.contains("Bearer t0k"));
+        assert!(twice.contains("\"n3w\"") && !twice.contains("\"t0k\""));
         assert_eq!(
             codex_with("", &entry()).lines().next(),
             Some("[mcp_servers.ilo]")
@@ -298,17 +307,24 @@ mod tests {
         assert!(codex_without(&dev, "ilo").contains("[mcp_servers.ilo-dev]"));
     }
 
-    /// Claude Code adds the server for the user, over HTTP, with the token in its header.
+    /// Claude Code adds the bridge for the user, as a stdio server, with the token in its environment.
     #[test]
-    fn claude_code_adds_an_http_server_with_the_token() {
+    fn claude_code_adds_the_bridge_with_the_token() {
         let arguments = claude_add(&entry());
         assert_eq!(
             arguments[..5],
             ["mcp", "add-json", "--scope", "user", "ilo"]
         );
         let server: serde_json::Value = serde_json::from_str(&arguments[5]).unwrap();
-        assert_eq!(server["type"], "http");
-        assert_eq!(server["url"], "http://127.0.0.1:47615/mcp");
-        assert_eq!(server["headers"]["Authorization"], "Bearer t0k");
+        assert_eq!(server["type"], "stdio");
+        assert_eq!(
+            server["command"],
+            "/Applications/ilo.app/Contents/MacOS/mcp-bridge"
+        );
+        assert_eq!(
+            server["args"][0],
+            "/Users/me/Library/Application Support/ilo/Agents.sock"
+        );
+        assert_eq!(server["env"]["BROWSER_AGENT_TOKEN"], "t0k");
     }
 }

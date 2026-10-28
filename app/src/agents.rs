@@ -1,13 +1,16 @@
 //! Agents: Claude Code, Codex or any other MCP client works in the browser, each in a Space of its
 //! own, through the browser's MCP server (decision 8). Settings › Agents turns the server on, which
-//! it isn't at first, connects the clients and lists what each agent did. The server's threads
-//! sleep in the kernel between requests, so an idle browser wakes for none of it, and nothing here
+//! it isn't at first, connects the clients and lists what each agent did. The server is a Unix
+//! socket in the profile directory, which a client reaches through the bridge it launches. Its
+//! threads sleep in the kernel between messages, so an idle browser wakes for none of it, and nothing here
 //! runs on tab switch, new tab or launch: the saved settings are read after the first window shows.
 //!
-//! A client proves which agent it is with the token Connect wrote into its config. Each tool call
+//! A client proves which agent it is with the token Connect wrote into its config, which its bridge
+//! hands the server first. Each tool call
 //! reaches the UI thread as an event, and the tools answer through the core, which checks each
 //! call on a tab with bc_agent_may_act. That check's answer is the call's activity-log entry.
 
+pub mod bridge;
 pub mod clients;
 mod server;
 pub mod tools;
@@ -23,10 +26,6 @@ use gpui::{App, AppContext, Context, Entity, Global, SharedString, Task};
 use serde_json::{Value, json};
 
 pub use clients::{Client, Clients, Entry, System};
-
-/// The port the server listens on, on 127.0.0.1: fixed, as the clients' configs name it. A dev
-/// build has its own, so it runs beside the user's copy.
-pub const PORT: u16 = if cfg!(feature = "prod") { 47615 } else { 47616 };
 
 /// The name the clients list the server by: the browser's, a dev build's apart.
 pub fn server_name() -> String {
@@ -144,7 +143,9 @@ pub struct Agents {
     clients: Arc<dyn Clients>,
     /// Where the settings are saved: None in the tests.
     path: Option<PathBuf>,
-    port: u16,
+    /// The server's socket, and the bridge a client runs to reach it.
+    socket: PathBuf,
+    bridge: PathBuf,
     on: bool,
     agents: Vec<Agent>,
     /// The agents' tokens, which the server's threads read.
@@ -181,13 +182,15 @@ impl Agents {
         browser: Rc<dyn Browser>,
         clients: Arc<dyn Clients>,
         path: Option<PathBuf>,
-        port: u16,
+        socket: PathBuf,
+        bridge: PathBuf,
     ) -> Self {
         Agents {
             browser,
             clients,
             path,
-            port,
+            socket,
+            bridge,
             on: false,
             agents: Vec::new(),
             tokens: Arc::default(),
@@ -244,13 +247,23 @@ impl Agents {
         cx.notify();
     }
 
-    /// Where the clients reach the server.
-    pub fn url(&self) -> String {
-        let port = self
-            .server
-            .as_ref()
-            .map_or(self.port, |(server, _)| server.port());
-        format!("http://127.0.0.1:{port}/mcp")
+    /// The server as a client's config names it, with the agent's token.
+    fn entry(&self, token: &str) -> Entry {
+        Entry {
+            name: server_name(),
+            bridge: self.bridge.to_string_lossy().into_owned(),
+            socket: self.socket.to_string_lossy().into_owned(),
+            token: token.into(),
+        }
+    }
+
+    /// What a client runs to reach the server: the bridge, with the socket.
+    pub fn command(&self) -> String {
+        format!(
+            "\"{}\" \"{}\"",
+            self.bridge.display(),
+            self.socket.display()
+        )
     }
 
     /// Why the server isn't running, though on.
@@ -281,18 +294,14 @@ impl Agents {
     }
 
     /// Makes the client the agent's token, and writes it into the client's config, with the
-    /// server's address. A client connected before gets a new token, and the old one stops
+    /// bridge that reaches the server. A client connected before gets a new token, and the old one stops
     /// working.
     pub fn connect(&mut self, client: Client, cx: &mut Context<Self>) {
         if self.connecting.is_some() {
             return;
         }
         let token = random_token();
-        let entry = Entry {
-            name: server_name(),
-            url: self.url(),
-            token: token.clone(),
-        };
+        let entry = self.entry(&token);
         self.connecting = Some(client);
         self.failed = None;
         cx.notify();
@@ -346,6 +355,9 @@ impl Agents {
         self.tokens_changed();
         self.save();
         self.reading.retain(|_, (agent, _, _)| agent != client.id());
+        if let Some((server, _)) = &self.server {
+            server.disconnect(client.id());
+        }
         if self.live.remove(client.id()) {
             self.browser.disconnected(client.id(), cx);
         }
@@ -371,16 +383,11 @@ impl Agents {
         cx.notify();
     }
 
-    /// What an MCP client's config needs, for the user to paste: the server's address and the
-    /// agent's token, as most clients write it.
+    /// What an MCP client's config needs, for the user to paste: the bridge, its socket and the
+    /// agent's token, as most clients write a stdio server.
     pub fn setup(&self, client: Client) -> Option<String> {
         let agent = self.agents.iter().find(|agent| agent.client == client)?;
-        let server = json!({
-            "type": "http",
-            "url": self.url(),
-            "headers": { "Authorization": format!("Bearer {}", agent.token) },
-        });
-        let config = json!({ "mcpServers": { server_name(): server } });
+        let config = json!({ "mcpServers": { server_name(): self.entry(&agent.token).json() } });
         serde_json::to_string_pretty(&config).ok()
     }
 
@@ -577,10 +584,10 @@ impl Agents {
             return;
         }
         let (events, mut handed) = futures::channel::mpsc::unbounded();
-        match server::Server::start(self.port, self.tokens.clone(), events) {
+        match server::Server::start(&self.socket, self.tokens.clone(), events) {
             Ok(server) => {
                 // check.sh reads this line.
-                log!("browser: agents server on 127.0.0.1:{}", server.port());
+                log!("browser: agents server on {}", server.path().display());
                 // Wakes only as the server hands something over.
                 let task = cx.spawn(async move |agents, cx| {
                     while let Some(event) = handed.next().await {
@@ -665,5 +672,6 @@ pub fn ago(at: SystemTime, now: SystemTime) -> String {
     }
 }
 
-#[cfg(test)]
+// The tests run the server, which is a Unix socket until Windows has its named pipe.
+#[cfg(all(test, unix))]
 mod tests;
