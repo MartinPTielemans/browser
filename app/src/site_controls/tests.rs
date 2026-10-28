@@ -60,6 +60,9 @@ impl Host for Recorder {
     fn allow_saving(&self, tab: u64, login: &Login) {
         self.push(format!("allow saving {tab} {}", login.site));
     }
+    fn set_ad_blocking(&self, tab: u64, on: bool) {
+        self.push(format!("ad blocking {tab} {on}"));
+    }
     fn run(&self, run: Run, tab: u64, _: &mut App) {
         let run = match run {
             Run::Command(command) => format!("{command:?}"),
@@ -134,6 +137,7 @@ fn site() -> Site {
         ],
         reset: Some("Reset permissions".into()),
         system_engine: None,
+        ad_blocking: None,
         logins: vec![],
     }
 }
@@ -559,6 +563,27 @@ fn the_passwords_row_shows_only_for_a_site_with_logins(cx: &mut TestAppContext) 
     assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
 }
 
+/// With every row: Safari's engine, ad blocking, Passwords, the permissions, then Reset, the
+/// seven making the panel two rows taller than ad blocking's alone.
+#[gpui::test]
+fn the_rows_go_engine_ad_blocking_passwords_permissions_reset(cx: &mut TestAppContext) {
+    let logins = vec![login("me", false)];
+    let site = Site { system_engine: Some(true), ad_blocking: Some(true), logins, ..site() };
+    let mut panel = Panel::new(cx, site);
+    assert_eq!(panel.calls(), ["show 88 78.5 236 524.5"]);
+    panel.host.answer.set(None);
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On*, Off"]);
+    panel.click(row(1));
+    assert_eq!(panel.calls(), [format!("ad blocking {TAB} false")]);
+    panel.click(row(2));
+    assert_eq!(panel.calls(), ["menu Remove “me”…, , All Passwords…"]);
+    panel.click(row(3));
+    assert_eq!(panel.calls(), ["menu Allow, Block, Ask*"]);
+    panel.click(row(4));
+    assert_eq!(panel.calls(), ["menu Allow*, Block, Ask"]);
+}
+
 /// A value a policy set shows, but isn't the user's to change.
 #[gpui::test]
 fn a_managed_value_has_no_menu(cx: &mut TestAppContext) {
@@ -644,6 +669,33 @@ fn without_permissions_there_is_no_settings_heading(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), ["show 88 78.5 236 191.5"]);
 }
 
+/// Ads and trackers blocked on the site come first, and a click lets them load there; the core
+/// reloads the page and reports the site again.
+#[gpui::test]
+fn the_first_row_turns_ad_blocking_off_for_the_site(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, Site { ad_blocking: Some(true), ..site() });
+    assert_eq!(panel.calls(), ["show 88 78.5 236 438.5"]);
+    panel.click(row(0));
+    assert_eq!(panel.calls(), [format!("ad blocking {TAB} false")]);
+    panel.changed(Site { ad_blocking: Some(false), ..site() });
+    panel.click(row(0));
+    assert_eq!(panel.calls(), [format!("ad blocking {TAB} true")]);
+    // The permissions follow it.
+    panel.host.answer.set(Some(1));
+    panel.click(row(2));
+    assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
+}
+
+/// Where it isn't the user's to change, such as a private window, the row isn't there.
+#[gpui::test]
+fn without_a_say_there_is_no_ad_blocking_row(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    panel.calls();
+    panel.host.answer.set(Some(1));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu Allow, Block, Ask*", &format!("set {TAB} 5 Block")]);
+}
+
 #[gpui::test]
 fn the_log_names_each_permission_and_its_value(_: &mut TestAppContext) {
     let described = describe(&site());
@@ -651,6 +703,9 @@ fn the_log_names_each_permission_and_its_value(_: &mut TestAppContext) {
     assert_eq!(described, format!("example.com: Connection is secure; {permissions}"));
     let bare = Site { permissions: Vec::new(), reset: None, ..site() };
     assert_eq!(describe(&bare), "example.com: Connection is secure; no permissions");
+    // Ad blocking is its first row, which check.sh counts.
+    let blocking = Site { ad_blocking: Some(false), ..bare };
+    assert_eq!(describe(&blocking), "example.com: Connection is secure; Ad blocking Off");
 }
 
 #[gpui::test]

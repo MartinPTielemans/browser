@@ -24,6 +24,7 @@
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/archive.h"
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
@@ -217,6 +218,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
         std::vector<bc_id> panes = space.Panes(id);
         tab.share = shares[std::ranges::find(panes, id) - panes.begin()];
       }
+      tab.expanded = space.Expanded(id) == id;
       above = id;
       tab.pinned_url = space.PinnedUrl(id);
       tab.depth = DepthOf(space, id);
@@ -285,7 +287,9 @@ Saved Collect() {
         {.space = space == spaces.end() ? 0 : space->second,
          .bounds = widget ? widget->GetRestoredBounds() : gfx::Rect(),
          .sidebar_width = window->sidebar_width(),
-         .fullscreen = widget && widget->IsFullscreen()});
+         // The user's full screen, not a page's: one saved as a video plays would come back
+         // without it.
+         .fullscreen = widget && widget->IsFullscreen() && !window->FullScreenForPage()});
   }
   saved.archive = Archived();
   return saved;
@@ -325,6 +329,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       }
       if (tab.share) {
         dict.Set("share", tab.share);
+      }
+      if (tab.expanded) {
+        dict.Set("expanded", true);
       }
       if (tab.depth) {
         dict.Set("depth", tab.depth);
@@ -417,7 +424,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
                            .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
-                           .Set("unload_idle_tabs", saved.settings.unload_idle_tabs));
+                           .Set("unload_idle_tabs", saved.settings.unload_idle_tabs)
+                           .Set("ad_blocking", saved.settings.ad_blocking));
   return base::WriteJson(root);
 }
 
@@ -460,6 +468,7 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   tab.split = dict->FindBool("split").value_or(false);
   tab.stacked = tab.split && dict->FindBool("stacked").value_or(false);
   tab.share = dict->FindDouble("share").value_or(0);
+  tab.expanded = dict->FindBool("expanded").value_or(false);
   tab.depth = std::max(dict->FindInt("depth").value_or(0), 0);
   if (const std::string* profile = dict->FindString("profile")) {
     tab.profile = *profile;
@@ -623,6 +632,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
       saved.settings.favorites_scope = ScopeFromName(*scope);
     }
     saved.settings.unload_idle_tabs = settings->FindBool("unload_idle_tabs").value_or(true);
+    saved.settings.ad_blocking = settings->FindBool("ad_blocking").value_or(true);
   }
   return saved;
 }
@@ -694,6 +704,8 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
       UserSettings() = saved->settings;
       LoadedWindows() = std::exchange(saved->windows, {});
     }
+    // The profile the browser started in loaded before the settings were read.
+    ApplyAdBlocking();
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
     if (saved) {
@@ -860,21 +872,30 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   }
   for (auto [tabs, ids] : {std::pair(&saved_space.pinned, &pinned_ids),
                            std::pair(&saved_space.today, &today_ids)}) {
-    // The shares of the split being remade, which it takes once its last tab is in it.
+    // The shares of the split being remade, and the tab that took its card, which it takes once
+    // its last tab is in it.
     std::vector<double> shares;
+    bc_id expanded = 0;
     for (size_t j = 0; j < ids->size(); ++j) {
       const SavedTab& tab = (*tabs)[j];
       if (!tab.split || j == 0) {
         shares.clear();
+        expanded = 0;
       } else if ((*ids)[j] && (*ids)[j - 1] && space->Split((*ids)[j], (*ids)[j - 1], GURL()) &&
                  tab.stacked) {
         space->SetStacked((*ids)[j], true);
       }
       if ((*ids)[j]) {
         shares.push_back(tab.share);
+        if (tab.expanded) {
+          expanded = (*ids)[j];
+        }
       }
       if (tab.split && (*ids)[j] && (j + 1 == ids->size() || !(*tabs)[j + 1].split)) {
         space->SetShares((*ids)[j], shares);
+        if (expanded) {
+          space->SetExpanded(expanded, true);
+        }
       }
     }
   }

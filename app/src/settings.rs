@@ -219,6 +219,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Next Pane", Keys::Of(Command::NextPane)),
             ("Previous Pane", Keys::Of(Command::PreviousPane)),
             ("Separate Page from Split View", Keys::Of(Command::SeparatePane)),
+            ("Expand Current Split", Keys::Of(Command::ExpandSplit)),
             ("Separate All Pages", Keys::Of(Command::SeparateSplit)),
             ("Flip Split View", Keys::Of(Command::FlipSplit)),
             ("Change Orientation", Keys::Of(Command::ChangeOrientation)),
@@ -577,6 +578,8 @@ impl Settings {
         let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
         let unload = unsafe { bc::bc_unload_idle_tabs() };
         let unload = self.toggle("unload idle tabs", unload, set_unload_idle_tabs, accent, cx);
+        let ad_blocking = unsafe { bc::bc_ad_blocking() };
+        let ad_blocking = self.toggle("ad blocking", ad_blocking, set_ad_blocking, accent, cx);
         div()
             .flex()
             .flex_col()
@@ -587,6 +590,8 @@ impl Settings {
                 row(None, "Archive tabs after", archive.into_any_element()),
                 row(None, "Unload tabs you haven't used in a while", unload),
                 row(None, "Favorites", favorites.into_any_element()),
+                // Last, so popup_text finds the pop-ups where they were.
+                row(None, "Block ads and trackers", ad_blocking),
             ]))
             .child(group([self.default_browser_row(cx)]))
             .into_any_element()
@@ -742,7 +747,7 @@ impl Settings {
     ) {
         self.choosing = Some(which);
         cx.notify();
-        show_menu(ns_view(window), items, popup_text(which), false, Look::Dark, picked, cx);
+        show_menu(ns_view(window), items, popup_text(which), false, Look::dark(), picked, cx);
     }
 
     /// The pop-up's menu closed.
@@ -1251,6 +1256,11 @@ fn set_warn_before_quitting(warn: bool) {
 
 fn set_unload_idle_tabs(unload: bool) {
     unsafe { bc::bc_set_unload_idle_tabs(unload) };
+}
+
+/// In every profile; a site's own stays as the user set it in the Site Controls.
+fn set_ad_blocking(on: bool) {
+    unsafe { bc::bc_set_ad_blocking(on) };
 }
 
 fn set_haptics(haptics: bool) {

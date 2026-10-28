@@ -20,8 +20,8 @@ use browser::{
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, SidePanel,
-    Split, Trouble, WindowButton,
+    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
+    SidePanel, Split, Trouble, WindowButton,
 };
 use browser::text_input::{
     Copy, Cut, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
@@ -97,6 +97,8 @@ mod platform {
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
+        pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
+        pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
         pub fn host_is_default_browser() -> bool;
@@ -219,7 +221,7 @@ mod platform {
             count: usize,
         ) -> i32;
         pub fn host_add_dialog(dialog_view: *mut c_void);
-        pub fn host_show_dialog(ui_view: *mut c_void);
+        pub fn host_show_dialog(ui_view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
         pub fn host_hide_dialog();
         pub fn host_add_site_controls(view: *mut c_void, dismissed: extern "C" fn());
         pub fn host_add_menu_window(
@@ -334,6 +336,8 @@ thread_local! {
     static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
     // What the menu bar was last built from, so a change to one part rebuilds it with the others.
     static MENUS: RefCell<Menus> = RefCell::default();
+    // Whether a menu bar built from MENUS waits for the menu open to close.
+    static MENUS_HELD: Cell<bool> = const { Cell::new(false) };
 }
 
 /// What the menu bar lists besides what never changes: what the key window's shell says of it, and
@@ -349,6 +353,28 @@ impl Menus {
     fn build(&self) -> Vec<Menu> {
         menus(&self.bar, self.undo.as_deref(), self.redo.as_deref())
     }
+}
+
+/// Puts up the menu bar built from MENUS, or, while a menu is open, once none is, as AppKit can
+/// crash when the main menu is replaced under an open menu. What changes meanwhile goes in the one
+/// rebuild.
+fn show_menus(cx: &mut App) {
+    if MENUS_HELD.get() {
+        return;
+    }
+    if unsafe { platform::host_after_menus(menus_closed) } {
+        // check.sh reads these lines.
+        log!("browser: menu bar waits for the menu open");
+        MENUS_HELD.set(true);
+        return;
+    }
+    cx.set_menus(MENUS.with_borrow(Menus::build));
+}
+
+extern "C" fn menus_closed() {
+    log!("browser: menu bar put up once the menus closed");
+    MENUS_HELD.set(false);
+    update_app(show_menus);
 }
 
 /// "Undo" or "Redo", with what it would undo or redo after it.
@@ -370,6 +396,12 @@ fn front() -> (bc::bc_id, *mut c_void) {
 /// A browser window has gone full screen or left it, once macOS's transition is over.
 extern "C" fn full_screen_changed(ui_view: *mut c_void, entered: bool) {
     update_window(window_with_view(ui_view), |shell, cx| shell.set_full_screen(entered, cx));
+}
+
+extern "C" fn swiped(ui_view: *mut c_void, x: f64, y: f64, back: bool) -> bool {
+    let at = point(px(x as f32), px(y as f32));
+    update_window(window_with_view(ui_view), |shell, cx| shell.swiped(at, back, cx))
+        .unwrap_or(false)
 }
 
 /// The window whose UI draws in `ui_view`, or 0.
@@ -612,8 +644,11 @@ fn url_for(text: &str, get: impl Fn(*const c_char, *mut c_char, usize) -> usize)
 struct DialogHost;
 
 impl dialog::Host for DialogHost {
-    fn show(&self) {
-        unsafe { platform::host_show_dialog(front().1) };
+    fn show(&self, over: Option<Bounds<Pixels>>) {
+        let over = rect(over.unwrap_or_default());
+        unsafe {
+            platform::host_show_dialog(front().1, over.x, over.y, over.width, over.height)
+        };
     }
 
     fn hide(&self) {
@@ -706,6 +741,10 @@ impl site_controls::Host for SiteControlsHost {
         remove_login(unsafe { bc::bc_tab_profile(tab) }, login);
     }
 
+    fn set_ad_blocking(&self, tab: u64, on: bool) {
+        unsafe { bc::bc_tab_set_ad_blocking(tab, on) };
+    }
+
     fn run(&self, run: site_controls::Run, tab: u64, cx: &mut App) {
         let Some(window) = tab_window(tab, cx) else {
             return;
@@ -761,7 +800,7 @@ impl site_controls::Host for SiteControlsHost {
         cx: &mut App,
     ) {
         // The panel's menus are dark, as the panel is.
-        show_menu(self.view.get(), items, position, false, menu::Look::Dark, chosen, cx);
+        show_menu(self.view.get(), items, position, false, menu::Look::dark(), chosen, cx);
     }
 
     fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App) {
@@ -954,16 +993,30 @@ unsafe extern "C" fn tab_captured(
     // check.sh reads this line.
     log!("browser: tab {tab} captured {request}: {width}x{height}, {size} bytes");
     let png = (!png.is_null()).then(|| unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
-    // A window's picture of a page another window shows, not capture mode's.
-    if shell::is_picture(request) {
-        if let Some(cx) = CX.with_borrow(Clone::clone) {
-            let shells = WINDOWS
-                .with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
-            shell::picture_answered(shells, request, png, &cx);
-        }
-        return;
-    }
     update_app_later(move |cx| capture::captured(tab, request, png, cx));
+}
+
+unsafe extern "C" fn tab_pictured(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    request: u64,
+    bgra: *const u8,
+    width: i32,
+    height: i32,
+) {
+    // check.sh reads this line.
+    log!("browser: tab {tab} pictured {request}: {width}x{height}");
+    browser::log_handover("picture in", &format!("tab {tab}, {width}x{height}"));
+    let (width, height) = (width.max(0) as u32, height.max(0) as u32);
+    let size = width as usize * height as usize * 4;
+    let picture = (!bgra.is_null() && size > 0)
+        .then(|| unsafe { std::slice::from_raw_parts(bgra, size) }.to_vec())
+        .and_then(|bgra| PagePicture::from_bgra(bgra, width, height));
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let shells =
+            WINDOWS.with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
+        shell::picture_answered(shells, request, picture, &cx);
+    }
 }
 
 /// The zoom HUD's requests, to the host's HUD window, over the browser window it names.
@@ -1289,6 +1342,7 @@ struct Engine {
 
 impl Browser for Engine {
     fn select(&self, tab: u64, _: &mut App) {
+        browser::handover_clicked();
         unsafe { bc::bc_window_select(self.window, tab) };
     }
 
@@ -1391,6 +1445,10 @@ impl Browser for Engine {
             (shares.as_ptr(), shares.len())
         });
         unsafe { bc::bc_tab_set_split_shares(tab, shares, count) };
+    }
+
+    fn set_split_expanded(&self, tab: u64, expanded: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_split_expanded(tab, expanded) };
     }
 
     fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
@@ -1536,6 +1594,77 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_answer_permission(tab, answer as i32) };
     }
 
+    fn show_page_dialog(&self, shown: Option<shell::ShownPageDialog>, cx: &mut App) {
+        // The dialog shows over the window last key, as the others do; another's waits for it.
+        if self.window != front().0 {
+            return;
+        }
+        let Some((tab, asked, over)) = shown else {
+            dialog::withdraw_page(cx);
+            return;
+        };
+        let field = |placeholder: &SharedString, text: &SharedString, secure| dialog::Field {
+            placeholder: placeholder.clone(),
+            text: text.clone(),
+            secure,
+        };
+        let none = SharedString::default();
+        let fields = match asked.kind {
+            shell::DialogKind::Prompt => vec![field(&none, &asked.text, false)],
+            shell::DialogKind::SignIn => {
+                vec![field(&asked.username, &none, false), field(&asked.password, &none, true)]
+            }
+            _ => Vec::new(),
+        };
+        let question = dialog::Question {
+            icon: None,
+            message: asked.title.clone(),
+            detail: asked.message.clone(),
+            list: Vec::new(),
+            action: asked.accept.clone(),
+            cancel: asked.cancel.clone(),
+            tone: match asked.kind {
+                // Leaving loses what the user changed in the page.
+                shell::DialogKind::Leave => dialog::Tone::Destructive,
+                // Another answer to a page takes nothing back.
+                _ => dialog::Tone::Accent,
+            },
+            also: None,
+            fields,
+            check: (!asked.check.is_empty()).then(|| asked.check.clone()),
+            return_cancels: asked.kind == shell::DialogKind::OpenApp,
+        };
+        let window = self.window;
+        let kind = asked.kind;
+        let answered = Box::new(move |reply: dialog::Reply, cx: &mut App| {
+            let mut texts = reply.texts.into_iter();
+            let (text, password) = match kind {
+                shell::DialogKind::Prompt => (texts.next().unwrap_or_default(), String::new()),
+                shell::DialogKind::SignIn => {
+                    (texts.next().unwrap_or_default(), texts.next().unwrap_or_default())
+                }
+                _ => (String::new(), String::new()),
+            };
+            let reply =
+                shell::PageReply { accept: reply.accept, text, password, checked: reply.checked };
+            let shell = WINDOWS.with_borrow(|windows| {
+                windows.iter().find(|w| w.id == window).map(|w| w.shell.clone())
+            });
+            match shell.and_then(|shell| shell.upgrade()) {
+                Some(shell) => {
+                    shell.update(cx, |shell, cx| shell.answer_page_dialog(tab, asked.id, reply, cx))
+                }
+                // Its window closed while the dialog left, so the page isn't left waiting.
+                None => answer_page_dialog(tab, asked.id, reply),
+            }
+        });
+        dialog::ask_page((tab, asked.id), question, over, answered, cx);
+    }
+
+    fn answer_page_dialog(&self, tab: u64, id: u64, reply: shell::PageReply, _: &mut App) {
+        answer_page_dialog(tab, id, reply);
+    }
+
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
     }
@@ -1587,7 +1716,7 @@ impl Browser for Engine {
         MENUS.with_borrow_mut(|menus| menus.bar = bar.clone());
         // The menu bar is the key window's, which lists its own Space's extensions.
         if front().0 == self.window {
-            cx.set_menus(MENUS.with_borrow(Menus::build));
+            show_menus(cx);
         }
     }
 
@@ -1597,7 +1726,7 @@ impl Browser for Engine {
             menus.redo = redo.map(Into::into);
         });
         if front().0 == self.window {
-            cx.set_menus(MENUS.with_borrow(Menus::build));
+            show_menus(cx);
         }
     }
 
@@ -1768,6 +1897,10 @@ impl Browser for Engine {
 
     fn focus_ui(&self, _: &mut App) {
         focus_ui(self.window, self.view);
+    }
+
+    fn focus_page(&self, _: &mut App) {
+        unsafe { bc::bc_window_focus_page(self.window) };
     }
 
     fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, _: &mut App) {
@@ -2003,12 +2136,7 @@ impl Browser for Engine {
 
     fn page_picture(&self, tab: u64, request: u64, _: &mut App) {
         // The page's whole view, which is the shape it has where it's live; the card fits it.
-        let whole = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
-        unsafe { bc::bc_tab_capture(tab, request, false, whole) };
-    }
-
-    fn page_picture_end(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_capture_end(tab) };
+        unsafe { bc::bc_tab_picture(tab, request) };
     }
 
     fn window(&self) -> u64 {
@@ -2108,6 +2236,9 @@ impl Browser for Engine {
                     }
                 }),
             )),
+            fields: Vec::new(),
+            check: None,
+            return_cancels: false,
         };
         dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
     }
@@ -2784,6 +2915,7 @@ fn finish_opening(
         platform::host_take_drops(dragged);
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
+        platform::host_watch_swipes(swiped);
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }
@@ -2925,7 +3057,9 @@ unsafe extern "C" fn started(_: *mut c_void) {
         };
         let display = unsafe { bc::bc_wayland_display(Some(dispatched)) };
         match display.is_null() {
-            true => gpui_linux::embed(),
+            // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
+            // follows GDK_SCALE.
+            true => gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32),
             false => gpui_linux::embed_wayland(display, keyboard),
         }
         !display.is_null()
@@ -3089,6 +3223,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                         item("JavaScript Console", Command::JavaScriptConsole),
                     ],
                 )),
+                MenuItem::separator(),
+                item("Expand Current Split", Command::ExpandSplit),
             ],
         ),
         menu(
@@ -3448,6 +3584,7 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
                 tabs,
                 stacked: unsafe { bc::bc_tab_split_stacked(tab) },
                 shares: if even { Vec::new() } else { shares },
+                expanded: unsafe { bc::bc_tab_split_expanded(tab) },
             });
         }
     }
@@ -3493,6 +3630,7 @@ unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space
 unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
     // check.sh reads this line, as a tab's page moves between windows.
     log!("browser: window {window} shows {tab}");
+    browser::log_handover("window shows the tab", &format!("window {window}, tab {tab}"));
     update_window(window, |shell, cx| {
         shell.set_selected(tab, cx);
         find_bar::tab_shown(window, tab, cx);
@@ -3504,6 +3642,11 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
 unsafe extern "C" fn window_page_elsewhere(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
     // check.sh reads this line.
     log!("browser: window {window} page elsewhere {tab}");
+    let (stage, detail) = match tab {
+        0 => ("taker told", format!("window {window}")),
+        _ => ("giver told", format!("window {window}, tab {tab}")),
+    };
+    browser::log_handover(stage, &detail);
     update_window(window, |shell, cx| shell.page_elsewhere(tab, cx));
     update_app(|cx| offer::page_elsewhere(window, tab != 0, cx));
 }
@@ -3654,6 +3797,7 @@ unsafe extern "C" fn extensions_changed(
             enabled: extension.enabled,
             pinned: extension.pinned,
             options: text(extension.options),
+            removable: extension.removable,
             commands: match extension.commands.is_null() {
                 true => &[][..],
                 false => unsafe {
@@ -3752,6 +3896,9 @@ unsafe extern "C" fn window_extension_question(
         cancel: text(question.cancel).into(),
         tone: dialog::Tone::Accent,
         also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: false,
     };
     let mut asked = false;
     if window == front().0 {
@@ -3906,6 +4053,11 @@ unsafe extern "C" fn tab_site_controls(
             (false, true) => Some(false),
             (false, false) => None,
         },
+        ad_blocking: match controls.ad_blocking as u32 {
+            bc::BC_AD_BLOCKING_ON => Some(true),
+            bc::BC_AD_BLOCKING_OFF => Some(false),
+            _ => None,
+        },
         logins: logins(controls.logins, controls.login_count),
     };
     update_app(|cx| site_controls::changed(tab, site, cx));
@@ -3992,6 +4144,54 @@ unsafe extern "C" fn tab_offer_changed(
         }
     });
     update_app(|cx| offer::changed(tab, offer, cx));
+}
+
+/// Tells the core the user's answer to the dialog `id` of `tab`'s page.
+fn answer_page_dialog(tab: u64, id: u64, reply: shell::PageReply) {
+    let text = CString::new(reply.text).unwrap_or_default();
+    let password = CString::new(reply.password).unwrap_or_default();
+    unsafe {
+        bc::bc_tab_answer_dialog(
+            tab,
+            id,
+            reply.accept,
+            text.as_ptr(),
+            password.as_ptr(),
+            reply.checked,
+        )
+    };
+}
+
+/// A tab's page asks a dialog, such as its alert(), or no longer does (null).
+unsafe extern "C" fn tab_dialog(_: *mut c_void, tab: bc::bc_id, asked: *const bc::bc_page_dialog) {
+    let text = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let dialog = unsafe { asked.as_ref() }.map(|asked| shell::PageDialog {
+        id: asked.id,
+        kind: match asked.kind as u32 {
+            bc::BC_DIALOG_CONFIRM => shell::DialogKind::Confirm,
+            bc::BC_DIALOG_PROMPT => shell::DialogKind::Prompt,
+            bc::BC_DIALOG_LEAVE => shell::DialogKind::Leave,
+            bc::BC_DIALOG_SIGN_IN => shell::DialogKind::SignIn,
+            bc::BC_DIALOG_OPEN_APP => shell::DialogKind::OpenApp,
+            _ => shell::DialogKind::Alert,
+        },
+        title: text(asked.title),
+        message: text(asked.message),
+        text: text(asked.text),
+        accept: text(asked.accept),
+        cancel: text(asked.cancel),
+        check: text(asked.check),
+        username: text(asked.username),
+        password: text(asked.password),
+    });
+    // check.sh waits for these lines.
+    match &dialog {
+        Some(dialog) => log!("browser: page {tab} dialog {:?} {}", dialog.kind, dialog.title),
+        None => log!("browser: page {tab} dialog none"),
+    }
+    update_shells(|shell, cx| shell.set_page_dialog(tab, dialog.clone(), cx));
 }
 
 unsafe extern "C" fn tab_permission_asked(
@@ -4265,6 +4465,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),
         tab_captured: Some(tab_captured),
+        tab_pictured: Some(tab_pictured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
@@ -4277,6 +4478,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         #[cfg(target_os = "linux")]
         window_resized: Some(window_resized),
         agent_session_ended: Some(agent_session_ended),
+        tab_dialog: Some(tab_dialog),
         ..Default::default()
     };
     (args, host)

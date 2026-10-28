@@ -1,10 +1,11 @@
 # ⌘D pins the tab shown, from the page and from the UI, at the bottom of the pinned tabs, and unpins
-# it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the pointer, which
-# is − on the tab shown, unloads a pinned tab and keeps its row, which has no ✕ then, and shows the
-# top Today tab, else the nearest pinned tab still loaded, else no page, as closing the last Today
-# tab does. Shown again, the tab loads. A link in its page takes it away from its pinned URL, and ⌘↩
-# from the page and the UI, and a click on its favicon, go back there. An address typed into it opens
-# in a Today tab of its own, as in Arc, and closing that shows the pinned tab again. Launched again, the app brings back the pinned tab pinned and
+# it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, the ✕ under the pointer, which is
+# − on the tab shown, or a middle-click on its row, unloads a pinned tab and keeps its row, which
+# has no ✕ then, and shows the top Today tab, else the nearest pinned tab still loaded, else no
+# page, as closing the last Today tab does. Shown again, the tab loads. A link in its page takes it
+# away from its pinned URL, and ⌘↩ from the page and the UI, and a click on its favicon, go back
+# there. An address typed into it opens in a Today tab of its own, as in Arc, and closing that shows
+# the pinned tab again. Launched again, the app brings back the pinned tab pinned and
 # away from its pinned URL, without loading it. Dragging a row moves its tab in the pinned tabs,
 # pins it and unpins it, without showing it, and escape puts it back. New Folder makes a folder
 # under the pinned tabs, which takes the name typed. A row dragged right under it goes in and
@@ -135,6 +136,14 @@ expect "^browser: selected $b\$" "the − on a pinned tab didn't show the top To
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
 expect "^browser: loaded $c https://example.org/\$" "the pinned tab didn't load once shown"
+# A middle-click on a row closes its tab as the ✕ does, which unloads a pinned one.
+send middleclick $(pinned_row 1)
+expect '^browser: command close-tab via sidebar$' "a middle-click on a pinned tab didn't run Close Tab"
+expect "^browser: page $a unloaded 1\$" "a middle-click didn't unload the pinned tab"
+none_since '^browser: selected' || fail "a middle-click on a pinned tab not shown changed the tab shown"
+send click $(pinned_row 1)
+expect "^browser: selected $a in " "a click on the pinned tab a middle-click unloaded didn't show it"
+expect "^browser: loaded $a $site\$" "the pinned tab a middle-click unloaded didn't load once shown"
 
 # Without Today tabs, closing shows the nearest pinned tab still loaded, else no page.
 switch "3 cmd" "$b"
@@ -162,9 +171,9 @@ unpinned=$c
 c=$a
 a=$unpinned
 
-# Away from its pinned URL, ⌘↩ goes back there, from the page and the UI. A key in the UI hides
-# the sidebar's hover until the pointer moves, so the pointer leaves the row before clicking it again.
-send move 600 400
+# Away from its pinned URL, ⌘↩ goes back there, from the page and the UI. The click comes under
+# the pointer that pressed the row ⌘D unpinned, as a trackpad tap does, while that row may still be
+# drawn there, and shows the tab that rests there.
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
 expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once shown"
@@ -423,4 +432,4 @@ send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/drop-before.png, $out/drop-line.png, $out/dropped.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/drop-before.png, $out/drop-line.png, $out/dropped.png"

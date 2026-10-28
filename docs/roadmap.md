@@ -1,6 +1,6 @@
 # Roadmap
 
-Each phase ends with a check. Don't start a phase's dependent work until the previous check passes.
+Each phase ends with a check. Work that depends on a phase waits for its check.
 
 ## Phase 0: UX spec (2–3 days)
 
@@ -12,7 +12,7 @@ Each phase ends with a check. Don't start a phase's dependent work until the pre
 
 ## Phase 1: architecture spike (2–4 days)
 
-GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Chrome's framework here. It has the same `NSApplication` requirements, the same native page view, and the same focus and IME behavior.
+GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Chrome's framework here. It has the same `NSApplication` requirements, native page view, and focus and IME behavior.
 
 | Day | Work | Risk it answers |
 |---|---|---|
@@ -34,7 +34,7 @@ GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Ch
 
 ## Phase 3: daily-driver MVP on Mac (about 2–3 months)
 
-Sidebar, Spaces (with the Agent Space kind in the data model), command bar, split view, archive, profiles, extensions (including install prompts and popups), passwords and autofill, downloads, find in page, DevTools, import from Arc and Chrome, Sparkle updates, signing and notarization.
+Sidebar, Spaces (with the Agent Space kind in the data model), command bar, split view, archive, profiles, extensions (including install prompts and popups), ad blocking on from the first page, passwords and autofill, downloads, find in page, DevTools, import from Arc and Chrome, Sparkle updates, signing and notarization.
 
 **Done when** the parity checklist's MVP items pass and the performance gate holds.
 

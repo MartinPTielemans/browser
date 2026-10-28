@@ -335,6 +335,9 @@ Browser* g_dialog_over;
 NSWindow* g_dialog;
 NSView* g_dialog_view;
 bool g_dialog_shown = false;
+// What the dialog covers, as insets from the browser window's content edges: none for all of it,
+// or a tab's card for a page's dialog, which keeps them as the window resizes.
+NSEdgeInsets g_dialog_insets;
 
 // The Site Controls' window and view, the browser they show over, and where their top left goes
 // there. Released, they're on screen only for the motion of their leaving, and take no clicks.
@@ -499,6 +502,40 @@ void AddOver(NSWindow* parent, NSWindow* child) {
   [parent addChildWindow:child ordered:NSWindowAbove];
 }
 
+// The menus AppKit tracks now, the menu bar's and context menus alike, and what waits for them
+// to close.
+NSHashTable<NSMenu*>* g_menus_open;
+void (*g_after_menus)(void);
+
+void WatchMenus() {
+  if (g_menus_open) {
+    return;
+  }
+  g_menus_open = [NSHashTable weakObjectsHashTable];
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  [center addObserverForName:NSMenuDidBeginTrackingNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    [g_menus_open addObject:notification.object];
+                  }];
+  [center addObserverForName:NSMenuDidEndTrackingNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    [g_menus_open removeObject:notification.object];
+                    if (g_menus_open.allObjects.count > 0 || !g_after_menus) {
+                      return;
+                    }
+                    void (*apply)(void) = g_after_menus;
+                    g_after_menus = nullptr;
+                    // Once AppKit has finished closing it: GCD's main queue waits for that.
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                      apply();
+                    });
+                  }];
+}
+
 // From the first browser window, the levels follow the main window and the active app.
 void WatchMainWindow() {
   static bool watching = false;
@@ -588,6 +625,19 @@ NSWindow* KeyWindowOver(Browser* browser) {
     return browser->offer;
   }
   return browser->window;
+}
+
+// The dialog's frame over |browser|'s window, by its insets.
+NSRect DialogFrame(Browser* browser) {
+  NSWindow* window = browser->window;
+  if (NSEdgeInsetsEqual(g_dialog_insets, NSEdgeInsetsZero)) {
+    return window.frame;
+  }
+  NSRect content = [window contentRectForFrameRect:window.frame];
+  return NSMakeRect(NSMinX(content) + g_dialog_insets.left,
+                    NSMinY(content) + g_dialog_insets.bottom,
+                    NSWidth(content) - g_dialog_insets.left - g_dialog_insets.right,
+                    NSHeight(content) - g_dialog_insets.top - g_dialog_insets.bottom);
 }
 
 // Where the UI asked, from the top left of the browser window's content, which a window resized
@@ -961,6 +1011,35 @@ void HoldKeys(NSWindow* window) {
                  });
 }
 
+// A held Escape's repeats go only to the window its press went to. The press that closes an
+// overlay, such as the command bar or the find bar, leaves the browser window with the keyboard,
+// and the repeats would go on to the page there, taking it out of its full screen or closing its
+// own dialog (#385). Once the key is let go, the next press goes wherever the keyboard is.
+void WatchHeldEscape() {
+  static bool watching = false;
+  if (watching) {
+    return;
+  }
+  watching = true;
+  constexpr unsigned short kEscape = 53;
+  static NSInteger pressed_in = 0;
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp
+                                        handler:^NSEvent*(NSEvent* event) {
+                                          if (event.keyCode != kEscape) {
+                                            return event;
+                                          }
+                                          if (event.type == NSEventTypeKeyUp) {
+                                            pressed_in = 0;
+                                          } else if (!event.ARepeat) {
+                                            pressed_in = NSApp.keyWindow.windowNumber;
+                                          } else if (pressed_in &&
+                                                     NSApp.keyWindow.windowNumber != pressed_in) {
+                                            return nil;
+                                          }
+                                          return event;
+                                        }];
+}
+
 }  // namespace
 
 namespace {
@@ -1168,7 +1247,9 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
       [view addSubview:g_launch_picture];
     }
   }
+  WatchMenus();
   WatchMainWindow();
+  WatchHeldEscape();
   if (above && above->window) {
     [window orderWindow:NSWindowBelow relativeTo:above->window.windowNumber];
   } else {
@@ -1243,7 +1324,8 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
                                                   PlaceHud();
                                                 }
                                                 if (g_dialog_shown && g_dialog_over == browser) {
-                                                  [g_dialog setFrame:window.frame display:YES];
+                                                  [g_dialog setFrame:DialogFrame(browser)
+                                                             display:YES];
                                                 }
                                                 if (g_toast_shown && g_toast_over == browser) {
                                                   PlaceToast();
@@ -1370,6 +1452,43 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {
                                                   }
                                                 }];
   }
+}
+
+static bool (*g_swiped)(void* ui_view, double x, double y, bool back);
+
+// A swipe between pages at |in_window|, AppKit's point in |window|, whether its own or the
+// driver's; returns whether the UI took it.
+bool SwipeBetweenPages(NSWindow* window, NSPoint in_window, bool back) {
+  Browser* browser = BrowserOf(window);
+  if (!browser || !g_swiped) return false;
+  NSView* view = browser->ui_view;
+  const NSPoint at = [view convertPoint:in_window fromView:nil];
+  const double y = view.isFlipped ? at.y : NSHeight(view.bounds) - at.y;
+  return g_swiped((__bridge void*)view, at.x, y, back);
+}
+
+void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {
+  g_swiped = swiped;
+  // macOS sends these only for the gesture System Settings set to swipe between pages, three
+  // fingers or a mouse's swipe, and Chrome's own window, which takes them, isn't ours. One to
+  // the right, deltaX > 0, goes back.
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskSwipe
+                                        handler:^NSEvent*(NSEvent* event) {
+                                          if (event.deltaX == 0) return event;
+                                          return SwipeBetweenPages(event.window,
+                                                                   event.locationInWindow,
+                                                                   event.deltaX > 0)
+                                                     ? nil
+                                                     : event;
+                                        }];
+}
+
+bool host_after_menus(void (*apply)(void)) {
+  if (g_menus_open.allObjects.count == 0) {
+    return false;
+  }
+  g_after_menus = apply;
+  return true;
 }
 
 void host_watch_resigning_active(void (*resigning)(void)) {
@@ -2115,33 +2234,47 @@ void host_add_dialog(void* dialog_view) {
   // of the browser window, which has its own shadow.
   g_dialog.hasShadow = NO;
   // The dialog is answered before anything else, as an alert is. Chromium makes its window key by
-  // itself, such as when a page commits, and the dialog takes the keyboard back.
-  [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification
-                                                  object:nil
-                                                   queue:nil
-                                              usingBlock:^(NSNotification* notification) {
-                                                if (g_dialog_shown &&
-                                                    notification.object != g_dialog &&
-                                                    !HostIsMenuWindow(notification.object)) {
-                                                  [g_dialog makeKeyWindow];
-                                                }
-                                              }];
+  // itself, such as when a page commits, and the dialog takes the keyboard back. A page's dialog
+  // holds only its tab, so another window may take the keyboard, and the dialog leaves.
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSWindowDidBecomeKeyNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification* notification) {
+                if (g_dialog_shown && notification.object != g_dialog &&
+                    !HostIsMenuWindow(notification.object) &&
+                    (NSEdgeInsetsEqual(g_dialog_insets, NSEdgeInsetsZero) ||
+                     notification.object == g_dialog_over->window)) {
+                  [g_dialog makeKeyWindow];
+                }
+              }];
 }
 
-void host_show_dialog(void* ui_view) {
+void host_show_dialog(void* ui_view, double x, double y, double width, double height) {
   Browser* browser = BrowserWithView(ui_view);
-  if (!g_dialog || !browser || !browser->window || g_dialog_shown) {
+  if (!g_dialog || !browser || !browser->window) {
+    return;
+  }
+  NSRect content = [browser->window contentRectForFrameRect:browser->window.frame];
+  g_dialog_insets = width > 0 ? NSEdgeInsetsMake(y, x, NSHeight(content) - y - height,
+                                                 NSWidth(content) - x - width)
+                              : NSEdgeInsetsZero;
+  if (g_dialog_shown) {
+    // The card it's over moved, such as when the sidebar hid.
+    if (g_dialog_over == browser) {
+      [g_dialog setFrame:DialogFrame(browser) display:YES];
+    }
     return;
   }
   g_dialog_shown = true;
   g_dialog_over = browser;
-  // After the UI's update that asked, since the window draws here: at the browser window's frame,
-  // before it shows, since it keeps the last frame it drew.
+  // After the UI's update that asked, since the window draws here: at its frame, before it shows,
+  // since it keeps the last frame it drew.
   dispatch_async(dispatch_get_main_queue(), ^{
     if (!g_dialog_shown) {
       return;
     }
-    [g_dialog setFrame:browser->window.frame display:NO];
+    [g_dialog setFrame:DialogFrame(browser) display:NO];
     [g_dialog_view.layer setNeedsDisplay];
     [g_dialog_view.layer displayIfNeeded];
     AddOver(browser->window, g_dialog);
@@ -2156,9 +2289,13 @@ void host_hide_dialog(void) {
   }
   g_dialog_shown = false;
   Browser* browser = g_dialog_over;
+  // Unless another window took the keyboard, such as from a page's dialog.
+  const bool key = g_dialog.isKeyWindow || !NSApp.keyWindow;
   [browser->window removeChildWindow:g_dialog];
   [g_dialog orderOut:nil];
-  [KeyWindowOver(browser) makeKeyWindow];
+  if (key) {
+    [KeyWindowOver(browser) makeKeyWindow];
+  }
 }
 
 void host_add_site_controls(void* view, void (*dismissed)(void)) {
@@ -3255,8 +3392,19 @@ void host_add_settings(void* settings_view) {
   // Its controls are drawn dark, as the browser's are.
   g_settings.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   g_settings.tabbingMode = NSWindowTabbingModeDisallowed;
-  g_settings.collectionBehavior |=
-      NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
+  g_settings.collectionBehavior |= NSWindowCollectionBehaviorFullScreenAuxiliary;
+}
+
+// Puts Settings in front on the desktop shown, wherever it was. macOS moves a window to the active
+// desktop only while it has MoveToActiveSpace, but counts a window with it as on no desktop, so
+// one coming back with Settings in front had no window to make key and left ilo inactive: it has
+// it only on its way on screen.
+static void OrderSettingsFront() {
+  g_settings.collectionBehavior |= NSWindowCollectionBehaviorMoveToActiveSpace;
+  [g_settings makeKeyAndOrderFront:nil];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    g_settings.collectionBehavior &= ~NSWindowCollectionBehaviorMoveToActiveSpace;
+  });
 }
 
 void host_show_settings(void) {
@@ -3264,7 +3412,7 @@ void host_show_settings(void) {
     return;
   }
   if (g_settings_shown) {
-    [g_settings makeKeyAndOrderFront:nil];
+    OrderSettingsFront();
     fprintf(stderr, "browser: settings shown %s\n", g_settings.title.UTF8String);
     return;
   }
@@ -3289,7 +3437,7 @@ void host_show_settings(void) {
     }
     [g_settings_view.layer setNeedsDisplay];
     [g_settings_view.layer displayIfNeeded];
-    [g_settings makeKeyAndOrderFront:nil];
+    OrderSettingsFront();
     // check.sh waits for this line. The window's title is its tab's name.
     fprintf(stderr, "browser: settings shown %s\n", g_settings.title.UTF8String);
   });

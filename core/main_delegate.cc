@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,10 +14,13 @@
 #include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
+#include "browser_core/leave_dialog.h"
+#include "browser_core/open_app_dialog.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/permission_question.h"
@@ -24,6 +28,7 @@
 #include "browser_core/platform/native_hosts.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/sign_in_dialog.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -38,6 +43,7 @@
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
@@ -103,6 +109,8 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   void PreProfileInit() override { system_engine::RegisterProfilePrefs(); }
 
   void PreBrowserStart() override {
+    // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.
+    LeaveDialog::Install();
     keep_alive_ = std::make_unique<ScopedKeepAlive>(KeepAliveOrigin::APP_CONTROLLER,
                                                     KeepAliveRestartOption::DISABLED);
     // A quit can start in Chrome too, such as from the Dock or the system logging out, and Chrome
@@ -159,6 +167,32 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
     ChromeContentBrowserClient::CreateThrottlesForNavigation(registry);
     system_engine::CreateThrottlesForNavigation(registry);
   }
+
+  bool HandleExternalProtocol(
+      const GURL& url,
+      content::WebContents::Getter web_contents_getter,
+      content::FrameTreeNodeId frame_tree_node_id,
+      content::NavigationUIData* navigation_data,
+      bool is_primary_main_frame,
+      bool is_in_fenced_frame_tree,
+      network::mojom::WebSandboxFlags sandbox_flags,
+      ui::PageTransition page_transition,
+      bool has_user_gesture,
+      const std::optional<url::Origin>& initiating_origin,
+      content::RenderFrameHost* initiator_document,
+      const net::IsolationInfo& isolation_info,
+      mojo::PendingRemote<network::mojom::URLLoaderFactory>* out_factory) override {
+    // A page in an agent's Space opens no other app, as one Chrome's own agent acts on doesn't,
+    // and a saved "Always allow" doesn't count there.
+    content::WebContents* contents = web_contents_getter.Run();
+    if (contents && !OpenAppDialog::MayOpen(contents)) {
+      return false;
+    }
+    return ChromeContentBrowserClient::HandleExternalProtocol(
+        url, std::move(web_contents_getter), frame_tree_node_id, navigation_data,
+        is_primary_main_frame, is_in_fenced_frame_tree, sandbox_flags, page_transition,
+        has_user_gesture, initiating_origin, initiator_document, isolation_info, out_factory);
+  }
 };
 
 }  // namespace
@@ -192,6 +226,9 @@ void Install(const bc_host& host) {
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
   g_browser_core_find_native_host = &FindNativeHost;
+  g_browser_core_login_handler = &SignInDialog::Create;
+  g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
+  SetUpAdBlock();
 }
 
 int Run(int argc, const char** argv, const bc_host& host) {

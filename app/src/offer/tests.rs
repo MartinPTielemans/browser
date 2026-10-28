@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use gpui::{Modifiers, TestAppContext, VisualTestContext, hsla};
 
 use super::*;
+use crate::settling::SETTLING;
 use crate::text_input::{self, Chosen, FieldMenu};
 
 #[derive(Default)]
@@ -68,14 +69,20 @@ impl Prompt {
         Prompt { cx, host }
     }
 
-    /// The core reports `tab`'s offer.
+    /// The core reports `tab`'s offer, and the user waits for it to settle.
     fn offered(&mut self, tab: u64, offer: Option<Offer>) {
         self.cx.cx.update(|cx| changed(tab, offer, cx));
-        self.cx.run_until_parked();
+        self.settle();
     }
 
     fn shown(&mut self, tab: u64) {
         self.cx.cx.update(|cx| tab_shown(1, tab, cx));
+        self.settle();
+    }
+
+    /// The offer has been on screen long enough to take a yes.
+    fn settle(&mut self) {
+        self.cx.executor().advance_clock(SETTLING);
         self.cx.run_until_parked();
     }
 
@@ -116,6 +123,31 @@ fn return_saves_the_shown_tabs_offer(cx: &mut TestAppContext) {
     // Answered, it takes no more keys.
     prompt.keys("enter");
     assert!(prompt.calls().is_empty());
+}
+
+/// A page can bring the offer up under a double-click the user started on its login, so for its
+/// first moment on screen neither ↩ nor Never answers, while escape still declines.
+#[gpui::test]
+fn the_offer_takes_no_answer_for_good_for_its_first_moment(cx: &mut TestAppContext) {
+    let mut prompt = Prompt::new(cx);
+    prompt.calls();
+    prompt.cx.cx.update(|cx| changed(1, Some(offer(Kind::Save, &["check@example.test"])), cx));
+    prompt.cx.run_until_parked();
+    assert_eq!(prompt.calls(), ["show"]);
+    prompt.keys("enter");
+    prompt.click_never();
+    assert!(prompt.calls().is_empty());
+    prompt.settle();
+    prompt.click_never();
+    assert_eq!(prompt.calls(), ["Never 1 check@example.test", "hide"]);
+    // Shown again, as with its tab, it settles again, and escape needn't wait.
+    prompt.cx.cx.update(|cx| changed(1, Some(offer(Kind::Save, &["check@example.test"])), cx));
+    prompt.cx.run_until_parked();
+    prompt.calls();
+    prompt.keys("enter");
+    assert!(prompt.calls().is_empty());
+    prompt.keys("escape");
+    assert_eq!(prompt.calls(), ["NotNow 1 check@example.test", "hide"]);
 }
 
 #[gpui::test]
@@ -260,6 +292,7 @@ fn the_page_coming_back_brings_its_offer(cx: &mut TestAppContext) {
     assert_eq!(other.0.take(), ["hide"]);
     prompt.cx.cx.update(|cx| page_elsewhere(1, false, cx));
     assert_eq!(prompt.calls(), ["show"]);
+    prompt.settle();
     prompt.keys("enter");
     assert_eq!(prompt.calls(), ["Accept 1 check@example.test", "hide"]);
 }

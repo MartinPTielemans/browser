@@ -8,19 +8,21 @@
 # UI focused, shows the tab shown before, and with ⌃ held goes on back through the tabs in the order
 # they were shown, and ⌃⇧Tab the other way, until ⌃ goes up or a click. A tab a page opens goes
 # under it and closing it goes back there, and ⌘W otherwise shows the tab below, or above at the
-# bottom. Closing the last tab leaves the Space empty, where ⌘T still works. Mute/Unmute Tab mutes a
-# tab, its row shows a speaker while it plays, crossed out while it's muted, and a click on it
-# unmutes the tab. There ⇧⌦ takes a page out of history, ⇧⌘↩ searches for what was typed, ⌘↩ opens
-# it in a tab behind that loads once it's first shown, Tab on the row that hints a search engine, or
-# a space after its keyword, searches with that engine alone until ⌫ leaves, ↩ on a sum's row copies
-# its result, and a right-click in its field shows the field's menu, with Paste and Go. The command
-# bar's tests, in src/command_bar/tests.rs, have the rest of its keys and what the menu's items do.
-# A tab's menu walks by its keys past lines and dimmed items, selects by typing, opens a submenu by
-# → and by the pointer, which crosses a row on its way there without taking it, picks what a
-# press-drag-release ends on and closes on a click outside. A tab unseen for 2 hours lets go of its
-# page as another is shown, unless it plays sound, its page asks before it's left or a split shows
-# it, and loads it back with its history once shown, and Settings' Unload switch turns that off and
-# on. Reports how long switches take.
+# bottom. Tabs opened behind close to their sibling, then their opener; after a switch to an
+# unrelated tab, a tab opened in front closes to the tab below; and a pinned tab's newest tab opened
+# in front closes back to it, past an older one. Closing the last tab leaves the Space empty, where
+# ⌘T still works. Mute/Unmute Tab mutes a tab, its row shows a speaker while it plays, crossed out
+# while it's muted, and a click on it unmutes the tab. There ⇧⌦ takes a page out of history, ⇧⌘↩
+# searches for what was typed, ⌘↩ opens it in a tab behind that loads once it's first shown, Tab on
+# the row that hints a search engine, or a space after its keyword, searches with that engine alone
+# until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows the
+# field's menu, with Paste and Go. The command bar's tests, in src/command_bar/tests.rs, have the
+# rest of its keys and what the menu's items do. A tab's menu walks by its keys past lines and
+# dimmed items, selects by typing, opens a submenu by → and by the pointer, which crosses a row on
+# its way there without taking it, picks what a press-drag-release ends on and closes on a click
+# outside. A tab unseen for 2 hours lets go of its page as another is shown, unless it plays sound,
+# its page asks before it's left or a split shows it, and loads it back with its history once shown,
+# and Settings' Unload switch turns that off and on. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, p in it plays a quiet tone until x, and u has it ask before it's left, or stop asking. The
@@ -529,6 +531,83 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar afte
 grep -q "^browser: loaded $waiting " "$log" && fail "⌘↩'s tab loaded before it was shown"
 switch "1 cmd" "$waiting"
 expect "^browser: loaded $waiting https\{0,1\}://example.org/\$" "⌘↩'s tab didn't load once shown"
+
+# Which tab closing one goes back to (issue #442), from a page whose link, over all of it, opens a
+# tab in front, and with ⌘ behind. Last, as it pins a tab, which moves Today's rows down.
+serve
+printf '%s' '<title>opener</title>
+<a target=_blank href="notes.txt" style="position:fixed;inset:0">opener</a>
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>' > "$out/site/opener.html"
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+before=$(today)
+send type "${site#http://}opener.html"
+send key return
+expect "^browser: today [0-9][0-9]* $before\$" \
+  "the opener page's tab didn't open at the top of Today"
+o=$(today | cut -d' ' -f1)
+# Chromium drops a click on a page that hasn't drawn yet.
+expect "^browser: title $o ready\$" "the opener page didn't draw"
+# The tab a page opened last.
+opened() {
+  grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3
+}
+# Two tabs opened behind, shown one after the other, keep their opener: closing the second goes
+# to the first, its sibling, and closing that to the opener.
+send click $page_point cmd
+expect "^browser: tab [0-9]* opened by $o in the background\$" \
+  "a ⌘-click on the link didn't open a tab"
+b1=$(opened)
+send click $page_point cmd
+expect "^browser: tab [0-9]* opened by $o in the background\$" "a second ⌘-click didn't open a tab"
+b2=$(opened)
+expect "^browser: today $o $b1 $b2 $before\$" \
+  "the tabs opened behind didn't line up under their opener"
+send click $(row 1)
+expect "^browser: selected $b1 in " "a click on the first tab opened behind didn't show it"
+send click $(row 2)
+expect "^browser: selected $b2 in " "a click on the second tab opened behind didn't show it"
+send key w cmd
+expect_tabs "$o $b1 $before" "$b1" "closing the second tab opened behind didn't go to its sibling"
+send key w cmd
+expect_tabs "$o $before" "$o" "closing the first tab opened behind didn't go to its opener"
+# A switch to a tab unrelated to the one shown forgets where tabs came from: back from there,
+# closing the tab the link opened goes to the tab below, not its opener.
+send click $page_point
+expect "^browser: tab [0-9]* opened by $o in the foreground\$" \
+  "a click on the link didn't open a tab"
+f=$(opened)
+expect_tabs "$o $f $before" "$f" "the link's tab didn't open in front under its opener"
+u=$(echo "$before" | cut -d' ' -f1)
+send click $(row 2)
+expect "^browser: selected $u in " "a click on the tab below didn't show it"
+send click $(row 1)
+expect "^browser: selected $f in " "a click on the link's tab didn't show it again"
+send key w cmd
+expect_tabs "$o $before" "$u" \
+  "after a switch away and back, closing the link's tab went to its opener"
+# A pinned tab's link opens a tab in front twice, the pinned tab shown in between: closing the
+# second goes back to the pinned tab, not to the first, as a tab opened in front forgets the
+# openers before it.
+send click $(row 0)
+expect "^browser: selected $o in " "a click on the opener page's row didn't show it"
+send key d cmd
+expect_lists "$o" "$before" "after ⌘D on the opener page's tab"
+send click $page_point
+expect "^browser: tab [0-9]* opened by $o in the foreground\$" \
+  "a click on the pinned tab's link didn't open a tab"
+x=$(opened)
+expect_tabs "$x $before" "$x" "the pinned tab's link didn't open its tab at the top of Today"
+send click $(pinned_row 0)
+expect "^browser: selected $o in " "a click on the pinned tab didn't show it"
+send click $page_point
+expect "^browser: tab [0-9]* opened by $o in the foreground\$" \
+  "a second click on the pinned tab's link didn't open a tab"
+y=$(opened)
+expect_tabs "$y $x $before" "$y" "the pinned tab's second link didn't open its tab at the top"
+send key w cmd
+expect_tabs "$x $before" "$o" \
+  "closing the pinned tab's newest link didn't go back to the pinned tab"
 exec 3>&-
 # Chrome writes the trace before it quits, once every process has started tracing or 10 s have
 # passed, so a renderer that closed early can hold the quit that long.
@@ -557,6 +636,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"

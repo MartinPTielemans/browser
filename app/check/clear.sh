@@ -476,8 +476,10 @@ send key l cmd shift
 expect '^browser: library hidden$' "⇧⌘L didn't close the Library"
 # A copied URL leaves out the parameters that only tell a site where a click came from. On the
 # check's own site: the tabs run types example.org, which this URL in history would complete to.
-go_from_bar "${site#http://}?utm_source=check&id=1&fbclid=2"
-expect "^browser: loaded $r ${site}.utm_source=check&id=1&fbclid=2\$" \
+# Mailchimp's mc_cid, which uBlock Origin's lists leave in the address, as they do utm_ parameters,
+# while they take fbclid out before the page loads (the adblock run).
+go_from_bar "${site#http://}?utm_source=check&id=1&mc_cid=2"
+expect "^browser: loaded $r ${site}.utm_source=check&id=1&mc_cid=2\$" \
   "the tab didn't go to the URL with tracking parameters"
 send key c cmd shift
 expect "^browser: copied ${site}.id=1\$" \
@@ -487,10 +489,12 @@ expect "^browser: copied ${site}.id=1\$" \
 # address bar. Another tab takes it down, and coming back brings it again. With the sidebar hidden,
 # a question brings it out and keeps it out until it's answered. × dismisses it, and the site may
 # ask again; Block refuses, and the site's next ask is refused without one; Allow grants.
-# asks <site> <what>: the page asks, and the card is drawn at $qx $qy, $qw by $qh inside its edge.
+# asks <site> <what>: the page asks, and the card is drawn at $qx $qy, $qw by $qh inside its edge
+# and has been on screen long enough for Block and Allow to work.
 asks() {
   expect "^browser: page $r asks $1 to Manage windows on all your displays\$" "$2"
   expect "^browser: question $r at " "the page's question wasn't drawn"
+  expect "^browser: question $r takes input\$" "the page's question never took input"
   send layout
   read -r qx qy qw qh <<EOF
 $(grep "^browser: question $r at " "$log" | tail -1 | cut -d' ' -f5-)
@@ -546,12 +550,14 @@ expect '^browser: sidebar tools shown$' \
 
 # The Site Controls list the site's permissions as Chrome's page info does, here the one Allow gave.
 # The panel hangs from the button at 206 64: 238 wide from x 87, its beak's tip 9 pt above its body
-# at y 91. With no extension turned on, its first row's middle is at y 262, the rows 43 apart, Reset
-# permissions under them, and the footer's middle 74 below the last row's top.
+# at y 91. With the ad blocker the one extension turned on, its first row's middle is at y 262, the
+# rows 43 apart, Block ads and trackers first, Reset permissions last, and the footer's middle 74
+# below the last row's top.
 controls="^browser: site controls http://localhost:$port: "
 row_y() { echo $((262 + 43 * $1)); }
 footer_y() { echo $((262 - 16 + 43 * ($(listed | wc -l)) + 74)); }
-# The permissions the Site Controls listed last, one a line, in their order.
+# The rows the Site Controls listed last, one a line, in their order: ad blocking, then the
+# permissions.
 listed() {
   grep "$controls" "$log" | tail -1 | sed 's/^[^;]*; //' | tr ',' '\n' | sed 's/^ //'
 }

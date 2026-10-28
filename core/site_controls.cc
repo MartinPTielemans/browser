@@ -1,6 +1,7 @@
 #include "browser_core/site_controls.h"
 
 #include <algorithm>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -10,6 +11,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/host.h"
 #include "browser_core/passwords.h"
@@ -137,6 +139,12 @@ const char* KeyOf(ContentSettingsType type) {
   return info ? info->name().c_str() : "";
 }
 
+// A BC_AD_BLOCKING_ value for the site of |contents|'s page.
+int AdBlockingOf(content::WebContents* contents) {
+  const std::optional<bool> on = AdBlockingOnSite(contents);
+  return !on ? BC_AD_BLOCKING_NONE : *on ? BC_AD_BLOCKING_ON : BC_AD_BLOCKING_OFF;
+}
+
 }  // namespace
 
 void SiteControls::Open(bc_id tab) {
@@ -210,6 +218,16 @@ void SiteControls::LoginsChanged(Profile* profile) {
                           ->GetOriginalProfile() == profile) {
     controls->Changed();
   }
+}
+
+void SiteControls::SetAdBlocking(bc_id tab, bool on) {
+  SiteControls* controls = ShownFor(tab);
+  if (!controls || SystemPageOf(controls->web_contents())) {
+    return;
+  }
+  SetAdBlockingOnSite(controls->web_contents(), on);
+  // At once, as the page it reloads only reports once it commits.
+  controls->Changed();
 }
 
 void SiteControls::PictureInPicture(bc_id tab) {
@@ -399,6 +417,9 @@ void SiteControls::Report() {
       .system_engine_offered = system_engine_offered_,
       .logins = c_logins.data(),
       .login_count = c_logins.size(),
+      // uBlock Origin never sees the pages the system's engine shows.
+      .ad_blocking = SystemPageOf(web_contents()) ? BC_AD_BLOCKING_NONE
+                                                  : AdBlockingOf(web_contents()),
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }

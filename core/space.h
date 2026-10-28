@@ -107,7 +107,16 @@ class Space {
   // Puts |tab| in Today. One the user opened (|opener| 0) goes at the top, under "+ New Tab". One a
   // page in this Space opened goes in Chrome's place: right under its opener if it opened in front,
   // or under the tabs its opener already opened behind it. A pinned opener's tabs go at the top.
+  // One opened in front makes the Space forget where its other tabs came from, as Chrome's tab
+  // strip does, so closing it goes back to its opener rather than to a tab opened earlier.
   void Add(bc_id tab, bc_id opener, bool foreground);
+  // The user showed |shown| after |was|, either of them perhaps another Space's. Unless one opened
+  // the other or one tab opened both, the user went on to something else, and the Space forgets
+  // where its tabs came from, as Chrome's tab strip does on a switch the user makes.
+  void UserShowed(bc_id was, bc_id shown);
+  // Forgets where each tab came from, so closing one shows its neighbour, as Chrome's tab strip
+  // does once the user goes somewhere other than by a link.
+  void ForgetOpeners();
   // Puts |tab| at |index| in Today, else at the bottom, and below a split |index| is inside.
   void AddAt(bc_id tab, size_t index);
   // Puts |tab| at |index| in |folder|, else in the pinned tabs, counted as Move counts, else at
@@ -163,6 +172,13 @@ class Space {
   // makes them even if there are none. False, doing nothing, if it's in no split or |shares| aren't
   // one above 0 for each of its tabs.
   bool SetShares(bc_id tab, std::vector<double> shares);
+  // The tab of |tab|'s split whose page took the card by SetExpanded, else 0: the others keep 220
+  // pt each however wide the card is, which a window works out when it lays the pages out. A tab
+  // joining or leaving the split, and SetShares, end it.
+  bc_id Expanded(bc_id tab) const;
+  // Gives |tab|'s page the card with its split's other pages kept at 220 pt each, or if |expanded|
+  // is false ends that, leaving the pages even. False, doing nothing, if it's in no split.
+  bool SetExpanded(bc_id tab, bool expanded);
 
   // The lowest pinned tab still |loaded|, else 0: the one to show once no Today tab is left.
   bc_id LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const;
@@ -188,6 +204,8 @@ class Space {
     bool stacked = false;
     // Each tab's share of its length, or none while they're even.
     std::vector<double> shares;
+    // The tab that took the card, else 0, while the others are kept at 220 pt.
+    bc_id expanded = 0;
   };
 
   // The split holding |tab|, or splits_.end().

@@ -1,6 +1,7 @@
 #include "browser_core/window.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -10,10 +11,13 @@
 
 #include "base/auto_reset.h"
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
@@ -42,7 +46,9 @@
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/tab_list/tab_removed_reason.h"
+#include "chrome/browser/ui/browser_active_state_manager/browser_active_state_manager.h"
 #include "chrome/browser/ui/browser_tabrestore.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/create_browser_window.h"
@@ -63,6 +69,7 @@
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/serialized_user_agent_override.h"
 #include "components/tabs/public/tab_interface.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/extension_registry.h"
@@ -134,6 +141,21 @@ constexpr size_t kMaxClears = 10;
 
 // Between the pages of a split view, as in Arc.
 constexpr int kSplitGap = 10;
+
+// What Expand Current Split leaves each of the other pages of a split view, as Arc's.
+constexpr int kExpandedOther = 220;
+
+// The shares of |count| pages across |length|, with the |focused| one taking what the others
+// don't: kExpandedOther each, no more than an even share, so it's never the smaller one on a card
+// too short for both. The app works out the same in expanded_shares (app/src/shell/panes.rs),
+// since it draws the split's gaps and rings.
+std::vector<double> ExpandedShares(size_t count, size_t focused, int length) {
+  const double span = length + kSplitGap;
+  const double other = std::min<double>(kExpandedOther + kSplitGap, span / count) / span;
+  std::vector<double> shares(count, other);
+  shares[focused] = 1 - other * (count - 1);
+  return shares;
+}
 
 // The Spaces going once their last tab closes.
 std::set<bc_id>& DeletingSpaces() {
@@ -243,7 +265,51 @@ void StretchOnResize(content::WebContents* contents, bool stretch) {
   }
 }
 
+// The pages on their way between windows, each held as captured, visibly, from when a window lets
+// go of it until the window with its picture has taken it (AdoptFreedPages). Chrome hides a page
+// out of every window, which has its renderer let go of what it drew, so a heavy page would draw
+// again from nothing in the window taking it, and show nothing until it had.
+std::map<bc_id, base::ScopedClosureRunner>& MovingPages() {
+  static base::NoDestructor<std::map<bc_id, base::ScopedClosureRunner>> moving;
+  return *moving;
+}
+
+void HoldWhileMoving(content::WebContents* contents) {
+  if (!contents || MovingPages().contains(Tab::IdOf(contents))) {
+    return;
+  }
+  MovingPages().emplace(Tab::IdOf(contents),
+                        contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/false,
+                                                         /*stay_awake=*/false,
+                                                         /*is_activity=*/false));
+}
+
+// When the app last asked a window to select a tab.
+base::TimeTicks g_handover_click;
+// The tab whose page Adopt last moved, until the window taking it has shown it, and the size of the
+// pane it had in the window it left, for the handover lines.
+bc_id g_adopted = 0;
+gfx::Size g_left_size;
+
+std::string Handing(bc_id window, bc_id tab) {
+  return base::StrCat(
+      {"window ", base::NumberToString(window), ", tab ", base::NumberToString(tab)});
+}
+
 }  // namespace
+
+void HandoverClicked() {
+  g_handover_click = base::TimeTicks::Now();
+}
+
+void LogHandover(const char* stage, const std::string& detail) {
+  const base::TimeDelta since = base::TimeTicks::Now() - g_handover_click;
+  if (g_handover_click.is_null() || since > base::Seconds(3)) {
+    return;
+  }
+  fprintf(stderr, "browser: handover %s +%.1f ms (%s)\n", stage, since.InMillisecondsF(),
+          detail.c_str());
+}
 
 // Makes the window's close button Window::Close, so pages get their unload handlers first.
 class Window::ClientView : public views::ClientView {
@@ -366,17 +432,28 @@ Window* Window::Picturing(bc_id tab) {
   return nullptr;
 }
 
+void Window::HoldPictured() {
+  for (bc_id pane : panes_) {
+    if (Picturing(pane)) {
+      HoldWhileMoving(Tab::FromId(pane));
+    }
+  }
+}
+
 // static
 void Window::AdoptFreedPages() {
   // A page left as the browser quits isn't shown again.
-  if (browser_shutdown::IsTryingToQuit()) {
-    return;
-  }
-  for (Window* window : All()) {
-    if (Picturing(window->selected_) == window && !Showing(window->selected_)) {
-      window->Select(window->selected_);
+  if (!browser_shutdown::IsTryingToQuit()) {
+    for (Window* window : All()) {
+      if (Picturing(window->selected_) == window && !Showing(window->selected_)) {
+        window->Select(window->selected_);
+      }
     }
   }
+  // Each page held is in a window again, or in none, which hides it now. Let go of once out of the
+  // map, as their visibility changing may come back here.
+  std::map<bc_id, base::ScopedClosureRunner> moved;
+  moved.swap(MovingPages());
 }
 
 // static
@@ -426,7 +503,8 @@ void Window::PanesChanged() {
                         window->panes_) {
       window->Select(selected);
     } else if (space && (space->Stacked(selected) != window->stacked_ ||
-                         space->Shares(selected) != window->shares_)) {
+                         space->Expanded(selected) != window->expanded_ ||
+                         (!window->expanded_ && space->Shares(selected) != window->shares_))) {
       window->LayOutPage();
     }
   }
@@ -1046,7 +1124,9 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   // (AdoptFreedPages), and its offer, which Chrome hides here, with it.
   content::WebContents* leaving = tabs->GetActiveWebContents();
   const bc_id left = leaving && leaving != contents ? Tab::IdOf(leaving) : 0;
-  PasswordOffer::Moving moving(left && Picturing(left) ? left : 0);
+  const bc_id freed = left && Picturing(left) ? left : 0;
+  PasswordOffer::Moving moving(freed);
+  HoldPictured();
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
@@ -1060,10 +1140,27 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   shown_ = contents->GetWeakPtr();
   SetLetGo(false);
   page_frame_ = frame;
+  if (freed) {
+    g_left_size = focused_frame_.size();
+  }
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
   // new page takes it.
   LayOutPage();
+  if (freed) {
+    LogHandover("giver let go", Handing(id_, freed));
+  }
+  if (tab == g_adopted) {
+    g_adopted = 0;
+    const std::string detail = base::StrCat({Handing(id_, tab), ", ", g_left_size.ToString(),
+                                             " to ", focused_frame_.size().ToString()});
+    LogHandover("taker laid out the page", detail);
+    contents->GetPrimaryMainFrame()->InsertVisualStateCallback(base::BindOnce(
+        [](const std::string& detail, bool) { LogHandover("taker's page drew a frame", detail); },
+        detail));
+  }
   FocusPageSoon();
+  // A page of another profile makes its Browser the active one.
+  ReportActiveBrowser();
 }
 
 void Window::LayOutPage() {
@@ -1088,6 +1185,12 @@ void Window::LayOutPage() {
   // is as wide or as tall as the others. A page full screen, alone, takes the whole frame.
   const int start = stacked_ ? page_frame_.y() : page_frame_.x();
   const int span = (stacked_ ? page_frame_.height() : page_frame_.width()) + kSplitGap;
+  // An expanded split keeps the others at 220 pt whatever the frame, so its shares come from it.
+  expanded_ = space ? space->Expanded(panes_.front()) : 0;
+  if (const auto at = std::ranges::find(panes_, expanded_);
+      expanded_ && at != panes_.end() && shown.size() == panes_.size()) {
+    shares_ = ExpandedShares(shown.size(), at - panes_.begin(), span - kSplitGap);
+  }
   const bool even = shares_.size() != shown.size();
   auto edge = [&](int index) {
     return start + (even ? span * index / count
@@ -1116,8 +1219,10 @@ void Window::LayOutPage() {
       tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
                                       *page_color_ & 0xff));
     }
-    // At each layout, for a page whose view changed or that comes back, before it resizes.
-    StretchOnResize(contents, page_moving_);
+    // At each layout, for a page whose view changed or that comes back, before it resizes. One
+    // moving from another window shows the frame it drew there, filling its view here, until it
+    // draws at its new size.
+    StretchOnResize(contents, page_moving_ || MovingPages().contains(Tab::IdOf(contents)));
     platform::Pane& pane = panes.emplace_back(Tab::PageViewOf(contents), frame);
     DevToolsContentsResizingStrategy strategy;
     if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
@@ -1222,6 +1327,7 @@ void Window::SetSidebarWidth(double width) {
 }
 
 void Window::ShowNothing() {
+  HoldPictured();
   selected_ = 0;
   for (bc_id pane : std::exchange(panes_, {})) {
     Seen(pane);
@@ -1331,8 +1437,17 @@ void Window::Adopt(bc_id tab) {
     if (!to) {
       return;
     }
+    if (pane == tab) {
+      LogHandover("taker takes the tab", Handing(id_, tab));
+      g_adopted = tab;
+    }
     if (Window* showing = Showing(pane); showing && showing != this) {
+      if (pane == tab) {
+        g_left_size = showing->focused_frame_.size();
+      }
+      HoldWhileMoving(contents);
       showing->LetGo();
+      LogHandover("giver let go", Handing(showing->id(), pane));
     }
     TabStripModel* tabs = from->GetTabStripModel();
     // Its offer, which Chrome hides as the tab leaves, comes with it.
@@ -1343,6 +1458,7 @@ void Window::Adopt(bc_id tab) {
     base::AutoReset<bool> opening(&opening_tab_, true);
     to->GetTabStripModel()->InsertDetachedTabAt(to->GetTabStripModel()->count(), std::move(moved),
                                                 AddTabTypes::ADD_NONE);
+    LogHandover("tab moved between Browsers", Handing(id_, pane));
   }
 }
 
@@ -1873,6 +1989,9 @@ void Window::Close() {
   }
   const bool hand_over = to && !off_the_record_ && !browser_shutdown::IsTryingToQuit();
   if (hand_over) {
+    for (bc_id pane : panes_) {
+      HoldWhileMoving(Tab::FromId(pane));
+    }
     // Its pages out of its view first, as the view goes with the window. The app has no use for a
     // picture of a page for a window that is closing.
     LetGo(false);
@@ -2035,6 +2154,41 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
     }
     UnloadIdleTabsSoon();
   }
+  ReportActiveBrowser();
+}
+
+void Window::ReportActiveBrowser() {
+  // Chrome orders its Browsers by these reports, and picks the window by that order for what has
+  // no tab of its own, such as an extension popup's install question or a page's alert.
+  const bool key = widget_ && widget_->IsActive();
+  // A key window showing no page, as for an empty Space, keeps the Browser it had active.
+  if (key && !shown_) {
+    return;
+  }
+  tabs::TabInterface* tab = key ? tabs::TabInterface::MaybeGetFromContents(shown_.get()) : nullptr;
+  BrowserWindowInterface* shown = tab ? tab->GetBrowserWindowInterface() : nullptr;
+  BrowserWindowInterface* active = nullptr;
+  for (auto& [profile, held] : browsers_) {
+    if (held.browser->IsDeleteScheduled()) {
+      continue;
+    }
+    if (held.browser == shown) {
+      active = held.browser;
+    } else if (auto* state = BrowserActiveStateManager::From(held.browser.get())) {
+      state->DidBecomeInactive();
+    }
+  }
+  auto* state = BrowserActiveStateManager::From(active);
+  if (!state || state->IsActive()) {
+    return;
+  }
+  state->DidBecomeActive();
+  // Chrome also makes the active Browser's profile the one the next launch starts with, but the
+  // core's start profile is the one new Spaces take and that can't be deleted, so it stays put.
+  Profile* start = StartProfile();
+  if (start && active->GetProfile()->GetOriginalProfile() != start) {
+    profiles::SetLastUsedProfile(start->GetBaseName());
+  }
 }
 
 void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
@@ -2065,12 +2219,30 @@ void Window::LeavingFullScreen() {
   }
 }
 
+bool Window::FullScreenForPage() const {
+  for (const auto& [profile, held] : browsers_) {
+    ExclusiveAccessManager* manager = ExclusiveAccessManager::From(held.browser);
+    FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+    if (controller && controller->IsFullscreenCausedByTab()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
   // The session keeps each regular window's frame, saved a while after it moves, so a crash
   // keeps it too.
   if (!off_the_record_) {
     SessionChanged();
   }
+}
+
+void Window::GiveKeyboardToPage() {
+  // Held by the window, the keyboard is the page's (KeyboardForPage), as when the page shown before
+  // left with it, so FocusPage gives it to the page shown.
+  platform::ReleaseKeyboard(widget_.get());
+  FocusPageSoon();
 }
 
 void Window::FocusPageSoon() {

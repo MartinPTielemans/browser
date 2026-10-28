@@ -39,10 +39,12 @@ log_in() {
   send type "$1"
   send key return
 }
-# Waits for the page's login to bring an offer of kind $1, and for its card. Sets $ox and $oy to where the card is in the browser window.
+# Waits for the page's login to bring an offer of kind $1, and for its card to take input. Sets $ox
+# and $oy to where the card is in the browser window.
 offered() {
   expect "^browser: offer $tab $1 check@example.test " "the login brought no offer to $1"
   expect '^browser: offer shown$' "the offer to $1 wasn't shown"
+  expect "^browser: offer $tab takes input\$" "the offer to $1 never took input"
   send layout
   child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: layout child' |
     grep ' 320x180$' | head -1 | sed 's/^browser: layout child //')
@@ -149,8 +151,8 @@ expect "^browser: offer $tab answered Never check@example.test\$" "Never didn't 
 expect '^browser: offer hidden$' "Never didn't hide the offer"
 
 # The Site Controls list the site set to Never in a Passwords row, whose menu takes it off Never at
-# once. With no extension pinned and no permission set, it's the first row, its middle at y 262
-# (clear.sh measures the panel).
+# once. With no extension pinned and no permission set, it's the row under ad blocking's, whose
+# middle is at y 262 (clear.sh measures the panel), its own 43 under it at y 305.
 last_controls() { grep '^browser: site controls http' "$log" | tail -1; }
 controls="^browser: site controls http://localhost:$port: "
 bar_command site-controls "Site Controls" "site controls"
@@ -158,7 +160,7 @@ expect "${controls}.*; passwords never localhost:$port\$" \
   "the Site Controls didn't list localhost as set to Never: $(last_controls)"
 expect '^browser: site controls settled$' "the Site Controls didn't open"
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-never.png" || fail "no window to capture"
-post click 207 262
+post click 207 305
 expect '^browser: menu shown Offer to Save Passwords, All Passwords…$' \
   "the Passwords row didn't offer to take localhost off Never"
 send choose 'Offer to Save Passwords'
@@ -182,7 +184,7 @@ expect "${controls}.*; passwords 127.0.0.1:$port check@example.test\$" \
 expect '^browser: site controls settled$' "the Site Controls didn't open on the first site"
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-passwords.png" ||
   fail "no window to capture"
-post click 207 262
+post click 207 305
 expect '^browser: menu shown Remove “check@example.test”…, All Passwords…$' \
   "the Passwords row didn't offer to remove the saved login"
 send choose 'All Passwords…'
@@ -205,7 +207,7 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
 bar_command site-controls "Site Controls" "site controls"
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
-post click 207 262
+post click 207 305
 expect '^browser: menu shown Remove “check@example.test”…, All Passwords…$' \
   "the Passwords row didn't offer to remove the saved login again"
 send choose 'Remove “check@example.test”…'

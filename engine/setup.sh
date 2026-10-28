@@ -4,7 +4,9 @@
 # their toolchain, then our series, then `gn gen`. The first run downloads about 3 GB and takes
 # about 25 GB. Each stage that changes the tree runs once; running this again applies new
 # patches from the series and regenerates the build files. `setup.sh dev` also prepares the dev
-# build in out/Dev, which adds args.dev.gn.
+# build in out/Dev, which adds args.dev.gn. After a bump in pins.ini, `setup.sh update [dev]`
+# updates the tree in place: it prepares the new version in .deps/next and copies over only the
+# files that differ, so the next build compiles only what they change.
 set -euo pipefail
 cd "$(dirname "$0")"
 engine=$PWD
@@ -12,10 +14,12 @@ deps=$engine/.deps
 ucm=$deps/ungoogled-chromium-macos
 uc=$ucm/ungoogled-chromium
 src=$deps/src
+update=
+[ "${1:-}" = update ] && update=1 && shift
 case ${1:-} in
   "") config=Release extra_args= ;;
   dev) config=Dev extra_args=args.dev.gn ;;
-  *) echo "usage: setup.sh [dev]" >&2 && exit 2 ;;
+  *) echo "usage: setup.sh [update] [dev]" >&2 && exit 2 ;;
 esac
 out=$src/out/$config
 gn=$src/out/Release/gn
@@ -51,7 +55,7 @@ stage() {
   shift
   [ -e "$stamps/$name.done" ] && return
   [ -e "$stamps/$name.started" ] &&
-    fail "the $name stage stopped halfway. Start over with: rm -rf engine/.deps/src engine/.deps/stamps"
+    fail "the $name stage stopped halfway. Start over with: rm -rf $src $stamps"
   echo "setup: $name" >&2
   touch "$stamps/$name.started"
   "$@"
@@ -68,6 +72,19 @@ fetch_ungoogled() {
   ln -s "$src" "$ucm/build/src"
   ln -s "$deps/downloads" "$ucm/build/download_cache"
 }
+
+# The live tree keeps out/, its gn and its build's dates; a new version is staged beside it.
+live=$src live_ucm=$ucm
+tree_version() { sed -n 's/^[A-Z]*=//p' "$1/chrome/VERSION" | paste -sd. -; }
+if [ -e "$live/chrome/VERSION" ] && [ "$(tree_version "$live")" != "$version" ]; then
+  [ -n "$update" ] ||
+    fail "the tree has Chromium $(tree_version "$live") and pins.ini names $version. Update it in place with: engine/setup.sh update ${1:-}"
+  src=$deps/next/src stamps=$deps/next/stamps ucm=$deps/next/ungoogled-chromium-macos
+  uc=$ucm/ungoogled-chromium
+  mkdir -p "$stamps"
+else
+  update=
+fi
 
 stage ungoogled fetch_ungoogled
 stage source "$ucm/retrieve_and_unpack_resource.py" -d -g arm64
@@ -104,6 +121,14 @@ export SDKROOT=$sdk
 mkdir -p "$out" "$(dirname "$gn")"
 cd "$src"
 [ -x "$gn" ] || ./tools/gn/bootstrap/bootstrap.py -o "$gn" --skip-generate-buildfiles
+# bindgen is built against the toolchain, so the live tree's serves while the toolchain is the same.
+if [ -n "$update" ] && [ -x "$live/third_party/rust-toolchain/bin/bindgen" ] &&
+  [ -e "$live/third_party/rust-toolchain/lib/libclang.dylib" ] &&
+  cmp -s "$live_ucm/downloads-arm64.ini" "$ucm/downloads-arm64.ini" &&
+  cmp -s "$live_ucm/downloads-arm64-rustlib.ini" "$ucm/downloads-arm64-rustlib.ini"; then
+  cp -p "$live/third_party/rust-toolchain/bin/bindgen" third_party/rust-toolchain/bin/
+  cp -p "$live/third_party/rust-toolchain/lib/libclang.dylib" third_party/rust-toolchain/lib/
+fi
 [ -x third_party/rust-toolchain/bin/bindgen ] || ./tools/rust/build_bindgen.py --skip-test
 cd "$engine"
 
@@ -118,6 +143,18 @@ fi
 ln -sfn "$esbuild_module" "$src/third_party/devtools-frontend/src/node_modules/esbuild"
 
 apply_series "$src"
+
+# By content, without times: a file that differs is written now, newer than what the build made
+# from it, and every other file keeps its date. ninja then rebuilds only what the update changed.
+if [ -n "$update" ]; then
+  echo "setup: updating the tree in place" >&2
+  rsync -rlp --checksum --delete --exclude=/out/ "$src/" "$live/"
+  rm -rf "$stamps" "$live_ucm"
+  mv "$ucm" "$live_ucm"
+  ln -sfn "$live" "$live_ucm/build/src"
+  rm -rf "$deps/next"
+  src=$live ucm=$live_ucm uc=$live_ucm/ungoogled-chromium
+fi
 
 # GN wants the SDK inside the output directory, so it's linked there, as Chromium links Xcode's.
 mkdir -p "$out/sdk/xcode_links"

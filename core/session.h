@@ -42,6 +42,9 @@ struct SavedTab {
   bool stacked = false;
   // Its share of its split view, or 0 while the split's shares are even.
   double share = 0;
+  // Whether its page took its split view's card, the other pages keeping 220 pt, which the shares
+  // aren't kept for.
+  bool expanded = false;
   // How many folders it's in, among the pinned tabs.
   int depth = 0;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.
@@ -145,6 +148,8 @@ struct Settings {
   int favorites_scope = BC_FAVORITES_PROFILE;
   // Whether a tab no window has shown for a while lets go of its page (UnloadIdleTabsSoon).
   bool unload_idle_tabs = true;
+  // Whether the browser blocks ads and trackers, in every profile.
+  bool ad_blocking = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.

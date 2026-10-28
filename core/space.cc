@@ -197,6 +197,11 @@ void Space::Add(bc_id tab, bc_id opener, bool foreground) {
     ReportChanged();
     return;
   }
+  // One opener at a time leads back, as Chrome has it, or a sibling opened earlier in the day would
+  // take the opener's place when this one closes.
+  if (foreground) {
+    ForgetOpeners();
+  }
   openers_[tab] = opener;
   if (!pinned_opener) {
     ++at;
@@ -401,6 +406,7 @@ bool Space::Split(bc_id tab, bc_id with, GURL url, bool left) {
   if (auto split = SplitOf(with); split != splits_.end()) {
     split->tabs.insert(left ? split->tabs.begin() : split->tabs.end(), tab);
     split->shares.clear();
+    split->expanded = 0;
   } else {
     splits_.push_back(
         {.tabs = left ? std::vector<bc_id>{tab, with} : std::vector<bc_id>{with, tab}});
@@ -455,6 +461,23 @@ bool Space::SetShares(bc_id tab, std::vector<double> shares) {
     share /= sum;
   }
   split->shares = std::move(shares);
+  split->expanded = 0;
+  ReportChanged();
+  return true;
+}
+
+bc_id Space::Expanded(bc_id tab) const {
+  auto split = SplitOf(tab);
+  return split != splits_.end() ? split->expanded : 0;
+}
+
+bool Space::SetExpanded(bc_id tab, bool expanded) {
+  auto split = SplitOf(tab);
+  if (split == splits_.end()) {
+    return false;
+  }
+  split->shares.clear();
+  split->expanded = expanded ? tab : 0;
   ReportChanged();
   return true;
 }
@@ -466,6 +489,7 @@ void Space::Separate(bc_id tab) {
   }
   std::erase(split->tabs, tab);
   split->shares.clear();
+  split->expanded = 0;
   const bc_id last = split->tabs.back();
   if (split->tabs.size() < 2) {
     splits_.erase(split);
@@ -531,6 +555,18 @@ bc_id Space::LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const {
   const std::vector<bc_id> tabs = pinned();
   auto pinned = std::find_if(tabs.rbegin(), tabs.rend(), loaded);
   return pinned != tabs.rend() ? *pinned : 0;
+}
+
+void Space::UserShowed(bc_id was, bc_id shown) {
+  const bc_id was_opener = OpenerOf(was);
+  const bc_id opener = OpenerOf(shown);
+  if (opener != was_opener && opener != was && was_opener != shown) {
+    ForgetOpeners();
+  }
+}
+
+void Space::ForgetOpeners() {
+  openers_.clear();
 }
 
 bc_id Space::OpenerOf(bc_id tab) const {
@@ -613,6 +649,7 @@ void Space::LeaveSplit(bc_id tab) {
   }
   std::erase(split->tabs, tab);
   split->shares.clear();
+  split->expanded = 0;
   if (split->tabs.size() < 2) {
     splits_.erase(split);
   }

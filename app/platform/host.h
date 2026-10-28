@@ -86,6 +86,15 @@ void host_watch_key_window(void (*changed)(void* ui_view));
 // macOS's transition is over.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 
+// Asks |swiped| about each swipe between pages in a browser window, at its point in |ui_view|
+// from the top left, in points; one it takes, by returning true, goes no further.
+void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back));
+
+// Whether a menu is open, the menu bar's or a context menu, and if so calls |apply| once none is,
+// instead of any function an earlier call left waiting. AppKit can crash when the main menu is
+// replaced while it tracks one, and the core's callbacks still come in while it does.
+bool host_after_menus(void (*apply)(void));
+
 // Calls |resigning| as the app is about to stop being the active one, its windows still shown.
 void host_watch_resigning_active(void (*resigning)(void));
 
@@ -235,8 +244,10 @@ void host_hide_drop_targets(void);
 // the keyboard until it's hidden. It starts hidden.
 void host_add_dialog(void* dialog_view);
 
-// Shows the dialog's window over |ui_view|'s window, as the UI draws it now, with the keyboard.
-void host_show_dialog(void* ui_view);
+// Shows the dialog's window over |ui_view|'s window, as the UI draws it now, with the keyboard:
+// over all of it, or with a |width|, over that rect of its content, from its top left, such as a
+// tab's card. Shown already, it moves to the rect.
+void host_show_dialog(void* ui_view, double x, double y, double width, double height);
 
 // Hides the dialog's window. The browser window gets the keyboard back, with the focus where it
 // was.

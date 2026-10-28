@@ -12,7 +12,7 @@ use std::{
 
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,
-    FontWeight, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    FontWeight, HitboxBehavior, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
     MouseUpEvent, PathBuilder, Pixels, Point, Rgba, Role, ScrollHandle, SharedString, Size,
     Subscription, Task, Window, WindowTextSystem, canvas, div, img, point, prelude::*, px, rgb,
     rgba, size, svg,
@@ -62,6 +62,7 @@ mod menus;
 mod naming;
 mod new_space;
 mod page_menu;
+mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
@@ -103,10 +104,11 @@ pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
 pub use page_menu::PageMenuItem;
 pub use side_panel::SidePanel;
+pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
-pub use picture::{is_picture, picture_answered};
+pub use picture::{PagePicture, picture_answered};
 pub use recent_downloads::FilePreview;
 use clean_link::clean_link;
 use commands::ShellHandle;
@@ -133,6 +135,8 @@ use crate::tokens::shell::FOCUS_GLOW_ALPHA;
 // and no more than 200, and snaps them even within 15 pt, as Chrome's does.
 const PANE_LEAST: (f32, f32) = (50., 200.);
 const PANE_SNAP: f32 = 15.;
+/// What Expand Current Split leaves each of the other pages (Arc 1.170.0 ax: 220 pt at any width).
+const EXPANDED_OTHER: f32 = 220.;
 
 // ⌘S hides and shows the sidebar on Arc's ease-out cubics (docs/ux-spec.md › Motion: Sidebar hide
 // and Sidebar show).
@@ -564,6 +568,12 @@ impl Space {
         split.map_or_else(Vec::new, |split| split.shares.clone())
     }
 
+    /// The tab of `tab`'s split view that took the card, else 0.
+    fn expanded(&self, tab: u64) -> u64 {
+        let split = self.splits.iter().find(|split| split.tabs.contains(&tab));
+        split.map_or(0, |split| split.expanded)
+    }
+
     /// Where its rows are in the list, from its top.
     fn slots(&self) -> HashMap<Slot, f32> {
         let (pinned, today) = self.rows();
@@ -884,6 +894,9 @@ pub struct Shell {
     held_row: Option<HeldRow>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
+    /// Where the frame last drawn had each tab's row in the list, which the pointer's presses hit
+    /// until the next one is drawn (`press_at_rest`).
+    drawn_rows: RefCell<Vec<(u64, f32)>>,
     /// The user opened a folder, or closed one, whose rows move once the browser reports it.
     folding: Option<bool>,
     /// The same for tiles, by their left, top and width, and for the list's top as the favorites
@@ -1088,6 +1101,8 @@ pub struct Shell {
     questions: HashMap<u64, Question>,
     /// Where the question's card was drawn last, which the log says when it changes.
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The tab whose question's card shows, and its moment on screen before Block and Allow work.
+    question_settling: RefCell<Option<(u64, crate::settling::Settling)>>,
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
@@ -1100,6 +1115,10 @@ pub struct Shell {
     crash_reload_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab the toast's note is about while its page is hung and shown.
     hang_noted: Option<u64>,
+    /// The dialogs the tabs' pages ask, such as an alert(): the tab shown's goes over its card.
+    page_dialogs: HashMap<u64, PageDialog>,
+    /// The page dialog asked over the card last, by its tab and id, and where.
+    page_dialog_shown: Option<(u64, u64, (Bounds<Pixels>, f32))>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1164,6 +1183,7 @@ impl Shell {
             unhovered: Vec::new(),
             held_row: None,
             slides: HashMap::new(),
+            drawn_rows: RefCell::default(),
             folding: None,
             tile_slides: HashMap::new(),
             list_slide: None,
@@ -1265,12 +1285,15 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            question_settling: RefCell::default(),
             drm_notes: HashMap::new(),
             drm_drawn: Rc::default(),
             crash_cards: HashMap::new(),
             crash_drawn: Rc::default(),
             crash_reload_drawn: Rc::default(),
             hang_noted: None,
+            page_dialogs: HashMap::new(),
+            page_dialog_shown: None,
             picker_pending: None,
             theme_preview: None,
             name_row_drawn: Rc::default(),
@@ -1347,6 +1370,7 @@ impl Shell {
         shell.questions = from.questions.clone();
         shell.drm_notes = from.drm_notes.clone();
         shell.crash_cards = from.crash_cards.keys().map(|&tab| (tab, Default::default())).collect();
+        shell.page_dialogs = from.page_dialogs.clone();
         shell
     }
 
@@ -1406,9 +1430,27 @@ impl Shell {
         self.shown_space().is_some_and(|space| space.stacked(tab))
     }
 
-    /// The shares of `tab`'s split view in the Space shown, or none while they're even.
+    /// The tab of `tab`'s split view in the Space shown that took the card, else 0.
+    fn expanded(&self, tab: u64) -> u64 {
+        self.shown_space().map_or(0, |space| space.expanded(tab))
+    }
+
+    /// The shares of `tab`'s split view in the Space shown, or none while they're even. An
+    /// expanded one's come from the page's frame, as the core's do at its layout.
     fn shares(&self, tab: u64) -> Vec<f64> {
-        self.shown_space().map_or_else(Vec::new, |space| space.shares(tab))
+        let expanded = self.expanded(tab);
+        let panes = self.panes(tab);
+        match panes.iter().position(|&pane| pane == expanded) {
+            Some(focused) => {
+                let (frame, _) = self.page_frame(self.viewport);
+                let length = match self.stacked(tab) {
+                    true => frame.size.height,
+                    false => frame.size.width,
+                };
+                panes::expanded_shares(panes.len(), focused, f32::from(length))
+            }
+            None => self.shown_space().map_or_else(Vec::new, |space| space.shares(tab)),
+        }
     }
 
     /// The tab whose row is `tab`'s: its split's first.
@@ -1907,6 +1949,9 @@ impl Shell {
     /// and the menu bar lists its Space's extensions.
     pub fn became_key(&mut self, cx: &mut Context<Self>) {
         cx.set_global(ShellHandle(cx.weak_entity()));
+        // Its tab's dialog goes over its card again, as another window's may have shown since.
+        self.page_dialog_shown = None;
+        cx.notify();
         self.refresh_menus(cx);
         self.refresh_picture(cx);
         self.follow_dock(cx);
@@ -2595,6 +2640,7 @@ impl Render for Shell {
             }
         }
         self.lay_out_moving_page(cx);
+        self.show_page_dialog(cx);
         let card_left = self.card_left();
         self.update_palette(cx);
         let focus_color = packed(self.palette.accent.into());
@@ -2808,6 +2854,10 @@ impl Shell {
                 Some(other) => self.still_page(other).into_any_element(),
                 None => continue,
             };
+            // A right-click under the rows, rows, buttons and fields taking their own, is for the
+            // Space whose page is there. A Space left for one sliding in has gone already: its
+            // page's part is the incoming Space's (`press_at_rest`).
+            let menu = space == self.space || self.swipe.is_some();
             pages.push(
                 div()
                     .id(("page", space))
@@ -2816,6 +2866,16 @@ impl Shell {
                     .bottom_0()
                     .left(px(x))
                     .w(px(width))
+                    .when(menu, |page| {
+                        page.on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                                if shell.drag.is_none() && shell.renaming.is_none() {
+                                    shell.empty_space_menu(space, event.position, cx)
+                                }
+                            }),
+                        )
+                    })
                     .child(page),
             );
         }
@@ -2827,18 +2887,19 @@ impl Shell {
             .bottom(px(FOOTER_HEIGHT))
             .overflow_hidden()
             .children(pages)
-            .children(self.settle.is_some().then(|| self.settle_press_listener(cx)))
+            .child(self.rest_press_listener(cx))
     }
 
-    /// Hears a press while a Space's page slides in, ahead of the rows, for the part of it that
-    /// the page isn't over yet (`press_at_rest`).
-    fn settle_press_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// Hears a press on the list ahead of the rows, for one the rows as drawn would take to
+    /// another row than the one at rest there (`press_at_rest`). Its hitbox leaves a press on
+    /// what's drawn over the list, such as a question, to that.
+    fn rest_press_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
-            |_, _, _| {},
-            move |_, _, window, _| {
-                window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
-                    if phase != DispatchPhase::Bubble {
+            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            move |_, hitbox, window, _| {
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+                    if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                         return;
                     }
                     let took = shell.update(cx, |shell, cx| shell.press_at_rest(event, cx));
@@ -2914,6 +2975,11 @@ impl Shell {
         let room = self.tiles_room();
         let mut rows = vec![(None, self.name_row(cx).into_any_element())];
         let (pinned, today) = self.rows();
+        let drawn = self.layout().into_iter().filter_map(|(slot, top)| match slot {
+            Slot::Tab(tab) => Some((tab, top + self.slide(slot))),
+            _ => None,
+        });
+        self.drawn_rows.replace(drawn.collect());
         for tab in pinned {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }

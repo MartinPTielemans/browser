@@ -75,6 +75,25 @@ pub fn on_leave<T: 'static>(
     })
 }
 
+/// `text` without the `javascript:` schemes it starts with, past any whitespace and control
+/// characters, as Chrome's address bar takes a paste: a page that talks the user into pasting
+/// script there can't run it. Typed, it runs, as in Chrome.
+pub fn without_javascript(text: &str) -> &str {
+    const SCHEME: &str = "javascript:";
+    let mut rest = text;
+    let mut found = false;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c.is_control());
+        match rest.get(..SCHEME.len()) {
+            Some(scheme) if scheme.eq_ignore_ascii_case(SCHEME) => {
+                found = true;
+                rest = &rest[SCHEME.len()..];
+            }
+            _ => return if found { rest } else { text },
+        }
+    }
+}
+
 pub fn bind_keys(cx: &mut App) {
     let context = Some("TextInput");
     cx.bind_keys([
@@ -120,6 +139,7 @@ pub struct TextInput {
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     paste_and_go: bool,
+    secure: bool,
 }
 
 impl TextInput {
@@ -139,11 +159,46 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
             paste_and_go: false,
+            secure: false,
+        }
+    }
+
+    /// With `secure`, it shows a dot for each character typed and won't copy or cut them, as a
+    /// password field. An input method still composes in it.
+    pub fn secure(mut self, secure: bool) -> Self {
+        self.secure = secure;
+        self
+    }
+
+    /// What the field shows: its text, or a secure field's dots.
+    pub fn shown(&self) -> SharedString {
+        match self.secure {
+            true => "•".repeat(self.content.chars().count()).into(),
+            false => self.content.clone(),
+        }
+    }
+
+    /// Where `offset` in the text is in what the field shows.
+    fn shown_offset(&self, offset: usize) -> usize {
+        match self.secure {
+            true => self.content[..offset].chars().count() * '•'.len_utf8(),
+            false => offset,
+        }
+    }
+
+    /// Where `offset` in what the field shows is in the text.
+    fn text_offset(&self, offset: usize) -> usize {
+        match self.secure {
+            true => (self.content.char_indices())
+                .nth(offset / '•'.len_utf8())
+                .map_or(self.content.len(), |(index, _)| index),
+            false => offset,
         }
     }
 
     /// Its menu has Paste and Go and Paste and Search, as an address bar's has, which dispatch
-    /// PasteAndGo and PasteAndSearch for the field's owner to take.
+    /// PasteAndGo and PasteAndSearch for the field's owner to take, and a paste loses its leading
+    /// `javascript:`, as Chrome's address bar's does.
     pub fn paste_and_go(mut self) -> Self {
         self.paste_and_go = true;
         self
@@ -317,9 +372,10 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) {
         let selected = !self.selected_range.is_empty();
+        let copies = selected && !self.secure;
         let mut items: Vec<(&str, bool, Option<Box<dyn Action>>)> = vec![
-            ("Cut", selected, Some(Box::new(Cut))),
-            ("Copy", selected, Some(Box::new(Copy))),
+            ("Cut", copies, Some(Box::new(Cut))),
+            ("Copy", copies, Some(Box::new(Copy))),
             ("Paste", true, Some(Box::new(Paste))),
         ];
         if self.paste_and_go {
@@ -367,20 +423,22 @@ impl TextInput {
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_range(None, &text.replace("\n", " "), window, cx);
+            let text = text.replace("\n", " ");
+            let text = if self.paste_and_go { without_javascript(&text) } else { &text };
+            self.replace_text_in_range(None, text, window, cx);
             self.pasted = true;
         }
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.selected_range.is_empty() && !self.secure {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
         }
     }
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.selected_range.is_empty() && !self.secure {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
@@ -418,7 +476,7 @@ impl TextInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.closest_index_for_x(position.x - bounds.left())
+        self.text_offset(line.closest_index_for_x(position.x - bounds.left()))
     }
 
     fn select_to(&mut self, offset: usize, window: &Window, cx: &mut Context<Self>) {
@@ -671,17 +729,17 @@ impl EntityInputHandler for TextInput {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let last_layout = self.last_layout.as_ref()?;
-        if last_layout.text != self.content {
+        if last_layout.text != self.shown() {
             return None;
         }
         let range = self.range_from_utf16(&range_utf16);
         Some(Bounds::from_corners(
             point(
-                bounds.left() + last_layout.x_for_index(range.start),
+                bounds.left() + last_layout.x_for_index(self.shown_offset(range.start)),
                 bounds.top(),
             ),
             point(
-                bounds.left() + last_layout.x_for_index(range.end),
+                bounds.left() + last_layout.x_for_index(self.shown_offset(range.end)),
                 bounds.bottom(),
             ),
         ))
@@ -708,10 +766,10 @@ impl EntityInputHandler for TextInput {
         let line_point = self.last_bounds?.localize(&point)?;
         let last_layout = self.last_layout.as_ref()?;
 
-        if last_layout.text != self.content {
+        if last_layout.text != self.shown() {
             return None;
         }
-        let utf8_index = last_layout.closest_index_for_x(line_point.x);
+        let utf8_index = self.text_offset(last_layout.closest_index_for_x(line_point.x));
         Some(self.offset_to_utf16(utf8_index))
     }
 }
@@ -769,9 +827,10 @@ impl Element for TextElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let input = self.input.read(cx);
-        let content = input.content.clone();
-        let selected_range = input.selected_range.clone();
-        let cursor = input.cursor_offset();
+        let content = input.shown();
+        let selected = &input.selected_range;
+        let selected_range = input.shown_offset(selected.start)..input.shown_offset(selected.end);
+        let cursor = input.shown_offset(input.cursor_offset());
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
@@ -788,7 +847,9 @@ impl Element for TextElement {
             underline: None,
             strikethrough: None,
         };
-        let runs = if let Some(marked_range) = input.marked_range.as_ref() {
+        let marked_range = (input.marked_range.as_ref())
+            .map(|marked| input.shown_offset(marked.start)..input.shown_offset(marked.end));
+        let runs = if let Some(marked_range) = marked_range.as_ref() {
             vec![
                 TextRun {
                     len: marked_range.start,

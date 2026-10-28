@@ -20,7 +20,7 @@ use gpui::{Role, accesskit::Live};
 use crate::{
     palette,
     shell::{self, Match},
-    text_input::{self, PasteAndGo, PasteAndSearch, TextInput},
+    text_input::{self, PasteAndGo, PasteAndSearch, TextInput, without_javascript},
 };
 
 mod calculator;
@@ -627,10 +627,11 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
         .ok();
 }
 
-/// The clipboard's text as a paste puts it in the input: on one line, trimmed. None if it has none.
+/// The clipboard's text as a paste puts it in the input: on one line, without a leading
+/// `javascript:`, trimmed. None if it has none.
 fn pasted(cx: &App) -> Option<String> {
     let text = cx.read_from_clipboard()?.text()?.replace('\n', " ");
-    Some(text.trim().to_string()).filter(|text| !text.is_empty())
+    Some(without_javascript(&text).trim().to_string()).filter(|text| !text.is_empty())
 }
 
 /// Whether a word of `tab`'s title, or of its site's name, starts with `typed`, lowercase. A site's

@@ -22,6 +22,9 @@ class DevToolsAgentHost;
 
 namespace browser_core {
 
+// See bc_tab_picture.
+void PicturePage(content::WebContents* contents, uint64_t request);
+
 // A tab's Capture: the element under the pointer and the picture of the page, which the app's
 // capture mode draws. DevTools hit tests the page and draws it beyond its view, without the
 // page's JavaScript running, through a client of the tab's own that attaches only while the user

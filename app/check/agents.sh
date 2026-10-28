@@ -1,10 +1,10 @@
-# A Space the driver makes for an agent, through the core as agent code will, shows in the
-# switcher as the agent's, and comes back the agent's, with its owner, after a quit. The agent may
-# act only on the tabs of its own Space: not on the user's, nor another agent's on its. ⌃2 shows it
-# as any second Space, a tab opened there is the agent's, and the user's tab's Move to leaves it
-# out, listing only the user's own Space, checked, and New Space…. The agent's mark on its tab
-# goes as its session there ends: it releases the tab, its client disconnects, or the user takes
-# the tab back.
+# A Space the driver makes for an agent, through the core as agent code will, with the Spaces menu
+# open, reaches the menu once it closes. It shows in the switcher as the agent's, and comes back the
+# agent's, with its owner, after a quit. The agent may act only on the tabs of its own Space: not on
+# the user's, nor another agent's on its. ⌃2 shows it as any second Space, a tab opened there is the
+# agent's, and the user's tab's Move to leaves it out, listing only the user's own Space, checked,
+# and New Space…. The agent's mark on its tab goes as its session there ends: it releases the tab,
+# its client disconnects, or the user takes the tab back.
 
 log="$out/agents.log"
 step=0
@@ -17,11 +17,21 @@ exec 3> "$out/drive"
 await_load
 first=$(space)
 user_tab=$(today | cut -d' ' -f1)
-send agentspace claude-code Claude Code
+# The Space is made with the Spaces menu open, which holds the menu bar back until the menu
+# closes, as AppKit can crash when the main menu is replaced under an open menu.
+post openmenu Spaces
+expect '^browser: menu tracked New Space…' "the Spaces menu didn't open"
+post agentspace claude-code Claude Code
 expect '^browser: made space [1-9][0-9]* for agent claude-code$' "the driver didn't make the agent's Space"
 agent=$(grep '^browser: made space' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: added space $agent Claude Code\$" "the agent's Space didn't reach the switcher"
 expect "^browser: agent space $agent Claude Code\$" "the switcher didn't hear whose the Space is"
+expect '^browser: menu bar waits for the menu open$' "the menu bar was replaced under the open menu"
+none_since '^browser: menu bar put up' || fail "the menu bar was put up with the menu still open"
+post dismiss
+expect '^browser: menu bar put up once the menus closed$' "the menu bar didn't come once the menu closed"
+send menubar Spaces
+expect '^browser: menu bar Spaces: .*Claude Code' "the Spaces menu didn't list the Space made while it was open"
 grep -q "^browser: agent space $first " "$log" && fail "the user's Space is an agent's"
 send agentmayact claude-code "$user_tab"
 expect "^browser: agent claude-code may act on $user_tab: 0\$" "the agent may act on the user's tab"
@@ -100,7 +110,7 @@ if [ "$driven" = 1 ]; then
 fi
 quit
 if [ "$driven" = 1 ]; then
-  echo "ok: an agent's Space shows and switches as the user's, keeps the user's tabs out, clears its mark as each session ends, and comes back the agent's"
+  echo "ok: a Space made with the Spaces menu open reaches the menu bar once it closes; an agent's Space shows and switches as the user's, keeps the user's tabs out, clears its mark as each session ends, and comes back the agent's"
 else
-  echo "ok: an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
+  echo "ok: a Space made with the Spaces menu open reaches the menu bar once it closes; an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
 fi

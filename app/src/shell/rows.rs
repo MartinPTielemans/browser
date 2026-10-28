@@ -103,8 +103,12 @@ impl Shell {
                 plate.bg(self.palette.plate(HOVERED).opacity(hover))
             })
             // Pressed, a tab's row has the selected fill before the core answers its press, and a
-            // folder's keeps its hover fill, as Arc's do.
-            .when(!selected && dragging != Some(slot) && !folder, |plate| {
+            // folder's keeps its hover fill, as Arc's do. The held row says so, not GPUI's pressed
+            // state, which outlives the release of a press that selected its row.
+            .when(self.pressed(row) && !selected && dragging != Some(slot) && !folder, |plate| {
+                plate.bg(self.palette.plate(SELECTED))
+            })
+            .when(row == Row::NewTab && !selected, |plate| {
                 // GPUI keeps an element's pressed state only once a listener gives it a hitbox.
                 plate
                     .on_mouse_down(MouseButton::Left, |_, _, _| {})
@@ -168,6 +172,12 @@ impl Shell {
                 .aria_selected(selected)
                 .pressed_by_mouse_down(true, true),
         }
+    }
+
+    /// Whether `row` is a tab's that's pressed and not yet let go.
+    pub(super) fn pressed(&self, row: Row) -> bool {
+        let held = self.held_row.as_ref().filter(|held| held.let_go.is_none());
+        held.is_some_and(|held| row == Row::Tab(held.tab))
     }
 
     /// How full `row`'s hover fill is: full under the pointer or with its menu up, and for the
@@ -359,37 +369,66 @@ impl Shell {
     }
 
     /// Shows `tab` for a press on its row, or its segment of a split view's, at once, as Arc's
-    /// does, even if the press becomes a drag.
+    /// does, even if the press becomes a drag. Its page takes the keyboard, as a tab clicked in
+    /// Chrome's tab strip does, so the keys that follow, ⌘D or Space, are the page's.
     fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
         log!("browser: command select via sidebar");
-        self.select(tab, cx)
+        self.select(tab, cx);
+        self.browser.focus_page(cx)
     }
 
-    /// A press on the page that slides in after a Space switch, where the page isn't yet: the
-    /// pointer is over the outgoing page, which takes no input, or over nothing. It acts on the
-    /// row that will be there, as the press that it is (docs/ux-principles.md: act on the press),
-    /// the Space having switched already. Returns whether it took the press; a press on the
-    /// sliding page's drawn part is the rows' own.
+    /// A press on the list where the row drawn isn't the one that rests there. On the page that
+    /// slides in after a Space switch, where the page isn't yet, the pointer is over the outgoing
+    /// page, which takes no input, or over nothing. Among rows that moved, as ⌘D or a close
+    /// moves them, the frame last drawn may have another row under the pointer, one on its way
+    /// out. Either way it acts on the row that will be there, as the press that it is
+    /// (docs/ux-principles.md: act on the press), so a click under a pointer that hasn't moved
+    /// acts on the row it rests on, and a right-click where no row rests shows the menu of the
+    /// Space's name or of its empty space. Returns whether it took the press; a press on a row
+    /// drawn where it rests, or on the sliding page's drawn part, is the rows' own.
     pub(super) fn press_at_rest(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
-        let sliding = self.settle.is_some() && self.swipe.is_none() && self.drag.is_none();
-        if !sliding || self.form().is_some() || self.renaming.is_some() {
+        let busy = self.swipe.is_some() || self.form().is_some() || self.renaming.is_some();
+        if busy || self.dragging().is_some() || (self.settle.is_some() && self.drag.is_some()) {
             return false;
         }
-        let Some(&(_, page)) = self.pages().iter().find(|&&(space, _)| space == self.space) else {
-            return false;
-        };
         let at = in_sidebar(event.position, self.sidebar_origin.get());
         let width = self.width();
         let rows = self.drawn_list_top()..f32::from(self.viewport.height) - FOOTER_HEIGHT;
-        let on_page = (page..page + width).contains(&at.x);
-        if on_page || !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
+        if !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
             return false;
         }
         let y = self.list_y(at.y);
-        let tab = self.layout().into_iter().find_map(|(slot, top)| match slot {
-            Slot::Tab(tab) if (top..top + ROW_PITCH).contains(&y) => Some(tab),
-            _ => None,
+        let row_at = |tops: &[(u64, f32)]| {
+            tops.iter().find_map(|&(tab, top)| (top..top + ROW_PITCH).contains(&y).then_some(tab))
+        };
+        let layout: Vec<_> = (self.layout().into_iter())
+            .filter_map(|(slot, top)| match slot {
+                Slot::Tab(tab) => Some((tab, top)),
+                _ => None,
+            })
+            .collect();
+        let tab = row_at(&layout);
+        if self.settle.is_some() {
+            let Some(&(_, page)) = self.pages().iter().find(|&&(space, _)| space == self.space)
+            else {
+                return false;
+            };
+            if (page..page + width).contains(&at.x) {
+                return false;
+            }
+        } else if row_at(&self.drawn_rows.borrow()) == tab {
+            return false;
+        }
+        let new_tab = (self.layout().into_iter()).any(|(slot, top)| {
+            matches!(slot, Slot::NewTab) && (top..top + ROW_PITCH).contains(&y)
         });
+        if event.button == MouseButton::Right && tab.is_none() && !new_tab {
+            match y < NAME_HEIGHT {
+                true => self.space_menu(self.space, event.position, cx),
+                false => self.empty_space_menu(self.space, event.position, cx),
+            }
+            return true;
+        }
         let Some(tab) = tab.filter(|&tab| self.panes(tab).len() == 1) else {
             return false;
         };
@@ -548,7 +587,20 @@ impl Shell {
                     shell.press_row(first, event.position)
                 }),
             )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |shell, _, _, cx| shell.middle_press(first, closable, cx)),
+            )
         })
+    }
+
+    /// A middle press on the row whose first tab is `row` closes it as its ✕ does, on the press as
+    /// a row's press shows its tab.
+    fn middle_press(&mut self, row: u64, closable: bool, cx: &mut Context<Self>) {
+        if closable && self.dragging().is_none() {
+            log!("browser: command close-tab via sidebar");
+            self.close_tab(row, true, cx);
+        }
     }
 
     /// Whether a tab's row has a ✕ to show: a pinned tab closed already has nothing to close.
@@ -688,6 +740,10 @@ impl Shell {
                         shell.tab_menu(tab, event.position, cx)
                     }
                 }),
+            )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |shell, _, _, cx| shell.middle_press(tab, closable, cx)),
             )
         })
     }
@@ -1382,9 +1438,10 @@ mod tests {
         assert_eq!(scale(&shell, cx), 1.);
     }
 
-    /// A press on a row shows its tab at once, as Arc's does, before it's let go, and letting go
-    /// asks for nothing more. A row's ✕ closes its tab without showing it, and a right-click
-    /// shows the row's menu without showing its tab.
+    /// A press on a row shows its tab at once, as Arc's does, before it's let go, and gives its
+    /// page the keyboard, as Chrome's tab strip does; letting go asks for nothing more. A press on
+    /// the row shown gives its page the keyboard too. A row's ✕ closes its tab without showing
+    /// it, and a right-click shows the row's menu without showing its tab or moving the keyboard.
     #[gpui::test]
     fn a_press_shows_its_tab_before_it_is_let_go(cx: &mut TestAppContext) {
         let (shell, cx, host) = window(cx, vec![2], vec![3, 4], 3);
@@ -1393,10 +1450,15 @@ mod tests {
         host.take();
         cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["select 4"]);
+        assert_eq!(host.take(), ["select 4", "focus page"]);
         cx.simulate_mouse_up(middle, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
         assert!(host.take().is_empty(), "letting go");
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        cx.run_until_parked();
+        cx.simulate_click(middle, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["focus page"], "the row shown");
 
         let close = close_button(&shell, cx, 2);
         move_to(cx, close);
@@ -1407,7 +1469,8 @@ mod tests {
         let middle = point(px(close.0 - 100.), px(close.1));
         cx.simulate_mouse_down(middle, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
-        assert!(!host.take().contains(&"select 2".to_string()), "a right-click");
+        let calls = host.take();
+        assert!(!calls.iter().any(|call| ["select 2", "focus page"].contains(&call.as_str())));
     }
 
     /// A press that becomes a drag has shown its tab, and still drags it: let go two rows up, the
@@ -1420,7 +1483,7 @@ mod tests {
         host.take();
         cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["select 4"]);
+        assert_eq!(host.take(), ["select 4", "focus page"]);
         let to = point(from.x, from.y - px(2. * ROW_PITCH));
         cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
@@ -1523,7 +1586,7 @@ mod tests {
         assert!(host.take().is_empty(), "the press");
         cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["back to pinned url 2", "select 2"]);
+        assert_eq!(host.take(), ["back to pinned url 2", "select 2", "focus page"]);
     }
 
     /// How the user goes back to the tab they came from.
@@ -1590,6 +1653,35 @@ mod tests {
         })
     }
 
+    /// A row whose press showed its tab before it was let go reads as pressed only while it's
+    /// held: once another tab is shown, by a key or the core, it reads as neither pressed nor
+    /// selected (#427).
+    #[gpui::test]
+    fn a_row_let_go_is_not_drawn_pressed_once_another_is_shown(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3, 4], 3);
+        let (x, y) = close_button(&shell, cx, 4);
+        let middle = point(px(x - 100.), px(y));
+        let pressed = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+            shell.read_with(cx, |shell, _| shell.pressed(Row::Tab(4)))
+        };
+        host.take();
+        cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(pressed(&shell, cx), "held");
+        // The core answers the press before the row is let go.
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        cx.run_until_parked();
+        cx.simulate_mouse_up(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(!pressed(&shell, cx), "let go");
+        // Then the pointer leaves for the page, and a key shows the tab before.
+        cx.simulate_mouse_move(point(px(900.), px(y)), None, Modifiers::none());
+        shell.update(cx, |shell, cx| shell.set_selected(3, cx));
+        cx.run_until_parked();
+        assert!(!pressed(&shell, cx), "another tab shown");
+        assert_eq!(filled(&shell, cx), Vec::<u64>::new());
+    }
+
     /// After a click on a tab and back to the one before, by a click or a key in the UI or in the
     /// page, with or without the note on the other tab's page, only the shown tab's row reads as
     /// selected. A key in the page hides the row the pointer rests on, as one in the UI does,
@@ -1606,6 +1698,29 @@ mod tests {
         let (x, y) = close_button(&shell, cx, 3);
         move_to(cx, (x - 101., y));
         assert_eq!(filled(&shell, cx), [3], "the pointer moved on the row it rests on");
+    }
+
+    /// A middle press on a tab's row closes it, as its ✕ does: a Today tab goes, a pinned one lets
+    /// go of its page, and a pinned one without its page has nothing to close. The tab shown stays.
+    #[gpui::test]
+    fn a_middle_press_on_a_row_closes_its_tab(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2, 3], vec![4, 5], 4);
+        shell.update(cx, |shell, cx| {
+            let page = Page { unloaded: true, ..shell.page(2) };
+            shell.set_page(2, page, cx);
+        });
+        let middle = |cx: &mut VisualTestContext, tab| {
+            let (_, y) = close_button(&shell, cx, tab);
+            cx.simulate_mouse_down(point(px(60.), px(y)), MouseButton::Middle, Modifiers::none());
+            cx.simulate_mouse_up(point(px(60.), px(y)), MouseButton::Middle, Modifiers::none());
+            cx.run_until_parked();
+        };
+        host.take();
+        middle(cx, 5);
+        middle(cx, 3);
+        middle(cx, 2);
+        assert_eq!(host.take(), ["close 5", "close 3"]);
+        assert_eq!(shell.read_with(cx, |shell, _| shell.selected), 4);
     }
 
     /// A Today tab whose page was let go after hours unseen keeps its ✕, as the tab itself is
@@ -1636,5 +1751,40 @@ mod tests {
         cx.simulate_click(point(px(pinned.0), px(pinned.1)), Modifiers::none());
         cx.run_until_parked();
         assert!(!host.take().iter().any(|call| call.starts_with("close")), "the pinned row");
+    }
+
+    /// ⌘D, from the UI or the page, unpins the tab shown under a pointer that doesn't move, and
+    /// the tab below slides up under it. A click there, as a trackpad tap makes, shows that tab,
+    /// whether the rows are still on their way or not yet drawn where they moved, and with no
+    /// row before it drawing a hover fill (#271).
+    #[gpui::test]
+    fn a_click_after_a_key_acts_on_the_row_under_the_pointer(cx: &mut TestAppContext) {
+        cx.update(bind_keys);
+        for (page, drawn) in [(false, false), (false, true), (true, false), (true, true)] {
+            let (shell, cx, host) = window(cx, vec![2, 3], vec![4], 4);
+            cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+            let (x, y) = close_button(&shell, cx, 2);
+            let at = point(px(x - 100.), px(y));
+            cx.simulate_mouse_move(at, None, Modifiers::none());
+            cx.simulate_click(at, Modifiers::none());
+            cx.run_until_parked();
+            assert!(host.take().contains(&"select 2".into()));
+            shell.update(cx, |shell, cx| shell.set_selected(2, cx));
+            cx.run_until_parked();
+            if page {
+                shell.update(cx, |shell, cx| shell.run_for_page(Command::TogglePin, cx));
+            } else {
+                cx.simulate_keystrokes("cmd-d");
+            }
+            shell.update(cx, |shell, cx| {
+                shell.set_tabs(1, vec![3], vec![2, 4], Vec::new(), Folders::default(), cx)
+            });
+            if drawn {
+                cx.run_until_parked();
+                assert_eq!(filled(&shell, cx), Vec::<u64>::new(), "page {page}");
+            }
+            cx.simulate_click(at, Modifiers::none());
+            assert!(host.take().contains(&"select 3".into()), "page {page}, drawn {drawn}");
+        }
     }
 }

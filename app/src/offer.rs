@@ -18,6 +18,7 @@ use gpui::{
 
 use crate::{
     palette::{Palette, STATE_HOVERED, STATE_PRESSED},
+    settling::Settling,
     shell,
     text_input::{FieldMenu, TextInput},
 };
@@ -125,6 +126,8 @@ pub struct OfferPrompt {
     tab: u64,
     /// The tab's page shows in another window, which shows the offer, and this one a picture of it.
     elsewhere: bool,
+    /// Its moment on screen before Save, Update and Never work.
+    settling: Settling,
 }
 
 /// Each browser window's offer, by the core's id of the window.
@@ -178,7 +181,14 @@ pub fn open(
         });
         // The field has the keyboard whenever the window does.
         window.focus(&input.focus_handle(cx), cx);
-        cx.new(|_| OfferPrompt { host, look: Box::new(look), input, tab: 0, elsewhere: false })
+        cx.new(|_| OfferPrompt {
+            host,
+            look: Box::new(look),
+            input,
+            tab: 0,
+            elsewhere: false,
+            settling: Settling::default(),
+        })
     });
     match window {
         Ok(window) => {
@@ -283,6 +293,7 @@ fn show_offer(window: WindowHandle<OfferPrompt>, cx: &mut App) {
                 Some(offer) => {
                     prompt.input.update(cx, |input, cx| input.reset(offer.username, window, cx));
                     prompt.host.show();
+                    prompt.settling.start(format!("offer {}", prompt.tab), cx);
                 }
                 None => prompt.host.hide(),
             }
@@ -298,6 +309,9 @@ impl OfferPrompt {
 
     fn answer(&mut self, answer: Answer, cx: &mut Context<Self>) {
         let tab = self.tab;
+        if answer != Answer::NotNow && !self.settling.settled(cx) {
+            return;
+        }
         if OFFERS.with_borrow_mut(|offers| offers.remove(&tab)).is_none() {
             return;
         }

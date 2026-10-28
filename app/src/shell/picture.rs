@@ -2,16 +2,18 @@
 //! a click on it takes the page back (docs/ux-spec.md › Window › Several windows; ours).
 
 use std::{
+    cell::RefCell,
+    collections::HashMap,
     sync::{
-        Arc,
+        Arc, Weak,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use gpui::{
-    AnyElement, AsyncApp, Bounds, Context, Corners, MouseButton, Pixels, RenderImage, Task,
-    WeakEntity, Window, canvas, div, hsla, point, prelude::*, px, size,
+    AnyElement, AsyncApp, Bounds, Context, Corners, MouseButton, Pixels, RenderImage, WeakEntity,
+    Window, canvas, div, hsla, point, prelude::*, px, size,
 };
 use image::{Frame, RgbaImage};
 
@@ -19,43 +21,69 @@ use super::{CARD_RADIUS, Shell, new_space::ease_out, pane_frames};
 use crate::elevation::Level;
 
 use crate::tokens::shell::picture::REST;
-/// It steps back from the card's size to REST as the page goes to the other window, and comes
-/// forward to the card's before the page takes its place. Both ease out.
+/// It steps back from the card's size to REST as the page goes to the other window, easing out.
 const STEP_BACK: f32 = 0.2;
-const COME_BACK: f32 = 0.12;
 use crate::tokens::shell::picture::VEIL;
 use crate::tokens::shell::picture::RIM;
-/// What a request for a picture is numbered from, above the numbers capture mode's count up from.
-const FIRST_REQUEST: u64 = 1 << 63;
 
-static REQUESTS: AtomicU64 = AtomicU64::new(FIRST_REQUEST);
+static REQUESTS: AtomicU64 = AtomicU64::new(1);
 
-/// Whether the core's answer `request` is for a picture of this kind, not capture mode's.
-pub fn is_picture(request: u64) -> bool {
-    request >= FIRST_REQUEST
+thread_local! {
+    /// The pictures the windows show, by tab, held by the windows alone: the window a page leaves
+    /// shows at once the one the window taking it showed, of the page as it was here.
+    static SHOWN: RefCell<HashMap<u64, (Weak<RenderImage>, (f32, f32))>> =
+        RefCell::new(HashMap::new());
 }
 
-/// The core's answer to `request`, a picture of this kind, for whichever of `shells` asked. It
-/// reaches them once the update under way, if any, is over: an answer the core gave inside the call
-/// that asked would come while that shell is being updated, and a second update of it panics.
+/// The core's answer to `request`, a picture of a page, for whichever of `shells` asked. It reaches
+/// them once the update under way, if any, is over: an answer that came inside the call that asked
+/// would come while that shell is being updated, and a second update of it panics.
 pub fn picture_answered(
     shells: Vec<WeakEntity<Shell>>,
     request: u64,
-    png: Option<Vec<u8>>,
+    picture: Option<PagePicture>,
     cx: &AsyncApp,
 ) {
     cx.spawn(async move |cx| {
         for shell in shells {
-            shell.update(cx, |shell, cx| shell.page_pictured(request, png.clone(), cx)).ok();
+            shell.update(cx, |shell, cx| shell.page_pictured(request, picture.clone(), cx)).ok();
         }
     })
     .detach();
 }
 
-/// A page's picture, decoded in the BGRA GPUI draws, and its size in pixels.
-struct Ready {
+/// A page's picture, in the BGRA GPUI draws, and its size in pixels.
+#[derive(Clone)]
+pub struct PagePicture {
     image: Arc<RenderImage>,
     size: (f32, f32),
+}
+
+impl PagePicture {
+    /// The core's picture: `width` by `height` pixels, row after row, 4 bytes each in BGRA order.
+    pub fn from_bgra(bgra: Vec<u8>, width: u32, height: u32) -> Option<Self> {
+        let image = RgbaImage::from_raw(width, height, bgra)?;
+        Some(Self {
+            image: Arc::new(RenderImage::new(vec![Frame::new(image)])),
+            size: (width as f32, height as f32),
+        })
+    }
+
+    /// The one a window shows of `tab`, if any does.
+    fn shown(tab: u64) -> Option<Self> {
+        SHOWN.with_borrow(|shown| {
+            let (image, size) = shown.get(&tab)?;
+            Some(Self { image: image.upgrade()?, size: *size })
+        })
+    }
+
+    /// A window shows it, of `tab`, in place of any other.
+    fn share(&self, tab: u64) {
+        SHOWN.with_borrow_mut(|shown| {
+            shown.retain(|_, (image, _)| image.strong_count() > 0);
+            shown.insert(tab, (Arc::downgrade(&self.image), self.size));
+        });
+    }
 }
 
 /// The scale of the picture going from `from` to `to`, since `start`.
@@ -68,6 +96,11 @@ struct Move {
 }
 
 impl Move {
+    /// From the card's size to REST, as the page goes.
+    fn step_back() -> Self {
+        Self { start: Instant::now(), from: 1., to: REST, duration: STEP_BACK }
+    }
+
     fn at(&self, now: Instant) -> f32 {
         let t = now.saturating_duration_since(self.start).as_secs_f32() / self.duration;
         self.from + (self.to - self.from) * ease_out(t)
@@ -85,10 +118,12 @@ pub(super) struct Picture {
     /// The last request made to the core, and whether its answer hasn't come.
     request: u64,
     pending: bool,
-    image: Option<Ready>,
+    image: Option<PagePicture>,
+    /// Whether the window has drawn `image`, for the handover lines.
+    drawn: bool,
     motion: Option<Move>,
-    /// Taking the page back, once the picture has grown to the card.
-    returning: Option<Task<()>>,
+    /// A press on it has asked for the page.
+    taken: bool,
 }
 
 impl Picture {
@@ -100,7 +135,8 @@ impl Picture {
 
 impl Shell {
     /// The core says another window shows the page of the tab this one has selected, or with 0 that
-    /// this one shows a page again.
+    /// this one shows a page again. The picture the window taking it showed, if it showed one,
+    /// shows here at once, and a fresh one replaces it where it is once it comes.
     pub fn page_elsewhere(&mut self, tab: u64, cx: &mut Context<Self>) {
         if tab == 0 {
             return self.drop_picture(cx);
@@ -110,13 +146,15 @@ impl Shell {
             return;
         }
         self.drop_picture(cx);
+        let image = PagePicture::shown(tab);
         self.picture = Some(Picture {
             tab,
             request: 0,
             pending: false,
-            image: None,
-            motion: None,
-            returning: None,
+            motion: image.is_some().then(Move::step_back),
+            image,
+            drawn: false,
+            taken: false,
         });
         self.ask_picture(cx);
         cx.notify();
@@ -137,7 +175,7 @@ impl Shell {
     /// The window is in front: its picture is of the page as it is now.
     pub(super) fn refresh_picture(&mut self, cx: &mut Context<Self>) {
         let seen = self.picture.as_ref().is_some_and(|picture| {
-            picture.image.is_some() && !picture.pending && picture.returning.is_none()
+            picture.image.is_some() && !picture.pending && !picture.taken
         });
         if seen {
             self.ask_picture(cx);
@@ -151,6 +189,8 @@ impl Shell {
         picture.request = REQUESTS.fetch_add(1, Ordering::Relaxed);
         picture.pending = true;
         let (tab, request) = (picture.tab, picture.request);
+        let window = self.browser.window();
+        crate::log_handover("picture asked", &format!("window {window}, tab {tab}"));
         self.browser.page_picture(tab, request, cx);
     }
 
@@ -158,85 +198,59 @@ impl Shell {
         let Some(picture) = self.picture.take() else {
             return;
         };
-        if let Some(ready) = picture.image {
-            self.stale_pictures.push(ready.image);
-        }
-        if picture.pending {
-            self.browser.page_picture_end(picture.tab, cx);
+        if let Some(shown) = picture.image {
+            self.stale_pictures.push(shown.image);
+            let window = self.browser.window();
+            crate::log_handover("picture dropped", &format!("window {window}, tab {}", picture.tab));
         }
         cx.notify();
     }
 
-    /// The core answers `request` with the picture as a PNG, or none.
-    pub fn page_pictured(&mut self, request: u64, png: Option<Vec<u8>>, cx: &mut Context<Self>) {
-        let Some(picture) = self.picture.as_mut().filter(|picture| picture.request == request)
-        else {
-            return;
-        };
-        picture.pending = false;
-        let tab = picture.tab;
-        self.browser.page_picture_end(tab, cx);
-        let Some(png) = png else {
-            return;
-        };
-        // Decoded away from the main thread, as a big window's page is millions of pixels.
-        let decoded = cx.background_spawn(async move { decode(&png) });
-        cx.spawn(async move |shell, cx| {
-            let decoded = decoded.await;
-            shell.update(cx, |shell, cx| shell.picture_decoded(request, decoded, cx)).ok();
-        })
-        .detach();
-    }
-
-    fn picture_decoded(&mut self, request: u64, decoded: Option<Ready>, cx: &mut Context<Self>) {
+    /// The core answers `request` with the picture, or none.
+    pub fn page_pictured(
+        &mut self,
+        request: u64,
+        image: Option<PagePicture>,
+        cx: &mut Context<Self>,
+    ) {
         let window = self.browser.window();
         let Some(picture) = self.picture.as_mut().filter(|picture| picture.request == request)
         else {
             return;
         };
-        let Some(ready) = decoded else {
+        picture.pending = false;
+        let Some(image) = image else {
             return;
         };
+        image.share(picture.tab);
         // The page steps back as it goes, the first time; a fresh picture of it replaces the old
         // where it is.
         if picture.image.is_none() {
-            picture.motion =
-                Some(Move { start: Instant::now(), from: 1., to: REST, duration: STEP_BACK });
+            picture.motion = Some(Move::step_back());
         }
-        if let Some(old) = picture.image.replace(ready) {
+        if let Some(old) = picture.image.replace(image) {
             self.stale_pictures.push(old.image);
         }
+        picture.drawn = false;
+        crate::log_handover("picture shown", &format!("window {window}, tab {}", picture.tab));
         // check.sh waits for this line.
         log!("browser: window {window} pictures tab {}", picture.tab);
         cx.notify();
     }
 
-    /// A press on the picture: it grows to the card, then the page comes back by the call a press
-    /// on the tab's row makes.
+    /// A press on the picture takes the page back at once, by the call a press on the tab's row
+    /// makes. The page covers the picture as it comes.
     fn press_picture(&mut self, cx: &mut Context<Self>) {
         let Some(picture) = self.picture.as_mut() else {
             return;
         };
-        if picture.returning.is_some() || picture.image.is_none() {
+        if picture.taken || picture.image.is_none() {
             return;
         }
+        picture.taken = true;
         let tab = picture.tab;
-        let from = picture.scale(Instant::now());
-        picture.motion = Some(Move { start: Instant::now(), from, to: 1., duration: COME_BACK });
-        // The page is live about as soon as the picture has grown, which is within the 130 ms a
-        // click may take to be readable.
-        picture.returning = Some(cx.spawn(async move |shell, cx| {
-            cx.background_executor().timer(Duration::from_secs_f32(COME_BACK)).await;
-            shell.update(cx, |shell, cx| shell.take_page_back(tab, cx)).ok();
-        }));
-        cx.notify();
-    }
-
-    fn take_page_back(&mut self, tab: u64, cx: &mut Context<Self>) {
-        if self.pictured(tab) {
-            log!("browser: command select via picture");
-            self.select(tab, cx);
-        }
+        log!("browser: command select via picture");
+        self.select(tab, cx);
     }
 
     /// The card of the page the picture stands for: the focused pane's, in a split view.
@@ -265,12 +279,15 @@ impl Shell {
         let Some(picture) = &mut self.picture else {
             return;
         };
+        if picture.image.is_some() && !std::mem::replace(&mut picture.drawn, true) {
+            crate::log_handover("picture drawn", &format!("window {id}, tab {}", picture.tab));
+        }
         let Some(motion) = picture.motion else {
             return;
         };
         if !motion.done(now) {
             window.request_animation_frame();
-        } else if picture.returning.is_none() {
+        } else {
             picture.motion = None;
             // check.sh waits for this line, which says the picture has stopped moving.
             log!("browser: window {id} picture rests");
@@ -353,21 +370,6 @@ fn fit(card: Bounds<Pixels>, picture: (f32, f32), scale: f32) -> Bounds<Pixels> 
         ),
         size(px(width), px(height)),
     )
-}
-
-fn decode(png: &[u8]) -> Option<Ready> {
-    let decoded = image::load_from_memory_with_format(png, image::ImageFormat::Png).ok()?;
-    let decoded = decoded.into_rgba8();
-    let (width, height) = decoded.dimensions();
-    let mut pixels = decoded.into_raw();
-    for pixel in pixels.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-    let image = RgbaImage::from_raw(width, height, pixels)?;
-    Some(Ready {
-        image: Arc::new(RenderImage::new(vec![Frame::new(image)])),
-        size: (width as f32, height as f32),
-    })
 }
 
 #[cfg(test)]

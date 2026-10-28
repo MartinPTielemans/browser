@@ -475,6 +475,12 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
 // shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
 void host_watch_full_screen(void (*)(void*, bool)) {}
 
+// shortcut: Windows sends a touchpad's swipes as scrolls, which the page takes.
+void host_watch_swipes(bool (*)(void*, double, double, bool)) {}
+
+// A window's menu bar isn't replaced while it's open on Windows: it's modal and runs no tasks.
+bool host_after_menus(void (*)(void)) { return false; }
+
 void host_watch_resigning_active(void (*resigning)(void)) {
   g_resigning_active = resigning;
   WatchForeground();
@@ -665,10 +671,13 @@ void host_add_dialog(void* dialog_view) {
   Adopt(g_dialog, dialog_view, false, nullptr);
 }
 
-void host_show_dialog(void* ui_view) {
-  double width, height;
-  ContentSize(Root(ui_view), &width, &height);
-  Show(g_dialog, ui_view, 0, 0, width, height, true);
+void host_show_dialog(void* ui_view, double x, double y, double width, double height) {
+  // Without a rect, it covers all of the window.
+  if (width <= 0) {
+    x = y = 0;
+    ContentSize(Root(ui_view), &width, &height);
+  }
+  Show(g_dialog, ui_view, x, y, width, height, true);
 }
 
 void host_hide_dialog(void) {

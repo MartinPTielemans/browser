@@ -212,7 +212,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Pane motion | MVP | a dropped tab's pane coming in on its side, the divider dragged, a pane closing: built with a drop showing the split at once and the divider following the pointer *interim*; Arc's: measure | Arc |
 | [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus. Not started: multi-window step 7 | Dia rec |
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
-| [ ] | Expand Current Split | MVP | the focused pane takes the card, the other keeps 220 pt at any width; one frame; again does nothing; kept after a quit. Not built | Arc 1.170.0 ax, rec |
+| [x] | Expand Current Split | MVP | the focused pane takes the card, the other keeps 220 pt at any width; one frame; again does nothing; kept after a quit. A flag in the core's split, worked out at each layout so a resize holds the 220, and saved with the session. In View after Developer and in the command bar, no key; dragging or double-clicking the gap, or a pane joining or leaving, ends it *interim* | Arc 1.170.0 ax, rec |
 | [x] | Commands | MVP | Flip, Move Pane Left/Right, Separate All, in the command bar | Dia P§6 |
 | [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the sides *interim* | Dia P§6 |
 
@@ -271,6 +271,18 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Desktop apps | MVP | native messaging hosts the browser's folders lack, from Chrome's, Chromium's, Edge's, Brave's, Arc's or Vivaldi's | ours |
 | [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |
 | [x] | Site Controls | MVP | 238 wide, radius 17, beak 12.5, tiles 48 × 32 on 8 gaps; Share and the two captures; the extensions with + and Manage; Chrome's permissions as Arc's rows with More; the lock opens the certificate, … the menu; Boost items: with Boosts; motion *interim* | Arc 1.170.0 cap |
+
+## Ad blocking
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [ ] | On by default | MVP | every profile, new and existing, and private windows, from the first page; nothing to install | Helium, Flecha |
+| [ ] | Engine | MVP | upstream uBlock Origin 1.75.0, pinned with its sha256, in the framework, loaded at each launch; updates with the browser; listed in the Extensions menu, pinnable, no Remove | Ours |
+| [ ] | Turning it off | MVP | Site Controls' first row, per site, reloading the page; Settings › General, everywhere | Ours |
+| [ ] | Filter lists | MVP | weekly while open, and 37 s after a launch when stale; never more often; source a default service URL | principles 1, 2 |
+| [ ] | First launch | MVP | requests through for about 3 s until the lists load; closing it: measure first | principle 1 |
+| [ ] | Cost | MVP | page-load and memory numbers, with and without it, against the performance gate | principle 1 |
+| [ ] | No agent path | MVP | agents can't change it, everywhere or for a site | decision 8 |
 
 ## Passwords and autofill
 
@@ -386,7 +398,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Page context menu | MVP | Chrome's, without what the window can't do yet *interim*; its tab dialogs, such as print preview, centred over the page at its top | Chrome |
 | [ ] | Arc's page menu items | MVP | Chrome's, plus Open Link in Split View and in Little Arc after New Window, and Capture Image…; without Lens, Reading Mode, Listen, QR Code, Send to Devices and Copy Link Text (ux-spec.md › Menus › Page menu). Built: a link's items in Arc's order, with Open Link in New Window and in Incognito Window; without Lens, Reading Mode, Listen, QR Code, Send to Devices and Copy Link Text. Little Arc, Capture Image…, Cast… and Translate wait for their features *interim* | Arc 1.170.0 ax |
 | [x] | Space list, Rename Space, View History, Services, Essential Keyboard Shortcuts | MVP | Spaces by name with ⌃1–⌃9; ⌘Y opens Chrome's history page; Help opens Settings › Shortcuts | Arc 1.170.0 menus |
-| [ ] | Arc's other menu items | MVP | ux-spec.md › Menus: Blank Window and New Little Arc Window; Edit Theme…, Manage Spaces…, Expand Current Split, Network Inspector, Turn on Developer Mode, as each feature lands. Partly: Arc's titles (Clear Today, Hide/Show Sidebar, Pin/Unpin Tab, Open Library…, View Downloads…, View Archive…), windows named by their shown tab, Reveal Tab in Sidebar, Change Profile and Paste and Match Style are done, as are the menus Arc has for built features | Arc 1.170.0 ax |
+| [ ] | Arc's other menu items | MVP | ux-spec.md › Menus: Blank Window and New Little Arc Window; Edit Theme…, Manage Spaces…, Network Inspector, Turn on Developer Mode, as each feature lands. Partly: Arc's titles (Clear Today, Hide/Show Sidebar, Pin/Unpin Tab, Open Library…, View Downloads…, View Archive…), windows named by their shown tab, Reveal Tab in Sidebar, Change Profile and Paste and Match Style are done, as are the menus Arc has for built features | Arc 1.170.0 ax |
 
 ## Phase 4
 
@@ -419,12 +431,6 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Boosts: seeing and turning off | later | listed in Site Controls with an off switch; all off in Settings; look: measure | Arc |
 | [ ] | Boosts: script changed outside the browser | later | stays off until the user turns it on again | principle 3 |
 | [ ] | Boosts: no agent path | later | agents can't read, write or turn on a Boost | decision 8 |
-| [ ] | Ad blocking: on by default | later | every profile | Helium, Flecha |
-| [ ] | Ad blocking: engine | later | Helium's uBlock Origin fork *interim*; MV2 works on Chromium 155 through ungoogled-chromium's patch | Helium |
-| [ ] | Ad blocking: turning it off | later | per site in Site Controls; everywhere in Settings | Ours |
-| [ ] | Ad blocking: filter lists | later | updates never wake an idle browser; list URL is a default service URL | principles 1, 2 |
-| [ ] | Ad blocking: cost | later | page-load and memory numbers against the performance gate | principle 1 |
-| [ ] | Ad blocking: no agent path | later | agents can't change it | decision 8 |
 | [ ] | Environments: setup | later | add, edit, remove a project's origins in Settings | Flecha |
 | [ ] | Environments: switching | later | ⌥⌘E *interim*; only the origin changes; command bar lists the other origins | Flecha |
 | [ ] | Environments: badge | later | in the URL field; production red | Flecha |

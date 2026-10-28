@@ -9,7 +9,7 @@ use super::{
     user_keys,
 };
 use crate::{
-    menu::{Look, Swatch},
+    menu::{Highlight, Look, Swatch},
     space_icon::{SpaceIcon, has_icon},
     theme::Appearance,
 };
@@ -99,6 +99,42 @@ impl Shell {
         if self.private {
             return;
         }
+        let items = self.space_items(space);
+        self.show_menu(items, position, None, cx);
+    }
+
+    /// The menu a right-click on the sidebar's empty space in `space`'s page shows: New Tab, as
+    /// ⌘T, then the Space's own menu (ours: Arc's isn't recorded, #433).
+    pub(super) fn empty_space_menu(
+        &mut self,
+        space: u64,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let new_tab = MenuEntry::new("New Tab", true).shortcut(Command::NewTab, user_keys(cx));
+        let mut items: Vec<(MenuEntry, MenuAction)> = vec![(
+            new_tab,
+            // Into the Space it was asked in, which a swipe may not have shown yet.
+            Box::new(move |shell, cx| {
+                shell.show_space(space, cx);
+                shell.run(Command::NewTab, "sidebar", cx)
+            }),
+        )];
+        // A private window's Space has nothing to change.
+        if !self.private {
+            items.push((MenuEntry::line(), Box::new(|_, _| {})));
+            // Its Profile submenu's items name their parent by where it is, now further down.
+            let after = items.len();
+            items.extend(self.space_items(space).into_iter().map(|(entry, action)| {
+                let parent = entry.parent.map(|parent| parent + after);
+                (MenuEntry { parent, ..entry }, action)
+            }));
+        }
+        self.show_menu(items, position, None, cx);
+    }
+
+    /// The Space's menu's items, for its name, its dot and the sidebar's empty space.
+    fn space_items(&self, space: u64) -> Vec<(MenuEntry, MenuAction)> {
         let entry = self.spaces.iter().find(|each| each.id == space);
         let icon = entry.is_some_and(|each| has_icon(&each.icon));
         let theme = entry.is_some_and(|each| each.color.is_some() || each.theme.is_some());
@@ -117,17 +153,7 @@ impl Shell {
             MenuEntry::new("Delete Space", self.spaces.len() > 1).destructive(),
             Box::new(move |shell, cx| shell.delete_space(space, cx)),
         ));
-        let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
-        self.context_menu(
-            entries,
-            position,
-            Box::new(move |chosen, shell, cx| {
-                if let Some((_, action)) = chosen.and_then(|at| items.into_iter().nth(at)) {
-                    action(shell, cx)
-                }
-            }),
-            cx,
-        );
+        items
     }
 
     /// Shows `entries` in ilo's own menu at `position` in the sidebar, in the window or the
@@ -172,10 +198,10 @@ impl Shell {
     }
 
     /// The look of the window's menus: light only where the Space's theme asks for it, as the rest
-    /// of the window is dark.
+    /// of the window is dark, with the Space's accent under the row the pointer or the keys are on.
     pub fn menu_look(&self) -> Look {
         let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
-        if light && !self.private { Look::Light } else { Look::Dark }
+        Look { light: light && !self.private, highlight: Highlight::of(&self.palette_of(self.space)) }
     }
 
     /// Shows `items` at `position` in ilo's menu, or with the one at `over` there, as a pop-up
@@ -735,6 +761,9 @@ pub(super) fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
         Box::new(move |shell, cx| shell.change(Prop::TabIcon(tab), Value::Text(String::new()), cx)),
     )
 }
+
+#[cfg(test)]
+mod empty_space_tests;
 
 #[cfg(test)]
 mod tests {

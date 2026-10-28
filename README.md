@@ -2,24 +2,45 @@
 
 a good tool.
 
-An open-source, Arc-style browser that is faster than Chrome to use. It has Arc's sidebar, Spaces and archive, Dia's polish, Chrome's engine, and Chrome extensions. It is also built to be the browser agents use: Claude Code, Codex or any MCP client can work in your real browser, in their own Space, with permissions you set.
+ilo is an open-source web browser. Your tabs sit in a sidebar, in Spaces: each Space keeps its own pinned tabs and today's tabs, and today's tabs you leave alone go to the archive. A command bar opens pages, tabs and commands, and two pages can share a window side by side. Underneath is Chromium, from ungoogled-chromium, so web pages and Chrome extensions work in it.
 
-Mac builds come first. Everything above a thin platform layer is portable, so Windows and Linux are ports, not rewrites.
+ilo is also built to be the browser AI agents work in. Claude Code, Codex or any MCP client can work in your logged-in sessions, in a Space of its own, with the permissions you give it. It never reads your passwords or cookies. In 0.1.0, agents are off until you turn them on.
+
+## Install
+
+0.1.0 is the first public beta. Its builds come from [Releases](https://github.com/MartinPTielemans/browser/releases).
+
+| OS | How | State |
+|---|---|---|
+| macOS, Apple silicon | A signed, notarized DMG: open it and drag ilo into Applications. It updates itself. | 0.1.0 |
+| Windows | winget and the Microsoft Store | coming |
+| Linux | A Flatpak: `flatpak install --user ilo.flatpak`, then start ilo from your apps. | 0.1.0 |
 
 ## Status
 
-Pre-alpha. Nothing here is a browser yet.
+Beta. 0.1.0 is the first build for other people to use, and some of it is still missing: [#454](https://github.com/MartinPTielemans/browser/issues/454) lists what's in and what's left.
 
 | Phase | What | State |
 |---|---|---|
 | 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported; Arc's layout, sidebar and Spaces motion, command bar, find, split view, Library and Little Arc measured; Peek, extensions, passwords, themes and drags left |
 | 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
 | 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | done: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works, CI compiles the core on Linux |
-| 3 | Daily-driver MVP on Mac | in progress: sidebar, Spaces, pinned tabs and folders, favorites, command bar, split view, archive, downloads, find and DevTools; profiles, extensions, password and autofill prompts, import and updates left |
+| 3 | Daily-driver MVP on Mac | in progress: sidebar, Spaces, pinned tabs and folders, favorites, command bar, split view, archive, downloads, find, DevTools, extensions and the password prompts; import, updates, password fill and sign-in popups left |
 | 4 | Polish and parity | — |
-| 5 | Windows, then Linux | in progress: on Windows, the UI preview and its tests run, `Browser.dll` and the core's Windows layer are written, and so is the CI workflow that builds the Windows engine, none of it run against an engine yet; on Linux, the UI's tests pass and the preview runs on Wayland, and CI runs the tests and builds the preview |
+| 5 | Windows, then Linux | in progress: on Windows, `Browser.dll` and the core's Windows layer are written and CI cross-builds the engine, none of it run against an engine yet; on Linux, the browser runs on the Linux engine CI publishes and packs as a Flatpak |
 
 See [docs/roadmap.md](docs/roadmap.md) for each phase's exit criteria and [docs/decisions.md](docs/decisions.md) for why the stack is what it is.
+
+## Build
+
+Each OS builds the app on a prebuilt engine, which `app/setup.sh` downloads, so no Chromium build is needed.
+
+- **macOS:** `app/setup.sh`, then `app/build.sh` makes `app/build/Browser.app`. [AGENTS.md › Dev](AGENTS.md#dev) has the dev engine, the checks and the prod build, and `tools/release.sh` makes the signed DMG.
+- **Linux:** `app/setup.sh`, then `app/build.sh` makes `app/build/Browser`, and `tools/flatpak.sh` packs it as a Flatpak. Without an engine for your checkout, `setup.sh` sets up the UI's tests and its preview alone.
+- **Windows:** `app/setup.sh` in Git Bash, then `cargo build --release --manifest-path app/windows/Cargo.toml` builds `Browser.dll`, which the engine's `chrome.exe` loads.
+- **The engine:** [engine/README.md](engine/README.md) covers building it, on each OS, and its patches.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the rules for changes.
 
 ## Architecture
 
@@ -44,6 +65,6 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE). The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name and the icon, and recompile the icon with `app/icon.sh`.
+GPL-3.0-or-later. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the other projects ilo uses and carries. The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name and the icon, and recompile the icon with `app/icon.sh`.
 
 Contributions use the [Developer Certificate of Origin](CONTRIBUTING.md#sign-off), not a CLA.

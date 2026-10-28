@@ -11,10 +11,13 @@
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
+#include "browser_core/window.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/host_zoom_map.h"
@@ -23,6 +26,7 @@
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -42,7 +46,96 @@ gfx::Size PngSize(const std::vector<uint8_t>& png) {
   return gfx::Size(read(16), read(20));
 }
 
+// A picture of a page for a window that shows it elsewhere, in sRGB, as the PNGs are, and in the
+// BGRA order GPUI draws, so the app reads it as it is.
+struct Pixels {
+  std::vector<uint8_t> bgra;
+  int width = 0;
+  int height = 0;
+};
+
+std::optional<Pixels> ToPixels(const SkBitmap& bitmap) {
+  const SkImageInfo info = SkImageInfo::Make(bitmap.width(), bitmap.height(),
+                                             kBGRA_8888_SkColorType, kUnpremul_SkAlphaType,
+                                             SkColorSpace::MakeSRGB());
+  Pixels pixels{std::vector<uint8_t>(info.computeMinByteSize()), bitmap.width(), bitmap.height()};
+  if (pixels.bgra.empty() ||
+      !bitmap.readPixels(info, pixels.bgra.data(), info.minRowBytes(), 0, 0)) {
+    return std::nullopt;
+  }
+  return pixels;
+}
+
+// The picture of a page in the system's engine, which gives a PNG.
+std::optional<Pixels> PngToPixels(std::optional<std::vector<uint8_t>> png) {
+  if (!png) {
+    return std::nullopt;
+  }
+  const SkBitmap bitmap = gfx::PNGCodec::Decode(*png);
+  if (bitmap.drawsNothing()) {
+    return std::nullopt;
+  }
+  return ToPixels(bitmap);
+}
+
+void Pictured(bc_id tab, uint64_t request, std::optional<Pixels> pixels) {
+  LogHandover("picture made", "tab " + base::NumberToString(tab));
+  if (Host().tab_pictured) {
+    Host().tab_pictured(Host().context, tab, request, pixels ? pixels->bgra.data() : nullptr,
+                        pixels ? pixels->width : 0, pixels ? pixels->height : 0);
+  }
+}
+
+// No picture, told from a task of its own, so the app never hears inside its own bc_tab_picture,
+// which it calls while updating the window that asked (#364).
+void NoPicture(bc_id tab, uint64_t request) {
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Pictured, tab, request, std::nullopt));
+}
+
+// Made on a worker, as a page's picture is millions of pixels, and told from a task of its own.
+void PictureOnWorker(bc_id tab, uint64_t request, base::OnceCallback<std::optional<Pixels>()> make) {
+  base::ThreadPool::PostTaskAndReplyWithResult(FROM_HERE, {base::TaskPriority::USER_BLOCKING},
+                                               std::move(make),
+                                               base::BindOnce(&Pictured, tab, request));
+}
+
 }  // namespace
+
+void PicturePage(content::WebContents* contents, uint64_t request) {
+  const bc_id tab = Tab::IdOf(contents);
+  // A page in the system's engine has nothing in Chromium's compositor: WebKit's snapshot of its
+  // view stands for it, as for bc_tab_capture.
+  Tab* owner = Tab::FromWebContents(contents);
+  if (platform::SystemPage* page = owner ? owner->system_page() : nullptr) {
+    page->Snapshot(base::BindOnce(
+        [](bc_id tab, uint64_t request, std::optional<std::vector<uint8_t>> png) {
+          PictureOnWorker(tab, request, base::BindOnce(&PngToPixels, std::move(png)));
+        },
+        tab, request));
+    return;
+  }
+  content::RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
+  if (!view) {
+    NoPicture(tab, request);
+    return;
+  }
+  // The compositor's last frame, at the display's scale, made the app's on a worker: a page in a
+  // big window is millions of pixels, which the UI thread, drawing the page's next frames, has no
+  // time for. A PNG would take longer still, made here and read in the app.
+  view->CopyFromSurface(
+      gfx::Rect(), gfx::Size(), base::TimeDelta(),
+      base::BindOnce(
+          [](bc_id tab, uint64_t request, const content::CopyFromSurfaceResult& result) {
+            LogHandover("picture copied", "tab " + base::NumberToString(tab));
+            if (!result.has_value() || result->bitmap.drawsNothing()) {
+              NoPicture(tab, request);
+              return;
+            }
+            PictureOnWorker(tab, request, base::BindOnce(&ToPixels, result->bitmap));
+          },
+          tab, request));
+}
 
 PageCapture::PageCapture(content::WebContents* contents)
     : content::WebContentsUserData<PageCapture>(*contents) {}

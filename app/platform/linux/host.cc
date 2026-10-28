@@ -37,11 +37,18 @@ double StartedSinceBoot() {
 // GLib's, from the chrome that loads the app, whose loop is GLib's (platform/linux in core/). Weak,
 // so the preview, which has no GLib loop, links without it.
 extern "C" unsigned g_idle_add(int (*function)(void*), void* data) __attribute__((weak));
-extern "C" unsigned g_unix_fd_add(int fd,
-                                  unsigned condition,
-                                  int (*function)(int fd, unsigned condition, void* data),
-                                  void* data) __attribute__((weak));
+extern "C" unsigned g_unix_fd_add_full(int priority,
+                                       int fd,
+                                       unsigned condition,
+                                       int (*function)(int fd, unsigned condition, void* data),
+                                       void* data,
+                                       void (*notify)(void* data)) __attribute__((weak));
 constexpr unsigned kGlibIoIn = 1;
+// Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
+// checks only the sources as urgent as the most urgent ready one, and the display's check is where
+// Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
+// still prepared, and opening a window, which Vulkan does with a roundtrip, would wait for it forever.
+constexpr int kGlibPriorityFdWatch = 200 - 10;
 
 // Runs |task| once the caller has returned, from Chromium's loop: as AppKit's would, the answer
 // comes after the call that asked for it.
@@ -93,16 +100,16 @@ void* host_ui_view(void) {
 }
 
 void host_watch_fd(int fd, void (*ready)(void)) {
-  if (!g_unix_fd_add) {
+  if (!g_unix_fd_add_full) {
     return;
   }
-  g_unix_fd_add(
-      fd, kGlibIoIn,
+  g_unix_fd_add_full(
+      kGlibPriorityFdWatch, fd, kGlibIoIn,
       [](int, unsigned, void* ready) {
         reinterpret_cast<void (*)(void)>(ready)();
         return 1;
       },
-      reinterpret_cast<void*>(ready));
+      reinterpret_cast<void*>(ready), nullptr);
 }
 
 void host_show_window(void* ui_view) {}
@@ -139,6 +146,9 @@ void host_activate(void* ui_view) {}
 void host_watch_key_window(void (*changed)(void* ui_view)) {}
 
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
+
+void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
+bool host_after_menus(void (*apply)(void)) { return false; }
 
 void host_watch_resigning_active(void (*resigning)(void)) {}
 
@@ -205,7 +215,7 @@ void host_hide_drop_targets(void) {}
 
 void host_add_dialog(void* dialog_view) {}
 
-void host_show_dialog(void* ui_view) {}
+void host_show_dialog(void* ui_view, double x, double y, double width, double height) {}
 
 void host_hide_dialog(void) {}
 

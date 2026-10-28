@@ -5,13 +5,18 @@ use std::{cell::RefCell, rc::Rc};
 use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px, size};
 
 use super::*;
+use crate::settling::SETTLING;
 
 #[derive(Default)]
 struct Recorder(RefCell<Vec<String>>);
 
 impl Host for Recorder {
-    fn show(&self) {
-        self.0.borrow_mut().push("show".into());
+    fn show(&self, over: Option<Bounds<Pixels>>) {
+        let call = match over {
+            Some(over) => format!("show over {}", f32::from(over.origin.x)),
+            None => "show".into(),
+        };
+        self.0.borrow_mut().push(call);
     }
 
     fn hide(&self) {
@@ -115,6 +120,9 @@ fn asking_to_quit(cx: &mut TestAppContext) -> Asking {
                 "Quit, and don’t ask again".into(),
                 Box::new(move |_: &mut App| always.0.borrow_mut().push("always".into())),
             )),
+            fields: Vec::new(),
+            check: None,
+            return_cancels: false,
         };
         pose(question, Box::new(move |_| quit.0.borrow_mut().push("quit".into())), cx);
     });
@@ -159,6 +167,9 @@ fn add_extension(action: &str, host: &Rc<Recorder>, cx: &mut App) {
         cancel: "Cancel".into(),
         tone: Tone::Accent,
         also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: false,
     };
     let host = host.clone();
     let answered = Box::new(move |yes, _: &mut App| {
@@ -184,14 +195,33 @@ impl Asking {
         cx.run_until_parked();
         Asking { cx, host }
     }
+
+    /// The dialog has been on screen long enough to take a yes.
+    fn settle(&mut self) {
+        self.cx.executor().advance_clock(SETTLING);
+        self.cx.run_until_parked();
+    }
 }
 
 #[gpui::test]
 fn return_adds_the_extension_once_the_dialog_has_gone(cx: &mut TestAppContext) {
     let mut dialog = Asking::chrome("Add extension", cx);
+    dialog.settle();
     dialog.keys("enter");
     assert_eq!(dialog.host.0.borrow().as_slice(), ["show"]);
     assert_eq!(dialog.calls(), ["show", "hide", "yes"]);
+}
+
+/// A page can bring Chrome's question up under a double-click the user started, so for its first
+/// moment on screen ↩ doesn't add the extension, while escape still cancels.
+#[gpui::test]
+fn chromes_question_takes_no_yes_for_its_first_moment(cx: &mut TestAppContext) {
+    let mut dialog = Asking::chrome("Add extension", cx);
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show"]);
+    dialog.settle();
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["hide", "yes"]);
 }
 
 #[gpui::test]
@@ -238,6 +268,7 @@ fn chromes_next_question_takes_the_place_of_the_last(cx: &mut TestAppContext) {
     dialog.cx.cx.update(|cx| add_extension("Re-enable", &host, cx));
     // The first leaves untold, and the second comes up after it.
     assert_eq!(dialog.calls(), ["show", "hide", "show"]);
+    dialog.settle();
     dialog.keys("enter");
     assert_eq!(dialog.calls(), ["hide", "yes"]);
 }
@@ -247,4 +278,149 @@ fn with_no_dialog_chrome_hears_no_at_once(cx: &mut TestAppContext) {
     let host = Rc::new(Recorder::default());
     cx.update(|cx| add_extension("Add extension", &host, cx));
     assert_eq!(host.0.take(), ["no"]);
+}
+
+/// A page's question, over its tab's card at `x`, which records its answer, with what was typed,
+/// on `host`.
+fn ask_from_page(
+    (tab, id): (u64, u64),
+    question: Question,
+    x: f32,
+    host: &Rc<Recorder>,
+    cx: &mut App,
+) {
+    let over = (Bounds::new(point(px(x), px(10.)), size(px(600.), px(500.))), 10.);
+    let host = host.clone();
+    let answered = Box::new(move |reply: Reply, _: &mut App| {
+        let answer = if reply.accept { "accept" } else { "cancel" };
+        let checked = if reply.checked { " checked" } else { "" };
+        host.0.borrow_mut().push(format!("{answer} {}{checked}", reply.texts.join(" ")));
+    });
+    ask_page((tab, id), question, over, answered, cx);
+}
+
+/// What a page asks: a confirm(), or with `fields` such as a prompt's, and a checkbox.
+fn page_question(fields: Vec<Field>, check: Option<&'static str>) -> Question {
+    Question {
+        icon: None,
+        message: "example.org says".into(),
+        detail: "Go on?".into(),
+        list: Vec::new(),
+        action: "OK".into(),
+        cancel: "Cancel".into(),
+        tone: Tone::Accent,
+        also: None,
+        fields,
+        check: check.map(Into::into),
+        return_cancels: false,
+    }
+}
+
+fn field(text: &str, secure: bool) -> Field {
+    Field { placeholder: "".into(), text: text.to_owned().into(), secure }
+}
+
+impl Asking {
+    /// The dialog, asking a page's `question` of tab 1, as its dialog 7.
+    fn page(question: Question, cx: &mut TestAppContext) -> Self {
+        let (cx, host) = opened(cx);
+        cx.cx.update(crate::text_input::bind_keys);
+        cx.cx.update(|cx| ask_from_page((1, 7), question, 100., &host, cx));
+        cx.run_until_parked();
+        Asking { cx, host }
+    }
+}
+
+#[gpui::test]
+fn a_pages_question_shows_over_its_card_and_return_answers_it(cx: &mut TestAppContext) {
+    let mut dialog = Asking::page(page_question(Vec::new(), None), cx);
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show over 100", "hide", "accept "]);
+}
+
+#[gpui::test]
+fn a_click_on_the_cards_dim_leaves_a_pages_question(cx: &mut TestAppContext) {
+    let mut dialog = Asking::page(page_question(Vec::new(), None), cx);
+    dialog.click(400., 40.);
+    assert_eq!(dialog.calls(), ["show over 100"]);
+    dialog.keys("escape");
+    assert_eq!(dialog.calls(), ["hide", "cancel "]);
+}
+
+#[gpui::test]
+fn a_prompt_answers_what_was_typed(cx: &mut TestAppContext) {
+    let mut dialog = Asking::page(page_question(vec![field("Ada", false)], None), cx);
+    // What it starts with is selected, so typing replaces it.
+    dialog.cx.simulate_input("Grace");
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show over 100", "hide", "accept Grace"]);
+}
+
+#[gpui::test]
+fn tab_moves_to_the_next_field(cx: &mut TestAppContext) {
+    let fields = vec![field("", false), field("", true)];
+    let mut dialog = Asking::page(page_question(fields, Some("Remember")), cx);
+    dialog.cx.simulate_input("ada");
+    dialog.keys("tab");
+    dialog.cx.simulate_input("secret");
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show over 100", "hide", "accept ada secret"]);
+}
+
+#[gpui::test]
+fn a_reply_never_shows_what_was_typed(cx: &mut TestAppContext) {
+    let reply = Reply { accept: true, texts: vec!["ada".into(), "secret".into()], checked: false };
+    let shown = format!("{reply:?}");
+    assert!(!shown.contains("secret") && !shown.contains("ada"), "{shown}");
+    // Nor does the field show it, though it answers it.
+    let mut dialog = Asking::page(page_question(vec![field("", true)], None), cx);
+    dialog.cx.simulate_input("secret");
+    let shown = dialog.cx.cx.update(|cx| {
+        let window = cx.global::<DialogWindow>().0;
+        window.read(cx).unwrap().asked.as_ref().unwrap().fields[0].read(cx).shown().to_string()
+    });
+    assert_eq!(shown, "••••••");
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show over 100", "hide", "accept secret"]);
+}
+
+#[gpui::test]
+fn asked_again_a_pages_question_only_moves(cx: &mut TestAppContext) {
+    let mut dialog = Asking::page(page_question(vec![field("", false)], None), cx);
+    dialog.cx.simulate_input("typed");
+    let host = dialog.host.clone();
+    dialog.cx.cx.update(|cx| {
+        ask_from_page((1, 7), page_question(vec![field("", false)], None), 240., &host, cx)
+    });
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show over 100", "show over 240", "hide", "accept typed"]);
+}
+
+#[gpui::test]
+fn a_pages_question_taken_back_leaves_untold(cx: &mut TestAppContext) {
+    let mut dialog = Asking::page(page_question(Vec::new(), None), cx);
+    dialog.cx.cx.update(withdraw_page);
+    assert_eq!(dialog.calls(), ["show over 100", "hide"]);
+    // Another tab's comes up in its place.
+    let host = dialog.host.clone();
+    dialog
+        .cx
+        .cx
+        .update(|cx| ask_from_page((2, 8), page_question(Vec::new(), None), 100., &host, cx));
+    dialog.keys("escape");
+    assert_eq!(dialog.calls(), ["show over 100", "hide", "cancel "]);
+}
+
+#[gpui::test]
+fn the_checkbox_answers_with_a_click(cx: &mut TestAppContext) {
+    let mut question = page_question(Vec::new(), Some("Always allow"));
+    question.return_cancels = true;
+    let mut dialog = Asking::page(question, cx);
+    dialog.cx.cx.update(|cx| {
+        let window = cx.global::<DialogWindow>().0;
+        window.update(cx, |dialog, _, cx| dialog.toggle_check(cx)).unwrap();
+    });
+    // ↩ cancels, so a page can't time a key to open an app.
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show over 100", "hide", "cancel  checked"]);
 }

@@ -1,0 +1,90 @@
+# The engine on Windows, cross-compiled on the owner's Linux machine (engine/windows/cross/), and
+# published as a release fetch.sh downloads on Windows. It runs on the runner that builds the Linux
+# engine, which keeps the tree and its build in $ILO_ENGINE_ROOT/windows between runs, so a run
+# recompiles only what changed. Microsoft's compiler and SDK come from a zip the owner packaged on a
+# Windows machine, which Microsoft's licence lets no one redistribute: it stays on that machine, in
+# $ILO_ENGINE_ROOT/windows-toolchain, and nothing here uploads it (engine/README.md, Windows). Run
+# by hand, and on main when the pin, the series, the core or the cross build's scripts change.
+# Never on branches or pull requests, as the repository is public. engine-windows.yml builds the
+# same engine on GitHub's Windows runners, by hand only.
+name: Engine on Windows (cross-compiled)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - core/**
+      - engine/pins.ini
+      - engine/series
+      - engine/patches/**
+      - engine/tree.sh
+      - engine/windows/cross/**
+      - .github/workflows/engine-windows-cross.yml
+
+# The runner takes one job at a time, so this never builds beside the Linux engine. Of this
+# workflow's waiting runs only the newest is kept. Sharing the Linux engine's group would instead
+# let each platform's waiting run cancel the other's.
+concurrency:
+  group: ilo-engine-windows
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'MartinPTielemans/browser'
+    runs-on: [self-hosted, linux, x64, ilo-engine]
+    # As long as the Linux engine's first build, or longer: the first build compiles all of Chrome.
+    timeout-minutes: 1440
+    permissions:
+      contents: write
+    env:
+      # As engine-linux.yml: a job per 3 GB of the job's 22 GB.
+      BUILD_JOBS: 7
+    steps:
+      # With its history, where tree.sh finds the versions of our patches a kept tree has in it.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Dawn's code generators, which run on the host, need the Go its go.mod names.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Prepare
+        run: |
+          [ -n "${ILO_ENGINE_ROOT:-}" ] || { echo "The runner doesn't set ILO_ENGINE_ROOT."; exit 1; }
+          ILO_WIN_TOOLCHAIN=$ILO_ENGINE_ROOT/windows-toolchain \
+            engine/windows/cross/prepare.sh "$ILO_ENGINE_ROOT/windows"
+      # With the time chrome.dll's link took and the most memory it held, sampled every 5 s.
+      - name: Build
+        run: |
+          peak=$RUNNER_TEMP/link-peak
+          echo 0 >"$peak"
+          (
+            while sleep 5; do
+              kb=$(ps -eo rss=,args= | awk '$0 ~ /\/OUT:\.\/chrome\.dll( |$)/ { s += $1 } END { print s + 0 }')
+              [ "$kb" -le "$(cat "$peak")" ] || echo "$kb" >"$peak"
+            done
+          ) &
+          trap 'kill $!' EXIT
+          engine/windows/cross/build.sh "$ILO_ENGINE_ROOT/windows"
+          link=$(awk -F'\t' '$4 == "chrome.dll" { ms = $2 - $1 } END { print int(ms / 1000) }' \
+            "$ILO_ENGINE_ROOT/windows/src/out/Default/.ninja_log")
+          gb=$(awk '{ printf "%.1f", $1 / 1048576 }' "$peak")
+          echo "chrome.dll's last link: $link s, at most $gb GB" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Package
+        run: |
+          engine/windows/cross/package.sh "$ILO_ENGINE_ROOT/windows" "$RUNNER_TEMP/Chromium-windows-x64.zip"
+      # A release named after the commit, which holds the engine's source. fetch.sh takes the
+      # newest one in the checkout's history whose core API matches the checkout's.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=engine-windows-${GITHUB_SHA::12}
+          tag_ucw=$(git config -f engine/pins.ini ungoogled-chromium-windows.tag)
+          gh release view "$tag" >/dev/null 2>&1 ||
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Windows engine ${GITHUB_SHA::12}" \
+              --notes "The Windows engine (ungoogled-chromium-windows $tag_ucw, x64, cross-compiled) built from $GITHUB_SHA, which holds its source."
+          gh release upload "$tag" --clobber "$RUNNER_TEMP/Chromium-windows-x64.zip" "$RUNNER_TEMP/Chromium-windows-x64.zip.sha256"
+          rm "$RUNNER_TEMP"/Chromium-windows-x64.zip*

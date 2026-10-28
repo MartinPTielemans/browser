@@ -9,6 +9,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
@@ -27,6 +28,7 @@
 #include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/passwords.h"
+#include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -53,6 +55,8 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/page_zoom.h"
+#include "ui/display/display.h"
+#include "ui/display/screen.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -115,6 +119,11 @@ void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
   if (!tab) {
     return;
   }
+  // Not a link: the user starts something else in the tab, so closing a tab no longer leads back
+  // to where it came from, as Chrome's tab strip forgets on a typed or bookmark navigation.
+  if (browser_core::Space* space = browser_core::Space::Holding(id)) {
+    space->ForgetOpeners();
+  }
   browser_core::Tab::FromWebContents(contents)->Load(url, [&] {
     NavigateParams params(tab->GetBrowserWindowInterface(), url, transition);
     params.disposition = WindowOpenDisposition::CURRENT_TAB;
@@ -156,6 +165,11 @@ void* bc_wayland_display(void (*dispatched)(void)) {
 #else
   return nullptr;
 #endif
+}
+
+double bc_display_scale(void) {
+  display::Screen* screen = display::Screen::Get();
+  return screen ? screen->GetPrimaryDisplay().device_scale_factor() : 1;
 }
 
 void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
@@ -562,6 +576,20 @@ bool bc_tab_set_split_shares(bc_id id, const double* shares, size_t count) {
   return true;
 }
 
+bc_id bc_tab_split_expanded(bc_id id) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  return space ? space->Expanded(id) : 0;
+}
+
+bool bc_tab_set_split_expanded(bc_id id, bool expanded) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (!space || !space->SetExpanded(id, expanded)) {
+    return false;
+  }
+  browser_core::Window::PanesChanged();
+  return true;
+}
+
 bool bc_tab_set_split_stacked(bc_id id, bool stacked) {
   browser_core::Space* space = browser_core::Space::Holding(id);
   if (!space || !space->SetStacked(id, stacked)) {
@@ -624,8 +652,26 @@ void bc_window_page_moving(bc_id window_id, bool moving) {
 }
 
 void bc_window_select(bc_id window_id, bc_id tab) {
+  browser_core::HandoverClicked();
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    // The user's switch, which Chrome's tab strip judges by where the two tabs came from. The
+    // core's own, as after a close, leave the openers be.
+    const bc_id was = window->selected();
+    browser_core::Space* from = browser_core::Space::Holding(was);
+    browser_core::Space* to = browser_core::Space::Holding(tab);
+    if (to) {
+      to->UserShowed(was, tab);
+    }
+    if (from && from != to) {
+      from->UserShowed(was, tab);
+    }
     window->Select(tab);
+  }
+}
+
+void bc_window_focus_page(bc_id window_id) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->GiveKeyboardToPage();
   }
 }
 
@@ -752,6 +798,16 @@ void bc_set_unload_idle_tabs(bool unload) {
 
 void bc_age_tabs_for_testing(double seconds) {
   browser_core::AgeTabsForTesting(base::Seconds(seconds));
+}
+
+bool bc_ad_blocking(void) {
+  return browser_core::UserSettings().ad_blocking;
+}
+
+void bc_set_ad_blocking(bool on) {
+  browser_core::UserSettings().ad_blocking = on;
+  browser_core::ApplyAdBlocking();
+  browser_core::SessionChanged();
 }
 
 void bc_page_favicon(const char* url) {
@@ -943,6 +999,12 @@ void bc_tab_capture(bc_id id, uint64_t request, bool full_page, bc_rect rect) {
   }
 }
 
+void bc_tab_picture(bc_id id, uint64_t request) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::PicturePage(contents, request);
+  }
+}
+
 void bc_tab_capture_end(bc_id id) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
   if (browser_core::PageCapture* capture =
@@ -953,6 +1015,20 @@ void bc_tab_capture_end(bc_id id) {
 
 void bc_tab_answer_permission(bc_id id, int answer) {
   browser_core::PermissionQuestion::Answer(id, answer);
+}
+
+void bc_tab_answer_dialog(bc_id tab,
+                          bc_id dialog,
+                          bool accept,
+                          const char* text,
+                          const char* password,
+                          bool checked) {
+  browser_core::PageDialog::Answer(
+      tab, dialog,
+      {.accept = accept,
+       .text = base::UTF8ToUTF16(text ? text : ""),
+       .password = base::UTF8ToUTF16(password ? password : ""),
+       .checked = checked});
 }
 
 void bc_tab_site_controls(bc_id id) {
@@ -969,6 +1045,10 @@ void bc_tab_set_site_permission(bc_id id, int type, int value) {
 
 void bc_tab_reset_site_permissions(bc_id id) {
   browser_core::SiteControls::Reset(id);
+}
+
+void bc_tab_set_ad_blocking(bc_id id, bool on) {
+  browser_core::SiteControls::SetAdBlocking(id, on);
 }
 
 void bc_tab_picture_in_picture(bc_id id) {

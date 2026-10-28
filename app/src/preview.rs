@@ -605,6 +605,10 @@ impl Browser for Fake {
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 
+    // The made-up pages ask no dialogs.
+    fn show_page_dialog(&self, _: Option<shell::ShownPageDialog>, _: &mut App) {}
+    fn answer_page_dialog(&self, _: u64, _: u64, _: shell::PageReply, _: &mut App) {}
+
     fn stop(&self, _: u64, _: &mut App) {}
 
     fn zoom(&self, _: u64, _: i32, _: &mut App) {}
@@ -708,8 +712,6 @@ impl Browser for Fake {
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 
-    fn page_picture_end(&self, _: u64, _: &mut App) {}
-
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}
@@ -804,6 +806,8 @@ impl Browser for Fake {
     // The preview's window is GPUI's own, which has the keyboard already.
     fn focus_ui(&self, _: &mut App) {}
 
+    fn focus_page(&self, _: &mut App) {}
+
     // There's no page, and the window's buttons stay where GPUI put them.
     fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
 
@@ -844,6 +848,19 @@ impl Browser for Fake {
             let mut splits = shell.splits();
             for split in splits.iter_mut().filter(|split| split.tabs.contains(&tab)) {
                 split.shares = shares.clone();
+                split.expanded = 0;
+            }
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let folders = shell.folders();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
+    fn set_split_expanded(&self, tab: u64, expanded: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let mut splits = shell.splits();
+            for split in splits.iter_mut().filter(|split| split.tabs.contains(&tab)) {
+                split.expanded = if expanded { tab } else { 0 };
             }
             let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
             let folders = shell.folders();
@@ -928,7 +945,7 @@ impl Browser for Fake {
     ) {
         // PREVIEW_MENU_LOOK=light shows it as a light theme's Space does.
         let light = std::env::var("PREVIEW_MENU_LOOK").is_ok_and(|look| look == "light");
-        let look = if light { menu::Look::Light } else { look };
+        let look = menu::Look { light: light || look.light, ..look };
         let area = Bounds::new(point(px(0.), px(0.)), PREVIEW_AREA.get());
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
     }

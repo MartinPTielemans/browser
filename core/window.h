@@ -50,6 +50,12 @@ class Space;
 class Suggestions;
 class WindowActions;
 
+// The app asked a window to select a tab, which may move a page between windows.
+void HandoverClicked();
+// The lines check.sh times a page's move between windows by, as the app's are: "browser: handover
+// |stage| +<ms> ms (|detail|)", in ms since HandoverClicked, within 3 s of it. No page content.
+void LogHandover(const char* stage, const std::string& detail);
+
 // One native window: the app's UI, the page it shows over that, and a Browser per profile holding
 // the window's tabs (decision 3). Closing it closes its Browsers, and it goes once they have.
 class Window : public web_modal::WebContentsModalDialogHost,
@@ -157,6 +163,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether its Browsers stay with no tabs left: a private window's does while the window is
   // open, as it holds the private session, which ends once the profile's last Browser has gone.
   bool KeepsBrowsers() const;
+  // Whether the window is full screen because a page took it there, not the user, so it leaves
+  // with the page.
+  bool FullScreenForPage() const;
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
@@ -186,6 +195,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Shows |tab| at the page frame, and its Space if the window shows another. In a split view, it
   // shows the split with |tab| focused. A page another window shows moves here (Adopt).
   void Select(bc_id tab);
+  // Gives the page shown the keyboard, from the UI if it has it (bc_window_focus_page).
+  void GiveKeyboardToPage();
 
   // Closes the Today tabs of the Space the window shows, all but those any window shows, or all of
   // them if it shows every one, for UndoClear to bring back. Returns the Clear's id, or 0 if it
@@ -339,6 +350,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Shows no page, keeping the tab selected, as another window took its page, and says so
   // (window_page_elsewhere) unless |tell| is false.
   void LetGo(bool tell = true);
+  // Keeps each page this window shows that another window has a picture of drawn, as it leaves
+  // here for that window (MovingPages in window.cc).
+  void HoldPictured();
   // Sets let_go_, and tells the app when it changes.
   void SetLetGo(bool let_go);
   // Moves every tab of this window's Browsers into |to|'s, unshown, which empties them.
@@ -359,6 +373,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   SidePanel* ShownSidePanel() const;
   void ReportSidePanel();
   void ReportSelected();
+  // Tells Chrome the shown page's Browser is active while the window is key, and the others
+  // aren't, as Chrome's browser view does for its one Browser.
+  void ReportActiveBrowser();
 
   // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
   void FocusPageSoon();
@@ -377,6 +394,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::vector<bc_id> panes_;
   bool stacked_ = false;
   std::vector<double> shares_;
+  // The tab of the split that took the card, else 0: its shares_ are worked out from the frame.
+  bc_id expanded_ = 0;
   uint32_t focus_color_ = 0;
   std::optional<uint32_t> page_color_;
   bc_id space_ = 0;

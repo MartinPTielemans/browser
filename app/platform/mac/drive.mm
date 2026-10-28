@@ -9,6 +9,7 @@
 //                                         corner, with those modifiers held
 //   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
 //   rightclick <x> <y>                    a right click
+//   middleclick <x> <y>                   a click of the middle button, a mouse's wheel
 //   clickkey <x> <y>                      a left click in the key window, such as the command bar
 //   doubleclickkey <x> <y>                two left clicks in the key window, as doubleclick
 //   rightclickkey <x> <y>                 a right click in the key window
@@ -25,6 +26,10 @@
 //                                         delete (forward), pageup, pagedown, up, down, left,
 //                                         right, f12 or f10. "+" is on "-"'s key, as on a Danish
 //                                         keyboard
+//   keydown <key> [repeat]                <key>, as key names it, going down, or with repeat the
+//                                         repeat the keyboard sends while it's held, to the key
+//                                         window then, as a held key's repeats go
+//   keyup <key>                           <key> let go
 //   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
 //                                         down or up; key holds them only for its own key
 //   type <text>                           lowercase letters, dots and spaces
@@ -38,6 +43,8 @@
 //                                         two fingers at (x, y): <count> trackpad scroll events,
 //                                         each <dx> points right and <dy> down, from the touch's
 //                                         start, then its end after <rest> ms more, else at once
+//   pageswipe <x> <y> back|forward        a swipe between pages at (x, y), as three fingers or
+//                                         a mouse's swipe send one, handed to the host's monitor
 //   wheel <x> <y> <dx>                    a mouse wheel's tick across at (x, y), <dx> lines right
 //   dragover <x> <y> [url|file|text <s>]  a drag from another app at (x, y), carrying the URL,
 //                                         the file at the path or the text <s>, handed to the view
@@ -94,10 +101,15 @@
 //                                         "browser: menu bar <menu>: <titles>", enabled as
 //                                         AppKit would show them now, written as "menu shown"
 //                                         writes a menu's, and chooses none
+//   openmenu <menu>                       opens the main menu's <menu>, the same menu the menu
+//                                         bar opens, near the window's top left, tracked until
+//                                         dismiss or choose closes it. Commands still come in
+//                                         while it's open, as with any menu
 //   choose <title>                        chooses the item titled <title> in the menu a right
 //                                         click showed, the page's too, or the button in the
 //                                         alert shown, Chrome's too
-//   dismiss                               closes the menu a right click showed, choosing none
+//   dismiss                               closes the menu a right click or openmenu showed,
+//                                         choosing none
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page, Chromium's or Safari's engine's: letters add to a
 //                                         composition, space converts it to 日本語, return
@@ -427,11 +439,13 @@ void PostMouse(NSWindow* window,
                                     clickCount:count
                                       pressure:1];
   // AppKit gives every event it makes button 0, and GPUI takes the button from the number.
-  if (type == NSEventTypeRightMouseDown || type == NSEventTypeRightMouseUp) {
-    CGEventRef right = CGEventCreateCopy(event.CGEvent);
-    CGEventSetIntegerValueField(right, kCGMouseEventButtonNumber, kCGMouseButtonRight);
-    event = [NSEvent eventWithCGEvent:right];
-    CFRelease(right);
+  const bool right = type == NSEventTypeRightMouseDown || type == NSEventTypeRightMouseUp;
+  if (right || type == NSEventTypeOtherMouseDown || type == NSEventTypeOtherMouseUp) {
+    CGEventRef numbered = CGEventCreateCopy(event.CGEvent);
+    CGEventSetIntegerValueField(numbered, kCGMouseEventButtonNumber,
+                                right ? kCGMouseButtonRight : kCGMouseButtonCenter);
+    event = [NSEvent eventWithCGEvent:numbered];
+    CFRelease(numbered);
   }
   [NSApp postEvent:event atStart:NO];
 }
@@ -512,7 +526,12 @@ NSEventModifierFlags Modifiers(std::istringstream& words) {
   return flags;
 }
 
-bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
+// Posts |key| to |window| as |types|, each a repeat if |repeat| says so.
+bool Key(NSWindow* window,
+         const std::string& key,
+         NSEventModifierFlags flags,
+         std::initializer_list<NSEventType> types = {NSEventTypeKeyDown, NSEventTypeKeyUp},
+         bool repeat = false) {
   auto code = kKeyCodes.find(key);
   if (code == kKeyCodes.end()) {
     return false;
@@ -532,7 +551,7 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
              key == "f10") {
     flags |= NSEventModifierFlagFunction;
   }
-  for (NSEventType type : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {
+  for (NSEventType type : types) {
     [NSApp postEvent:[NSEvent keyEventWithType:type
                                       location:NSZeroPoint
                                  modifierFlags:flags
@@ -541,7 +560,7 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
                                        context:nil
                                     characters:characters
                    charactersIgnoringModifiers:characters
-                                     isARepeat:NO
+                                     isARepeat:repeat
                                        keyCode:code->second]
              atStart:NO];
   }
@@ -554,6 +573,13 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
 // is a private CoreGraphics call. Fine for a test driver, never for the browser.
 constexpr CGEventField kWindowNumberField = (CGEventField)51;
 extern "C" void CGEventSetWindowLocation(CGEventRef event, CGPoint location);
+
+}  // namespace
+
+// host.mm's, as AppKit has no way to make a swipe event of one's own.
+bool SwipeBetweenPages(NSWindow* window, NSPoint in_window, bool back);
+
+namespace {
 
 // Trackpads report about every 8 ms while a finger moves. Each event carries pixel deltas, as a
 // trackpad's do, so Chromium scrolls by exactly that much instead of animating a wheel tick.
@@ -1066,6 +1092,18 @@ bool Run(const std::string& line, void (^done)(void)) {
     done();
     return true;
   }
+  if (action == "middleclick") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    NSWindow* target = WindowAt(window, x, y);
+    Convert(window, target, &x, &y);
+    PostMouse(target, NSEventTypeOtherMouseDown, x, y, 1);
+    PostMouse(target, NSEventTypeOtherMouseUp, x, y, 1);
+    done();
+    return true;
+  }
   if (action == "doubleclick") {
     double x, y;
     if (!(words >> x >> y)) {
@@ -1179,6 +1217,17 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     words >> rest;
     Swipe(window, x, y, dx, dy, count, rest, done);
+    return true;
+  }
+  if (action == "pageswipe") {
+    double x, y;
+    std::string way;
+    if (!(words >> x >> y >> way) || (way != "back" && way != "forward")) {
+      return false;
+    }
+    SwipeBetweenPages(window, NSMakePoint(x, NSHeight(window.frame) - y),
+                      way == "back");
+    done();
     return true;
   }
   if (action == "dragover" || action == "dragdrop") {
@@ -1416,6 +1465,22 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     return false;
   }
+  if (action == "openmenu") {
+    NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
+    NSMenu* menu = [NSApp.mainMenu itemWithTitle:title].submenu;
+    if (!menu) {
+      return false;
+    }
+    // Tracking it doesn't return until it closes, so it opens after this command is done.
+    NSView* view = window.contentView;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [menu popUpMenuPositioningItem:nil
+                          atLocation:NSMakePoint(40, NSHeight(view.bounds) - 40)
+                              inView:view];
+    });
+    done();
+    return true;
+  }
   if (action == "menubar") {
     NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
     NSMenu* menu = [NSApp.mainMenu itemWithTitle:title].submenu;
@@ -1463,7 +1528,11 @@ bool Run(const std::string& line, void (^done)(void)) {
   }
   if (action == "dismiss") {
     if (!host_menu_window_dismiss()) {
-      return false;
+      NSMenu* menu = g_tracked;
+      if (!menu) {
+        return false;
+      }
+      [menu cancelTracking];
     }
     dispatch_async(dispatch_get_main_queue(), done);
     return true;
@@ -1481,6 +1550,16 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   NSWindow* key_window = NSApp.keyWindow ?: window;
+  if (action == "keydown" || action == "keyup") {
+    std::string key, repeat;
+    words >> key >> repeat;
+    const NSEventType type = action == "keydown" ? NSEventTypeKeyDown : NSEventTypeKeyUp;
+    if (!Key(key_window, key, 0, {type}, repeat == "repeat")) {
+      return false;
+    }
+    done();
+    return true;
+  }
   if (action == "key" || action == "flags") {
     std::string key;
     if (action == "key") {

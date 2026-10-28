@@ -6,7 +6,7 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
-use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry};
+use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog};
 
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
 /// during the call.
@@ -59,6 +59,9 @@ pub trait Browser {
     fn set_split_stacked(&self, tab: u64, stacked: bool, cx: &mut App);
     /// Gives the pages of `tab`'s split view `shares` of it, in their order, or even shares.
     fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, cx: &mut App);
+    /// Gives `tab`'s page its split's card, the other pages kept at 220 pt however wide it is, or
+    /// ends that and evens them.
+    fn set_split_expanded(&self, tab: u64, expanded: bool, cx: &mut App);
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
@@ -127,6 +130,11 @@ pub trait Browser {
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
+    /// Asks the dialog a tab's page asks over the tab's card, with the corners of its radius, or
+    /// takes back the one it asks (None).
+    fn show_page_dialog(&self, shown: Option<ShownPageDialog>, cx: &mut App);
+    /// Answers the dialog `id` of `tab`'s page (Shell::set_page_dialog), if it still asks.
+    fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
     /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);
@@ -235,6 +243,9 @@ pub trait Browser {
     );
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
+    /// Gives the page shown the keyboard, from the UI if it has it, now or once a page still
+    /// loading has a view, unless the UI takes it back first.
+    fn focus_page(&self, cx: &mut App);
     /// Lays the page out at `frame` in the window, with corners of `radius`
     /// (`Shell::page_frame`). A split view's pages share it.
     fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, cx: &mut App);
@@ -366,8 +377,6 @@ pub trait Browser {
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers
     /// with `Shell::page_pictured` and `request`. For the window whose page another window shows.
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App);
-    /// The browser can let go of what it held for the picture of `tab`'s page.
-    fn page_picture_end(&self, tab: u64, cx: &mut App);
     /// The browser's id for the window this shell draws, for the log. 0 where there is none.
     fn window(&self) -> u64 {
         0
@@ -445,6 +454,9 @@ pub struct Split {
     /// Each tab's share of the split's length with the gap after it, adding up to 1, or none
     /// while they're even.
     pub shares: Vec<f64>,
+    /// The tab whose page took the card with the others kept at 220 pt, else 0. The shares then
+    /// stay even, as the core works the widths out from this at every layout.
+    pub expanded: u64,
 }
 
 /// A Space's folders in its pinned tabs. What's in each follows it there.

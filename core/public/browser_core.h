@@ -167,6 +167,9 @@ typedef struct bc_extension {
   const char* options;
   const bc_extension_command* commands;
   size_t command_count;
+  // Whether the user may remove it (bc_extension_remove). The ad blocker the browser comes with is
+  // turned off in Settings instead (bc_set_ad_blocking).
+  bool removable;
 } bc_extension;
 
 // An extension's action as a window shows it, for the tab it shows.
@@ -289,6 +292,13 @@ typedef struct bc_login {
   const char* key;
 } bc_login;
 
+// Whether the ad blocker runs on the site of a tab's page, as its Site Controls show: not the
+// user's to change there (a page that isn't http(s), one the system's engine shows, a private
+// window, or ad blocking off), on, or turned off for the site.
+#define BC_AD_BLOCKING_NONE 0
+#define BC_AD_BLOCKING_ON 1
+#define BC_AD_BLOCKING_OFF 2
+
 // The site of a tab's page, for its Site Controls.
 typedef struct bc_site_controls {
   // The site as the user should see it, such as "example.com".
@@ -319,6 +329,8 @@ typedef struct bc_site_controls {
   // as Chrome's password manager offers them there, then the site set to Never, if it is.
   const bc_login* logins;
   size_t login_count;
+  // A BC_AD_BLOCKING_ value, which bc_tab_set_ad_blocking changes.
+  int ad_blocking;
 } bc_site_controls;
 
 
@@ -380,6 +392,39 @@ typedef struct bc_offer {
   const char* decline;
   const char* never;
 } bc_offer;
+
+// What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt(), whether to
+// leave it, from its beforeunload handler, which Chrome words, the user's name and password for
+// the site's HTTP sign-in, or whether it may open another app for a link, such as Mail for
+// mailto:, which Chrome asks only until the user ticks "Always allow".
+#define BC_DIALOG_ALERT 0
+#define BC_DIALOG_CONFIRM 1
+#define BC_DIALOG_PROMPT 2
+#define BC_DIALOG_LEAVE 3
+#define BC_DIALOG_SIGN_IN 4
+#define BC_DIALOG_OPEN_APP 5
+
+// A page's own dialog, for the user to answer while its tab shows, in Chrome's words.
+typedef struct bc_page_dialog {
+  // Answer it with this.
+  bc_id id;
+  // A BC_DIALOG_ kind.
+  int kind;
+  // Chrome's title, such as "example.com says".
+  const char* title;
+  // The page's message, or Chrome's under the title.
+  const char* message;
+  // The text a prompt's field starts with, else "".
+  const char* text;
+  // Chrome's labels for its buttons. |cancel| is "" for none, as an alert has only OK.
+  const char* accept;
+  const char* cancel;
+  // The label of a checkbox under the message, or "" for none.
+  const char* check;
+  // A sign-in's labels for its username field and its password field, else "".
+  const char* username;
+  const char* password;
+} bc_page_dialog;
 
 // A row of a page's context menu, as Chrome builds it.
 typedef struct bc_page_menu_item {
@@ -542,9 +587,18 @@ typedef struct bc_host {
   // The page of |tab|, the tab |window| has selected, went to another window, which shows it live,
   // and |window| shows no page; or |tab| is 0, and |window| shows a page again, or has selected
   // another tab. Once for each change. window_selected doesn't say it: the tab stays selected.
-  // bc_tab_capture still gives a picture of the page, for the window to show in its place. The
-  // user's alone: agents have no windows.
+  // bc_tab_picture gives a picture of the page, for the window to show in its place. The user's
+  // alone: agents have no windows.
   void (*window_page_elsewhere)(void* context, bc_id window, bc_id tab);
+  // The picture bc_tab_picture asked for as |request|: |width| by |height| pixels, row after row,
+  // each 4 bytes in BGRA order, in sRGB, or null and 0 if the page couldn't give one. The pixels
+  // are the app's to copy during the call.
+  void (*tab_pictured)(void* context,
+                       bc_id tab,
+                       uint64_t request,
+                       const uint8_t* bgra,
+                       int width,
+                       int height);
   // Chrome asks the user to confirm an extension's install, its re-enabling once it asks for more
   // permissions, or more permissions it asks for, over the window, in place of its dialog. Answer
   // with bc_extension_answer. A window asks one at a time, and this comes again once the question
@@ -622,6 +676,18 @@ typedef struct bc_host {
   // BC_AGENT_SESSION_ value. Also an entry for the activity log. Not for a tab that closed or left
   // the agent's Space, which tab_closed and spaces_changed tell.
   void (*agent_session_ended)(void* context, const char* agent, bc_id tab, int why);
+  // The tab's page asks with a dialog of its own, in place of Chrome's: show it over the tab's
+  // card while the tab shows, and answer with bc_tab_answer_dialog. A tab asks one at a time, and
+  // this comes again once the dialog has gone, answered or taken back, with the tab's next, or
+  // with |dialog| null if it has none. Chrome's rules stay: a page that isn't the front window's
+  // tab shown can't ask confirm() or prompt(), its alert() waits until the tab shows, and a
+  // confirm() or prompt() is cancelled once its tab no longer shows. A "Leave site?" holds up
+  // every other app-wide dialog, as Chrome's, so its tab comes to the front window if no window
+  // shows it. A site's sign-in waits until its tab shows, as an alert(), and goes once another of
+  // the profile's tabs signs in to the same realm. An agent's tab asks the user the same way, and
+  // the agent can't answer: a sign-in is the user's to give. A page in an agent's Space never opens
+  // another app, so it asks none.
+  void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -658,6 +724,12 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 // Chromium has dispatched the display's events, from its loop and never while it has a read
 // prepared, as what Chromium reads can include the UI's, which wait in the UI's queue.
 BC_EXPORT void* bc_wayland_display(void (*dispatched)(void));
+
+// The scale Chromium draws at on the main display, in pixels a point, as the desktop sets it (on X11
+// through GTK, from GDK_SCALE and the font resolution) or --force-device-scale-factor does. On X11,
+// where the app's UI has a connection of its own, the UI draws at it too, so its points are the
+// pages'. Works from started.
+BC_EXPORT double bc_display_scale(void);
 
 // On Linux under Wayland, |window|'s wl_surface, for the app's UI to be a subsurface of, under the
 // pages, with its content's size in points; else null. The app's UI, not bc_window_open's
@@ -957,6 +1029,18 @@ BC_EXPORT double bc_tab_split_share(bc_id tab);
 // space_changed.
 BC_EXPORT bool bc_tab_set_split_shares(bc_id tab, const double* shares, size_t count);
 
+// The tab of |tab|'s split view whose page took the card by bc_tab_set_split_expanded, else 0 while
+// the split isn't expanded or |tab| is in none. The pages of an expanded split keep their widths
+// as the window changes, and bc_tab_split_share doesn't tell them: the others are 220 pt each, or
+// an even share of a card too short for that, and the expanded one has the rest. A tab joining or
+// leaving the split, and bc_tab_set_split_shares, end it. Kept after a quit.
+BC_EXPORT bc_id bc_tab_split_expanded(bc_id tab);
+
+// Gives |tab|'s page the card of its split view, the others keeping 220 pt each, or if |expanded|
+// is false ends that and leaves the pages even: a window showing it lays it out so. Returns false,
+// doing nothing, if |tab| is in no split view. Then space_changed.
+BC_EXPORT bool bc_tab_set_split_expanded(bc_id tab, bool expanded);
+
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
 // Today tab, else its top pinned tab, else no page, passing over tabs another window shows. Then
@@ -998,8 +1082,16 @@ BC_EXPORT void bc_window_page_moving(bc_id window, bool moving);
 // the rest of its split, focused. A click in another page of the split focuses that one. A page
 // another window shows moves here live, with its split; that window keeps the tab selected and
 // shows no page until it shows a tab again. Then window_space_shown if the Space changed, and
-// window_selected. For a tab another window shows, the user's: agents get none.
+// window_selected. A switch to a tab that isn't the shown tab's opener, a tab it opened or a sibling
+// has their Spaces forget which tabs opened which, as Chrome's tab strip does on a switch it's asked
+// for. For a tab another window shows, the user's: agents get none.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
+
+// Gives the page the window shows the keyboard, from the UI or wherever in the window it is, as a
+// press that shows a tab does. The window holds it for the page, as when the page shown before
+// left with it, so a page still loading takes it as bc_window_select's would, unless a click in
+// the UI comes first. The user's: agents get none.
+BC_EXPORT void bc_window_focus_page(bc_id window);
 
 // Clears the Space the window shows: closes its Today tabs but those any window shows, as
 // bc_tab_close does, for bc_window_undo_clear to bring back. While it shows every Today tab, a tab
@@ -1062,7 +1154,7 @@ BC_EXPORT void bc_extension_set_pinned(bc_id profile, const char* id, bool pinne
 
 // Removes the extension from the profile, with the data it keeps, as Chrome's Remove does once the
 // user confirms, so the app asks first. Returns false if it can't be removed, as one that policy
-// installed. Then extensions_changed.
+// installed or the ad blocker the browser comes with. Then extensions_changed.
 BC_EXPORT bool bc_extension_remove(bc_id profile, const char* id);
 
 // Answers the question window_extension_question put, accepting it or not, if it's still asked:
@@ -1124,6 +1216,12 @@ BC_EXPORT void bc_set_unload_idle_tabs(bool unload);
 // The next tab shown checks which to unload, as it would then, and from now each check logs
 // "browser: idle tabs checked" once it's done.
 BC_EXPORT void bc_age_tabs_for_testing(double seconds);
+// Whether the browser blocks ads and trackers, in every profile and its private windows, with the
+// uBlock Origin it comes with: on unless the user turned it off. Off turns uBlock Origin off in
+// each profile, as its switch in Chrome's extensions page does. The core keeps it with the Spaces.
+// The user's: agents get none, as it keeps trackers off the user's pages.
+BC_EXPORT bool bc_ad_blocking(void);
+BC_EXPORT void bc_set_ad_blocking(bool on);
 
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
@@ -1284,6 +1382,14 @@ BC_EXPORT void bc_tab_element_at(bc_id tab, double x, double y);
 // holds, and agents read pages through their own tool, by its rules.
 BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_rect rect);
 
+// Pictures the tab's whole view as the compositor last drew it, or a page in the system's engine as
+// WebKit draws it, in pixels at the display's scale, for a window to show in place of a page
+// another window shows: then tab_pictured with |request|, as with bc_tab_capture from a task of its
+// own, never inside this call. Its pixels as GPUI draws them rather than a PNG, which takes longer
+// to make and to read than the move it's shown for. The user's: agents get none, as with
+// bc_tab_capture.
+BC_EXPORT void bc_tab_picture(bc_id tab, uint64_t request);
+
 // Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the
 // page's DevTools, so a page that isn't being captured pays nothing.
 BC_EXPORT void bc_tab_capture_end(bc_id tab);
@@ -1299,6 +1405,18 @@ BC_EXPORT void bc_tab_capture_end(bc_id tab);
 // change. Then tab_permission_asked. The user's: agents get none, as an answer can give a site the
 // camera or where the user is.
 BC_EXPORT void bc_tab_answer_permission(bc_id tab, int answer);
+
+// Answers the dialog tab_dialog put, if it's still asked: |accept| for its accept button, else its
+// cancel, with the text of its first field in |text| and of its password field in |password|,
+// either of which may be null for "", and whether its checkbox is ticked in |checked|. Then
+// tab_dialog. The core keeps neither text, nor logs it. The user's: agents get none, as the page
+// goes on with what it thinks the user chose.
+BC_EXPORT void bc_tab_answer_dialog(bc_id tab,
+                                    bc_id dialog,
+                                    bool accept,
+                                    const char* text,
+                                    const char* password,
+                                    bool checked);
 
 // Reads the site of the tab's page for its Site Controls, as Chrome's page info does, and watches
 // it until bc_site_controls_close or another tab's bc_tab_site_controls. Then tab_site_controls,
@@ -1322,6 +1440,12 @@ BC_EXPORT void bc_tab_set_site_permission(bc_id tab, int type, int value);
 // permissions" does, if bc_tab_site_controls is watching the tab. Then tab_site_controls. The
 // user's, as bc_tab_set_site_permission is.
 BC_EXPORT void bc_tab_reset_site_permissions(bc_id tab);
+
+// Lets the ad blocker run on the site of the tab's page or not, if bc_tab_site_controls is watching
+// the tab and bc_site_controls' ad_blocking isn't BC_AD_BLOCKING_NONE, and reloads the page. The
+// profile keeps it, for the site and its subdomains. Then tab_site_controls. The user's, as
+// bc_set_ad_blocking is.
+BC_EXPORT void bc_tab_set_ad_blocking(bc_id tab, bool on);
 
 // Takes the tab's playing video into Picture in Picture, or brings it back, as
 // bc_site_controls' picture_in_picture says it can. Then tab_site_controls.

@@ -11,7 +11,8 @@ use std::{
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
+    browser::WindowButton,
 };
 
 /// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
@@ -107,9 +108,11 @@ pub(super) struct Recorder {
     /// The platform has Apple's engine for a tab's page.
     /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
-    /// The shell it answers each picture asked of it for with this PNG, at once, inside the call
-    /// that asked, as a core that answers inline would.
-    pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, Vec<u8>)>>,
+    /// The shell it answers each picture asked of it for with this picture, at once, inside the
+    /// call that asked, as a core that answers inline would.
+    pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
+    /// The answers to page dialogs it was given, with what was typed.
+    pub(super) replies: RefCell<Vec<PageReply>>,
 }
 
 impl Recorder {
@@ -249,8 +252,17 @@ impl Browser for Recorder {
 
     fn set_split_stacked(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn set_split_shares(&self, _: u64, _: Option<&[f64]>, _: &mut App) {
+    fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, _: &mut App) {
         self.page_events.borrow_mut().push("shares");
+        let shares = shares.map_or_else(
+            || "even".to_string(),
+            |shares| shares.iter().map(f64::to_string).collect::<Vec<_>>().join(" "),
+        );
+        self.record(format!("split shares {tab} {shares}"))
+    }
+
+    fn set_split_expanded(&self, tab: u64, expanded: bool, _: &mut App) {
+        self.record(format!("split expanded {tab} {expanded}"))
     }
 
     fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
@@ -365,9 +377,13 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn go_back(&self, _: u64, _: &mut App) {}
+    fn go_back(&self, tab: u64, _: &mut App) {
+        self.record(format!("back {tab}"))
+    }
 
-    fn go_forward(&self, _: u64, _: &mut App) {}
+    fn go_forward(&self, tab: u64, _: &mut App) {
+        self.record(format!("forward {tab}"))
+    }
 
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
         self.record(format!("reload {tab}{}", if bypass_cache { " bypassing cache" } else { "" }))
@@ -375,7 +391,9 @@ impl Browser for Recorder {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn answer_permission(&self, _: u64, _: Answer, _: &mut App) {}
+    fn answer_permission(&self, tab: u64, answer: Answer, _: &mut App) {
+        self.record(format!("answer {tab} {answer:?}"))
+    }
 
     fn can_open_in_safari(&self) -> bool {
         true
@@ -395,6 +413,18 @@ impl Browser for Recorder {
 
     fn use_system_engine(&self, tab: u64, _: &mut App) {
         self.record(format!("system engine {tab}"))
+    }
+
+    fn show_page_dialog(&self, shown: Option<ShownPageDialog>, _: &mut App) {
+        match shown {
+            Some((tab, dialog, _)) => self.record(format!("page dialog {tab} {}", dialog.id)),
+            None => self.record("page dialog none".into()),
+        }
+    }
+
+    fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, _: &mut App) {
+        self.record(format!("answer dialog {tab} {id} {reply:?}"));
+        self.replies.borrow_mut().push(reply);
     }
 
     fn stop(&self, _: u64, _: &mut App) {}
@@ -553,6 +583,10 @@ impl Browser for Recorder {
 
     fn focus_ui(&self, _: &mut App) {}
 
+    fn focus_page(&self, _: &mut App) {
+        self.record("focus page".into())
+    }
+
     fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {
         self.page_events.borrow_mut().push("layout");
     }
@@ -700,13 +734,9 @@ impl Browser for Recorder {
 
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App) {
         self.record(format!("picture {tab}"));
-        if let Some((shell, png)) = self.pictures.borrow().clone() {
-            super::picture_answered(vec![shell], request, Some(png), &cx.to_async());
+        if let Some((shell, picture)) = self.pictures.borrow().clone() {
+            super::picture_answered(vec![shell], request, Some(picture), &cx.to_async());
         }
-    }
-
-    fn page_picture_end(&self, tab: u64, _: &mut App) {
-        self.record(format!("picture end {tab}"))
     }
 
     fn settings(&self, _: &mut App) {}

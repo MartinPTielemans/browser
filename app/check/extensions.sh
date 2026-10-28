@@ -88,10 +88,13 @@ BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
 pid=$!
 exec 3> "$out/drive"
 await_load
-await '^browser: extensions menu [a-p]* [a-p]* [a-p]* [a-p]*$' ||
-  fail "the Extensions menu didn't list the four extensions: $(grep '^browser: extensions' "$log")"
+# The browser's own ad blocker, uBlock Origin, is in every profile, last by name.
+ublock=oghkpboejbohceocapipmnjifoklonij
+listing="^browser: extensions menu [a-p]* [a-p]* [a-p]* [a-p]* $ublock\$"
+await "$listing" ||
+  fail "the Extensions menu didn't list the four extensions and the ad blocker: $(grep '^browser: extensions' "$log")"
 # By name.
-ids=$(grep -m1 '^browser: extensions menu [a-p]* ' "$log" | cut -d' ' -f4-)
+ids=$(grep -m1 "$listing" "$log" | cut -d' ' -f4-)
 clicked=$(echo "$ids" | cut -d' ' -f1)
 panel=$(echo "$ids" | cut -d' ' -f2)
 popup=$(echo "$ids" | cut -d' ' -f3)
@@ -241,8 +244,8 @@ expect '^browser: loaded [0-9]* chrome://extensions/$' \
   "Manage Extensions… didn't open Chrome's extensions page"
 ../tools/window-screenshot.sh "$pid" "$out/extensions.png" || fail "no window to capture"
 # A suggested key that's one of the browser's stays the browser's, with the UI focused and the
-# page.
-send click $sidebar_point
+# page. The sidebar below the rows, as a click on a row gives the page the keyboard.
+send click 100 700
 send key j cmd
 expect '^browser: command jump-to-selection via ui$' "⌘J with the UI focused didn't reach the UI"
 none_since "^browser: extension command $third " ||
@@ -265,13 +268,13 @@ expect '^browser: dialog shown Remove “Check Third”?$' "Remove didn't ask fi
 ../tools/window-screenshot.sh "$pid" "$out/extension-remove.png" || fail "no window to capture"
 send key return
 expect "^browser: remove extension $third removed\$" "Remove didn't remove Check Third"
-expect "^browser: extensions menu $clicked $panel $popup\$" \
+expect "^browser: extensions menu $clicked $panel $popup $ublock\$" \
   "the removed Check Third stayed in the Extensions menu"
 expect '^browser: extension actions $' "the removed Check Third's action stayed"
-# The Site Controls list every turned-on extension, here the three unpinned ones, by name, and a
-# click on one's tile runs it, its popup hanging from the tile. On the first tab. The grid's third
-# tile has its middle at 234 187: the tiles are 56 apart from 122, and their first row is 23 under
-# the heading's cap, which is 46 under the action tiles' top at 102.
+# The Site Controls list every turned-on extension, here the three unpinned ones and the ad
+# blocker, by name, and a click on one's tile runs it, its popup hanging from the tile. On the
+# first tab. The grid's third tile has its middle at 234 187: the tiles are 56 apart from 122, and
+# their first row is 23 under the heading's cap, which is 46 under the action tiles' top at 102.
 index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
 send click $(row $((index - 1)))
 expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
@@ -283,7 +286,7 @@ expect '^browser: command bar commands "site controls": Site Controls$' \
   "the command bar didn't find Site Controls"
 send key return
 expect '^browser: command site-controls via command bar$' "Site Controls didn't run from the bar"
-expect "^browser: site controls extensions $clicked $panel $popup\$" \
+expect "^browser: site controls extensions $clicked $panel $popup $ublock\$" \
   "the Site Controls didn't list the unpinned extensions by name: $(grep \
     '^browser: site controls extensions' "$log" | tail -1)"
 expect '^browser: site controls settled$' "the Site Controls didn't finish opening"
@@ -520,6 +523,8 @@ grep -q "^browser: extensions menu.* $installed" "$log" && fail "the cancelled i
 send click $page_point
 send key z
 expect '^browser: dialog shown Add "Check Install"?$' "the .crx didn't ask again"
+# Return adds it once it has been on screen a moment.
+expect '^browser: dialog takes input$' "the install dialog never took input"
 send key return
 expect '^browser: dialog confirmed$' "return didn't confirm adding Check Install"
 expect "^browser: extensions menu.* $installed" "Check Install wasn't added"
