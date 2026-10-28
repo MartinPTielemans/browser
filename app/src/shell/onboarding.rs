@@ -18,6 +18,7 @@ use super::{
     display_face::{cap_top, display_text},
     cubic_bezier, fade_at,
 };
+use crate::default_browser::{self, Os};
 use crate::import::{ImportEvent, ImportView, Look};
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
@@ -81,9 +82,9 @@ impl Step {
         }
     }
 
-    /// The step's one message: its title, its line and its button's words.
-    fn message(self) -> (&'static str, &'static str, &'static str) {
-        match self {
+    /// The step's one message on `os`: its title, its line and its button's words.
+    fn message(self, os: Os) -> (&'static str, gpui::SharedString, &'static str) {
+        let (title, line, button) = match self {
             Step::Intro => ("", "", ""),
             // The import view's own buttons are the step's.
             Step::Import => (
@@ -91,17 +92,27 @@ impl Step {
                 "Spaces, pinned tabs, folders and favorites from the browser you used.",
                 "",
             ),
-            Step::DefaultBrowser => (
-                concat!("Make ", env!("APP_NAME"), " your default browser."),
-                "Links from other apps open here. macOS asks you first, and System Settings › Desktop & Dock changes it back.",
-                "Make Default",
-            ),
+            // What the system does and its way back are Settings' row's, each system's own. A
+            // Flatpak can't set it, so the step says where the desktop does, and goes on.
+            Step::DefaultBrowser => {
+                let line = format!(
+                    "Links from other apps open here. {}",
+                    default_browser::detail(os, false)
+                );
+                let button = match default_browser::offers(os, false) {
+                    true => "Make Default",
+                    false => "Continue",
+                };
+                let title = concat!("Make ", env!("APP_NAME"), " your default browser.");
+                return (title, line.into(), button);
+            }
             Step::Color => (
                 "Pick a colour for your first Space.",
                 "The window takes it. Each Space can have its own, from its name in the sidebar.",
                 "Continue",
             ),
-        }
+        };
+        (title, line.into(), button)
     }
 }
 
@@ -195,6 +206,8 @@ pub(super) struct Onboarding {
     pub(super) step: Step,
     /// The swatch picked at the colour step, if one is.
     pub(super) picked: Option<usize>,
+    /// The system it runs on, for the default browser's step.
+    os: Os,
     /// When the step came, which its motion runs from.
     pub(super) since: Instant,
     /// The step before, leaving as this one comes, and how far into it it was when it left.
@@ -250,6 +263,7 @@ impl Shell {
             steps,
             step: Step::Intro,
             picked: None,
+            os: self.browser.os(),
             since: Instant::now(),
             leaving: None,
             ending: None,
@@ -303,7 +317,9 @@ impl Shell {
             return;
         };
         match (onboarding.step, onboarding.picked) {
-            (Step::DefaultBrowser, _) => self.browser.make_default_browser(cx),
+            (Step::DefaultBrowser, _) if default_browser::offers(onboarding.os, false) => {
+                self.browser.make_default_browser(cx)
+            }
             (Step::Color, Some(picked)) => {
                 let color = SWATCHES[picked];
                 // check.sh reads this line.
@@ -515,7 +531,8 @@ impl Shell {
                     ),
             );
         }
-        let (title, line, button) = step.message();
+        let os = self.onboarding.as_ref().map_or(Os::Mac, |onboarding| onboarding.os);
+        let (title, line, button) = step.message(os);
         let swatches = (step == Step::Color).then(|| {
             let picked = self.onboarding.as_ref().and_then(|onboarding| onboarding.picked);
             swatch_row(picked, colors, cx)

@@ -59,6 +59,8 @@ pub(super) struct Recorder {
     pub(super) moves: Cell<usize>,
     /// Whether the system opens links with it, as `is_default_browser` answers.
     pub(super) default_browser: Cell<bool>,
+    /// The system it says it runs on, the Mac unless a test says.
+    pub(super) os: Cell<Option<crate::default_browser::Os>>,
     /// The import finds no browser on the machine.
     pub(super) no_browsers: Cell<bool>,
     /// The Spaces it was asked to show, in order.
@@ -830,6 +832,10 @@ impl Browser for Recorder {
 
     fn make_default_browser(&self, _: &mut App) {
         self.record("make default browser".into())
+    }
+
+    fn os(&self) -> crate::default_browser::Os {
+        self.os.get().unwrap_or(crate::default_browser::Os::Mac)
     }
 
     fn close_window(&self, _: &mut App) {
