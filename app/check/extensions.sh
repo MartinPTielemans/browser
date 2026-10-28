@@ -302,12 +302,8 @@ expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show fro
   fail "no window to capture"
 send key escape
 expect '^browser: extension popup none$' "escape didn't close Check Popup's popup"
-# Check Panel's side panel, on the first tab. Its script sets its action to open the panel once it
-# has run, so on a fresh profile it's chosen until the panel opens.
-index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
-send click $(row $((index - 1)))
-expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
-  "a click on the first tab's row didn't show it"
+# Check Panel's side panel, on the first tab, still shown. Its script sets its action to open the
+# panel once it has run, so on a fresh profile it's chosen until the panel opens.
 for _ in $(seq 10); do
   send menu "Check Panel"
   for _ in $(seq 20); do
