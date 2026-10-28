@@ -326,13 +326,20 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
-  // The page that had the keyboard lets it go, and on X11 GPUI's window has the input focus.
+  // The page that had the keyboard lets it go, and on X11 GPUI's window has the input focus, if
+  // the window has it. Taken from another window, as by a window whose page moved out, that
+  // window's handling of its focus event, which comes after it has the focus back, would take it
+  // back too, and the two would go on without end (#531).
   void UITakesKeyboard() {
     ui_has_keyboard_ = true;
     if (auto* client = aura::client::GetFocusClient(content())) {
       client->ResetFocusWithinActiveWindow(content());
     }
-    if (ui_ == x11::Window::None || IsWithin(InputFocus(), ui_)) {
+    if (ui_ == x11::Window::None) {
+      return;
+    }
+    const x11::Window focus = InputFocus();
+    if (IsWithin(focus, ui_) || !IsWithin(focus, window())) {
       return;
     }
     if (x11::Window main = UIMain(); main != x11::Window::None) {
