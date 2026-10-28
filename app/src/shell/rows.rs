@@ -1087,8 +1087,9 @@ mod tests {
         let browser = host.clone();
         cx.update(|cx| icon_picker::open(Rc::new(NoWhere), Recents::default(), cx));
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
-        let spaces =
-            |icon: &str| vec![(1, "Space".into(), None, 1, icon.to_string().into(), "".into())];
+        let spaces = |icon: &str| {
+            vec![(1, "Space".into(), None, 1, icon.to_string().into(), "".into(), "".into())]
+        };
         shell.update(cx, |shell, cx| {
             shell.set_spaces(spaces(""), cx);
             shell.set_space(1, cx);

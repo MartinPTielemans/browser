@@ -639,7 +639,8 @@ mod tests {
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            let space = |id| (id, format!("Space {id}").into(), None, 0, "".into(), "".into());
+            let space =
+                |id| (id, format!("Space {id}").into(), None, 0, "".into(), "".into(), "".into());
             shell.set_spaces(vec![space(1), space(2)], cx);
             shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
             shell.set_tabs(2, Vec::new(), vec![20], Vec::new(), Folders::default(), cx);
