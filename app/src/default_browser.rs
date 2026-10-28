@@ -81,8 +81,12 @@ impl DefaultBrowser {
                 "macOS asks you first. You can change it back in System Settings › Desktop & Dock."
             }
             (Os::Mac, true) => "You can change it in System Settings › Desktop & Dock.",
-            // Placeholder for the Windows host's (feat/windows-host-454), which confirms it.
-            (Os::Windows, false) => "Windows asks you in Settings › Default apps.",
+            // Windows shows its chooser rather than asking.
+            (Os::Windows, false) => concat!(
+                "Windows opens Settings › Default apps, where you choose ",
+                env!("APP_NAME"),
+                "."
+            ),
             (Os::Windows, true) => "You can change it in Settings › Default apps.",
             // xdg-settings sets it without asking.
             (Os::Linux, false) => {
@@ -206,7 +210,7 @@ mod tests {
         assert_eq!(setting.asked.get(), 3);
         let detail = |os| details.iter().find(|(each, _)| *each == os).unwrap().1.clone();
         assert!(detail(Os::Mac).starts_with("macOS asks you first."));
-        assert!(detail(Os::Windows).contains("Settings › Default apps"));
+        assert!(detail(Os::Windows).starts_with("Windows opens Settings › Default apps, where"));
         assert!(detail(Os::Linux).contains("changes at once"));
         assert!(detail(Os::Flatpak).contains("GNOME Settings › Default Apps"));
         assert!(detail(Os::Flatpak).contains("KDE System Settings › Default Applications"));
