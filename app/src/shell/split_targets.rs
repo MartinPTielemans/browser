@@ -74,7 +74,7 @@ impl Shell {
     /// The tab a dragged `tab` would join in a split view on the page: the one shown, or for the
     /// tab shown alone, the one shown before it (Dia). None where the page has no targets for it:
     /// a favorite, a folder, a split view's row, a tab of the split shown, or a split shown full.
-    fn split_partner(&self, tab: u64) -> Option<u64> {
+    pub(super) fn split_partner(&self, tab: u64) -> Option<u64> {
         if self.sidebar_hidden || self.is_folder(tab) || self.panes(tab).len() > 1 {
             return None;
         }

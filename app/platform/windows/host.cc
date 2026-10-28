@@ -535,6 +535,8 @@ Floating g_capture;
 Floating g_toast;
 Floating g_tooltip;
 double g_tooltip_margin = 0;
+Floating g_card;
+double g_card_margin = 0;
 Floating g_link_target;
 double g_link_margin = 0;
 void (*g_link_pointer)(double, double) = nullptr;
@@ -1545,6 +1547,27 @@ void host_show_tooltip(void* ui_view, double left, double top, double) {
 void host_hide_tooltip(double) {
   Hide(g_tooltip);
 }
+
+// shortcut: the card takes clicks over its whole window, the margin round the plate included, and
+// ends only as the pointer leaves it or the UI ends it, without its fade.
+void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
+  Adopt(g_card, card_view, false, nullptr);
+  // A click on its buttons leaves the keyboard where it was.
+  SetWindowLongPtrW(g_card.hwnd, GWL_EXSTYLE,
+                    GetWindowLongPtrW(g_card.hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+  g_card_margin = margin;
+}
+
+void host_show_hover_card(void* ui_view, double left, double top, double, double) {
+  Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
+}
+
+void host_hide_hover_card(double) {
+  Hide(g_card);
+}
+
+// shortcut: the pictures stay until their tabs unload or close.
+void host_watch_memory_pressure(void (*)(void)) {}
 
 void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {
   Adopt(g_link_target, link_view, true, nullptr);

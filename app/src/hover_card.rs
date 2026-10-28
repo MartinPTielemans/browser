@@ -1,0 +1,666 @@
+//! The hover card: resting the pointer on a sidebar tab shows a card beside its row, with a picture
+//! of the tab's page as it last looked, its title and host, and buttons that pin or unpin it, make
+//! it a favorite and open it in a split view (#430; ours, from docs/ux-principles.md and the design
+//! tokens). It crosses the sidebar's edge onto the page, which GPUI can't draw over, so as the
+//! tooltip is, it's a window of its own that the host shows over the browser window, as its child,
+//! and it never takes the keyboard. What it asks of its window goes through `Host`.
+//!
+//! The pictures are the core's (`bc_tab_picture`), taken after a tab is hidden, never on the switch
+//! that hides it, at most twice the card's size, and held here in memory alone, by tab, until the
+//! tab unloads or closes or the system is short of memory.
+
+use std::{collections::HashMap, rc::Rc, sync::Arc, time::Duration};
+
+use gpui::{
+    App, Bounds, Context, FontWeight, Global, Image, ImageSource, ObjectFit, Pixels, RenderImage,
+    Role, SharedString, Size, Task, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowHandle, WindowKind, WindowOptions, div, img, point, prelude::*, px, size,
+    svg,
+};
+
+use crate::elevation::{Level, WINDOW_MARGIN};
+use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STATE_SELECTED_HOVERED};
+use crate::shell::PagePicture;
+pub use crate::tokens::hover_card::{EDGE, GAP, WIDTH};
+use crate::tokens::hover_card::{
+    BUTTON, BUTTON_GAP, BUTTON_INSET, BUTTON_RADIUS, FAVICON, GLYPH, GLYPH_ALPHA, GROUND, HOST,
+    HOST_SIZE, PADDING, PICTURE_DEFAULT, PICTURE_LEAST, PICTURE_MOST, PICTURE_RADIUS, RADIUS, RIM,
+    TEXT_TOP, TEXT_X, TITLE, TITLE_LINE, TITLE_SIZE,
+};
+
+/// How long the pointer rests on a row before its card shows: the tooltip's delay, which a hover
+/// that opens something waits as its threshold (docs/ux-principles.md).
+pub const DWELL: Duration = crate::tooltip::DELAY;
+/// How long the card stays after the pointer leaves its row, for the pointer to cross the gap onto
+/// it (ours).
+pub const LEAVE: Duration = Duration::from_millis(150);
+/// The picture's box is as wide as the card inside its padding.
+pub const INNER: f32 = WIDTH - 2. * PADDING;
+/// The pictures the core takes are scaled down to fit this, in pixels: twice the picture's box at
+/// its tallest, for a Retina screen.
+pub const PICTURE_PIXELS: (i32, i32) = ((2. * INNER) as i32, (2. * INNER * PICTURE_MOST) as i32);
+/// The card's window, as big as the card at its tallest and the margin its shadow draws in.
+pub const WINDOW_WIDTH: f32 = WIDTH + 2. * WINDOW_MARGIN;
+pub const WINDOW_HEIGHT: f32 = PADDING + INNER * PICTURE_MOST + TEXT + 2. * WINDOW_MARGIN;
+/// Under the picture: the title's line, then the row of buttons with the host beside them, inset
+/// from the card's bottom as from its right.
+const TEXT: f32 = TEXT_TOP + TITLE_LINE + BUTTON + BUTTON_INSET;
+
+/// What the card asks of its window.
+pub trait Host {
+    /// Shows the card's window with its plate at (`left`, `top`) in the browser window, `width` by
+    /// `height`, or moves it there if it shows. The UI has kept it inside the window. Only the
+    /// plate takes the mouse; the margin round it lets it through.
+    fn show(&self, left: f32, top: f32, width: f32, height: f32);
+    /// Hides it.
+    fn hide(&self);
+}
+
+/// A button on the card. Each makes the call the row's menu makes for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Pin,
+    Unpin,
+    Favorite,
+    Unfavorite,
+    Split,
+}
+
+impl Action {
+    /// What assistive apps call it, as the row's menu does.
+    pub fn name(self) -> &'static str {
+        match self {
+            Action::Pin => "Pin Tab",
+            Action::Unpin => "Unpin Tab",
+            Action::Favorite => "Add to Favorites",
+            Action::Unfavorite => "Remove from Favorites",
+            Action::Split => "Open in Split View",
+        }
+    }
+
+    /// How the log and the tests name it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Action::Pin => "pin",
+            Action::Unpin => "unpin",
+            Action::Favorite => "favorite",
+            Action::Unfavorite => "unfavorite",
+            Action::Split => "split",
+        }
+    }
+
+    fn glyph(self) -> &'static str {
+        match self {
+            Action::Pin | Action::Unpin => "icons/pin.svg",
+            Action::Favorite | Action::Unfavorite => "icons/star.svg",
+            Action::Split => "icons/columns-2.svg",
+        }
+    }
+
+    /// Whether it undoes what the tab is, and shows that on, on the selected plate.
+    fn on(self) -> bool {
+        matches!(self, Action::Unpin | Action::Unfavorite)
+    }
+}
+
+/// What stands for a tab with no picture: its favicon, a globe if it has none, or its emoji.
+#[derive(Clone)]
+pub enum Icon {
+    Favicon(Option<Arc<Image>>),
+    Emoji(SharedString),
+}
+
+/// What a card shows of a tab.
+#[derive(Clone)]
+pub struct Card {
+    pub tab: u64,
+    pub title: SharedString,
+    pub host: SharedString,
+    pub icon: Icon,
+    /// Whether it has a picture's box: not for the tab shown, whose page is on screen.
+    pub pictured: bool,
+    pub actions: Vec<Action>,
+}
+
+/// The row a card goes beside, in the browser window, and the window's size, which it stays
+/// inside.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anchor {
+    pub row: Bounds<Pixels>,
+    pub window: Size<Pixels>,
+}
+
+/// What the card tells the shell that asked for it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Event {
+    /// It shows, so a loaded tab's picture can be taken again, as it is now.
+    Shown,
+    /// A button was pressed, and the card has gone.
+    Act(Action),
+}
+
+/// The pointer rests on a row: what its card shows, where, and who hears what happens to it.
+#[derive(Clone)]
+pub struct Rest {
+    pub card: Card,
+    pub anchor: Anchor,
+    pub events: Rc<dyn Fn(u64, Event, &mut App)>,
+}
+
+/// What the shell asks of the card.
+#[derive(Clone)]
+pub enum Hover {
+    /// The pointer has come onto a tab's row.
+    Rest(Rest),
+    /// It has left that tab's row.
+    Left(u64),
+    /// A press, a scroll, a drag, a menu or a Space switch ends the card at once.
+    Close,
+}
+
+impl Hover {
+    /// How the recorder's log names it.
+    pub fn label(&self) -> String {
+        match self {
+            Hover::Rest(rest) => {
+                let card = &rest.card;
+                let actions: Vec<&str> = card.actions.iter().map(|action| action.label()).collect();
+                let picture = if card.pictured { "picture" } else { "none" };
+                format!("card rest {} {} {picture}", card.tab, actions.join(" "))
+            }
+            Hover::Left(tab) => format!("card left {tab}"),
+            Hover::Close => "card close".into(),
+        }
+    }
+}
+
+/// How tall the picture's box is for a picture `size` pixels, else for none yet, or 0 for a card
+/// without one: the page's shape, within the least and most shares of its width.
+pub fn picture_height(pictured: bool, size: Option<(f32, f32)>) -> f32 {
+    if !pictured {
+        return 0.;
+    }
+    let share = size.filter(|&(width, _)| width > 0.).map_or(PICTURE_DEFAULT, |(w, h)| h / w);
+    INNER * share.clamp(PICTURE_LEAST, PICTURE_MOST)
+}
+
+/// How tall a card is with a picture's box `picture` tall.
+pub fn height(picture: f32) -> f32 {
+    match picture > 0. {
+        true => PADDING + picture + TEXT,
+        false => TEXT,
+    }
+}
+
+/// Where a card `height` tall has its top left: GAP right of its row, its top at the row's, and
+/// EDGE inside the window, the top and left first if it can't be both.
+pub fn place(anchor: Anchor, height: f32) -> (f32, f32) {
+    let (width, tall) = (f32::from(anchor.window.width), f32::from(anchor.window.height));
+    let left = f32::from(anchor.row.right()) + GAP;
+    let top = f32::from(anchor.row.top());
+    (left.min(width - WIDTH - EDGE).max(EDGE), top.min(tall - height - EDGE).max(EDGE))
+}
+
+/// What the window draws, which stays as it fades out after the card went.
+#[derive(Clone)]
+struct Drawn {
+    card: Card,
+    picture: Option<PagePicture>,
+    height: f32,
+}
+
+pub struct HoverCard {
+    host: Rc<dyn Host>,
+    /// The card that shows.
+    shown: Option<Rest>,
+    /// The row the pointer rests on whose card waits for its dwell.
+    resting: Option<Rest>,
+    /// The dwell's timer, or the leave's once the pointer has left the shown card's row. Dropping
+    /// it cancels it.
+    wait: Option<Task<()>>,
+    /// The pointer is on the card, which keeps it.
+    on_card: bool,
+    drawn: Option<Drawn>,
+    /// The tabs' pictures, and the tab each picture asked for is of.
+    pictures: HashMap<u64, PagePicture>,
+    asked: HashMap<u64, u64>,
+    /// The picture the window last drew, and those it has no more use for, which it lets go of.
+    painted: Option<Arc<RenderImage>>,
+    stale: Vec<Arc<RenderImage>>,
+    /// What it logged as drawn last, for check.sh.
+    logged: Option<(u64, &'static str)>,
+}
+
+struct CardWindow(WindowHandle<HoverCard>);
+
+impl Global for CardWindow {}
+
+/// Opens the card's window, hidden, for `host` to show over the browser window, ahead of time as
+/// the tooltip's is.
+pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<HoverCard>> {
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+            point(px(0.), px(0.)),
+            size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)),
+        ))),
+        titlebar: Some(TitlebarOptions {
+            title: None,
+            appears_transparent: true,
+            traffic_light_position: None,
+        }),
+        kind: WindowKind::Floating,
+        show: false,
+        focus: false,
+        is_movable: false,
+        is_resizable: false,
+        is_minimizable: false,
+        window_background: WindowBackgroundAppearance::Transparent,
+        // GPUI holds a window that isn't the key one to 30 fps, and this one never is.
+        inactive_frame_interval: None,
+        ..Default::default()
+    };
+    let window = cx.open_window(options, |_, cx| {
+        cx.new(|_| HoverCard {
+            host,
+            shown: None,
+            resting: None,
+            wait: None,
+            on_card: false,
+            drawn: None,
+            pictures: HashMap::new(),
+            asked: HashMap::new(),
+            painted: None,
+            stale: Vec::new(),
+            logged: None,
+        })
+    });
+    match window {
+        Ok(window) => {
+            cx.set_global(CardWindow(window));
+            Some(window)
+        }
+        Err(error) => {
+            log!("couldn't open the hover card's window: {error}");
+            None
+        }
+    }
+}
+
+fn update(cx: &mut App, f: impl FnOnce(&mut HoverCard, &mut Context<HoverCard>)) {
+    if let Some(window) = cx.try_global::<CardWindow>().map(|card| card.0) {
+        window.update(cx, |card, _, cx| f(card, cx)).ok();
+    }
+}
+
+/// What the shell asks: a card for the row the pointer rests on, after DWELL, or at once while
+/// one shows, as the pointer moves from row to row; the pointer leaving that row, which ends it
+/// after LEAVE unless it's onto the card; or the card's end.
+pub fn hover(hover: Hover, cx: &mut App) {
+    update(cx, |card, cx| match hover {
+        Hover::Rest(rest) => card.rest(rest, cx),
+        Hover::Left(tab) => card.left(tab, cx),
+        Hover::Close => card.close(cx),
+    });
+}
+
+/// The window lost the keyboard, or the app went to the back: the card goes.
+pub fn close(cx: &mut App) {
+    hover(Hover::Close, cx);
+}
+
+/// The card's requests for pictures have this bit, so the answer finds its way here before it
+/// reaches the windows, whose own requests never have it.
+const CARD_REQUEST: u64 = 1 << 63;
+
+/// Whether `request` is the card's.
+pub fn is_card_request(request: u64) -> bool {
+    request & CARD_REQUEST != 0
+}
+
+/// The card asks the core for a picture of `tab` with `request`, which this returns.
+pub fn asking(tab: u64, cx: &mut App) -> u64 {
+    let request = crate::shell::next_request() | CARD_REQUEST;
+    update(cx, |card, _| {
+        card.asked.insert(request, tab);
+    });
+    request
+}
+
+/// The core's answer to the card's `request`. A picture replaces the tab's last; none keeps it.
+pub fn answered(request: u64, picture: Option<PagePicture>, cx: &mut App) {
+    update(cx, |card, cx| {
+        let Some(tab) = card.asked.remove(&request) else {
+            return;
+        };
+        let Some(picture) = picture else {
+            return;
+        };
+        card.pictures.insert(tab, picture);
+        // check.sh reads this line.
+        log!("browser: hover card pictured {tab}");
+        if card.shown.as_ref().is_some_and(|rest| rest.card.tab == tab) {
+            card.draw(cx);
+        }
+    });
+}
+
+/// `tab`'s page unloaded or closed: its picture goes.
+pub fn forget(tab: u64, cx: &mut App) {
+    update(cx, |card, cx| {
+        if card.pictures.remove(&tab).is_some() {
+            card.let_go(cx);
+        }
+    });
+}
+
+/// The system is short of memory: every picture goes.
+pub fn forget_all(cx: &mut App) {
+    update(cx, |card, cx| {
+        let count = card.pictures.len();
+        card.pictures.clear();
+        card.let_go(cx);
+        // check.sh reads this line.
+        log!("browser: hover card pictures dropped {count}");
+    });
+}
+
+impl HoverCard {
+    fn rest(&mut self, rest: Rest, cx: &mut Context<Self>) {
+        if self.shown.is_some() {
+            self.wait = None;
+            self.resting = None;
+            return self.show(rest, cx);
+        }
+        let tab = rest.card.tab;
+        let waiting = self.resting.as_ref().is_some_and(|resting| resting.card.tab == tab);
+        self.resting = Some(rest);
+        if waiting {
+            return;
+        }
+        self.wait = Some(cx.spawn(async move |card, cx| {
+            cx.background_executor().timer(DWELL).await;
+            card.update(cx, |card, cx| {
+                card.wait = None;
+                if let Some(rest) = card.resting.take() {
+                    card.show(rest, cx)
+                }
+            })
+            .ok();
+        }));
+    }
+
+    fn left(&mut self, tab: u64, cx: &mut Context<Self>) {
+        if self.resting.as_ref().is_some_and(|rest| rest.card.tab == tab) {
+            self.resting = None;
+            self.wait = None;
+        }
+        if self.shown.as_ref().is_some_and(|rest| rest.card.tab == tab) && !self.on_card {
+            self.leave_after(cx);
+        }
+    }
+
+    /// The card goes after LEAVE, unless the pointer comes onto it or another row first.
+    fn leave_after(&mut self, cx: &mut Context<Self>) {
+        self.wait = Some(cx.spawn(async move |card, cx| {
+            cx.background_executor().timer(LEAVE).await;
+            card.update(cx, |card, cx| {
+                card.wait = None;
+                card.close(cx)
+            })
+            .ok();
+        }));
+    }
+
+    fn on_card(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        self.on_card = hovered && self.shown.is_some();
+        match hovered {
+            true => self.wait = None,
+            false if self.shown.is_some() => self.leave_after(cx),
+            false => {}
+        }
+    }
+
+    fn show(&mut self, rest: Rest, cx: &mut Context<Self>) {
+        let (tab, events) = (rest.card.tab, rest.events.clone());
+        let new = self.shown.as_ref().is_none_or(|shown| shown.card.tab != tab);
+        self.shown = Some(rest);
+        let picture = self.draw(cx);
+        if new {
+            let actions: Vec<&str> = (self.shown.iter().flat_map(|rest| &rest.card.actions))
+                .map(|action| action.label())
+                .collect();
+            // check.sh reads this line.
+            log!("browser: hover card shown {tab} {} {picture}", actions.join(" "));
+            events(tab, Event::Shown, cx);
+        }
+    }
+
+    /// Lays out the card that shows, with its tab's picture if it has one, and shows its window
+    /// there. Returns what the picture's box holds.
+    fn draw(&mut self, cx: &mut Context<Self>) -> &'static str {
+        let Some(rest) = &self.shown else {
+            return "none";
+        };
+        let card = rest.card.clone();
+        let picture = card.pictured.then(|| self.pictures.get(&card.tab).cloned()).flatten();
+        let height = height(picture_height(card.pictured, picture.as_ref().map(|p| p.size())));
+        let (left, top) = place(rest.anchor, height);
+        // check.sh reads this line, to see the card is beside its row.
+        log!("browser: hover card at {left} {top} {WIDTH} {height}");
+        let holds = match (&picture, card.pictured) {
+            (Some(_), _) => "picture",
+            (None, true) => "favicon",
+            (None, false) => "none",
+        };
+        self.drawn = Some(Drawn { card, picture, height });
+        self.host.show(left, top, WIDTH, height);
+        cx.notify();
+        holds
+    }
+
+    fn close(&mut self, cx: &mut Context<Self>) {
+        self.wait = None;
+        self.resting = None;
+        self.on_card = false;
+        if self.shown.take().is_some() {
+            self.host.hide();
+            // check.sh reads this line.
+            log!("browser: hover card hidden");
+            cx.notify();
+        }
+    }
+
+    fn press(&mut self, action: Action, cx: &mut Context<Self>) {
+        let Some(rest) = self.shown.clone() else {
+            return;
+        };
+        // check.sh reads this line.
+        log!("browser: hover card {} {}", action.label(), rest.card.tab);
+        self.close(cx);
+        (rest.events)(rest.card.tab, Event::Act(action), cx);
+    }
+
+    /// A picture it holds went: the window lets go of the one it drew, if it's gone, and draws the
+    /// card again without it.
+    fn let_go(&mut self, cx: &mut Context<Self>) {
+        let held = |image: &Arc<RenderImage>| {
+            self.pictures.values().any(|picture| Arc::ptr_eq(&picture.image(), image))
+        };
+        if self.painted.as_ref().is_some_and(|image| !held(image)) {
+            self.stale.extend(self.painted.take());
+        }
+        if self.shown.is_some() {
+            self.draw(cx);
+        } else if let Some(drawn) = &mut self.drawn {
+            drawn.picture = None;
+        }
+        cx.notify();
+    }
+}
+
+impl Render for HoverCard {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let picture = self.drawn.as_ref().and_then(|drawn| drawn.picture.as_ref()).map(|p| p.image());
+        let same = |a: &Option<Arc<RenderImage>>, b: &Option<Arc<RenderImage>>| match (a, b) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        // One picture at most is in the atlas at a time.
+        if !same(&self.painted, &picture) {
+            self.stale.extend(std::mem::replace(&mut self.painted, picture));
+        }
+        for image in self.stale.drain(..) {
+            window.drop_image(image).ok();
+        }
+        // The plate is inset by the margin, which its shadow draws in.
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
+        let Some(drawn) = self.drawn.clone() else {
+            return root;
+        };
+        let holds = match (&drawn.picture, drawn.card.pictured) {
+            (Some(_), _) => "picture",
+            (None, true) => "favicon",
+            (None, false) => "none",
+        };
+        if self.logged != Some((drawn.card.tab, holds)) {
+            self.logged = Some((drawn.card.tab, holds));
+            // check.sh reads this line.
+            log!("browser: hover card drawn {} {holds}", drawn.card.tab);
+        }
+        let palette = crate::palette::current(cx);
+        let a11y = window.is_a11y_active();
+        let card = &drawn.card;
+        let picture_h = picture_height(card.pictured, drawn.picture.as_ref().map(|p| p.size()));
+        let text_top = if picture_h > 0. { PADDING + picture_h } else { 0. };
+        let picture = (picture_h > 0.).then(|| {
+            let frame = div()
+                .absolute()
+                .left(px(PADDING))
+                .top(px(PADDING))
+                .w(px(INNER))
+                .h(px(picture_h))
+                .rounded(px(PICTURE_RADIUS))
+                .overflow_hidden()
+                .bg(palette.plate(GROUND));
+            match &drawn.picture {
+                // A page of another shape than the box is cut to it about its middle.
+                Some(picture) => frame.child(
+                    img(ImageSource::Render(picture.image()))
+                        .size_full()
+                        .object_fit(ObjectFit::Cover)
+                        .rounded(px(PICTURE_RADIUS)),
+                ),
+                None => frame.flex().items_center().justify_center().child(icon(&palette, &card.icon)),
+            }
+        });
+        let title = div()
+            .absolute()
+            .left(px(TEXT_X))
+            .top(px(text_top + TEXT_TOP))
+            .w(px(WIDTH - 2. * TEXT_X))
+            .h(px(TITLE_LINE))
+            .truncate()
+            .text_size(px(TITLE_SIZE))
+            .line_height(px(TITLE_LINE))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(palette.on_overlay(TITLE))
+            .child(card.title.clone());
+        let row_top = text_top + TEXT_TOP + TITLE_LINE;
+        let count = card.actions.len() as f32;
+        let buttons_width = count * BUTTON + (count - 1.).max(0.) * BUTTON_GAP;
+        let host = div()
+            .absolute()
+            .left(px(TEXT_X))
+            .top(px(row_top))
+            .w(px((WIDTH - TEXT_X - BUTTON_INSET - buttons_width - BUTTON_GAP).max(0.)))
+            .h(px(BUTTON))
+            .flex()
+            .items_center()
+            .text_size(px(HOST_SIZE))
+            .text_color(palette.on_overlay(HOST))
+            .child(div().truncate().child(card.host.clone()));
+        let buttons = div()
+            .absolute()
+            .right(px(BUTTON_INSET))
+            .top(px(row_top))
+            .flex()
+            .gap(px(BUTTON_GAP))
+            .children(card.actions.iter().map(|&action| button(&palette, action, a11y, cx)));
+        // The rim is its own layer, so the border doesn't shift what the fill's box holds.
+        let rim = div()
+            .absolute()
+            .size_full()
+            .rounded(px(RADIUS))
+            .border(px(RIM))
+            .border_color(Level::Popover.rim_in(&palette));
+        root.child(
+            div()
+                .id("hover-card")
+                .when(a11y, |plate| plate.role(Role::Group).aria_label(card.title.clone()))
+                .relative()
+                .w(px(WIDTH))
+                .h(px(drawn.height))
+                .rounded(px(RADIUS))
+                .shadow(Level::Popover.shadow())
+                .bg(palette.overlay)
+                .on_hover(cx.listener(|card, hovered: &bool, _, cx| card.on_card(*hovered, cx)))
+                .children(picture)
+                .child(title)
+                .child(host)
+                .child(buttons)
+                .child(rim),
+        )
+    }
+}
+
+/// What stands for a tab with no picture, at the favicon's size.
+fn icon(palette: &Palette, icon: &Icon) -> gpui::AnyElement {
+    match icon {
+        Icon::Favicon(Some(favicon)) => img(favicon.clone()).size(px(FAVICON)).into_any_element(),
+        Icon::Favicon(None) => svg()
+            .path("icons/globe.svg")
+            .size(px(FAVICON))
+            .text_color(palette.on_overlay_glyph(GLYPH_ALPHA))
+            .into_any_element(),
+        Icon::Emoji(emoji) => div()
+            .text_size(px(FAVICON))
+            .line_height(px(FAVICON))
+            .child(emoji.clone())
+            .into_any_element(),
+    }
+}
+
+/// A button on the card: its glyph on a control's plate, which an action the tab has shows on.
+fn button(
+    palette: &Palette,
+    action: Action,
+    a11y: bool,
+    cx: &mut Context<HoverCard>,
+) -> impl IntoElement + use<> {
+    let (rest, hovered) = match action.on() {
+        true => (STATE_SELECTED, STATE_SELECTED_HOVERED),
+        false => (0., STATE_HOVERED),
+    };
+    let palette = *palette;
+    div()
+        .id(action.label())
+        .when(a11y, |button| button.role(Role::Button).aria_label(action.name()))
+        .size(px(BUTTON))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(BUTTON_RADIUS))
+        .bg(palette.state(0., rest))
+        .hover(move |style| style.bg(palette.state(0., hovered)))
+        .active(move |style| style.bg(palette.state(0., STATE_PRESSED)))
+        .on_click(cx.listener(move |card, _, _, cx| card.press(action, cx)))
+        .child(
+            svg()
+                .path(action.glyph())
+                .size(px(GLYPH))
+                .text_color(palette.on_overlay_glyph(GLYPH_ALPHA)),
+        )
+}
+
+#[cfg(test)]
+mod tests;
