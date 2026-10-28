@@ -50,6 +50,9 @@ use crate::tokens::icon_picker::SEGMENTS_FILL;
 use crate::tokens::icon_picker::TRASH_GAP;
 use crate::tokens::icon_picker::TRASH_GLYPH;
 use crate::tokens::icon_picker::LABEL;
+/// What stands for the blur under the card where there is none: the sidebar's material, which the
+/// card hangs over (command_bar::overlay_fill).
+const BLUR_STAND_IN: u32 = 0x131313;
 /// The glyphs, eight to a row on a 31 pt pitch, the first 12.25 in and 47.75 under the card's top.
 const COLUMNS: usize = 8;
 use crate::tokens::icon_picker::PITCH;
@@ -778,7 +781,7 @@ pub(crate) fn paint_card(origin: Point<Pixels>, corners: &[(f32, f32, f32)], win
     let mut fill = PathBuilder::fill();
     outline(&mut fill, origin, corners, 0.);
     if let Ok(path) = fill.build() {
-        window.paint_path(path, rgba(FILL));
+        window.paint_path(path, command_bar::overlay_fill(FILL, BLUR_STAND_IN));
     }
     // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
     let hairline = 1. / window.scale_factor();
