@@ -33,6 +33,10 @@ void SetUpWaylandWindow(views::Widget::InitParams& params, views::WidgetDelegate
 void UITakesKeyboard(views::Widget* widget);
 bool KeyboardIsUI(views::Widget* widget);
 
+// Lends the keyboard in |widget|'s window to an overlay of the app's, or takes it back
+// (bc_window_overlay_takes_keyboard).
+void OverlayTakesKeyboard(views::Widget* widget, bool takes);
+
 }  // namespace browser_core::platform
 
 #endif  // BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
