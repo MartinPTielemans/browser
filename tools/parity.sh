@@ -1,7 +1,8 @@
 #!/bin/bash
-# Captures the same screens of the preview on Wayland and on X11, at 1280 by 800, each in a headless
-# sway session of its own (tools/headless.sh), and lays them side by side in sheet.png, so text
-# that fits on the Mac but not in Linux's faces or windows shows without anyone taking screenshots.
+# Captures the same screens of the preview at 1280 by 800 and lays them side by side in sheet.png,
+# so text that fits on the Mac but not in another system's faces or windows shows without anyone
+# taking screenshots: on Linux on Wayland and on X11, each in a headless sway session of its own
+# (tools/headless.sh), and on Windows, a CI runner's, its desktop (tools/window-capture.ps1).
 # The screens: the sidebar with tabs, the command bar, a tab's context menu, Site Controls, the
 # icon picker and the delete-Space dialog. The preview's Linux host places no window, so sway puts
 # Site Controls and the icon picker in the middle rather than where the Mac's host would. It
@@ -24,18 +25,28 @@ screens=(
   "icon-picker|icon picker for|PREVIEW_ICON_PICKER="
   "dialog|dialog settled|PREVIEW_DIALOG=1 PREVIEW_MENU=40,205,up,enter"
 )
-systems=(wayland x11)
+case $(uname -s) in
+  MINGW* | MSYS*) systems=(windows) ;;
+  *) systems=(wayland x11) ;;
+esac
+# Captures the screen, with the preview's settings in the environment.
+capture() { # <system> <output.png> <ready>
+  case $1 in
+    windows) timeout 90 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$here/window-capture.ps1" \
+      "$2" "$3" "$preview" -Moving 400 ;;
+    x11) timeout 90 "$here/headless.sh" --moving 400 --x11 "$2" "$3" "$preview" ;;
+    *) timeout 90 "$here/headless.sh" --moving 400 "$2" "$3" "$preview" ;;
+  esac
+}
 missing=()
 tiles=()
 for screen in "${screens[@]}"; do
   IFS='|' read -r name ready settings <<<"$screen"
   for system in "${systems[@]}"; do
+    mkdir -p "$out/$system"
     png=$out/$system/$name.png
-    flags=(--moving 400)
-    [ "$system" = x11 ] && flags+=(--x11)
     # shellcheck disable=SC2086 # the settings are words, each NAME=value.
-    if ! env PREVIEW_SIZE=1280x800 $settings timeout 90 "$here/headless.sh" "${flags[@]}" "$png" "$ready" \
-      "$preview" >/dev/null; then
+    if ! (export PREVIEW_SIZE=1280x800 $settings && capture "$system" "$png" "$ready" >/dev/null); then
       missing+=("$system/$name")
       rm -f "$png"
       "${convert[@]}" -size 1280x800 xc:'#301010' -font "$face" -pointsize 28 -fill white \
