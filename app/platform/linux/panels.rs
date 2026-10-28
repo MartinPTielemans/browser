@@ -235,5 +235,6 @@ pub extern "C" fn host_forget_window(ui_view: *mut c_void) {
         hide(kind, ui_view);
     }
     PANELS.with_borrow_mut(|panels| panels.retain(|p| p.ui_view != ui_view));
+    overlays::forget_window(ui_view);
     CORNERS.with_borrow_mut(|corners| corners.retain(|(each, ..)| *each != ui_view));
 }

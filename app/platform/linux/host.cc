@@ -4,8 +4,8 @@
 //
 // shortcut: most of it does nothing yet. Menus, alerts and the rest that float over the page need
 // child windows of their own; a function with an empty body leaves its part out, and one that
-// answers says "no" or "none". The overlays, the command bar and the icon picker, are overlays.rs's,
-// and the find bar is panels.rs's, as GPUI's Linux platform shows them.
+// answers says "no" or "none". The overlays, the command bar, the icon picker and the dialog, are
+// overlays.rs's, and the find bar is panels.rs's, as GPUI's Linux platform shows them.
 
 #include "../host.h"
 
@@ -202,12 +202,6 @@ void host_add_drop_targets(void* view) {}
 void host_show_drop_targets(void* ui_view) {}
 
 void host_hide_drop_targets(void) {}
-
-void host_add_dialog(void* dialog_view) {}
-
-void host_show_dialog(void* ui_view, double x, double y, double width, double height) {}
-
-void host_hide_dialog(void) {}
 
 void host_add_site_controls(void* view, void (*dismissed)(void)) {}
 
