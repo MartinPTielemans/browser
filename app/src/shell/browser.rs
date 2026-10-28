@@ -294,6 +294,10 @@ pub trait Browser {
     /// Shows `tab`'s page in Safari's engine, in the tab, and has its profile keep the site for it.
     /// The user's: agents get none.
     fn use_system_engine(&self, _tab: u64, _cx: &mut App) {}
+    /// What PlayReady, which Windows plays protected video with, needs that the PC may lack.
+    fn playready_needs(&self) -> super::PlayReady {
+        super::PlayReady::None
+    }
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;

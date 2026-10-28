@@ -108,6 +108,8 @@ pub(super) struct Recorder {
     /// The platform has Apple's engine for a tab's page.
     /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
+    /// What it says PlayReady needs.
+    pub(super) playready: Cell<super::PlayReady>,
     /// The shell it answers each picture asked of it for with this picture, at once, inside the
     /// call that asked, as a core that answers inline would.
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
@@ -405,6 +407,10 @@ impl Browser for Recorder {
 
     fn can_use_system_engine(&self) -> bool {
         self.system_engine.get()
+    }
+
+    fn playready_needs(&self) -> super::PlayReady {
+        self.playready.get()
     }
 
     fn close_media_note(&self, tab: u64, _: &mut App) {

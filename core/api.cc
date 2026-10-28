@@ -28,6 +28,7 @@
 #include "browser_core/password_offer.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/playready.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/search.h"
@@ -943,6 +944,10 @@ void bc_tab_close_media_note(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::CloseMediaNote(contents);
   }
+}
+
+int bc_playready_needs() {
+  return browser_core::platform::PlayReadyNeeds();
 }
 
 void bc_tab_stop(bc_id id) {

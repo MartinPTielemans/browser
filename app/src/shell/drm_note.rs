@@ -11,6 +11,11 @@
 //! button. The site's own error stays in the page. Agents get no path: it hands the user's page to
 //! another engine or app. The core reports it (tab_media_unsupported) and keeps the sites it was
 //! closed for (tab_close_media_note).
+//!
+//! On Windows, Chromium plays sites that offer Microsoft's PlayReady where the PC can, so the note
+//! shows only where it can't, and says why: it needs Windows 11, an x64 PC and graphics with
+//! hardware DRM, outside private windows (bc_playready_needs). It offers nothing, as there's no
+//! other engine to give.
 
 use gpui::{
     App, Context, FontWeight, KeyBinding, MouseButton, SharedString, actions, div, prelude::*, px,
@@ -29,6 +34,16 @@ const SWITCH_WORDS: &str = "This site's video needs Safari's engine. Play it in 
 const SWITCH: &str = "Play in This Tab";
 const WORDS: &str =
     concat!("This site's video needs a module ", env!("APP_NAME"), " doesn't have yet.");
+const PLAYREADY_WINDOWS_11: &str =
+    concat!("This site's video needs Windows 11, where ", env!("APP_NAME"), " plays it.");
+const PLAYREADY_X64: &str = concat!(
+    "This site's video needs an Intel or AMD PC. ",
+    env!("APP_NAME"),
+    " can't play it on ARM."
+);
+const PLAYREADY_HARDWARE: &str =
+    "This site's video needs hardware DRM, which this PC's graphics don't offer.";
+const PLAYREADY_PRIVATE: &str = "This site's video doesn't play in a private window.";
 const OPEN: &str = "Open in Safari";
 /// A private window's page leaves it for Safari's own window, which keeps history.
 const OPEN_PRIVATE: &str = "Open in Safari, not private";
@@ -37,6 +52,29 @@ const CLOSE_TIP: &str = "Don't Show for This Site";
 const CLOSE_KEY: &str = "drm-note-close";
 
 actions!(drm_note, [CloseNote]);
+
+/// What Windows' PlayReady needs that the PC may lack, as the core says (bc_playready_needs).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlayReady {
+    /// Not Windows.
+    #[default]
+    None,
+    Windows11,
+    X64,
+    /// Windows 11 on x64: the graphics' hardware DRM.
+    Hardware,
+}
+
+impl PlayReady {
+    pub fn from_core(needs: i32) -> Self {
+        match u32::try_from(needs).unwrap_or(crate::bc::BC_PLAYREADY_NONE) {
+            crate::bc::BC_PLAYREADY_WINDOWS_11 => Self::Windows11,
+            crate::bc::BC_PLAYREADY_X64 => Self::X64,
+            crate::bc::BC_PLAYREADY_HARDWARE => Self::Hardware,
+            _ => Self::None,
+        }
+    }
+}
 
 /// Escape while the UI has the keyboard, over Stop's, which it falls through to unless it closes
 /// the note. The page keeps its own escape, which reaches Stop if it hands it back.
@@ -126,6 +164,18 @@ impl Shell {
         self.browser.use_system_engine(self.selected, cx);
     }
 
+    /// What the note says where it has no engine to give: on Windows, what PlayReady needs.
+    fn unplayable_words(&self) -> &'static str {
+        match self.browser.playready_needs() {
+            PlayReady::None => WORDS,
+            PlayReady::Windows11 => PLAYREADY_WINDOWS_11,
+            PlayReady::X64 => PLAYREADY_X64,
+            // A private window keeps no licence, so it's the one place a capable PC can't play.
+            PlayReady::Hardware if self.private => PLAYREADY_PRIVATE,
+            PlayReady::Hardware => PLAYREADY_HARDWARE,
+        }
+    }
+
     /// Opens the page of the tab shown in Safari. The tab keeps its page, and its note.
     fn open_in_safari(&mut self, cx: &mut Context<Self>) {
         if self.drm_note().is_none() {
@@ -162,7 +212,7 @@ impl Shell {
                     .on_click(cx.listener(|shell, _, _, cx| shell.open_in_safari(cx)))
             })
         };
-        let words = if switch { SWITCH_WORDS } else { WORDS };
+        let words = if switch { SWITCH_WORDS } else { self.unplayable_words() };
         // Shown under the pointer, as a row's ×, and always to VoiceOver's cursor, which is no
         // pointer. It takes clicks either way, as the pointer is over the card to click it.
         let close = card_close(&self.palette, CLOSE_KEY)
@@ -201,7 +251,7 @@ mod tests {
 
     use gpui::{App, AppContext, Modifiers, TestAppContext};
 
-    use super::CLOSE_KEY;
+    use super::{CLOSE_KEY, PLAYREADY_PRIVATE, PLAYREADY_WINDOWS_11, PlayReady, WORDS};
 
     use crate::shell::{Folders, Page, Question, Shell, bind_keys, recorder::Recorder};
 
@@ -373,6 +423,39 @@ mod tests {
         cx.run_until_parked();
         assert!(host.take().contains(&"close media note 10".to_string()));
         shell.read_with(cx, |shell, _| assert!(shell.drm_note().is_none()));
+    }
+
+    /// On Windows the note shows only where PlayReady can't play, and says what the PC lacks:
+    /// Windows 11 first, then an x64 PC, then the graphics' hardware DRM.
+    #[gpui::test]
+    fn on_windows_the_note_says_what_playready_needs(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.microsoft.playready", cx);
+            assert_eq!(shell.unplayable_words(), WORDS, "a Mac or Linux note named Windows");
+            let said = |needs| {
+                host.playready.set(needs);
+                shell.unplayable_words()
+            };
+            assert!(said(PlayReady::Windows11).contains("Windows 11"));
+            assert!(said(PlayReady::X64).contains("ARM"));
+            assert!(said(PlayReady::Hardware).contains("hardware DRM"));
+        });
+    }
+
+    /// A private window can't keep PlayReady's licences, so on a PC that plays, the note says
+    /// that's why, and elsewhere still what the PC lacks.
+    #[gpui::test]
+    fn a_private_window_says_it_cant_play(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.private = true;
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            host.playready.set(PlayReady::Hardware);
+            assert_eq!(shell.unplayable_words(), PLAYREADY_PRIVATE);
+            host.playready.set(PlayReady::Windows11);
+            assert_eq!(shell.unplayable_words(), PLAYREADY_WINDOWS_11);
+        });
     }
 
     /// Escape with the UI focused closes the note in front, and with none it stops, as before:
