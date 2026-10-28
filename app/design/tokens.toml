@@ -584,6 +584,8 @@ chip-width = 56.0
 chip-gap = 6.0
 # Ours, for the Profiles tab: rows as tall as a button's, so they're even with and without one.
 profile-row = 40.0
+# Ours, for the Passwords tab: a login's username under its site, a size down, in its row.
+username-size = 11.0
 bar = 0x282a2a
 bar-line = 0x303131
 background = 0x202222
@@ -603,6 +605,8 @@ knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
 profile-tile = 0x8e8e93
+# Ours: System Settings' Passwords tile is grey too.
+password-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
@@ -915,6 +919,11 @@ tool-pitch = 28.0
 # The URL field's words with no page shown: the command bar's placeholder, which a click opens
 # over them, at white 0.32, which is to the host's 0.60 as the bar's placeholder is to its text.
 url-placeholder = 0xffff_ff52
+# The password manager's key after the host (ours, for Chrome's key icon), drawn as the engine's
+# compass is, 12 pt and 5 after the host, and taking clicks 4 around it.
+key-gap = 5.0
+key-glyph = 12.0
+key-reach = 4.0
 
 [shell.library]
 # Where the card's left edge goes while the Library is open: the Library's right edge, which is
