@@ -39,7 +39,7 @@ use crate::tokens::text;
 use found::{Found, Page, Tab};
 use plan::{Add, Counts, Existing, Plan, ProfileRef, Target};
 use read::{Kind, ReadError};
-use sources::{Family, Roots, Source};
+use sources::{Family, Os, Roots, Source};
 
 /// What the import asks of the browser: the core's calls, which the tests stand in for.
 pub trait Host {
@@ -319,6 +319,8 @@ pub struct ImportView {
     /// The passwords file the last import read, while Done offers to delete it, as it holds them
     /// in plain text. The view keeps its path, never its contents.
     passwords_file: Option<PathBuf>,
+    /// The system it runs on, for where the browsers it names export their passwords.
+    os: Os,
 }
 
 impl EventEmitter<ImportEvent> for ImportView {}
@@ -336,8 +338,9 @@ impl ImportView {
     /// Finds the browsers on the machine. With `skip`, it offers to go on without importing, as
     /// the first launch's step does. It's drawn in Settings' look until `look` gives another.
     pub fn new(host: Rc<dyn Host>, skip: bool) -> ImportView {
-        let sources = importable(&host.roots());
-        let names: Vec<&str> = sources.iter().map(|source| source.browser.name).collect();
+        let roots = host.roots();
+        let sources = importable(&roots);
+        let names: Vec<String> = sources.iter().map(Source::name).collect();
         // check.sh waits for this line.
         log!("browser: import found {}", names.join(", "));
         ImportView {
@@ -348,6 +351,7 @@ impl ImportView {
             step: Step::List,
             switched: None,
             passwords_file: None,
+            os: roots.os,
         }
     }
 
@@ -374,7 +378,7 @@ impl ImportView {
     pub fn running(&self) -> Option<SharedString> {
         match &self.step {
             Step::Running { source, .. } => {
-                Some(format!("Importing from {}…", self.sources[*source].browser.name).into())
+                Some(format!("Importing from {}…", self.sources[*source].name()).into())
             }
             Step::Passwords => Some("Importing passwords…".into()),
             _ => None,
@@ -391,7 +395,7 @@ impl ImportView {
 
     fn pick(&mut self, source: usize, cx: &mut Context<Self>) {
         // check.sh waits for this line.
-        log!("browser: import pick {}", self.sources[source].browser.name);
+        log!("browser: import pick {}", self.sources[source].name());
         let picked = read::kinds(&self.sources[source]).to_vec();
         self.step = Step::Pick { source, picked };
         cx.notify();
@@ -446,7 +450,7 @@ impl ImportView {
         let Step::Running { source, run } = &mut self.step else {
             return;
         };
-        let name = self.sources[*source].browser.name;
+        let name = self.sources[*source].name();
         let found = match found {
             Ok(found) => found,
             Err(ReadError::NoAccess) => {
@@ -538,12 +542,12 @@ impl ImportView {
         let Step::Running { source, run } = &self.step else {
             return;
         };
-        let name = self.sources[*source].browser.name;
+        let name = self.sources[*source].name();
         let counts = Counts {
             pages: run.pages,
             ..run.counts
         };
-        self.finish(summary(name, counts), cx);
+        self.finish(summary(&name, counts), cx);
     }
 
     fn finish(&mut self, said: impl Into<SharedString>, cx: &mut Context<Self>) {
@@ -631,7 +635,7 @@ impl ImportView {
     /// user can let this app read them.
     fn no_access(&self, source: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
         let look = &self.look;
-        let name = self.sources[source].browser.name;
+        let name = self.sources[source].name();
         let open = button(look, "import-full-disk-access", "Open System Settings")
             .on_click(cx.listener(|view, _, _, _| view.host.open_full_disk_access()));
         let back = button(look, "import-back", "Back")
@@ -678,7 +682,7 @@ impl ImportView {
                 .on_click(cx.listener(move |view, _, _, cx| view.pick(index, cx)));
             detailed(
                 look,
-                source.browser.name.into(),
+                source.name().into(),
                 profiles.join(", ").into(),
                 choose.into_any_element(),
             )
@@ -687,20 +691,9 @@ impl ImportView {
     }
 
     /// The row for a file of passwords, after the browsers, as no browser's passwords come from its
-    /// files, with where each browser found keeps its export, else the four most come from.
+    /// files, with where each browser found keeps its export.
     fn passwords(&self, cx: &mut Context<Self>) -> gpui::Div {
         let look = &self.look;
-        let mut browsers: Vec<&sources::Browser> = Vec::new();
-        for source in &self.sources {
-            if !browsers.iter().any(|each| each.name == source.browser.name) {
-                browsers.push(source.browser);
-            }
-        }
-        if browsers.is_empty() {
-            let named = |name: &str| sources::BROWSERS.iter().find(|each| each.name == name);
-            let four = ["Arc", "Chrome", "Firefox", "Safari"];
-            browsers = four.into_iter().filter_map(named).collect();
-        }
         let from = match self.sources.first() {
             Some(source) => source.browser.name,
             None => "another browser",
@@ -713,8 +706,8 @@ impl ImportView {
             format!("Export them from {from} as a file, then choose it here.").into(),
             choose.into_any_element(),
         );
-        let places = browsers.into_iter().map(|browser| {
-            line(format!("{}: {}", browser.name, export_place(browser)))
+        let places = export_places(&self.sources, self.os).into_iter().map(|place| {
+            line(place)
                 .text_size(px(text::SMALL))
                 .text_color(look.detail)
         });
@@ -727,7 +720,7 @@ impl ImportView {
 
     fn picking(&self, source: usize, picked: &[Kind], cx: &mut Context<Self>) -> gpui::AnyElement {
         let look = &self.look;
-        let name = self.sources[source].browser.name;
+        let name = self.sources[source].name();
         let rows = read::kinds(&self.sources[source]).iter().map(|&kind| {
             let slid = match self.switched {
                 Some((switched, at)) if switched == kind => {
@@ -802,7 +795,29 @@ fn line(text: impl Into<SharedString>) -> gpui::Div {
     div().px(px(PADDING)).child(text.into())
 }
 
-/// Where `browser` exports its passwords to a file.
+/// Where each browser found exports its passwords, once a browser, else the four most people on
+/// `os` come from.
+fn export_places(sources: &[Source], os: Os) -> Vec<String> {
+    let mut browsers: Vec<&sources::Browser> = Vec::new();
+    for source in sources {
+        if !browsers.iter().any(|each| each.name == source.browser.name) {
+            browsers.push(source.browser);
+        }
+    }
+    if browsers.is_empty() {
+        let four = match os {
+            Os::Mac => ["Arc", "Chrome", "Firefox", "Safari"],
+            Os::Windows => ["Chrome", "Edge", "Firefox", "Arc"],
+            Os::Linux => ["Firefox", "Chrome", "Chromium", "Brave"],
+        };
+        let named = |name: &str| sources::BROWSERS.iter().find(|each| each.name == name);
+        browsers = four.into_iter().filter_map(named).collect();
+    }
+    let place = |browser: &sources::Browser| format!("{}: {}", browser.name, export_place(browser));
+    browsers.into_iter().map(place).collect()
+}
+
+/// Where `browser` exports its passwords to a file, the same on each system it runs on.
 fn export_place(browser: &sources::Browser) -> &'static str {
     match (browser.name, browser.family) {
         ("Arc", _) => "arc://password-manager/settings › Export passwords",
