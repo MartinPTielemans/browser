@@ -582,6 +582,10 @@ void ShowPages(views::Widget* widget,
   }
   views->LayOut();
   views->ShowThrough();
+  // With no page, the keys are the UI's, as on the Mac, where its view is all that's left.
+  if (panes.empty()) {
+    views->UITakesKeyboard();
+  }
 }
 
 void HidePages(views::Widget* widget) {
