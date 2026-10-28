@@ -309,6 +309,8 @@ fn on_its_way_to_the_submenu_the_pointer_crosses_other_rows_without_closing_it()
     let crossing = point(sub.left() - px(10.), below.y);
     assert!(menu.moved(crossing, now + Duration::from_millis(30)), "in the safe triangle");
     assert_eq!(menu.highlights(), [Some(5), None], "Move to stays highlighted, its submenu open");
+    menu.moved(crossing, now + Duration::from_millis(31));
+    assert_eq!(menu.highlights(), [Some(5), None], "the same move again isn't a rest's end");
 
     menu.rested(now + Duration::from_millis(100));
     assert_eq!(menu.highlights(), [Some(5), None], "not yet");

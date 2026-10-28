@@ -208,6 +208,10 @@ top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d,
 ../tools/window-screenshot.sh "$pid" "$out/fullscreen-menu.png" || fail "no window to capture"
 send key escape
 expect '^browser: menu closed$' "escape didn't close the +'s menu in full screen"
+# The + took the keyboard for the UI, and the page's keys below need it back.
+send click $page_point
+send state
+in_browser RenderWidgetHostViewCocoa "after a click on the page under the closed +'s menu"
 send fullscreen
 expect '^browser: window left full screen$' "the window didn't leave full screen"
 check_layout "after full screen"
