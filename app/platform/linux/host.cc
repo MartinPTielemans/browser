@@ -195,6 +195,8 @@ void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
 
 void host_share_png(const uint8_t* png, size_t size, void* view, double x, double y, double width, double height, bool messages) {}
 
+// Nothing for the host to do: the UI asks the core next (focus_ui in main.rs), which takes the
+// keyboard from the page and, on X11, puts the X server's focus on GPUI's window.
 void host_focus(void* view) {}
 
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
