@@ -1,0 +1,15 @@
+diff --git i/crates/gpui_wgpu/Cargo.toml w/crates/gpui_wgpu/Cargo.toml
+index 3ce9dcecc4..ce6de4149b 100644
+--- i/crates/gpui_wgpu/Cargo.toml
++++ w/crates/gpui_wgpu/Cargo.toml
+@@ -42,7 +42,9 @@ gpui_util.workspace = true
+ font-kit = { workspace = true, optional = true }
+ 
+ [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+-wgpu = { workspace = true, features = ["std", "metal", "gles", "vulkan", "wgsl", "webgpu"] }
++# Vulkan alone: GLES's EGL makes wayland-sys open libwayland by name, for every crate, which embedded
++# in chrome loads the system's copy beside the one chrome's wl_display is from (gpui_linux).
++wgpu = { workspace = true, features = ["std", "metal", "vulkan", "wgsl", "webgpu"] }
+ 
+ [target.'cfg(not(any(target_os = "linux", target_os = "freebsd")))'.dependencies]
+ wgpu = { workspace = true, default-features = true }

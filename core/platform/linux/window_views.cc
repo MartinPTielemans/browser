@@ -12,6 +12,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "base/scoped_observation.h"
+#include "browser_core/platform/linux/wayland.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tracker.h"
@@ -30,8 +31,8 @@
 // a native view in it the way an NSView goes over the app's on the Mac. Here the app's UI is a
 // child X window that fills the window, and each page shown sits in a child widget of its own, a
 // child X window above the UI's. Chromium makes every widget's X window on the root, so the core
-// puts these inside the browser window itself. On a Wayland desktop this runs under XWayland: two
-// Wayland connections, GPUI's and Chromium's, can't put one's surface inside the other's.
+// puts these inside the browser window itself. On Wayland, each function here hands over to
+// wayland.cc.
 
 namespace browser_core::platform {
 
@@ -289,6 +290,10 @@ views::NativeWidget* NewNativeWidget(views::Widget* widget) {
 }
 
 void AddWindowViews(views::Widget* widget, void* ui_view) {
+  if (OnWayland()) {
+    wayland::AddWindowViews(widget);
+    return;
+  }
   // The app's UI is its X window's id. The app makes it unmapped, so no window manager has taken
   // it as a window of its own.
   const auto ui = static_cast<x11::Window>(reinterpret_cast<uintptr_t>(ui_view));
@@ -309,6 +314,10 @@ void ShowPages(views::Widget* widget,
                size_t focused,
                uint32_t ring_color,
                std::optional<SidePanelPage> side_panel) {
+  if (OnWayland()) {
+    wayland::ShowPages(widget, panes, corner_radius, std::move(side_panel));
+    return;
+  }
   WindowViews* views = ViewsOf(widget);
   if (!views) {
     return;
@@ -384,6 +393,10 @@ void ShowPages(views::Widget* widget,
 }
 
 void HidePages(views::Widget* widget) {
+  if (OnWayland()) {
+    wayland::HidePages(widget);
+    return;
+  }
   WindowViews* views = ViewsOf(widget);
   if (!views) {
     return;
@@ -399,6 +412,9 @@ void HidePages(views::Widget* widget) {
 }
 
 bool KeyboardForPage(views::Widget* widget) {
+  if (OnWayland()) {
+    return wayland::KeyboardForPage(widget);
+  }
   WindowViews* views = ViewsOf(widget);
   const x11::Window focus = InputFocus();
   // The window itself has it as it opens, or once the view that had it went.
@@ -419,6 +435,10 @@ bool KeyboardForPage(views::Widget* widget) {
 }
 
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
+  if (OnWayland()) {
+    wayland::KeepKeyboard(widget, std::move(change));
+    return;
+  }
   WindowViews* views = ViewsOf(widget);
   const x11::Window had = InputFocus();
   aura::WindowTracker focused;
