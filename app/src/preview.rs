@@ -1631,6 +1631,10 @@ impl site_controls::Host for PreviewSiteControls {
     }
 
     fn tooltip(&self, _: Option<(SharedString, browser::tooltip::Anchor)>, _: &mut App) {}
+
+    fn has_share_sheet(&self) -> bool {
+        cfg!(any(target_os = "macos", target_os = "windows"))
+    }
 }
 
 /// A made-up site, with permissions of each value and one a policy sets, in Chrome's words, the
