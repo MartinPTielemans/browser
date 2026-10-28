@@ -596,6 +596,15 @@ BC_EXPORT void* bc_wayland_display(void (*dispatched)(void));
 // |ui_view|, which is null there, then follows window_resized.
 BC_EXPORT void* bc_window_wayland_surface(bc_id window, double* width, double* height);
 
+// On Linux under Wayland, where every key reaches both the browser window, for its pages, and the
+// app's UI: gives the keyboard in |window| to the UI, as a click in the UI does, and the page that
+// had it lets it go. A click in a page, or the core focusing one, takes it back. On X11 the X
+// server's focus says whose the keys are, and the core follows it.
+BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
+
+// On Linux, whether the keys in |window| are the app's UI's rather than a page's.
+BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
+
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its
 // sidebar's width, and goes full screen if it was. The core saves them as they

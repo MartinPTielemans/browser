@@ -4,11 +4,6 @@
 #ifndef BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
 #define BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
 
-#include <optional>
-
-#include "base/containers/span.h"
-#include "base/functional/callback_forward.h"
-#include "browser_core/platform/window_views.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/widget/widget.h"
 
@@ -32,17 +27,11 @@ void* WaylandSurfaceOf(views::Widget* widget, gfx::Size* size);
 // and take the clicks the pages don't.
 void SetUpWaylandWindow(views::Widget::InitParams& params, views::WidgetDelegate& delegate);
 
-// window_views.h on Wayland, where the X11 versions hand over.
-namespace wayland {
-void AddWindowViews(views::Widget* widget);
-void ShowPages(views::Widget* widget,
-               base::span<const Pane> panes,
-               double corner_radius,
-               std::optional<SidePanelPage> side_panel);
-void HidePages(views::Widget* widget);
-bool KeyboardForPage(views::Widget* widget);
-void KeepKeyboard(views::Widget* widget, base::OnceClosure change);
-}  // namespace wayland
+// Gives the keyboard in |widget|'s window to the app's UI (bc_window_ui_takes_keyboard), and whether
+// the UI has it (bc_window_keyboard_is_ui). In window_views.cc, as on X11 the core follows the X
+// server's focus.
+void UITakesKeyboard(views::Widget* widget);
+bool KeyboardIsUI(views::Widget* widget);
 
 }  // namespace browser_core::platform
 
