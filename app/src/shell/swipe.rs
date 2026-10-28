@@ -36,6 +36,26 @@ impl Shell {
         pages
     }
 
+    /// The sidebar's last child while the Spaces' pages move, which notes how long the frame took
+    /// it from `started`, as it was built, to its paint: the hot path's number (principle 1).
+    pub(super) fn paging_frame(&self, started: Instant) -> Option<impl IntoElement + use<>> {
+        let frames = self.paging_frames.clone();
+        let paint = move |_, _, _: &mut Window, _: &mut gpui::App| {
+            frames.borrow_mut().push(started.elapsed().as_secs_f32() * 1000.)
+        };
+        (self.pages().len() > 1).then(|| canvas(|_, _, _| {}, paint).absolute().size_0())
+    }
+
+    /// Logs the frames drawn while the pages moved, as they settle. check.sh reads the line.
+    pub(super) fn log_paging_frames(&self) {
+        let mut frames = std::mem::take(&mut *self.paging_frames.borrow_mut());
+        frames.sort_by(f32::total_cmp);
+        let median = frames.get(frames.len().saturating_sub(1) / 2);
+        if let (Some(median), Some(max)) = (median, frames.last()) {
+            log!("browser: paged frames {}, median {median:.2} ms, max {max:.2} ms", frames.len());
+        }
+    }
+
     /// Where a swipe has taken the page of the Space it began at: with the fingers, but
     /// rubber-banding past the first and last Spaces, and past one Space either side. Past the
     /// first Space is the Library, its width away. A swipe in the Library goes back that far, to
@@ -415,12 +435,14 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use gpui::{
-        AppContext, Context, Entity, Modifiers, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase,
-        VisualTestContext, Window, point, px,
+        AppContext, Bounds, Context, Entity, Modifiers, Pixels, ScrollDelta, ScrollEvent,
+        TestAppContext, TouchPhase, VisualTestContext, Window, point, px,
     };
 
     use super::{heading, nearest};
-    use crate::shell::{Folders, SWIPE_TRACKING, Shell, Space, SpaceForm, recorder::Recorder};
+    use crate::shell::{
+        Folders, PLATE_INSET, SWIPE_TRACKING, Shell, Space, SpaceForm, recorder::Recorder,
+    };
     use crate::text_input::TextInput;
 
     fn spaces(ids: &[u64]) -> Vec<Space> {
@@ -629,6 +651,125 @@ mod tests {
         let tile_at = tile_at.expect("no tile while the cancelled form goes out");
         let at = f32::from(tile_at.center().x);
         assert!(at < rest[0] + rest[2] / 2., "the tile isn't coming in");
+    }
+
+    /// Every frame of a swipe and of a dot click's slide between Spaces of two profiles draws each
+    /// Space's URL field and favorites at its page's offset: the shown Space's live ones, and the
+    /// page beside's its own. Past the last Space, where the page rubber-bands, they stay put.
+    #[gpui::test]
+    fn the_url_field_and_favorites_page_with_their_space(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id: u64| {
+                (id, format!("Space {id}").into(), None, id, "".into(), "".into(), "".into())
+            };
+            shell.set_spaces(vec![space(1), space(2)], cx);
+            shell.set_space(1, cx);
+            shell.set_favorites(vec![(10, 1), (20, 2)], cx);
+        });
+        cx.run_until_parked();
+        let rest = shell.read_with(cx, |shell, _| shell.drawn_tiles()[&10][0]);
+        let favorite = |space: u64| space * 10;
+        // Draws a frame and says how many pages it drew, and for each, the offsets it had just
+        // before and after the frame (a slide's runs on the clock), and where its tile and its URL
+        // field beside were drawn.
+        type Drawn = Vec<((f32, f32), Option<f32>, Option<f32>)>;
+        let frame = |shell: &Entity<Shell>, cx: &mut VisualTestContext| -> (usize, Drawn) {
+            let before = shell.update(cx, |shell, cx| {
+                shell.tip_frames.borrow_mut().clear();
+                shell.beside_frames.borrow_mut().clear();
+                cx.notify();
+                shell.pages()
+            });
+            cx.run_until_parked();
+            shell.read_with(cx, |shell, _| {
+                let left = |frame: Option<&Bounds<Pixels>>| frame.map(|f| f32::from(f.left()));
+                let drawn = before.iter().zip(shell.pages()).map(|(&(space, x), (_, after))| {
+                    let xs = (x.min(after), x.max(after));
+                    if space == shell.space {
+                        (xs, left(shell.tip_frames.borrow().get(&favorite(space))), None)
+                    } else {
+                        let frames = shell.beside_frames.borrow();
+                        (xs, left(frames.get(&favorite(space))), left(frames.get(&0)))
+                    }
+                });
+                (before.len(), drawn.collect())
+            })
+        };
+        let at_page = |drawn: Drawn| {
+            let near = |at: f32, (low, high): (f32, f32)| at > low - 0.5 && at < high + 0.5;
+            for (xs, tile, field) in drawn {
+                let tile = tile.expect("a page drew no tile");
+                assert!(near(tile - rest, xs), "a tile at {tile} isn't with its page at {xs:?}");
+                if let Some(field) = field {
+                    assert!(near(field - PLATE_INSET, xs), "the field beside isn't at {xs:?}");
+                }
+            }
+        };
+
+        // Fingers move the second Space's page in a tenth at a time; on every frame both pages
+        // are drawn whole, and a press in the shown URL field where its page put it is its own.
+        let width = shell.read_with(cx, |shell, _| shell.width());
+        let move_by = |shell: &Entity<Shell>, cx: &mut VisualTestContext, phase, way: f32| {
+            let event = ScrollEvent {
+                delta: ScrollDelta::Pixels(point(px(way / SWIPE_TRACKING), px(0.))),
+                touch_phase: phase,
+                ..Default::default()
+            };
+            shell.update_in(cx, |shell, window, cx| shell.scroll(&event, window, cx));
+        };
+        move_by(&shell, cx, TouchPhase::Started, 0.);
+        for _ in 0..8 {
+            move_by(&shell, cx, TouchPhase::Moved, -0.1 * width);
+            let (pages, drawn) = frame(&shell, cx);
+            assert_eq!(pages, 2, "the second Space's page isn't coming in");
+            at_page(drawn);
+        }
+        // The shown field's part still in the sidebar, at its left.
+        let x = shell.read_with(cx, |shell, _| shell.top_offset());
+        cx.simulate_click(point(px((x + width) / 2.), px(64.)), Modifiers::none());
+        assert_eq!(host.command_bars.take().len(), 1, "the URL field isn't with its page");
+        move_by(&shell, cx, TouchPhase::Ended, 0.);
+        cx.run_until_parked();
+
+        // A click on the first Space's dot, from the second: its page slides in, frame by frame.
+        shell.update(cx, |shell, cx| {
+            if let Some(settle) = &mut shell.settle {
+                settle.start -= Duration::from_secs(1);
+            }
+            shell.set_space(2, cx);
+            shell.set_space(1, cx);
+        });
+        let mut frames = 0;
+        while shell.read_with(cx, |shell, _| shell.settle.is_some()) {
+            let (pages, drawn) = frame(&shell, cx);
+            if pages == 2 {
+                frames += 1;
+                at_page(drawn);
+            }
+            shell.update(cx, |shell, _| {
+                if let Some(settle) = &mut shell.settle {
+                    settle.start -= Duration::from_millis(16);
+                }
+            });
+        }
+        assert!(frames > 5, "the slide drew {frames} frames with a page beside");
+
+        // Past the last Space, its page rubber-bands under the URL field and favorites.
+        shell.update(cx, |shell, cx| shell.set_space(2, cx));
+        shell.update(cx, |shell, _| {
+            if let Some(settle) = &mut shell.settle {
+                settle.start -= Duration::from_secs(1);
+            }
+        });
+        move_by(&shell, cx, TouchPhase::Started, 0.);
+        move_by(&shell, cx, TouchPhase::Moved, -0.5 * width);
+        let (pages, drawn) = frame(&shell, cx);
+        assert_eq!(pages, 1, "a page came in past the last Space");
+        assert!(drawn[0].0.1 < 0., "the last Space's page didn't rubber-band");
+        let tile = drawn[0].1.expect("no tile past the last Space");
+        assert!((tile - rest).abs() < 0.5, "the favorites left their place past the last Space");
     }
 
     /// A window showing Space 1 of two, back from Space 2 as a click on its dot brings it, its
