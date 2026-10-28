@@ -542,6 +542,20 @@ void MenuForegroundChanged(HWND root, bool ours) {
   }
 }
 
+// Each monitor's work area for host_screens, the primary first, as EnumDisplayMonitors finds them.
+BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM data) {
+  auto* works = reinterpret_cast<std::vector<RECT>*>(data);
+  MONITORINFO info{sizeof info};
+  if (GetMonitorInfoW(monitor, &info)) {
+    if (info.dwFlags & MONITORINFOF_PRIMARY) {
+      works->insert(works->begin(), info.rcWork);
+    } else {
+      works->push_back(info.rcWork);
+    }
+  }
+  return TRUE;
+}
+
 }  // namespace
 
 extern "C" {
@@ -574,14 +588,38 @@ void host_watch_finished_launching(void (*finished)(void)) {
   finished();
 }
 
-// shortcut: no screens or window frame yet, so windows open where host_centered puts them and
-// aren't brought back where they were.
-size_t host_screens(double*, size_t) {
-  return 0;
+// The work area of each monitor a window may open on, in host_centered's terms (logical pixels at
+// the system scale, from the primary's top left), the primary first. Windows places the other
+// monitors around it, so their coordinates may be negative.
+size_t host_screens(double* frames, size_t count) {
+  std::vector<RECT> works;
+  EnumDisplayMonitors(nullptr, nullptr, CollectMonitor, reinterpret_cast<LPARAM>(&works));
+  const double scale = GetDpiForSystem() / 96.0;
+  for (size_t i = 0; i < works.size() && i < count; ++i) {
+    frames[i * 4] = works[i].left / scale;
+    frames[i * 4 + 1] = works[i].top / scale;
+    frames[i * 4 + 2] = (works[i].right - works[i].left) / scale;
+    frames[i * 4 + 3] = (works[i].bottom - works[i].top) / scale;
+  }
+  return works.size();
 }
 
-bool host_window_frame(void*, double*, double*, double*, double*) {
-  return false;
+// The browser window's frame, in host_centered's terms, so it comes back where it was. Left be
+// while it's maximized or minimized, as the Mac leaves a full-screen window's frame be: Windows
+// brings those back to the size they had on its own.
+bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
+  HWND root = Root(ui_view);
+  if (!root || IsIconic(root) || IsZoomed(root)) {
+    return false;
+  }
+  RECT rect{};
+  GetWindowRect(root, &rect);
+  const double scale = GetDpiForSystem() / 96.0;
+  *x = rect.left / scale;
+  *y = rect.top / scale;
+  *width = (rect.right - rect.left) / scale;
+  *height = (rect.bottom - rect.top) / scale;
+  return true;
 }
 
 // Linux's alone: GPUI's loop runs inside Chromium's there. On Windows it runs on window messages.
@@ -611,9 +649,20 @@ void host_show_window(void* ui_view) {
   SetForegroundWindow(root);
 }
 
-// shortcut: shows it in front, as host_show_window, not behind the window it follows.
-void host_show_window_behind(void* ui_view, void*) {
-  host_show_window(ui_view);
+// Shows the window right behind |above_ui_view|'s, neither key nor activating the app, as the
+// windows a relaunch brings back after the first; in front when there's no window above it.
+void host_show_window_behind(void* ui_view, void* above_ui_view) {
+  HWND root = Root(ui_view);
+  if (!root) {
+    return;
+  }
+  HWND above = Root(above_ui_view);
+  if (!above) {
+    host_show_window(ui_view);
+    return;
+  }
+  SetWindowPos(root, above, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {
