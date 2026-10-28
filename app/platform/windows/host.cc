@@ -330,7 +330,7 @@ std::vector<std::string> DraggedFiles(IDataObject* data) {
 class DropTarget final : public IDropTarget {
  public:
   explicit DropTarget(HWND holder) : holder_(holder) {
-    CoCreateInstance(__uuidof(DragDropHelper), nullptr, CLSCTX_INPROC_SERVER,
+    CoCreateInstance(CLSID_DragDropHelper, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&helper_));
   }
 
