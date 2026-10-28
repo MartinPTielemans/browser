@@ -75,6 +75,25 @@ pub fn on_leave<T: 'static>(
     })
 }
 
+/// `text` without the `javascript:` schemes it starts with, past any whitespace and control
+/// characters, as Chrome's address bar takes a paste: a page that talks the user into pasting
+/// script there can't run it. Typed, it runs, as in Chrome.
+pub fn without_javascript(text: &str) -> &str {
+    const SCHEME: &str = "javascript:";
+    let mut rest = text;
+    let mut found = false;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c.is_control());
+        match rest.get(..SCHEME.len()) {
+            Some(scheme) if scheme.eq_ignore_ascii_case(SCHEME) => {
+                found = true;
+                rest = &rest[SCHEME.len()..];
+            }
+            _ => return if found { rest } else { text },
+        }
+    }
+}
+
 pub fn bind_keys(cx: &mut App) {
     let context = Some("TextInput");
     cx.bind_keys([
@@ -178,7 +197,8 @@ impl TextInput {
     }
 
     /// Its menu has Paste and Go and Paste and Search, as an address bar's has, which dispatch
-    /// PasteAndGo and PasteAndSearch for the field's owner to take.
+    /// PasteAndGo and PasteAndSearch for the field's owner to take, and a paste loses its leading
+    /// `javascript:`, as Chrome's address bar's does.
     pub fn paste_and_go(mut self) -> Self {
         self.paste_and_go = true;
         self
@@ -403,7 +423,9 @@ impl TextInput {
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_range(None, &text.replace("\n", " "), window, cx);
+            let text = text.replace("\n", " ");
+            let text = if self.paste_and_go { without_javascript(&text) } else { &text };
+            self.replace_text_in_range(None, text, window, cx);
             self.pasted = true;
         }
     }
