@@ -2,12 +2,12 @@
 
 use std::cell::RefCell;
 
-use gpui::{TestAppContext, hsla};
+use gpui::{Bounds, Pixels, TestAppContext, hsla};
 
 use super::*;
 
 #[derive(Default)]
-struct Recorder(RefCell<Vec<String>>);
+struct Recorder(RefCell<Vec<String>>, RefCell<Vec<Bounds<Pixels>>>);
 
 impl Host for Recorder {
     fn show(&self) {
@@ -20,6 +20,10 @@ impl Host for Recorder {
 
     fn take_clicks(&self, takes: bool) {
         self.0.borrow_mut().push(format!("clicks {takes}"));
+    }
+
+    fn plate(&self, bounds: Bounds<Pixels>) {
+        self.1.borrow_mut().push(bounds);
     }
 }
 
@@ -139,4 +143,56 @@ fn an_undo_toast_runs_its_undo_with_a_click_on_the_button(cx: &mut TestAppContex
     });
     cx.update(|cx| run(point(px(0.), px(0.)), cx));
     assert_eq!(undone.get(), 1);
+}
+
+/// The toast's window ends below the plate, where its shadow falls, and the shadow fades out
+/// before the window's edge. Above and right of it the window's edge is the browser window's.
+#[test]
+fn the_toasts_shadow_fades_out_inside_its_window() {
+    let reach = Level::Popover.reach();
+    for (height, top) in [(HEIGHT, TOP), (NOTE_HEIGHT, NOTE_TOP)] {
+        let below = WINDOW_HEIGHT - top - height;
+        assert!(below >= reach.below, "{below} below a toast of {height}, {reach:?}");
+    }
+}
+
+/// Only the plate takes the clicks, so the host is told where it is in the window: the toast's
+/// own size at the top right, however wide its words and buttons make it, once it has come to
+/// rest, since it's drawn scaled until then.
+#[gpui::test]
+fn the_host_is_told_where_the_plate_is_once_it_is_at_rest(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let undo = Rc::new(|_: &mut App| {});
+    cx.update(|cx| show_undo("Removed from Favorites", undo, TIME, cx));
+    cx.run_until_parked();
+    let window = cx.update(|cx| cx.global::<ToastWindow>().0);
+    // Through the any-window handle, since drawing renders the toast the other would lease.
+    let draw = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx)).unwrap()
+        })
+    };
+    draw(cx);
+    assert!(host.1.take().is_empty(), "told while the toast was still arriving");
+    // Its arrival was three seconds ago.
+    cx.update(|cx| {
+        window
+            .update(cx, |toast, _, _| {
+                let shown = toast.shown.as_mut().unwrap();
+                shown.shown = Some(Instant::now() - Duration::from_secs(3));
+            })
+            .unwrap()
+    });
+    draw(cx);
+    draw(cx);
+    let plates = host.1.take();
+    // Drawn twice, and told once.
+    assert_eq!(plates.len(), 1, "{plates:?}");
+    let plate = plates[0];
+    assert_eq!(f32::from(plate.size.height), HEIGHT);
+    assert_eq!(f32::from(plate.origin.y), TOP);
+    assert_eq!(f32::from(plate.right()), WINDOW_WIDTH - RIGHT);
+    assert!(f32::from(plate.size.width) < WINDOW_WIDTH - RIGHT, "{plate:?}");
+    // The margin where the shadow falls is left of it and under it.
+    assert!(f32::from(plate.origin.x) > 0. && f32::from(plate.bottom()) < WINDOW_HEIGHT);
 }
