@@ -624,7 +624,7 @@ impl Focusable for ThemePicker {
 
 impl Render for ThemePicker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let root = div().key_context(KEY_CONTEXT).size_full().font_family(".SystemUIFont");
+        let root = div().key_context(KEY_CONTEXT).size_full().font_family(crate::face::UI);
         // The pointer's moves anywhere in the window, while something is dragged, and its release
         // always: a press and its release can both come before the next frame, which would
         // otherwise be drawn without a listener for the release.

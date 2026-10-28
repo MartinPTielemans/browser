@@ -2819,6 +2819,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
     #[cfg(target_os = "windows")]
     gpui_windows::embed();
     let app = gpui_platform::application().with_assets(shell::Assets).run_embedded(|cx| {
+        browser::face::register(cx);
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
         shell::bind_keys(cx);

@@ -1153,7 +1153,7 @@ impl Render for ContextMenu {
         // was just given still reaches it.
         let root = div()
             .size_full()
-            .font_family(".SystemUIFont")
+            .font_family(crate::face::UI)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|menu, event: &KeyDownEvent, _, cx| menu.key_down(event, cx)));
         let Some(shown) = self.shown.as_ref() else { return root };

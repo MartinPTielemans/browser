@@ -347,7 +347,7 @@ fn field_bottom_left() -> Point<Pixels> {
 impl Render for OfferPrompt {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The browser's shortcuts work here too, below the offer's own keys.
-        let root = div().key_context(shell::KEY_CONTEXT).size_full();
+        let root = div().key_context(shell::KEY_CONTEXT).size_full().font_family(crate::face::UI);
         let Some(offer) = self.offer() else {
             return root;
         };
