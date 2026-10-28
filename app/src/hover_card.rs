@@ -333,6 +333,8 @@ pub fn answered(request: u64, picture: Option<PagePicture>, cx: &mut App) {
             return;
         };
         let Some(picture) = picture else {
+            // check.sh reads this line.
+            log!("browser: hover card not pictured {tab}");
             return;
         };
         card.pictures.insert(tab, picture);
