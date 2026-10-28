@@ -36,6 +36,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod drop_targets;
 mod find_bar;
+mod import_host;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
@@ -1840,6 +1841,10 @@ impl Browser for Engine {
         unsafe { bc::bc_profile_create(name.as_ptr()) }
     }
 
+    fn import_host(&self) -> Rc<dyn browser::import::Host> {
+        Rc::new(import_host::CoreImport)
+    }
+
     fn delete_profile(&self, profile: u64, _: &mut App) {
         unsafe { bc::bc_profile_delete(profile) };
     }
@@ -3512,6 +3517,8 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_spaces(spaces.clone(), cx);
     });
     update_app(settings::refresh);
+    // After the update under way, as an import waiting here makes Spaces of its own.
+    update_app_later(import_host::spaces_changed);
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
