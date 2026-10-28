@@ -39,7 +39,11 @@ jobs:
       # A job per 3 GB of the job's 22 GB.
       BUILD_JOBS: 7
     steps:
+      # With its history, where tree.sh finds the versions of our patches a kept tree from before it
+      # kept copies has in it.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # Dawn's code generators need the Go its go.mod names.
       - uses: actions/setup-go@v5
         with:

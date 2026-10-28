@@ -14,9 +14,15 @@ fail() {
 }
 
 # The app calls into chrome through the C API, so a chrome that doesn't export it can't run one.
+# Read whole before it's searched: grep -q stops at the first match, and under pipefail nm's
+# broken pipe would fail the check.
 nm=$out/../../third_party/llvm-build/Release+Asserts/bin/llvm-nm
-"$nm" -D --defined-only "$out/chrome" | grep -q ' T bc_main$' ||
+exports=$("$nm" -D --defined-only "$out/chrome")
+grep -q ' T bc_main$' <<<"$exports" ||
   fail "chrome doesn't export the core's C API (chrome.map, core/BUILD.gn's linux_exports)"
+# And libwayland's, which the app's UI calls on Chromium's display.
+grep -q ' T wl_display_dispatch_queue_pending$' <<<"$exports" ||
+  fail "chrome doesn't export libwayland's client API (chromium-core-wayland.patch, linux_exports)"
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
