@@ -116,6 +116,17 @@ impl Shell {
     /// Fingers or a wheel over the sidebar. Across it they page between Spaces, and along it they
     /// scroll the list. Returns whether paging took the event.
     fn scroll(&mut self, event: &ScrollEvent, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.scroll_at(event, Instant::now(), window, cx)
+    }
+
+    /// The same, with the event come at `now`.
+    fn scroll_at(
+        &mut self,
+        event: &ScrollEvent,
+        now: Instant,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         // The form pages back to the Space it was made from, but not while another Space shows.
         let form_hidden = self.form.is_some() && self.form().is_none();
         if form_hidden || self.renaming.is_some() || self.drag.is_some() {
@@ -139,7 +150,7 @@ impl Shell {
                     turned: None,
                 });
             }
-            TouchPhase::Ended | TouchPhase::Cancelled => return self.release(window, cx),
+            TouchPhase::Ended | TouchPhase::Cancelled => return self.release(now, window, cx),
             TouchPhase::Moved => {}
         }
         let Some(mut swipe) = self.swipe.take() else {
@@ -157,7 +168,7 @@ impl Shell {
                 self.library_motion = None;
             } else if across
                 && let Some(settle) = self.settle.take()
-                && let Some(x) = settle.offset()
+                && let Some(x) = settle.offset_at(now)
             {
                 (swipe.from, swipe.way, swipe.nearest) = (settle.space, x, settle.space);
             }
@@ -177,7 +188,7 @@ impl Shell {
                 // check.sh waits for this line.
                 log!("browser: library past its end");
             }
-            let (now, x) = (Instant::now(), self.swiped_to(&swipe));
+            let x = self.swiped_to(&swipe);
             swipe.samples.push_back((now, x));
             while swipe.samples.front().is_some_and(|&(at, _)| now - at > SWIPE_HISTORY) {
                 swipe.samples.pop_front();
@@ -206,12 +217,12 @@ impl Shell {
     /// The fingers lifted. The pages settle on the next Space in the direction of a flick, else
     /// on the one nearest its place, keeping the release's speed if it's heading there. Off the
     /// form, that's Cancel, its page going out as the Space it was made from settles.
-    fn release(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    fn release(&mut self, now: Instant, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(swipe) = self.swipe.take().filter(|swipe| swipe.across == Some(true)) else {
             return false;
         };
         self.swiped = true;
-        let (now, x) = (Instant::now(), self.swiped_to(&swipe));
+        let x = self.swiped_to(&swipe);
         let recent = swipe.samples.iter().filter(|&&(at, _)| now - at <= SWIPE_HISTORY);
         let velocity = match (recent.clone().next(), recent.last()) {
             (Some(&(start, from)), Some(&(end, to))) if end > start => {
@@ -267,18 +278,19 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> bool {
         let ScrollDelta::Pixels(delta) = event.delta else {
-            return self.scroll(event, window, cx);
+            return self.scroll_at(event, at, window, cx);
         };
-        let cut = self.web_wheel.event(f32::from(delta.x.abs().max(delta.y.abs())), at);
+        let larger = if delta.x.abs() >= delta.y.abs() { delta.x } else { delta.y };
+        let cut = self.web_wheel.event(f32::from(larger), at);
         let phase = |touch_phase, delta| ScrollEvent { touch_phase, delta, ..event.clone() };
         let still = ScrollDelta::Pixels(Point::default());
         if cut.lifted {
-            self.scroll(&phase(TouchPhase::Ended, still), window, cx);
+            self.scroll_at(&phase(TouchPhase::Ended, still), at, window, cx);
         }
         if cut.landed {
-            self.scroll(&phase(TouchPhase::Started, still), window, cx);
+            self.scroll_at(&phase(TouchPhase::Started, still), at, window, cx);
         }
-        let took = self.scroll(&phase(TouchPhase::Moved, event.delta), window, cx);
+        let took = self.scroll_at(&phase(TouchPhase::Moved, event.delta), at, window, cx);
         let lift = phase(TouchPhase::Ended, still);
         self.web_wheel_quiet = Some(cx.spawn_in(window, async move |shell, cx| {
             cx.background_executor().timer(GAP).await;
@@ -296,7 +308,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         if self.web_wheel.quiet(now) {
-            self.scroll(lift, window, cx);
+            self.scroll_at(lift, now, window, cx);
         }
     }
 
@@ -369,7 +381,7 @@ impl Shell {
                         };
                         (over || shell.swipe.is_some())
                             && match WEB {
-                                true => shell.web_scroll(event, Instant::now(), window, cx),
+                                true => shell.web_scroll(event, wheel_time(), window, cx),
                                 false => shell.scroll(event, window, cx),
                             }
                     });
@@ -426,6 +438,23 @@ impl Shell {
     }
 }
 
+/// When the browser's wheel event being handled came, by its own clock: a page busy drawing hears
+/// the trackpad's events late, and several summed into one.
+#[cfg(target_family = "wasm")]
+fn wheel_time() -> Instant {
+    let performance = web_sys::window().and_then(|window| window.performance());
+    let age = performance.map_or(0., |performance| performance.now() - gpui_web::wheel_time_stamp());
+    // A browser that gives no stamp leaves the event as old as the page.
+    let age = if (0. ..1000.).contains(&age) { age } else { 0. };
+    let now = Instant::now();
+    now.checked_sub(std::time::Duration::from_secs_f64(age / 1000.)).unwrap_or(now)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn wheel_time() -> Instant {
+    Instant::now()
+}
+
 /// The Space in `spaces` whose page comes in beside `space`'s while that's at `x`: the one before
 /// it for `x` right of its place, else the one after. The form's, `(space, from)`, comes in from
 /// the Space it was made from, before it, and has none after.
@@ -460,6 +489,9 @@ fn nearest(
 fn heading(x: f32, velocity: f32, width: f32) -> f32 {
     if velocity.abs() >= SWIPE_FLICK { velocity.signum() * width } else { x }
 }
+
+#[cfg(test)]
+mod model;
 
 #[cfg(test)]
 mod tests {
@@ -750,10 +782,11 @@ mod tests {
         [40.; 12].into_iter().chain(tail).collect()
     }
 
-    /// `deltas` across the sidebar, a browser's wheel events 16 ms apart from `start`, with the
-    /// quiet timer's lift where a gap leaves one. Returns when the last came.
+    /// `deltas` across the sidebar, a browser's wheel events 16 ms apart from `start`, the core
+    /// showing each Space the shell asks for as it asks. Returns when the last came.
     fn wheel_events(
         shell: &Entity<Shell>,
+        host: &Recorder,
         cx: &mut VisualTestContext,
         deltas: &[f32],
         start: Instant,
@@ -770,6 +803,9 @@ mod tests {
             for (step, &dx) in deltas.iter().enumerate() {
                 at = start + Duration::from_millis(16 * step as u64);
                 shell.web_scroll(&event(dx), at, window, cx);
+                if let Some(&space) = host.shown.borrow().last() {
+                    shell.set_space(space, cx);
+                }
             }
             at
         })
@@ -796,17 +832,17 @@ mod tests {
         // The second swipe 25 events into the first one's tail.
         let (shell, host, window) = three_spaces(cx, 1);
         let start = Instant::now();
-        let first = wheel_events(&shell, window, &swipe[..12 + 25], start);
-        let last = wheel_events(&shell, window, &swipe, first + Duration::from_millis(16));
+        let first = wheel_events(&shell, &host, window, &swipe[..12 + 25], start);
+        let last = wheel_events(&shell, &host, window, &swipe, first + Duration::from_millis(16));
         wheel_quiet(&shell, window, last + Duration::from_millis(100));
         assert_eq!(*host.shown.borrow(), [2, 3], "the swipe in the tail");
         // Then 150, 500 and 1000 ms after the tail ends.
         for pause in [150, 500, 1000] {
             let (shell, host, window) = three_spaces(cx, 1);
-            let first = wheel_events(&shell, window, &swipe, start);
+            let first = wheel_events(&shell, &host, window, &swipe, start);
             wheel_quiet(&shell, window, first + Duration::from_millis(60));
             let next = first + Duration::from_millis(pause);
-            let last = wheel_events(&shell, window, &swipe, next);
+            let last = wheel_events(&shell, &host, window, &swipe, next);
             wheel_quiet(&shell, window, last + Duration::from_millis(100));
             assert_eq!(*host.shown.borrow(), [2, 3], "the swipe {pause} ms after the tail");
         }
@@ -818,7 +854,7 @@ mod tests {
     fn a_slow_swipe_on_the_web_moves_one_space(cx: &mut TestAppContext) {
         let (shell, host, window) = three_spaces(cx, 1);
         let slow: Vec<f32> = [8., 7., 6., 8., 9., 7., 8., 6., 8., 9.].repeat(6);
-        let last = wheel_events(&shell, window, &slow, Instant::now());
+        let last = wheel_events(&shell, &host, window, &slow, Instant::now());
         assert!(host.shown.borrow().is_empty(), "the Space moved before the fingers lifted");
         wheel_quiet(&shell, window, last + Duration::from_millis(100));
         assert_eq!(*host.shown.borrow(), [2]);

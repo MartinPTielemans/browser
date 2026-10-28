@@ -1,8 +1,25 @@
 diff --git a/crates/gpui_web/src/events.rs b/crates/gpui_web/src/events.rs
-index 96fb383617..ef6fe0abea 100644
+index 96fb383617..58f2a59158 100644
 --- a/crates/gpui_web/src/events.rs
 +++ b/crates/gpui_web/src/events.rs
-@@ -178,6 +178,11 @@ impl WebWindowInner {
+@@ -12,6 +12,16 @@ use wasm_bindgen::prelude::*;
+ use crate::ime_mirror::ImeMirror;
+ use crate::window::WebWindowInner;
+ 
++thread_local! {
++    static WHEEL_TIME_STAMP: std::cell::Cell<f64> = const { std::cell::Cell::new(0.) };
++}
++
++/// The `timeStamp` of the wheel event last dispatched, in ms on the page's clock: when the
++/// trackpad gave it, which a page busy drawing may hear well after, and with others summed in.
++pub fn wheel_time_stamp() -> f64 {
++    WHEEL_TIME_STAMP.get()
++}
++
+ pub struct WebEventListeners {
+     _handles: Vec<EventListenerHandle>,
+ }
+@@ -178,6 +188,11 @@ impl WebWindowInner {
      }
  
      fn register_viewport_changes(self: &Rc<Self>) -> Vec<EventListenerHandle> {
@@ -14,11 +31,24 @@ index 96fb383617..ef6fe0abea 100644
          let mut targets: Vec<web_sys::EventTarget> = vec![self.browser_window.clone().into()];
          if let Some(viewport) = self.browser_window.visual_viewport() {
              targets.push(viewport.into());
+@@ -643,6 +658,7 @@ impl WebWindowInner {
+         self.listen_non_passive("wheel", move |event: JsValue| {
+             let event: web_sys::WheelEvent = event.unchecked_into();
+             event.prevent_default();
++            WHEEL_TIME_STAMP.set(event.time_stamp());
+ 
+             let mouse_event: &web_sys::MouseEvent = event.as_ref();
+             let position = mouse_position_in_element(mouse_event);
 diff --git a/crates/gpui_web/src/gpui_web.rs b/crates/gpui_web/src/gpui_web.rs
-index c915084325..1b689f97fa 100644
+index c915084325..78c5392e94 100644
 --- a/crates/gpui_web/src/gpui_web.rs
 +++ b/crates/gpui_web/src/gpui_web.rs
-@@ -44,6 +44,7 @@ pub use display::WebDisplay;
+@@ -41,9 +41,12 @@ pub use dispatcher::WebDispatcher;
+ #[cfg(target_family = "wasm")]
+ pub use display::WebDisplay;
+ #[cfg(target_family = "wasm")]
++pub use events::wheel_time_stamp;
++#[cfg(target_family = "wasm")]
  pub use gpui_wgpu::WebBackendPreference;
  #[cfg(target_family = "wasm")]
  pub use http_client::{FetchCredentials, FetchHttpClient};

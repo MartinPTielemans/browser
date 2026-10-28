@@ -815,8 +815,13 @@ impl Settle {
 
     /// How far the page is from its place, or None once it's there.
     fn offset(&self) -> Option<f32> {
+        self.offset_at(Instant::now())
+    }
+
+    /// The same at `now`.
+    fn offset_at(&self, now: Instant) -> Option<f32> {
         let omega = std::f32::consts::TAU / SPACE_SETTLE;
-        let t = self.start.elapsed().as_secs_f32();
+        let t = now.duration_since(self.start).as_secs_f32();
         let decay = (-omega * t).exp();
         let rise = self.velocity + omega * self.from;
         let offset = (self.from + rise * t) * decay;

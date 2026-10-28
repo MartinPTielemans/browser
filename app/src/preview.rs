@@ -1711,6 +1711,7 @@ mod web {
                 selected: get(&space, "selected").as_string(),
             })
             .collect();
+        trace(&canvas);
         gpui_web::draw_in(canvas);
         gpui_platform::web_init();
         gpui_platform::single_threaded_web().with_assets(shell::Assets).run(move |cx| {
@@ -1745,6 +1746,40 @@ mod web {
                 log!("couldn't open the demo: {error:#}");
             }
         });
+    }
+
+    /// With `?trace` on the page, records the wheel events over the demo, when the trackpad gave each
+    /// and when the page heard it, and puts a button on the page that saves them as JSON: a real
+    /// swipe, to check what `shell::swipe`'s model assumes of a trackpad and a browser against.
+    fn trace(canvas: &web_sys::HtmlCanvasElement) {
+        const RECORD: &str = r#"
+            if (!new URLSearchParams(location.search).has("trace")) return;
+            const events = [];
+            const button = document.createElement("button");
+            const label = () => { button.textContent = `Save wheel trace (${events.length} events)`; };
+            canvas.addEventListener("wheel", (event) => {
+                const { timeStamp: stamp, deltaX: x, deltaY: y, deltaMode: mode } = event;
+                events.push({ stamp, heard: performance.now(), x, y, mode });
+                label();
+            }, { capture: true, passive: true });
+            Object.assign(button.style, { position: "fixed", right: "12px", bottom: "12px",
+                zIndex: "2147483647", font: "13px system-ui, sans-serif", padding: "6px 10px" });
+            button.onclick = () => {
+                const trace = { userAgent: navigator.userAgent, devicePixelRatio, events };
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([JSON.stringify(trace)], { type: "application/json" }));
+                link.download = "ilo-wheel-trace.json";
+                link.click();
+                events.length = 0;
+                label();
+            };
+            label();
+            document.body.append(button);
+        "#;
+        let record = js_sys::Function::new_with_args("canvas", RECORD);
+        if let Err(error) = record.call1(&JsValue::NULL, canvas) {
+            log!("couldn't record wheel events: {error:?}");
+        }
     }
 
     /// Opens the command bar and gives it the keyboard, as ⌘K (⌃K) in the demo does: the site calls
