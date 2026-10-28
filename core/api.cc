@@ -998,9 +998,9 @@ void bc_tab_capture(bc_id id, uint64_t request, bool full_page, bc_rect rect) {
   }
 }
 
-void bc_tab_picture(bc_id id, uint64_t request) {
+void bc_tab_picture(bc_id id, uint64_t request, int width, int height) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
-    browser_core::PicturePage(contents, request);
+    browser_core::PicturePage(contents, request, gfx::Size(std::max(width, 0), std::max(height, 0)));
   }
 }
 

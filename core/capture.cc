@@ -23,6 +23,7 @@
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
+#include "skia/ext/image_operations.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
@@ -30,6 +31,7 @@
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 
 namespace browser_core {
 
@@ -66,14 +68,33 @@ std::optional<Pixels> ToPixels(const SkBitmap& bitmap) {
   return pixels;
 }
 
-// The picture of a page in the system's engine, which gives a PNG.
-std::optional<Pixels> PngToPixels(std::optional<std::vector<uint8_t>> png) {
+// The size a picture |whole| pixels big takes to fit |at_most|, its shape kept: never bigger than
+// it is, and |whole| for an empty |at_most|.
+gfx::Size Fitted(gfx::Size whole, gfx::Size at_most) {
+  if (at_most.IsEmpty() || whole.IsEmpty()) {
+    return whole;
+  }
+  const float scale =
+      std::min({1.f, static_cast<float>(at_most.width()) / whole.width(),
+                static_cast<float>(at_most.height()) / whole.height()});
+  const gfx::Size fitted = gfx::ScaleToFlooredSize(whole, scale);
+  return gfx::Size(std::max(fitted.width(), 1), std::max(fitted.height(), 1));
+}
+
+// The picture of a page in the system's engine, which gives a PNG, scaled to fit |at_most|.
+std::optional<Pixels> PngToPixels(gfx::Size at_most, std::optional<std::vector<uint8_t>> png) {
   if (!png) {
     return std::nullopt;
   }
-  const SkBitmap bitmap = gfx::PNGCodec::Decode(*png);
+  SkBitmap bitmap = gfx::PNGCodec::Decode(*png);
   if (bitmap.drawsNothing()) {
     return std::nullopt;
+  }
+  const gfx::Size whole(bitmap.width(), bitmap.height());
+  const gfx::Size fitted = Fitted(whole, at_most);
+  if (fitted != whole) {
+    bitmap = skia::ImageOperations::Resize(bitmap, skia::ImageOperations::RESIZE_GOOD,
+                                           fitted.width(), fitted.height());
   }
   return ToPixels(bitmap);
 }
@@ -102,17 +123,18 @@ void PictureOnWorker(bc_id tab, uint64_t request, base::OnceCallback<std::option
 
 }  // namespace
 
-void PicturePage(content::WebContents* contents, uint64_t request) {
+void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_most) {
   const bc_id tab = Tab::IdOf(contents);
   // A page in the system's engine has nothing in Chromium's compositor: WebKit's snapshot of its
   // view stands for it, as for bc_tab_capture.
   Tab* owner = Tab::FromWebContents(contents);
   if (platform::SystemPage* page = owner ? owner->system_page() : nullptr) {
     page->Snapshot(base::BindOnce(
-        [](bc_id tab, uint64_t request, std::optional<std::vector<uint8_t>> png) {
-          PictureOnWorker(tab, request, base::BindOnce(&PngToPixels, std::move(png)));
+        [](bc_id tab, uint64_t request, gfx::Size at_most,
+           std::optional<std::vector<uint8_t>> png) {
+          PictureOnWorker(tab, request, base::BindOnce(&PngToPixels, at_most, std::move(png)));
         },
-        tab, request));
+        tab, request, at_most));
     return;
   }
   content::RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
@@ -122,9 +144,13 @@ void PicturePage(content::WebContents* contents, uint64_t request) {
   }
   // The compositor's last frame, at the display's scale, made the app's on a worker: a page in a
   // big window is millions of pixels, which the UI thread, drawing the page's next frames, has no
-  // time for. A PNG would take longer still, made here and read in the app.
+  // time for. A PNG would take longer still, made here and read in the app. A small one the
+  // compositor scales as it copies, so it costs only its own pixels.
+  const gfx::Size whole =
+      gfx::ScaleToCeiledSize(view->GetViewBounds().size(), view->GetDeviceScaleFactor());
+  const gfx::Size fitted = Fitted(whole, at_most);
   view->CopyFromSurface(
-      gfx::Rect(), gfx::Size(), base::TimeDelta(),
+      gfx::Rect(), fitted == whole ? gfx::Size() : fitted, base::TimeDelta(),
       base::BindOnce(
           [](bc_id tab, uint64_t request, const content::CopyFromSurfaceResult& result) {
             LogHandover("picture copied", "tab " + base::NumberToString(tab));

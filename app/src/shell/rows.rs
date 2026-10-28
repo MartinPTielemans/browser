@@ -133,7 +133,8 @@ impl Shell {
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(row, *hovered, cx);
-                shell.hover_tooltip(row, *hovered, cx)
+                shell.hover_tooltip(row, *hovered, cx);
+                shell.hover_card(row, *hovered, cx)
             }))
             // The ghost is a picture of a row that stays in the list.
             .when(self.a11y && !ghost, |element| self.row_access(element, row, selected))
@@ -264,7 +265,7 @@ impl Shell {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                    shell.browser.tooltip(None, cx);
+                    shell.end_hovers(cx);
                     // The first press opened or closed it.
                     if event.click_count == 2 {
                         return shell.rename_folder(folder, cx);
@@ -439,7 +440,7 @@ impl Shell {
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
             MouseButton::Left => {
-                self.browser.tooltip(None, cx);
+                self.end_hovers(cx);
                 if self.is_folder(tab) {
                     self.press_folder(tab, cx);
                 } else {
@@ -717,11 +718,13 @@ impl Shell {
                     .size_full()
             });
         // The field of a rename takes the row's clicks while it's up.
-        let row = self.row(Row::Tab(tab), plate(icon.into_any_element(), label), ghost, cx);
+        let plate = plate(icon.into_any_element(), label).child(self.framed(tab, 0.));
+        let row = self.row(Row::Tab(tab), plate, ghost, cx);
         row.children(bounds).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.browser.hover_card(crate::hover_card::Hover::Close, cx);
                     // The first press selected the tab (Dia).
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
@@ -1450,7 +1453,7 @@ mod tests {
         host.take();
         cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["select 4", "focus page"]);
+        assert_eq!(host.take(), ["card close", "select 4", "focus page"]);
         cx.simulate_mouse_up(middle, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
         assert!(host.take().is_empty(), "letting go");
@@ -1458,13 +1461,14 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_click(middle, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["focus page"], "the row shown");
+        assert_eq!(host.take(), ["card close", "focus page"], "the row shown");
 
         let close = close_button(&shell, cx, 2);
         move_to(cx, close);
         cx.simulate_click(point(px(close.0), px(close.1)), Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["close 2"], "the ✕ of a row not shown");
+        // The pointer left the row whose card the press closed.
+        assert_eq!(host.take(), ["card left 4", "close 2"], "the ✕ of a row not shown");
 
         let middle = point(px(close.0 - 100.), px(close.1));
         cx.simulate_mouse_down(middle, MouseButton::Right, Modifiers::none());
@@ -1483,7 +1487,7 @@ mod tests {
         host.take();
         cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["select 4", "focus page"]);
+        assert_eq!(host.take(), ["card close", "select 4", "focus page"]);
         let to = point(from.x, from.y - px(2. * ROW_PITCH));
         cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
@@ -1583,7 +1587,7 @@ mod tests {
         let at = point(px(favicon.0), px(favicon.1));
         cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert!(host.take().is_empty(), "the press");
+        assert_eq!(host.take(), ["card close"], "the press");
         cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
         assert_eq!(host.take(), ["back to pinned url 2", "select 2", "focus page"]);
@@ -1719,7 +1723,10 @@ mod tests {
         middle(cx, 5);
         middle(cx, 3);
         middle(cx, 2);
-        assert_eq!(host.take(), ["close 5", "close 3"]);
+        // The pointer resting on the rows it pressed shows their cards too.
+        let asked = host.take();
+        let closes: Vec<_> = asked.iter().filter(|call| !call.starts_with("card ")).collect();
+        assert_eq!(closes, ["close 5", "close 3"]);
         assert_eq!(shell.read_with(cx, |shell, _| shell.selected), 4);
     }
 

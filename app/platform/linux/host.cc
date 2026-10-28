@@ -248,6 +248,15 @@ void host_show_tooltip(void* ui_view, double left, double top, double fade) {}
 
 void host_hide_tooltip(double fade) {}
 
+// shortcut: no hover card on Linux yet; its window is never shown, so the card is off.
+void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {}
+
+void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {}
+
+void host_hide_hover_card(double fade) {}
+
+void host_watch_memory_pressure(void (*pressed)(void)) {}
+
 void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {}
 
 void host_show_link_target(void* ui_view, double left, double top, double fade) {}
