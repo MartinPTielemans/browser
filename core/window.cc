@@ -2245,6 +2245,21 @@ void Window::GiveKeyboardToPage() {
   FocusPageSoon();
 }
 
+void Window::OverlayTakesKeyboard(bool takes) {
+  if (takes) {
+    selected_under_overlay_ = selected_;
+    return;
+  }
+  // The overlay showed another tab, as the command bar does going to a page: its page takes the
+  // keyboard, as a press that shows a tab gives it. On X11 the window isn't active while the
+  // overlay has the input focus, so FocusPage passed the page over as it showed, and the window
+  // holds the keyboard for it until it's active again.
+  if (std::exchange(selected_under_overlay_, 0) != selected_ && shown_) {
+    page_had_keyboard_ = true;
+    GiveKeyboardToPage();
+  }
+}
+
 void Window::FocusPageSoon() {
   // Posted: AppKit can be part way through moving the keyboard, as when a committing page hides the
   // view that had it and Chromium makes the window key. A page view focused inside that move

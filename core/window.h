@@ -197,6 +197,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void Select(bc_id tab);
   // Gives the page shown the keyboard, from the UI if it has it (bc_window_focus_page).
   void GiveKeyboardToPage();
+  // An overlay of the app's took the window's keyboard, or gave it back
+  // (bc_window_overlay_takes_keyboard).
+  void OverlayTakesKeyboard(bool takes);
 
   // Closes the Today tabs of the Space the window shows, all but those any window shows, or all of
   // them if it shows every one, for UndoClear to bring back. Returns the Clear's id, or 0 if it
@@ -421,8 +424,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;
   bool opening_tab_ = false;
-  // Whether the keyboard was the page's as the window went out of sight, which hid the page.
+  // Whether the keyboard was the page's as the window went out of sight, which hid the page, or is
+  // the page shown's once the window is active again.
   bool page_had_keyboard_ = false;
+  // The tab selected as an overlay took the keyboard, while it has it.
+  bc_id selected_under_overlay_ = 0;
   // The tab whose page the navigation being made opens a tab beside, until that tab is inserted.
   bc_id split_with_ = 0;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;

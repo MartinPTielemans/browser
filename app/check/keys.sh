@@ -7,7 +7,8 @@
 # The command bar opens over the page with the keyboard, never showing the last query, gives the
 # keyboard back when it closes, a held escape that closes it doesn't repeat into the page, and it
 # loads what's typed in it, over https for a host typed without one, or searches DuckDuckGo for
-# words. While ⌘T's is open, "New Tab" has the selected plate. Keys
+# words. A page it opens in a new tab has the keyboard: its autofocused field gets what's typed, and
+# ⌘T opens the bar again. While ⌘T's is open, "New Tab" has the selected plate. Keys
 # typed right after ⌘T, ⌘L or ⌘F, from the page or the UI, wait for the bar it opens and land in its
 # field, a composition too, and a page that keeps ⌘F gets them after it. Japanese input composes
 # and commits in the page and in the command bar, where return and escape go to the input method
@@ -378,6 +379,26 @@ send key return
 expect '^browser: command bar go https://duckduckgo.com/?q=arc+browser$' "words in the command bar didn't search: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect '^browser: loaded [0-9]* https://duckduckgo.com/?q=arc+browser' "the search didn't load"
 ../tools/window-screenshot.sh "$pid" "$out/search.png" || fail "no window to capture"
+# A page the bar opens in a new tab has the keyboard, so its field autofocused gets what's typed
+# and the browser's shortcuts reach the UI, with no click in it first (#428, where X11 lost them).
+serve
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type "${site}autofocus.html"
+send key return
+expect "^browser: command bar go ${site}autofocus.html\$" \
+  "the command bar didn't go to the page typed: $(grep '^browser: command bar go' "$log" | tail -1)"
+expect '^browser: command bar hidden$' "going somewhere didn't close the command bar"
+expect "^browser: loaded [0-9]* ${site}autofocus.html\$" "the page typed in the bar didn't load"
+tab=$(grep "^browser: loaded [0-9]* ${site}autofocus.html\$" "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: title $tab ready\$" "the page the bar opened didn't draw"
+send type new
+expect "^browser: title $tab value new\$" \
+  "typing didn't reach the field of the page the bar opened in a new tab"
+page_shortcut t new-tab
+expect '^browser: command bar shown$' "⌘T in the page the bar opened didn't open the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # The bar draws itself before it goes on screen, so it never shows the last query: empty for a
 # new tab, and on ⌘L with the page's URL.
 awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
@@ -420,5 +441,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
 echo "$launch_bar"
