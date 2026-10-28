@@ -20,14 +20,14 @@ token=$(python3 -I -c 'import secrets; print(secrets.token_hex(32))')
 printf '{"on":true,"agents":[{"client":"mcp-client","token":"%s"}]}' "$token" > "$agents_file"
 chmod 600 "$agents_file"
 BROWSER_DRIVE=1 BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' \
-  "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
 user_tab=$(today | cut -d' ' -f1)
 await '^browser: agents server on /.*/Agents\.sock$' || fail "the saved switch didn't start the server"
 socket=$(grep '^browser: agents server on' "$log" | tail -1 | sed 's/^browser: agents server on //')
-bridge="$app/Contents/MacOS/mcp-bridge"
+bridge="$(dirname "$browser")/mcp-bridge"
 await_log() { await "$1" || fail "$2"; }
 # Waits for more lines matching $1 than the $2 there were.
 await_more() {
@@ -40,7 +40,9 @@ await_more() {
 }
 
 [ -S "$socket" ] || fail "there's no socket at $socket"
-[ "$(stat -f %Lp "$socket")" = 600 ] || fail "the socket is $(stat -f %Lp "$socket"), not the user's alone"
+# GNU stat on Linux, BSD stat on the Mac.
+mode=$(stat -c %a "$socket" 2>/dev/null || stat -f %Lp "$socket")
+[ "$mode" = 600 ] || fail "the socket is $mode, not the user's alone"
 [ -x "$bridge" ] || fail "the app has no bridge beside its executable"
 if BROWSER_AGENT_TOKEN=0 "$bridge" "$socket" < /dev/null > /dev/null 2> "$out/mcp-refused"; then
   fail "the bridge got in without the agent's token"
