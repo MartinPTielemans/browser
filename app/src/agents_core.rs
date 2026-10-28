@@ -6,7 +6,7 @@ use std::ffi::CString;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use browser::agents::{self, Agents, Browser, GlobalAgents, TabInfo};
+use browser::agents::{self, Agents, Browser, GlobalAgents, PageAction, Question, TabInfo};
 use gpui::{App, AppContext};
 
 use crate::{WINDOWS, bc, ids, name};
@@ -103,6 +103,59 @@ impl Browser for Core {
         if let Ok(agent) = CString::new(agent) {
             call(|| unsafe { bc::bc_agent_disconnected(agent.as_ptr()) });
         }
+    }
+
+    fn open_tab(&self, agent: &str, url: &str, _: &mut App) -> u64 {
+        let (Ok(agent), Ok(url)) = (CString::new(agent), CString::new(url)) else {
+            return 0;
+        };
+        call(|| unsafe { bc::bc_agent_open_tab(agent.as_ptr(), url.as_ptr()) })
+    }
+
+    fn navigate(&self, agent: &str, tab: u64, url: &str, _: &mut App) -> bool {
+        let (Ok(agent), Ok(url)) = (CString::new(agent), CString::new(url)) else {
+            return false;
+        };
+        call(|| unsafe { bc::bc_agent_navigate(agent.as_ptr(), tab, url.as_ptr()) })
+    }
+
+    fn page(
+        &self,
+        agent: &str,
+        tab: u64,
+        request: u64,
+        action: PageAction,
+        element: i64,
+        text: &str,
+    ) {
+        let action = match action {
+            PageAction::Snapshot => bc::BC_AGENT_PAGE_SNAPSHOT,
+            PageAction::Click => bc::BC_AGENT_PAGE_CLICK,
+            PageAction::Type => bc::BC_AGENT_PAGE_TYPE,
+            PageAction::TypeSubmit => bc::BC_AGENT_PAGE_TYPE_SUBMIT,
+            PageAction::Key => bc::BC_AGENT_PAGE_KEY,
+            PageAction::ScrollDown => bc::BC_AGENT_PAGE_SCROLL_DOWN,
+            PageAction::ScrollUp => bc::BC_AGENT_PAGE_SCROLL_UP,
+            PageAction::Back => bc::BC_AGENT_PAGE_BACK,
+            PageAction::Forward => bc::BC_AGENT_PAGE_FORWARD,
+            PageAction::Screenshot => bc::BC_AGENT_PAGE_SCREENSHOT,
+        };
+        // A NUL can't reach the page, so text with one goes without what follows it.
+        let text = text.split('\0').next().unwrap_or_default();
+        let (Ok(agent), Ok(text)) = (CString::new(agent), CString::new(text)) else {
+            return;
+        };
+        unsafe {
+            bc::bc_agent_page(agent.as_ptr(), tab, request, action as i32, element, text.as_ptr())
+        };
+    }
+
+    fn url_for(&self, text: &str) -> Option<String> {
+        crate::url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+    }
+
+    fn ask(&self, question: Option<Question>, cx: &mut App) {
+        crate::update_shells_in(cx, |shell, cx| shell.set_agent_question(question.clone(), cx));
     }
 }
 

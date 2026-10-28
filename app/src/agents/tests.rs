@@ -25,6 +25,12 @@ struct Made {
     made: RefCell<Vec<(String, String)>>,
     reads: RefCell<Vec<(u64, u64)>>,
     disconnected: RefCell<Vec<String>>,
+    /// What the agents asked the core to do in a page: the tab, the request, the action, the
+    /// element and the text.
+    pages: RefCell<Vec<(u64, u64, PageAction, i64, String)>>,
+    navigated: RefCell<Vec<(u64, String)>>,
+    /// The question each window shows, as the agents last told them.
+    asked: RefCell<Option<Question>>,
 }
 
 impl Made {
@@ -103,6 +109,36 @@ impl Browser for Made {
 
     fn disconnected(&self, agent: &str, _: &mut App) {
         self.disconnected.borrow_mut().push(agent.into());
+    }
+
+    /// The new tab is 30.
+    fn open_tab(&self, agent: &str, url: &str, _: &mut App) -> u64 {
+        let space = self.agent_space(agent);
+        let url: &'static str = Box::leak(url.to_string().into_boxed_str());
+        self.tabs.borrow_mut().push((30, space, "Opened", url));
+        30
+    }
+
+    fn navigate(&self, _: &str, tab: u64, url: &str, _: &mut App) -> bool {
+        self.navigated.borrow_mut().push((tab, url.into()));
+        true
+    }
+
+    fn page(&self, _: &str, tab: u64, request: u64, action: PageAction, element: i64, text: &str) {
+        (self.pages.borrow_mut()).push((tab, request, action, element, text.into()));
+    }
+
+    /// A name with a dot is a site's, as the address bar takes it; other words are a search.
+    fn url_for(&self, text: &str) -> Option<String> {
+        Some(match (text.contains("://"), text.contains('.')) {
+            (true, _) => text.into(),
+            (false, true) => format!("https://{text}/"),
+            (false, false) => format!("https://duckduckgo.com/?q={text}"),
+        })
+    }
+
+    fn ask(&self, question: Option<Question>, _: &mut App) {
+        *self.asked.borrow_mut() = question;
     }
 }
 
@@ -434,10 +470,10 @@ fn an_agent_not_connected_gets_nothing(cx: &mut TestAppContext) {
         .recv()
         .unwrap();
     assert_eq!(answer, ToolResult::error("This agent isn't connected."));
-    let answer = call(&agents, "claude-code", "click", json!({}), cx)
+    let answer = call(&agents, "claude-code", "drag", json!({}), cx)
         .recv()
         .unwrap();
-    assert_eq!(answer, ToolResult::error("There's no tool click."));
+    assert_eq!(answer, ToolResult::error("There's no tool drag."));
     assert!(browser.made.borrow().is_empty());
 }
 
@@ -534,6 +570,226 @@ fn the_switch_and_the_agents_come_back(cx: &mut TestAppContext) {
         "a lost file left agents on"
     );
     std::fs::remove_dir_all(dir).ok();
+}
+
+/// The tree the core gives for tab 20's page: a heading, a field, a password field and a button
+/// that orders.
+fn shop_tree() -> String {
+    json!([
+        { "nodeId": "1", "role": { "value": "RootWebArea" }, "name": { "value": "Shop" },
+          "childIds": ["2", "3", "4", "5"] },
+        { "nodeId": "2", "role": { "value": "heading" }, "name": { "value": "Basket" } },
+        { "nodeId": "3", "role": { "value": "textbox" }, "name": { "value": "Coupon" },
+          "backendDOMNodeId": 31 },
+        { "nodeId": "4", "role": { "value": "textbox" }, "name": { "value": "Password" },
+          "backendDOMNodeId": 41, "password": true },
+        { "nodeId": "5", "role": { "value": "button" }, "name": { "value": "Place order" },
+          "backendDOMNodeId": 51 },
+    ])
+    .to_string()
+}
+
+/// The core's answer to the agents' last request of it, and the call's answer.
+fn page_done(
+    agents: &Entity<Agents>,
+    browser: &Made,
+    answer: mpsc::Receiver<ToolResult>,
+    text: String,
+    cx: &mut TestAppContext,
+) -> ToolResult {
+    let request = browser.pages.borrow().last().unwrap().1;
+    agents.update(cx, |agents, cx| agents.page_done(request, text, false, cx));
+    answer.recv().unwrap()
+}
+
+/// An agent opens a page in its Space, gets its outline with refs, and acts by ref: each action
+/// goes to the core with the element's node, and answers with what it did and the page after.
+#[gpui::test]
+fn an_agent_opens_a_page_and_acts_by_ref(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "open_tab", json!({ "url": "example.com" }), cx);
+    let (tab, _, action, _, _) = browser.pages.borrow()[0].clone();
+    assert_eq!((tab, action), (30, PageAction::Snapshot));
+    let opened = page_done(&agents, &browser, answer, shop_tree(), cx);
+    assert!(
+        opened.text.starts_with("Opened tab 30.\n\nTab 30: Shop\nURL: https://example.com/"),
+        "{}",
+        opened.text
+    );
+    assert!(opened.text.contains("- textbox \"Coupon\" [e1]"));
+    assert_eq!(
+        log(&agents, "claude-code", cx)[0],
+        ("open_tab".into(), "example.com".into(), "".into())
+    );
+
+    // Without a tab, the one it opened.
+    let answer = call(&agents, "claude-code", "type", json!({ "ref": "e1", "text": "SAVE10" }), cx);
+    let (tab, _, action, element, text) = browser.pages.borrow().last().cloned().unwrap();
+    assert_eq!((tab, action, element, text.as_str()), (30, PageAction::Type, 31, "SAVE10"));
+    let typed = page_done(&agents, &browser, answer, shop_tree(), cx);
+    assert!(typed.text.starts_with("Typed into “Coupon”.\n\nTab 30"));
+    assert_eq!(log(&agents, "claude-code", cx)[0].0, "type");
+
+    let answer = call(&agents, "claude-code", "press_key", json!({ "key": "Tab" }), cx);
+    assert_eq!(browser.pages.borrow().last().unwrap().4, "Tab");
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+
+    let answer = call(&agents, "claude-code", "screenshot", json!({}), cx);
+    let picture = page_done(&agents, &browser, answer, "/9j/4AAQ".into(), cx);
+    assert_eq!(
+        picture.to_json()["content"][0],
+        json!({ "type": "image", "data": "/9j/4AAQ", "mimeType": "image/jpeg" })
+    );
+
+    let answer = call(&agents, "claude-code", "navigate", json!({ "url": "back" }), cx);
+    assert_eq!(browser.pages.borrow().last().unwrap().2, PageAction::Back);
+    assert!(page_done(&agents, &browser, answer, shop_tree(), cx).text.starts_with("Went back."));
+
+    let answer = call(&agents, "claude-code", "navigate", json!({ "url": "iana.org" }), cx);
+    assert_eq!(browser.navigated.borrow()[0], (30, "https://iana.org/".into()));
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+
+    let pages = browser.pages.borrow().len();
+    let stale = call(&agents, "claude-code", "click", json!({ "ref": "e9" }), cx);
+    assert!(stale.recv().unwrap().text.starts_with("There's no element e9 in tab 30."));
+    let key = call(&agents, "claude-code", "press_key", json!({ "key": "F5" }), cx);
+    assert!(key.recv().unwrap().error);
+    assert_eq!(browser.pages.borrow().len(), pages, "a bad call reached the core");
+
+    // The core's error is the call's.
+    let answer = call(&agents, "claude-code", "click", json!({ "ref": "e1" }), cx);
+    let request = browser.pages.borrow().last().unwrap().1;
+    agents.update(cx, |agents, cx| agents.page_done(request, "It's gone.".into(), true, cx));
+    assert_eq!(answer.recv().unwrap(), ToolResult::error("It's gone."));
+}
+
+/// An agent can't act on the user's tabs, type into a password field or open a page that isn't
+/// on the web; each refusal is logged.
+#[gpui::test]
+fn what_an_agent_may_not_do_is_refused_and_logged(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "click", json!({ "tab": 10, "ref": "e1" }), cx);
+    assert!(answer.recv().unwrap().error);
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 10 }), cx);
+    assert_eq!(
+        answer.recv().unwrap(),
+        ToolResult::error("The tab isn't in the agent's own Space.")
+    );
+
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    let outline = page_done(&agents, &browser, answer, shop_tree(), cx).text;
+    assert!(outline.contains("- textbox \"Password\" [e2] (password: off limits)"));
+    let pages = browser.pages.borrow().len();
+    let typing = json!({ "ref": "e2", "text": "hunter2" });
+    let answer = call(&agents, "claude-code", "type", typing, cx);
+    assert!(answer.recv().unwrap().text.starts_with("Password fields are off limits"));
+    assert_eq!(browser.pages.borrow().len(), pages, "the password reached the core");
+    assert_eq!(log(&agents, "claude-code", cx)[0].0, "type");
+    assert!(log(&agents, "claude-code", cx)[0].2.starts_with("Password fields are off limits"));
+
+    let file = json!({ "url": "file:///etc/passwd" });
+    let answer = call(&agents, "claude-code", "open_tab", file, cx);
+    assert_eq!(
+        answer.recv().unwrap(),
+        ToolResult::error("Agents may open only http and https pages.")
+    );
+    let settings = json!({ "url": "chrome://settings" });
+    let answer = call(&agents, "claude-code", "navigate", settings, cx);
+    assert!(answer.recv().unwrap().error);
+    assert!(browser.navigated.borrow().is_empty());
+    assert_eq!(log(&agents, "claude-code", cx)[0].0, "navigate");
+}
+
+/// An order asks the user first, in the card: Allow Once lets it go this time and asks again
+/// next time, Always Allow lets it go on the site from then on, and is saved.
+#[gpui::test]
+fn an_order_asks_the_user_first(cx: &mut TestAppContext) {
+    let dir = std::env::temp_dir().join(format!("agents-test-{}", random_token()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Agents");
+    let (browser, configs) = (Made::with_agent_space(), Arc::new(Configs::default()));
+    let agents = agents(&browser, &configs, Some(path.clone()), cx);
+    agents.update(cx, |agents, cx| agents.connect(Client::ClaudeCode, cx));
+    cx.run_until_parked();
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    page_done(&agents, &browser, answer, shop_tree(), cx);
+    let pages = browser.pages.borrow().len();
+
+    let order = |cx: &mut TestAppContext| {
+        call(&agents, "claude-code", "click", json!({ "tab": 20, "ref": "e3" }), cx)
+    };
+    let answer = order(cx);
+    let question = browser.asked.borrow().clone().expect("the order didn't ask");
+    assert_eq!(question.agent, "Claude Code");
+    assert_eq!(question.what, "click “Place order” on example.com");
+    assert_eq!(question.why, "It looks like a payment or an order.");
+    assert_eq!(browser.pages.borrow().len(), pages, "it clicked before the user answered");
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Once, cx));
+    assert_eq!(*browser.asked.borrow(), None);
+    assert_eq!(browser.pages.borrow().last().unwrap().3, 51);
+    let clicked = page_done(&agents, &browser, answer, shop_tree(), cx);
+    assert!(clicked.text.starts_with("Clicked button “Place order”."));
+
+    let answer = order(cx);
+    let question = browser.asked.borrow().clone().expect("once let it go again");
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Always, cx));
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+    let answer = order(cx);
+    assert_eq!(*browser.asked.borrow(), None, "always asked again");
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+
+    let saved = std::fs::read_to_string(&path).unwrap();
+    let later = self::agents(&browser, &configs, None, cx);
+    later.update(cx, |agents, cx| agents.load(&saved, cx));
+    let grants = later.read_with(cx, |agents, _| agents.grants.clone());
+    assert_eq!(grants["claude-code"]["example.com"], true);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// A bank's site asks before it opens. No, or the ×, refuses it, and Never refuses it from then
+/// on without asking; each is logged.
+#[gpui::test]
+fn no_to_an_agent_is_kept(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let open = |cx: &mut TestAppContext| {
+        call(&agents, "claude-code", "open_tab", json!({ "url": "chase.com" }), cx)
+    };
+    let answer = open(cx);
+    let question = browser.asked.borrow().clone().unwrap();
+    assert_eq!(question.what, "open chase.com");
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Dismiss, cx));
+    assert_eq!(
+        answer.recv().unwrap(),
+        ToolResult::error("The user said no: you can't open chase.com. Don't try again.")
+    );
+    assert_eq!(
+        log(&agents, "claude-code", cx)[0],
+        ("open_tab".into(), "chase.com".into(), "You said no.".into())
+    );
+
+    let answer = open(cx);
+    let question = browser.asked.borrow().clone().unwrap();
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Never, cx));
+    assert!(answer.recv().unwrap().error);
+    let answer = open(cx);
+    assert_eq!(*browser.asked.borrow(), None, "never asked again");
+    assert!(answer.recv().unwrap().text.starts_with("The user said never on chase.com"));
+    assert!(browser.pages.borrow().is_empty());
+    assert!(browser.tabs.borrow().iter().all(|tab| tab.0 != 30));
+}
+
+/// A question goes with its agent's session, and the card with it.
+#[gpui::test]
+fn a_question_goes_with_its_agent(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "open_tab", json!({ "url": "chase.com" }), cx);
+    assert!(browser.asked.borrow().is_some());
+    agents.update(cx, |agents, cx| {
+        agents.handle(Event::Hello { agent: "claude-code".into(), client: "check".into() }, cx);
+        agents.handle(Event::Bye { agent: "claude-code".into() }, cx);
+    });
+    assert_eq!(*browser.asked.borrow(), None);
+    assert!(answer.recv().is_err());
 }
 
 /// The driver's calls, checked by the core outside the tools, come to the log too, and a session
