@@ -665,6 +665,12 @@ typedef struct bc_host {
   // the agent can't answer: a sign-in is the user's to give. A page in an agent's Space never opens
   // another app, so it asks none.
   void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
+  // On Linux under Wayland, while a text field of the app's UI in |window| has the keys
+  // (bc_window_ui_text_input): the input method composes |text| there, shown underlined at the
+  // caret, or stops composing with |text| empty.
+  void (*ui_composed)(void* context, bc_id window, const char* text);
+  // As ui_composed: the input method commits |text| in place of what it composed.
+  void (*ui_committed)(void* context, bc_id window, const char* text);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -726,6 +732,15 @@ BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 // neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
 // to have them back once the overlay gives them up (|takes| false).
 BC_EXPORT void bc_window_overlay_takes_keyboard(bc_id window, bool takes);
+
+// On Linux under Wayland, where the compositor gives the process one input method, the window's:
+// a text field of the app's UI in |window|, or of an overlay of it, is focused (|focused|), its
+// caret at |x|, |y| in points from the top left of the window's surface, |height| high. While the
+// keys are the UI's or the overlay's, the input method composes for it, into ui_composed and
+// ui_committed, and puts its candidates at the caret. Losing them commits what it composed, as a
+// page's field does.
+BC_EXPORT void bc_window_ui_text_input(bc_id window, bool focused, double x, double y,
+                                       double height);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its

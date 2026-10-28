@@ -4,6 +4,9 @@
 #ifndef BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
 #define BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
 
+#include <optional>
+
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/widget/widget.h"
 
@@ -36,6 +39,10 @@ bool KeyboardIsUI(views::Widget* widget);
 // Lends the keyboard in |widget|'s window to an overlay of the app's, or takes it back
 // (bc_window_overlay_takes_keyboard).
 void OverlayTakesKeyboard(views::Widget* widget, bool takes);
+
+// A text field of the app's UI in |widget|'s window, or of an overlay over it, is focused with its
+// caret at |caret|, in DIPs from the window's top left, or none is (bc_window_ui_text_input).
+void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret);
 
 }  // namespace browser_core::platform
 
