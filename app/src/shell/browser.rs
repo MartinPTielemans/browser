@@ -438,6 +438,14 @@ pub trait Browser {
     fn passwords(&self, space: u64, cx: &mut App);
     /// Opens the Settings window on its Agents tab, which lists what each agent did.
     fn agent_activity(&self, cx: &mut App);
+    /// The sites where the user answered the agent whose Space is `space` for good, by name:
+    /// Always Allow (true) or Never (false); and whether the agent is connected.
+    fn agent_permissions(&self, space: u64, cx: &App) -> (Vec<(SharedString, bool)>, bool);
+    /// Forgets the user's answer for good to the agent whose Space is `space` on `site`, or on
+    /// every site with None.
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, cx: &mut App);
+    /// Disconnects the agent whose Space is `space`, whose token then stops working.
+    fn disconnect_agent(&self, space: u64, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.

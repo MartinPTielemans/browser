@@ -749,6 +749,14 @@ impl Browser for Fake {
     fn passwords(&self, _: u64, _: &mut App) {}
     fn agent_activity(&self, _: &mut App) {}
 
+    fn agent_permissions(&self, _: u64, _: &App) -> (Vec<(SharedString, bool)>, bool) {
+        (Vec::new(), false)
+    }
+
+    fn revoke_agent(&self, _: u64, _: Option<SharedString>, _: &mut App) {}
+
+    fn disconnect_agent(&self, _: u64, _: &mut App) {}
+
     fn shortcuts(&self, _: &mut App) {}
 
     // Each made-up Space shows its top tab.
