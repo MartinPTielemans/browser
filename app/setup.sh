@@ -33,9 +33,11 @@ git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gp
 ACCESSKIT_MACOS=0.26.3
 ACCESSKIT_MACOS_SHA256=ce02dc63b43f0c9296af9ac946312a2dc8814427d7a64d2d600971dac55b6076
 crate=.deps/accesskit_macos-$ACCESSKIT_MACOS.crate
-if ! echo "$ACCESSKIT_MACOS_SHA256  $crate" | shasum -a 256 -c -s 2>/dev/null; then
+# Git for Windows has sha256sum but no shasum, which the Mac has alone.
+sha256() { if command -v shasum >/dev/null; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
+if ! echo "$ACCESSKIT_MACOS_SHA256  $crate" | sha256 -c --status 2>/dev/null; then
   curl -sSfL "https://static.crates.io/crates/accesskit_macos/accesskit_macos-$ACCESSKIT_MACOS.crate" -o "$crate"
-  echo "$ACCESSKIT_MACOS_SHA256  $crate" | shasum -a 256 -c -s
+  echo "$ACCESSKIT_MACOS_SHA256  $crate" | sha256 -c --status
 fi
 rm -rf .deps/accesskit_macos "${crate%.crate}"
 tar xzf "$crate" -C .deps
