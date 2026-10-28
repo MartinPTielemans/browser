@@ -545,6 +545,9 @@ typedef struct bc_host {
   // An entry for the activity log: the core checked an agent's call with bc_agent_may_act, and
   // let it act or refused it.
   void (*agent_activity)(void* context, const bc_agent_activity* entry);
+  // On Linux under Wayland: |window|'s content is |width| by |height| points now. The app's UI is a
+  // subsurface there (bc_window_wayland_surface), which no compositor sizes.
+  void (*window_resized)(void* context, bc_id window, double width, double height);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -571,6 +574,17 @@ BC_EXPORT void bc_quit(void);
 // the Mac, which the window keeps. |ui_view| may be null. Returns 0 if Chromium is quitting. Every
 // window shows the same Spaces. The user's: agents get none, as it changes what the user sees.
 BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
+
+// On Linux under Wayland, Chromium's wl_display, which the app's UI shares, and null otherwise: on
+// X11 the UI has a connection of its own. From then on the core calls |dispatched| each time
+// Chromium has dispatched the display's events, from its loop and never while it has a read
+// prepared, as what Chromium reads can include the UI's, which wait in the UI's queue.
+BC_EXPORT void* bc_wayland_display(void (*dispatched)(void));
+
+// On Linux under Wayland, |window|'s wl_surface, for the app's UI to be a subsurface of, under the
+// pages, with its content's size in points; else null. The app's UI, not bc_window_open's
+// |ui_view|, which is null there, then follows window_resized.
+BC_EXPORT void* bc_window_wayland_surface(bc_id window, double* width, double* height);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // window closed, in the window, which shows the Space it showed. The core saves them as they

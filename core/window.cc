@@ -32,6 +32,7 @@
 #include "browser_core/space.h"
 #include "browser_core/suggest.h"
 #include "browser_core/tab.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
@@ -77,6 +78,10 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/client_view.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/linux/wayland.h"
+#endif
 
 namespace browser_core {
 
@@ -869,6 +874,11 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view)
   params.native_widget = platform::NewNativeWidget(widget_.get());
   params.bounds = bounds;
   params.name = "BrowserCoreWindow";
+#if BUILDFLAG(IS_LINUX)
+  if (platform::OnWayland()) {
+    platform::SetUpWaylandWindow(params, *delegate_);
+  }
+#endif
   widget_->Init(std::move(params));
   widget_observation_.Observe(widget_.get());
   platform::AddWindowViews(widget_.get(), ui_view);

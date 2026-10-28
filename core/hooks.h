@@ -103,4 +103,9 @@ extern void (*g_browser_core_page_hung)(content::WebContents* contents,
 // game is going. Only the error document in the tab's main frame can say it.
 extern void (*g_browser_core_offline_game)(content::WebContents* contents, bool running);
 
+// ui/events/platform/wayland/wayland_event_watcher.cc: Chromium has dispatched its Wayland
+// display's events, which the app's UI shares (platform/linux/wayland.cc). Never called while
+// Chromium has a read prepared.
+extern void (*g_browser_core_wayland_dispatched)();
+
 #endif  // BROWSER_CORE_HOOKS_H_

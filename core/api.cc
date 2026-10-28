@@ -32,6 +32,7 @@
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
+#include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/profiles/profile.h"
@@ -51,6 +52,10 @@
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/linux/wayland.h"
+#endif
 
 namespace {
 
@@ -133,6 +138,28 @@ void bc_quit(void) {
 bc_id bc_window_open(bc_rect bounds, void* ui_view) {
   browser_core::Window* window = browser_core::Window::Open(ToRect(bounds), ui_view);
   return window ? window->id() : 0;
+}
+
+void* bc_wayland_display(void (*dispatched)(void)) {
+#if BUILDFLAG(IS_LINUX)
+  return browser_core::platform::JoinWaylandDisplay(dispatched);
+#else
+  return nullptr;
+#endif
+}
+
+void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  gfx::Size size;
+  void* surface =
+      window ? browser_core::platform::WaylandSurfaceOf(window->widget(), &size) : nullptr;
+  *width = size.width();
+  *height = size.height();
+  return surface;
+#else
+  return nullptr;
+#endif
 }
 
 bool bc_window_restore(bc_id id) {

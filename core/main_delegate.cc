@@ -1,5 +1,7 @@
 #include "browser_core/main_delegate.h"
 
+#include <stdlib.h>
+
 #include <memory>
 #include <string>
 #include <utility>
@@ -222,11 +224,12 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     command_line->AppendArguments(base::CommandLine(app_argv), /*include_program=*/false);
 #endif
 #if BUILDFLAG(IS_LINUX)
-    // X11, under XWayland on a Wayland desktop: the app's UI is a window of its own that the core
-    // puts inside the browser window, which Wayland can't do across the two's connections
+    // The desktop's own protocol, not Chrome's auto pick: the app's UI joins the browser window on
+    // the same connection, as a subsurface on Wayland and a child window on X11
     // (platform/linux/window_views.cc).
     if (!command_line->HasSwitch(switches::kOzonePlatform)) {
-      command_line->AppendSwitchASCII(switches::kOzonePlatform, "x11");
+      const bool wayland = getenv("WAYLAND_DISPLAY") && *getenv("WAYLAND_DISPLAY");
+      command_line->AppendSwitchASCII(switches::kOzonePlatform, wayland ? "wayland" : "x11");
     }
 #endif
     // The app opens windows through the core, and Chrome's first run and default-browser prompts
