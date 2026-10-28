@@ -747,6 +747,15 @@ BC_EXPORT bc_id bc_window_open_saved(size_t index, bc_rect bounds, void* ui_view
 // their unload handlers. Then window_closed. The user's: agents get none.
 BC_EXPORT void bc_window_close(bc_id window);
 
+// Titles the window as the window manager shows it, for a host that can't reach the window itself,
+// as under Wayland, where the window is Chromium's.
+BC_EXPORT void bc_window_set_title(bc_id window, const char* title);
+
+// Brings the window to the front with the keyboard, restoring it if it was minimized. For a host
+// that can't reach the window itself, as bc_window_set_title. The user's: agents get none, as it
+// takes the user's focus.
+BC_EXPORT void bc_window_activate(bc_id window);
+
 // Makes an empty Space named |name|, in the profile the core started with, after the others. Any
 // window can show it. It's the user's. Then spaces_changed.
 BC_EXPORT bc_id bc_space_create(const char* name);

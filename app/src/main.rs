@@ -39,6 +39,9 @@ mod find_bar;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/system.rs"]
+mod system;
 mod reveal;
 mod settings;
 
@@ -62,6 +65,12 @@ mod platform {
         pub fn host_ui_view() -> *mut c_void;
         #[cfg(target_os = "linux")]
         pub fn host_watch_fd(fd: c_int, ready: extern "C" fn());
+        #[cfg(target_os = "linux")]
+        pub fn host_window_opened(ui_view: *mut c_void, window: u64);
+        #[cfg(target_os = "linux")]
+        pub fn host_window_active(ui_view: *mut c_void, active: bool, whole_window: bool);
+        #[cfg(target_os = "linux")]
+        pub fn host_capture_name(name: *mut c_char, capacity: usize);
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_show_window_behind(ui_view: *mut c_void, above_ui_view: *mut c_void);
         pub fn host_show_launch_window(
@@ -908,10 +917,16 @@ impl capture::Host for CaptureHost {
     }
 
     fn copy(&self, png: &[u8]) {
+        #[cfg(target_os = "linux")]
+        system::copy_png(png);
+        #[cfg(not(target_os = "linux"))]
         unsafe { platform::host_copy_png(png.as_ptr(), png.len()) };
     }
 
     fn save(&self, png: &[u8]) {
+        #[cfg(target_os = "linux")]
+        system::save_png(png);
+        #[cfg(not(target_os = "linux"))]
         unsafe { platform::host_save_png(front().1, png.as_ptr(), png.len()) };
     }
 
@@ -2610,6 +2625,8 @@ fn open_window_as(
             false => (surface, Some(size(px(width as f32), px(height as f32)))),
         }
     };
+    #[cfg(target_os = "linux")]
+    unsafe { platform::host_window_opened(ui_view, id) };
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
     // Its Space, which the core made with the window.
     let private_space = private.map(|profile| (unsafe { bc::bc_window_space(id) }, profile));
@@ -2646,6 +2663,8 @@ fn open_window_as(
                 }
             })
             .detach();
+            #[cfg(target_os = "linux")]
+            system::watch_activation(window, ui_view, wayland_size.is_some(), cx);
             let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });
             match (&from_shell, private_space) {
                 (_, Some((space, profile))) => {
@@ -3027,7 +3046,10 @@ unsafe extern "C" fn started(_: *mut c_void) {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
             true => gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32),
-            false => gpui_linux::embed_wayland(display, keyboard),
+            false => {
+                gpui_linux::embed_wayland(display, keyboard);
+                gpui_linux::watch_embedder_swipes(system::swiped);
+            }
         }
         !display.is_null()
     };

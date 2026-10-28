@@ -7,7 +7,7 @@ use std::ffi::CString;
 use std::rc::Rc;
 use std::time::Instant;
 
-use browser::default_browser::{self, DefaultBrowser};
+use browser::default_browser::{self, DefaultBrowser, Os};
 use browser::log;
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
@@ -399,7 +399,7 @@ fn open(cx: &mut App) {
                 hide(cx);
                 false
             });
-            let default_browser = cx.new(|_| DefaultBrowser::new(Rc::new(System)));
+            let default_browser = cx.new(|_| DefaultBrowser::new(Rc::new(System), Os::current()));
             cx.observe(&default_browser, |_, _, cx| cx.notify()).detach();
             Settings {
                 default_browser,
@@ -549,10 +549,10 @@ impl Settings {
     }
 
     /// Make Default until the browser is the system's default, then that it is, with the way back
-    /// under it, which is the system's.
+    /// under it, which is the system's. In a Flatpak, where to set it, and no button.
     fn default_browser_row(&self, cx: &mut Context<Self>) -> gpui::Div {
         let row = self.default_browser.read(cx);
-        let make = (!row.is_default()).then(|| {
+        let make = row.offers().then(|| {
             let make = cx.listener(|settings: &mut Self, _, _, cx| {
                 // check.sh waits for this line.
                 log!("browser: make default browser");
