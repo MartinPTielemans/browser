@@ -2244,6 +2244,27 @@ impl Browser for Engine {
         settings::show_agents(cx);
     }
 
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        let offered = !settings::crash_reports_collector().is_empty();
+        offered.then(|| unsafe { bc::bc_send_crash_reports() })
+    }
+
+    fn set_crash_reports(&self, on: bool, cx: &mut App) {
+        settings::set_send_crash_reports(on, cx);
+    }
+
+    /// Every build has them. They're made just after the first frame, which the onboarding asks
+    /// before, and until then they're a new profile's: off.
+    fn agents(&self, cx: &App) -> Option<bool> {
+        Some(browser::agents::global(cx).is_some_and(|agents| agents.read(cx).is_on()))
+    }
+
+    fn set_agents(&self, on: bool, cx: &mut App) {
+        if let Some(agents) = browser::agents::global(cx) {
+            agents.update(cx, |agents, cx| agents.set_on(on, cx));
+        }
+    }
+
     fn new_window(&self, cx: &mut App) {
         let id = self.window;
         // Outside the shell's update, as the new window's shell reads this one's.

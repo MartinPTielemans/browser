@@ -432,6 +432,19 @@ pub trait Browser {
     fn os(&self) -> crate::default_browser::Os {
         crate::default_browser::Os::current()
     }
+
+    /// Whether crash reports are sent, as Settings' switch has it, or None while there's no
+    /// collector to send them to, when neither Settings nor the first launch offers it.
+    fn crash_reports(&self, _cx: &App) -> Option<bool> {
+        None
+    }
+    fn set_crash_reports(&self, _on: bool, _cx: &mut App) {}
+    /// Whether agents may use the browser, as Settings' switch has it, or None in a build without
+    /// the agents' server.
+    fn agents(&self, _cx: &App) -> Option<bool> {
+        None
+    }
+    fn set_agents(&self, _on: bool, _cx: &mut App) {}
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);

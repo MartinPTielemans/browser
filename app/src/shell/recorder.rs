@@ -63,6 +63,9 @@ pub(super) struct Recorder {
     pub(super) os: Cell<Option<crate::default_browser::Os>>,
     /// The import finds no browser on the machine.
     pub(super) no_browsers: Cell<bool>,
+    /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
+    pub(super) crash_reports: Cell<Option<bool>>,
+    pub(super) agents: Cell<Option<bool>>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -827,6 +830,24 @@ impl Browser for Recorder {
 
     fn os(&self) -> crate::default_browser::Os {
         self.os.get().unwrap_or(crate::default_browser::Os::Mac)
+    }
+
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        self.crash_reports.get()
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        self.crash_reports.set(Some(on));
+        self.record(format!("crash reports {on}"))
+    }
+
+    fn agents(&self, _: &App) -> Option<bool> {
+        self.agents.get()
+    }
+
+    fn set_agents(&self, on: bool, _: &mut App) {
+        self.agents.set(Some(on));
+        self.record(format!("agents {on}"))
     }
 
     fn close_window(&self, _: &mut App) {
