@@ -2,10 +2,10 @@
 // browser runs as libBrowser.so in Chromium's own chrome, and GPUI's window sits in the browser
 // window as the core puts it there.
 //
-// shortcut: most of it does nothing yet. Overlays, menus, alerts, the find bar and the rest that
-// float over the page need child windows of their own; a function with an empty body leaves its
-// part out, and one that answers says "no" or "none". The first X11 run starts from the browser
-// window, the UI and the pages.
+// shortcut: most of it does nothing yet. Menus, alerts, the find bar and the rest that float over
+// the page need child windows of their own; a function with an empty body leaves its part out, and
+// one that answers says "no" or "none". The overlays, the command bar and the icon picker, are
+// overlays.rs's, as GPUI's Linux platform shows them.
 
 #include "../host.h"
 
@@ -138,25 +138,9 @@ double host_since_launch(void) {
 
 void host_forget_window(void* ui_view) {}
 
-void host_add_overlay(int overlay, void* overlay_view, double radius, void (*dismissed)(void)) {}
-
-void host_set_overlay_shape(int overlay, const double* corners, size_t count) {}
-
-void host_set_overlay_radius(int overlay, double radius) {}
-
-void host_set_overlay_growth(int overlay, double x, double y) {}
-
-void host_show_overlay(int overlay, void* ui_view, bool centered, double left, double top, double width) {}
-
-void host_set_overlay_height(int overlay, double height) {}
-
 bool host_can_draw_emoji(const char*) {
   return true;
 }
-
-void host_hide_overlay(int overlay) {}
-
-void host_dismiss_overlay(int overlay) {}
 
 void host_hold_keys(void) {}
 
