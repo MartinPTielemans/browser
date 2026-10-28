@@ -227,6 +227,27 @@ fn every_theme_of_a_coarse_sweep_reads() {
     assert_eq!(sweep(&themes), Vec::<String>::new());
 }
 
+/// A control under the pointer or pressed keeps its label at least as legible as at rest (#319).
+#[test]
+fn a_hovered_or_pressed_accent_reads_more_under_its_label() {
+    let themes = grid(&[0., 60., 120., 180., 240., 300.], &[0.4, 1.], &[0.2, 0.45, 0.8], &[0.5]);
+    for theme in themes.iter().map(Some).chain([None]) {
+        let palette = Palette::of(theme);
+        let at_rest = contrast(palette.accent_label, palette.accent);
+        for moved in [palette.accent_hovered(), palette.accent_pressed()] {
+            let moved = quantized(moved.to_rgb());
+            assert_ne!(moved, palette.accent, "{theme:?}");
+            assert!(contrast(palette.accent_label, moved) >= at_rest - 0.01, "{theme:?}");
+        }
+    }
+}
+
+/// The find bar's caret is ilo green on its dark fill, whatever the Space's theme.
+#[test]
+fn ilo_green_reads_on_the_dark_overlay() {
+    assert!(contrast(rgb(NO_THEME_ACCENT), rgb(OVERLAY_DARK)) >= GLYPH);
+}
+
 
 /// The design sweep's grid, 1,197,504 themes: `cargo test --release --lib -- --ignored
 /// full_sweep`, or a part of it at a time with SWEEP_PART=1/8 to 8/8.

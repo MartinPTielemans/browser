@@ -45,8 +45,6 @@ use browser::tokens::find_bar::TEXT;
 use browser::tokens::find_bar::COUNT;
 use browser::tokens::find_bar::NOT_FOUND;
 use browser::tokens::find_bar::PLACEHOLDER;
-use browser::tokens::find_bar::CARET;
-use browser::tokens::find_bar::SELECTION;
 
 /// A tab's find in page, as the core reports it.
 #[derive(Clone, Default)]
@@ -121,8 +119,6 @@ pub fn open(browser: bc::bc_id, ui_view: *mut c_void, cx: &mut App) -> Option<An
         let input = cx.new(|cx| {
             TextInput::new("Find in page", cx)
                 .placeholder_color(rgba(PLACEHOLDER))
-                .caret_color(rgb(CARET))
-                .selection_color(rgba(SELECTION))
         });
         window.focus(&input.focus_handle(cx), cx);
         cx.new(|cx| {

@@ -15,11 +15,11 @@ use gpui::{
     LayoutId, MouseButton, Role,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
     SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
-    point, prelude::*, px, relative, rgba, size,
+    point, prelude::*, px, relative, rgb, size,
 };
 use unicode_segmentation::*;
 use crate::tokens::text_input::PLACEHOLDER;
-use crate::tokens::text_input::SELECTION;
+use crate::tokens::palette::{NO_THEME_ACCENT, SELECTION};
 
 actions!(
     text_input,
@@ -106,8 +106,8 @@ impl TextInput {
             content: "".into(),
             placeholder: placeholder.into(),
             placeholder_color: hsla(0., 0., 0., PLACEHOLDER),
-            caret_color: gpui::blue(),
-            selection_color: rgba(SELECTION).into(),
+            caret_color: rgb(NO_THEME_ACCENT).into(),
+            selection_color: Hsla::from(rgb(NO_THEME_ACCENT)).opacity(SELECTION),
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -132,9 +132,11 @@ impl TextInput {
         self
     }
 
-    /// The placeholder's colour, for an input whose ground changes with the Space.
-    pub fn set_placeholder_color(&mut self, color: impl Into<Hsla>) {
-        self.placeholder_color = color.into();
+    /// The placeholder's, caret's and selection's colours, for an input whose ground and accent
+    /// change with the Space.
+    pub fn set_colors(&mut self, placeholder: Hsla, caret: Hsla, selection: Hsla) {
+        (self.placeholder_color, self.caret_color, self.selection_color) =
+            (placeholder, caret, selection);
     }
 
     pub fn caret_color(mut self, color: impl Into<Hsla>) -> Self {

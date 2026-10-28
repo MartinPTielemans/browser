@@ -12,7 +12,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use gpui::{
     App, Bounds, Context, Entity, Focusable, FontWeight, Global, Hsla, KeyBinding, Pixels, Point,
     SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, rgba, size,
+    WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, size,
     svg,
 };
 
@@ -60,8 +60,6 @@ use crate::tokens::offer::PLATE;
 use crate::tokens::offer::HOVERED;
 use crate::tokens::offer::DEFAULT_PLATE;
 use crate::tokens::offer::PLACEHOLDER;
-use crate::tokens::offer::CARET;
-use crate::tokens::offer::SELECTION;
 
 /// What an offer offers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -176,8 +174,8 @@ pub fn open(
         let input = cx.new(|cx| {
             TextInput::new("Username", cx)
                 .placeholder_color(look(cx).1.text(PLACEHOLDER))
-                .caret_color(rgba(CARET))
-                .selection_color(rgba(SELECTION))
+                .caret_color(look(cx).1.accent)
+                .selection_color(look(cx).1.selection())
         });
         // The field has the keyboard whenever the window does.
         window.focus(&input.focus_handle(cx), cx);
@@ -355,8 +353,11 @@ impl Render for OfferPrompt {
             return root;
         };
         let (fill, palette) = (self.look)(cx);
-        // The placeholder follows the Space shown, which may have changed since it opened.
-        self.input.update(cx, |input, _| input.set_placeholder_color(palette.text(PLACEHOLDER)));
+        // The placeholder and the accent follow the Space shown, which may have changed since it
+        // opened.
+        self.input.update(cx, |input, _| {
+            input.set_colors(palette.text(PLACEHOLDER), palette.accent.into(), palette.selection())
+        });
         let button = |id: &'static str, label: SharedString, answer: Answer, plate: f32| {
             div()
                 .id(id)

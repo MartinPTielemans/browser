@@ -126,8 +126,6 @@ row-glyph = 0.7
 arrow = 0.65
 # The selected row's detail, in the accent's label.
 selected-dim = 0.75
-caret = 0x4a77d4
-selection = 0x787d_86b3
 # A tile under an icon or a hint's key, and a command's shortcut (ours).
 chip = 0.08
 # The arrow's tile on a row that switches to a tab.
@@ -156,16 +154,16 @@ list-top = 10.0
 list-gap = 6.0
 subline = 16.0
 subline-indent = 12.0
-subline-text = 0xffff_ff8c
+subline-text = 0.55
 buttons-top = 38.0
 # From the title's line to the buttons when there's no detail, as in Arc's ⌘Q.
 buttons-under-title = 46.0
 # Between a button at the left, such as "Quit, and don't ask again", and Cancel at least.
 also-gap = 16.0
-fill = 0x161b2f
-# A line of white 0.1 inside the card's edge, and one of black 0.5 thick outside it.
-edge = 0xffff_ff1a
-detail = 0xffff_ffc7
+# The card is the palette's dialog fill (#320). A line of ink 0.1 inside the card's edge, and
+# one of black 0.5 thick outside it.
+edge = 0.1
+detail = 0.78
 # The window under the card: #151515 at 0.62.
 dim = 0x151515
 dim-opacity = 0.62
@@ -176,33 +174,29 @@ button-radius = 6.0
 label-x = 12.0
 chip-end = 12.0
 chip-gap = 8.0
-cancel-fill = 0x2f305f
-# Under the pointer it lightens, as white 0.1 over it (Arc 1.170 rec, ⌘Q's dialog).
-cancel-hovered = 0x45436f
-cancel-border = 0x6462a9
-cancel-text = 0xffff_ffe6
+# Ink plates where Arc's are indigo. Under the pointer it lightens, as white 0.1 over it does
+# (Arc 1.170 rec, ⌘Q's dialog).
+cancel-fill = 0.1
+cancel-hovered = 0.16
+cancel-border = 0.2
+cancel-text = 0.9
 # The action, which darkens under the pointer and sits on a ledge of its own colour at 0.2.
 action = 0xe1492c
 action-hovered = 0xcc4126
 action-ledge = 0xe149_2c33
-# An action that can be taken back, such as Quit, is blue, on a darker ledge. Ours darkens
-# under the pointer as the red does.
-safe-action = 0x3338f2
-safe-action-hovered = 0x2e32da
-safe-action-ledge = 0x393f92
-# An action that takes nothing back, such as adding an extension, has the Space's accent
-# instead, darker by this under the pointer.
-accent-hovered = 0.05
+# Any other action, such as Quit or adding an extension, has the Space's accent (#319), on a
+# ledge of it at 0.2, and the palette's hovered and pressed accents.
 chip-height = 20.0
 chip-radius = 6.0
-# White 0.14 over the button, so it lightens with it.
-esc-fill = 0xffff_ff24
-esc-text = 0xbbb9e3
+# Ink 0.14 over the button, so it lightens with it.
+esc-fill = 0.14
+esc-text = 0.73
 return-width = 30.0
-return-fill = 0xffff_ff1a
-return-border = 0xffff_ff45
+# The action's label at these.
+return-fill = 0.1
+return-border = 0.27
 return-glyph = 16.0
-# The title, and an action's label and glyph.
+# The red action's label and glyph.
 text = 0xffffff
 # Its shadow's black and the black line around it, as alphas.
 shadow = 0.56
@@ -216,7 +210,9 @@ green = 0x0E9F55
 width = 300.0
 height = 32.0
 radius = 6.0
-fill = 0x131d32
+# Ours, where Arc's is navy: the overlay's dark fill (#319), with the caret and selection in ilo
+# green, so its white text holds on any theme.
+fill = 0x1f1d17
 # Arc's buttons are 28 pt, 2 pt inside the bar, previous and next 26 apart, and a 4 pt divider
 # before close. The field starts 1 pt after the search glyph's square.
 inset = 2.0
@@ -238,8 +234,6 @@ count = 0xffffff99
 not-found = 0xdb1929
 # The command bar's.
 placeholder = 0xffff_ff87
-caret = 0x4a77d4
-selection = 0x787d_86b3
 
 [icon-picker]
 # Arc's, measured at 2× (docs/ux-spec.md › Spaces › Icon). The card is square, and the window
@@ -394,8 +388,6 @@ hovered = 0.12
 default-plate = 0.2
 # The find bar's.
 placeholder = 0.53
-caret = 0x4a77_d4ff
-selection = 0x787d_86b3
 
 [radius]
 # ilo's four corner radii (ours, #315), and the rule that joins them: a corner nested inside
@@ -448,6 +440,11 @@ intensity-floor = 0.2
 intensity-span = 0.55
 # A Space swatch's ring, a hairline.
 ring = 1.0
+# The accent under the pointer and pressed (#319), this much OKLab lightness further from its
+# label, so the label reads more on it; and a text selection, the accent at this.
+accent-hovered = 0.04
+accent-pressed = 0.08
+selection = 0.28
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
@@ -856,10 +853,8 @@ card-shadow = 0.3
 card-shadow-blur = 16.0
 plus-gap = 33.0
 plus-size = 30.0
-plus-fill = 0x1f2aff
-# Ours: under the pointer the + darkens to 0.9 of its fill, as the dialog's action does, and a
-# card lightens by the sections' hover plate (Arc's aren't recorded).
-plus-hovered = 0x1c26e6
+# Ours: the + is the Space's accent where Arc's is blue (#319), with the palette's hovered and
+# pressed accents, and a card lightens by the sections' hover plate (Arc's aren't recorded).
 plus-glyph = 14.0
 # The room after the +, to the Library's edge.
 plus-after = 37.0
@@ -874,9 +869,6 @@ search-glyph = 15.0
 search-glyph-x = 14.5
 search-text-x = 44.0
 search-placeholder = 0.56
-# The command bar's.
-search-caret = 0x4a77d4
-search-selection = 0x787d_86b3
 # The archive's list, beside the column.
 archive-top = 56.0
 archive-width = 304.0
@@ -1119,9 +1111,9 @@ cap = 0.705
 line = 20.0
 
 [text-input]
-# A field's placeholder (black at this much) and selection, until its surface sets its own.
+# A field's placeholder, black at this much, until its surface sets its own; its caret and
+# selection are ilo green's.
 placeholder = 0.2
-selection = 0x3311ff30
 
 [theme]
 # Where the intensity slider starts (Arc: its knob at 0.81 of its travel).
@@ -1276,13 +1268,10 @@ chip-padding = 3.0
 chip-after-text = 8.0
 chip-gap = 3.5
 chip-text-size = 10.0
-# Arc's, measured at full opacity: the plate is #090C4B, the text #E2E5FF, the chips #D2D3FC over
-# a lip of #8486E3, and their glyphs the blue itself, #1F2AFF, as the Library's + is.
-fill = 0x090c4b
-text = 0xe2e5ff
-chip-fill = 0xd2d3fc
-chip-lip-fill = 0x8486e3
-chip-text = 0x1f2aff
+# Arc's, measured at full opacity, are indigo: the plate #090C4B, the text #E2E5FF, the chips
+# #D2D3FC over a lip of #8486E3, their glyphs #1F2AFF. Ours (#319): the overlay's dark fill, Paper
+# text, Paper chips with Ink glyphs, over a lip of Paper at this on the fill.
+chip-lip-fill = 0.55
 
 [zoom-hud]
 # Arc's, measured at 2× (Arc 1.170 rec): 41.5 tall, 8 inside the card's top right corner, the
