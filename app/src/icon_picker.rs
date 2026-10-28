@@ -814,7 +814,7 @@ impl Render for IconPicker {
         let root = div()
             .key_context(KEY_CONTEXT)
             .size_full()
-            .font_family(".SystemUIFont");
+            .font_family(crate::face::UI);
         // The slide's progress, while the content slides.
         let slide = self.picking.as_mut().and_then(|picking| {
             let (from, start) = picking.slide?;

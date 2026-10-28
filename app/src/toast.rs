@@ -439,7 +439,7 @@ impl Render for Toast {
             true => (NOTE_HEIGHT, NOTE_TOP, NOTE_RIGHT),
             false => (HEIGHT, TOP, RIGHT),
         };
-        let root = root.pt(px(top)).pr(px(right)).font_family(".SystemUIFont");
+        let root = root.pt(px(top)).pr(px(right)).font_family(crate::face::UI);
         // AppKit puts the window on screen some frames after it's asked to, and only then does
         // GPUI draw it, so the motion starts there rather than skip its start.
         if shown.shown.is_none() && window.is_visible() {
