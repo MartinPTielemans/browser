@@ -24,14 +24,14 @@ expect '^browser: menu tracked New Space…' "the Spaces menu didn't open"
 post agentspace claude-code Claude Code
 expect '^browser: made space [1-9][0-9]* for agent claude-code$' "the driver didn't make the agent's Space"
 agent=$(grep '^browser: made space' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: added space $agent Claude Code\$" "the agent's Space didn't reach the switcher"
+expect "^browser: agent space $agent Claude Code\$" "the switcher didn't hear whose the Space is"
 expect '^browser: menu bar waits for the menu open$' "the menu bar was replaced under the open menu"
 none_since '^browser: menu bar put up' || fail "the menu bar was put up with the menu still open"
 post dismiss
 expect '^browser: menu bar put up once the menus closed$' "the menu bar didn't come once the menu closed"
 send menubar Spaces
 expect '^browser: menu bar Spaces: .*Claude Code' "the Spaces menu didn't list the Space made while it was open"
-expect "^browser: added space $agent Claude Code\$" "the agent's Space didn't reach the switcher"
-expect "^browser: agent space $agent Claude Code\$" "the switcher didn't hear whose the Space is"
 grep -q "^browser: agent space $first " "$log" && fail "the user's Space is an agent's"
 send agentmayact claude-code "$user_tab"
 expect "^browser: agent claude-code may act on $user_tab: 0\$" "the agent may act on the user's tab"
