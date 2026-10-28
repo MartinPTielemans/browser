@@ -335,31 +335,24 @@ impl Shell {
         }
     }
 
-    /// The tooltip over a favorite's tile, which has only an icon, or a folder's row: its name,
-    /// after a moment, hung from the tile or row, wherever the pointer is on it: a tile's square
-    /// corner is under its middle. The pointer leaving, or a drag or a menu, ends it; other rows have none (the hover card is Dia's).
+    /// The tooltip over a folder's row: its name, after a moment, hung from the row, wherever the
+    /// pointer is on it. The pointer leaving, or a drag or a menu, ends it. A tab's row and a
+    /// favorite's tile have their hover card instead, which names the tab (hover_cards.rs).
     pub(super) fn hover_tooltip(&self, row: Row, hovered: bool, cx: &mut Context<Self>) {
         let Row::Tab(tab) = row else {
             return;
         };
-        // A tile's square corner is under its middle, a folder's text over its title.
-        let (name, title) = if self.is_folder(tab) {
-            (self.folder_name(tab), Some(FOLDER_TITLE_X))
-        } else if self.favorites.contains(&tab) {
-            (self.title(tab), None)
-        } else {
+        if !self.is_folder(tab) {
             return;
-        };
+        }
+        let (name, title) = (self.folder_name(tab), FOLDER_TITLE_X);
         let busy = self.dragging().is_some() || self.menu_row.is_some();
         let frame = self.tip_frames.borrow().get(&tab).copied();
         let tip = (hovered && !busy)
             .then(|| tooltip::text_for(&name).map(Tip::named))
             .flatten()
             .zip(frame)
-            .map(|(text, frame)| match title {
-                Some(title) => (text, Anchor::titled(frame, title, self.viewport)),
-                None => (text, Anchor::under(frame, self.viewport)),
-            });
+            .map(|(text, frame)| (text, Anchor::titled(frame, title, self.viewport)));
         self.hover_tip(tip, cx);
     }
 
@@ -430,7 +423,7 @@ impl Shell {
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(Row::Tab(tab), *hovered, cx);
-                shell.hover_tooltip(Row::Tab(tab), *hovered, cx)
+                shell.hover_card(Row::Tab(tab), *hovered, cx)
             }))
             .on_mouse_down(
                 MouseButton::Left,
@@ -459,7 +452,7 @@ impl Shell {
         event: &MouseDownEvent,
         cx: &mut Context<Self>,
     ) {
-        self.browser.tooltip(None, cx);
+        self.end_hovers(cx);
         // The first click showed it.
         if event.click_count == 2 {
             log!("browser: command back-to-pinned-url via favorite");

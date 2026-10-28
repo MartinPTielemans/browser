@@ -91,9 +91,11 @@ fn a_corner_inside_another_is_concentric() {
     use super::{
         capture, command_bar, menu, radius, shell,
         shell::{extensions, recent_downloads},
-        site_controls, toast,
+        site_controls, toast, hover_card,
     };
     // outer = inner + inset, where the inset is a token (or two).
+    assert_eq!(hover_card::RADIUS, hover_card::PICTURE_RADIUS + hover_card::PADDING);
+    assert_eq!(hover_card::RADIUS, hover_card::BUTTON_RADIUS + hover_card::BUTTON_INSET);
     assert_eq!(command_bar::RADIUS, command_bar::PLATE_RADIUS + command_bar::LIST_X + command_bar::PLATE_INSET);
     assert_eq!(command_bar::FIELD_RADIUS, command_bar::RADIUS);
     assert_eq!(site_controls::RADIUS, site_controls::TILE_RADIUS + site_controls::PADDING);

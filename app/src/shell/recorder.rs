@@ -89,6 +89,8 @@ pub(super) struct Recorder {
     pub(super) page_events: RefCell<Vec<&'static str>>,
     /// Where each tooltip it was asked for hangs from, in order.
     pub(super) anchors: RefCell<Vec<crate::tooltip::Anchor>>,
+    /// The last hover card the shell asked for, for a test to press its buttons.
+    pub(super) card: RefCell<Option<crate::hover_card::Rest>>,
     /// Where the shell last put the link target's plate, in the window.
     pub(super) link_frame: Cell<Option<Bounds<Pixels>>>,
     /// What the shell did to tabs, folders and Spaces that ⌘Z puts back, in order, such as
@@ -674,6 +676,17 @@ impl Browser for Recorder {
             }
             None => self.record("tooltip none".into()),
         }
+    }
+
+    fn hover_card(&self, hover: crate::hover_card::Hover, _: &mut App) {
+        self.record(hover.label());
+        if let crate::hover_card::Hover::Rest(rest) = hover {
+            *self.card.borrow_mut() = Some(rest);
+        }
+    }
+
+    fn card_picture(&self, tab: u64, _: &mut App) {
+        self.record(format!("card picture {tab}"))
     }
 
     fn link_target(
