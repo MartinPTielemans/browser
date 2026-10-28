@@ -5,8 +5,9 @@
 # in a window with no page. ⌘Q asks
 # first: Cancel keeps the browser, and Quit, and don't ask again quits and turns the warning off.
 # The command bar opens over the page with the keyboard, never showing the last query, gives the
-# keyboard back when it closes, and loads what's typed in it, over https for a host typed without
-# one, or searches DuckDuckGo for words. While ⌘T's is open, "New Tab" has the selected plate. Keys
+# keyboard back when it closes, a held escape that closes it doesn't repeat into the page, and it
+# loads what's typed in it, over https for a host typed without one, or searches DuckDuckGo for
+# words. While ⌘T's is open, "New Tab" has the selected plate. Keys
 # typed right after ⌘T, ⌘L or ⌘F, from the page or the UI, wait for the bar it opens and land in its
 # field, a composition too, and a page that keeps ⌘F gets them after it. Japanese input composes
 # and commits in the page and in the command bar, where return and escape go to the input method
@@ -29,6 +30,9 @@ addEventListener("keydown", e => {
   document.title = "page saw cmd-" + e.key;
   if (e.key == "f") e.preventDefault();
 }, true);
+addEventListener("keydown", e => {
+  if (e.key == "Escape") document.title = "page saw escape " + (e.repeat ? "repeat" : "press");
+});
 </script>'
 log="$out/keys.log"
 step=0
@@ -92,6 +96,21 @@ for shortcut in "t new-tab" "l edit-url"; do
   fi
   in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 done
+# A held escape that closes the command bar ends there: its repeats don't go on to the page, which
+# could take them to leave its full screen, and the next press reaches it.
+page_shortcut l edit-url
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send keydown escape
+expect '^browser: command bar hidden$' "escape going down didn't close the command bar"
+in_browser RenderWidgetHostViewCocoa "after a held escape closed the command bar"
+held=$step
+send keydown escape repeat
+send keydown escape repeat
+send keyup escape
+send key escape
+expect '^browser: title [0-9]* page saw escape press$' "escape pressed again didn't reach the page"
+sed -n "/^browser: drive $held: /,\$p" "$log" | grep -q '^browser: title [0-9]* page saw escape repeat$' &&
+  fail "a held escape's repeats went on to the page after it closed the command bar"
 send key f cmd
 expect '^browser: title [0-9]* page saw cmd-f$' "⌘F with the page focused didn't reach the page"
 # ⌘N from the page opens a window with no page, so its UI has the keyboard, and ⇧⌘W there closes
@@ -401,5 +420,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
 echo "$launch_bar"
