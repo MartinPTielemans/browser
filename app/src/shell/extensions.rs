@@ -392,7 +392,7 @@ impl Shell {
         }
         items.extend([
             (
-                MenuEntry::new("Remove", true),
+                MenuEntry::new("Remove", true).destructive(),
                 Box::new(move |shell: &mut Shell, cx: &mut Context<Shell>| {
                     shell.remove_extension(profile, remove, extension.name, cx)
                 }) as MenuAction,

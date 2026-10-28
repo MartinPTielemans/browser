@@ -261,7 +261,8 @@ impl Shell {
                 Box::new(|shell, cx| shell.browser.close_side_panel(cx)),
             ),
         ]);
-        self.show_menu(items, position, None, cx);
+        // The panel is beside the page, in the window, while the sidebar is hidden too.
+        self.show_menu_in(items, position, None, false, cx);
     }
 }
 

@@ -343,10 +343,15 @@ pub trait Host {
     /// in Chromium. The user's, as above.
     fn set_system_engine(&self, tab: u64, on: bool);
     fn run(&self, run: Run, tab: u64, cx: &mut App);
-    /// Shows a menu of `items` at `position` in the panel's window, and returns the index of the
-    /// one chosen once it closes. AppKit runs it in an event loop of its own, so it's called
-    /// outside GPUI's updates.
-    fn menu(&self, items: &[MenuEntry], position: Point<Pixels>) -> Option<usize>;
+    /// Shows ilo's menu of `items` at `position` in the panel's window, and calls `chosen` once it
+    /// closes, with the index of the one chosen, if any.
+    fn menu(
+        &self,
+        items: Vec<MenuEntry>,
+        position: Point<Pixels>,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        cx: &mut App,
+    );
     /// Shows the app's tooltip, hanging from a tile in the browser window, or takes it away.
     fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App);
 }
@@ -747,9 +752,8 @@ impl SiteControls {
                 ..MenuEntry::new(value.label(), true)
             })
             .collect();
-        let host = self.host.clone();
-        cx.spawn(async move |panel, cx| {
-            let chosen = host.menu(&items, position);
+        let panel = cx.weak_entity();
+        let chosen = Box::new(move |chosen: Option<usize>, cx: &mut App| {
             let Some(&value) = chosen.and_then(|index| permission.choices.get(index)) else {
                 return;
             };
@@ -765,25 +769,26 @@ impl SiteControls {
                     }
                 })
                 .ok();
-        })
-        .detach();
+        });
+        self.host.menu(items, position, chosen, cx);
     }
 
     /// Shows the "…" menu at `position`, and runs the item chosen.
     fn more(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let (items, runs): (Vec<MenuEntry>, Vec<Option<Run>>) = more_items().into_iter().unzip();
-        let host = self.host.clone();
-        cx.spawn(async move |panel, cx| {
-            let Some(index) = host.menu(&items, position) else {
+        let titles: Vec<SharedString> = items.iter().map(|item| item.title.clone()).collect();
+        let panel = cx.weak_entity();
+        let chosen = Box::new(move |index: Option<usize>, cx: &mut App| {
+            let Some(index) = index else {
                 return;
             };
             let Some(Some(run)) = runs.get(index).cloned() else {
                 return;
             };
-            let name = items[index].title.to_string();
+            let name = titles[index].to_string();
             panel.update(cx, |panel, cx| panel.run(&name, run, cx)).ok();
-        })
-        .detach();
+        });
+        self.host.menu(items, position, chosen, cx);
     }
 
     /// Shows the engine row's menu at `position`: On and Off, the one it is checked, and the other
@@ -796,9 +801,9 @@ impl SiteControls {
             MenuEntry { checked: on, ..MenuEntry::new("On".to_string(), true) },
             MenuEntry { checked: !on, ..MenuEntry::new("Off".to_string(), true) },
         ];
-        let host = self.host.clone();
-        cx.spawn(async move |panel, cx| {
-            let Some(chosen) = host.menu(&items, position) else {
+        let panel = cx.weak_entity();
+        let chosen = Box::new(move |chosen: Option<usize>, cx: &mut App| {
+            let Some(chosen) = chosen else {
                 return;
             };
             let turn_on = chosen == 0;
@@ -809,14 +814,15 @@ impl SiteControls {
                 .update(cx, |panel, _| {
                     let open = panel.open.as_ref();
                     if open.is_some_and(|open| open.tab == tab && open.closing.is_none()) {
+                        let title = if turn_on { "On" } else { "Off" };
                         // check.sh reads this line.
-                        log!("browser: site controls set {ENGINE_NAME} {}", items[chosen].title);
+                        log!("browser: site controls set {ENGINE_NAME} {title}");
                         panel.host.set_system_engine(tab, turn_on);
                     }
                 })
                 .ok();
-        })
-        .detach();
+        });
+        self.host.menu(items.to_vec(), position, chosen, cx);
     }
 
     fn reset(&mut self, cx: &mut Context<Self>) {

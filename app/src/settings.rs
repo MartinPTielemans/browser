@@ -19,6 +19,7 @@ use gpui::{
 };
 
 use crate::{bc, ns_view, platform, show_menu};
+use browser::menu::Look;
 
 actions!(settings, [CloseSettings]);
 
@@ -507,14 +508,18 @@ impl Settings {
             Popup::ArchiveAfter,
             label,
             POPUP_WIDTH,
-            cx.listener(move |settings, _, _, cx| settings.choose_archive_after(chosen, cx)),
+            cx.listener(move |settings, _, window, cx| {
+                settings.choose_archive_after(chosen, window, cx)
+            }),
         );
         let scope = favorites_scope();
         let favorites = self.popup(
             Popup::Favorites,
             scope.title().into(),
             FAVORITES_POPUP_WIDTH,
-            cx.listener(move |settings, _, _, cx| settings.choose_favorites_scope(scope, cx)),
+            cx.listener(move |settings, _, window, cx| {
+                settings.choose_favorites_scope(scope, window, cx)
+            }),
         );
         let warn = unsafe { bc::bc_warn_before_quitting() };
         let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
@@ -620,76 +625,76 @@ impl Settings {
 
     /// Opens the archive's pop-up menu over its button, with the time chosen now, `chosen`, over
     /// the button's text, as a pop-up button does, and sets the time picked.
-    fn choose_archive_after(&mut self, chosen: Option<usize>, cx: &mut Context<Self>) {
-        let items: Vec<MenuEntry> = ARCHIVE_AFTER
-            .iter()
-            .enumerate()
-            .map(|(index, &(title, _))| MenuEntry {
-                title: title.into(),
-                enabled: true,
-                shortcut: None,
-                parent: None,
-                checked: Some(index) == chosen,
-                destructive: false,
+    fn choose_archive_after(
+        &mut self,
+        chosen: Option<usize>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (ARCHIVE_AFTER.iter().enumerate())
+            .map(|(index, &(title, _))| {
+                let on = Some(index) == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(title, true) }
             })
             .collect();
-        self.choosing = Some(Popup::ArchiveAfter);
-        cx.notify();
-        cx.spawn(async move |settings, cx| {
-            // A menu in Settings shows over Settings' window, not a browser window's view.
-            let ui_view = std::ptr::null_mut();
-            let at = popup_text(Popup::ArchiveAfter);
-            let picked = show_menu(ui_view, &items, at, platform::IN_SETTINGS, chosen);
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
             if let Some((title, seconds)) = picked.map(|index| ARCHIVE_AFTER[index]) {
                 // check.sh waits for this line.
                 log!("browser: archive tabs after {title}");
                 unsafe { bc::bc_set_archive_after(seconds) };
             }
-            settings
-                .update(cx, |settings, cx| {
-                    settings.choosing = None;
-                    cx.notify();
-                })
-                .ok();
-        })
-        .detach();
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::ArchiveAfter, items, picked, window, cx);
     }
 
     /// Opens the favorites' pop-up menu over its button, as the archive's, and sets the scope
     /// picked. The core keeps the favorites it had, copying or merging the lists, and tells the
     /// windows (`favorites_changed`).
-    fn choose_favorites_scope(&mut self, chosen: shell::FavoritesScope, cx: &mut Context<Self>) {
-        let items: Vec<MenuEntry> = shell::FavoritesScope::ALL
-            .iter()
-            .map(|&scope| MenuEntry {
-                title: scope.title().into(),
-                enabled: true,
-                shortcut: None,
-                parent: None,
-                checked: scope == chosen,
-                destructive: false,
+    fn choose_favorites_scope(
+        &mut self,
+        chosen: shell::FavoritesScope,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (shell::FavoritesScope::ALL.iter())
+            .map(|&scope| {
+                let on = scope == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(scope.title(), true) }
             })
             .collect();
-        let over = shell::FavoritesScope::ALL.iter().position(|&scope| scope == chosen);
-        self.choosing = Some(Popup::Favorites);
-        cx.notify();
-        cx.spawn(async move |settings, cx| {
-            let ui_view = std::ptr::null_mut();
-            let at = popup_text(Popup::Favorites);
-            let picked = show_menu(ui_view, &items, at, platform::IN_SETTINGS, over);
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
             if let Some(scope) = picked.map(|index| shell::FavoritesScope::ALL[index]) {
                 // check.sh waits for this line.
                 log!("browser: favorites scope {}", scope.title());
                 unsafe { bc::bc_set_favorites_scope(scope.to_core()) };
             }
-            settings
-                .update(cx, |settings, cx| {
-                    settings.choosing = None;
-                    cx.notify();
-                })
-                .ok();
-        })
-        .detach();
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::Favorites, items, picked, window, cx);
+    }
+
+    /// Shows `which` pop-up's menu of `items` in ilo's menu over Settings' window, dark as Settings
+    /// is, its button pressed until `picked` is called.
+    fn pop_up(
+        &mut self,
+        which: Popup,
+        items: Vec<MenuEntry>,
+        picked: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.choosing = Some(which);
+        cx.notify();
+        show_menu(ns_view(window), items, popup_text(which), false, Look::Dark, picked, cx);
+    }
+
+    /// The pop-up's menu closed.
+    fn chose(&mut self, cx: &mut Context<Self>) {
+        self.choosing = None;
+        cx.notify();
     }
 
     /// A row for each profile, with how many Spaces are in it and Delete for one nothing is in, and

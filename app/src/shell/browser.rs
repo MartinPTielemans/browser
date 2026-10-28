@@ -207,22 +207,10 @@ pub trait Browser {
     fn create_profile(&self, name: &str, cx: &mut App) -> u64;
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
     fn delete_profile(&self, profile: u64, cx: &mut App);
-    /// Shows a menu of `items` at `position` in the window, or in the reveal's panel if
-    /// `in_reveal`, as a right-click there does, or with the item at `over` on `position`, its
-    /// title's top left there, as a pop-up button's menu does. Then calls `chosen` once it closes,
-    /// with the index of the item chosen, if any.
-    fn menu(
-        &self,
-        items: Vec<MenuEntry>,
-        position: Point<Pixels>,
-        over: Option<usize>,
-        in_reveal: bool,
-        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
-        cx: &mut App,
-    );
-    /// Shows ilo's own menu of `items` (`menu`'s are the system's) at `position` in the window, or
-    /// in the reveal's panel if `in_reveal`, in `look`, as a right-click there does. Then calls
-    /// `chosen` once it closes, with the index of the item chosen, if any.
+    /// Shows ilo's own menu of `items` at `position` in the window, or in the reveal's panel if
+    /// `in_reveal`, in `look`, as a right-click there does, or with the item marked `over` on
+    /// `position`, its title's top left there, as a pop-up button's menu does. Then calls `chosen`
+    /// once it closes, with the index of the item chosen, if any.
     fn context_menu(
         &self,
         items: Vec<MenuEntry>,

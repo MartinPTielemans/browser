@@ -121,6 +121,22 @@ impl Recorder {
         self.calls.borrow_mut().push(call);
     }
 
+    /// Records the menu it was asked to show, for `choose` to answer.
+    fn menu(
+        &self,
+        entries: Vec<MenuEntry>,
+        _: Point<Pixels>,
+        _: Option<usize>,
+        _: bool,
+        answer: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        _: &mut App,
+    ) {
+        let items = entries.iter().map(|entry| (entry.title.clone(), entry.enabled)).collect();
+        self.menus.borrow_mut().push(items);
+        *self.entries.borrow_mut() = entries;
+        *self.answer.borrow_mut() = Some(answer);
+    }
+
     /// Chooses the item titled `title` in the last menu, as the user's click does.
     pub(super) fn choose(&self, title: &str, cx: &mut App) {
         let at = self.menus.borrow().last().and_then(|items| {
@@ -493,21 +509,6 @@ impl Browser for Recorder {
     }
 
     fn delete_profile(&self, _: u64, _: &mut App) {}
-
-    fn menu(
-        &self,
-        entries: Vec<MenuEntry>,
-        _: Point<Pixels>,
-        _: Option<usize>,
-        _: bool,
-        answer: Box<dyn FnOnce(Option<usize>, &mut App)>,
-        _: &mut App,
-    ) {
-        let items = entries.iter().map(|entry| (entry.title.clone(), entry.enabled)).collect();
-        self.menus.borrow_mut().push(items);
-        *self.entries.borrow_mut() = entries;
-        *self.answer.borrow_mut() = Some(answer);
-    }
 
     fn context_menu(
         &self,

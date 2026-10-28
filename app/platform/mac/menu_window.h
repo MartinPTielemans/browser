@@ -20,8 +20,9 @@ void host_add_menu_window(void* view,
                           void (*dismissed)(void),
                           bool (*choose)(const char* title));
 
-// Puts the menu's window at |left|, |top|, |width|, |height| over the browser window whose UI
-// draws in |ui_view|, as it draws now, with the keyboard.
+// Puts the menu's window at |left|, |top|, |width|, |height| over the window whose UI draws in
+// |ui_view|, as it draws now, with the keyboard: a browser window, or another of the app's, such
+// as Settings, the command bar or the site controls, for their menus.
 void host_show_menu_window(void* ui_view,
                            bool in_reveal,
                            double left,

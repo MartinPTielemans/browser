@@ -71,12 +71,20 @@ impl Host for Recorder {
         };
         self.push(format!("run {run} {tab}"));
     }
-    fn menu(&self, items: &[MenuEntry], _: Point<Pixels>) -> Option<usize> {
+    fn menu(
+        &self,
+        items: Vec<MenuEntry>,
+        _: Point<Pixels>,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        cx: &mut App,
+    ) {
         let items: Vec<String> = (items.iter())
             .map(|item| format!("{}{}", item.title, if item.checked { "*" } else { "" }))
             .collect();
         self.push(format!("menu {}", items.join(", ")));
-        self.answer.get()
+        // Once the update that asked is over, as ilo's menu answers.
+        let answer = self.answer.get();
+        cx.defer(move |cx| chosen(answer, cx));
     }
     fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, _: &mut App) {
         self.tips.borrow_mut().push(match tip {

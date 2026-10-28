@@ -168,6 +168,15 @@ at=$(grep '^browser: command bar at' "$log" | tail -1 | cut -d' ' -f5-)
 [ "$at" = "8 44 350 50" ] ||
   fail "the command bar from the URL field opened at $at, not at 8 44 and 350 by 50"
 ../tools/window-screenshot.sh "$pid" "$out/url-field-bar.png" || fail "no window to capture"
+# The field's own menu is ilo's, and gives the keyboard back to the field.
+post rightclickkey 175 25
+expect '^browser: menu shown Cut[^,]*, Copy[^,]*, Paste, Paste and Go, Paste and Search, Select All$' \
+  "a right-click in the command bar's field didn't show its menu"
+expect '^browser: menu window at ' "the field's menu didn't open its window"
+none_since '^browser: command bar hidden$' || fail "the field's menu closed the command bar"
+send choose Select All
+expect '^browser: menu window hidden$' "choosing Select All didn't close the field's menu"
+none_since '^browser: command bar hidden$' || fail "choosing in the field's menu closed the command bar"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 

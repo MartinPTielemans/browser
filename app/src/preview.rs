@@ -909,19 +909,6 @@ impl Browser for Fake {
         0x007aff
     }
 
-    // Menus are AppKit's, and the dialog's window is one the app's host lays over the browser
-    // window. The preview goes without both.
-    fn menu(
-        &self,
-        _: Vec<MenuEntry>,
-        _: Point<Pixels>,
-        _: Option<usize>,
-        _: bool,
-        _: Box<dyn FnOnce(Option<usize>, &mut App)>,
-        _: &mut App,
-    ) {
-    }
-
     fn context_menu(
         &self,
         items: Vec<MenuEntry>,
@@ -938,6 +925,8 @@ impl Browser for Fake {
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
     }
 
+    // The dialog's window is one the app's host lays over the browser window. The preview goes
+    // without it.
     fn confirm(
         &self,
         _: String,

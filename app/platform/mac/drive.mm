@@ -1210,7 +1210,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "dismiss") {
-    if (!host_menu_window_dismiss() && !host_dismiss_menu()) {
+    if (!host_menu_window_dismiss()) {
       return false;
     }
     dispatch_async(dispatch_get_main_queue(), done);
