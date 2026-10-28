@@ -1759,6 +1759,11 @@ BC_EXPORT void bc_window_toggle_side_panel(bc_id window, const char* id);
 // window_side_panel to give from now on.
 BC_EXPORT void bc_window_set_side_panel_width(bc_id window, double width);
 
+// On Linux, where the app's UI is inside the browser window and can't move it: has the window
+// manager or compositor move |window| with the pointer, while the button pressed in the UI is
+// down, as a drag on a title bar does. Called on the drag's first move.
+BC_EXPORT void bc_window_start_move(bc_id window);
+
 #ifdef __cplusplus
 }
 #endif

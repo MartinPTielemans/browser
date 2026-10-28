@@ -1448,3 +1448,12 @@ void bc_window_set_side_panel_width(bc_id window_id, double width) {
     window->SetSidePanelWidth(base::ClampRound(width));
   }
 }
+
+void bc_window_start_move(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  if (window && window->widget()) {
+    browser_core::platform::StartMove(window->widget());
+  }
+#endif
+}
