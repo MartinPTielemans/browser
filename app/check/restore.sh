@@ -18,14 +18,15 @@
 # logout and restart, keeps a tab opened just before it. Reports how long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
 # the archive, counting the time across a quit, and the tab shown stays. A tab put back unshown has
-# no page until it's first shown, when its page loads scrolled where it was.
+# no page until it's first shown, when its page loads scrolled where it was. A quit with a page full
+# screen saves its window windowed.
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
 # tab's history, the tab each showed and the Space the window showed. Back and Forward on a tab put
-# back go through its saved history, and a window that quit full screen comes back so. Only a tab
-# shown loads, and one that doesn't shows its title and its favicon from the profile's history,
-# which keeps none for data: pages, so the first page is served. A tab the user closed stays
-# closed.
+# back go through its saved history, and a window that quit full screen comes back so, unless a page
+# took it there. Only a tab shown loads, and one that doesn't shows its title and its favicon from
+# the profile's history, which keeps none for data: pages, so the first page is served. A tab the
+# user closed stays closed.
 serve
 log="$out/restore.log"
 step=0
@@ -508,7 +509,8 @@ quit
 # A tab put back that no window shows has no page, as the core logs, until it's first shown, when
 # its page loads scrolled where it was.
 long='data:text/html,<title>top</title><div style="height:5000px"></div>
-<script>onscroll = () => document.title = "scrolled " + Math.round(scrollY);</script>'
+<script>onscroll = () => document.title = "scrolled " + Math.round(scrollY);
+onkeydown = (e) => e.key == "f" && document.documentElement.requestFullscreen();</script>'
 log="$out/unloaded-a.log"
 step=0
 rm -f "$saved" "$launch_frame"
@@ -543,8 +545,16 @@ switch "2 cmd" "$l"
 expect "browser: tab $l has its page\$" "the tab put back didn't get its page once shown"
 expect "^browser: title $l scrolled [1-9][0-9]*\$" "the tab put back loaded its page at the top"
 ../tools/window-screenshot.sh "$pid" "$out/unloaded-scrolled.png" || fail "no window to capture"
+# A quit while a page is full screen, as a video is, keeps the window windowed: the page took it
+# full screen, and it would come back so with no video in it (#383).
+send click $page_point
+send key f
+expect '^browser: page entered full screen$' "the long page didn't go full screen"
+expect '^browser: window entered full screen$' "the window didn't go full screen with the page"
 exec 3>&-
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays. A tab put back unshown has no page until it's shown, when it loads scrolled where it was."
+grep -q '"fullscreen": *true' "$saved" &&
+  fail "the window was saved full screen for the page that was full screen at the quit"
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so, unless a page took it there. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays. A tab put back unshown has no page until it's shown, when it loads scrolled where it was."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png, $out/unloaded-scrolled.png,"
 echo "  $out/recent-downloads.png"
