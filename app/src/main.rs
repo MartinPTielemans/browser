@@ -218,6 +218,7 @@ mod platform {
         );
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
+        pub fn host_open_full_disk_access();
         pub fn host_share(
             ui_view: *mut c_void,
             x: f64,
@@ -3513,9 +3514,12 @@ unsafe extern "C" fn launching(_: *mut c_void) {
 }
 
 /// Back from another app, such as System Settings, where the user may have changed the default
-/// browser.
+/// browser or given the app Full Disk Access.
 extern "C" fn became_active() {
-    update_app(settings::check_default_browser);
+    update_app(|cx| {
+        settings::check_default_browser(cx);
+        import_host::became_active(cx);
+    });
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {

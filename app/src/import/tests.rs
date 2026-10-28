@@ -11,11 +11,13 @@ use std::time::{Duration, SystemTime};
 use gpui::{App, AppContext, TestAppContext};
 
 use super::arc;
-use super::chromium::{self, Kind};
+use super::chromium;
 use super::found::{Found, FromProfile, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
+use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
 use super::{Host, ImportEvent, ImportView, Look};
+use super::{firefox, safari};
 use crate::theme::{Appearance, Theme};
 
 fn fixture() -> PathBuf {
@@ -252,6 +254,8 @@ struct Browser {
     waiting: RefCell<Vec<Box<dyn FnOnce(&mut App)>>>,
     /// History the core is adding: how many pages were new, and what waits to hear it.
     adding: RefCell<Vec<(usize, Box<dyn FnOnce(usize, &mut App)>)>>,
+    /// What waits for the app to come back to the front.
+    active: RefCell<Vec<Box<dyn FnOnce(&mut App)>>>,
 }
 
 #[derive(Default)]
@@ -266,6 +270,8 @@ struct State {
     unloaded: Vec<u64>,
     /// Each page in a profile's history: its URL and last visit.
     history: Vec<(u64, String, i64)>,
+    /// How many times the import showed System Settings' Full Disk Access.
+    asked_access: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -353,6 +359,13 @@ impl Browser {
 
     fn spaces(&self) -> Vec<Space> {
         self.state.borrow().spaces.clone()
+    }
+
+    /// The user came back to the app.
+    fn activate(&self, cx: &mut App) {
+        for then in self.active.take() {
+            then(cx);
+        }
     }
 
     /// The core has added the history it was given.
@@ -487,6 +500,14 @@ impl Host for Browser {
 
     fn when_spaces_change(&self, then: Box<dyn FnOnce(&mut App)>) {
         self.waiting.borrow_mut().push(then);
+    }
+
+    fn open_full_disk_access(&self) {
+        self.state.borrow_mut().asked_access += 1;
+    }
+
+    fn when_active(&self, then: Box<dyn FnOnce(&mut App)>) {
+        self.active.borrow_mut().push(then);
     }
 }
 
@@ -765,7 +786,7 @@ fn bookmarks_become_pinned_tabs_and_folders() {
 /// A bar longer than the sidebar can hold comes in as a folder of its name.
 #[test]
 fn a_long_bookmarks_bar_comes_as_a_folder() {
-    let bar: Vec<String> = (0..=chromium::BAR_ROWS)
+    let bar: Vec<String> = (0..=read::BAR_ROWS)
         .map(|n| bookmark("", &format!("https://example.com/{n}")))
         .collect();
     let pinned = chromium::bookmarks(&bookmarks_file(&bar.join(","))).unwrap();
@@ -774,7 +795,7 @@ fn a_long_bookmarks_bar_comes_as_a_folder() {
     };
     assert_eq!(
         (name.as_str(), children.len()),
-        ("Bookmarks bar", chromium::BAR_ROWS + 1)
+        ("Bookmarks bar", read::BAR_ROWS + 1)
     );
     assert_eq!(pinned.len(), 2);
 }
@@ -901,8 +922,8 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
         now,
     );
     let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
-    assert_eq!(chromium::kinds(source), [Kind::Bookmarks, Kind::History]);
-    let found = chromium::read(source, &[Kind::Bookmarks], now).unwrap();
+    assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History]);
+    let found = read::read(source, &[Kind::Bookmarks], now).unwrap();
     let spaces: Vec<_> = (found.spaces.iter())
         .map(|space| (space.name.as_str(), &space.profile))
         .collect();
@@ -914,7 +935,7 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
         ]
     );
     assert!(found.history.is_empty());
-    let found = chromium::read(source, &[Kind::History], now).unwrap();
+    let found = read::read(source, &[Kind::History], now).unwrap();
     assert!(found.spaces.is_empty());
     assert_eq!(found.history.len(), 2);
     fs::remove_dir_all(home).unwrap();
@@ -1003,4 +1024,534 @@ fn rows_on_a_hosts_ground_mix_its_ink() {
     }
     let light = Look::on(gpui::rgb(0xffffff), gpui::rgb(0x000000));
     assert!(light.line.r < 1. && light.control.r > light.detail.r);
+}
+
+/// Firefox's default profile is the one its install section names, as Firefox starts with it,
+/// else the one marked default, else the first; its things go to the profile this browser
+/// started with.
+#[test]
+fn firefoxs_default_profile_is_the_one_it_starts_with() {
+    let home = home("firefox-default");
+    let firefox = home.join(".mozilla/firefox");
+    let profiles = |ini: &str| {
+        write(firefox.join("profiles.ini"), ini);
+        let source = sources::find(&Roots::under(&home, Os::Linux)).remove(0);
+        (source.profiles.into_iter())
+            .map(|profile| (profile.name, profile.default))
+            .collect::<Vec<_>>()
+    };
+    write(firefox.join("a.default/places.sqlite"), "");
+    write(firefox.join("b.default-release/places.sqlite"), "");
+    let both = |a, b| {
+        vec![
+            ("default".to_string(), a),
+            ("default-release".to_string(), b),
+        ]
+    };
+    let sections = "[Profile1]\nName=default\nIsRelative=1\nPath=a.default\nDefault=1\n\n\
+                    [Profile0]\nName=default-release\nIsRelative=1\nPath=b.default-release\n";
+    assert_eq!(
+        profiles(&format!(
+            "{sections}\n[Install4F96D1932A9F858E]\nDefault=b.default-release\nLocked=1\n"
+        )),
+        both(false, true)
+    );
+    assert_eq!(profiles(sections), both(true, false));
+    assert_eq!(
+        profiles(&sections.replace("Default=1\n", "")),
+        both(true, false)
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// A `places.sqlite` at `path` as Firefox lays one out, with its own folders, in write-ahead mode
+/// with the log kept, as while Firefox runs: what goes in stays in the log while the connection
+/// it returns is open.
+fn places_file(path: &Path) -> rusqlite::Connection {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    _ = fs::remove_file(path);
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+         CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url LONGVARCHAR, title LONGVARCHAR,
+           visit_count INTEGER DEFAULT 0, hidden INTEGER DEFAULT 0 NOT NULL,
+           typed INTEGER DEFAULT 0 NOT NULL, last_visit_date INTEGER, guid TEXT);
+         CREATE TABLE moz_bookmarks(id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER DEFAULT NULL,
+           parent INTEGER, position INTEGER, title LONGVARCHAR, guid TEXT);
+         INSERT INTO moz_bookmarks(id, type, parent, position, title, guid) VALUES
+           (1, 2, NULL, 0, '', 'root________'), (2, 2, 1, 0, 'menu', 'menu________'),
+           (3, 2, 1, 1, 'toolbar', 'toolbar_____'), (4, 2, 1, 2, 'tags', 'tags________'),
+           (5, 2, 1, 3, 'unfiled', 'unfiled_____'), (6, 2, 1, 4, 'mobile', 'mobile______');",
+    )
+    .unwrap();
+    db
+}
+
+/// A page in `db`'s `moz_places`, visited `visits` times, last `ago` seconds before `now`, and
+/// its id.
+fn place(db: &rusqlite::Connection, url: &str, title: &str, visits: i64, ago: Option<u64>) -> i64 {
+    let now = SystemTime::now();
+    let last = ago.map(|ago| read::micros(now - Duration::from_secs(ago)));
+    db.execute(
+        "INSERT INTO moz_places(url, title, visit_count, typed, last_visit_date, hidden) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![
+            url,
+            title,
+            visits,
+            (visits > 2) as i64,
+            last,
+            url.contains("frame")
+        ],
+    )
+    .unwrap();
+    db.last_insert_rowid()
+}
+
+/// A bookmark (type 1) of `place` or a folder (type 2) in `parent`, after what's there.
+fn mark(db: &rusqlite::Connection, id: i64, parent: i64, title: &str, place: Option<i64>) {
+    db.execute(
+        "INSERT INTO moz_bookmarks(id, type, fk, parent, position, title) VALUES \
+         (?1, ?2, ?3, ?4, (SELECT COUNT(*) FROM moz_bookmarks WHERE parent = ?4), ?5)",
+        rusqlite::params![
+            id,
+            if place.is_some() { 1 } else { 2 },
+            place,
+            parent,
+            title
+        ],
+    )
+    .unwrap();
+}
+
+/// Firefox, as the tests make it on Linux: one profile whose toolbar has a bookmark and a folder,
+/// whose menu and phone each have one, with a tag that isn't a bookmark, and two pages visited
+/// lately. The connection is open, so all of it is in the log.
+fn firefox(name: &str) -> (PathBuf, rusqlite::Connection) {
+    let home = home(name);
+    let firefox = home.join(".mozilla/firefox");
+    write(
+        firefox.join("profiles.ini"),
+        "[Profile0]\nName=default-release\nIsRelative=1\nPath=x.default-release\n",
+    );
+    let db = places_file(&firefox.join("x.default-release/places.sqlite"));
+    let day = 24 * 60 * 60;
+    let mail = place(&db, "https://mail.example.com/", "Inbox", 1, Some(120));
+    let docs = place(&db, "https://docs.example.com/", "Docs", 0, None);
+    let prefs = place(&db, "about:preferences", "Settings", 1, Some(30));
+    let mozilla = place(&db, "https://mozilla.example.org/", "Mozilla", 0, None);
+    let news = place(&db, "https://news.example.com/", "News", 0, None);
+    let phone = place(
+        &db,
+        "https://phone.example.com/",
+        "Phone",
+        1,
+        Some(91 * day),
+    );
+    place(&db, "https://example.com/", "Example", 4, Some(60));
+    place(&db, "https://frame.example.com/", "", 1, Some(40));
+    mark(&db, 10, 3, "Mail", Some(mail));
+    mark(&db, 11, 3, "Work", None);
+    mark(&db, 12, 11, "", Some(docs));
+    mark(&db, 13, 3, "Settings", Some(prefs));
+    mark(&db, 14, 2, "Mozilla", Some(mozilla));
+    mark(&db, 15, 4, "news", None);
+    mark(&db, 16, 15, "", Some(news));
+    mark(&db, 17, 6, "Phone", Some(phone));
+    db.execute(
+        "INSERT INTO moz_bookmarks(type, parent, position) VALUES (3, 3, 9)",
+        [],
+    )
+    .unwrap();
+    (home, db)
+}
+
+/// Firefox's toolbar comes as the bar, its menu, other bookmarks and phone's in folders, but for
+/// its tags and its own pages; its history is the last 90 days' pages but for those it hides. It
+/// reads what Firefox still holds in its log.
+#[test]
+fn firefoxs_bookmarks_and_history_come_from_places() {
+    let (home, _db) = firefox("firefox-places");
+    let profile = home.join(".mozilla/firefox/x.default-release");
+    let wal = profile.join("places.sqlite-wal");
+    assert!(fs::metadata(&wal).unwrap().len() > 0);
+    let now = SystemTime::now();
+    let since = now - Duration::from_secs(read::HISTORY_DAYS * 24 * 60 * 60);
+    let read = firefox::read(&profile, &[Kind::Bookmarks, Kind::History], since).unwrap();
+    let shape = |nodes: &[Node]| {
+        fn shape(nodes: &[Node]) -> String {
+            let nodes: Vec<String> = (nodes.iter())
+                .map(|node| match node {
+                    Node::Tab(tab) if tab.name.is_empty() => tab.url.clone(),
+                    Node::Tab(tab) => format!("{}={}", tab.name, tab.url),
+                    Node::Folder { name, children } => format!("{name}[{}]", shape(children)),
+                })
+                .collect();
+            nodes.join(", ")
+        }
+        shape(nodes)
+    };
+    assert_eq!(
+        shape(&read.pinned),
+        "Mail=https://mail.example.com/, Work[https://docs.example.com/], \
+         Bookmarks Menu[Mozilla=https://mozilla.example.org/], \
+         Mobile Bookmarks[Phone=https://phone.example.com/]"
+    );
+    let pages: Vec<_> = (read.pages.iter())
+        .map(|page| {
+            (
+                page.url.as_str(),
+                page.title.as_str(),
+                page.visits,
+                page.typed,
+            )
+        })
+        .collect();
+    assert_eq!(
+        pages,
+        [
+            ("https://example.com/", "Example", 4, 1),
+            ("https://mail.example.com/", "Inbox", 1, 0)
+        ]
+    );
+    let only = firefox::read(&profile, &[Kind::History], since).unwrap();
+    assert!(only.pinned.is_empty() && only.pages.len() == 2);
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// Firefox's bookmarks come in as a Space named Firefox in the profile the browser started with,
+/// as Firefox's default profile, and its history with them; again, nothing new comes.
+#[gpui::test]
+fn firefoxs_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
+    let (home, _db) = firefox("firefox-view");
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.read_with(cx, |view, _| {
+        let source = &view.sources[0];
+        assert_eq!(source.browser.name, "Firefox");
+        assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History]);
+    });
+    let import = |cx: &mut TestAppContext| {
+        view.update(cx, |view, cx| {
+            view.pick(0, cx);
+            view.import(cx);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| browser.added(cx));
+        view.read_with(cx, |view, _| match &view.step {
+            super::Step::Done(said) => said.to_string(),
+            _ => panic!("still importing"),
+        })
+    };
+    assert_eq!(
+        import(cx),
+        "1 Space, 4 pinned tabs and 2 pages of history came in from Firefox."
+    );
+    let space = &browser.spaces()[1];
+    assert_eq!((space.name.as_str(), space.profile), ("Firefox", 1));
+    assert_eq!(browser.state.borrow().profiles.len(), 1);
+    assert_eq!(import(cx), "Everything from Firefox is here already.");
+    fs::remove_dir_all(home).unwrap();
+}
+
+fn plist_dict(entries: &[(&str, plist::Value)]) -> plist::Value {
+    let mut dict = plist::Dictionary::new();
+    for (key, value) in entries {
+        dict.insert(key.to_string(), value.clone());
+    }
+    plist::Value::Dictionary(dict)
+}
+
+fn safari_leaf(title: &str, url: &str) -> plist::Value {
+    plist_dict(&[
+        ("WebBookmarkType", "WebBookmarkTypeLeaf".into()),
+        ("URLString", url.into()),
+        ("URIDictionary", plist_dict(&[("title", title.into())])),
+    ])
+}
+
+fn safari_list(title: &str, children: Vec<plist::Value>) -> plist::Value {
+    plist_dict(&[
+        ("WebBookmarkType", "WebBookmarkTypeList".into()),
+        ("Title", title.into()),
+        ("Children", plist::Value::Array(children)),
+    ])
+}
+
+/// Safari's `Bookmarks.plist`, as it keeps it: the history's proxy, the bar with a bookmark and a
+/// folder, the menu, the Reading List, a folder of the user's and a bookmark outside any.
+fn safari_bookmarks() -> plist::Value {
+    let proxy = plist_dict(&[
+        ("WebBookmarkType", "WebBookmarkTypeProxy".into()),
+        ("Title", "History".into()),
+    ]);
+    safari_list(
+        "",
+        vec![
+            proxy,
+            safari_list(
+                "BookmarksBar",
+                vec![
+                    safari_leaf("Mail", "https://mail.example.com/"),
+                    safari_list(
+                        "Work",
+                        vec![safari_leaf("Docs", "https://docs.example.com/")],
+                    ),
+                    safari_leaf("Bad", "javascript:alert(1)"),
+                ],
+            ),
+            safari_list(
+                "BookmarksMenu",
+                vec![safari_leaf("Apple", "https://apple.example.com/")],
+            ),
+            safari_list(
+                "com.apple.ReadingList",
+                vec![safari_leaf("Later", "https://later.example.com/")],
+            ),
+            safari_list(
+                "Trips",
+                vec![safari_leaf("Map", "https://map.example.com/")],
+            ),
+            safari_leaf("Loose", "https://loose.example.com/"),
+        ],
+    )
+}
+
+fn node_shape(nodes: &[Node]) -> String {
+    let nodes: Vec<String> = (nodes.iter())
+        .map(|node| match node {
+            Node::Tab(tab) => format!("{}={}", tab.name, tab.url),
+            Node::Folder { name, children } => format!("{name}[{}]", node_shape(children)),
+        })
+        .collect();
+    nodes.join(", ")
+}
+
+/// Safari's bar comes as the bar, its menu, with what's outside any folder, and the user's
+/// folders in folders, and its Reading List in one of its own when it's picked; the binary file
+/// and the XML one read the same.
+#[test]
+fn safaris_bookmarks_and_reading_list_become_pinned_tabs() {
+    let mut binary = Vec::new();
+    safari_bookmarks().to_writer_binary(&mut binary).unwrap();
+    let mut xml = Vec::new();
+    safari_bookmarks().to_writer_xml(&mut xml).unwrap();
+    let both = safari::bookmarks(&binary, true, true).unwrap();
+    assert_eq!(
+        node_shape(&both),
+        "Mail=https://mail.example.com/, Work[Docs=https://docs.example.com/], \
+         Bookmarks Menu[Apple=https://apple.example.com/, Loose=https://loose.example.com/], \
+         Trips[Map=https://map.example.com/], Reading List[Later=https://later.example.com/]"
+    );
+    assert_eq!(safari::bookmarks(&xml, true, true).unwrap(), both);
+    let list = safari::bookmarks(&binary, false, true).unwrap();
+    assert_eq!(
+        node_shape(&list),
+        "Reading List[Later=https://later.example.com/]"
+    );
+    let marks = safari::bookmarks(&binary, true, false).unwrap();
+    assert_eq!(marks.len(), 4);
+    assert!(safari::bookmarks(b"not a plist", true, true).is_err());
+}
+
+/// Safari's `History.db` at `path`, its pages as (URL, visits, and each visit's title and seconds
+/// before `now`).
+fn safari_history(path: &Path, now: SystemTime, pages: &[(&str, i64, &[(&str, u64)])]) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    _ = fs::remove_file(path);
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE history_items(id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE,
+           visit_count INTEGER NOT NULL);
+         CREATE TABLE history_visits(id INTEGER PRIMARY KEY, history_item INTEGER NOT NULL,
+           visit_time REAL NOT NULL, title TEXT);",
+    )
+    .unwrap();
+    for (url, visits, each) in pages {
+        db.execute(
+            "INSERT INTO history_items(url, visit_count) VALUES (?1, ?2)",
+            rusqlite::params![url, visits],
+        )
+        .unwrap();
+        let item = db.last_insert_rowid();
+        for (title, ago) in *each {
+            let at = read::micros(now - Duration::from_secs(*ago)) as f64 / 1e6 - 978_307_200.;
+            db.execute(
+                "INSERT INTO history_visits(history_item, visit_time, title) VALUES (?1, ?2, ?3)",
+                rusqlite::params![item, at, title],
+            )
+            .unwrap();
+        }
+    }
+}
+
+/// Safari's history is the last 90 days' pages, the latest first, each by its last visit's title.
+#[test]
+fn safaris_history_is_the_last_90_days_of_pages() {
+    let home = home("safari-history");
+    let path = home.join("History.db");
+    let now = SystemTime::now();
+    let day = 24 * 60 * 60;
+    safari_history(
+        &path,
+        now,
+        &[
+            (
+                "https://example.com/",
+                2,
+                &[("Before", 120), ("Example", 60)],
+            ),
+            ("https://old.example.com/", 1, &[("Old", 91 * day)]),
+            ("https://new.example.com/", 1, &[("New", 10)]),
+            ("file:///Users/me/a.html", 1, &[("A", 30)]),
+            ("feed://example.com/", 1, &[("Feed", 20)]),
+        ],
+    );
+    let pages = safari::history(&path, now - Duration::from_secs(90 * day)).unwrap();
+    let pages: Vec<_> = (pages.iter())
+        .map(|page| (page.url.as_str(), page.title.as_str(), page.visits))
+        .collect();
+    assert_eq!(
+        pages,
+        [
+            ("https://new.example.com/", "New", 1),
+            ("file:///Users/me/a.html", "A", 1),
+            ("https://example.com/", "Example", 2)
+        ]
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// Safari's folder as the tests make it on the Mac, its bookmarks file kept from the app as macOS
+/// keeps it without Full Disk Access, unless the tests run where nothing can be kept from them.
+#[cfg(unix)]
+fn safari(name: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let home = home(name);
+    let safari = home.join("Library/Safari");
+    let mut file = Vec::new();
+    safari_bookmarks().to_writer_binary(&mut file).unwrap();
+    fs::create_dir_all(&safari).unwrap();
+    let bookmarks = safari.join("Bookmarks.plist");
+    fs::write(&bookmarks, file).unwrap();
+    safari_history(
+        &safari.join("History.db"),
+        SystemTime::now(),
+        &[("https://example.com/", 1, &[("Example", 60)])],
+    );
+    fs::set_permissions(&bookmarks, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read(&bookmarks).is_ok() {
+        fs::remove_dir_all(home).unwrap();
+        return None;
+    }
+    Some(home)
+}
+
+#[cfg(unix)]
+fn let_read(home: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let bookmarks = home.join("Library/Safari/Bookmarks.plist");
+    fs::set_permissions(bookmarks, fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+/// Safari's files kept from the app ask for Full Disk Access, and the import goes on when the
+/// user comes back to the app with it given; Back leaves it, and coming back then does nothing.
+#[cfg(unix)]
+#[gpui::test]
+fn safari_waits_for_full_disk_access(cx: &mut TestAppContext) {
+    let Some(home) = safari("safari-access") else {
+        return;
+    };
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Mac))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let _events = cx.update(|cx| {
+        let events = events.clone();
+        cx.subscribe(&view, move |_, event: &ImportEvent, _| {
+            events.borrow_mut().push(event.clone())
+        })
+    });
+    view.read_with(cx, |view, _| {
+        let source = &view.sources[0];
+        assert_eq!(source.browser.name, "Safari");
+        assert_eq!(
+            read::kinds(source),
+            [Kind::Bookmarks, Kind::ReadingList, Kind::History]
+        );
+    });
+    let import = |cx: &mut TestAppContext| {
+        view.update(cx, |view, cx| {
+            view.pick(0, cx);
+            view.import(cx);
+        });
+        cx.run_until_parked();
+    };
+    let waiting = |cx: &mut TestAppContext| {
+        view.read_with(cx, |view, _| {
+            matches!(view.step, super::Step::NoAccess { .. })
+        })
+    };
+    import(cx);
+    assert!(waiting(cx));
+    assert_eq!(
+        *events.borrow(),
+        [
+            ImportEvent::Started,
+            ImportEvent::Finished("Safari needs Full Disk Access.".into())
+        ]
+    );
+    view.update(cx, |view, cx| view.back(cx));
+    cx.update(|cx| browser.activate(cx));
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| {
+        assert!(matches!(view.step, super::Step::List))
+    });
+    import(cx);
+    assert!(waiting(cx));
+    // Back without it, the import still waits.
+    cx.update(|cx| browser.activate(cx));
+    cx.run_until_parked();
+    assert!(waiting(cx));
+    let_read(&home);
+    cx.update(|cx| browser.activate(cx));
+    cx.run_until_parked();
+    cx.update(|cx| browser.added(cx));
+    view.read_with(cx, |view, _| match &view.step {
+        super::Step::Done(said) => assert_eq!(
+            said.as_ref(),
+            "1 Space, 6 pinned tabs and 1 page of history came in from Safari."
+        ),
+        _ => panic!("still waiting"),
+    });
+    assert_eq!(browser.spaces()[1].name, "Safari");
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// A file the system keeps from the app is no access, which asks for Full Disk Access; one that
+/// isn't there is nothing to bring.
+#[cfg(unix)]
+#[test]
+fn a_file_kept_from_the_app_is_no_access() {
+    let Some(home) = safari("safari-kept") else {
+        return;
+    };
+    let safari = home.join("Library/Safari");
+    let since = SystemTime::now() - Duration::from_secs(60 * 60);
+    assert_eq!(
+        safari::read(&safari, &[Kind::Bookmarks], since).err(),
+        Some(ReadError::NoAccess)
+    );
+    let history = safari::read(&safari, &[Kind::History], since).unwrap();
+    assert_eq!(history.pages.len(), 1);
+    let_read(&home);
+    fs::remove_file(safari.join("Bookmarks.plist")).unwrap();
+    assert!(
+        (safari::read(&safari, &[Kind::Bookmarks], since)
+            .unwrap()
+            .pinned)
+            .is_empty()
+    );
+    fs::remove_dir_all(home).unwrap();
 }
