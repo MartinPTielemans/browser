@@ -1603,6 +1603,18 @@ impl Browser for Engine {
         agents_core::update(move |agents, cx| agents.revoke(&agent, site.as_deref(), cx));
     }
 
+    fn take_over(&self, agent: SharedString, tab: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.take_over(&agent, tab, cx));
+    }
+
+    fn hand_back(&self, tab: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
+    }
+
+    fn stop_agent(&self, agent: SharedString, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.stop_agent(&agent, cx));
+    }
+
     fn disconnect_agent(&self, space: u64, _: &mut App) {
         let agent = name(bc::bc_space_agent, space);
         if let Some(client) = browser::agents::Client::from_id(&agent) {
