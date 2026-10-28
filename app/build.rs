@@ -34,7 +34,12 @@ fn main() {
         }
         // Only what the preview asks of the host so far; the browser doesn't build here yet.
         "linux" => {
-            host.file("platform/linux/host.cc").flag("-std=c++20");
+            // The desktop entry's name, for the default browser (branding/id).
+            let id = std::fs::read_to_string(root.join("branding/id")).expect("no branding/id");
+            println!("cargo:rerun-if-changed={}", root.join("branding/id").display());
+            host.file("platform/linux/host.cc")
+                .flag("-std=c++20")
+                .define("APP_ID", format!("\"{}\"", id.trim()).as_str());
         }
         other => panic!("no host for {other}"),
     }

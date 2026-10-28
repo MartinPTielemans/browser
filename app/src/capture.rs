@@ -81,9 +81,15 @@ pub enum Action {
     Retake,
 }
 
-/// The menu's rows under its field, a line between groups.
-const ROWS: &[Option<Action>] =
-    &[Some(Action::Copy), Some(Action::Save), Some(Action::Messages), None, Some(Action::Retake)];
+/// The menu's rows under its field, a line between groups. Messages is the Mac's alone.
+const ROWS: &[Option<Action>] = if cfg!(target_os = "macos") {
+    &[Some(Action::Copy), Some(Action::Save), Some(Action::Messages), None, Some(Action::Retake)]
+} else {
+    &[Some(Action::Copy), Some(Action::Save), None, Some(Action::Retake)]
+};
+
+/// Whether the system has a share menu. Linux has none, so there sharing copies, and says so.
+const SHARES: bool = !cfg!(target_os = "linux");
 
 impl Action {
     fn label(self) -> &'static str {
@@ -429,6 +435,7 @@ impl Capture {
             });
             self.leave(action.name(), window, cx);
             match (action, field) {
+                (Action::SendTo, _) if !SHARES => self.done(Action::Copy, png, cx),
                 (Action::SendTo, Some(field)) => {
                     if let Some(png) = png {
                         self.host.share(&png, Share::Menu(field));
@@ -488,8 +495,9 @@ impl Capture {
                         run: Rc::new(move |at, _| host.share(&png, Share::Toast(at))),
                     }
                 };
+                let buttons = if SHARES { vec![save, share] } else { vec![save] };
                 // After this update, as the toast is another window's.
-                cx.defer(|cx| toast::show_with_buttons(COPIED, vec![save, share], TOAST_TIME, cx));
+                cx.defer(|cx| toast::show_with_buttons(COPIED, buttons, TOAST_TIME, cx));
             }
             Action::Save => self.host.save(&png),
             Action::Messages => self.host.share(&png, Share::Messages),
