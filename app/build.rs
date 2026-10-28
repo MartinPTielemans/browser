@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -77,6 +77,14 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");
     }
 
+    // A local engine built from another header would run with shifted calls and layouts. Only the
+    // browser, which links it, stops on that (main.rs); the tests and the preview don't link it.
+    println!("cargo::rustc-check-cfg=cfg(engine_header_mismatch)");
+    if let Some(why) = engine_mismatch(&root.join(".deps/Chromium.app"), &header) {
+        println!("cargo:rustc-cfg=engine_header_mismatch");
+        println!("cargo:rustc-env=ENGINE_HEADER_MISMATCH={why}");
+    }
+
     // The name the user reads, from branding/, which build.sh also reads for the app's bundle.
     let name = root.join("branding/name");
     let name_text = std::fs::read_to_string(&name).expect("no branding/name");
@@ -91,6 +99,33 @@ fn main() {
     let tokens_rs_path = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("tokens.rs");
     std::fs::write(tokens_rs_path, tokens_rs(&tokens_text)).unwrap();
     println!("cargo:rerun-if-changed={}", tokens.display());
+}
+
+/// Why the Mac's engine, which setup.sh links at `link`, can't run with bindings from
+/// `header`, if it can't: engine/build.sh keeps the header it built from beside it. A prebuilt
+/// engine's header was checked by engine/fetch.sh, and Linux and Windows link only those.
+fn engine_mismatch(link: &Path, header: &Path) -> Option<String> {
+    let engine = std::fs::canonicalize(link).ok()?;
+    // A relinked or rebuilt engine checks again, and one without a record every build until it has.
+    println!("cargo:rerun-if-changed={}", link.display());
+    if engine.components().any(|part| part.as_os_str() == "prebuilt") {
+        return None;
+    }
+    let built = engine.parent()?.join("browser_core.h.built");
+    println!("cargo:rerun-if-changed={}", built.display());
+    let engine = engine.display();
+    match std::fs::read(&built) {
+        Ok(built) if built == std::fs::read(header).ok()? => None,
+        Ok(_) => Some(format!(
+            "the engine at {engine} was built from another core/public/browser_core.h than this \
+             checkout's, so the app would call it with shifted functions and layouts. Build it \
+             from this checkout with engine/build.sh [dev], or link another with ./setup.sh."
+        )),
+        Err(_) => Some(format!(
+            "the engine at {engine} doesn't say which core/public/browser_core.h it was built \
+             from. Run engine/build.sh [dev] to record it."
+        )),
+    }
 }
 
 /// Turns tokens.toml into Rust: a module for each table, a `pub const` for each key, and the
