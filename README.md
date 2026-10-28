@@ -44,7 +44,7 @@ Each OS builds the app on a prebuilt engine, which `app/setup.sh` downloads, so 
 
 ## Releases
 
-`.github/workflows/release.yml` makes a release from an annotated tag, `git tag -a v<version>` on a commit whose `app/Cargo.toml` has that version, with the release notes as the tag's message. Each OS builds on its prebuilt engine for that commit, and the run stops if there isn't one. It makes a draft release whose files keep their names, so `releases/latest/download/<name>` always links the newest: `ilo-mac-arm64.dmg`, `ilo-windows-x64.msix`, `ilo-windows-x64-setup.exe`, `ilo-linux-x86_64.flatpak`, `SHA256SUMS` and `appcast.xml`. Once the draft is published, its `appcast.xml` goes to the updates feed: `gh release download v<version> -p appcast.xml && gh release upload updates appcast.xml --clobber`.
+`.github/workflows/release.yml` makes a release from an annotated tag, `git tag -a v<version>` on a commit whose `app/Cargo.toml` has that version, with the release notes as the tag's message. Each OS builds on its prebuilt engine for that commit, and the run stops if there isn't one. It makes a draft release whose files keep their names, so `releases/latest/download/<name>` always links the newest: `ilo-mac-arm64.dmg`, `ilo-windows-x64.msix`, `ilo-windows-x64-setup.exe`, `ilo-linux-x86_64.flatpak`, `ilo.flatpakref`, `SHA256SUMS` and `appcast.xml`. Once the draft is published, its `appcast.xml` goes to the updates feed: `gh release download v<version> -p appcast.xml && gh release upload updates appcast.xml --clobber`.
 
 The Mac's DMG is built only with these repository secrets:
 
@@ -58,6 +58,23 @@ The Mac's DMG is built only with these repository secrets:
 | `UPDATE_PUBLIC_KEY` | Its public half, from `generate_keys --account ilo -p`, which the Mac and Windows builds carry |
 
 The Windows packages are unsigned: the Store signs the MSIX, and winget takes the installer.
+
+Linux installs from GitHub update from ilo's Flatpak repository, a static OSTree repository in a Cloudflare R2 bucket (`tools/flatpak-repo.sh`). The bundle and `ilo.flatpakref` name it and carry its public key. The run adds the build to the bucket, unseen; publishing the draft makes it live. Publish each draft before building the next, since a build doesn't follow a draft that isn't live yet. The Linux files are built only with these:
+
+| Secret | What |
+|---|---|
+| `FLATPAK_GPG_KEY` | The repository's signing key, ASCII-armoured, without a passphrase |
+| `R2_BUCKET` | The bucket's name |
+| `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | An R2 API token with Object Read & Write on that bucket alone |
+
+and the repository variable `FLATPAK_REPO_URL`, the bucket's public address, such as `https://flatpak.<domain>/`.
+
+Once, before the first release:
+
+1. Make the key: `gpg --quick-gen-key "ilo Flatpak repository" rsa4096 sign never`, with an empty passphrase. Put `gpg --armor --export-secret-keys <fingerprint>` in `FLATPAK_GPG_KEY` and keep a copy offline forever. Every installed copy checks it, and a new key strands them.
+2. In Cloudflare, create the R2 bucket, connect a custom domain to it for public reads, and create the API token.
+3. Add the secrets and the variable. The address is permanent too, as installs keep it.
 
 ## Architecture
 
