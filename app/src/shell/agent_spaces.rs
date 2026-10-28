@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use gpui::{AppContext, Entity, SharedString, TestAppContext, point, px};
 
-use crate::shell::{Command, Folders, Shell, recorder::Recorder};
+use crate::shell::{AgentGrants, Command, Folders, Shell, recorder::Recorder};
 
 /// The user's Space 1 with tab 10, shown, and Claude Code's Space 2 with tab 20, and favorite 30.
 fn shell_with_agent(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
@@ -187,7 +187,8 @@ fn an_agents_space_menu_shows_its_activity(cx: &mut TestAppContext) {
 }
 
 /// An agent's Space's menu lists what the user answered it for good on each site under Revoke
-/// Permission, each to revoke, and all at once for several, and Disconnect while it's connected.
+/// Permission, each to revoke, and all at once for several, Take Back All Tabs while it has a tab
+/// the user doesn't hold, and Disconnect while it's connected.
 #[gpui::test]
 fn an_agents_space_menu_lists_its_permissions_to_revoke(cx: &mut TestAppContext) {
     let (shell, host) = shell_with_agent(cx);
@@ -200,8 +201,9 @@ fn an_agents_space_menu_lists_its_permissions_to_revoke(cx: &mut TestAppContext)
     assert_eq!(item(&menu_now, "Disconnect Claude Code"), Some(false));
     cx.update(|cx| host.dismiss(cx));
 
-    let grants = vec![("bank.example".into(), false), ("shop.example".into(), true)];
-    *host.agent_permissions.borrow_mut() = (grants, true);
+    assert_eq!(item(&menu_now, "Take Back All Tabs"), Some(false));
+    let sites = vec![("bank.example".into(), false), ("shop.example".into(), true)];
+    *host.agent_permissions.borrow_mut() = AgentGrants { sites, connected: true, tabs: true };
     let menu_now = menu(cx);
     assert_eq!(item(&menu_now, "Revoke Permission"), Some(true));
     assert_eq!(item(&menu_now, "Never on bank.example"), Some(true));
@@ -216,7 +218,11 @@ fn an_agents_space_menu_lists_its_permissions_to_revoke(cx: &mut TestAppContext)
     menu(cx);
     cx.update(|cx| host.choose("Disconnect Claude Code", cx));
     assert_eq!(host.take(), ["disconnect agent 2"]);
+    menu(cx);
+    cx.update(|cx| host.choose("Take Back All Tabs", cx));
+    assert_eq!(host.take(), ["take back agent 2"]);
 
-    *host.agent_permissions.borrow_mut() = (vec![("shop.example".into(), true)], true);
+    let sites = vec![("shop.example".into(), true)];
+    *host.agent_permissions.borrow_mut() = AgentGrants { sites, connected: true, tabs: true };
     assert_eq!(item(&menu(cx), "All Sites"), None, "one site had All Sites");
 }
