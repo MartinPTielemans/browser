@@ -2,8 +2,9 @@
 # it's connected, as the saved settings say here. The socket is the user's alone, and the bridge
 # gets nowhere without the agent's token. Its first call makes its Space, and it may read only the
 # tabs there: a read of the user's tab is refused, with an activity-log entry, and a read of
-# example.com, opened in its Space, gives the page's text. Closing the client's end ends its
-# session with the tab.
+# example.com, opened in its Space, gives the page's text. A page with fields gives its prose and
+# none of their values: typed, filled in or a password. Closing the client's end ends its session
+# with the tab.
 
 log="$out/mcp.log"
 step=0
@@ -99,6 +100,39 @@ if [ "$driven" = 1 ]; then
   await_log "^browser: agent activity mcp-client $agent_tab read_page\$" "the read didn't reach the activity log"
   await_log "^browser: tab text $agent_tab [0-9]* [1-9][0-9]*\$" "the core didn't read the page"
   await_log "^browser: agent mcp-client at work in $agent_tab\$" "the agent's tab didn't show it at work"
+
+  # Sessions, never secrets: a page's text has its prose, and no field's value, whether the user
+  # typed it, the page filled it in as autofill does, or it's a password.
+  serve
+  printf '%s' '<title>fields</title>
+<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
+<label>Name <input id=typed style="position:fixed;inset:0;width:100%;height:100%"></label>
+<label>Password <input id=password type=password></label>
+<label>Email <input id=email autocomplete=email></label>
+<label>Card <input id=card autocomplete=cc-number value=4111111111111111></label>
+<label>Note <textarea id=note>note-by-ada</textarea></label>
+<div contenteditable>editable-by-ada</div>
+<select><option>Pick one<option selected>chosen-by-ada</select>
+<script>
+password.value = "hunter2-by-ada";
+email.value = "ada@example.com";
+typed.oninput = () => document.title = "typed";
+</script>' > "$out/site/fields.html"
+  go_from_bar "localhost:$port/fields.html"
+  await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
+  send click $page_point
+  send type typed-by-ada
+  expect "^browser: title $agent_tab typed\$" "typing didn't reach the page's field"
+  read=$(call read_page "{\"tab\":$agent_tab}")
+  echo "$read" > "$out/mcp-fields.txt"
+  case "$read" in
+    *"Fields for the agents check."*) ;;
+    *) fail "reading the fields page didn't give its prose: $read" ;;
+  esac
+  for secret in typed-by-ada hunter2-by-ada ada@example.com 4111111111111111 note-by-ada \
+    editable-by-ada chosen-by-ada; do
+    case "$read" in *"$secret"*) fail "reading the fields page gave a field's value, $secret" ;; esac
+  done
 fi
 # The client closing its end ends its session, which ends its session with the tab.
 exec 4>&-
@@ -113,7 +147,7 @@ fi
 quit
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi
