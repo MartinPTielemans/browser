@@ -49,6 +49,7 @@ use crate::tokens::shell::split_targets::PICTURE_TOP;
 use crate::tokens::shell::split_targets::PICTURE_INSET;
 use crate::tokens::shell::split_targets::HALF_GLYPH_RADIUS;
 use crate::tokens::shell::split_targets::PICTURE_SHADOW;
+use crate::tokens::text;
 
 /// A dragged tab over the page, where it can join the page shown in a split view.
 pub(super) struct OverPage {
@@ -336,7 +337,7 @@ fn target(
         .child(half_glyph(left, text))
         .child(
             div()
-                .text_size(px(13.))
+                .text_size(px(text::BODY))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(text)
                 .child(if left { "Add left split" } else { "Add right split" }),
@@ -403,7 +404,7 @@ fn picture(
             div()
                 .min_w_0()
                 .truncate()
-                .text_size(px(12.))
+                .text_size(px(text::SMALL))
                 .text_color(hsla(0., 0., 1., TARGET_TEXT))
                 .child(title),
         );

@@ -125,6 +125,7 @@ use crate::tokens::shell::library::PROGRESS_FILL;
 use crate::tokens::shell::library::BUTTON_PROGRESS_WIDTH;
 use crate::tokens::shell::library::BUTTON_PROGRESS_HEIGHT;
 use crate::tokens::shell::library::BUTTON_PROGRESS_BOTTOM;
+use crate::tokens::text;
 
 /// The headings, by how long ago a tab was archived: the starts of `Browser::day_starts`, then
 /// before them.
@@ -838,7 +839,7 @@ impl Shell {
                     window.focus(&search.focus_handle(cx), cx);
                 }),
             )
-            .text_size(px(14.))
+            .text_size(px(text::BODY))
             .text_color(rgb(FORM_TEXT))
             .child(
                 svg()
@@ -865,7 +866,7 @@ impl Shell {
                 .justify_center()
                 .pt(px(HEADING_TOP + 40.))
                 .px(px(HEADING_X))
-                .text_size(px(12.))
+                .text_size(px(text::SMALL))
                 .text_color(rgba(SECONDARY))
                 .child(empty)
                 .into_any_element()
@@ -1068,7 +1069,7 @@ impl Shell {
                             .h(px(HEADING_HEIGHT))
                             .flex()
                             .items_center()
-                            .text_size(px(12.))
+                            .text_size(px(text::SMALL))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(rgba(SECONDARY))
                             .child(heading),
@@ -1129,8 +1130,8 @@ impl Shell {
                             .justify_center()
                             .pl(px(ARCHIVED_TEXT_X))
                             .pr(px(12.))
-                            .child(text_line(title, 14., 17., UNSELECTED_TITLE))
-                            .child(text_line(host, 12., 15., SECONDARY)),
+                            .child(text_line(title, text::BODY, 17., UNSELECTED_TITLE))
+                            .child(text_line(host, text::SMALL, 15., SECONDARY)),
                     ),
             )
             .into_any_element()
@@ -1180,7 +1181,7 @@ impl Shell {
                     .h(px(SECTION_LABEL_HEIGHT))
                     .flex()
                     .justify_center()
-                    .text_size(px(12.))
+                    .text_size(px(text::SMALL))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgba(SECTION_LABEL))
                     .child(label),
@@ -1252,8 +1253,8 @@ impl Shell {
                             .justify_center()
                             .pl(px(ARCHIVED_TEXT_X))
                             .pr(px(12.))
-                            .child(text_line(name, 14., 17., UNSELECTED_TITLE))
-                            .child(text_line(status, 12., 15., SECONDARY)),
+                            .child(text_line(name, text::BODY, 17., UNSELECTED_TITLE))
+                            .child(text_line(status, text::SMALL, 15., SECONDARY)),
                     )
                     .children(progress.map(|done| {
                         div()

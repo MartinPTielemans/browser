@@ -24,7 +24,7 @@ pill-width = 356.0
 pill-height = 67.0
 pill-radius = 16.0
 pill-bottom = 35.5
-pill-text-size = 14.0
+pill-text-size = 13.0
 pill-text = 0x471c_9dff
 # The pill's lilac glow, fitted by eye to its edge over the grey page (interim).
 glow = 0x825a_9666
@@ -45,7 +45,7 @@ glyph = 14.0
 glyph-left = 18.0
 glyph-color = 0xffff_ff4d
 text-left = 42.0
-text-size = 14.0
+text-size = 13.0
 separator = 9.0
 separator-color = 0xffff_ff0f
 menu-bottom = 6.0
@@ -103,7 +103,7 @@ above-middle = 169.0
 field-width = 350.0
 field-above = 2.0
 field-radius = 20.0
-field-input-text = 14.0
+field-input-text = 13.0
 # Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
 beside-end = 70.0
 # Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
@@ -303,7 +303,7 @@ radius = 6.0
 # The 0.5 pt rim, white at 0.10, as the popovers' and the picture of a page elsewhere have.
 rim = 0.5
 rim-color = 0xffffff1a
-text-size = 12.0
+text-size = 11.0
 secondary = 0xffffff99
 primary = 0xffffff
 
@@ -739,7 +739,7 @@ bars-box = 14.0
 
 [shell.empty]
 # The sidebar's New Tab row is 14 pt.
-words-size = 14.0
+words-size = 13.0
 # The command bar's key chip, which a command's row ends in: 24 tall, 7 in, white 0.08 on the
 # panel, with its text at 13 pt.
 keys-size = 13.0
@@ -945,7 +945,7 @@ text-end = 12.0
 name = 0xffffffff
 name-size = 15.0
 name-line = 19.0
-age-size = 12.0
+age-size = 11.0
 age-line = 15.0
 # Ours: a tall image's preview keeps 4 pt inside its row's plate, with corners concentric with it:
 # the plate's 12 less 4.
@@ -1027,7 +1027,7 @@ black = 0x0000_00ff
 
 [shell.trouble]
 # The empty card's line is 14 pt, as the sidebar's New Tab row.
-words-size = 14.0
+words-size = 13.0
 # The card's button, wider than the plates' pair as it stands alone.
 button-inset = 14.0
 line = 18.0
@@ -1070,9 +1070,9 @@ plate-hovered = 0xffffff1a
 # Ours: an extension's icon, as the toolbar's is.
 extension-icon = 16.0
 plus-glyph = 16.5
-heading-size = 14.0
-link-size = 12.0
-name-size = 14.0
+heading-size = 13.0
+link-size = 11.0
+name-size = 13.0
 state-size = 13.0
 circle = 32.0
 row-pitch = 43.0
@@ -1107,6 +1107,20 @@ ascent = 0.967
 descent = 0.211
 cap = 0.705
 line = 20.0
+
+[text]
+# The chrome's four type sizes, in the system face. A surface's own size token holds one of them,
+# and only the extension badge's 8.5, a pictogram inside its pill, stands outside. Rows share body,
+# so the Space name leads its tabs by weight, not size.
+small = 11.0
+body = 13.0
+title = 15.0
+heading = 18.0
+# The three weights: regular for lists, medium for text on plates and overlays, semibold for
+# headings and labels.
+regular = 400.0
+medium = 500.0
+semibold = 600.0
 
 [text-input]
 # A field's placeholder (black at this much) and selection, until its surface sets its own.
@@ -1212,7 +1226,7 @@ text-right = 13.5
 radius = 16.0
 # Medium, and the key semibold. 13.5 makes Arc's toast 256.5 wide, as measured, where 14 makes it
 # 263.5.
-text-size = 13.5
+text-size = 13.0
 chip-height = 26.0
 chip-radius = 6.0
 chip-x = 9.0
@@ -1250,7 +1264,8 @@ edge-inset = 8.0
 # How far right of a footer button's plate the tooltip beside it starts (Arc).
 beside = 3.5
 # Arc's, from the Library button's: a capsule 27 tall and 161.5 wide for View Library ⇧⌘L, its
-# 12 pt semibold text 11 in and its last chip 10 from its end.
+# semibold text 11 in and its last chip 10 from its end. Arc's text is 12 pt, and ours is the
+# small size.
 height = 27.0
 window-width = 320.0
 near-radius = 6.0
@@ -1259,7 +1274,7 @@ rim = 0.5
 rim-color = 0xffffff1f
 text-x = 11.0
 end = 10.0
-text-size = 12.0
+text-size = 11.0
 # A key's chip: 18.5 wide, wider for a key named in words, 8 after the text and 22 apart. Its
 # body is 16.25 tall, centred on the capsule, with a 2 pt lip showing under it (Arc).
 chip = 18.5
@@ -1269,7 +1284,7 @@ chip-radius = 6.0
 chip-padding = 3.0
 chip-after-text = 8.0
 chip-gap = 3.5
-chip-text-size = 10.0
+chip-text-size = 11.0
 # Arc's, measured at full opacity: the plate is #090C4B, the text #E2E5FF, the chips #D2D3FC over
 # a lip of #8486E3, and their glyphs the blue itself, #1F2AFF, as the Library's + is.
 fill = 0x090c4b
@@ -1284,7 +1299,7 @@ chip-text = 0x1f2aff
 height = 41.5
 padding = 16.0
 radius = 12.0
-text-size = 14.0
+text-size = 13.0
 edge = 0x0000_004d
 shade = 0.78
 # The window reaches this far past the pill on every side, for its shadow.

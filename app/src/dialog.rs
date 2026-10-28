@@ -72,6 +72,7 @@ use crate::tokens::dialog::RETURN_GLYPH;
 use crate::tokens::dialog::TEXT;
 use crate::tokens::dialog::SHADOW;
 use crate::tokens::dialog::OUTLINE;
+use crate::tokens::text;
 /// Arc's motion: over 0.275 s the window dims and the card comes down 32 pt into place,
 /// ease-in-out, opaque after the first 0.135 s. It leaves the way it came, fading all the way.
 const MOVE: f32 = 0.275;
@@ -454,7 +455,7 @@ fn button(id: &'static str, label: SharedString, chip: impl IntoElement) -> Stat
         .gap(px(CHIP_GAP))
         .rounded(px(BUTTON_RADIUS))
         // macOS's control font, as Arc's buttons have.
-        .text_size(px(13.))
+        .text_size(px(text::BODY))
         .child(label)
         .child(chip)
 }
@@ -505,7 +506,7 @@ impl Render for Dialog {
             chip()
                 .px(px(6.5))
                 .bg(rgba(ESC_FILL))
-                .text_size(px(11.))
+                .text_size(px(text::SMALL))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(rgb(ESC_TEXT))
                 .child("ESC"),
@@ -528,7 +529,7 @@ impl Render for Dialog {
                 .flex()
                 .items_center()
                 .rounded(px(BUTTON_RADIUS))
-                .text_size(px(13.))
+                .text_size(px(text::BODY))
                 .border_1()
                 .border_color(rgb(CANCEL_BORDER))
                 .bg(rgb(CANCEL_FILL))
@@ -582,7 +583,7 @@ impl Render for Dialog {
                     div()
                         .pl(px(SUBLINE_INDENT))
                         .line_height(px(SUBLINE))
-                        .text_size(px(12.))
+                        .text_size(px(text::SMALL))
                         .text_color(rgba(SUBLINE_TEXT))
                         .child(subline.clone())
                 }))
@@ -594,7 +595,7 @@ impl Render for Dialog {
                 .flex()
                 .flex_col()
                 .line_height(px(DETAIL_LINE))
-                .text_size(px(14.))
+                .text_size(px(text::BODY))
                 .text_color(rgba(DETAIL))
                 .when(!question.detail.is_empty(), |text| text.child(question.detail.clone()))
                 .when(!question.list.is_empty(), |text| {
@@ -638,7 +639,7 @@ impl Render for Dialog {
                 div()
                     .pr(px(TEXT_INSET - BUTTON_INSET))
                     .line_height(px(TITLE_LINE))
-                    .text_size(px(18.))
+                    .text_size(px(text::HEADING))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(rgb(TEXT))
                     .child(question.message.clone()),

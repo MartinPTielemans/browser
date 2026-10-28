@@ -61,6 +61,7 @@ use crate::tokens::offer::DEFAULT_PLATE;
 use crate::tokens::offer::PLACEHOLDER;
 use crate::tokens::offer::CARET;
 use crate::tokens::offer::SELECTION;
+use crate::tokens::text;
 
 /// What an offer offers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -420,7 +421,7 @@ impl Render for OfferPrompt {
                 .border_1()
                 .border_color(rgba(EDGE))
                 .text_color(rgba(TITLE))
-                .text_size(px(13.))
+                .text_size(px(text::BODY))
                 .line_height(px(18.))
                 .child(
                     div()
@@ -431,7 +432,7 @@ impl Render for OfferPrompt {
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(px(text::SMALL))
                         .line_height(px(SITE_LINE))
                         .text_color(rgba(DETAIL))
                         .truncate()

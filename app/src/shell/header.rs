@@ -34,6 +34,7 @@ pub(super) enum TipSide {
 use crate::tokens::shell::header::SITE_CONTROLS_END;
 use crate::tokens::shell::header::TOOL_PITCH;
 use crate::tokens::shell::header::URL_PLACEHOLDER;
+use crate::tokens::text;
 
 impl Shell {
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
@@ -355,7 +356,7 @@ impl Shell {
             .bg(rgba(URL_FIELD))
             // It brightens under the pointer as a tile does, from the same white 0.10 (ours).
             .hover(|style| style.bg(hsla(0., 0., 1., TILE_HOVERED)))
-            .text_size(px(13.))
+            .text_size(px(text::BODY))
             .child(div().min_w(px(0.)).truncate().text_color(color).child(words))
             .children(engine)
             .children(copy)
