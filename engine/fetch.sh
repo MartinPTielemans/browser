@@ -35,7 +35,7 @@ if [ ! -d "$dir" ]; then
   tar -xf "$archive" -C "$dir.part"
   rm "$archive"
   mv "$dir.part" "$dir"
-  # Earlier prebuilt engines go. A built spike keeps its own copy.
+  # Earlier prebuilt engines go. A built app keeps its own copy.
   find .deps/prebuilt -mindepth 1 -maxdepth 1 ! -name "$sha256" -exec rm -rf {} +
 fi
 echo "$dir/Chromium.app"

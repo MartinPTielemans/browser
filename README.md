@@ -40,9 +40,6 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 | `docs/` | Decisions, roadmap, UX spec and its parity checklist |
 | `engine/` | Chromium pins and the patch series |
 | `prototypes/arcish/` | Throwaway Electron prototype of the UX (`npm install && npm start`) |
-| `spikes/gpui-cef/` | Phase 1 spike: GPUI and prebuilt CEF in one process (`./setup.sh && ./build.sh`) |
-| `spikes/gpui-ardia/` | Phase 1 spike: GPUI as a view in the window of Ardia's prebuilt engine (`./setup.sh && ./build.sh`) |
-| `spikes/gpui-core/` | Phase 2 spike: the same on our own engine, through the core's C API (`./setup.sh && ./build.sh`, on the prebuilt engine unless `engine/build.sh` has built one) |
 | `tools/` | Scripts for working on the repo |
 
 ## License
