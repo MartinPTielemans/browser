@@ -57,6 +57,17 @@ pub fn list() -> Value {
             "annotations": acts,
         },
         {
+            "name": "close_tab",
+            "title": "Close tab",
+            "description": "Close a tab in your Space. It goes to the archive, where the user can still find it.",
+            "inputSchema": { "type": "object", "properties": { "tab": tab } },
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "openWorldHint": false,
+            },
+        },
+        {
             "name": "navigate",
             "title": "Navigate",
             "description": "Go to a URL, or search for words, in a tab. \"back\" and \"forward\" move through its history. Answers with the page's outline.",
@@ -278,6 +289,7 @@ pub fn describe(action: &str) -> &'static str {
         "handed back" => "You handed the tab back",
         "stopped" => "You stopped it",
         "hand_off" => "Handed you a tab",
+        "close_tab" => "Closed a tab",
         "passkey" => "Handed you a tab for your passkey",
         "ask_for_tab" => "Asked for a tab back",
         "kept" => "You kept the tab",

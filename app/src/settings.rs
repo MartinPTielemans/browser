@@ -1423,7 +1423,8 @@ impl Settings {
     }
 
     /// The sites where the user answered the agent for good, each with Revoke, and Revoke All
-    /// for several; None for none.
+    /// for several, then the tabs of its Space the user doesn't hold, with Take Back All; None
+    /// for none.
     fn grants(&self, agents: &Entity<Agents>, client: Client, cx: &App) -> Option<gpui::Div> {
         let grants = agents.read(cx).grants(client.id());
         let revoke = |site: Option<SharedString>, title| {
@@ -1447,6 +1448,20 @@ impl Settings {
             .collect();
         if several {
             rows.push(described(None, "All sites".into(), None).child(revoke(None, "Revoke All")));
+        }
+        let tabs = agents.read(cx).tabs_to_take(client.id(), cx).len();
+        if tabs > 0 {
+            let agents = agents.clone();
+            let take = button(&RowLook::settings(), ("take-back-agent-tabs", client as usize), "Take Back All")
+                .ml(px(PADDING))
+                .on_click(move |_, _, cx| {
+                    agents.update(cx, |agents, cx| agents.take_back_all(client.id(), cx))
+                });
+            let open = match tabs {
+                1 => "1 tab it may act in".into(),
+                _ => format!("{tabs} tabs it may act in"),
+            };
+            rows.push(described(None, "Its tabs".into(), Some(open.into())).child(take));
         }
         (!rows.is_empty()).then(|| group(&RowLook::settings(), rows))
     }

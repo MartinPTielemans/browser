@@ -749,13 +749,15 @@ impl Browser for Fake {
     fn passwords(&self, _: u64, _: &mut App) {}
     fn agent_activity(&self, _: &mut App) {}
 
-    fn agent_permissions(&self, _: u64, _: &App) -> (Vec<(SharedString, bool)>, bool) {
-        (Vec::new(), false)
+    fn agent_permissions(&self, _: u64, _: &App) -> browser::shell::AgentGrants {
+        Default::default()
     }
 
     fn revoke_agent(&self, _: u64, _: Option<SharedString>, _: &mut App) {}
 
     fn disconnect_agent(&self, _: u64, _: &mut App) {}
+
+    fn take_back_agent_tabs(&self, _: u64, _: &mut App) {}
 
     fn take_over(&self, _: SharedString, _: u64, _: &mut App) {}
 

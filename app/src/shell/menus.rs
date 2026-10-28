@@ -4,7 +4,7 @@
 use gpui::{App, Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
-    Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
+    AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
     undo::{Prop, Value},
     user_keys,
 };
@@ -196,9 +196,10 @@ impl Shell {
     }
 
     /// The head of an agent's Space's menu: its activity, Revoke Permission with what the user
-    /// answered for good on each site, and Disconnect.
+    /// answered for good on each site, Take Back All Tabs and Disconnect.
     fn agent_items(&self, space: u64, name: &str, cx: &App) -> Vec<(MenuEntry, MenuAction)> {
-        let (grants, connected) = self.browser.agent_permissions(space, cx);
+        let AgentGrants { sites: grants, connected, tabs } =
+            self.browser.agent_permissions(space, cx);
         let mut items: Vec<(MenuEntry, MenuAction)> = vec![
             (
                 MenuEntry::new("Agent Activity…", true),
@@ -221,6 +222,10 @@ impl Shell {
                 Box::new(move |shell, cx| shell.browser.revoke_agent(space, None, cx)),
             ));
         }
+        items.push((
+            MenuEntry::new("Take Back All Tabs", tabs),
+            Box::new(move |shell, cx| shell.browser.take_back_agent_tabs(space, cx)),
+        ));
         items.push((
             MenuEntry::new(format!("Disconnect {name}"), connected),
             Box::new(move |shell, cx| shell.browser.disconnect_agent(space, cx)),

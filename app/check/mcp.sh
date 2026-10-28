@@ -5,12 +5,12 @@
 # example.com, opened in its Space, gives the page's text. A page with fields gives its prose and
 # none of their values: typed, filled in or a password, in its text and in its outline, and the
 # agent can't type into the password field. It types into another, opens a page, clicks its link,
-# scrolls and takes a screenshot, and a bank's site asks first, in a card whose Allow Once opens
-# it. Always Allow opens it from then on, until Revoke Permission in the Space's menu takes that
-# back. A login the user saved fills in neither as the agent's tab loads it nor from a dropdown,
-# and fills once the user takes the tab over, without a reload. Closing the client's end ends its
-# session with the tab, and turning Settings › Agents off takes the socket away and drops a client
-# connected.
+# scrolls, takes a screenshot and closes a tab, and a bank's site asks first, in a card whose Allow
+# Once opens it. Always Allow opens it from then on, until Revoke Permission in the Space's menu
+# takes that back. A login the user saved fills in neither as the agent's tab loads it nor from a
+# dropdown, and fills once the user takes the tab over, without a reload. Closing the client's end
+# ends its session with the tab, and turning Settings › Agents off takes the socket away and drops a
+# client connected.
 
 log="$out/mcp.log"
 step=0
@@ -208,6 +208,16 @@ note.oninput = () => document.title = "noted";
   case "$scrolled" in "Scrolled down."*) ;; *) fail "scroll answered: $scrolled" ;; esac
   picture=$(call screenshot "{\"tab\":$opened_tab}")
   case "$picture" in "image/jpeg "[1-9]*) ;; *) fail "screenshot answered: $picture" ;; esac
+  # close_tab closes a tab of its own, which goes to the archive.
+  opened=$(call open_tab '{"url":"example.com"}')
+  closing=$(echo "$opened" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  closed=$(call close_tab "{\"tab\":$closing}")
+  [ "$closed" = "Closed tab $closing. The user can still find it in the archive." ] ||
+    fail "close_tab answered: $closed"
+  await_log "^browser: agent activity mcp-client $closing close_tab\$" \
+    "the close didn't reach the activity log"
+  listed=$(call list_tabs '{}')
+  echo "$listed" | grep -q "^. $closing  " && fail "list_tabs listed the closed tab"
 
   # run_steps takes several actions in one call, in order.
   ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"}]}")
@@ -449,7 +459,7 @@ fi
 quit
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi

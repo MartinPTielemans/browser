@@ -172,6 +172,10 @@ impl Browser for Core {
     fn hand_back(&self, tab: u64) -> bool {
         unsafe { bc::bc_tab_hand_back(tab) }
     }
+
+    fn close_tab(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_close(tab, false) };
+    }
 }
 
 /// The tabs `copy` copies of `space`, as bc_space_today does.
