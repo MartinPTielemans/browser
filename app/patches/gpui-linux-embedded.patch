@@ -41,7 +41,7 @@ index a5390e77f8..b4c0fbe106 100644
 +#[cfg(feature = "wayland")]
 +pub use linux::{open_next_window_in_surface, resize_embedded};
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..8c99a4e16d 100644
+index e4da54b52b..b65fb5bc82 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
 @@ -2,6 +2,7 @@ mod dispatcher;
@@ -63,7 +63,7 @@ index e4da54b52b..8c99a4e16d 100644
  pub(crate) use platform::*;
 +pub use platform::{
 +    EmbeddedKeyboard, dispatch_embedded, dispatch_embedded_after_read, embed, embed_wayland,
-+    embedded_fd, new_host_window,
++    embed_x11, embedded_fd, new_host_window,
 +};
  #[cfg(any(feature = "wayland", feature = "x11"))]
  pub(crate) use text_system::*;
@@ -487,7 +487,7 @@ index 0000000000..62ce7681df
 +    }
 +}
 diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
-index 0c5370db6c..273f105e11 100644
+index 0c5370db6c..4588022943 100644
 --- i/crates/gpui_linux/src/linux/platform.rs
 +++ w/crates/gpui_linux/src/linux/platform.rs
 @@ -11,7 +11,7 @@ use std::{
@@ -499,7 +499,7 @@ index 0c5370db6c..273f105e11 100644
  };
  
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -269,6 +269,204 @@ async fn listen_for_system_power_events(
+@@ -269,6 +269,216 @@ async fn listen_for_system_power_events(
      Ok(())
  }
  
@@ -513,6 +513,7 @@ index 0c5370db6c..273f105e11 100644
 +    static EMBEDDED_LOOP: RefCell<Option<EventLoop<'static, ()>>> = const { RefCell::new(None) };
 +    static EMBEDDED_KEYBOARD: std::cell::Cell<Option<EmbeddedKeyboard>> =
 +        const { std::cell::Cell::new(None) };
++    static EMBEDDER_X11_SCALE: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
 +}
 +
 +/// How an embedder on Wayland shares its keyboard with GPUI's windows in its surfaces: the
@@ -542,6 +543,17 @@ index 0c5370db6c..273f105e11 100644
 +    EMBEDDED.set(true);
 +    EMBEDDED_WAYLAND_DISPLAY.set(display);
 +    EMBEDDED_KEYBOARD.set(Some(keyboard));
++}
++
++/// As [`embed`], with GPUI's X11 windows at the embedder's scale, in pixels a point, rather than
++/// the one GPUI finds (Xft.dpi): the embedder lays its content out around GPUI's in its points.
++pub fn embed_x11(scale: f32) {
++    EMBEDDED.set(true);
++    EMBEDDER_X11_SCALE.set(Some(scale).filter(|scale| scale.is_normal() && *scale > 0.));
++}
++
++pub(crate) fn embedder_x11_scale() -> Option<f32> {
++    EMBEDDER_X11_SCALE.get()
 +}
 +
 +pub(crate) fn embedded_keyboard() -> Option<EmbeddedKeyboard> {
@@ -704,7 +716,7 @@ index 0c5370db6c..273f105e11 100644
  /// GPUI's platform for Linux and FreeBSD.
  ///
  /// One event loop serves the whole process. The foreground executor and power listener are
-@@ -617,9 +815,23 @@ impl Platform for LinuxPlatform {
+@@ -617,9 +827,23 @@ impl Platform for LinuxPlatform {
      }
  
      fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
@@ -728,7 +740,7 @@ index 0c5370db6c..273f105e11 100644
          let mut event_loop = self
              .event_loop
              .borrow_mut()
-@@ -1599,6 +1811,18 @@ pub fn keystroke_underlying_dead_key(keysym: Keysym) -> Option<String> {
+@@ -1599,6 +1823,18 @@ pub fn keystroke_underlying_dead_key(keysym: Keysym) -> Option<String> {
      }
  }
  #[cfg(any(feature = "wayland", feature = "x11"))]
@@ -1610,7 +1622,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..fbdbb3aef7 100644
+index e21f019c64..4538607afb 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1892,7 +1904,19 @@ index e21f019c64..fbdbb3aef7 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2898,6 +3099,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2620,6 +2821,11 @@ fn get_scale_factor(
+     resource_database: &Database,
+     screen_index: usize,
+ ) -> f32 {
++    if let Some(scale) = crate::linux::embedder_x11_scale() {
++        log::info!("Using the embedder's scale factor: {}", scale);
++        return scale;
++    }
++
+     let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
+         .ok()
+         .map(|var| {
+@@ -2898,6 +3104,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -1936,7 +1960,7 @@ index e21f019c64..fbdbb3aef7 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3451,101 @@ mod tests {
+@@ -3213,3 +3456,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
