@@ -12,9 +12,9 @@
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
 //! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
-//! rightrelease, move, scroll, wheel, key, type, resize, place, order, layout, state, title, front,
-//! menu, menubar, choose, dismiss, window, agentspace, agentmayact, agentrelease, agentdisconnect,
-//! takeback and age. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
+//! rightrelease, move, scroll, wheel, key, keydown, keyup, type, resize, place, order, layout,
+//! state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
+//! agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl with Alt and alt with both. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
 //! no alerts yet. The others, such as ime, insert, flags, swipe, drags from other apps, full screen
@@ -548,7 +548,13 @@ fn keycode(keysym: u32) -> Option<(u8, bool)> {
 
 /// Presses and releases `key` with the modifiers `state` in the window with the keyboard, which is
 /// the driven browser window's unless the input focus is in one of the app's.
-fn key(key: &str, mut state: u16) -> Option<()> {
+fn key(key: &str, state: u16) -> Option<()> {
+    key_events(key, state, &[xproto::KEY_PRESS_EVENT, xproto::KEY_RELEASE_EVENT])
+}
+
+/// Sends `key`'s events of `kinds` as `key` does. A held key's repeats are presses without
+/// releases between them, as the X server sends them while it auto-repeats.
+fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     let (code, shift) = keycode(keysym(key)?)?;
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
@@ -564,7 +570,7 @@ fn key(key: &str, mut state: u16) -> Option<()> {
             .unwrap_or(focus),
         None => driven()?.window,
     };
-    for kind in [xproto::KEY_PRESS_EVENT, xproto::KEY_RELEASE_EVENT] {
+    for &kind in kinds {
         let event = KeyPressEvent {
             response_type: kind,
             detail: code,
@@ -824,6 +830,9 @@ fn run_command(line: &str) -> Option<()> {
             let name = words.next()?;
             key(name, modifiers(words))
         }
+        // Repeats are presses like the first, so repeat changes nothing here.
+        "keydown" => key_events(words.next()?, none, &[xproto::KEY_PRESS_EVENT]),
+        "keyup" => key_events(words.next()?, none, &[xproto::KEY_RELEASE_EVENT]),
         "type" => rest.chars().try_for_each(|c| key(&c.to_string(), none)),
         "resize" | "place" => {
             let browser = driven()?;
