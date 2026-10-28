@@ -2755,7 +2755,7 @@ index e21f019c64..c2bab983b0 100644
 +    points
 +}
 diff --git i/crates/gpui_linux/src/linux/x11/window.rs w/crates/gpui_linux/src/linux/x11/window.rs
-index f6ee76ae8c..121ae710d3 100644
+index f6ee76ae8c..38e6a0bb25 100644
 --- i/crates/gpui_linux/src/linux/x11/window.rs
 +++ w/crates/gpui_linux/src/linux/x11/window.rs
 @@ -258,6 +258,11 @@ pub struct Callbacks {
@@ -3048,3 +3048,37 @@ index f6ee76ae8c..121ae710d3 100644
          }
      }
  
+@@ -1842,11 +2011,6 @@ impl PlatformWindow for X11Window {
+     fn window_decorations(&self) -> gpui::Decorations {
+         let state = self.0.state.borrow();
+ 
+-        // Client window decorations require compositor support
+-        if !state.client_side_decorations_supported {
+-            return Decorations::Server;
+-        }
+-
+         match state.decorations {
+             WindowDecorations::Server => Decorations::Server,
+             WindowDecorations::Client => {
+@@ -1915,16 +2079,16 @@ impl PlatformWindow for X11Window {
+         }
+     }
+ 
+-    fn request_decorations(&self, mut decorations: gpui::WindowDecorations) {
++    fn request_decorations(&self, decorations: gpui::WindowDecorations) {
+         let mut state = self.0.state.borrow_mut();
+ 
++        // A window without the window manager's frame needs no compositor. One that also draws a
++        // shadow outside itself does, to tell the window manager of it (set_client_inset), and
++        // then client_side_decorations_supported says whether it can.
+         if matches!(decorations, gpui::WindowDecorations::Client)
+             && !state.client_side_decorations_supported
+         {
+-            log::info!(
+-                "x11: no compositor present, falling back to server-side window decorations"
+-            );
+-            decorations = gpui::WindowDecorations::Server;
++            log::info!("x11: client-side decorations without a compositor, so no shadow outside");
+         }
+ 
+         // https://github.com/rust-windowing/winit/blob/master/src/platform_impl/linux/x11/util/hint.rs#L53-L87
