@@ -158,7 +158,7 @@ expect '^browser: site controls settled$' "the Site Controls the key opened didn
 send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls the key opened"
 # With the password cleared, a click in the username field shows Chrome's dropdown under it, where
-# down and return fill the saved login in again.
+# down previews the saved login and return fills it in again.
 send click 600 60
 send key tab
 send key a cmd
@@ -168,7 +168,7 @@ send click 600 60
 send key down
 ../tools/window-screenshot.sh "$pid" "$out/password-fill.png" || fail "no window to capture"
 send key return
-expect "^browser: title $tab filled\$" "Chrome's dropdown didn't fill the saved login in"
+expect "^browser: title $tab chosen\$" "Chrome's dropdown didn't fill the saved login in"
 send click 600 60
 send key tab
 send key a cmd
