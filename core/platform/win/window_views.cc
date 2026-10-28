@@ -338,6 +338,12 @@ bool KeyboardForPage(views::Widget* widget) {
   return false;
 }
 
+void ReleaseKeyboard(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    SetFocus(views->window());
+  }
+}
+
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
   WindowViews* views = ViewsOf(widget);
   HWND had = GetFocus();
