@@ -314,6 +314,18 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // The UI lets the keyboard go to the window, which KeyboardForPage counts as the page's, and on
+  // X11 the window has the input focus.
+  void PageTakesKeyboard() {
+    if (!ui_has_keyboard_) {
+      return;
+    }
+    ui_has_keyboard_ = false;
+    if (ui_ != x11::Window::None && IsWithin(InputFocus(), ui_)) {
+      SetInputFocus(window());
+    }
+  }
+
   // The page that had the keyboard lets it go, and on X11 GPUI's window has the input focus.
   void UITakesKeyboard() {
     ui_has_keyboard_ = true;
@@ -444,16 +456,6 @@ class WindowViews : public views::WidgetObserver,
       return slot.holder && slot.holder->Contains(window);
     };
     return std::ranges::any_of(panes_, holds) || holds(side_panel_);
-  }
-
-  void PageTakesKeyboard() {
-    if (!ui_has_keyboard_) {
-      return;
-    }
-    ui_has_keyboard_ = false;
-    if (ui_ != x11::Window::None && IsWithin(InputFocus(), ui_)) {
-      SetInputFocus(window());
-    }
   }
 
   // Sizes the UI to the window's content.
@@ -657,6 +659,12 @@ bool KeyboardForPage(views::Widget* widget) {
   }
   // The side panel.
   return false;
+}
+
+void ReleaseKeyboard(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->PageTakesKeyboard();
+  }
 }
 
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
