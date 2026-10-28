@@ -10,7 +10,7 @@ serve
 log="$out/dialogs.log"
 step=0
 rm -f "$saved"
-BROWSER_DRIVE=1 BROWSER_URL="${site}dialogs.html" "$app/Contents/MacOS/Browser" \
+BROWSER_DRIVE=1 BROWSER_URL="${site}dialogs.html" "$browser" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"

@@ -38,7 +38,7 @@ mkdir -p "$profile_dir"
 log="$out/adblock.log"
 step=0
 BROWSER_DRIVE=1 BROWSER_URL="$ads" BROWSER_PROFILE_DIR="$profile_dir" \
-  "$app/Contents/MacOS/Browser" --ad-block-filters="$(printf '/check-ad.js\n127.0.0.1##.check-ad')" \
+  "$browser" --ad-block-filters="$(printf '/check-ad.js\n127.0.0.1##.check-ad')" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"

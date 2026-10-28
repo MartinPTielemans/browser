@@ -22,6 +22,7 @@ fn main() {
         }
         "windows" => {
             host.file("platform/windows/host.cc")
+                .file("platform/windows/drive.cc")
                 .flag("/std:c++20")
                 .flag("/utf-8")
                 .define("UNICODE", None)

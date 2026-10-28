@@ -1,6 +1,6 @@
 # The UI builds and its tests pass on Windows (AGENTS.md, Hit every surface: Platforms). The browser
-# needs the engine engine-windows-cross.yml builds, so this is the UI's library and the preview,
-# which need none. GitHub's hosted runners only: the self-hosted one never runs a pull request's
+# needs the engine engine-windows-cross.yml builds to link, so this is the UI's library and the
+# preview, which need none, and the browser checked without linking. GitHub's hosted runners only: the self-hosted one never runs a pull request's
 # code.
 name: UI on Windows
 
@@ -43,4 +43,6 @@ jobs:
       - run: ./setup.sh
       - run: cargo test --release --lib
       - run: cargo build --release --bin preview
+      # The browser, Browser.dll, unlinked, as it links the engine: its Windows code and the driver's.
+      - run: cargo check --release --manifest-path windows/Cargo.toml --target-dir target
 
