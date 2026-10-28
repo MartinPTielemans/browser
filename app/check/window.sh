@@ -5,7 +5,8 @@
 # the UI's steps, going in and out. The window leaving full screen by its green button takes the page
 # out with it and brings back the sidebar and the card, and the page's full screen takes the window
 # again after. A full-screen window's display going away keeps the window and the page together,
-# both full screen or both out, and escape and the page's full screen work after. The footer's menu
+# both full screen or both out, and escape and the page's full screen work after; going away while
+# the page takes the window full screen leaves both windowed. The footer's menu
 # flips up at the screen's bottom in full screen.
 # The command bar opens in full screen and keeps the keyboard when a page commits under it, then
 # gives the keyboard to the new page, and scrolling a long page doesn't stutter. Dragging the
@@ -322,9 +323,10 @@ second_display() {
   check_layout "with the page full screen on the second display" fills
   [ "$content" = 1280x800 ] || fail "the page took the window full screen at $content, not on the second display"
 }
-# Waits for a line matching $1 logged since command $from, else fails with $2.
+# Waits up to $3 tenths of a second (100) for a line matching $1 logged since command $from, else
+# fails with $2.
 expect_from() {
-  for _ in $(seq 100); do
+  for _ in $(seq ${3:-100}); do
     sed -n "/^browser: drive $from: /,\$p" "$log" | grep -q "$1" && return 0
     sleep 0.1
   done
@@ -347,6 +349,11 @@ together() {
     expect_from '^browser: page left full screen$' "the page stayed full screen as its window left it, its display gone $1"
     expect_from '^browser: title [0-9]* fullscreen 0$' "the page's document stayed full screen as its window left it, its display gone $1"
   fi
+  windowed_again "$1" "$2"
+}
+# After the page's display went away $1, the window is windowed with its sidebar and card back, and
+# the page takes it full screen and escape brings both back. $2 names the captures.
+windowed_again() {
   check_layout "after the page's display went away $1"
   check_buttons "after the page's display went away $1"
   ../tools/window-screenshot.sh "$pid" "$out/$2.png" || fail "no window to capture"
@@ -377,6 +384,24 @@ from=$step
 expect '^browser: full screen exit will ' "escape didn't start taking the window out of full screen on the second display"
 send display remove
 together "as the window left full screen" display-gone-leaving
+# The display going away while the page is still taking the window there. AppKit finishes the way
+# in some seconds later on the other display, where the page didn't ask to be, and the page's full
+# screen ends with the window's there, rather than aborting the Dev engine in Chrome's controller
+# (#420). An AppKit that gives up on the way in instead leaves both windowed too.
+send display add 1280 800 main
+added=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: display ')
+[ "$added" = "browser: display added at 0 0 1280 800" ] ||
+  fail "no second display for the page's full screen to start on: $added"
+send place 40 40 1000 700
+post key f
+from=$step
+expect '^browser: full screen enter will ' "the page didn't start taking the window full screen on the second display"
+send display remove
+expect '^browser: display removed$' "the second display didn't go away as the window entered full screen"
+expect_from '^browser: title [0-9]* fullscreen 0$' "the page stayed full screen after its display went away as the window entered full screen" 300
+expect_from '^browser: page left full screen$' "the app kept the page full screen after its display went away as the window entered full screen" 100
+expect_from '^browser: window left full screen$' "the window stayed full screen after the page's display went away on the way in" 100
+windowed_again "as the window entered full screen" display-gone-entering
 send place $frame
 
 # A page's full screen timed three times each way, entered by a key as a video's button is and left
@@ -653,4 +678,4 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
