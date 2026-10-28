@@ -220,6 +220,9 @@ pub trait Browser {
         chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
     );
+    /// Closes the tab's page menu (`Shell::show_page_menu`), running its row with `command` first,
+    /// or none.
+    fn close_page_menu(&self, tab: u64, command: Option<i32>, cx: &mut App);
     /// Asks whether to do what `message` asks, with `detail` under it, and calls `confirmed` if the
     /// user chooses `action` over Cancel.
     fn confirm(

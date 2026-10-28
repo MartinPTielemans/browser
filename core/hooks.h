@@ -19,6 +19,7 @@ extern bool g_browser_core_supplies_windows;
 
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
+class RenderViewContextMenuBase;
 class GURL;
 struct NavigateParams;
 
@@ -57,6 +58,14 @@ extern void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
 // in. The menu is the user's: agents act on pages through their own tools and never see it.
 extern void (*g_browser_core_trim_page_menu)(BrowserWindowInterface* browser,
                                              ui::SimpleMenuModel& menu);
+
+// chrome/browser/ui/views/tab_contents/chrome_web_contents_view_delegate_views_mac.mm, and
+// chrome_web_contents_view_delegate_views.cc on the other platforms: the context menu of
+// |contents|'s page, as Chrome built it to show. Returns |menu| for Chrome to show, or null once
+// the core has taken it, to show in the app's own menu.
+extern std::unique_ptr<RenderViewContextMenuBase> (*g_browser_core_show_page_menu)(
+    content::WebContents* contents,
+    std::unique_ptr<RenderViewContextMenuBase> menu);
 
 // chrome/browser/ui/views/permissions/permission_prompt_factory.cc: the prompt for a page's
 // permission request, in place of Chrome's, whose bubbles hang from a toolbar the core's windows

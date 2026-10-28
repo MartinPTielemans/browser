@@ -23,6 +23,7 @@
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
@@ -911,6 +912,10 @@ void bc_tab_show_certificate(bc_id id) {
 
 void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
   browser_core::PasswordOffer::Answer(id, answer, username);
+}
+
+void bc_tab_close_page_menu(bc_id id, int command) {
+  browser_core::PageMenu::Close(id, command);
 }
 
 void bc_tab_jump_to_selection(bc_id id) {
