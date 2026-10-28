@@ -14,6 +14,7 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <functional>
@@ -776,6 +777,67 @@ bool PreviewPng(const std::wstring& path, std::vector<uint8_t>* png, double* wid
   }
   DeleteObject(bitmap);
   return ok;
+}
+
+// ilo's own green, for the taskbar dot without a Space colour, as the Dock icon's own green is.
+constexpr uint32_t kIloGreen = 0x0B8045;
+
+// A round dot in |rgb| (0xRRGGBB) as a 32 px icon with a soft edge and a clear surround, for the
+// taskbar button's overlay. The caller destroys it.
+HICON DotIcon(uint32_t rgb) {
+  const int size = 32;
+  BITMAPINFO info{};
+  info.bmiHeader.biSize = sizeof info.bmiHeader;
+  info.bmiHeader.biWidth = size;
+  info.bmiHeader.biHeight = -size;  // Top-down, so the rows read as drawn.
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  uint8_t* bits = nullptr;
+  HBITMAP color =
+      CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, reinterpret_cast<void**>(&bits), nullptr, 0);
+  if (!color) {
+    return nullptr;
+  }
+  const double red = (rgb >> 16) & 0xFF, green = (rgb >> 8) & 0xFF, blue = rgb & 0xFF;
+  const double center = (size - 1) / 2.0;
+  const double radius = size / 2.0 - 1;
+  for (int y = 0; y < size; ++y) {
+    for (int x = 0; x < size; ++x) {
+      const double distance = std::hypot(x - center, y - center);
+      const double a = distance <= radius - 0.5  ? 1.0
+                       : distance >= radius + 0.5 ? 0.0
+                                                  : radius + 0.5 - distance;
+      uint8_t* pixel = bits + (y * size + x) * 4;  // BGRA, alpha premultiplied, as an icon wants.
+      pixel[0] = static_cast<uint8_t>(blue * a);
+      pixel[1] = static_cast<uint8_t>(green * a);
+      pixel[2] = static_cast<uint8_t>(red * a);
+      pixel[3] = static_cast<uint8_t>(a * 255 + 0.5);
+    }
+  }
+  HBITMAP mask = CreateBitmap(size, size, 1, 1, nullptr);
+  ICONINFO icon{};
+  icon.fIcon = TRUE;
+  icon.hbmColor = color;
+  icon.hbmMask = mask;
+  HICON result = CreateIconIndirect(&icon);
+  DeleteObject(color);
+  DeleteObject(mask);
+  return result;
+}
+
+// The taskbar, made once. Null if it isn't there (an older Windows or a failure).
+ITaskbarList3* Taskbar() {
+  static ComPtr<ITaskbarList3> taskbar = [] {
+    ComPtr<ITaskbarList3> list;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(TaskbarList), nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_PPV_ARGS(&list))) &&
+        SUCCEEDED(list->HrInit())) {
+      return list;
+    }
+    return ComPtr<ITaskbarList3>{};
+  }();
+  return taskbar.Get();
 }
 
 }  // namespace
@@ -1541,17 +1603,48 @@ void host_hide_settings(void) {
   ShowWindow(g_settings.hwnd, SW_HIDE);
 }
 
-// shortcut: Ctrl+W closes only browser windows' tabs; closing Chrome's own windows, such as an
-// undocked DevTools, comes with their close buttons.
 bool host_close_other_window(void) {
-  return false;
+  HWND window = GetForegroundWindow();
+  if (!window) {
+    return false;
+  }
+  DWORD process = 0;
+  GetWindowThreadProcessId(window, &process);
+  // Our own, but neither a browser window (Ctrl+W closes its tab) nor one of the UI's floating
+  // windows: a Chrome window of its own, such as the Task Manager or undocked DevTools, which carry
+  // a system close button. Closing it is that button's click.
+  if (process != GetCurrentProcessId() || UiViewOf(window) || FloatingByHwnd().count(window) ||
+      !(GetWindowLongPtrW(window, GWL_STYLE) & WS_SYSMENU)) {
+    return false;
+  }
+  PostMessageW(window, WM_CLOSE, 0, 0);
+  return true;
 }
 
 void host_detent(void) {}
 
-// No Dock. shortcut: the taskbar button's overlay icon could carry the Space's color.
+// shortcut: Windows has no dot before a window, so nothing to restore at launch; host_dock_dot
+// gives each window's taskbar button its overlay once the windows are up.
 void host_dock_dot_launch(const char*) {}
-void host_dock_dot(bool, uint32_t) {}
+
+// Gives each browser window's taskbar button an overlay dot in |color| (0xRRGGBB), or ilo's green
+// without |colored|, the counterpart of the Mac's Dock dot. One colour for the app, as the Dock has
+// one icon; the taskbar makes its own copy, so the icon is freed after.
+void host_dock_dot(bool colored, uint32_t color) {
+  ITaskbarList3* taskbar = Taskbar();
+  if (!taskbar) {
+    return;
+  }
+  HICON dot = DotIcon(colored ? color : kIloGreen);
+  for (HWND view : UiViews()) {
+    if (IsWindow(view)) {
+      taskbar->SetOverlayIcon(GetAncestor(view, GA_ROOT), dot, L"Space");
+    }
+  }
+  if (dot) {
+    DestroyIcon(dot);
+  }
+}
 
 void host_watch_control(void (*released)(void)) {
   if ((GetKeyState(VK_CONTROL) & 0x8000) == 0) {
