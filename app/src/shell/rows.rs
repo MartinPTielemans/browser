@@ -805,7 +805,9 @@ impl Shell {
             .children(icon)
             .children(placeholder);
         if let Some(renaming) =
-            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Space(space))
+            self.renaming.as_ref().filter(|renaming| {
+                renaming.naming == Naming::Space(space) && !renaming.in_library
+            })
         {
             return row
                 .key_context("Naming")

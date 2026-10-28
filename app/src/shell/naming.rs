@@ -52,10 +52,44 @@ impl Shell {
         self.renaming = Some(Renaming {
             naming: Naming::Space(space),
             name,
+            in_library: false,
             _blur: None,
         });
         // As for the form.
         self.dock(cx);
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
+    /// Puts the Space's name in a field in its card in the Library, all selected, to type a new one
+    /// over, and leaves the Library open and the Space where it was, as Arc does. It keeps the
+    /// name in another card's field first.
+    pub(super) fn rename_space_in_card(
+        &mut self,
+        space: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.spaces.iter().find(|each| each.id == space).map(|each| &each.name)
+        else {
+            return;
+        };
+        let name = name.clone();
+        self.keep_name(window, cx);
+        // check.sh waits for this line.
+        log!("browser: rename space {space} in library");
+        let name = cx.new(|cx| {
+            TextInput::new("Space name", cx)
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
+                .with_text(name)
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::Space(space),
+            name,
+            in_library: true,
+            _blur: None,
+        });
         self.browser.focus_ui(cx);
         self.focus_renaming = true;
         cx.notify();
@@ -73,6 +107,7 @@ impl Shell {
         self.renaming = Some(Renaming {
             naming: Naming::Tab(tab),
             name,
+            in_library: false,
             _blur: None,
         });
         // As for a Space's name.
@@ -254,6 +289,7 @@ impl Shell {
         self.renaming = Some(Renaming {
             naming: Naming::Folder(folder),
             name,
+            in_library: false,
             _blur: None,
         });
         // As for a Space's name.
