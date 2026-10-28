@@ -15,7 +15,7 @@ index a91818acd0..f13cdc6d3d 100644
  ], optional = true }
  wayland-client = { version = "0.31.11", optional = true }
 diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..e543248783 100644
+index a5390e77f8..403be1ef66 100644
 --- i/crates/gpui_linux/src/gpui_linux.rs
 +++ w/crates/gpui_linux/src/gpui_linux.rs
 @@ -1,4 +1,11 @@
@@ -24,22 +24,24 @@ index a5390e77f8..e543248783 100644
  
 -pub use linux::{current_platform, linux_platform};
 +pub use linux::{
-+    current_platform, dispatch_embedded, embed, embed_wayland, embedded_fd, linux_platform,
-+    new_host_window,
++    EmbeddedKeyboard, current_platform, dispatch_embedded, embed, embed_wayland, embedded_fd,
++    linux_platform, new_host_window,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{open_next_window_in_surface, resize_embedded};
 +#[cfg(feature = "x11")]
 +pub use linux::open_next_window_in;
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..99a58c6fec 100644
+index e4da54b52b..a5b0387c00 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
-@@ -19,12 +19,17 @@ pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
+@@ -19,12 +19,19 @@ pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
  pub(crate) use headless::*;
  pub(crate) use keyboard::*;
  pub(crate) use platform::*;
-+pub use platform::{dispatch_embedded, embed, embed_wayland, embedded_fd, new_host_window};
++pub use platform::{
++    EmbeddedKeyboard, dispatch_embedded, embed, embed_wayland, embedded_fd, new_host_window,
++};
 +#[cfg(feature = "wayland")]
 +pub use wayland::{open_next_window_in_surface, resize_embedded};
  #[cfg(any(feature = "wayland", feature = "x11"))]
@@ -54,7 +56,7 @@ index e4da54b52b..99a58c6fec 100644
  use std::rc::Rc;
  
 diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
-index 0c5370db6c..826968aeeb 100644
+index 0c5370db6c..c8f1a4c37b 100644
 --- i/crates/gpui_linux/src/linux/platform.rs
 +++ w/crates/gpui_linux/src/linux/platform.rs
 @@ -11,7 +11,7 @@ use std::{
@@ -66,7 +68,7 @@ index 0c5370db6c..826968aeeb 100644
  };
  
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -269,6 +269,142 @@ async fn listen_for_system_power_events(
+@@ -269,6 +269,161 @@ async fn listen_for_system_power_events(
      Ok(())
  }
  
@@ -77,6 +79,19 @@ index 0c5370db6c..826968aeeb 100644
 +    static EMBEDDED_PLATFORM: std::cell::Cell<*const LinuxPlatform> =
 +        const { std::cell::Cell::new(std::ptr::null()) };
 +    static EMBEDDED_LOOP: RefCell<Option<EventLoop<'static, ()>>> = const { RefCell::new(None) };
++    static EMBEDDED_KEYBOARD: std::cell::Cell<Option<EmbeddedKeyboard>> =
++        const { std::cell::Cell::new(None) };
++}
++
++/// How an embedder on Wayland shares its keyboard with GPUI's windows in its surfaces: the
++/// compositor gives it to the embedder's toplevel, and every key reaches both.
++#[derive(Clone, Copy)]
++pub struct EmbeddedKeyboard {
++    /// The user pressed in GPUI's window in the embedder's surface `parent`, which takes the
++    /// keyboard there, as a click in a window does.
++    pub pressed: fn(parent: *mut std::ffi::c_void),
++    /// Whether the keys in the embedder's surface `parent` are GPUI's window's now.
++    pub is_ui: fn(parent: *mut std::ffi::c_void) -> bool,
 +}
 +
 +/// Lets an embedder that runs the thread's loop, such as a browser engine, run GPUI:
@@ -89,10 +104,16 @@ index 0c5370db6c..826968aeeb 100644
 +
 +/// As [`embed`], with GPUI on the embedder's Wayland display, a `wl_display*` from the same
 +/// libwayland GPUI loads, rather than a connection of its own. Only the embedder reads it, so it
-+/// also calls [`dispatch_embedded`] after each time it dispatches the display.
-+pub fn embed_wayland(display: *mut std::ffi::c_void) {
++/// also calls [`dispatch_embedded`] after each time it dispatches the display. GPUI's windows there
++/// take the keys only while `keyboard` says they're theirs.
++pub fn embed_wayland(display: *mut std::ffi::c_void, keyboard: EmbeddedKeyboard) {
 +    EMBEDDED.set(true);
 +    EMBEDDED_WAYLAND_DISPLAY.set(display);
++    EMBEDDED_KEYBOARD.set(Some(keyboard));
++}
++
++pub(crate) fn embedded_keyboard() -> Option<EmbeddedKeyboard> {
++    EMBEDDED_KEYBOARD.get()
 +}
 +
 +pub(crate) fn embedded_wayland_display() -> Option<*mut std::ffi::c_void> {
@@ -209,7 +230,7 @@ index 0c5370db6c..826968aeeb 100644
  /// GPUI's platform for Linux and FreeBSD.
  ///
  /// One event loop serves the whole process. The foreground executor and power listener are
-@@ -617,9 +753,19 @@ impl Platform for LinuxPlatform {
+@@ -617,9 +772,19 @@ impl Platform for LinuxPlatform {
      }
  
      fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
@@ -244,7 +265,7 @@ index cbc962bcff..3689e7b81d 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git i/crates/gpui_linux/src/linux/wayland/client.rs w/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..8fba2a3ba1 100644
+index 2d40cf7fa9..9e2d865160 100644
 --- i/crates/gpui_linux/src/linux/wayland/client.rs
 +++ w/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -15,7 +15,7 @@ use ashpd::WindowIdentifier;
@@ -401,26 +422,73 @@ index 2d40cf7fa9..8fba2a3ba1 100644
  delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_device_v1::WpCursorShapeDeviceV1);
  delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_manager_v1::WpCursorShapeManagerV1);
  delegate_noop!(WaylandClientStatePtr: ignore wl_data_device_manager::WlDataDeviceManager);
-@@ -1985,7 +2021,8 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
-             let client = state.get_client();
-             let mut state = client.borrow_mut();
-             if capabilities.contains(wl_seat::Capability::Keyboard) {
--                let keyboard = seat.get_keyboard(qh, ());
-+                // The embedder's toplevel has the keyboard, and the compositor sends its keys there.
-+                let keyboard = (!crate::linux::is_embedded()).then(|| seat.get_keyboard(qh, ()));
+@@ -1738,6 +1774,26 @@ pub(crate) fn get_window(
+     state.windows.get(surface_id).cloned()
+ }
  
-                 if let Some(text_input) = state.text_input.take() {
-                     text_input.destroy();
-@@ -2003,7 +2040,7 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
-                     wl_keyboard.release();
++/// GPUI's window in the embedder's surface `surface_id`, which the compositor gives the keyboard
++/// to rather than the subsurface.
++fn embedded_window_in(
++    state: &RefMut<WaylandClientState>,
++    surface_id: &ObjectId,
++) -> Option<WaylandWindowStatePtr> {
++    let parent = surface_id.as_ptr().cast::<std::ffi::c_void>();
++    (state.windows.values())
++        .find(|window| window.embedded_parent() == Some(parent))
++        .cloned()
++}
++
++/// Whether the keys `window` has are the embedder's now: the embedder's pages take them, not GPUI.
++fn keys_are_embedders(window: &WaylandWindowStatePtr) -> bool {
++    match (window.embedded_parent(), crate::linux::platform::embedded_keyboard()) {
++        (Some(parent), Some(keyboard)) => !(keyboard.is_ui)(parent),
++        _ => false,
++    }
++}
++
+ impl Dispatch<wl_surface::WlSurface, ()> for WaylandClientStatePtr {
+     fn event(
+         this: &mut Self,
+@@ -2086,7 +2142,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+                 this.handle_keyboard_layout_change();
+             }
+             wl_keyboard::Event::Enter { surface, .. } => {
+-                state.keyboard_focused_window = get_window(&mut state, &surface.id());
++                state.keyboard_focused_window = get_window(&mut state, &surface.id())
++                    .or_else(|| embedded_window_in(&state, &surface.id()));
+                 state.enter_token = Some(());
+ 
+                 if let Some(window) = state.keyboard_focused_window.clone() {
+@@ -2095,7 +2152,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+                 }
+             }
+             wl_keyboard::Event::Leave { surface, .. } => {
+-                let keyboard_focused_window = get_window(&mut state, &surface.id());
++                let keyboard_focused_window = get_window(&mut state, &surface.id())
++                    .or_else(|| embedded_window_in(&state, &surface.id()));
+                 state.keyboard_focused_window = None;
+                 state.enter_token.take();
+                 // Prevent keyboard events from repeating after opening e.g. a file chooser and closing it quickly
+@@ -2135,7 +2193,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+                 });
+                 drop(state);
+ 
+-                if let Some(focused_window) = focused_window {
++                if let Some(focused_window) = focused_window.filter(|w| !keys_are_embedders(w)) {
+                     focused_window.handle_input(input);
                  }
  
--                state.wl_keyboard = Some(keyboard);
-+                state.wl_keyboard = keyboard;
-             }
-             if capabilities.contains(wl_seat::Capability::Pointer) {
-                 let pointer = seat.get_pointer(qh, ());
-@@ -2218,16 +2255,14 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2157,6 +2215,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+                 let Some(focused_window) = focused_window else {
+                     return;
+                 };
++                if keys_are_embedders(&focused_window) {
++                    return;
++                }
+ 
+                 let keymap_state = state.keymap_state.as_ref().unwrap();
+                 let keycode = Keycode::from(key + MIN_KEYCODE);
+@@ -2218,16 +2279,14 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                          let rate = state.repeat.characters_per_second;
                          let repeat_interval = Duration::from_secs(1) / rate.max(1);
                          let id = state.repeat.current_id;
@@ -439,7 +507,23 @@ index 2d40cf7fa9..8fba2a3ba1 100644
                                      let Some(client) = this.0.upgrade() else {
                                          return TimeoutAction::Drop;
                                      };
-@@ -3479,3 +3514,46 @@ mod tests {
+@@ -2519,6 +2578,15 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+                 }
+                 match button_state {
+                     wl_pointer::ButtonState::Pressed => {
++                        // A press in GPUI's window in an embedder's surface takes the keyboard there.
++                        let parent = (state.mouse_focused_window.as_ref())
++                            .and_then(|window| window.embedded_parent());
++                        let keyboard = crate::linux::platform::embedded_keyboard();
++                        if let (Some(parent), Some(keyboard)) = (parent, keyboard) {
++                            drop(state);
++                            (keyboard.pressed)(parent);
++                            state = client.borrow_mut();
++                        }
+                         if let Some(window) = state.keyboard_focused_window.clone() {
+                             if state.composing && state.text_input.is_some() {
+                                 drop(state);
+@@ -3479,3 +3547,46 @@ mod tests {
          );
      }
  }

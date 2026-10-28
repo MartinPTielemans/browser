@@ -95,7 +95,9 @@ pub use extensions::{
     Extension, ExtensionAction, ExtensionCommand, menu_item as extension_menu_item,
     pin_menu_item as extension_pin_menu_item,
 };
-pub use keys::{Holder, Refused, UserKeys, change_keys, rebindable, recorded, reserved, user_keys};
+pub use keys::{
+    Holder, Refused, UserKeys, change_keys, rebindable, recorded, reserved, user_keys, written_as,
+};
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};

@@ -108,8 +108,60 @@ fn valid(key: &str) -> bool {
 
 /// GPUI's binding of `key` to `action` while the UI has the keyboard.
 fn binding(key: &str, action: Box<dyn Action>, cx: &App) -> Option<KeyBinding> {
+    let key = pressed_as(key)?;
     let context = KeyBindingContextPredicate::parse(KEY_CONTEXT).ok()?.into();
-    KeyBinding::load(key, action, Some(context), false, None, cx).ok()
+    KeyBinding::load(&key, action, Some(context), false, None, cx).ok()
+}
+
+/// Off the Mac, Ctrl does what ⌘ does there, as in Chrome: SHORTCUTS' cmd-t is ctrl-t. Where a ⌘
+/// key's Ctrl form is one of the Mac's ⌃ keys, as ⌘1's is ⌃1, the ⌘ key's command has it.
+/// shortcut: the ⌃ keys that lose theirs, the Spaces' and the split view's, have none off the Mac
+/// until its keys are settled. The tests run the Mac's keys everywhere.
+const CTRL_IS_CMD: bool = cfg!(not(any(target_os = "macos", test)));
+
+/// `key`, as SHORTCUTS writes it, as this platform's keyboard presses it, if it can.
+fn pressed_as(key: &str) -> Option<String> {
+    match CTRL_IS_CMD {
+        true => pressed_off_the_mac(key),
+        false => Some(key.to_string()),
+    }
+}
+
+fn pressed_off_the_mac(key: &str) -> Option<String> {
+    match key.split_once("cmd-") {
+        Some((held, _)) if held.contains("ctrl-") => None,
+        Some((held, rest)) => Some(format!("ctrl-{held}{rest}")),
+        None if written_off_the_mac(key) != key => None,
+        None => Some(key.to_string()),
+    }
+}
+
+/// The key `keystroke`, as a page names it, is as SHORTCUTS writes it: cmd-t for ctrl-t off the
+/// Mac.
+pub fn written_as(keystroke: &str) -> String {
+    match CTRL_IS_CMD {
+        true => written_off_the_mac(keystroke),
+        false => keystroke.to_string(),
+    }
+}
+
+fn written_off_the_mac(keystroke: &str) -> String {
+    let Some(mut rest) = keystroke.strip_prefix("ctrl-").filter(|rest| !rest.contains("cmd-"))
+    else {
+        return keystroke.to_string();
+    };
+    let mut held = String::new();
+    for modifier in ["alt-", "shift-"] {
+        if let Some(after) = rest.strip_prefix(modifier) {
+            held.push_str(modifier);
+            rest = after;
+        }
+    }
+    let cmd = format!("{held}cmd-{rest}");
+    match SHORTCUTS.iter().any(|&(key, ..)| key == cmd) {
+        true => cmd,
+        false => keystroke.to_string(),
+    }
 }
 
 /// The keys the user pressed, as SHORTCUTS writes them: the one GPUI matches first, then the one
@@ -430,6 +482,17 @@ mod tests {
     }
 
     /// A rebound key runs its command, and the key it had runs nothing.
+    #[test]
+    fn ctrl_does_what_cmd_does_off_the_mac() {
+        assert_eq!(written_off_the_mac("ctrl-t"), "cmd-t");
+        assert_eq!(written_off_the_mac("ctrl-alt-shift-c"), "alt-shift-cmd-c");
+        assert_eq!(written_off_the_mac("ctrl-1"), "cmd-1");
+        assert_eq!(written_off_the_mac("ctrl-tab"), "ctrl-tab");
+        assert_eq!(pressed_off_the_mac("shift-cmd-t").as_deref(), Some("ctrl-shift-t"));
+        assert_eq!(pressed_off_the_mac("ctrl-tab").as_deref(), Some("ctrl-tab"));
+        assert_eq!(pressed_off_the_mac("ctrl-1"), None);
+    }
+
     #[test]
     fn a_rebound_key_runs_its_command_and_the_old_one_nothing() {
         let mut user = UserKeys::default();
