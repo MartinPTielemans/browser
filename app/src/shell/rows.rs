@@ -383,8 +383,9 @@ impl Shell {
     /// moves them, the frame last drawn may have another row under the pointer, one on its way
     /// out. Either way it acts on the row that will be there, as the press that it is
     /// (docs/ux-principles.md: act on the press), so a click under a pointer that hasn't moved
-    /// acts on the row it rests on. Returns whether it took the press; a press on a row drawn
-    /// where it rests, or on the sliding page's drawn part, is the rows' own.
+    /// acts on the row it rests on, and a right-click where no row rests shows the menu of the
+    /// Space's name or of its empty space. Returns whether it took the press; a press on a row
+    /// drawn where it rests, or on the sliding page's drawn part, is the rows' own.
     pub(super) fn press_at_rest(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
         let busy = self.swipe.is_some() || self.form().is_some() || self.renaming.is_some();
         if busy || self.dragging().is_some() || (self.settle.is_some() && self.drag.is_some()) {
@@ -417,6 +418,16 @@ impl Shell {
             }
         } else if row_at(&self.drawn_rows.borrow()) == tab {
             return false;
+        }
+        let new_tab = (self.layout().into_iter()).any(|(slot, top)| {
+            matches!(slot, Slot::NewTab) && (top..top + ROW_PITCH).contains(&y)
+        });
+        if event.button == MouseButton::Right && tab.is_none() && !new_tab {
+            match y < NAME_HEIGHT {
+                true => self.space_menu(self.space, event.position, cx),
+                false => self.empty_space_menu(self.space, event.position, cx),
+            }
+            return true;
         }
         let Some(tab) = tab.filter(|&tab| self.panes(tab).len() == 1) else {
             return false;
