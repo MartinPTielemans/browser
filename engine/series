@@ -26,4 +26,5 @@ ours/chromium-core-link-target.patch
 ours/chromium-core-hung-page.patch
 ours/chromium-core-error-page.patch
 ours/chromium-core-offline-game.patch
+ours/chromium-core-native-host-fallback.patch
 ours/chromium-xcode-build-define.patch

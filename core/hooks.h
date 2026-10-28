@@ -4,8 +4,10 @@
 #define BROWSER_CORE_HOOKS_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "base/files/file_path.h"
 #include "base/functional/callback_forward.h"
 #include "components/permissions/permission_prompt.h"
 #include "extensions/browser/extension_install_prompt_client.h"
@@ -102,5 +104,10 @@ extern void (*g_browser_core_page_hung)(content::WebContents* contents,
 // chrome/browser/net/net_error_tab_helper.cc: the core's offline page says whether a run of its
 // game is going. Only the error document in the tab's main frame can say it.
 extern void (*g_browser_core_offline_game)(content::WebContents* contents, bool running);
+
+// chrome/browser/extensions/api/messaging/launch_context.cc: the manifest of the native messaging
+// host |name| when neither the browser's user folder nor its system one has it, or an empty path.
+// Runs where Chrome looks in its own, on a thread that may block.
+extern base::FilePath (*g_browser_core_find_native_host)(const std::string& name);
 
 #endif  // BROWSER_CORE_HOOKS_H_
