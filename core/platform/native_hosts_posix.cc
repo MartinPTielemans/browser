@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "build/build_config.h"
 
@@ -49,7 +50,12 @@ constexpr const char* kBrowsers[] = {
 #endif
 
 base::FilePath BrowsersFolder() {
+  const base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
+  if (command_line.HasSwitch(kOtherBrowsersDir)) {
+    return command_line.GetSwitchValuePath(kOtherBrowsersDir);
+  }
 #if BUILDFLAG(IS_MAC)
+  // The user's real home, as Chrome's own folders are: NSHomeDirectory ignores $HOME.
   return base::GetHomeDir().Append("Library").Append("Application Support");
 #else
   std::unique_ptr<base::Environment> env = base::Environment::Create();
