@@ -619,8 +619,10 @@ spans=$(python3 -I - "$trace" << 'PY'
 import json, sys
 # Chrome's tab switch spans, begin and end events paired by id, in microseconds. A switch to a tab
 # whose page hasn't loaded yet, as when a new tab shows, times the page load; Chrome reports those
-# apart from switches, and so does this. A switch cut off before its frame showed, as by the next
-# switch while ⌃ is held, never finished, so Chrome's histograms leave it out; it's only counted.
+# apart from switches, and so does this. Chrome times none between the tabs of a split view, as to
+# the one Add Split View opens beside the tab shown, whose page is on screen already, and the core
+# has it do the same for ours. A switch cut off before its frame showed, as by the next switch
+# while ⌃ is held, never finished, so Chrome's histograms leave it out; it's only counted.
 events = json.load(open(sys.argv[1]))
 events = events["traceEvents"] if isinstance(events, dict) else events
 begins = {}

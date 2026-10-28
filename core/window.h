@@ -96,6 +96,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static content::WebContents* PageOf(bc_id tab);
   // Has each window whose shown tab's split changed show it as it is now.
   static void PanesChanged();
+  // The hook for Chrome's tab strip (hooks.h): whether |contents| and |other| are tabs of one split
+  // view, between which a switch isn't timed.
+  static bool SplitTogether(content::WebContents* contents, content::WebContents* other);
   // Lays out each window showing |tab|, whose page died or came back: a page that died leaves its
   // pane to the app's card under it.
   static void LayOutShowing(bc_id tab);

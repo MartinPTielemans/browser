@@ -1,0 +1,43 @@
+Lets the core say that a tab switch is between tabs of one of its split views, which Chrome's tab
+strip then doesn't time, as it doesn't between the tabs of its own split (//browser_core/hooks.h).
+Both pages are on screen already, so the switch shows nothing new. Timed, a switch to a split's
+new tab would end at its page's first frame, once it has loaded, and Chrome would call it a
+switch to a tab with a saved frame, since the split showed its view first.
+
+--- a/chrome/browser/ui/tabs/tab_strip_model.cc
++++ b/chrome/browser/ui/tabs/tab_strip_model.cc
+@@ -38,6 +38,7 @@
+ #include "base/trace_event/common/trace_event_common.h"
+ #include "base/trace_event/trace_event.h"
+ #include "base/types/pass_key.h"
++#include "browser_core/hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/app/chrome_command_ids.h"
+ #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+@@ -121,6 +122,11 @@
+ using base::UserMetricsAction;
+ using content::WebContents;
+ 
++// browser_core: the core's windows have split views of their own, not
++// Chrome's split tabs (//browser_core/hooks.h).
++bool (*g_browser_core_split_together)(content::WebContents* contents,
++                                      content::WebContents* other) = nullptr;
++
+ namespace {
+ 
+ TabGroupModelFactory* factory_instance = nullptr;
+@@ -4283,7 +4289,13 @@
+         const auto new_split_id = selection.new_tab->GetSplit();
+         const auto old_split_id =
+             selection.old_tab ? selection.old_tab->GetSplit() : std::nullopt;
+-        if (!new_split_id || !old_split_id || new_split_id != old_split_id) {
++        // browser_core: nor if they're in one of the core's split views.
++        const bool core_split =
++            g_browser_core_split_together && selection.old_contents &&
++            g_browser_core_split_together(selection.old_contents,
++                                          selection.new_contents);
++        if ((!new_split_id || !old_split_id || new_split_id != old_split_id) &&
++            !core_split) {
+           const content::RenderWidgetHostView* view =
+               selection.new_contents->GetRenderWidgetHostView();
+           selection.new_contents->SetTabSwitchStartTime(
