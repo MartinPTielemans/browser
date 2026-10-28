@@ -577,6 +577,11 @@ fn over(top: u32, under: u32) -> u32 {
     channel(24) | channel(16) | channel(8)
 }
 
+/// WCAG's contrast ratio between two 0xRRGGBB colours.
+fn contrast(a: u32, b: u32) -> f32 {
+    crate::palette::contrast(gpui::rgb(a), gpui::rgb(b))
+}
+
 /// Every label a menu draws reads at 4.5:1 against what it's on, in both looks, which are all a
 /// theme picks of the menu, as the panel is opaque over it. Dimmed items are exempt, as WCAG's
 /// rule exempts what can't be used. Once the palette (#335) gives the highlight each Space's
