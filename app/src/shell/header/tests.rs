@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use crate::{
+    passwords::Key,
     shell::{
         Command, FOOTER_HEIGHT, Folders, NAV_SIZE, NAV_TOP, Page, SIDEBAR_BUTTON_X, Shell,
         library::LIBRARY_BACK_INSET, recorder::Recorder,
@@ -242,4 +243,48 @@ fn copy_url_shows_the_toast_and_the_checkmark(cx: &mut TestAppContext) {
     assert_eq!(host.toasts.take(), ["Copied Current URL"]);
     assert!(host.command_bars.take().is_empty());
     assert!(shell.read_with(cx, |shell, _| shell.url_copied.is_some()));
+}
+
+/// The password manager's key shows after the host of the tab it's for. A press on it brings back
+/// the offer that showing another tab closed, or opens the Site Controls, which list the site's
+/// logins, and it goes once the page has nothing for the password manager.
+#[gpui::test]
+fn the_key_brings_the_offer_back_or_opens_the_site_controls(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    let page = Page { url: "https://example.com/".into(), ..Page::default() };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
+        shell.set_selected(1, cx);
+        shell.set_page(1, page, cx);
+        shell.set_key(2, Some(Key::Offer), cx);
+    });
+    cx.run_until_parked();
+    let key = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+        shell.read_with(cx, |shell, _| shell.button_frames.borrow().get("key").copied())
+    };
+    assert_eq!(key(&shell, cx), None, "another tab's key showed");
+    let press = |at: Bounds<gpui::Pixels>, cx: &mut VisualTestContext| {
+        cx.simulate_mouse_down(at.center(), gpui::MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(at.center(), gpui::MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+    };
+
+    shell.update(cx, |shell, cx| shell.set_key(1, Some(Key::Offer), cx));
+    cx.run_until_parked();
+    let at = key(&shell, cx).expect("the tab's key didn't show");
+    host.take();
+    press(at, cx);
+    assert_eq!(host.take(), ["show offer 1"]);
+
+    shell.update(cx, |shell, cx| shell.set_key(1, Some(Key::Saved), cx));
+    cx.run_until_parked();
+    press(at, cx);
+    assert_eq!(host.site_controls.take().iter().map(|(tab, _)| *tab).collect::<Vec<_>>(), [1]);
+    assert!(!host.take().iter().any(|call| call.starts_with("show offer")));
+
+    shell.update(cx, |shell, cx| shell.set_key(1, None, cx));
+    cx.run_until_parked();
+    press(at, cx);
+    assert!(host.site_controls.take().is_empty(), "a press where the key was opened them");
+    assert!(!host.take().iter().any(|call| call.starts_with("show offer")));
 }
