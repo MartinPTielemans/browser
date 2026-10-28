@@ -29,7 +29,6 @@
 
 #include <windows.h>
 
-#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -359,10 +358,10 @@ void Release(const Target& target, UINT button, int modifiers) {
 // How long a click at |target| waits, so it isn't taken with the last one for a double click.
 UINT WaitBeforeClick(const Target& target, UINT button) {
   const ULONGLONG since = GetTickCount64() - g_last_click.time;
-  const bool near =
+  const bool close_by =
       std::abs(target.screen.x - g_last_click.at.x) <= GetSystemMetrics(SM_CXDOUBLECLK) &&
       std::abs(target.screen.y - g_last_click.at.y) <= GetSystemMetrics(SM_CYDOUBLECLK);
-  if (g_last_click.hwnd != target.hwnd || g_last_click.button != button || !near ||
+  if (g_last_click.hwnd != target.hwnd || g_last_click.button != button || !close_by ||
       since > GetDoubleClickTime()) {
     return 0;
   }
@@ -679,7 +678,8 @@ bool Run(const std::string& line) {
   std::string action;
   words >> action;
   // What follows the command's name, for those that take text.
-  const std::string rest = line.substr(std::min(line.size(), action.size() + 1));
+  const std::string rest =
+      line.size() > action.size() ? line.substr(action.size() + 1) : std::string();
   if (action == "pageswipe" || action == "dragover" || action == "dragdrop" ||
       action == "dragleave" || action == "fullscreen" || action == "display" || action == "hide" ||
       action == "backdrop" || action == "openmenu" || action == "ime") {
