@@ -1647,6 +1647,8 @@ void host_copy(const char* text) {
 }
 
 // shortcut: there's no Safari; protected video on Windows waits for WebView2 (decision 1).
+void host_open_full_disk_access(void) {}
+
 void host_open_in_safari(const char* url) {
   fprintf(stderr, "browser: no system engine for %s\n", url);
 }

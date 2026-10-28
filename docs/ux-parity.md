@@ -363,11 +363,13 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Arc: favorites, pinned tabs, custom names | MVP | favorites → favorites; pinned → pinned rows | Dia 1.52 P§20 |
 | [ ] | Arc: themes | MVP | `windowTheme` colours, intensity, noise, texture, appearance, light and dark; built: colour, count, intensity, noise, appearance | Arc 1.167 P§20 |
 | [x] | Arc: folders | MVP | ours: folders, nested; split views as their tabs *interim*; measure | ours |
-| [ ] | Chrome: bookmarks, history, open tabs, passwords, addresses, cards | MVP | yes; built: bookmarks and history, for Chrome's whole family | P§20 |
-| [ ] | Chrome: cookies | MVP | never over existing ones, never into private | P§20 |
+| [ ] | Chrome: bookmarks, history, open tabs, passwords, addresses, cards | MVP | yes, passwords from the user's exported CSV; built: bookmarks and history, for Chrome's whole family | P§20 |
+| [x] | Chrome: cookies | MVP | not imported: no other browser's cookies or passwords are decrypted, and the user signs in again | #453 |
+| [x] | Firefox, Zen, LibreWolf: bookmarks, history | MVP | ours: as Chrome's family's, from `places.sqlite` | ours |
+| [x] | Safari: bookmarks, Reading List, history | MVP | ours: as Chrome's family's, the Reading List as a folder | ours |
 | [ ] | Chrome: extensions | MVP | listed with store links, not installed | P§20 |
-| [ ] | Full Disk Access | MVP | explain, link to System Settings, re-check on return | P§20 |
-| [ ] | Rerun | MVP | adds nothing; built for Arc and Chrome's family | P§20 |
+| [x] | Full Disk Access | MVP | explain, link to System Settings, re-check on return; Safari's | P§20 |
+| [x] | Rerun | MVP | adds nothing | P§20 |
 | [x] | Where Chrome bookmarks land | MVP | ours: a Space named after the browser, the bar's bookmarks pinned, or in a folder past 12; measure Arc's | ours |
 
 ## Updates
