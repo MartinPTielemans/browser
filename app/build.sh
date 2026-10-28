@@ -20,6 +20,8 @@ if [ "$(uname -s)" = Linux ]; then
   mkdir -p build
   cp -al "$(cd .deps/engine && pwd -P)" build/Browser
   cp target/release/libBrowser.so build/Browser/
+  # shellcheck disable=SC2086
+  ../tools/licences.sh build/Browser linux/Cargo.toml "$(rustc -vV | sed -n 's/^host: //p')" $features
   exit 0
 fi
 # On Windows, under Git Bash, the same: build/Browser, a copy of the engine, with Browser.dll beside
@@ -107,6 +109,9 @@ rm "$app/Contents/Resources/app.icns"
 cp branding/Assets.car "branding/$name.icns" "$app/Contents/Resources/"
 plutil -replace CFBundleIconFile -string "$name" "$plist"
 plutil -replace CFBundleIconName -string "$name" "$plist"
+# The licences: ilo's, NOTICE, and the Rust crates in the binary.
+# shellcheck disable=SC2086
+../tools/licences.sh "$app/Contents/Resources" Cargo.toml "$(rustc -vV | sed -n 's/^host: //p')" $features
 # Chromium's translations of the strings below name Chromium, and macOS shows a translation over
 # Info.plist's string. Emptied, they leave the English ones below in every language.
 for strings in "$app"/Contents/Resources/*.lproj/InfoPlist.strings; do
