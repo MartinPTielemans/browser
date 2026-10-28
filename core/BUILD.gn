@@ -77,6 +77,8 @@ source_set("browser_core") {
     "find.cc",
     "find.h",
     "hooks.h",
+    "history_import.cc",
+    "history_import.h",
     "idle_unload.cc",
     "idle_unload.h",
     "host.h",
