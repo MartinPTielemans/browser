@@ -8,7 +8,7 @@
 use std::{cell::OnceCell, f32::consts::TAU, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, FontWeight, Global,
+    App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, FontWeight, Global, Hsla,
     KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels,
     Point, RenderImage, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, actions, canvas, div, fill, point, prelude::*, px,
@@ -560,7 +560,23 @@ thread_local! {
     static DOTS: OnceCell<Arc<RenderImage>> = const { OnceCell::new() };
 }
 
-/// The field's dot grid, drawn once at 2×.
+/// − or +'s glyph: while it answers, raised to the overlay's glyph floor as the appearance glyphs
+/// are, and brighter pressed; dim, as it is, when it doesn't.
+fn count_color(palette: &Palette, enabled: bool, pressed: bool) -> Hsla {
+    match (enabled, pressed) {
+        (false, _) => palette.faint(COUNT_DISABLED),
+        (true, true) => palette.on_overlay_glyph(COUNT_PRESSED),
+        (true, false) => palette.on_overlay_glyph(COUNT_COLOR),
+    }
+}
+
+/// Whether the field's point `x`, `y` is under − or +'s target.
+fn under_count(x: f32, y: f32) -> bool {
+    let y = y - (COUNT_Y - FIELD_INSET);
+    [REMOVE_X, ADD_X].iter().any(|&at| (x - (at - FIELD_INSET)).hypot(y) <= COUNT_TARGET / 2.)
+}
+
+/// The field's dot grid, drawn once at 2×, with none under − and + so they sit on the plain field.
 fn dots_image() -> Arc<RenderImage> {
     DOTS.with(|dots| {
         dots.get_or_init(|| {
@@ -570,8 +586,13 @@ fn dots_image() -> Arc<RenderImage> {
             let count = (middle / DOT_PITCH) as i32;
             for row in -count..=count {
                 for column in -count..=count {
-                    let x = ((middle + column as f32 * DOT_PITCH) * 2.).round() as usize - 1;
-                    let y = ((middle + row as f32 * DOT_PITCH) * 2.).round() as usize - 1;
+                    let x = middle + column as f32 * DOT_PITCH;
+                    let y = middle + row as f32 * DOT_PITCH;
+                    if under_count(x, y) {
+                        continue;
+                    }
+                    let x = (x * 2.).round() as usize - 1;
+                    let y = (y * 2.).round() as usize - 1;
                     for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                         let at = ((y + dy) * side + x + dx) * 4;
                         data[at..at + 4].copy_from_slice(&[255, 255, 255, (DOT_ALPHA * 255.).round() as u8]);
@@ -797,11 +818,7 @@ impl Render for ThemePicker {
 
         let count = theme.map_or(0, |theme| theme.count);
         let count_button = |target: Target, x: f32, glyph: &'static str, enabled: bool| {
-            let color = match (enabled, editing.pressed == Some(target)) {
-                (false, _) => palette.faint(COUNT_DISABLED),
-                (true, true) => palette.faint(COUNT_PRESSED),
-                (true, false) => palette.faint(COUNT_COLOR),
-            };
+            let color = count_color(&palette, enabled, editing.pressed == Some(target));
             div()
                 .absolute()
                 .left(card_x(x - COUNT_TARGET / 2.))
