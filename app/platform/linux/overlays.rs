@@ -2,7 +2,7 @@
 //! window as a child of it, a subsurface under Wayland and a child window on X11, and the core
 //! lends it the window's keyboard while it shows.
 //!
-//! shortcut: no blur, shadow, shape or growth yet; the overlay is its UI's rounded rectangle.
+//! shortcut: no blur, shadow or growth yet.
 
 use std::{
     cell::RefCell,
@@ -64,7 +64,19 @@ pub extern "C" fn host_set_overlay_radius(overlay: c_int, radius: f64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn host_set_overlay_shape(_overlay: c_int, _corners: *const f64, _count: usize) {}
+pub extern "C" fn host_set_overlay_shape(overlay: c_int, corners: *const f64, count: usize) {
+    if corners.is_null() {
+        return;
+    }
+    // SAFETY: the caller passes `count` corners of three numbers each.
+    let numbers = unsafe { std::slice::from_raw_parts(corners, count * 3) };
+    let corners: Vec<gpui_linux::Corner> = (numbers.chunks_exact(3))
+        .map(|corner| (corner[0] as f32, corner[1] as f32, corner[2] as f32))
+        .collect();
+    if let Some(view) = with_overlay(overlay, |o| o.view) {
+        gpui_linux::set_overlay_outline(view, &corners);
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn host_set_overlay_growth(_overlay: c_int, _x: f64, _y: f64) {}

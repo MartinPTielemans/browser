@@ -23,7 +23,7 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..853ab6e28a 100644
+index a5390e77f8..b4c0fbe106 100644
 --- i/crates/gpui_linux/src/gpui_linux.rs
 +++ w/crates/gpui_linux/src/gpui_linux.rs
 @@ -1,4 +1,12 @@
@@ -34,14 +34,14 @@ index a5390e77f8..853ab6e28a 100644
 +#[cfg(feature = "x11")]
 +pub use linux::open_next_window_in;
 +pub use linux::{
-+    EmbeddedKeyboard, current_platform, dispatch_embedded, dispatch_embedded_after_read, embed,
-+    embed_wayland, embedded_fd, embedder_size, hide_overlay, leave_overlay, linux_platform,
-+    move_overlay, new_host_window, overlay_size, show_overlay,
++    Corner, EmbeddedKeyboard, current_platform, dispatch_embedded, dispatch_embedded_after_read,
++    embed, embed_wayland, embedded_fd, embedder_size, hide_overlay, leave_overlay, linux_platform,
++    move_overlay, new_host_window, overlay_size, set_overlay_outline, show_overlay,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{open_next_window_in_surface, resize_embedded};
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..493d6fc704 100644
+index e4da54b52b..8c99a4e16d 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
 @@ -2,6 +2,7 @@ mod dispatcher;
@@ -52,12 +52,13 @@ index e4da54b52b..493d6fc704 100644
  mod platform;
  mod system_notifications;
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -18,11 +19,22 @@ pub use dispatcher::*;
+@@ -18,11 +19,23 @@ pub use dispatcher::*;
  pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
  pub(crate) use headless::*;
  pub(crate) use keyboard::*;
 +pub use overlay::{
-+    embedder_size, hide_overlay, leave_overlay, move_overlay, overlay_size, show_overlay,
++    Corner, embedder_size, hide_overlay, leave_overlay, move_overlay, overlay_size,
++    set_overlay_outline, show_overlay,
 +};
  pub(crate) use platform::*;
 +pub use platform::{
@@ -77,10 +78,10 @@ index e4da54b52b..493d6fc704 100644
  
 diff --git i/crates/gpui_linux/src/linux/overlay.rs w/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..d655b54160
+index 0000000000..bd2fd32f54
 --- /dev/null
 +++ w/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,355 @@
+@@ -0,0 +1,393 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a child of the X window GPUI's window is held in. One shown
@@ -144,6 +145,42 @@ index 0000000000..d655b54160
 +    static PING: RefCell<Option<Ping>> = const { RefCell::new(None) };
 +    /// On X11, the window that had the input focus before each overlay with the keyboard took it.
 +    static FOCUS_FROM: RefCell<Vec<(usize, u32)>> = const { RefCell::new(Vec::new()) };
++    /// The outlines overlays have that aren't rounded rectangles (`set_overlay_outline`).
++    static OUTLINES: RefCell<Vec<(usize, Vec<Corner>)>> = const { RefCell::new(Vec::new()) };
++}
++
++/// A corner of an overlay's outline: x and y in logical pixels from its top left, and the radius
++/// it's rounded by.
++pub type Corner = (f32, f32, f32);
++
++/// Gives the overlay `view` the outline of the polygon through `corners`, clockwise, from its next
++/// show or move on, for one that isn't a rounded rectangle, such as a popover with an arrow. What
++/// GPUI draws outside it shows on X11, which can't blend a child window with what's under it.
++pub fn set_overlay_outline(view: *mut c_void, corners: &[Corner]) {
++    let view = view as usize;
++    OUTLINES.with_borrow_mut(|all| {
++        all.retain(|(each, _)| *each != view);
++        all.push((view, corners.to_vec()));
++    });
++}
++
++/// The outline of the overlay `view` at `bounds`: its own, else its rounded rectangle.
++#[allow(dead_code)]
++fn outline(view: usize, bounds: Bounds<Pixels>, radius: Pixels) -> Vec<Corner> {
++    let own = OUTLINES.with_borrow(|all| {
++        let (_, corners) = all.iter().find(|(each, _)| *each == view)?;
++        Some(corners.clone())
++    });
++    own.unwrap_or_else(|| {
++        let (width, height) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
++        let radius = f32::from(radius).min(width / 2.).min(height / 2.);
++        vec![
++            (0., 0., radius),
++            (width, 0., radius),
++            (width, height, radius),
++            (0., height, radius),
++        ]
++    })
 +}
 +
 +/// Shows the window `view` that GPUI opened with `show: false` (its `wl_surface` or X window, as its
@@ -410,7 +447,8 @@ index 0000000000..d655b54160
 +                    radius,
 +                    keyboard,
 +                } => {
-+                    let from = x11.show_overlay(view as _, parent as _, bounds, radius, keyboard);
++                    let outline = outline(view, bounds, radius);
++                    let from = x11.show_overlay(view as _, parent as _, bounds, &outline, keyboard);
 +                    if let Some(from) = from.log_err() {
 +                        FOCUS_FROM.with_borrow_mut(|all| all.push((view, from)));
 +                    }
@@ -420,7 +458,8 @@ index 0000000000..d655b54160
 +                    bounds,
 +                    radius,
 +                } => {
-+                    x11.move_overlay(view as _, bounds, radius).log_err();
++                    let outline = outline(view, bounds, radius);
++                    x11.move_overlay(view as _, bounds, &outline).log_err();
 +                }
 +                Op::Hide { view, .. } => {
 +                    let from = FOCUS_FROM.with_borrow_mut(|all| {
@@ -1525,7 +1564,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..cef2c80773 100644
+index e21f019c64..ad01fd5c0a 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1581,7 +1620,7 @@ index e21f019c64..cef2c80773 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2103,173 @@ impl X11ClientState {
+@@ -2087,6 +2103,176 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -1661,14 +1700,14 @@ index e21f019c64..cef2c80773 100644
 +    }
 +
 +    /// Shows GPUI's unmapped window `view` over the embedder's `parent` (`crate::linux::overlay`):
-+    /// a child of it, rounded by `radius`, above GPUI's window there. With `keyboard` it takes the
++    /// a child of it, in the shape of `outline`, above GPUI's window there. With `keyboard` it takes the
 +    /// input focus, and this returns the window that had it.
 +    pub(crate) fn show_overlay(
 +        &self,
 +        view: xproto::Window,
 +        parent: xproto::Window,
 +        bounds: Bounds<Pixels>,
-+        radius: Pixels,
++        outline: &[crate::linux::overlay::Corner],
 +        keyboard: bool,
 +    ) -> anyhow::Result<xproto::Window> {
 +        let xcb = &self.xcb_connection;
@@ -1678,7 +1717,7 @@ index e21f019c64..cef2c80773 100644
 +            f32::from(bounds.origin.y) * scale,
 +        );
 +        xcb.reparent_window(view, parent, x as i16, y as i16)?;
-+        self.move_overlay(view, bounds, radius)?;
++        self.move_overlay(view, bounds, outline)?;
 +        xcb.map_window(view)?;
 +        let mut from = x11rb::NONE;
 +        if keyboard {
@@ -1694,7 +1733,7 @@ index e21f019c64..cef2c80773 100644
 +        &self,
 +        view: xproto::Window,
 +        bounds: Bounds<Pixels>,
-+        radius: Pixels,
++        outline: &[crate::linux::overlay::Corner],
 +    ) -> anyhow::Result<()> {
 +        let xcb = &self.xcb_connection;
 +        let scale = self.scale_factor;
@@ -1713,8 +1752,11 @@ index e21f019c64..cef2c80773 100644
 +                .height(height.max(1.) as u32)
 +                .stack_mode(xproto::StackMode::ABOVE),
 +        )?;
-+        // Rounded by its own shape, as an X server doesn't blend a child window with its parent.
-+        let radius = (f32::from(radius) * scale).min(width / 2.).min(height / 2.);
++        // In its outline by its own shape, as an X server doesn't blend a child window with its
++        // parent.
++        let outline: Vec<_> = (outline.iter())
++            .map(|&(x, y, radius)| (x * scale, y * scale, radius * scale))
++            .collect();
 +        xcb.shape_rectangles(
 +            shape::SO::SET,
 +            shape::SK::BOUNDING,
@@ -1722,7 +1764,7 @@ index e21f019c64..cef2c80773 100644
 +            view,
 +            0,
 +            0,
-+            &rounded_rectangle(width as i16, height as i16, radius),
++            &outline_rows(&outline, height as i16),
 +        )?;
 +        xcb.flush()?;
 +        Ok(())
@@ -1755,40 +1797,129 @@ index e21f019c64..cef2c80773 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -3213,3 +3396,34 @@ mod tests {
+@@ -2898,6 +3084,40 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn an_outline_is_its_rows() {
++        let span = |rows: &[xproto::Rectangle], y: i16| -> Vec<(i16, u16)> {
++            (rows.iter().filter(|row| row.y == y))
++                .map(|row| (row.x, row.width))
++                .collect()
++        };
++        // A rounded rectangle: its top row inset by its corners, its middle the full width.
++        let card = [
++            (0., 0., 10.),
++            (100., 0., 10.),
++            (100., 40., 10.),
++            (0., 40., 10.),
++        ];
++        let rows = outline_rows(&card, 40);
++        assert_eq!(span(&rows, 20), [(0, 100)]);
++        let (top, bottom) = (span(&rows, 0), span(&rows, 39));
++        assert_eq!(top, bottom);
++        assert!(top[0].0 >= 3 && top[0].0 <= 7 && top[0].1 == 100 - 2 * top[0].0 as u16);
++        // A card with an arrow on top: the arrow's rows are narrow, under it the card's are whole.
++        let popover = [
++            (50., 0., 0.),
++            (60., 10., 0.),
++            (100., 10., 0.),
++            (100., 50., 0.),
++            (0., 50., 0.),
++            (0., 10., 0.),
++            (40., 10., 0.),
++        ];
++        let rows = outline_rows(&popover, 50);
++        assert_eq!(span(&rows, 4), [(46, 9)]);
++        assert_eq!(span(&rows, 30), [(0, 100)]);
++    }
++
+     fn test_keymap(layouts: &str) -> xkbc::Keymap {
+         test_keymap_with_variant(layouts, "")
+     }
+@@ -3213,3 +3433,82 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
 +
-+/// The rows of a `width` by `height` rectangle with its corners rounded by `radius`, for a shape.
-+fn rounded_rectangle(width: i16, height: i16, radius: f32) -> Vec<xproto::Rectangle> {
-+    let corner = radius.ceil() as i16;
-+    let mut rows = Vec::with_capacity(2 * corner as usize + 1);
-+    for row in 0..corner.min(height / 2) {
-+        let dy = radius - row as f32 - 0.5;
-+        let inset = (radius - (radius * radius - dy * dy).max(0.).sqrt()).round() as i16;
-+        let width = (width - 2 * inset).max(0) as u16;
-+        rows.push(xproto::Rectangle {
-+            x: inset,
-+            y: row,
-+            width,
-+            height: 1,
-+        });
-+        rows.push(xproto::Rectangle {
-+            x: inset,
-+            y: height - 1 - row,
-+            width,
-+            height: 1,
-+        });
++/// The rows of the polygon through `corners`, each x, y and the radius it's rounded by, in device
++/// pixels, for a shape `height` rows tall: each row the spans its middle crosses inside it.
++fn outline_rows(corners: &[(f32, f32, f32)], height: i16) -> Vec<xproto::Rectangle> {
++    let points = rounded_polygon(corners);
++    let mut rows = Vec::new();
++    for row in 0..height {
++        let y = row as f32 + 0.5;
++        let mut crossings: Vec<f32> = (points.iter())
++            .zip(points.iter().cycle().skip(1))
++            .filter(|(a, b)| (a.1 <= y) != (b.1 <= y))
++            .map(|(a, b)| a.0 + (y - a.1) / (b.1 - a.1) * (b.0 - a.0))
++            .collect();
++        crossings.sort_by(f32::total_cmp);
++        for span in crossings.chunks_exact(2) {
++            let (left, right) = (span[0].round() as i16, span[1].round() as i16);
++            if right > left {
++                rows.push(xproto::Rectangle {
++                    x: left,
++                    y: row,
++                    width: (right - left) as u16,
++                    height: 1,
++                });
++            }
++        }
 +    }
-+    let middle = corner.min(height / 2);
-+    rows.push(xproto::Rectangle {
-+        x: 0,
-+        y: middle,
-+        width: width.max(0) as u16,
-+        height: (height - 2 * middle).max(0) as u16,
-+    });
 +    rows
++}
++
++/// The polygon through `corners` with each rounded by its radius, its arcs in short lines.
++fn rounded_polygon(corners: &[(f32, f32, f32)]) -> Vec<(f32, f32)> {
++    let count = corners.len();
++    let at = |index: usize| (corners[index % count].0, corners[index % count].1);
++    let mut points = Vec::new();
++    for index in 0..count {
++        let here = at(index);
++        let radius = corners[index].2;
++        let unit = |to: (f32, f32)| {
++            let (dx, dy) = (to.0 - here.0, to.1 - here.1);
++            let length = dx.hypot(dy).max(f32::EPSILON);
++            (dx / length, dy / length)
++        };
++        let (before, after) = (unit(at(index + count - 1)), unit(at(index + 1)));
++        // The arc meets each side as far along it as the radius over the tangent of half the angle
++        // between them, and its centre is on the line halving that angle.
++        let half = (before.0 * after.0 + before.1 * after.1)
++            .clamp(-1., 1.)
++            .acos()
++            / 2.;
++        let (bx, by) = (before.0 + after.0, before.1 + after.1);
++        let bisector = bx.hypot(by);
++        if radius <= 0. || bisector < 1e-4 {
++            points.push(here);
++            continue;
++        }
++        let along = radius / half.tan();
++        let distance = radius / half.sin();
++        let centre = (
++            here.0 + bx / bisector * distance,
++            here.1 + by / bisector * distance,
++        );
++        let angle = |point: (f32, f32)| (point.1 - centre.1).atan2(point.0 - centre.0);
++        let start = angle((here.0 + before.0 * along, here.1 + before.1 * along));
++        let end = angle((here.0 + after.0 * along, here.1 + after.1 * along));
++        let mut sweep = end - start;
++        if sweep > std::f32::consts::PI {
++            sweep -= std::f32::consts::TAU;
++        } else if sweep < -std::f32::consts::PI {
++            sweep += std::f32::consts::TAU;
++        }
++        // Within about a tenth of a pixel of the arc.
++        let steps = (radius.sqrt() * 2.).ceil().max(2.) as usize;
++        for step in 0..=steps {
++            let a = start + sweep * step as f32 / steps as f32;
++            points.push((centre.0 + radius * a.cos(), centre.1 + radius * a.sin()));
++        }
++    }
++    points
 +}
 diff --git i/crates/gpui_linux/src/linux/x11/window.rs w/crates/gpui_linux/src/linux/x11/window.rs
 index f6ee76ae8c..7fb21ccb22 100644
