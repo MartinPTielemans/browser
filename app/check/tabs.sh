@@ -284,7 +284,7 @@ done
 ../tools/window-screenshot.sh "$pid" "$out/idle-unloaded.png" || fail "no window to capture"
 switch "1 cmd" "$c"
 expect "browser: tab $c has its page\$" "c's tab didn't get its page back once shown"
-expect "^browser: loaded $c https://example.com/\$" "c's page didn't load once shown"
+expect "^browser: loaded $c ${c_page##* }\$" "c's page didn't load once shown at ${c_page##* }"
 expect "^$c_page\$" "c's tab came back without its history: $(grep "^browser: page $c back" "$log" | tail -1)"
 # With the switch off, a tab 2 hours unseen keeps its page, and turned on, it lets go.
 send menu Settings…
