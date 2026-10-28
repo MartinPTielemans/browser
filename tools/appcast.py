@@ -6,6 +6,8 @@ or not marked at all, so every Mac enclosure is marked. tools/appcast.sh runs it
   appcast.py aside APPCAST ASIDE
       Moves the Windows entries to ASIDE, so generate_appcast sees only the Mac's, and prints how
       many Mac entries there are.
+  appcast.py signed APPCAST BUILD
+      Fails unless the Mac's entry for BUILD carries its EdDSA signature.
   appcast.py finish APPCAST ASIDE [--windows URL LENGTH SIGNATURE VERSION BUILD NOTES]
       Marks the Mac enclosures and puts the Windows entries back after them, with a new one for
       the installer at URL, which replaces one with the same build number.
@@ -55,6 +57,14 @@ def aside(appcast, aside_path):
     print(len(channel.findall("item")))
 
 
+def signed(appcast, build):
+    for item in ET.parse(appcast).getroot().find("channel").findall("item"):
+        enclosure = item.find("enclosure")
+        if build_of(item) == build and enclosure is not None and enclosure.get(s("edSignature")):
+            return
+    sys.exit(f"{appcast} has no signed update for build {build}")
+
+
 def finish(appcast, aside_path, windows):
     tree = ET.parse(appcast)
     channel = tree.getroot().find("channel")
@@ -89,6 +99,8 @@ if __name__ == "__main__":
     command, args = sys.argv[1], sys.argv[2:]
     if command == "aside" and len(args) == 2:
         aside(*args)
+    elif command == "signed" and len(args) == 2:
+        signed(*args)
     elif command == "finish" and len(args) == 2:
         finish(*args, None)
     elif command == "finish" and len(args) == 9 and args[2] == "--windows":
