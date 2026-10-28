@@ -14,6 +14,11 @@
 #include <shobjidl.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#include <windows.applicationmodel.datatransfer.datatransfermanagerinterop.h>
+
+#include <winrt/Windows.ApplicationModel.DataTransfer.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Storage.Streams.h>
 
 #include <algorithm>
 #include <cmath>
@@ -1034,6 +1039,44 @@ ITaskbarList3* Taskbar() {
 
 }  // namespace
 
+namespace {
+
+namespace wdt = winrt::Windows::ApplicationModel::DataTransfer;
+namespace wss = winrt::Windows::Storage::Streams;
+namespace wf = winrt::Windows::Foundation;
+
+// Opens the system share flyout for |root|, letting |fill| put the shared content on the package
+// the system asks for. ShowShareUIForWindow centres its own flyout, so unlike the Mac there's no
+// point to hang it from. The UI thread is already an OLE apartment (GPUI's RegisterDragDrop), so
+// the first share initializes C++/WinRT on it as single-threaded (RoInitialize accepts the running
+// STA) and never uninitializes, keeping the count balanced for the process's life.
+void ShowShareSheet(HWND root, std::function<void(const wdt::DataPackage&)> fill) {
+  if (!root) {
+    return;
+  }
+  try {
+    static bool ready = false;
+    if (!ready) {
+      winrt::init_apartment(winrt::apartment_type::single_threaded);
+      ready = true;
+    }
+    auto interop =
+        winrt::get_activation_factory<wdt::DataTransferManager, IDataTransferManagerInterop>();
+    wdt::DataTransferManager manager{nullptr};
+    winrt::check_hresult(interop->GetForWindow(
+        root, winrt::guid_of<wdt::DataTransferManager>(), winrt::put_abi(manager)));
+    manager.DataRequested([fill](const wdt::DataTransferManager&,
+                                 const wdt::DataRequestedEventArgs& args) {
+      fill(args.Request().Data());
+    });
+    winrt::check_hresult(interop->ShowShareUIForWindow(root));
+  } catch (const winrt::hresult_error& error) {
+    fwprintf(stderr, L"browser: the share sheet failed: %ls\n", error.message().c_str());
+  }
+}
+
+}  // namespace
+
 extern "C" {
 
 // Centered in the primary display's work area, in GPUI's logical pixels from its top-left.
@@ -1178,7 +1221,8 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
 // shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
 void host_watch_full_screen(void (*)(void*, bool)) {}
 
-// shortcut: Windows sends a touchpad's swipes as scrolls, which the page takes.
+// Windows delivers a touchpad's swipes to the page as scrolls, which it takes, so there's nothing
+// here for the host to watch.
 void host_watch_swipes(bool (*)(void*, double, double, bool)) {}
 
 // A window's menu bar isn't replaced while it's open on Windows: it's modal and runs no tasks.
@@ -1507,8 +1551,45 @@ void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
   }
 }
 
-// shortcut: no sharing on Windows yet; port it to the Share sheet (DataTransferManager).
-void host_share_png(const uint8_t*, size_t, void*, double, double, double, double, bool) {}
+// Shares the screenshot through the system share flyout as an image. Windows has no Messages app,
+// so |messages| and the on-screen rectangle don't apply.
+void host_share_png(const uint8_t* png,
+                    size_t size,
+                    void* view,
+                    double,
+                    double,
+                    double,
+                    double,
+                    bool) {
+  HWND root = Root(view);
+  if (!root || !png || size == 0) {
+    return;
+  }
+  wss::InMemoryRandomAccessStream stream;
+  wss::DataWriter writer(stream);
+  writer.WriteBytes(winrt::array_view<const uint8_t>(png, png + size));
+  try {
+    // The store is a memory copy that finishes off the UI thread, so this waits only a moment.
+    writer.StoreAsync().get();
+    writer.DetachStream();
+  } catch (const winrt::hresult_error& error) {
+    fwprintf(stderr, L"browser: couldn't hold the shared image: %ls\n", error.message().c_str());
+    return;
+  }
+  stream.Seek(0);
+  auto reference = wss::RandomAccessStreamReference::CreateFromStream(stream);
+  // Named for when it was taken, as the Mac names it.
+  wchar_t name[64];
+  SYSTEMTIME now;
+  GetLocalTime(&now);
+  wsprintfW(name, L"Screenshot %04u-%02u-%02u %02u.%02u.%02u.png", now.wYear, now.wMonth, now.wDay,
+            now.wHour, now.wMinute, now.wSecond);
+  winrt::hstring title{name};
+  ShowShareSheet(root, [reference, title](const wdt::DataPackage& data) {
+    data.Properties().Title(title);
+    data.SetBitmap(reference);
+  });
+}
 
 void host_add_toast(void* toast_view) {
   Adopt(g_toast, toast_view, true, nullptr);
@@ -1965,7 +2046,36 @@ void host_open_in_safari(const char* url) {
   fprintf(stderr, "browser: no system engine for %s\n", url);
 }
 
-void host_share(void*, double, double, double, double, const char*, const char*) {}
+void host_share(void* ui_view,
+                double,
+                double,
+                double,
+                double,
+                const char* url,
+                const char* title) {
+  HWND root = Root(ui_view);
+  if (!root || !url) {
+    return;
+  }
+  winrt::hstring link{Wide(url)};
+  winrt::hstring name{title ? Wide(title) : std::wstring()};
+  ShowShareSheet(root, [link, name](const wdt::DataPackage& data) {
+    if (!name.empty()) {
+      data.Properties().Title(name);
+    }
+    try {
+      data.SetWebLink(wf::Uri(link));
+    } catch (const winrt::hresult_error&) {
+      // A page the engine opened but that isn't a web URL still shares as text below.
+    }
+    data.SetText(link);
+  });
+}
+
+// Windows' share sheet (DataTransferManager) is a closed system flyout: it gives no way to list its
+// targets or to invoke one directly, so the Mac's enumerate-then-share path has no counterpart. The
+// tab menu's Share submenu stays empty on Windows; host_share and host_share_png open the sheet
+// itself instead.
 void host_share_services(const char*, void (*)(void*, const char*), void*) {}
 void host_share_with(const char*, const char*, size_t) {}
 
