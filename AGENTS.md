@@ -42,7 +42,7 @@ The most common defect is a change that works on the path you tested and is miss
 - **Text input.** Japanese IME, in GPUI fields and in pages.
 - **Window states.** Resize and fullscreen.
 - **Profiles and Spaces.** Logins, cookies and extensions belong to the profile; tabs belong to the Space.
-- **Platforms.** Mac ships first, but the core compiles on Linux and per-OS code stays in the platform layer. CI checks the compile (`engine/check-linux.sh`).
+- **Platforms.** Mac ships first, but the core compiles on Linux (`engine/check-linux.sh`) and per-OS code stays in the platform layer. A PR touching it (`app/platform/`, `host.h`) or what the OS draws (window material, overlays' corners and shadows, window controls, key routing, IME, scaling) needs its before-and-after on each OS, not one.
 - **Hot paths.** A change to tab switch, new tab, the command bar or launch comes with before-and-after numbers against the performance gate.
 - **The look.** A visual change goes through `app/design/tokens.toml`, and the design file follows with `tools/design-sync.md`.
 - **Docs.** A changed decision means rewriting its entry in `docs/decisions.md`. A phase that changes state updates the status table in `README.md`.
