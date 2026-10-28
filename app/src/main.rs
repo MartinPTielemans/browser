@@ -40,6 +40,9 @@ mod drop_targets;
 mod drive_menus;
 mod find_bar;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/floats.rs"]
+mod floats;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/menu_window.rs"]
 mod menu_window;
 #[cfg(target_os = "linux")]

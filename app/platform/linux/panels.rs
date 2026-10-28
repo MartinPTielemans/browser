@@ -1,5 +1,6 @@
-//! The panels of platform/host.h on Linux: the find bar over the top right of each browser
-//! window's page, which stays while the user is elsewhere, as its window does on the Mac. GPUI
+//! The panels of platform/host.h on Linux: the find bar and the offer to save a password over the
+//! top right of each browser window's page, which stay while the user is elsewhere, as their
+//! windows do on the Mac. GPUI
 //! shows it as a panel of the browser window (`gpui_linux::set_overlay_panel`): on X11 a window
 //! inside it. It has the keyboard while the user gives it them, from the shortcut that opens it or
 //! a press in it, until a press elsewhere; the core lends it the window's (overlays.rs).
@@ -13,6 +14,7 @@ use crate::overlays;
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     FindBar,
+    Offer,
 }
 
 struct Panel {
@@ -62,15 +64,35 @@ fn bounds(view: *mut c_void) -> Option<Bounds<gpui::Pixels>> {
     let (ui_view, right, top) = with_panel(|p| p.view == view, |p| (p.ui_view, p.right, p.top))?;
     let content = gpui_linux::embedder_size(ui_view)?;
     let own = gpui_linux::overlay_size(view)?;
-    let (page_right, page_top) = CORNERS.with_borrow(|corners| {
-        (corners.iter().find(|(each, ..)| *each == ui_view))
-            .map_or((0., 0.), |&(_, right, top)| (right, top))
-    });
+    let (page_right, page_top) = page_corner(ui_view);
     let left = f64::from(content.width) - page_right - right - f64::from(own.width);
+    // The offer goes 8 points under the find bar while it shows, which it would cover.
+    let top = match with_panel(|p| p.view == view, |p| p.kind) {
+        Some(Kind::Offer) => below_find_bar(ui_view).unwrap_or(top),
+        _ => top,
+    };
     Some(Bounds::new(
         point(px(left as f32), px((page_top + top) as f32)),
         size(own.width, own.height),
     ))
+}
+
+/// 8 points under `ui_view`'s find bar while it shows, from the page's top.
+pub(crate) fn below_find_bar(ui_view: *mut c_void) -> Option<f64> {
+    let (view, top) = with_panel(
+        |p| p.ui_view == ui_view && p.kind == Kind::FindBar && p.shown,
+        |p| (p.view, p.top),
+    )?;
+    let own = gpui_linux::overlay_size(view)?;
+    Some(top + f64::from(own.height) + 8.)
+}
+
+/// The top right corner of `ui_view`'s window's page, from its content's.
+pub(crate) fn page_corner(ui_view: *mut c_void) -> (f64, f64) {
+    CORNERS.with_borrow(|corners| {
+        (corners.iter().find(|(each, ..)| *each == ui_view))
+            .map_or((0., 0.), |&(_, right, top)| (right, top))
+    })
 }
 
 fn show(kind: Kind, ui_view: *mut c_void, keyboard: bool) {
@@ -114,6 +136,9 @@ fn show(kind: Kind, ui_view: *mut c_void, keyboard: bool) {
     let [x, y, width, height] = at.map(f32::from);
     eprintln!("browser: {} at {x} {y} {width} {height}", name(kind));
     eprintln!("browser: {} shown", name(kind));
+    if kind == Kind::FindBar {
+        place(ui_view);
+    }
 }
 
 fn hide(kind: Kind, ui_view: *mut c_void) {
@@ -133,11 +158,15 @@ fn hide(kind: Kind, ui_view: *mut c_void) {
     });
     // check.sh reads this line.
     eprintln!("browser: {} hidden", name(kind));
+    if kind == Kind::FindBar {
+        place(ui_view);
+    }
 }
 
 fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::FindBar => "find bar",
+        Kind::Offer => "offer",
     }
 }
 
@@ -182,9 +211,10 @@ fn pressed(view: *mut c_void) {
     show(kind, ui_view, true);
 }
 
-/// Places the panels that show over the browser window of `ui_view` again, as its content changed
-/// size or its page moved.
+/// Places the panels and floats that show over the browser window of `ui_view` again, as its
+/// content changed size, its page moved or its find bar showed or hid.
 pub(crate) fn place(ui_view: *mut c_void) {
+    crate::floats::place(ui_view);
     let shown: Vec<_> = PANELS.with_borrow(|panels| {
         (panels.iter())
             .filter(|p| p.ui_view == ui_view && p.shown)
@@ -215,6 +245,23 @@ pub extern "C" fn host_hide_find_bar(ui_view: *mut c_void) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn host_add_offer(ui_view: *mut c_void, offer_view: *mut c_void, right: f64, top: f64) {
+    let radius = browser::tokens::offer::RADIUS.into();
+    add(Kind::Offer, ui_view, offer_view, radius, right, top);
+}
+
+/// Without the keyboard: as the find bar, it takes it when pressed.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_show_offer(ui_view: *mut c_void) {
+    show(Kind::Offer, ui_view, false);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_hide_offer(ui_view: *mut c_void) {
+    hide(Kind::Offer, ui_view);
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn host_set_pane_corner(ui_view: *mut c_void, right: f64, top: f64) {
     CORNERS.with_borrow_mut(|corners| {
         corners.retain(|(each, ..)| *each != ui_view);
@@ -237,5 +284,6 @@ pub extern "C" fn host_forget_window(ui_view: *mut c_void) {
     PANELS.with_borrow_mut(|panels| panels.retain(|p| p.ui_view != ui_view));
     overlays::forget_window(ui_view);
     crate::menu_window::forget_window(ui_view);
+    crate::floats::forget_window(ui_view);
     CORNERS.with_borrow_mut(|corners| corners.retain(|(each, ..)| *each != ui_view));
 }

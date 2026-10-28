@@ -5,7 +5,8 @@
 // shortcut: most of it does nothing yet. Menus, alerts and the rest that float over the page need
 // child windows of their own; a function with an empty body leaves its part out, and one that
 // answers says "no" or "none". The overlays, the command bar, the icon picker and the dialog, are
-// overlays.rs's, the find bar is panels.rs's, ilo's menus are menu_window.rs's and Settings is
+// overlays.rs's, the find bar and the offer are panels.rs's, ilo's menus are menu_window.rs's, the
+// HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's and Settings is
 // settings_window.rs's, as GPUI's Linux platform shows them.
 
 #include "../host.h"
@@ -186,24 +187,6 @@ bool host_can_draw_emoji(const char*) {
 
 void host_hold_keys(void) {}
 
-void host_add_offer(void* ui_view, void* offer_view, double right, double top) {}
-
-void host_show_offer(void* ui_view) {}
-
-void host_hide_offer(void* ui_view) {}
-
-void host_add_hud(void* hud_view, double right, double top, double margin) {}
-
-void host_show_hud(void* ui_view) {}
-
-void host_hide_hud(void) {}
-
-void host_add_drop_targets(void* view) {}
-
-void host_show_drop_targets(void* ui_view) {}
-
-void host_hide_drop_targets(void) {}
-
 void host_add_site_controls(void* view, void (*dismissed)(void)) {}
 
 void host_set_site_controls_shape(const double* corners, size_t count) {}
@@ -231,28 +214,6 @@ void host_copy_png(const uint8_t* png, size_t size) {}
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
 
 void host_share_png(const uint8_t* png, size_t size, void* view, double x, double y, double width, double height, bool messages) {}
-
-void host_add_toast(void* toast_view) {}
-
-void host_toast_takes_clicks(bool takes) {}
-
-void host_set_toast_plate(double x, double y, double width, double height) {}
-
-void host_show_toast(void* ui_view) {}
-
-void host_hide_toast(void) {}
-
-void host_add_tooltip(void* tooltip_view, double margin, void (*away)(void)) {}
-
-void host_show_tooltip(void* ui_view, double left, double top, double fade) {}
-
-void host_hide_tooltip(double fade) {}
-
-void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {}
-
-void host_show_link_target(void* ui_view, double left, double top, double fade) {}
-
-void host_hide_link_target(double fade) {}
 
 void host_focus(void* view) {}
 
