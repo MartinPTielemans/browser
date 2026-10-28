@@ -300,6 +300,8 @@ source_set("browser_core") {
     sources += [
       "platform/linux/app_library.cc",
       "platform/linux/keyboard.cc",
+      "platform/linux/ui_text_input.cc",
+      "platform/linux/ui_text_input.h",
       "platform/linux/wayland.cc",
       "platform/linux/wayland.h",
       "platform/linux/window_views.cc",
@@ -307,6 +309,7 @@ source_set("browser_core") {
     deps += [
       "//third_party/wayland:wayland_client",
       "//ui/aura",
+      "//ui/base/ime",
       "//ui/compositor",
       "//ui/events",
       "//ui/events/keycodes:xkb",

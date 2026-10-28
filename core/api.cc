@@ -1,6 +1,7 @@
 // The C API in public/browser_core.h, over the core's C++.
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -238,6 +239,18 @@ void bc_window_toggle_maximized(bc_id id) {
     widget->Restore();
   } else {
     widget->Maximize();
+  }
+#endif
+}
+
+void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double height) {
+#if BUILDFLAG(IS_LINUX)
+  if (browser_core::Window* window = browser_core::Window::FromId(id)) {
+    std::optional<gfx::Rect> caret;
+    if (focused) {
+      caret = gfx::ToEnclosingRect(gfx::RectF(x, y, 0, height));
+    }
+    browser_core::platform::SetUITextInput(window->widget(), caret);
   }
 #endif
 }
