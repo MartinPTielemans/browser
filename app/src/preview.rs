@@ -1272,8 +1272,11 @@ fn main() {
                 browser.report_downloads(cx);
                 // PREVIEW_EMPTY=1 shows no page, as a fresh ⌘N window does; =reading does so in the
                 // second Space, for its colour, and =private in a private window with no tabs.
-                // PREVIEW_WELCOME=1 shows no page with the first run's welcome.
-                let welcome = std::env::var_os("PREVIEW_WELCOME").is_some();
+                // PREVIEW_WELCOME=1 shows no page with the first run's welcome, and
+                // PREVIEW_ONBOARDING=1, =light or =dark the onboarding over it first.
+                let onboarding = std::env::var("PREVIEW_ONBOARDING").ok();
+                let welcome =
+                    std::env::var_os("PREVIEW_WELCOME").is_some() || onboarding.is_some();
                 let empty = std::env::var("PREVIEW_EMPTY").ok().or(welcome.then(|| "1".into()));
                 let mut shell = match empty.as_deref() {
                     Some("private") => {
@@ -1374,6 +1377,9 @@ fn main() {
                 }
                 if welcome {
                     shell.set_welcome(cx);
+                }
+                if let Some(appearance) = &onboarding {
+                    shell.start_onboarding(Some(appearance), cx);
                 }
                 shell
             });
