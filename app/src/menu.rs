@@ -1226,11 +1226,12 @@ impl Render for ContextMenu {
             .on_key_down(cx.listener(|menu, event: &KeyDownEvent, _, cx| menu.key_down(event, cx)));
         let Some(shown) = self.shown.as_ref() else { return root };
         let panels: Vec<_> = (0..shown.tracking.open.len()).map(|depth| self.panel(shown, depth)).collect();
-        // On a platform whose host doesn't see the pointer first (the preview), the window's own
-        // events drive the menu.
+        // On a platform whose host doesn't see the pointer first (Linux, the preview), the
+        // window's own events drive the menu, and its check reads the log they leave.
         let on = |event: Pointer| {
             cx.listener(move |menu: &mut Self, at: &Point<Pixels>, _: &mut Window, cx: &mut Context<Self>| {
                 menu.pointer(event, *at, cx);
+                menu.log_highlight();
             })
         };
         let (moved, pressed, right) = (on(Pointer::Moved), on(Pointer::Pressed), on(Pointer::RightPressed));
