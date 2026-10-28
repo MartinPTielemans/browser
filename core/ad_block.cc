@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "base/base_paths.h"
 #include "base/command_line.h"
@@ -129,18 +130,27 @@ std::string PatternFor(const GURL& url) {
   return domain.empty() ? "*://" + std::string(url.host()) + "/*" : "*://*." + domain + "/*";
 }
 
-extensions::URLPatternSet OffSites(Profile* profile) {
-  extensions::URLPatternSet sites;
+// The patterns of the sites the user turned it off on, in the order they did.
+std::vector<URLPattern> OffSitePatterns(Profile* profile) {
+  std::vector<URLPattern> patterns;
   const base::ListValue* list =
       extensions::ExtensionPrefs::Get(profile)->ReadPrefAsList(kId, kOffSitesPref);
   if (!list) {
-    return sites;
+    return patterns;
   }
   for (const base::Value& site : *list) {
     URLPattern pattern(kSchemes);
     if (site.is_string() && pattern.Parse(site.GetString()) == URLPattern::ParseResult::kSuccess) {
-      sites.AddPattern(pattern);
+      patterns.push_back(std::move(pattern));
     }
+  }
+  return patterns;
+}
+
+extensions::URLPatternSet OffSites(Profile* profile) {
+  extensions::URLPatternSet sites;
+  for (const URLPattern& pattern : OffSitePatterns(profile)) {
+    sites.AddPattern(pattern);
   }
   return sites;
 }
@@ -162,6 +172,22 @@ void ApplyOffSites(Profile* profile, const extensions::Extension& extension) {
   sites.AddPatterns(extensions::PermissionsData::GetDefaultPolicyBlockedHosts(context));
   updater.SetPolicyHostRestrictions(
       &extension, sites, extensions::PermissionsData::GetDefaultPolicyAllowedHosts(context));
+}
+
+// Keeps |sites|, URL patterns, as the sites it's off on in |profile|, and applies them.
+void KeepOffSites(Profile* profile, base::ListValue sites) {
+  extensions::ExtensionPrefs::Get(profile)->UpdateExtensionPref(kId, kOffSitesPref,
+                                                                base::Value(std::move(sites)));
+  // Turned off in Settings, it takes them up as it loads again.
+  if (const extensions::Extension* extension =
+          extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(kId)) {
+    ApplyOffSites(profile, *extension);
+  }
+  // What a page takes from its renderer's memory cache never reaches uBlock Origin, so a page
+  // loaded again would run the ad script it loaded while blocking was off. Chrome empties those
+  // caches as an extension adds a request listener, which turning blocking on in Settings does, but
+  // not as a site's host restrictions change.
+  extension_web_request_api_helpers::ClearCacheOnNavigation();
 }
 
 // Loads it into |profile| from the framework's resources, as --load-extension would: synchronously,
@@ -331,15 +357,38 @@ void SetAdBlockingOnSite(content::WebContents* contents, bool on) {
   if (!on) {
     sites.Append(PatternFor(url));
   }
-  prefs->UpdateExtensionPref(kId, kOffSitesPref, base::Value(std::move(sites)));
-  ApplyOffSites(profile,
-                *extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(kId));
-  // What a page takes from its renderer's memory cache never reaches uBlock Origin, so the
-  // reloaded page would run the ad script it loaded while blocking was off. Chrome empties those
-  // caches as an extension adds a request listener, which turning blocking on in Settings does, but
-  // not as a site's host restrictions change.
-  extension_web_request_api_helpers::ClearCacheOnNavigation();
+  KeepOffSites(profile, std::move(sites));
   contents->GetController().Reload(content::ReloadType::NORMAL, /*check_for_repost=*/true);
+}
+
+std::vector<std::string> AdBlockingOffSites(Profile* profile) {
+  std::vector<std::string> sites;
+  for (const URLPattern& pattern : OffSitePatterns(profile)) {
+    sites.push_back(pattern.host());
+  }
+  return sites;
+}
+
+void TurnOnAdBlockingOnSite(Profile* profile, const std::string& site) {
+  const base::ListValue* list =
+      extensions::ExtensionPrefs::Get(profile)->ReadPrefAsList(kId, kOffSitesPref);
+  if (!list) {
+    return;
+  }
+  base::ListValue sites;
+  bool found = false;
+  for (const base::Value& kept : *list) {
+    URLPattern pattern(kSchemes);
+    if (kept.is_string() && pattern.Parse(kept.GetString()) == URLPattern::ParseResult::kSuccess &&
+        pattern.host() == site) {
+      found = true;
+      continue;
+    }
+    sites.Append(kept.Clone());
+  }
+  if (found) {
+    KeepOffSites(profile, std::move(sites));
+  }
 }
 
 }  // namespace browser_core

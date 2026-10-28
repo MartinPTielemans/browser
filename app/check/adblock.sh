@@ -4,9 +4,9 @@
 # blocks the served page's ad script and hides its ad, and it stays in the menu after uBlock Origin
 # reloads itself as it first starts. Its own lists take fbclid out of an address. The Site
 # Controls' Block ads and trackers turns that off for the site, reloading the page, which then
-# shows the ad, and on again. Settings' Block ads and trackers turns it off in every profile, which
-# takes it out of the Extensions menu and the Site Controls, and on again. A private window blocks
-# too.
+# shows the ad, and on again. Off for the site, Settings lists it, and its Turn On turns it on
+# there again. Settings' Block ads and trackers turns it off in every profile, which takes it out of
+# the Extensions menu and the Site Controls, and on again. A private window blocks too.
 
 # The served ad page: its title says whether its script ran and whether its ad shows. uBlock Origin
 # hides the ad from a stylesheet of its own, which the page can't hear arrive, so it looks again
@@ -111,10 +111,35 @@ expect "^browser: title $tab $blocked\$" "on again, the page didn't block its ad
 send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
 
+# Off for the site again, Settings lists it under Block ads and trackers, and its Turn On turns it
+# on again there.
+open_site_controls
+send click 207 262
+expect '^browser: site controls set ad blocking off$' \
+  "a third click on Block ads and trackers didn't run"
+expect "^browser: title $tab ad script loaded, element shown\$" \
+  "off for the site again, the page didn't load its ad script and show its ad"
+send key escape
+expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show General"
+expect '^browser: settings ad blocking off on 127\.0\.0\.1$' \
+  "Settings didn't list the site ad blocking is off on, alone"
+expect '^browser: settings turn on 127\.0\.0\.1 at ' "Settings didn't draw the site's Turn On"
+turn_on=$(sed -n "s/^browser: settings turn on 127\.0\.0\.1 at //p" "$log" | tail -1)
+../tools/window-screenshot.sh "$pid" "$out/adblock-off-sites.png" all || fail "no window to capture"
+send clickkey $turn_on
+expect '^browser: ad blocking on for 127\.0\.0\.1$' "a click on the site's Turn On didn't run"
+expect '^browser: settings ad blocking off on $' "turned on, Settings still listed the site"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send click $page_point
+reload_until "$blocked" "turned on again in Settings' list, the page didn't block its ad"
+
 # Off everywhere in Settings, whose fifth row of General is Block ads and trackers, under
 # Favorites, its switch's middle at 592 296: 87 under Unload's at 209, past a pop-up's row.
 send menu Settings…
-expect '^browser: settings shown General$' "Settings… didn't show General"
+expect '^browser: settings shown General$' "Settings… didn't show General again"
 send clickkey 592 296
 expect '^browser: ad blocking off$' "a click on Block ads and trackers' switch didn't turn it off"
 expect '^browser: extensions menu $' "turned off, uBlock Origin stayed in the Extensions menu"
@@ -131,7 +156,7 @@ none_since "${controls}Ad blocking" || fail "turned off in Settings, the Site Co
 send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
 send menu Settings…
-expect '^browser: settings shown General$' "Settings… didn't show General again"
+expect '^browser: settings shown General$' "Settings… didn't show General a third time"
 send clickkey 592 296
 expect '^browser: ad blocking on$' "a second click on the switch didn't turn it on"
 expect "^browser: extensions menu .*$ublock\$" "turned on, uBlock Origin didn't come back"
@@ -159,4 +184,4 @@ reload_until "$blocked" "the private window didn't block the ad"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-private.png" all || fail "no window to capture"
 
 quit
-echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too. Windows: $out/adblock-blocked.png, $out/adblock-off-for-site.png, $out/adblock-settings.png, $out/adblock-private.png"
+echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page, and Settings lists the site while it's off, with a Turn On that lets it block there again; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too. Windows: $out/adblock-blocked.png, $out/adblock-off-for-site.png, $out/adblock-off-sites.png, $out/adblock-settings.png, $out/adblock-private.png"

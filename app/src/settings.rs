@@ -3,6 +3,7 @@
 //! Settings). It opens on ⌘, and hides when closed, keeping its place and its tab until the
 //! browser quits.
 
+use std::cell::RefCell;
 use std::ffi::CString;
 use std::rc::Rc;
 use std::time::Instant;
@@ -14,8 +15,8 @@ use browser::text_input::{self, TextInput};
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
     KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
-    point, prelude::*, px, rgb, rgba, size, svg,
+    TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
+    canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{bc, ns_view, platform, show_menu};
@@ -268,6 +269,10 @@ pub struct Settings {
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
     default_browser: Entity<DefaultBrowser>,
+    /// The sites with ad blocking off, as General last logged them for check.sh.
+    off_sites_logged: Option<String>,
+    /// Where each Turn On has been logged, so it logs only where it moves to.
+    turn_on_logged: Rc<RefCell<Vec<String>>>,
 }
 
 /// The system's default browser, for General's row.
@@ -301,6 +306,34 @@ struct Profile {
     spaces: usize,
     /// As the core has it: not the one it started with, nor one a Space or a favorite is in.
     deletable: bool,
+}
+
+/// A site the user turned ad blocking off on, as General lists it.
+struct OffSite {
+    profile: u64,
+    /// The profile's name, shown only when there are others.
+    profile_name: Option<SharedString>,
+    site: SharedString,
+}
+
+/// The sites with ad blocking off, the first profile's first, each profile's in the order they
+/// were turned off.
+fn off_sites() -> Vec<OffSite> {
+    let profiles = crate::ids(bc::bc_profiles);
+    let several = profiles.len() > 1;
+    (profiles.into_iter())
+        .flat_map(|profile| {
+            let profile_name = several.then(|| crate::name(bc::bc_profile_name, profile));
+            let sites = crate::name(bc::bc_ad_blocking_off_sites, profile);
+            (sites.split('\n').filter(|site| !site.is_empty()))
+                .map(|site| OffSite {
+                    profile,
+                    profile_name: profile_name.clone(),
+                    site: site.to_owned().into(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// The profiles, the one the browser started with first.
@@ -411,6 +444,8 @@ fn open(cx: &mut App) {
                 focus_renaming: false,
                 recording: None,
                 refused: None,
+                off_sites_logged: None,
+                turn_on_logged: Rc::default(),
             }
         })
     });
@@ -505,7 +540,7 @@ impl Settings {
             .child(div().h(px(TOOLBAR)).flex().justify_center().gap(px(1.)).children(tabs))
     }
 
-    fn general(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
+    fn general(&self, off_sites: &[OffSite], accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let after = unsafe { bc::bc_archive_after() };
         let chosen = ARCHIVE_AFTER.iter().position(|&(_, seconds)| seconds == after);
         let label: SharedString = match chosen {
@@ -548,8 +583,77 @@ impl Settings {
                 // Last, so popup_text finds the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
             ]))
+            .children(self.off_sites(off_sites, cx))
             .child(group([self.default_browser_row(cx)]))
             .into_any_element()
+    }
+
+    /// The sites the user turned ad blocking off on in their Site Controls, each with the way to
+    /// turn it on again, under Block ads and trackers. Nothing while there are none.
+    fn off_sites(&self, sites: &[OffSite], cx: &mut Context<Self>) -> Option<gpui::Div> {
+        if sites.is_empty() {
+            return None;
+        }
+        let rows = sites.iter().enumerate().map(|(index, off)| {
+            let (profile, site) = (off.profile, off.site.clone());
+            let (logged, named) = (self.turn_on_logged.clone(), off.site.clone());
+            // check.sh clicks Turn On where this line says it is.
+            let at = canvas(
+                |_, _, _| {},
+                move |bounds, _, _, _| {
+                    let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
+                    let line = format!("browser: settings turn on {named} at {x:.0} {y:.0}");
+                    if !logged.borrow().contains(&line) {
+                        log!("{line}");
+                        logged.borrow_mut().push(line);
+                    }
+                },
+            )
+            .absolute()
+            .inset_0();
+            let turn_on = button(("ad-blocking-on", index as u64), "Turn On").relative().child(at);
+            let turn_on = turn_on.on_click(cx.listener(move |_, _, _, cx| {
+                let Ok(text) = CString::new(site.to_string()) else {
+                    return;
+                };
+                unsafe { bc::bc_ad_blocking_turn_on_site(profile, text.as_ptr()) };
+                // check.sh waits for this line.
+                log!("browser: ad blocking on for {site}");
+                cx.notify();
+            }));
+            let profile_name = (off.profile_name.clone())
+                .map(|name| div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(name));
+            div()
+                .px(px(PADDING))
+                .py(px(PADDING))
+                .flex()
+                .items_center()
+                .child(div().flex_1().min_w_0().truncate().child(off.site.clone()))
+                .children(profile_name)
+                .child(div().flex_none().ml(px(PADDING)).child(turn_on))
+        });
+        let header = div()
+            .mb(px(HEADER_GAP))
+            .pl(px(PADDING))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("Ad blocking is off on");
+        Some(div().child(header).child(group(rows)))
+    }
+
+    /// Logs the sites General lists with ad blocking off when they change, for check.sh: each
+    /// site, and its profile when there are others.
+    fn log_off_sites(&mut self, sites: &[OffSite]) {
+        let listed: Vec<String> = (sites.iter())
+            .map(|off| match &off.profile_name {
+                Some(name) => format!("{} in {name}", off.site),
+                None => off.site.to_string(),
+            })
+            .collect();
+        let listed = listed.join(", ");
+        if self.off_sites_logged.as_ref() != Some(&listed) {
+            log!("browser: settings ad blocking off on {listed}");
+            self.off_sites_logged = Some(listed);
+        }
     }
 
     /// Make Default until the browser is the system's default, then that it is, with the way back
@@ -1230,7 +1334,11 @@ impl Render for Settings {
             window.request_animation_frame();
         }
         let content = match self.tab {
-            Tab::General => self.general(accent, cx),
+            Tab::General => {
+                let off_sites = off_sites();
+                self.log_off_sites(&off_sites);
+                self.general(&off_sites, accent, cx)
+            }
             Tab::Profiles => {
                 let profiles = profiles();
                 self.focus_field(&profiles, window, cx);
