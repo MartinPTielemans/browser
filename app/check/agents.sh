@@ -75,6 +75,7 @@ if [ "$driven" = 1 ]; then
   expect "^browser: agent codex may act on $agent_tab: 0\$" "another agent may act on its tab"
   send key 1 ctrl
   expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the user's Space again"
+  expect "^browser: settled space $first\$" "the user's Space's page didn't settle"
   post rightclick $(row 0)
   expect '^browser: menu shown .*, Move to › [^,]* (checked), Move to › New Space…, ' \
     "the user's tab's menu offered the agent's Space to move to"
