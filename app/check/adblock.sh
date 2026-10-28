@@ -112,11 +112,10 @@ send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
 
 # Off everywhere in Settings, whose fifth row of General is Block ads and trackers, under
-# Favorites, its switch's middle at 592 291: 82 under Unload's at 209, past a pop-up's row and a
-# switch's.
+# Favorites, its switch's middle at 592 296: 87 under Unload's at 209, past a pop-up's row.
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show General"
-send clickkey 592 291
+send clickkey 592 296
 expect '^browser: ad blocking off$' "a click on Block ads and trackers' switch didn't turn it off"
 expect '^browser: extensions menu $' "turned off, uBlock Origin stayed in the Extensions menu"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-settings.png" all || fail "no window to capture"
@@ -133,7 +132,7 @@ send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show General again"
-send clickkey 592 291
+send clickkey 592 296
 expect '^browser: ad blocking on$' "a second click on the switch didn't turn it on"
 expect "^browser: extensions menu .*$ublock\$" "turned on, uBlock Origin didn't come back"
 send key w cmd
