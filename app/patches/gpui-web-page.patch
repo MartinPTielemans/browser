@@ -1,3 +1,19 @@
+diff --git a/crates/gpui_web/src/events.rs b/crates/gpui_web/src/events.rs
+index 96fb383617..ef6fe0abea 100644
+--- a/crates/gpui_web/src/events.rs
++++ b/crates/gpui_web/src/events.rs
+@@ -178,6 +178,11 @@ impl WebWindowInner {
+     }
+ 
+     fn register_viewport_changes(self: &Rc<Self>) -> Vec<EventListenerHandle> {
++        // The viewport bears only on a window-filling app's insets, and a canvas in a page would
++        // otherwise draw again on every scroll of the page around it.
++        if crate::window::draws_in_page_canvas() {
++            return Vec::new();
++        }
+         let mut targets: Vec<web_sys::EventTarget> = vec![self.browser_window.clone().into()];
+         if let Some(viewport) = self.browser_window.visual_viewport() {
+             targets.push(viewport.into());
 diff --git a/crates/gpui_web/src/gpui_web.rs b/crates/gpui_web/src/gpui_web.rs
 index c915084325..1b689f97fa 100644
 --- a/crates/gpui_web/src/gpui_web.rs
@@ -10,6 +26,22 @@ index c915084325..1b689f97fa 100644
  #[cfg(target_family = "wasm")]
  pub use keyboard::WebKeyboardLayout;
  #[cfg(target_family = "wasm")]
+diff --git a/crates/gpui_web/src/ime_mirror.rs b/crates/gpui_web/src/ime_mirror.rs
+index 5cb08b5a29..86fdd41122 100644
+--- a/crates/gpui_web/src/ime_mirror.rs
++++ b/crates/gpui_web/src/ime_mirror.rs
+@@ -110,7 +110,10 @@ impl ImeMirror {
+         style.set_property("font-size", "16px").ok();
+         body.append_child(&element)
+             .map_err(|e| anyhow::anyhow!("Failed to append input to body: {e:?}"))?;
+-        Self::focus_element(&element);
++        // An app drawn in a page's canvas leaves the page its keys until it's clicked.
++        if !crate::window::draws_in_page_canvas() {
++            Self::focus_element(&element);
++        }
+         // The element must stay focused to receive hardware-key and IME
+         // events, but on touch-first devices a focused *editable* element
+         // invites the browser to summon the virtual keyboard on the next
 diff --git a/crates/gpui_web/src/platform.rs b/crates/gpui_web/src/platform.rs
 index 5022b77a54..a80a156714 100644
 --- a/crates/gpui_web/src/platform.rs
@@ -44,7 +76,7 @@ index 5022b77a54..a80a156714 100644
                          "WebGPU initialization failed; falling back to WebGL2: {webgpu_error:#}"
                      );
 diff --git a/crates/gpui_web/src/window.rs b/crates/gpui_web/src/window.rs
-index ddd9095040..5e63d457f6 100644
+index ddd9095040..8cd7e189db 100644
 --- a/crates/gpui_web/src/window.rs
 +++ b/crates/gpui_web/src/window.rs
 @@ -86,6 +86,9 @@ pub(crate) struct WebWindowInner {
@@ -57,7 +89,7 @@ index ddd9095040..5e63d457f6 100644
      raf_id: Cell<Option<i32>>,
      raf_function: RefCell<Option<js_sys::Function>>,
  }
-@@ -103,10 +106,75 @@ pub struct WebWindow {
+@@ -103,10 +106,80 @@ pub struct WebWindow {
      _event_listeners: WebEventListeners,
  }
  
@@ -75,6 +107,11 @@ index ddd9095040..5e63d457f6 100644
 +/// Whether `canvas` is the page's, which stays in the page when a backend fails on it.
 +pub(crate) fn is_page_canvas(canvas: &web_sys::HtmlCanvasElement) -> bool {
 +    PAGE_CANVAS.with_borrow(|page| page.as_ref().is_some_and(|(page, _)| page == canvas))
++}
++
++/// Whether the page gave `draw_in` a canvas.
++pub(crate) fn draws_in_page_canvas() -> bool {
++    PAGE_CANVAS.with_borrow(Option::is_some)
 +}
 +
 +/// Gives the page's canvas back untaken when no context was asked of it, so WebGL2 draws in the
@@ -133,7 +170,7 @@ index ddd9095040..5e63d457f6 100644
          let document = browser_window
              .document()
              .ok_or_else(|| anyhow::anyhow!("No `document` found on window"))?;
-@@ -226,6 +294,8 @@ impl WebWindow {
+@@ -226,6 +299,8 @@ impl WebWindow {
              touch_tap_candidate: Cell::new(None),
              mql_handle: RefCell::new(None),
              pending_physical_size: Cell::new(None),
@@ -142,7 +179,7 @@ index ddd9095040..5e63d457f6 100644
              raf_id: Cell::new(None),
              raf_function: RefCell::new(None),
          });
-@@ -455,12 +525,13 @@ impl WebWindowInner {
+@@ -455,12 +530,13 @@ impl WebWindowInner {
              // (e.g. views invalidated during draw) schedule the next request
              // instead of being swallowed.
              this.raf_id.set(None);
@@ -158,7 +195,7 @@ index ddd9095040..5e63d457f6 100644
                          signal_at: None,
                          signal_source: FrameRequestSource::NativeCallback,
                      })
-@@ -892,7 +963,7 @@ impl PlatformWindow for WebWindow {
+@@ -892,7 +968,7 @@ impl PlatformWindow for WebWindow {
      }
  
      fn background_appearance(&self) -> WindowBackgroundAppearance {
@@ -167,7 +204,7 @@ index ddd9095040..5e63d457f6 100644
      }
  
      fn set_title(&mut self, title: &str) {
-@@ -902,7 +973,12 @@ impl PlatformWindow for WebWindow {
+@@ -902,7 +978,12 @@ impl PlatformWindow for WebWindow {
          }
      }
  
@@ -181,7 +218,7 @@ index ddd9095040..5e63d457f6 100644
  
      fn minimize(&self) {
          log::warn!("WebWindow::minimize is not supported in the browser");
-@@ -999,11 +1075,17 @@ impl PlatformWindow for WebWindow {
+@@ -999,11 +1080,17 @@ impl PlatformWindow for WebWindow {
              }
  
              let mut state = self.inner.state.borrow_mut();

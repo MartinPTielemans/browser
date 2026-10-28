@@ -6,6 +6,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     rc::Rc,
     sync::Arc,
     time::Duration,
@@ -233,6 +234,14 @@ struct Fake {
     spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
+    /// The tab each Space opens on where the site names one.
+    opens_on: RefCell<HashMap<u64, u64>>,
+}
+
+/// The tab the shown Space opens on, where the site names none: its first Today tab, the page in
+/// use rather than a pinned app, else its first pinned one.
+fn opening_tab(shell: &Shell) -> u64 {
+    shell.today().first().or(shell.pinned().first()).copied().unwrap_or(0)
 }
 
 impl Fake {
@@ -728,12 +737,12 @@ impl Browser for Fake {
 
     fn shortcuts(&self, _: &mut App) {}
 
-    // Each made-up Space shows its top tab.
     fn show_space(&self, space: u64, cx: &mut App) {
+        let named = self.opens_on.borrow().get(&space).copied();
         self.later(cx, move |shell, cx| {
             shell.set_space(space, cx);
-            let top = shell.today().first().or(shell.pinned().first()).copied().unwrap_or(0);
-            shell.set_selected(top, cx);
+            let tab = named.unwrap_or_else(|| opening_tab(shell));
+            shell.set_selected(tab, cx);
         });
     }
 
@@ -1218,6 +1227,7 @@ fn main() {
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
+                    opens_on: RefCell::default(),
                 });
                 browser.report_archive(cx);
                 browser.report_downloads(cx);
@@ -1556,11 +1566,14 @@ impl icon_picker::Host for PreviewPicker {
 /// start(canvas, spaces, host);
 /// ```
 ///
-/// `spaces` is `{ favorites: [tab], spaces: [{ name, color, pinned: [tab], today: [tab] }] }`, a
-/// tab `{ title, url, icon }`, `color` 0xRRGGBB or none and `icon` a PNG's URL or none for the
-/// globe. `host` hears `layOut(x, y, width, height, radius)` for the page's frame, `show(url)`
-/// for the tab shown ("" for none), `space(index)` for the Space shown, `cover(covered)` while
-/// something draws over the frame, and `ready()` once the first frame is up.
+/// `spaces` is `{ favorites: [tab], spaces: [space] }`, a Space `{ name, color, pinned: [tab],
+/// today: [tab], selected }` and a tab `{ title, url, icon }`: `color` is 0xRRGGBB or none, `icon`
+/// a PNG's URL or none for the globe, and `selected` the URL of the tab the Space opens on, or none
+/// for its first Today tab, else its first pinned one. `host` hears `layOut(x, y, width, height,
+/// radius)` for the page's frame, `show(url)` for the tab shown ("" for none), `space(index)` for
+/// the Space shown, `cover(covered)` while something draws over the frame, and `ready()` once the
+/// first frame is up. The demo takes the keyboard only once it's clicked, and `openBar()` opens
+/// the command bar.
 #[cfg(target_family = "wasm")]
 mod web {
     use std::{
@@ -1587,6 +1600,8 @@ mod web {
     thread_local! {
         /// The site's `host`.
         static HOST: RefCell<JsValue> = const { RefCell::new(JsValue::UNDEFINED) };
+        /// The running demo's app and shell, for the calls the site makes into it.
+        static DEMO: RefCell<Option<(AsyncApp, WeakEntity<Shell>)>> = const { RefCell::new(None) };
     }
 
     /// Calls `host.<name>(…args)`, if the site has it.
@@ -1626,6 +1641,8 @@ mod web {
         color: Option<u32>,
         pinned: Vec<Tab>,
         today: Vec<Tab>,
+        /// The URL of the tab the Space opens on, if the site names one.
+        selected: Option<String>,
     }
 
     fn get(object: &JsValue, key: &str) -> JsValue {
@@ -1661,6 +1678,7 @@ mod web {
                 color: get(&space, "color").as_f64().map(|color| color as u32),
                 pinned: tabs(&space, "pinned"),
                 today: tabs(&space, "today"),
+                selected: get(&space, "selected").as_string(),
             })
             .collect();
         gpui_web::draw_in(canvas);
@@ -1689,6 +1707,7 @@ mod web {
                     shell
                 });
                 window.focus(&shell.focus_handle(cx), cx);
+                DEMO.with_borrow_mut(|demo| *demo = Some((cx.to_async(), shell.downgrade())));
                 fetch_icons(&shell, icons, cx);
                 Root::new(shell, space_ids, pages, window, cx)
             });
@@ -1698,7 +1717,17 @@ mod web {
         });
     }
 
-    /// The shell with the site's tabs, in one profile, the first Space shown with its top tab.
+    /// Opens the command bar and gives it the keyboard, as ⌘K (⌃K) in the demo does: the site calls
+    /// it for ⌘K anywhere on its page, since the page's keys are the site's until the demo's clicked.
+    #[wasm_bindgen(js_name = openBar)]
+    pub fn open_bar() {
+        let Some((app, shell)) = DEMO.with_borrow(Clone::clone) else {
+            return;
+        };
+        app.update(|cx| shell.update(cx, |shell, cx| shell.run(Command::NewTab, "site", cx))).ok();
+    }
+
+    /// The shell with the site's tabs, in one profile, the first Space shown on the tab it opens on.
     /// Fills `icons` with each tab's icon to fetch, and `space_ids` with the Spaces' ids in order.
     fn shell_of(
         favorites: &[Tab],
@@ -1731,11 +1760,12 @@ mod web {
             spaces: RefCell::new(entries.clone()),
             archive: RefCell::new(Vec::new()),
             downloads: RefCell::new(Vec::new()),
+            opens_on: RefCell::default(),
         });
-        let mut shell = Shell::new(browser, cx);
+        let mut shell = Shell::new(browser.clone(), cx);
         shell.set_profiles(vec![(0, "Default".into())], cx);
         shell.set_spaces(entries, cx);
-        let Some(&(first, ref pinned, ref today)) = space_tabs.first() else {
+        let Some(&(first, ..)) = space_tabs.first() else {
             return shell;
         };
         shell.set_space(first, cx);
@@ -1748,14 +1778,18 @@ mod web {
             let tabs = pinned.iter().chain(today).zip(space.pinned.iter().chain(&space.today));
             for (&tab, site) in tabs {
                 set_tab(&mut shell, tab, site, icons, cx);
+                if space.selected.as_ref() == Some(&site.url) {
+                    browser.opens_on.borrow_mut().insert(*id, tab);
+                }
             }
         }
         for (&tab, site) in favorite_ids.iter().zip(favorites) {
             set_tab(&mut shell, tab, site, icons, cx);
         }
         shell.set_space(first, cx);
-        let top = pinned.first().or(today.first()).copied().unwrap_or(0);
-        shell.set_selected(top, cx);
+        let named = browser.opens_on.borrow().get(&first).copied();
+        let tab = named.unwrap_or_else(|| super::opening_tab(&shell));
+        shell.set_selected(tab, cx);
         shell
     }
 

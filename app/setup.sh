@@ -25,7 +25,7 @@ fi
 # Match Style and leaves the web's demo only the image decoders and regex tables it uses,
 # gpui_wgpu's resizes a canvas under WebGL without waiting on the GPU, which WebGL can't, and lets
 # a browser's WebGPU canvas be see-through, and gpui_web's draws the site's demo in the site's
-# canvas, see-through where it draws nothing.
+# canvas, see-through where it draws nothing, leaving the page its keys and scrolling.
 git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gpui-windows-embedded.patch" \
   "$PWD/patches/gpui-scale.patch" "$PWD/patches/gpui-wgpu-webgl-resize.patch" \
   "$PWD/patches/gpui-web-page.patch"
