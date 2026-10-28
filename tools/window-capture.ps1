@@ -69,11 +69,12 @@ public static class Capture {
 $Out = [IO.Path]::GetFullPath($Out)
 $log = [IO.Path]::ChangeExtension($Out, 'log')
 New-Item -ItemType Directory -Force (Split-Path $Out) | Out-Null
-$program = Start-Process -FilePath $Program -RedirectStandardError $log -PassThru -WindowStyle Normal
+# Not $program: PowerShell's names ignore case, and that one is the path.
+$process = Start-Process -FilePath $Program -RedirectStandardError $log -PassThru -WindowStyle Normal
 try {
   $deadline = (Get-Date).AddSeconds(30)
   while (-not (Select-String -Quiet -Path $log -Pattern $Ready -ErrorAction SilentlyContinue)) {
-    if ($program.HasExited -or (Get-Date) -gt $deadline) {
+    if ($process.HasExited -or (Get-Date) -gt $deadline) {
       Get-Content $log -Tail 30 -ErrorAction SilentlyContinue | Write-Error -ErrorAction Continue
       throw "No `"$Ready`" in the program's log."
     }
@@ -82,9 +83,9 @@ try {
   $last = $null
   $taken = $false
   for ($try = 0; $try -lt 100 -and -not $taken; $try++) {
-    $program.Refresh()
-    if ($program.MainWindowHandle -ne 0) {
-      $now = [Capture]::Screen([Capture]::Bounds($program.MainWindowHandle))
+    $process.Refresh()
+    if ($process.MainWindowHandle -ne 0) {
+      $now = [Capture]::Screen([Capture]::Bounds($process.MainWindowHandle))
       if ($last -and $last.Size -eq $now.Size -and [Capture]::Differ($last, $now) -le $Moving -and
           [Capture]::Varied($now) -gt $Moving) {
         $now.Save($Out, [Drawing.Imaging.ImageFormat]::Png)
@@ -98,5 +99,5 @@ try {
   if (-not $taken) { throw 'The picture never stood still.' }
   $Out
 } finally {
-  if (-not $program.HasExited) { Stop-Process -Id $program.Id -Force -ErrorAction SilentlyContinue }
+  if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
 }
