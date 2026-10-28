@@ -238,4 +238,5 @@ pub extern "C" fn host_forget_window(ui_view: *mut c_void) {
     overlays::forget_window(ui_view);
     crate::menu_window::forget_window(ui_view);
     CORNERS.with_borrow_mut(|corners| corners.retain(|(each, ..)| *each != ui_view));
+    unsafe { crate::platform::host_window_closed(ui_view) };
 }
