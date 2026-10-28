@@ -61,6 +61,7 @@ mod menu_bar;
 mod menus;
 mod naming;
 mod new_space;
+mod onboarding;
 mod page_menu;
 mod page_dialog;
 mod page_motion;
@@ -938,6 +939,8 @@ pub struct Shell {
     empty_settled: bool,
     /// The first run's welcome takes the empty card until a page shows (set_welcome).
     welcome: bool,
+    /// A new profile's first launch, or Help › Welcome to ilo, over the window while it shows.
+    onboarding: Option<onboarding::Onboarding>,
     /// The press under way was on a target that opens the command bar while it was open, so the
     /// click that follows only closes it.
     press_closed_bar: bool,
@@ -1204,6 +1207,7 @@ impl Shell {
             empty_since: None,
             empty_settled: false,
             welcome: false,
+            onboarding: None,
             press_closed_bar: false,
             drag: None,
             dragged: false,
@@ -2760,6 +2764,7 @@ impl Render for Shell {
             .children(over)
             .children(edge)
             .child(self.scroll_listener(true, cx))
+            .children(self.onboarding_layer(window, cx))
     }
 }
 
