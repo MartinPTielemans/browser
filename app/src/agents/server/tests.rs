@@ -195,6 +195,7 @@ fn the_server_answers_what_needs_no_browser() {
         [
             "list_tabs",
             "open_tab",
+            "close_tab",
             "navigate",
             "snapshot",
             "read_page",

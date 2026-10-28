@@ -87,7 +87,7 @@ mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{Browser, Folders, Page, Split, Trouble, WindowButton};
+pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label,

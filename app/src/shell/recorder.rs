@@ -113,9 +113,8 @@ pub(super) struct Recorder {
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
     /// The answers to page dialogs it was given, with what was typed.
     pub(super) replies: RefCell<Vec<PageReply>>,
-    /// What it says every agent may always (true) or never (false) do on each site, and whether
-    /// the agent is connected.
-    pub(super) agent_permissions: RefCell<(Vec<(SharedString, bool)>, bool)>,
+    /// What it says every agent's Space's menu lists.
+    pub(super) agent_permissions: RefCell<super::AgentGrants>,
 }
 
 impl Recorder {
@@ -748,7 +747,7 @@ impl Browser for Recorder {
         self.record("agent activity".into());
     }
 
-    fn agent_permissions(&self, _: u64, _: &App) -> (Vec<(SharedString, bool)>, bool) {
+    fn agent_permissions(&self, _: u64, _: &App) -> super::AgentGrants {
         self.agent_permissions.borrow().clone()
     }
 
@@ -759,6 +758,10 @@ impl Browser for Recorder {
 
     fn disconnect_agent(&self, space: u64, _: &mut App) {
         self.record(format!("disconnect agent {space}"));
+    }
+
+    fn take_back_agent_tabs(&self, space: u64, _: &mut App) {
+        self.record(format!("take back agent {space}"));
     }
 
     fn take_over(&self, agent: SharedString, tab: u64, _: &mut App) {
