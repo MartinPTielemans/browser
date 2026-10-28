@@ -1,9 +1,10 @@
 module browser_core.mojom;
 
-// A page's request for a protected-media key system, from Blink's encrypted media module
-// (engine/patches/ours/chromium-drm-request.patch). One interface a frame, one call a request.
-// Nothing comes back: what a request means is the browser's to decide, and the string is the
-// page's own, so the browser trusts none of it.
+// How a page's request for a protected-media key system was answered, from Blink's encrypted
+// media module (engine/patches/ours/chromium-drm-request.patch). One interface a frame, one call a
+// request. Nothing comes back: what an answer means is the browser's to decide, and the string is
+// the page's own, so the browser trusts none of it. A renderer that lies can only hide or show the
+// note that explains its own page.
 interface DrmRequest {
-  KeySystemRequested(string key_system);
+  KeySystemAnswered(string key_system, bool granted);
 };

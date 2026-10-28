@@ -34,6 +34,7 @@
 #include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/playready.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -1140,6 +1141,10 @@ void bc_widevine_download(void) {
 
 void bc_widevine_remove(void) {
   browser_core::widevine::Remove();
+}
+
+int bc_playready_needs() {
+  return browser_core::platform::PlayReadyNeeds();
 }
 
 void bc_tab_stop(bc_id id) {
