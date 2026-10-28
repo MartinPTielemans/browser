@@ -3232,13 +3232,15 @@ impl Shell {
             .flex()
             .gap(px(second - first - WINDOW_BUTTON_SIZE))
             .group("window-buttons")
+            // The row, not each button: a button that blocked the mouse would hide the row behind
+            // it from the hover test, and the glyphs would show only between the buttons.
+            .block_mouse_except_scroll()
             .children(buttons.into_iter().zip(WINDOW_BUTTONS).map(|((button, glyph), (_, colour))| {
                 div()
                     .id(glyph)
                     .size(px(WINDOW_BUTTON_SIZE))
                     .rounded_full()
                     .bg(rgb(colour))
-                    .block_mouse_except_scroll()
                     .on_click(cx.listener(move |shell, _, _, cx| {
                         // check.sh waits for this line.
                         log!("browser: window button {button:?}");
