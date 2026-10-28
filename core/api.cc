@@ -65,6 +65,7 @@
 
 #if BUILDFLAG(IS_LINUX)
 #include "browser_core/platform/linux/wayland.h"
+#include "ui/views/widget/widget.h"
 #endif
 
 namespace {
@@ -208,6 +209,24 @@ void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
   if (browser_core::Window* window = browser_core::Window::FromId(id)) {
     browser_core::platform::OverlayTakesKeyboard(window->widget(), takes);
     window->OverlayTakesKeyboard(takes);
+  }
+#endif
+}
+
+void bc_window_minimize(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  if (window && window->widget()) {
+    window->widget()->Minimize();
+  }
+#endif
+}
+
+void bc_window_toggle_full_screen(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  if (window && window->widget()) {
+    window->widget()->SetFullscreen(!window->widget()->IsFullscreen());
   }
 #endif
 }

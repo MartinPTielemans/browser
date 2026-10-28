@@ -734,6 +734,14 @@ BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 // to have them back once the overlay gives them up (|takes| false).
 BC_EXPORT void bc_window_overlay_takes_keyboard(bc_id window, bool takes);
 
+// On Linux, where the window is Chromium's and the app can't reach it under Wayland: minimizes
+// |window|, as its minimize button does, where the window manager can.
+BC_EXPORT void bc_window_minimize(bc_id window);
+
+// On Linux, as bc_window_minimize: takes |window| full screen, or out, as the Mac's zoom button
+// does, which the core then reports as it does the user taking it there.
+BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
+
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its
 // sidebar's width, and goes full screen if it was. The core saves them as they

@@ -28,6 +28,8 @@ actions!(settings, [CloseSettings]);
 use browser::tokens::settings::WIDTH;
 use browser::tokens::settings::HEIGHT;
 use browser::tokens::settings::TITLE_BAR;
+use browser::tokens::shell::WINDOW_BUTTON_GLYPH;
+use browser::tokens::shell::WINDOW_BUTTON_SIZE;
 use browser::tokens::settings::TOOLBAR;
 use browser::tokens::settings::TAB;
 use browser::tokens::settings::TAB_PADDING;
@@ -431,6 +433,9 @@ fn open(cx: &mut App) {
             appears_transparent: true,
             traffic_light_position: None,
         }),
+        // Nor a title bar of the window manager's on Linux, where the UI draws the close button.
+        #[cfg(target_os = "linux")]
+        window_decorations: Some(gpui::WindowDecorations::Client),
         kind: WindowKind::Normal,
         show: false,
         focus: false,
@@ -480,6 +485,31 @@ pub fn refresh(cx: &mut App) {
     }
 }
 
+/// The window's close button, where the browser window's is, for a window without a frame to draw
+/// it. Settings can't be minimized or zoomed, so it's alone.
+fn close_button() -> impl IntoElement {
+    let (x, colour) = shell::WINDOW_BUTTONS[0];
+    div()
+        .id("close")
+        .absolute()
+        .left(px(x - WINDOW_BUTTON_SIZE / 2.))
+        .top(px((TITLE_BAR - WINDOW_BUTTON_SIZE) / 2.))
+        .size(px(WINDOW_BUTTON_SIZE))
+        .rounded_full()
+        .bg(rgb(colour))
+        .group("close")
+        // A press here closes the window, and doesn't move it.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| hide(cx))
+        .child(
+            svg()
+                .path("icons/window-close.svg")
+                .size(px(WINDOW_BUTTON_SIZE))
+                .text_color(gpui::transparent_black())
+                .group_hover("close", |style| style.text_color(rgba(WINDOW_BUTTON_GLYPH))),
+        )
+}
+
 fn hide(_: &mut App) {
     // check.sh waits for this line.
     log!("browser: settings hidden");
@@ -501,8 +531,9 @@ impl Settings {
         cx.notify();
     }
 
-    /// The title, and the toolbar's tabs. Dragging either moves the window, as a toolbar does.
-    fn bar(&self, accent: Rgba, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// The title, and the toolbar's tabs, under the close button where the window has no frame to
+    /// draw it. Dragging either moves the window, as a toolbar does.
+    fn bar(&self, accent: Rgba, frameless: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let tabs = Tab::shown().map(|tab| {
             let shown = tab == self.tab;
             let color = if shown { accent } else { rgb(TAB_TEXT) };
@@ -540,7 +571,9 @@ impl Settings {
             .bg(rgb(BAR))
             .border_b(px(0.5))
             .border_color(rgb(BAR_LINE))
+            .relative()
             .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+            .children(frameless.then(close_button))
             .child(
                 div()
                     .h(px(TITLE_BAR))
@@ -1379,6 +1412,8 @@ impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The app's window, not a Space's, so ilo green rather than a Space's accent (#319).
         let accent = rgb(browser::palette::NO_THEME_ACCENT);
+        // As Linux's client-side decorations leave it; AppKit's frame is always there.
+        let frameless = matches!(window.window_decorations(), gpui::Decorations::Client { .. });
         if self.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE) {
             window.request_animation_frame();
         }
@@ -1412,7 +1447,7 @@ impl Render for Settings {
             .font_family(browser::face::UI)
             .text_size(px(text::BODY))
             .text_color(rgb(TEXT))
-            .child(self.bar(accent, cx))
+            .child(self.bar(accent, frameless, cx))
             .child(
                 div()
                     .id("content")
