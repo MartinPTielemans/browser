@@ -111,10 +111,10 @@
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
 // driven, and keys and clickkey to the key window. It logs "browser: drive <n>: <command>" when
 // command n arrives and "browser: drive <n> done, key <window class>, focus <view class>, active
-// <0|1>, marked <location,length|none>" once AppKit has handled its events, "browser: menu
-// tracked <titles>" as a menu opens, such as the page's, "browser: modal shown <texts and
-// buttons>" as an alert does, and "browser: desktop space changed" once macOS has slid to another
-// Space. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
+// <0|1>, marked <location,length|none>" once AppKit has handled its events, "browser: menu tracked
+// <titles>" as a menu AppKit tracks opens, such as DevTools' page's, "browser: modal shown <texts
+// and buttons>" as an alert does, and "browser: desktop space changed" once macOS has slid to
+// another Space. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
 // background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
@@ -209,8 +209,8 @@ constexpr short kDoneSubtype = 0x5350;
 // The window the backdrop command puts behind the browser window.
 NSWindow* g_backdrop;
 
-// The menu AppKit tracks, such as a page's context menu, which Chrome shows. choose picks from it
-// when none of the app's own menus is showing.
+// The menu AppKit tracks, such as the context menu of DevTools' page, which Chrome shows. choose
+// picks from it when none of the app's own menus is showing.
 __weak NSMenu* g_tracked;
 
 // The window a full-screen transition AppKit announced is moving, and which way, until it's done.

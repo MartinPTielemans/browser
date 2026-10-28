@@ -64,6 +64,8 @@ pub(super) struct Recorder {
     pub(super) entries: RefCell<Vec<MenuEntry>>,
     /// The look of each of ilo's own menus it was asked to show, as `menus` has them.
     pub(super) menu_looks: RefCell<Vec<crate::menu::Look>>,
+    /// Whether each of ilo's own menus was to show in the reveal's panel, as `menus` has them.
+    pub(super) menus_in_reveal: RefCell<Vec<bool>>,
     /// What the menu bar was last asked to show, and the window's title.
     pub(super) menu_bar: RefCell<MenuBar>,
     pub(super) window_title: RefCell<String>,
@@ -128,6 +130,12 @@ impl Recorder {
         });
         let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
         answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
+    }
+
+    /// Closes the last menu without a choice, as Escape or a click outside it does.
+    pub(super) fn dismiss(&self, cx: &mut App) {
+        let answer = self.answer.borrow_mut().take().expect("a menu to close");
+        answer(None, cx);
     }
 
     /// What the shell asked for since the last time, in order.
@@ -379,6 +387,13 @@ impl Browser for Recorder {
 
     fn save_page(&self, _: u64, _: &mut App) {}
 
+    fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
+        match command {
+            Some(command) => self.record(format!("page menu {tab} runs {command}")),
+            None => self.record(format!("page menu {tab} closes")),
+        }
+    }
+
     fn print(&self, _: u64, _: &mut App) {}
 
     fn devtools(&self, _: u64, _: i32, _: &mut App) {}
@@ -519,6 +534,7 @@ impl Browser for Recorder {
         cx: &mut App,
     ) {
         self.menu_looks.borrow_mut().push(look);
+        self.menus_in_reveal.borrow_mut().push(in_reveal);
         self.menu(entries, position, None, in_reveal, answer, cx);
     }
 

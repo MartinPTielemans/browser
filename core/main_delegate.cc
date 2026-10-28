@@ -15,6 +15,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
+#include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
@@ -174,6 +175,7 @@ void Install(const bc_host& host) {
   g_browser_core_can_dock_devtools = &Window::CanDockDevTools;
   g_browser_core_update_devtools = &Window::UpdateDevTools;
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
+  g_browser_core_show_page_menu = &PageMenu::Show;
   g_browser_core_update_target_url = &Tab::LinkTargetChanged;
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;

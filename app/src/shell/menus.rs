@@ -128,6 +128,18 @@ impl Shell {
         chosen: Box<dyn FnOnce(Option<usize>, &mut Shell, &mut Context<Shell>)>,
         cx: &mut Context<Self>,
     ) {
+        self.context_menu_in(entries, position, self.sidebar_hidden, chosen, cx);
+    }
+
+    /// `context_menu` at `position` in the window, or in the reveal's panel if `in_reveal`.
+    pub(super) fn context_menu_in(
+        &mut self,
+        entries: Vec<MenuEntry>,
+        position: Point<Pixels>,
+        in_reveal: bool,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut Shell, &mut Context<Shell>)>,
+        cx: &mut Context<Self>,
+    ) {
         // Light only where the Space's theme asks for it: the rest of the window is dark.
         let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
         let look = if light && !self.private { Look::Light } else { Look::Dark };
@@ -136,7 +148,7 @@ impl Shell {
         self.browser.context_menu(
             entries,
             position,
-            self.sidebar_hidden,
+            in_reveal,
             look,
             Box::new(move |index, cx| {
                 shell

@@ -1625,6 +1625,10 @@ impl Browser for Engine {
         }
     }
 
+    fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
+        unsafe { bc::bc_tab_close_page_menu(tab, command.unwrap_or(0)) };
+    }
+
     fn print(&self, tab: u64, _: &mut App) {
         if tab != 0 {
             unsafe { bc::bc_tab_print(tab) };
@@ -3946,6 +3950,43 @@ unsafe extern "C" fn tab_permission_asked(
     update_shells(|shell, cx| shell.set_question(tab, question.clone(), cx));
 }
 
+/// The user right-clicked a page: its menu, as the core has Chrome build it, in ilo's menu over the
+/// window that shows it. With no window, the menu went with its page.
+unsafe extern "C" fn tab_page_menu(
+    _: *mut c_void,
+    window: bc::bc_id,
+    tab: bc::bc_id,
+    x: f64,
+    y: f64,
+    items: *const bc::bc_page_menu_item,
+    count: usize,
+) {
+    if window == 0 {
+        log!("browser: page menu {tab} gone");
+        update_app(menu::dismissed);
+        return;
+    }
+    let items = match count {
+        0 => &[][..],
+        _ => unsafe { std::slice::from_raw_parts(items, count) },
+    };
+    let items: Vec<shell::PageMenuItem> = (items.iter())
+        .map(|item| shell::PageMenuItem {
+            command: item.command,
+            title: unsafe { CStr::from_ptr(item.title) }.to_string_lossy().into_owned().into(),
+            parent: usize::try_from(item.parent).ok(),
+            enabled: item.enabled,
+            checked: item.checked,
+        })
+        .collect();
+    log!("browser: page menu {tab} at {x:.0},{y:.0}");
+    let at = point(px(x as f32), px(y as f32));
+    if update_window(window, |shell, cx| shell.show_page_menu(tab, items, at, cx)).is_none() {
+        // No window to show it in, and the page opens no other menu until this one closes.
+        unsafe { bc::bc_tab_close_page_menu(tab, 0) };
+    }
+}
+
 unsafe extern "C" fn tab_media_unsupported(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -4139,6 +4180,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
         tab_media_unsupported: Some(tab_media_unsupported),
+        tab_page_menu: Some(tab_page_menu),
         tab_offer_changed: Some(tab_offer_changed),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),

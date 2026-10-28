@@ -1,21 +1,27 @@
 # A page's popup opens as a tab in the window, under the page. The page's context menu is Chrome's
-# without the items the window can't do, its Open Link in New Tab opens a tab under the page without
-# showing it, after the tabs the page opened before and above the others, and closing one shows the
-# nearest other tab the page opened. A link's tab opened behind shows the link's address and loads
-# only once it's first shown, and one still waiting at a quit comes back after the relaunch, while a
-# window the page makes behind loads at once. Its Print and ⌘P from the page show print preview
-# centred over the page, at its top, which escape closes. Switching or closing a full-screen page's
-# tab ends its full screen and the window's, and closing it shows the tab it opened first.
+# without the items the window can't do, shown in ilo's menu at the click: a dismiss leaves the page
+# free to show another, and a text field's has its spelling and writing direction items and Select
+# All, which selects the field's text for typing to replace. Its Open Link in New Tab opens a tab
+# under the page without showing it, after the tabs the page opened before and above the others, and
+# closing one shows the nearest other tab the page opened. A link's tab opened behind shows the
+# link's address and loads only once it's first shown, and one still waiting at a quit comes back
+# after the relaunch, while a window the page makes behind loads at once. Its Print and ⌘P from the
+# page show print preview centred over the page, at its top, which escape closes. Switching or
+# closing a full-screen page's tab ends its full screen and the window's, and closing it shows the
+# tab it opened first.
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.
 page='data:text/html,<title>loading</title>
 <a href="https://example.org/" style="font:24px system-ui">a link</a>
 <div id="opens" style="position:absolute;left:0;top:100px;width:200px;height:60px">a window</div>
+<textarea id="field" style="position:absolute;left:0;top:200px;width:300px;height:60px">teh note</textarea>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 // A window the page can reach, behind with ⌘ held.
 document.getElementById("opens").onclick = () => open("https://example.com/");
+// The text of the field as the title, for the check to read what typing did to it.
+document.getElementById("field").oninput = e => document.title = e.target.value;
 // A popup needs a user gesture, which a key press is.
 addEventListener("keydown", e =>
   e.key == "p" && !e.metaKey && open("https://example.com/", "", "popup,width=400,height=300"));
@@ -47,13 +53,16 @@ expect "^browser: dragged $other to today 2\$" "a drag of the top row to the bot
 expect "^browser: today $opener $popup $other\$" \
   "the dragged tab didn't go under the popup's: $(grep '^browser: today' "$log" | tail -1)"
 # The page's context menu is Chrome's, with Arc's link items, without those Arc's leaves out or
-# whose UI is in Chrome's own window (Copy Link Text, Reading Mode, Lens, QR Code, Cast).
+# whose UI is in Chrome's own window (Copy Link Text, Reading Mode, Lens, QR Code, Cast). It shows
+# in ilo's menu, with its top left at the click.
 send key 1 cmd
 expect "^browser: selected $opener in " "⌘1 didn't show the page again"
 post rightclick 250 30
-expect '^browser: menu tracked Open Link in New Tab, Open Link in New Window, Open Link in Split View, Open Link in Incognito Window, Save Link As…, ' \
+expect "^browser: page menu $opener at 250,30\$" \
+  "the page's menu isn't at the click: $(grep '^browser: page menu' "$log" | tail -1)"
+expect '^browser: menu shown Open Link in New Tab, Open Link in New Window, Open Link in Split View, Open Link in Incognito Window, Save Link As…, ' \
   "a right-click on the page's link didn't show the link's menu"
-menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
+menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 case "$menu" in
 *"Link Text"* | *"Reading Mode"* | *Lens* | *"QR Code"* | *Cast*)
   fail "the link's menu offers what Arc's leaves out: $menu" ;;
@@ -76,7 +85,7 @@ expect "^browser: page $first unloaded 1\$" "the link's tab behind didn't wait t
 expect "^browser: page $first back 0 forward 0 loading 0 https://example.org/\$" \
   "the link's tab behind doesn't have the link's address"
 post rightclick 250 30
-expect '^browser: menu tracked Open Link in New Tab, ' \
+expect '^browser: menu shown Open Link in New Tab, ' \
   "a right-click on the link didn't show its menu"
 send choose Open Link in New Tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
@@ -103,7 +112,7 @@ expect "^browser: loaded $first https://example.org/\$" \
 switch "1 cmd" "$opener"
 # A third, still waiting at the quit, for the relaunch at the end.
 post rightclick 250 30
-expect '^browser: menu tracked Open Link in New Tab, ' \
+expect '^browser: menu shown Open Link in New Tab, ' \
   "a right-click on the link didn't show its menu"
 send choose Open Link in New Tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
@@ -156,11 +165,20 @@ print_preview() {
 }
 send click $page_point
 ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
+# A menu closed without a choice runs nothing and leaves the page free to show the next, which a
+# page whose menu Chrome still thought open wouldn't.
 post rightclick $page_point
-expect '^browser: menu tracked Back, ' "a right-click on the page didn't show the page's menu"
-menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
-[ "$menu" = "Back, Forward, Reload, Save As…, Print…, View Page Source, Inspect" ] ||
+expect '^browser: menu shown Back' "a right-click on the page didn't show the page's menu"
+send dismiss
+expect '^browser: menu closed$' "dismiss didn't close the page's menu"
+post rightclick $page_point
+expect '^browser: menu shown Back' "the page didn't show its menu again after a dismiss"
+menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
+# No tab came before it, and none after.
+page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, View Page Source, Inspect"
+[ "$menu" = "$page_items" ] ||
   fail "the page's menu is $menu"
+../tools/window-screenshot.sh "$pid" "$out/page-menu.png" || fail "no window to capture"
 send choose Print…
 print_preview "the page menu's Print…" print.png
 # ⌘P, as File › Print, with the page focused.
@@ -168,6 +186,23 @@ send click $page_point
 ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
 page_shortcut p print
 print_preview ⌘P print-key.png
+# A text field's menu has what Chrome gives it on the Mac, its Language Settings for spelling and
+# its Writing Direction submenu, and Select All selects the field's text, which typing then
+# replaces. The check chooses nothing that uses the pasteboard.
+send click 300 250
+post rightclick 300 250
+expect '^browser: menu shown .*Select All' \
+  "a right-click in the page's text field didn't show its menu"
+menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
+case "$menu" in
+*"Language Settings"*"Paste"*"Writing Direction › Default"*"Inspect") ;;
+*) fail "the text field's menu lacks Language Settings, Paste, Writing Direction or Inspect: $menu" ;;
+esac
+../tools/window-screenshot.sh "$pid" "$out/field-page-menu.png" || fail "no window to capture"
+send choose Select All
+send type ok
+expect "^browser: title $opener ok\$" \
+  "Select All in the field's menu didn't select its text for typing to replace"
 # Switching or closing a full-screen page's tab ends its full screen, and the window's with it.
 send click $page_point
 send key f
@@ -214,4 +249,4 @@ expect "^browser: loaded $waited https://example.org/\$" \
   "the link's tab didn't load once shown after the relaunch"
 exec 3>&-
 quit
-echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens tabs under the page, after the ones it opened and above the others, which load only once shown and come back after a quit unloaded, while a window the page makes behind loads at once, and closing one shows the nearest other tab the page opened. Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's, and closing it shows the tab it opened first. Windows: $out/popup.png, $out/link-menu.png, $out/links-behind.png, $out/print.png, $out/print-key.png"
+echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do and shows in ilo's menu at the click, a dismiss leaves the page free to show the next, and a text field's has its spelling and writing direction items and a Select All that works. Open Link in New Tab opens tabs under the page, after the ones it opened and above the others, which load only once shown and come back after a quit unloaded, while a window the page makes behind loads at once, and closing one shows the nearest other tab the page opened. Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's, and closing it shows the tab it opened first. Windows: $out/popup.png, $out/link-menu.png, $out/links-behind.png, $out/page-menu.png, $out/print.png, $out/print-key.png, $out/field-page-menu.png. The text field's menu: $(grep '^browser: menu shown .*Select All' "$log" | tail -1 | cut -d' ' -f4-)"
