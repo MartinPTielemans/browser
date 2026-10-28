@@ -21,6 +21,7 @@ use crate::{bc, overlays};
 struct Menu {
     view: *mut c_void,
     dismissed: extern "C" fn(),
+    choose: extern "C" fn(*const c_char) -> bool,
 }
 
 thread_local! {
@@ -35,9 +36,13 @@ pub extern "C" fn host_add_menu_window(
     view: *mut c_void,
     _pointer: extern "C" fn(kind: i32, x: f64, y: f64) -> bool,
     dismissed: extern "C" fn(),
-    _choose: extern "C" fn(*const c_char) -> bool,
+    choose: extern "C" fn(*const c_char) -> bool,
 ) {
-    MENU.set(Some(Box::leak(Box::new(Menu { view, dismissed }))));
+    MENU.set(Some(Box::leak(Box::new(Menu {
+        view,
+        dismissed,
+        choose,
+    }))));
 }
 
 /// Shows the menu's window at `left`, `top`, `width`, `height` in the content of `ui_view`'s
@@ -110,6 +115,24 @@ pub(crate) fn resized(ui_view: *mut c_void) {
     {
         forget_window(ui_view);
     }
+}
+
+/// The menu's view while it shows, for the test driver (drive.rs).
+pub(crate) fn shown() -> Option<*mut c_void> {
+    SHOWN.get().and(MENU.get()).map(|menu| menu.view)
+}
+
+/// For the driver: chooses `title`, or "Submenu › Item", in the menu that shows. Returns whether
+/// a menu was showing with that item.
+pub(crate) fn choose(title: *const c_char) -> bool {
+    shown().is_some() && MENU.get().is_some_and(|menu| (menu.choose)(title))
+}
+
+/// For the driver: closes the menu that shows, as the user leaving it. Returns whether one did.
+pub(crate) fn dismiss() -> bool {
+    let Some(view) = shown() else { return false };
+    gpui_linux::leave_overlay(view);
+    true
 }
 
 /// The user left the menu. GPUI says so once its events are dispatched, outside any update.
