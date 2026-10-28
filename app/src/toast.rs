@@ -244,6 +244,13 @@ pub fn show_held(text: &str, buttons: Vec<Button>, tab: u64, cx: &mut App) {
     present(text, None, buttons, None, false, Some(tab), cx);
 }
 
+/// Shows `text` with `buttons` after it, in place of any toast showing, until a button is pressed
+/// or another toast takes its place, as for a question that can wait, such as whether to send a
+/// crash's report.
+pub fn show_until_answered(text: &str, buttons: Vec<Button>, cx: &mut App) {
+    present(text, None, buttons, None, false, None, cx);
+}
+
 /// Takes away the held toast about `tab`, if it shows.
 pub fn hide_held(tab: u64, cx: &mut App) {
     let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {

@@ -3524,6 +3524,22 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
     update_app(settings::refresh);
 }
 
+/// After a crash, with Send Crash Reports off: a toast asks whether to send its report, until the
+/// user answers, rather than an alert in the way of the windows coming back.
+unsafe extern "C" fn crash_report_offered(_: *mut c_void) {
+    let button = |label: &str, name, send| toast::Button {
+        label: toast::Label::Text(label.to_owned().into()),
+        name,
+        run: Rc::new(move |_, _| unsafe { bc::bc_answer_crash_report(send) }),
+    };
+    let buttons =
+        vec![button("Send Report", "send", true), button("Don't Send", "don't send", false)];
+    let text = concat!(env!("APP_NAME"), " quit unexpectedly.");
+    update_app(move |cx| {
+        with_overlays(move |cx| toast::show_until_answered(text, buttons, cx), cx)
+    });
+}
+
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
     // Each with its holder: the Space it belongs to under Each Space, else its profile.
     let holder = |tab| unsafe {
@@ -4431,6 +4447,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         window_resized: Some(window_resized),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
+        crash_report_offered: Some(crash_report_offered),
         ..Default::default()
     };
     (args, host)
