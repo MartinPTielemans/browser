@@ -1,8 +1,9 @@
-# An MCP client, scripted with curl, reaches the browser's server once Settings › Agents is on and
-# it's connected, as the saved settings say here. Nothing gets in without its token or from a web
-# page. Its first call makes its Space, and it may read only the tabs there: a read of the user's
-# tab is refused, with an activity-log entry, and a read of example.com, opened in its Space, gives
-# the page's text. Ending its session ends its session with the tab.
+# An MCP client reaches the browser through the bridge beside it once Settings › Agents is on and
+# it's connected, as the saved settings say here. The socket is the user's alone, and the bridge
+# gets nowhere without the agent's token. Its first call makes its Space, and it may read only the
+# tabs there: a read of the user's tab is refused, with an activity-log entry, and a read of
+# example.com, opened in its Space, gives the page's text. Closing the client's end ends its
+# session with the tab.
 
 log="$out/mcp.log"
 step=0
@@ -17,46 +18,48 @@ pid=$!
 exec 3> "$out/drive"
 await_load
 user_tab=$(today | cut -d' ' -f1)
-await '^browser: agents server on 127\.0\.0\.1:[0-9]*$' || fail "the saved switch didn't start the server"
-port=$(grep '^browser: agents server on' "$log" | tail -1 | sed 's/.*://')
-session=
+await '^browser: agents server on /.*/Agents\.sock$' || fail "the saved switch didn't start the server"
+socket=$(grep '^browser: agents server on' "$log" | tail -1 | sed 's/^browser: agents server on //')
+bridge="$app/Contents/MacOS/mcp-bridge"
+await_log() { await "$1" || fail "$2"; }
 
-# Posts the JSON-RPC message $1 as the client, with its session once it has one, and prints the
-# answer's body. The headers go in mcp-head.
+[ -S "$socket" ] || fail "there's no socket at $socket"
+[ "$(stat -f %Lp "$socket")" = 600 ] || fail "the socket is $(stat -f %Lp "$socket"), not the user's alone"
+[ -x "$bridge" ] || fail "the app has no bridge beside its executable"
+if BROWSER_AGENT_TOKEN=0 "$bridge" "$socket" < /dev/null > /dev/null 2> "$out/mcp-refused"; then
+  fail "the bridge got in without the agent's token"
+fi
+grep -q 'Settings › Agents' "$out/mcp-refused" || fail "a refused bridge said: $(cat "$out/mcp-refused")"
+
+# The client: the bridge on two pipes, which stay open until the session ends.
+rm -f "$out/mcp-in" "$out/mcp-out"
+mkfifo "$out/mcp-in" "$out/mcp-out"
+BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" 2> "$out/mcp-bridge.log" &
+bridge_pid=$!
+exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+# Sends the JSON-RPC message $1 and, for a request, prints its answer, within 30 s.
+id=0
 mcp() {
-  curl -s -m 30 -D "$out/mcp-head" -H "Authorization: Bearer $token" \
-    -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-    ${session:+-H "Mcp-Session-Id:$session"} -d "$1" "http://127.0.0.1:$port/mcp"
+  echo "$1" >&4
+  case "$1" in *'"id":'*) read -r -t 30 answer <&5 || fail "the browser didn't answer $1"; echo "$answer" ;; esac
 }
-status() { head -1 "$out/mcp-head" | cut -d' ' -f2; }
 # Calls the tool $1 with the arguments $2, and prints its text, after "error: " if it's an error.
 call() {
-  mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" |
+  id=$((id + 1))
+  mcp "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" |
     python3 -I -c '
 import json, sys
 result = json.load(sys.stdin)["result"]
 print(("error: " if result["isError"] else "") + result["content"][0]["text"])'
 }
-await_log() { await "$1" || fail "$2"; }
 
-body='{"jsonrpc":"2.0","id":1,"method":"ping"}'
-none=$(curl -s -o /dev/null -w '%{http_code}' -d "$body" "http://127.0.0.1:$port/mcp")
-[ "$none" = 401 ] || fail "a client without the token got $none, not 401"
-page=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
-  -H 'Origin: https://example.com' -d "$body" "http://127.0.0.1:$port/mcp")
-[ "$page" = 403 ] || fail "a web page with the token got $page, not 403"
-
-mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' \
+mcp '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' \
   > "$out/mcp-initialize.json"
-[ "$(status)" = 200 ] || fail "initialize got $(status)"
 grep -q '"protocolVersion":"2025-06-18"' "$out/mcp-initialize.json" ||
   fail "initialize didn't answer in the client's version"
-session=$(grep -i '^mcp-session-id:' "$out/mcp-head" | cut -d' ' -f2 | tr -d '\r')
-[ -n "$session" ] || fail "initialize gave no session"
 await_log '^browser: agent mcp-client hello from check$' "the app didn't hear the client's hello"
-mcp '{"jsonrpc":"2.0","method":"notifications/initialized"}' > /dev/null
-[ "$(status)" = 202 ] || fail "the initialized notification got $(status), not 202"
-mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | grep -q '"name":"read_page"' ||
+mcp '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+mcp '{"jsonrpc":"2.0","id":100,"method":"tools/list"}' | grep -q '"name":"read_page"' ||
   fail "tools/list didn't list read_page"
 
 listed=$(call list_tabs '{}')
@@ -96,17 +99,21 @@ if [ "$driven" = 1 ]; then
   await_log "^browser: agent activity mcp-client $agent_tab read_page\$" "the read didn't reach the activity log"
   await_log "^browser: tab text $agent_tab [0-9]* [1-9][0-9]*\$" "the core didn't read the page"
   await_log "^browser: agent mcp-client at work in $agent_tab\$" "the agent's tab didn't show it at work"
-  # Ending its session disconnects the agent, which ends its session with the tab.
-  curl -s -o /dev/null -X DELETE -H "Authorization: Bearer $token" -H "Mcp-Session-Id:$session" \
-    "http://127.0.0.1:$port/mcp"
+fi
+# The client closing its end ends its session, which ends its session with the tab.
+exec 4>&-
+for _ in $(seq 100); do kill -0 "$bridge_pid" 2>/dev/null || break; sleep 0.1; done
+kill -0 "$bridge_pid" 2>/dev/null && fail "the bridge didn't stop once the client closed its end"
+exec 5<&-
+if [ "$driven" = 1 ]; then
   await_log "^browser: agent session ended mcp-client $agent_tab disconnected\$" \
     "ending the client's session didn't end its session with the tab"
   await_log "^browser: agent mcp-client done in $agent_tab\$" "the tab still shows a gone agent at work"
 fi
 quit
-rm -f "$agents_file"
+rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client gets in with its token only, gets a Space of its own, is refused the user's tab and reads its own"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own"
 else
-  echo "ok: an MCP client gets in with its token only, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi

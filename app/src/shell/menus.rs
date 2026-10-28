@@ -171,6 +171,17 @@ impl Shell {
         let icon = entry.is_some_and(|each| has_icon(&each.icon));
         let theme = entry.is_some_and(|each| each.color.is_some() || each.theme.is_some());
         let mut items = space_menu_head(space, icon, theme);
+        // An agent's Space leads to what the agent did in it.
+        if entry.is_some_and(|each| !each.agent.is_empty()) {
+            items.insert(
+                0,
+                (
+                    MenuEntry::new("Agent Activity…", true),
+                    Box::new(|shell, cx| shell.browser.agent_activity(cx)),
+                ),
+            );
+            items.insert(1, (MenuEntry::line(), Box::new(|_, _| {})));
+        }
         let at = items.len();
         items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
         let mut profiles = self.profile_items(space);

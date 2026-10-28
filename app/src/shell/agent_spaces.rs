@@ -165,3 +165,23 @@ fn an_agents_row_stops_saying_its_at_work_once_its_session_ends(cx: &mut TestApp
     acted(&shell, cx, "claude-code", 20);
     assert!(at_work(&shell, cx, 20));
 }
+
+/// An agent's Space's menu leads to what the agent did, in Settings › Agents, and the user's
+/// Space's has no such item.
+#[gpui::test]
+fn an_agents_space_menu_shows_its_activity(cx: &mut TestAppContext) {
+    let (shell, host) = shell_with_agent(cx);
+    shell.update(cx, |shell, cx| {
+        shell.space_menu(1, point(px(100.), px(200.)), cx)
+    });
+    let menu = host.menus.borrow().last().cloned().unwrap_or_default();
+    assert_eq!(item(&menu, "Agent Activity…"), None);
+    shell.update(cx, |shell, cx| {
+        shell.space_menu(2, point(px(100.), px(200.)), cx)
+    });
+    let menu = host.menus.borrow().last().cloned().unwrap_or_default();
+    assert_eq!(item(&menu, "Agent Activity…"), Some(true));
+    host.take();
+    cx.update(|cx| host.choose("Agent Activity…", cx));
+    assert_eq!(host.take(), ["agent activity"]);
+}
