@@ -1389,6 +1389,35 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {
   }
 }
 
+static bool (*g_swiped)(void* ui_view, double x, double y, bool back);
+
+// A swipe between pages at |in_window|, AppKit's point in |window|, whether its own or the
+// driver's; returns whether the UI took it.
+bool SwipeBetweenPages(NSWindow* window, NSPoint in_window, bool back) {
+  Browser* browser = BrowserOf(window);
+  if (!browser || !g_swiped) return false;
+  NSView* view = browser->ui_view;
+  const NSPoint at = [view convertPoint:in_window fromView:nil];
+  const double y = view.isFlipped ? at.y : NSHeight(view.bounds) - at.y;
+  return g_swiped((__bridge void*)view, at.x, y, back);
+}
+
+void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {
+  g_swiped = swiped;
+  // macOS sends these only for the gesture System Settings set to swipe between pages, three
+  // fingers or a mouse's swipe, and Chrome's own window, which takes them, isn't ours. One to
+  // the right, deltaX > 0, goes back.
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskSwipe
+                                        handler:^NSEvent*(NSEvent* event) {
+                                          if (event.deltaX == 0) return event;
+                                          return SwipeBetweenPages(event.window,
+                                                                   event.locationInWindow,
+                                                                   event.deltaX > 0)
+                                                     ? nil
+                                                     : event;
+                                        }];
+}
+
 void host_watch_resigning_active(void (*resigning)(void)) {
   [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillResignActiveNotification
                                                   object:nil

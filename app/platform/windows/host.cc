@@ -475,6 +475,9 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
 // shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
 void host_watch_full_screen(void (*)(void*, bool)) {}
 
+// shortcut: Windows sends a touchpad's swipes as scrolls, which the page takes.
+void host_watch_swipes(bool (*)(void*, double, double, bool)) {}
+
 void host_watch_resigning_active(void (*resigning)(void)) {
   g_resigning_active = resigning;
   WatchForeground();
