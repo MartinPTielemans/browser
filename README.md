@@ -65,6 +65,6 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the other projects ilo uses and carries. The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name and the icon, and recompile the icon with `app/icon.sh`.
+GPL-3.0-or-later. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the other projects ilo uses and carries. The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name, the icon and the crash collector's URL, and recompile the icon with `app/icon.sh`.
 
 Contributions use the [Developer Certificate of Origin](CONTRIBUTING.md#sign-off), not a CLA.

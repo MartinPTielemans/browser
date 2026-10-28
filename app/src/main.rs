@@ -4372,6 +4372,13 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     }
     // The checks' crash, which has Crashpad write a minidump (core/crash_reports.h).
     const CRASH_TEST: &str = "--crash-after-start";
+    // Where the user's crash reports go if they send them, a default service URL that a fork or a
+    // self-hosted collector names in branding/crash-reports. Without one the build sends none, and
+    // Settings doesn't offer to. A check's own, given to the app, comes after and wins.
+    let collector = include_str!("../branding/crash-reports").trim();
+    if !collector.is_empty() {
+        args.push(format!("--crash-upload-url={collector}"));
+    }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
     args.extend(std::env::args().skip(1).filter(|arg| {

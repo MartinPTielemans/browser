@@ -1200,6 +1200,19 @@ BC_EXPORT void bc_age_tabs_for_testing(double seconds);
 BC_EXPORT bool bc_ad_blocking(void);
 BC_EXPORT void bc_set_ad_blocking(bool on);
 
+// Crash reports. Crashpad writes a minidump of every crash in the profile folder, and the core sends
+// one only while the user has Settings › Privacy › Send Crash Reports on, which is off by default:
+// then each report not yet sent goes to the collector, once the browser has started and as the user
+// turns it on, and is deleted once the collector has it. Turning it off deletes every report not
+// yet sent. The core keeps the choice with the Spaces. No agent tool reads or changes it.
+//
+// The host of the collector the app named with --crash-upload-url, or nothing without one, when
+// nothing is sent and Settings doesn't offer to. Copied as bc_profile_name copies a name.
+BC_EXPORT size_t bc_crash_reports_collector(char* host, size_t capacity);
+// Whether the user has Send Crash Reports on and there's a collector.
+BC_EXPORT bool bc_send_crash_reports(void);
+BC_EXPORT void bc_set_send_crash_reports(bool send);
+
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
 // the list, keeping a finished file and deleting any other; or keeps one Chrome held.

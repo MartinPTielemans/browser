@@ -5,6 +5,9 @@
 # The notarytool profile is NOTARY_PROFILE, else "notary" (xcrun notarytool store-credentials
 # notary). Without it the app is signed and packed but not notarized, and the run fails.
 # SIGN_IDENTITY=- signs ad hoc, to try the signing without the key; it stops before the DMG.
+# A build that names a crash collector (app/branding/crash-reports) uploads its symbols there at the
+# end, with sentry-cli: SENTRY_URL, SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT name the
+# collector's project (docs/decisions.md, 9).
 # Usage: SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../app" && pwd)"
@@ -91,4 +94,11 @@ notarize "$dmg"
 xcrun stapler staple "$dmg"
 spctl -a -t exec -vv "$app"
 spctl -a -t open --context context:primary-signature -vv "$dmg"
+
+# Without them the collector has addresses and no functions. The Release engine writes the
+# framework's and helpers' dSYMs beside Chromium.app; the app's executable keeps its symbol table.
+if [ -n "$(tr -d '[:space:]' < "$root/branding/crash-reports")" ]; then
+  engine_out=$(dirname "$(cd "$root/.deps/Chromium.app" && pwd -P)")
+  sentry-cli debug-files upload --wait "$engine_out"/*.dSYM "$app/Contents/MacOS/Browser"
+fi
 echo "$dmg"
