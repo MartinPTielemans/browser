@@ -487,7 +487,7 @@ index 0000000000..62ce7681df
 +    }
 +}
 diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
-index 0c5370db6c..e49a99be7c 100644
+index 0c5370db6c..273f105e11 100644
 --- i/crates/gpui_linux/src/linux/platform.rs
 +++ w/crates/gpui_linux/src/linux/platform.rs
 @@ -11,7 +11,7 @@ use std::{
@@ -728,6 +728,25 @@ index 0c5370db6c..e49a99be7c 100644
          let mut event_loop = self
              .event_loop
              .borrow_mut()
+@@ -1599,6 +1811,18 @@ pub fn keystroke_underlying_dead_key(keysym: Keysym) -> Option<String> {
+     }
+ }
+ #[cfg(any(feature = "wayland", feature = "x11"))]
++/// A move to outside the window, for GPUI as the pointer leaves it: nothing it drew is under the
++/// pointer then, which only a move tells it. On the Mac its window hears the moves over the page
++/// views on top of it too; here the pointer leaves for the page's surface or a hole in the shape.
++#[cfg(any(feature = "wayland", feature = "x11"))]
++pub(crate) fn moved_away(modifiers: gpui::Modifiers) -> gpui::PlatformInput {
++    gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
++        position: gpui::point(px(-1.), px(-1.)),
++        pressed_button: None,
++        modifiers,
++    })
++}
++
+ pub(super) fn modifiers_from_xkb(keymap_state: &State) -> gpui::Modifiers {
+     let shift = keymap_state.mod_name_is_active(xkb::MOD_NAME_SHIFT, xkb::STATE_MODS_EFFECTIVE);
+     let alt = keymap_state.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
 diff --git i/crates/gpui_linux/src/linux/wayland.rs w/crates/gpui_linux/src/linux/wayland.rs
 index cbc962bcff..bcad8dfaae 100644
 --- i/crates/gpui_linux/src/linux/wayland.rs
@@ -744,7 +763,7 @@ index cbc962bcff..bcad8dfaae 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git i/crates/gpui_linux/src/linux/wayland/client.rs w/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..cc6990ec06 100644
+index 2d40cf7fa9..1c1ff85613 100644
 --- i/crates/gpui_linux/src/linux/wayland/client.rs
 +++ w/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -1045,7 +1064,23 @@ index 2d40cf7fa9..cc6990ec06 100644
  
                          drop(state);
                          focused_window.handle_input(input);
-@@ -2514,11 +2600,27 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2433,6 +2519,7 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+             }
+             wl_pointer::Event::Leave { .. } => {
+                 if let Some(focused_window) = state.mouse_focused_window.clone() {
++                    let moved = crate::linux::moved_away(state.modifiers);
+                     let input = PlatformInput::MouseExited(MouseExitEvent {
+                         position: state.mouse_location.unwrap(),
+                         pressed_button: state.button_pressed,
+@@ -2444,6 +2531,7 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+                     state.cursor_hidden_window = None;
+ 
+                     drop(state);
++                    focused_window.handle_input(moved);
+                     focused_window.handle_input(input);
+                     focused_window.set_hovered(false);
+                 }
+@@ -2514,11 +2602,27 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  }
                  let button = linux_button_to_gpui(button);
                  let Some(button) = button else { return };
@@ -1073,7 +1108,7 @@ index 2d40cf7fa9..cc6990ec06 100644
                          if let Some(window) = state.keyboard_focused_window.clone() {
                              if state.composing && state.text_input.is_some() {
                                  drop(state);
-@@ -3479,3 +3581,178 @@ mod tests {
+@@ -3479,3 +3583,178 @@ mod tests {
          );
      }
  }
@@ -1575,7 +1610,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..f2675d04da 100644
+index e21f019c64..fbaa8b413d 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1637,7 +1672,15 @@ index e21f019c64..f2675d04da 100644
                  let mut state = self.0.borrow_mut();
  
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -2052,6 +2067,9 @@ impl X11ClientState {
+@@ -1416,6 +1431,7 @@ impl X11Client {
+                 drop(state);
+ 
+                 let window = self.get_window(event.event)?;
++                window.handle_input(crate::linux::moved_away(modifiers));
+                 window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
+                     pressed_button,
+                     position,
+@@ -2052,6 +2068,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -1647,7 +1690,7 @@ index e21f019c64..f2675d04da 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2105,177 @@ impl X11ClientState {
+@@ -2087,6 +2106,177 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -1825,7 +1868,7 @@ index e21f019c64..f2675d04da 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2898,6 +3087,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3088,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -1869,7 +1912,7 @@ index e21f019c64..f2675d04da 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3439,101 @@ mod tests {
+@@ -3213,3 +3440,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
