@@ -1028,7 +1028,11 @@ unsafe extern "C" fn tab_captured(
     let png = (!png.is_null()).then(|| unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
     // A window's picture of a page another window shows, not capture mode's.
     if shell::is_picture(request) {
-        update_shells(|shell, cx| shell.page_pictured(request, png.clone(), cx));
+        if let Some(cx) = CX.with_borrow(Clone::clone) {
+            let shells = WINDOWS
+                .with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
+            shell::picture_answered(shells, request, png, &cx);
+        }
         return;
     }
     update_app_later(move |cx| capture::captured(tab, request, png, cx));

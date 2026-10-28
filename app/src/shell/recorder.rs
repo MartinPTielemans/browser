@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
+use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
 
 use super::{
     Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, browser::WindowButton,
@@ -103,6 +103,9 @@ pub(super) struct Recorder {
     /// The platform has Apple's engine for a tab's page.
     /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
+    /// The shell it answers each picture asked of it for with this PNG, at once, inside the call
+    /// that asked, as a core that answers inline would.
+    pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, Vec<u8>)>>,
 }
 
 impl Recorder {
@@ -669,8 +672,11 @@ impl Browser for Recorder {
         self.record(format!("capture {what} {tab} at {x} {y} {width} {height}"));
     }
 
-    fn page_picture(&self, tab: u64, _: u64, _: &mut App) {
-        self.record(format!("picture {tab}"))
+    fn page_picture(&self, tab: u64, request: u64, cx: &mut App) {
+        self.record(format!("picture {tab}"));
+        if let Some((shell, png)) = self.pictures.borrow().clone() {
+            super::picture_answered(vec![shell], request, Some(png), &cx.to_async());
+        }
     }
 
     fn page_picture_end(&self, tab: u64, _: &mut App) {

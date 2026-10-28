@@ -11,6 +11,7 @@
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
@@ -133,6 +134,17 @@ void PageCapture::Answer(gfx::PointF point, gfx::RectF box) {
 }
 
 void PageCapture::Capture(uint64_t request, bool full_page, gfx::RectF rect) {
+  // A page in the system's engine has nothing in Chromium's compositor or its DevTools: WebKit
+  // draws its whole view, and nothing else.
+  Tab* tab = Tab::FromWebContents(&GetWebContents());
+  if (platform::SystemPage* page = tab ? tab->system_page() : nullptr) {
+    if (full_page || !rect.IsEmpty()) {
+      Captured(request, std::nullopt);
+      return;
+    }
+    page->Snapshot(base::BindOnce(&PageCapture::Captured, weak_factory_.GetWeakPtr(), request));
+    return;
+  }
   if (full_page) {
     Send("Page.captureScreenshot",
          base::DictValue().Set("format", "png").Set("captureBeyondViewport", true),
@@ -141,7 +153,7 @@ void PageCapture::Capture(uint64_t request, bool full_page, gfx::RectF rect) {
   }
   content::RenderWidgetHostView* view = GetWebContents().GetRenderWidgetHostView();
   if (!view) {
-    Captured(request, nullptr);
+    Captured(request, std::nullopt);
     return;
   }
   // The compositor's last frame, which is what the user saw when they chose, at the display's
@@ -166,16 +178,23 @@ void PageCapture::CopiedSurface(uint64_t request, const content::CopyFromSurface
     }
     png = gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, /*discard_transparency=*/true);
   }
-  Captured(request, png ? &*png : nullptr);
+  Captured(request, std::move(png));
 }
 
 void PageCapture::Screenshot(uint64_t request, const base::DictValue* result) {
   const std::string* data = result ? result->FindString("data") : nullptr;
-  std::optional<std::vector<uint8_t>> png = data ? base::Base64Decode(*data) : std::nullopt;
-  Captured(request, png ? &*png : nullptr);
+  Captured(request, data ? base::Base64Decode(*data) : std::nullopt);
 }
 
-void PageCapture::Captured(uint64_t request, const std::vector<uint8_t>* png) {
+void PageCapture::Captured(uint64_t request, std::optional<std::vector<uint8_t>> png) {
+  // Posted, so the app never hears inside its own bc_tab_capture, which it calls while updating the
+  // window that asked: a page that can't be captured would answer at once.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&PageCapture::ReportCaptured, weak_factory_.GetWeakPtr(), request,
+                                std::move(png)));
+}
+
+void PageCapture::ReportCaptured(uint64_t request, std::optional<std::vector<uint8_t>> png) {
   if (!Host().tab_captured) {
     return;
   }

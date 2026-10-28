@@ -9,7 +9,10 @@
 # which shows its page again; in the last window it quits. ⇧↩ in the command bar opens its page in
 # a new window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
 # forward rather than taking the page. With the first window in full screen, other apps take the
-# second for the window in front once the user is in it.
+# second for the window in front once the user is in it. From macOS 14, a page in Safari's engine,
+# which the Site Controls turn on for a page that asks for Widevine, moves to another window the
+# same way, and the window it left draws WebKit's picture of it, which the core gives from a task of
+# its own (#364: an answer inside the call that asked aborted the browser).
 
 # The page counts in its title from its first frame, so a page that reloaded would count from 1
 # again. "o" in it opens a tab under it, as a link to a new tab does.
@@ -20,6 +23,10 @@ requestAnimationFrame(() => setTimeout(() =>
   setInterval(() => document.title = "count " + ++count, 200)));
 onkeydown = e => { if (e.key == "o") window.open(); };
 </script>'
+# The drm page, which Safari's engine shows below. The run turns 127.0.0.1 on for it, which the
+# profile keeps, so it forgets it before its launch and after its quit.
+serve
+forget_engine_sites
 log="$out/windows.log"
 step=0
 rm -f "$saved" "$launch_frame"
@@ -255,9 +262,67 @@ send key w cmd shift
 expect "^browser: window closed $third\$" "⇧⌘W didn't close ⇧↩'s window"
 send window 1
 
+# A page in Safari's engine moves to a new window as Chromium's does, and the window it left draws
+# WebKit's picture of it. The drm page asks for Widevine, so its Site Controls offer Safari's
+# engine, whose row is their first, at y 262 (clear.sh), and On shows the page there.
+webkit_moved=
+if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
+  before=$(today)
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar for the drm page"
+  send type "127.0.0.1:$port/drm.html"
+  send key return
+  expect "^browser: today [0-9][0-9]* $before\$" "the drm page's tab didn't open at the top of Today"
+  d=$(today | cut -d' ' -f1)
+  expect "^browser: page $d needs com.widevine.alpha\$" "the drm page didn't ask for Widevine"
+  bar_command site-controls "Site Controls" "site controls"
+  expect "^browser: site controls http://127.0.0.1:$port: .*; Safari's engine off\$" \
+    "the Site Controls didn't offer Safari's engine for the drm page: $(grep '^browser: site controls http' "$log" | tail -1)"
+  expect '^browser: site controls settled$' "the Site Controls didn't open at the drm page"
+  post click 207 262
+  expect "^browser: menu shown On, Off (checked)\$" "Safari's engine's row didn't offer On"
+  send choose On
+  expect "^browser: site controls set Safari's engine On\$" "On in the menu didn't run"
+  expect "^browser: system engine $d on\$" "On didn't show the drm page in Safari's engine"
+  expect "^browser: title $d drm asked\$" "Safari's engine didn't load the drm page"
+  # Safari's engine's page, taking the pane, may have closed them already.
+  if none_since '^browser: site controls hidden$'; then
+    send key escape
+    expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
+  fi
+  send key n cmd
+  expect '^browser: window opened [0-9]' "⌘N didn't open a window for Safari's engine's page"
+  fourth=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+  expect "^browser: window $fourth shows 0\$" "the window for Safari's engine's page showed a page"
+  send window 4
+  send click $(row 0)
+  expect "^browser: window $fourth shows $d\$" \
+    "a click on Safari's engine's page's row didn't show it in the new window"
+  expect "^browser: window $first page elsewhere $d\$" \
+    "the first window wasn't told Safari's engine's page went"
+  expect "^browser: tab $d captured [0-9]*: [1-9][0-9]*x[1-9][0-9]*, [1-9][0-9]* bytes\$" \
+    "Safari's engine gave no picture of its page: $(grep "^browser: tab $d captured" "$log" | tail -1)"
+  expect "^browser: window $first pictures tab $d\$" \
+    "the first window got no picture of Safari's engine's page"
+  expect "^browser: window $first picture rests\$" \
+    "the first window's picture of Safari's engine's page didn't step back"
+  ! grep -q 'panicked' "$log" || fail "the move of Safari's engine's page panicked"
+  ../tools/window-screenshot.sh "$pid" "$out/windows-webkit-pictured.png" all ||
+    fail "no window to capture"
+  # ⇧⌘W gives it back to the first window, live in Safari's engine.
+  send key w cmd shift
+  expect "^browser: window closed $fourth\$" "⇧⌘W didn't close the window with Safari's engine's page"
+  expect "^browser: window $first shows $d\$" "the first window didn't get Safari's engine's page back"
+  expect "^browser: window $first page elsewhere 0\$" \
+    "the first window wasn't told it shows Safari's engine's page again"
+  send window 1
+  webkit_moved=", a page in Safari's engine, turned on in the Site Controls, moves to another window and back, and the window it left draws WebKit's picture of it"
+fi
+
 # ⇧⌘W in the last window quits. It's the driver's last command: the app doesn't report it done.
 post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
-echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"
+forget_engine_sites
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab${webkit_moved:-}. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png${webkit_moved:+, $out/windows-webkit-pictured.png}"
