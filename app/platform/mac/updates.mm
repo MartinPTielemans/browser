@@ -329,7 +329,8 @@ bool host_updates_available(void) {
          [NSFileManager.defaultManager fileExistsAtPath:sparkle];
 }
 
-void host_start_updater(void) {
+// Sparkle quits the app itself, for Install and Relaunch.
+void host_start_updater(void (*)(void)) {
   if (g_updates || !host_updates_available()) return;
   NSString* path =
       [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"Sparkle.framework"];

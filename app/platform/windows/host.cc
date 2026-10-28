@@ -371,6 +371,11 @@ LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
 
 }  // namespace
 
+// For updates.cc, whose WinSparkle calls back on threads of its own.
+void HostLater(void (*task)(void)) {
+  Later(task);
+}
+
 extern "C" {
 
 void drive_start(void) {

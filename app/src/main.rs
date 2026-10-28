@@ -289,11 +289,11 @@ mod platform {
         pub fn host_hide_link_target(fade: f64);
         #[cfg(target_os = "macos")]
         pub fn host_keep_keychain_key() -> bool;
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         pub fn host_updates_available() -> bool;
-        #[cfg(target_os = "macos")]
-        pub fn host_start_updater();
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_start_updater(quit: extern "C" fn());
+        #[cfg(not(target_os = "linux"))]
         pub fn host_check_for_updates();
         #[cfg(target_os = "macos")]
         pub fn host_take_update_notes(notes: extern "C" fn(url: *const c_char));
@@ -316,7 +316,7 @@ const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
 
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 actions!(browser, [CheckForUpdates]);
 
 /// A browser window: the core's, with the view the UI draws in and the shell drawn there.
@@ -2717,10 +2717,14 @@ fn open_window_as(
             open_saved_windows(cx);
         }
         // Last, as nothing the user sees at launch waits for it.
-        #[cfg(target_os = "macos")]
-        unsafe {
-            platform::host_start_updater()
-        };
+        #[cfg(not(target_os = "linux"))]
+        {
+            // The installer WinSparkle started waits for the browser to quit, which needs no asking.
+            extern "C" fn quit() {
+                unsafe { bc::bc_quit() };
+            }
+            unsafe { platform::host_start_updater(quit) };
+        }
     };
     OVERLAYS.set(Some(Box::new(open)));
     let pending = Rc::new(Cell::new(true));
@@ -3044,7 +3048,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
         cx.on_action(|_: &Minimize, _| unsafe {
             platform::host_press_window_button(front().1, 1)
         });
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         cx.on_action(|_: &CheckForUpdates, _| unsafe { platform::host_check_for_updates() });
         cx.bind_keys([
             KeyBinding::new("cmd-h", Hide, Some(shell::KEY_CONTEXT)),
@@ -3077,7 +3081,7 @@ extern "C" fn finished_launching() {
 }
 
 /// Whether this build updates itself, asked once, as the menu bar is rebuilt often.
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 fn updates_available() -> bool {
     static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *AVAILABLE.get_or_init(|| unsafe { platform::host_updates_available() })
@@ -3094,7 +3098,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
     // Only a release build that carries Sparkle has updates to check for.
     let mut app = Vec::new();
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "linux"))]
     if updates_available() {
         app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
     }

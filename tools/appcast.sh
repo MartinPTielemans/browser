@@ -1,9 +1,12 @@
 #!/bin/bash
-# Makes the DMG tools/release.sh made the update every copy of ilo checks for: an entry in the
-# appcast, with its release notes and signed with the owner's EdDSA key in their Keychain, in
-# app/build/release/appcast/appcast.xml. With --publish, the DMG goes up as the GitHub release
+# Makes the DMG tools/release.sh made, and the Windows installer --windows names, the update every
+# copy of ilo checks for: an entry in the appcast for each, with its release notes and signed with
+# the owner's EdDSA key in their Keychain, in app/build/release/appcast/appcast.xml. Sparkle reads
+# the Mac's and WinSparkle the Windows one (tools/appcast.py). The installer is built from the
+# DMG's commit, so the two have one build number. With --publish, both go up as the GitHub release
 # v<version>, and the appcast to the release the feed (app/branding/update-feed) is served from.
-# The notes are Markdown, shown in the update's alert; its first launch opens the release's page.
+# The notes are Markdown, shown in the Mac's alert; WinSparkle shows the release's page, which the
+# Mac's first launch of the update opens.
 #
 # Once, on the owner's Mac, before the first release, with Sparkle from app/setup.sh:
 #   app/.deps/Sparkle/bin/generate_keys --account ilo                      # the key, in the Keychain
@@ -11,12 +14,24 @@
 # Then, for each release:
 #   UPDATE_PUBLIC_KEY=$(app/.deps/Sparkle/bin/generate_keys --account ilo -p) app/build.sh prod
 #   SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh
-#   tools/appcast.sh notes.md && tools/appcast.sh notes.md --publish
-# Usage: tools/appcast.sh notes.md [--publish]
+#   tools/appcast.sh notes.md --windows ilo-setup.exe     # then look at the appcast it made
+#   tools/appcast.sh notes.md --windows ilo-setup.exe --publish
+# Usage: tools/appcast.sh notes.md [--windows installer.exe] [--publish]
 set -euo pipefail
-root="$(cd "$(dirname "$0")/../app" && pwd)"
-notes=${1:?"usage: tools/appcast.sh notes.md [--publish]"}
-publish=${2:-}
+tools="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$tools/../app" && pwd)"
+usage="usage: tools/appcast.sh notes.md [--windows installer.exe] [--publish]"
+notes=${1:?$usage}
+shift
+windows=
+publish=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --windows) windows=${2:?$usage} && shift 2 ;;
+    --publish) publish=1 && shift ;;
+    *) echo "$usage" >&2 && exit 2 ;;
+  esac
+done
 name=$(cat "$root/branding/name")
 out=$root/build/release
 app=$out/$name.app
@@ -30,8 +45,10 @@ feed_tag=${feed#"$repo"/releases/download/}
 feed_tag=${feed_tag%%/*}
 
 [ -f "$dmg" ] || { echo "No $dmg. Make it with tools/release.sh." >&2; exit 1; }
+[ -z "$windows" ] || [ -f "$windows" ] || { echo "No $windows." >&2; exit 1; }
 [ -x "$bin/generate_appcast" ] || { echo "No Sparkle in app/.deps. Run app/setup.sh." >&2; exit 1; }
 version=$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")
+build=$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")
 # An update signed with another key than the one the app carries is one it refuses.
 key=$(plutil -extract SUPublicEDKey raw "$app/Contents/Info.plist")
 if [ "$("$bin/generate_keys" --account "$name" -p)" != "$key" ]; then
@@ -45,10 +62,15 @@ rm -rf "$work"
 mkdir "$work"
 cp "$dmg" "$work/"
 cp "$notes" "$work/$name.md"
+# generate_appcast sees only the Mac's entries, as it would take the Windows ones for its own.
+aside=$out/appcast-windows.xml
 before=0
 case $(curl -sSL -w '%{http_code}' -o "$work/appcast.xml" "$feed") in
-  200) before=$(grep -c '<item>' "$work/appcast.xml" || true) ;;
-  404) rm "$work/appcast.xml" ;; # the first release
+  200) before=$(python3 -I "$tools/appcast.py" aside "$work/appcast.xml" "$aside") ;;
+  404) # the first release
+    rm "$work/appcast.xml"
+    printf '<rss version="2.0"><channel/></rss>\n' > "$aside"
+    ;;
   *) echo "Couldn't fetch $feed." >&2 && exit 1 ;;
 esac
 "$bin/generate_appcast" --account "$name" \
@@ -61,12 +83,21 @@ if ! grep -q 'sparkle:edSignature=' "$work/appcast.xml" || [ "$after" -lt "$befo
   echo "generate_appcast made an appcast without a signature, or lost an update: $work/appcast.xml" >&2
   exit 1
 fi
+if [ -n "$windows" ]; then
+  signature=$("$bin/sign_update" --account "$name" -p "$windows")
+  python3 -I "$tools/appcast.py" finish "$work/appcast.xml" "$aside" --windows \
+    "$repo/releases/download/v$version/$(basename "$windows")" "$(wc -c < "$windows" | tr -d ' ')" \
+    "$signature" "$version" "$build" "$repo/releases/tag/v$version"
+else
+  python3 -I "$tools/appcast.py" finish "$work/appcast.xml" "$aside"
+fi
+rm "$aside"
 echo "$work/appcast.xml"
-[ "$publish" = --publish ] || exit 0
+[ -n "$publish" ] || exit 0
 
-# The DMG first, as the appcast sends every copy to it.
-gh release create "v$version" "$dmg" --repo "$slug" --target "$(git -C "$root" rev-parse HEAD)" \
-  --title "$name $version" --notes-file "$notes" --latest
+# The downloads first, as the appcast sends every copy to them.
+gh release create "v$version" "$dmg" ${windows:+"$windows"} --repo "$slug" \
+  --target "$(git -C "$root" rev-parse HEAD)" --title "$name $version" --notes-file "$notes" --latest
 gh release view "$feed_tag" --repo "$slug" > /dev/null 2>&1 ||
   gh release create "$feed_tag" --repo "$slug" --prerelease --latest=false --title "Updates" \
     --notes "The appcast every copy of $name checks for updates (app/branding/update-feed)."
