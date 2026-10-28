@@ -50,6 +50,7 @@ use crate::tokens::icon_picker::SEGMENTS_FILL;
 use crate::tokens::icon_picker::TRASH_GAP;
 use crate::tokens::icon_picker::TRASH_GLYPH;
 use crate::tokens::icon_picker::LABEL;
+use crate::tokens::icon_picker::BLUR_STAND_IN;
 /// The glyphs, eight to a row on a 31 pt pitch, the first 12.25 in and 47.75 under the card's top.
 const COLUMNS: usize = 8;
 use crate::tokens::icon_picker::PITCH;
@@ -783,6 +784,16 @@ pub(crate) fn outline(
     path.close();
 }
 
+/// Only the Mac's host blurs what's behind the card. Elsewhere a page sharp through it reads as
+/// noise, and an X server can't blend a child window at all, so it's opaque over a stand-in for the
+/// blur, as Reduce Transparency is.
+fn opaque_off_mac(fill: Rgba) -> Rgba {
+    if cfg!(target_os = "macos") {
+        return fill;
+    }
+    crate::palette::over(rgb(BLUR_STAND_IN), fill, fill.a)
+}
+
 /// A popover's card through `corners` at `origin`: its fill, and the modal level's rim round it.
 pub(crate) fn paint_card(
     origin: Point<Pixels>,
@@ -793,7 +804,7 @@ pub(crate) fn paint_card(
     let mut fill = PathBuilder::fill();
     outline(&mut fill, origin, corners, 0.);
     if let Ok(path) = fill.build() {
-        window.paint_path(path, color);
+        window.paint_path(path, opaque_off_mac(color));
     }
     // The modal level's rim, 1 pt inside the edge; its outline and shadow are the host's.
     let mut edge = PathBuilder::stroke(px(1.));

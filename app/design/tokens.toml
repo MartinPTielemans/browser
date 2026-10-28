@@ -264,6 +264,9 @@ radius = 20.0
 below-icon = 25.0
 # Grey at 0.565 over the blur: lighter than the command bar's fill, as Arc's is.
 fill = 0x4848_4890
+# What stands for the blur under the card off the Mac, where nothing blurs: the sidebar's material,
+# which the card hangs over.
+blur-stand-in = 0x131313
 # Emoji | Icon, 14.5 under the card's top, with the trash button 7 after it, the two centred; with
 # no icon to remove, Emoji | Icon is centred alone (Arc 1.170 cap).
 segments-top = 14.5
