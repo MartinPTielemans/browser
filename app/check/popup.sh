@@ -8,7 +8,8 @@
 # after the relaunch, while a window the page makes behind loads at once. Its Print and ⌘P from the
 # page show print preview centred over the page, at its top, which escape closes. Switching or
 # closing a full-screen page's tab ends its full screen and the window's, and closing it shows the
-# tab it opened first.
+# tab it opened first. A sign-in popup, as Google's, keeps its opener through the identity site and
+# back, sends the page what it got and closes itself, which the page sees, and the page shows again.
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.
@@ -252,4 +253,81 @@ expect "^browser: loaded $waited https://example.org/\$" \
   "the link's tab didn't load once shown after the relaunch"
 exec 3>&-
 quit
-echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do and shows in ilo's menu at the click, a dismiss leaves the page free to show the next, and a text field's has its spelling and writing direction items and a Select All that works. Open Link in New Tab opens tabs under the page, after the ones it opened and above the others, which load only once shown and come back after a quit unloaded, while a window the page makes behind loads at once, and closing one shows the nearest other tab the page opened. Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's, and closing it shows the tab it opened first. Windows: $out/popup.png, $out/link-menu.png, $out/links-behind.png, $out/page-menu.png, $out/print.png, $out/print-key.png, $out/field-page-menu.png. The text field's menu: $(grep '^browser: menu shown .*Select All' "$log" | tail -1 | cut -d' ' -f4-)"
+
+# A sign-in popup (#388): the page opens the identity site, another, whose Continue redirects back to
+# the page's site, which posts what it got to the opener and closes the popup itself, as Sign in
+# with Google does. Its title says whether it found its opener.
+serve
+printf '%s' '<title>loading</title><script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+let got = "", gone = false;
+const say = () => document.title = (got ? "signed in " + got : "waiting") + (gone ? " closed" : "");
+onmessage = e => {
+  if (e.origin == location.origin) {
+    got = e.data;
+    say();
+  }
+};
+// A popup needs a user gesture, which a key press is.
+onkeydown = e => {
+  if (e.key != "o" || e.metaKey) {
+    return;
+  }
+  const popup = open("http://localhost:" + location.port + "/consent.html", "",
+    "popup,width=500,height=600");
+  // Sign-in libraries watch for the popup to close, which ends the sign-in.
+  const watch = setInterval(() => {
+    if (popup.closed) {
+      clearInterval(watch);
+      gone = true;
+      say();
+    }
+  }, 100);
+};
+</script>' > "$out/site/sign-in-page.html"
+printf '%s' '<title>loading</title><a id=a style="position:fixed;inset:0;font:24px system-ui">Continue</a>
+<script>
+a.href = "/bounce?to=" + encodeURIComponent(
+  "http://127.0.0.1:" + location.port + "/callback.html?ada");
+requestAnimationFrame(() => setTimeout(() => document.title = "consent"));
+</script>' > "$out/site/consent.html"
+printf '%s' '<title>loading</title><script>
+if (!opener) {
+  document.title = "no opener";
+}
+opener.postMessage(location.search.slice(1), location.origin);
+close();
+</script>' > "$out/site/callback.html"
+log="$out/popup-sign-in.log"
+step=0
+rm -f "$saved" "$launch_frame"
+BROWSER_DRIVE=1 BROWSER_URL="${site}sign-in-page.html" "$app/Contents/MacOS/Browser" \
+  < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the sign-in page didn't draw"
+page=$(grep -m1 '^browser: today [0-9]' "$log" | cut -d' ' -f3)
+send click $page_point
+send key o
+expect "^browser: tab [0-9]* opened by $page in the foreground\$" \
+  "the sign-in popup didn't open as a tab"
+signing=$(grep "^browser: tab [0-9]* opened by $page" "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: title $signing consent\$" "the identity site didn't draw in the popup's tab"
+../tools/window-screenshot.sh "$pid" "$out/sign-in.png" || fail "no window to capture"
+send click $page_point
+served "^GET chromium 127.0.0.1:$port/callback.html?ada " \
+  "Continue didn't bring the popup back to the page's site"
+expect "^browser: title \($page signed in ada\|$signing no opener\)" \
+  "the page didn't get the popup's message"
+grep -q "^browser: title $signing no opener\$" "$log" &&
+  fail "the popup lost its opener on its way through the identity site"
+expect "^browser: tab $signing closed\$" "the popup's window.close() didn't close its tab"
+expect "^browser: title $page signed in ada closed\$" "the page didn't see its popup close"
+expect "^browser: selected $page\( in .*\)\{0,1\}\$" \
+  "closing the popup didn't show the page that opened it"
+expect "^browser: today $page\$" "the popup's tab stayed in Today: $(today)"
+../tools/window-screenshot.sh "$pid" "$out/signed-in.png" || fail "no window to capture"
+exec 3>&-
+quit
+echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do and shows in ilo's menu at the click, a dismiss leaves the page free to show the next, and a text field's has its spelling and writing direction items and a Select All that works. Open Link in New Tab opens tabs under the page, after the ones it opened and above the others, which load only once shown and come back after a quit unloaded, while a window the page makes behind loads at once, and closing one shows the nearest other tab the page opened. Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's, and closing it shows the tab it opened first. A sign-in popup keeps its opener through the identity site and back, sends the page what it got and closes itself, which the page sees, and the page shows again. Windows: $out/popup.png, $out/link-menu.png, $out/links-behind.png, $out/page-menu.png, $out/print.png, $out/print-key.png, $out/field-page-menu.png, $out/sign-in.png, $out/signed-in.png. The text field's menu: $(grep '^browser: menu shown .*Select All' "$log" | tail -1 | cut -d' ' -f4-)"
