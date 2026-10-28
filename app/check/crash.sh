@@ -1,6 +1,6 @@
 # A crash leaves a minidump in the profile's Crashpad folder: --crash-after-start crashes the
 # browser once it has started and Crashpad's handler is up, the handler writes the report, and no
-# Chromium process outlives the crash.
+# Chromium process outlives the crash, the handler included. Nor does one outlive a quit.
 
 log="$out/crash.log"
 crashpad="$(dirname "$saved")/Crashpad"
@@ -28,5 +28,16 @@ for _ in $(seq 20); do
   pgrep -f "$app/Contents" > /dev/null || break
   sleep 0.5
 done
+pgrep -f "$app/Contents/.*/chrome_crashpad_handler" > /dev/null &&
+  fail "Crashpad's handler outlived the crash"
 pgrep -f "$app/Contents" > /dev/null && fail "Chromium processes outlived the crash"
-echo "ok: the crash left a minidump of $(wc -c < "$dump" | tr -d ' ') bytes in ${dump#"$crashpad"/}"
+bytes=$(wc -c < "$dump" | tr -d ' ')
+
+log="$out/crash-quit.log"
+BROWSER_URL='data:text/html,<title>crash</title>' "$app/Contents/MacOS/Browser" < /dev/null \
+  > "$log" 2>&1 &
+pid=$!
+await_load
+quit
+echo "ok: the crash left a minidump of $bytes bytes in ${dump#"$crashpad"/}, and Crashpad's" \
+  "handler outlived neither it nor a quit"
