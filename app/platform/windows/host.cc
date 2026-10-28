@@ -271,8 +271,7 @@ void WatchForeground() {
   (void)hook;
 }
 
-Floating g_overlays[2];
-void (*g_overlay_dismissed[2])(void) = {};
+Floating g_overlays[3];
 struct Corner {
   Floating floating;
   double right = 0;
@@ -289,7 +288,9 @@ Floating g_site_controls;
 Floating g_capture;
 Floating g_toast;
 Floating g_tooltip;
+double g_tooltip_margin = 0;
 Floating g_link_target;
+double g_link_margin = 0;
 void (*g_link_pointer)(double, double) = nullptr;
 void* g_link_shown_over = nullptr;
 struct Reveal {
@@ -368,77 +369,6 @@ LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
 
-// What a host_menu_item's shortcut reads as on Windows, after a tab in its title.
-std::wstring Shortcut(const host_menu_item& item) {
-  if (!item.key || !*item.key) {
-    return {};
-  }
-  std::wstring key = Wide(item.key);
-  if (key.size() != 1 || key[0] < 0x20 || key[0] >= 0x7f) {
-    // shortcut: only printable keys are shown; AppKit's private-use arrows and function keys
-    // aren't named yet.
-    return {};
-  }
-  std::wstring text;
-  if (item.command || item.control) {
-    text += L"Ctrl+";
-  }
-  if (item.option) {
-    text += L"Alt+";
-  }
-  if (item.shift) {
-    text += L"Shift+";
-  }
-  return text + static_cast<wchar_t>(towupper(key[0]));
-}
-
-int Menu(HWND owner, const host_menu_item* items, size_t count, POINT screen) {
-  std::vector<HMENU> menus(count, nullptr);
-  HMENU top = CreatePopupMenu();
-  auto parent_menu = [&](int parent) {
-    return parent >= 0 && static_cast<size_t>(parent) < count && menus[parent] ? menus[parent]
-                                                                               : top;
-  };
-  for (size_t i = 0; i < count; ++i) {
-    const host_menu_item& item = items[i];
-    HMENU parent = parent_menu(item.parent);
-    if (!item.title) {
-      AppendMenuW(parent, MF_SEPARATOR, 0, nullptr);
-      continue;
-    }
-    bool has_children = false;
-    for (size_t j = i + 1; j < count; ++j) {
-      has_children = has_children || items[j].parent == static_cast<int>(i);
-    }
-    std::wstring title = Wide(item.title);
-    // shortcut: a swatch shows as nothing; draw it as an owner-drawn bitmap when Spaces' colours
-    // are ported.
-    std::wstring shortcut = Shortcut(item);
-    if (!shortcut.empty()) {
-      title += L"\t" + shortcut;
-    }
-    UINT flags = MF_STRING | (item.enabled ? 0 : MF_GRAYED) | (item.checked ? MF_CHECKED : 0);
-    if (has_children) {
-      menus[i] = CreatePopupMenu();
-      AppendMenuW(parent, flags | MF_POPUP, reinterpret_cast<UINT_PTR>(menus[i]), title.c_str());
-    } else {
-      AppendMenuW(parent, flags, i + 1, title.c_str());
-    }
-  }
-  SetForegroundWindow(owner);
-  const int chosen = TrackPopupMenuEx(top, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
-                                      screen.x, screen.y, owner, nullptr);
-  DestroyMenu(top);
-  return chosen > 0 ? chosen - 1 : -1;
-}
-
-POINT ScreenPoint(HWND hwnd, double x, double y) {
-  const double scale = Scale(hwnd);
-  POINT point{static_cast<LONG>(x * scale), static_cast<LONG>(y * scale)};
-  ClientToScreen(hwnd, &point);
-  return point;
-}
-
 }  // namespace
 
 extern "C" {
@@ -460,11 +390,29 @@ void host_centered(double width, double height, double* x, double* y) {
 
 // shortcut: no launch window on Windows yet: the browser window shows once the UI has drawn. Port
 // the Mac's picture of the last sidebar when launch is measured on Windows.
-void host_show_launch_window(const char*, double, double) {}
+void host_show_launch_window(const char*, double, double, double, double) {}
 void host_close_launch_window(void) {}
 bool host_save_launch_picture(void*, const char*, double) {
   return false;
 }
+
+// shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
+void host_watch_finished_launching(void (*finished)(void)) {
+  finished();
+}
+
+// shortcut: no screens or window frame yet, so windows open where host_centered puts them and
+// aren't brought back where they were.
+size_t host_screens(double*, size_t) {
+  return 0;
+}
+
+bool host_window_frame(void*, double*, double*, double*, double*) {
+  return false;
+}
+
+// Linux's alone: GPUI's loop runs inside Chromium's there. On Windows it runs on window messages.
+void host_watch_fd(int, void (*)(void)) {}
 
 void* host_ui_view(void) {
   static const wchar_t* holder_class = [] {
@@ -488,6 +436,11 @@ void host_show_window(void* ui_view) {
   HWND root = Root(ui_view);
   ShowWindow(root, SW_SHOW);
   SetForegroundWindow(root);
+}
+
+// shortcut: shows it in front, as host_show_window, not behind the window it follows.
+void host_show_window_behind(void* ui_view, void*) {
+  host_show_window(ui_view);
 }
 
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {
@@ -573,11 +526,13 @@ void host_add_overlay(int overlay, void* overlay_view, double, void (*dismissed)
   Adopt(g_overlays[overlay], overlay_view, false, dismissed);
 }
 
-// shortcut: an overlay's shape, radius and growth are Windows 11's rounded corners, with no blur
-// behind it and no motion as it shows.
+// shortcut: an overlay's shape, radius, elevation and growth are Windows 11's rounded corners and
+// shadow, with no blur behind it and no motion as it shows or hides.
 void host_set_overlay_shape(int, const double*, size_t) {}
 void host_set_overlay_radius(int, double) {}
+void host_set_overlay_elevation(int, float, double, float, double, double) {}
 void host_set_overlay_growth(int, double, double) {}
+void host_set_overlay_shrink(int) {}
 
 void host_show_overlay(int overlay,
                        void* ui_view,
@@ -585,12 +540,14 @@ void host_show_overlay(int overlay,
                        double left,
                        double top,
                        double width) {
-  Floating& other = g_overlays[1 - overlay];
-  if (other.hwnd && IsWindowVisible(other.hwnd)) {
-    Hide(other);
-    if (other.dismissed) {
-      void (*dismissed)(void) = other.dismissed;
-      Later([dismissed] { dismissed(); });
+  for (int each = 0; each < 3; ++each) {
+    Floating& other = g_overlays[each];
+    if (each != overlay && other.hwnd && IsWindowVisible(other.hwnd)) {
+      Hide(other);
+      if (other.dismissed) {
+        void (*dismissed)(void) = other.dismissed;
+        Later([dismissed] { dismissed(); });
+      }
     }
   }
   double content_width, content_height;
@@ -816,6 +773,9 @@ void host_toast_takes_clicks(bool takes) {
   g_toast.mouse_through = !takes;
 }
 
+// shortcut: while it takes clicks, its whole window does, the margin round the plate included.
+void host_set_toast_plate(double, double, double, double) {}
+
 void host_show_toast(void* ui_view) {
   double content_width, content_height, width, height;
   ContentSize(Root(ui_view), &content_width, &content_height);
@@ -827,27 +787,29 @@ void host_hide_toast(void) {
   Hide(g_toast);
 }
 
-void host_add_tooltip(void* tooltip_view, void (*)(void)) {
+void host_add_tooltip(void* tooltip_view, double margin, void (*)(void)) {
   Adopt(g_tooltip, tooltip_view, true, nullptr);
+  g_tooltip_margin = margin;
 }
 
 // shortcut: tooltips and the link target show and hide at once, without their fade.
 void host_show_tooltip(void* ui_view, double left, double top, double) {
-  Show(g_tooltip, ui_view, left, top, -1, -1, false);
+  Show(g_tooltip, ui_view, left - g_tooltip_margin, top - g_tooltip_margin, -1, -1, false);
 }
 
 void host_hide_tooltip(double) {
   Hide(g_tooltip);
 }
 
-void host_add_link_target(void* link_view, void (*pointer)(double x, double y)) {
+void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {
   Adopt(g_link_target, link_view, true, nullptr);
+  g_link_margin = margin;
   g_link_pointer = pointer;
 }
 
 void host_show_link_target(void* ui_view, double left, double top, double) {
   g_link_shown_over = ui_view;
-  Show(g_link_target, ui_view, left, top, -1, -1, false);
+  Show(g_link_target, ui_view, left - g_link_margin, top - g_link_margin, -1, -1, false);
   WatchPointer();
 }
 
@@ -865,29 +827,18 @@ void host_focus(void* view) {
   SetFocus(hwnd);
 }
 
-int host_menu(void* ui_view,
-              const host_menu_item* items,
-              size_t count,
-              double x,
-              double y,
-              int in,
-              int) {
-  HWND where = Root(ui_view);
-  if (in == HOST_IN_REVEAL) {
-    if (auto it = g_reveals.find(ui_view); it != g_reveals.end()) {
-      where = it->second.floating.hwnd;
-    }
-  } else if (in == HOST_IN_SETTINGS && g_settings.hwnd) {
-    where = g_settings.hwnd;
-  }
-  // shortcut: a pop-up button's menu opens under the pointer, not with the chosen item over the
-  // button.
-  return Menu(where, items, count, ScreenPoint(where, x, y));
-}
+// shortcut: menus, ilo's own windows on the Mac (mac/menu_window.h), don't show on Windows yet.
+void host_add_menu_window(void*,
+                          bool (*)(int, double, double),
+                          void (*)(void),
+                          bool (*)(const char*)) {}
 
-int host_menu_in(const host_menu_item* items, size_t count, double x, double y, void* view) {
-  HWND hwnd = Hwnd(view);
-  return Menu(GetAncestor(hwnd, GA_ROOT), items, count, ScreenPoint(hwnd, x, y));
+void host_show_menu_window(void*, bool, double, double, double, double) {}
+
+void host_hide_menu_window(void) {}
+
+void host_menu_area(void*, bool, double* area) {
+  area[0] = area[1] = area[2] = area[3] = 0;
 }
 
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
@@ -1002,17 +953,9 @@ bool host_close_other_window(void) {
 
 void host_detent(void) {}
 
-uint32_t host_accent_color(void) {
-  DWORD color = 0;
-  BOOL opaque = FALSE;
-  if (FAILED(DwmGetColorizationColor(&color, &opaque))) {
-    return 0x0a84ff;
-  }
-  return color & 0xffffff;
-}
-
-// shortcut: an accent colour changed while the browser runs shows at its next launch.
-void host_watch_accent_color(void (*)(void)) {}
+// No Dock. shortcut: the taskbar button's overlay icon could carry the Space's color.
+void host_dock_dot_launch(const char*) {}
+void host_dock_dot(bool, uint32_t) {}
 
 void host_watch_control(void (*released)(void)) {
   if ((GetKeyState(VK_CONTROL) & 0x8000) == 0) {
@@ -1098,6 +1041,14 @@ void host_day_starts(double starts[4]) {
   starts[1] = mktime(&yesterday) * 1000.0;
   starts[2] = mktime(&week) * 1000.0;
   starts[3] = mktime(&last_week) * 1000.0;
+}
+
+bool host_choose(const char*) {
+  return false;
+}
+
+void* host_browser_window(size_t) {
+  return nullptr;
 }
 
 }  // extern "C"
