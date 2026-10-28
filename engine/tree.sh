@@ -38,12 +38,36 @@ check_ungoogled() {
 }
 
 # Links the core into the tree as //browser_core, so the next build has every edit to it, and
-# applies our series. A patch already in the tree is skipped, so this is safe to run again; one
-# that neither applies cleanly nor is in the tree has drifted from it.
+# applies our series. A copy of each patch applied is kept in the tree, in .browser_core-series, so
+# a later run on a kept tree takes out, newest first, the patches from the first one that changed
+# or left the series, and applies the series again from there. A patch already in the tree is
+# skipped, so this is safe to run again; one that neither applies cleanly nor is in the tree has
+# drifted from it. In the Mac's bash 3.2, which has no mapfile and calls an empty array unbound.
 apply_series() {
-  local src=$1 name patch
+  local src=$1 kept=$1/.browser_core-series name patch first=0 i
+  local -a names=() applied=()
   ln -sfn "$(dirname "$engine")/core" "$src/browser_core"
-  while read -r name; do
+  while read -r name; do names+=("$name"); done < <(grep -v -e '^#' -e '^$' "$engine/series")
+  if [ -f "$kept/series" ]; then
+    while read -r name; do applied+=("$name"); done <"$kept/series"
+  elif ! series_fits "$src" "${names[@]}"; then
+    # A tree from before the copies were kept, with older versions of some patches in it.
+    unapply_history "$src" "${names[@]}"
+  fi
+  while [ "$first" -lt "${#applied[@]}" ] && [ "${applied[first]}" = "${names[first]:-}" ] &&
+    cmp -s "$kept/${applied[first]}" "$engine/patches/${applied[first]}"; do
+    first=$((first + 1))
+  done
+  for ((i = ${#applied[@]} - 1; i >= first; i--)); do
+    patch -d "$src" -p1 -F0 -R -s <"$kept/${applied[i]}" ||
+      { echo "${applied[i]} won't come out of the tree" >&2 && exit 1; }
+    echo "took out ${applied[i]}" >&2
+  done
+  mkdir -p "$kept"
+  : >"$kept/series"
+  for ((i = 0; i < first; i++)); do echo "${applied[i]}" >>"$kept/series"; done
+  for ((i = first; i < ${#names[@]}; i++)); do
+    name=${names[i]}
     patch=$engine/patches/$name
     if patch -d "$src" -p1 -F0 -N --dry-run -s <"$patch" >/dev/null 2>&1; then
       patch -d "$src" -p1 -F0 -N -s <"$patch"
@@ -52,5 +76,49 @@ apply_series() {
       echo "$name has drifted: it doesn't apply, and it isn't in the tree" >&2
       exit 1
     fi
-  done < <(grep -v -e '^#' -e '^$' "$engine/series")
+    mkdir -p "$(dirname "$kept/$name")"
+    cp "$patch" "$kept/$name"
+    echo "$name" >>"$kept/series"
+  done
+}
+
+# Whether each of the series, in order, applies to the tree or is in it already, tried on a copy
+# of the files they change.
+series_fits() {
+  local src=$1 name file try fits=0
+  shift
+  try=$(mktemp -d)
+  for name in "$@"; do
+    for file in $(sed -n 's|^+++ b/\([^[:space:]]*\).*|\1|p' "$engine/patches/$name"); do
+      [ ! -e "$src/$file" ] || [ -e "$try/$file" ] ||
+        { mkdir -p "$(dirname "$try/$file")" && cp "$src/$file" "$try/$file"; }
+    done
+  done
+  for name in "$@"; do
+    patch -d "$try" -p1 -F0 -N -s <"$engine/patches/$name" >/dev/null 2>&1 ||
+      patch -d "$try" -p1 -F0 -R --dry-run -s <"$engine/patches/$name" >/dev/null 2>&1 ||
+      { fits=1 && break; }
+  done
+  rm -rf "$try"
+  return "$fits"
+}
+
+# Takes the series out of a tree that kept no copies, newest first, each in whichever of its
+# versions in the repository's history is in the tree. Needs that history: the engine's workflow
+# checks out all of it.
+unapply_history() {
+  local src=$1 name rev i
+  shift
+  local -a names=("$@")
+  for ((i = ${#names[@]} - 1; i >= 0; i--)); do
+    name=${names[i]}
+    for rev in $(git -C "$engine" log --format=%H -- "patches/$name"); do
+      if git -C "$engine" show "$rev:./patches/$name" |
+        patch -d "$src" -p1 -F0 -R --dry-run -s >/dev/null 2>&1; then
+        git -C "$engine" show "$rev:./patches/$name" | patch -d "$src" -p1 -F0 -R -s
+        echo "took out $name as of ${rev:0:12}" >&2
+        break
+      fi
+    done
+  done
 }
