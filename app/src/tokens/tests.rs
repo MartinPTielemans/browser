@@ -46,6 +46,72 @@ fn look_values_come_from_the_token_file() {
     assert!(stale.is_empty(), "ALLOWED lists literals that are gone: {stale:?}");
 }
 
+/// The `radius` keys that aren't one of the four: the shapes of a beak and a glyph, which round a
+/// point, not a corner, and what the rule derives, which the concentric test below checks.
+const NOT_ONE_OF_FOUR: &[&str] = &[
+    "icon-picker.arrow-tip-radius",
+    "icon-picker.arrow-foot-radius",
+    "theme-picker.arrow-tip-radius",
+    "theme-picker.arrow-foot-radius",
+    "site-controls.beak-tip-radius",
+    "site-controls.beak-foot-radius",
+    "shell.split-targets.half-glyph-radius",
+    "shell.extensions.badge-radius",
+    "shell.recent-downloads.preview-radius",
+];
+
+#[test]
+fn every_corner_is_one_of_the_four_radii() {
+    use super::radius::{CONTROL, PANEL, ROW, SHEET};
+    let toml = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("design/tokens.toml")).unwrap();
+    let (mut table, mut seen, mut wrong) = (String::new(), 0, Vec::new());
+    for line in toml.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            table = name.to_string();
+        } else if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            if table == "radius" || !key.ends_with("radius") || line.starts_with('#') {
+                continue;
+            }
+            let at = format!("{table}.{key}");
+            seen += 1;
+            let value: f32 = value.split('#').next().unwrap().trim().parse().unwrap();
+            if ![CONTROL, ROW, PANEL, SHEET].contains(&value) && !NOT_ONE_OF_FOUR.contains(&at.as_str()) {
+                wrong.push(format!("{at} = {value}"));
+            }
+        }
+    }
+    assert!(seen > 30, "found only {seen} radius tokens");
+    assert!(wrong.is_empty(), "not one of the four radii (or listed in NOT_ONE_OF_FOUR):\n{}", wrong.join("\n"));
+    assert!(CONTROL < ROW && ROW < PANEL && PANEL < SHEET);
+}
+
+#[test]
+fn a_corner_inside_another_is_concentric() {
+    use super::{
+        capture, command_bar, radius, shell,
+        shell::{extensions, recent_downloads},
+        site_controls, toast,
+    };
+    // outer = inner + inset, where the inset is a token (or two).
+    assert_eq!(command_bar::RADIUS, command_bar::PLATE_RADIUS + command_bar::LIST_X + command_bar::PLATE_INSET);
+    assert_eq!(command_bar::FIELD_RADIUS, command_bar::RADIUS);
+    assert_eq!(site_controls::RADIUS, site_controls::TILE_RADIUS + site_controls::PADDING);
+    assert_eq!(shell::REVEAL_RADIUS, shell::PLATE_RADIUS + shell::PLATE_INSET);
+    assert_eq!(
+        recent_downloads::PREVIEW_RADIUS,
+        recent_downloads::PLATE_RADIUS - (recent_downloads::COLUMN_X - recent_downloads::PLATE_INSET)
+    );
+    // The capture menu's rows and its field are cut by the code from the menu's own corner.
+    assert!(capture::MENU_RADIUS - capture::ROW_INSET >= radius::CONTROL);
+    assert_eq!(capture::MENU_RADIUS - capture::FIELD_INSET, radius::CONTROL);
+    // The toast's chips sit as far in from its top as its corner needs, to half a point.
+    let inset = (toast::HEIGHT - toast::CHIP_HEIGHT) / 2.;
+    assert!((toast::RADIUS - toast::CHIP_RADIUS - inset).abs() < 0.5, "{inset}");
+    // A pill's corners are half its height.
+    assert_eq!(extensions::BADGE_RADIUS, extensions::BADGE_HEIGHT / 2.);
+}
+
 #[test]
 fn finds_colours_and_radii_but_not_tokens() {
     for code in [

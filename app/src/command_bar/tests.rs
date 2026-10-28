@@ -964,14 +964,14 @@ fn the_pointer_moving_takes_the_plate_with_it(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_click_on_the_url_field_opens_the_bar_over_it_and_cmd_l_centred(cx: &mut TestAppContext) {
     let mut bar = Bar::new(cx);
-    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 18"]);
+    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 20"]);
     let field = Bounds::new(point(px(8.), px(46.)), size(px(244.), px(36.)));
     bar.edit("https://example.com/", Some(field));
-    assert_eq!(bar.shown(), ["at 8 44, 350 wide, radius 12"]);
+    assert_eq!(bar.shown(), ["at 8 44, 350 wide, radius 20"]);
     assert!(bar.over_field());
     assert_eq!(bar.input(), ("https://example.com/".into(), 0..20));
     bar.edit("https://example.com/", None);
-    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 18"]);
+    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 20"]);
     assert!(!bar.over_field());
 }
 
