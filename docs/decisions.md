@@ -113,7 +113,7 @@ Consequences now:
 
 ## 9. Crash reports: opt-in, to a self-hostable GlitchTip
 
-Crashpad writes a minidump of every crash on the user's device. None leaves it unless the user turns on Settings › Privacy › Send Crash Reports, which is off: then the core sends each report not yet sent to the build's collector, the minidump alone, without cookies, and deletes it once the collector has it. Turning it off deletes the reports not yet sent. Agents get no path to the setting.
+Crashpad writes a minidump of every crash on the user's device. None leaves it unless the user turns on Settings › Privacy › Send Crash Reports, which is off: then the core sends each report not yet sent to the build's collector, the minidump alone, without cookies, and deletes it once the collector has it. Turning it off deletes the reports not yet sent. While it's off, the launch after the browser crashed offers once to send that crash's report alone. Agents get no path to the setting or the offer.
 
 - **Collector: [GlitchTip](https://glitchtip.com) (MIT).** It takes Breakpad minidumps at Sentry's endpoint, symbolicates them with uploaded debug files, and self-hosts from one Docker Compose file. Sentry itself is under the FSL, not an open-source license, so a fork couldn't run it on the same terms as the browser; Socorro, Mozilla's, isn't supported outside Mozilla.
 - **A default service URL.** `app/branding/crash-reports` holds the collector's minidump endpoint, `https://<host>/api/<project id>/minidump/?sentry_key=<key>`, read off the project's DSN, `https://<key>@<host>/<project id>`. Empty, as a fork's starts, the build sends nothing and Settings has no Privacy tab.
