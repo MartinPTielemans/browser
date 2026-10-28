@@ -185,6 +185,7 @@ source_set("browser_core") {
     "//chrome/common",
     "//chrome/common/profiler",
     "//components/content_settings/core/browser",
+    "//components/crash/core/app",
     "//components/content_settings/core/common",
     "//components/download/content/public",
     "//components/download/public/common:public",

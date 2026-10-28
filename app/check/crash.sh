@@ -1,10 +1,11 @@
-# A crash leaves a minidump in the profile's Crashpad folder: --crash-test crashes the browser once
-# it has started, Crashpad's handler writes the report, and no Chromium process outlives the crash.
+# A crash leaves a minidump in the profile's Crashpad folder: --crash-after-start crashes the
+# browser once it has started and Crashpad's handler is up, the handler writes the report, and no
+# Chromium process outlives the crash.
 
 log="$out/crash.log"
 crashpad="$(dirname "$saved")/Crashpad"
 rm -rf "$crashpad"
-"$app/Contents/MacOS/Browser" --crash-test < /dev/null > "$log" 2>&1 &
+"$app/Contents/MacOS/Browser" --crash-after-start < /dev/null > "$log" 2>&1 &
 pid=$!
 await '^browser: crash test$' || fail "the app didn't start its crash test"
 for _ in $(seq 20); do

@@ -93,7 +93,9 @@ ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patch
 
 Crashpad writes a minidump of every crash, on every platform, as Chrome's does
 (`patches/ours/chromium-crashpad-start.patch` and, on the Mac, `chromium-crashpad-mac-handler.patch`
-undo ungoogled-chromium's two switches that stopped it). Its handler never uploads one:
+undo ungoogled-chromium's two switches that stopped it). On the Mac the browser doesn't wait for the
+handler to start, which held up launch by about 670 ms (`chromium-crashpad-mac-async-start.patch`),
+so a crash of the browser in its first moments isn't caught. Its handler never uploads one:
 ungoogled-chromium's hunk that takes out the handler's upload thread and its URL stays. The reports
 are in the profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On Windows,
 `chrome_elf` starts Crashpad before the core runs, so they're in Chromium's default folder,
