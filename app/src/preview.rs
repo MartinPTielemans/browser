@@ -1129,6 +1129,9 @@ fn main() {
         let window = cx.open_window(options, |window, cx| {
             let shell = cx.new(|cx| {
                 let first_space = TABS.len() as u64 + 1;
+                // PREVIEW_AGENT=1 makes Reading Claude Code's Space and shows it, with the agent at
+                // work in its third tab and its last loading; =loading has the third load too.
+                let agent = std::env::var("PREVIEW_AGENT").ok();
                 // The preview's Spaces and favorites are in its one profile, 0.
                 // PREVIEW_SPACE_ICONS=1 gives them glyphs, for the footer's row of icons.
                 let glyphs = std::env::var_os("PREVIEW_SPACE_ICONS").is_some();
@@ -1138,7 +1141,11 @@ fn main() {
                         .zip(["glyph:star", "glyph:leaf"])
                         .map(|((id, (name, color)), icon)| {
                             let icon = if glyphs { icon } else { "" };
-                            (id, name.into(), color, 0, icon.into(), "".into(), "".into())
+                            let agent = match agent.is_some() && id == first_space + 1 {
+                                true => "Claude Code".into(),
+                                false => "".into(),
+                            };
+                            (id, name.into(), color, 0, icon.into(), agent, "".into())
                         })
                         .collect();
                 let first_archived = first_space + SPACES.len() as u64;
@@ -1233,9 +1240,15 @@ fn main() {
                 let reading: Vec<u64> = (folder + 1..).take(READING.len()).collect();
                 let (pinned, today) = (reading[..1].to_vec(), reading[1..].to_vec());
                 shell.set_tabs(first_space + 1, pinned, today, Vec::new(), Folders::default(), cx);
-                for (&tab, (title, url)) in reading.iter().zip(READING) {
+                for (index, (&tab, (title, url))) in reading.iter().zip(READING).enumerate() {
                     shell.set_title(tab, title.into(), cx);
-                    shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+                    let loading = agent.is_some()
+                        && (index == 3 || (index == 2 && agent.as_deref() == Some("loading")));
+                    shell.set_page(tab, Page { url: url.into(), loading, ..Default::default() }, cx);
+                }
+                if agent.is_some() {
+                    shell.set_space(first_space + 1, cx);
+                    shell.agent_acted("claude-code".into(), reading[2], cx);
                 }
                 let favorite = std::env::var("PREVIEW_FAVORITE").ok().and_then(|n| n.parse().ok());
                 match (empty.as_deref(), favorite.and_then(|n: usize| favorites.get(n))) {
@@ -1249,6 +1262,7 @@ fn main() {
                         shell.set_selected(0, cx);
                     }
                     (Some(_), _) => shell.set_selected(0, cx),
+                    (None, _) if agent.is_some() => shell.set_selected(reading[0], cx),
                     (None, Some(&tab)) => shell.set_selected(tab, cx),
                     (None, None) => shell.set_selected(1, cx),
                 }

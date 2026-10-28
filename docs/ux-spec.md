@@ -118,7 +118,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Zoom HUD | in: from 0.4 its size about the middle of its top edge over 180 ms, ease-out (0.74 at 40 ms, 0.97 at 117 ms), fading in over 100 ms; a change: down to 0.45 over 85 ms, ease-in-out, the old percent fading with it, then back over 150 ms, ease-out, with the new one; out: back to 0.4 and transparent over 70 ms, ease-in | the zoom HUD | Arc 1.170 rec at 2×, five zooms and a tab switch |
 | Folder open | ease-out, `cubic-bezier(0, 0, 0.58, 1)`, 200 ms, with no overshoot: 38 % in 50 ms, 69 % in 100 ms | the rows under a folder making room as a press opens it | Arc 1.170 rec at 2×, 1 run, 246 pt |
 | Folder close | critically damped, ω ≈ 25 rad/s, from rest: halfway in 69 ms, within 1 % by about 240 ms | the rows under a folder closing up as a press closes it | Arc 1.170 rec at 2×, 1 run, 246 pt |
-| Spinner | 0 → −2π (clockwise), 1.88 s, linear, repeating | tab loading | Dia 1.50.1 bin |
+| Status dot breath | opacity 0.35 → 1 → 0.35, 1.6 s, ease-in-out (a cosine), repeating while the page loads; held at 1 with reduced motion | tab loading, an agent's too | ours (#321) |
 | Glyph change | both from the same moment, linearly, about the glyph's middle: the old glyph fades out and shrinks to 0.6 over 70 ms, and the new one fades in over 40 ms and grows from 0.8 over 80. Changed back before it's done, it goes back from where it is | a glyph that changes on the same thing: reload and stop, a tab's speaker and its muted speaker, a folder closed and open, Copy URL's check back to its link, the arrow before Clear coming and going. Clear is the Space's, so a tab switch in the Space moves its arrow too. A glyph that differs because another tab, Space or window is shown, or on a row just drawn, shows at once | Arc 1.170 rec at 2×, reload into stop at 103.79 s and back at 106.89 s; the other glyphs follow it (*interim*) |
 | Close turn | the ✕'s two bars turn level into − over 110 ms, linearly. Ours (*interim*): back the same way, from where they are | the close button under the pointer as its pinned row is selected, and as it stops being | Arc 1.170 rec at 2×, 144.56–144.67 s |
 | Row press | the plate, with its favicon and title, shrinks to 0.99 about its middle over 70 ms, linearly: 1 pt in at each end. Ours (*interim*): it grows back the same way once let go, and not while it's dragged | a tab or folder row held | Arc 1.170 rec at 2×, two presses, at 110.6 s and 144.56 s; a folder's at 166.97 s |
@@ -467,7 +467,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 |---|---|
 | Footer | 50 tall. Home, our Library button, 32 × 32 at 8 in on the left. A + 32 × 32 at 8 in on the right, its glyph a 14 pt cross in white 0.60. Both have the header's hover plate. Ours: the +'s menu has New Space… and New Folder…, Arc's menus' names, as Arc's + menu isn't recorded |
 | Switcher | between them, 42 to 186 in a 228 sidebar (ours: 42 in from each side at any width). One item per Space, 36 × 34 at a 34 pt pitch, centred; none with one Space |
-| Dot | 8 pt, white 0.50 for the Space shown and 0.19 for the others, 0.30 under the pointer (ours) |
+| Dot | 8 pt, white 0.50 for the Space shown and 0.19 for the others, 0.30 under the pointer (ours); the Space shown's is in its colour, in a 1.5 pt ring of #F3F0E8, when it has one, as the status dots are (#321) |
 | Click | shows that Space |
 | More Spaces than fit | Arc's strip scrolls: measure. Ours narrows the pitch. Dia: 12 pt per item, at most 7 before it scrolls, edge items scaled 0.75–1 (Dia 1.50.1 bin, D›Profile paging) |
 
@@ -1055,7 +1055,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Sidebar | Clear and the URL field's buttons, with the pointer coming onto the sidebar and leaving | — | 1 |
 | Sidebar | A favorite's tooltip, moving to the next favorite; whether a tab row has one | Motion › Tooltip in, out (the move isn't recorded); a tab row's: — (ours: none, Tooltip) | 1 |
 | Sidebar | The width dragged past each limit and let go; a double-click on the edge | Arc 1.170 rec: stops at 164 and 500, hides past the minimum in one frame; done but the bounce at the maximum. The double-click: — (ours: the Space pages' spring) | 1 |
-| Sidebar | A tab loading | — (ours: Dia's Spinner) | 1 |
+| Sidebar | A tab loading | — (ours: the status dot, #321) | 1 |
 | Sidebar | The scroll edge under the favorites | — (ours: Dia's Scroll edge) | 1 |
 | Spaces | A swipe tracking the fingers, let go, and settling | Motion › Space settle | done |
 | Spaces | ⌃1–⌃9 and a click on the switcher | Motion › Space settle | done |

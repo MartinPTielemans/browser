@@ -3,6 +3,7 @@
 use gpui::{Context, MouseButton, MouseDownEvent, Role, div, prelude::*, px, rgba, svg};
 
 use super::{
+    rows::ringed_dot,
     FOOTER_HEIGHT, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLUS_INSET, SPACE_DOT,
     SPACE_GLYPH, SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH,
     SPACE_SHOWN, SWITCHER_INSET, Shell, access::Accessible,
@@ -58,6 +59,10 @@ impl Shell {
                     }),
                 )
                 .child(match SpaceIcon::parse(&space.icon) {
+                    // The Space shown is in its colour, as the status dots are.
+                    SpaceIcon::Dot if shown && let Some(color) = space.color => {
+                        ringed_dot(color, SPACE_DOT).into_any_element()
+                    }
                     SpaceIcon::Dot => div()
                         .size(px(SPACE_DOT))
                         .rounded_full()

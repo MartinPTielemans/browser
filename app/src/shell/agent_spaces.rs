@@ -73,3 +73,32 @@ fn no_tab_of_the_users_moves_into_an_agents_space(cx: &mut TestAppContext) {
     assert_eq!(item(&menu, "Space 1"), Some(true));
     assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Remove from Favorites"), Some(false));
 }
+
+/// An agent is at work in the tab the activity log last let it act in, which its row's label
+/// says while the agent's Space is shown, and not in the tab it acted in before. A tab the user
+/// takes into a Space of theirs no longer shows it.
+#[gpui::test]
+fn an_agents_row_says_its_at_work_where_it_last_acted(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with_agent(cx);
+    let at_work = |shell: &Entity<Shell>, cx: &mut TestAppContext, tab| {
+        shell.update(cx, |shell, _| shell.tab_label(tab).ends_with(", agent working"))
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+        shell.set_space(2, cx);
+    });
+    assert!(!at_work(&shell, cx, 20));
+    shell.update(cx, |shell, cx| shell.agent_acted("claude-code".into(), 20, cx));
+    assert!(at_work(&shell, cx, 20));
+    shell.update(cx, |shell, cx| shell.agent_acted("claude-code".into(), 21, cx));
+    assert!(!at_work(&shell, cx, 20));
+    assert!(at_work(&shell, cx, 21));
+
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![10, 21], Vec::new(), Folders::default(), cx);
+        shell.set_tabs(2, Vec::new(), vec![20], Vec::new(), Folders::default(), cx);
+    });
+    assert!(!at_work(&shell, cx, 21));
+    shell.update(cx, |shell, cx| shell.set_space(1, cx));
+    assert!(!at_work(&shell, cx, 21), "in the user's Space, it's theirs");
+}
