@@ -1558,4 +1558,34 @@ mod tests {
         move_to(cx, (x - 101., y));
         assert_eq!(filled(&shell, cx), [3], "the pointer moved on the row it rests on");
     }
+
+    /// A Today tab whose page was let go after hours unseen keeps its ✕, as the tab itself is
+    /// still there to close, and a click on it closes it without loading it. A pinned tab without
+    /// its page has nothing to close.
+    #[gpui::test]
+    fn a_today_tab_without_its_page_still_closes(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![4, 5], 4);
+        shell.update(cx, |shell, cx| {
+            for tab in [2, 5] {
+                let page = Page { unloaded: true, ..shell.page(tab) };
+                shell.set_page(tab, page, cx);
+            }
+        });
+        let today = close_button(&shell, cx, 5);
+        move_to(cx, today);
+        assert!(shell.read_with(cx, |shell, _| shell.closable(5)));
+        assert_eq!(hovered_glyph(&shell, cx), Some(CLOSE));
+        host.take();
+        cx.simulate_click(point(px(today.0), px(today.1)), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["close 5"]);
+
+        let pinned = close_button(&shell, cx, 2);
+        move_to(cx, pinned);
+        assert!(!shell.read_with(cx, |shell, _| shell.closable(2)));
+        host.take();
+        cx.simulate_click(point(px(pinned.0), px(pinned.1)), Modifiers::none());
+        cx.run_until_parked();
+        assert!(!host.take().iter().any(|call| call.starts_with("close")), "the pinned row");
+    }
 }
