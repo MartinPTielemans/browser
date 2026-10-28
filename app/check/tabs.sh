@@ -203,7 +203,7 @@ expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key m
 expect '^browser: menu highlights Move to at ' "typing m didn't pass the dimmed Mute for Move to"
 send key right
-expect '^browser: menu submenu Move to shown$' "→ didn't open Move to's submenu"
+expect '^browser: menu submenu Move to shown at ' "→ didn't open Move to's submenu"
 expect '^browser: menu highlights Move to › ' "→ didn't highlight the submenu's first item"
 send key escape
 expect '^browser: menu submenu Move to hidden$' "escape didn't close Move to's submenu"
@@ -218,9 +218,17 @@ expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key m
 expect '^browser: menu highlights Move to at ' "typing m didn't select Move to"
 set -- $(grep '^browser: menu highlights Move to at ' "$log" | tail -1 | sed 's/.* at //')
-send move $(($1 + $3 / 2)) $(($2 + $4 / 2))
-expect '^browser: menu submenu Move to shown$' "the pointer on Move to didn't open its submenu"
-send move $(($1 + $3 - 4)) $(($2 + $4 + 12))
+from_x=$(($1 + $3 / 2)) from_y=$(($2 + $4 / 2)) below=$(($2 + $4))
+send move $from_x $from_y
+expect '^browser: menu submenu Move to shown at ' "the pointer on Move to didn't open its submenu"
+# The triangle runs from the pointer to the submenu's near edge. Aim just short of that edge, at
+# the lowest point the triangle reaches there, which is over the rows under Move to.
+set -- $(grep '^browser: menu submenu Move to shown at ' "$log" | tail -1 | sed 's/.* at //')
+if [ "$1" -ge "$from_x" ]; then edge=$1 to_x=$(($1 - 6)); else edge=$(($1 + $3)) to_x=$(($1 + $3 + 6)); fi
+to_y=$((from_y + (to_x - from_x) * ($2 + $4 - from_y) / (edge - from_x) - 2))
+[ "$to_y" -ge $((below + 2)) ] ||
+  fail "Move to's submenu at $* leaves no room in its triangle for the row under Move to"
+send move $to_x $to_y
 none_since '^browser: menu highlights ' ||
   fail "the pointer on its way to the submenu took the highlight of the row it crossed"
 none_since '^browser: menu submenu Move to hidden$' ||

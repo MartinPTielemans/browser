@@ -492,6 +492,11 @@ impl Tracking {
     /// The pointer moved to `at` at `now`. Returns whether it's resting in the safe triangle, for
     /// `rested` to be called once SAFE_TIMEOUT has passed.
     pub(crate) fn moved(&mut self, at: Point<Pixels>, now: Instant) -> bool {
+        // A move to where the pointer already is, as AppKit can deliver one move twice, isn't one:
+        // it would end a rest in the triangle before its time.
+        if self.pointer == Some(at) {
+            return false;
+        }
         let from = self.pointer.replace(at);
         if from.is_some_and(|from| self.safe(from, at)) {
             self.resting = Some(now);
@@ -1028,7 +1033,7 @@ impl ContextMenu {
 
     /// Logs the highlight as it moves, with its row in the browser window's content, for check.sh
     /// to follow the keys and the pointer: the deepest level's, else the row whose submenu shows.
-    /// And each submenu as it opens and closes.
+    /// And each submenu as it opens, with its panel, and as it closes.
     fn log_highlight(&mut self) {
         let Some(shown) = self.shown.as_mut() else { return };
         let tracking = &shown.tracking;
@@ -1039,7 +1044,16 @@ impl ContextMenu {
             log!("browser: menu submenu {} hidden", tracking.entries[closed].title);
         }
         for &opened in &open[kept..] {
-            log!("browser: menu submenu {} shown", tracking.entries[opened].title);
+            let Some(level) = tracking.layout.level_of(opened) else { continue };
+            let at = tracking.layout.levels[level].bounds;
+            log!(
+                "browser: menu submenu {} shown at {:.0} {:.0} {:.0} {:.0}",
+                tracking.entries[opened].title,
+                f32::from(at.origin.x),
+                f32::from(at.origin.y),
+                f32::from(at.size.width),
+                f32::from(at.size.height)
+            );
         }
         shown.logged_open = open;
         let lit = tracking.open.iter().rev().find_map(|open| open.highlight.map(|item| (open.level, item)));
