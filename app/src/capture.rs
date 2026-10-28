@@ -679,7 +679,7 @@ impl Render for Capture {
                 capture.leave("escape", window, cx)
             }))
             .size_full()
-            .font_family(".SystemUIFont");
+            .font_family(crate::face::UI);
         let Some(session) = &self.session else {
             return root;
         };

@@ -1236,7 +1236,7 @@ impl Render for ContextMenu {
             .id("menu-window")
             .when(self.a11y && shows, |root| root.role(Role::Menu).aria_label("Menu"))
             .size_full()
-            .font_family(".SystemUIFont")
+            .font_family(crate::face::UI)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|menu, event: &KeyDownEvent, _, cx| menu.key_down(event, cx)));
         let Some(shown) = self.shown.as_ref() else { return root };

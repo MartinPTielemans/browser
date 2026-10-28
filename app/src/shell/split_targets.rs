@@ -216,7 +216,7 @@ impl Shell {
         div()
             .size_full()
             .relative()
-            .font_family(".SystemUIFont")
+            .font_family(crate::face::UI)
             .child(page)
             .child(picture(over.pointer, self.window_fill(), self.palette, icon, title))
             .into_any_element()
