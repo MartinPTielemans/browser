@@ -70,10 +70,12 @@ impl Shell {
     }
 
     /// The key system behind the note of the tab shown, if its page needs one. A page's question
-    /// takes the note's place until it's answered, as both hang from the same place.
+    /// takes the note's place until it's answered, as an agent's does, as all hang from the same
+    /// place.
     pub(super) fn drm_note(&self) -> Option<&SharedString> {
         let playing = self.page(self.selected).system_engine;
-        self.drm_notes.get(&self.selected).filter(|_| !playing && self.question().is_none())
+        let asked = self.question().is_some() || self.agent_question.is_some();
+        self.drm_notes.get(&self.selected).filter(|_| !playing && !asked)
     }
 
     /// Closes the note of the tab shown for its site, which the core keeps from asking again. It

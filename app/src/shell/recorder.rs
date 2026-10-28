@@ -389,6 +389,10 @@ impl Browser for Recorder {
 
     fn answer_permission(&self, _: u64, _: Answer, _: &mut App) {}
 
+    fn answer_agent(&self, question: u64, answer: crate::agents::Answer, _: &mut App) {
+        self.record(format!("answer agent {question} {answer:?}"))
+    }
+
     fn can_open_in_safari(&self) -> bool {
         true
     }

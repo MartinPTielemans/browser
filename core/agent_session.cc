@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "base/no_destructor.h"
+#include "browser_core/agent_page.h"
 #include "browser_core/host.h"
 #include "browser_core/space.h"
 
@@ -28,6 +29,7 @@ bool End(bc_id tab, std::optional<std::string_view> agent, int why) {
   }
   const std::string held = std::move(it->second);
   Sessions().erase(it);
+  AgentPage::SessionEnded(tab);
   // One whose tab closed or left the agent's Space ended then, and the app saw it.
   if (!Space::AgentMayAct(held, tab)) {
     return false;
@@ -42,7 +44,11 @@ bool End(bc_id tab, std::optional<std::string_view> agent, int why) {
 
 void AgentActed(const std::string& agent, bc_id tab) {
   std::erase_if(Sessions(), [](const auto& session) {
-    return !Space::AgentMayAct(session.second, session.first);
+    if (Space::AgentMayAct(session.second, session.first)) {
+      return false;
+    }
+    AgentPage::SessionEnded(session.first);
+    return true;
   });
   Sessions()[tab] = agent;
 }

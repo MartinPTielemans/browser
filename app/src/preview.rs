@@ -605,6 +605,9 @@ impl Browser for Fake {
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 
+    // The preview has no agents.
+    fn answer_agent(&self, _: u64, _: browser::agents::Answer, _: &mut App) {}
+
     // The made-up pages ask no dialogs.
     fn show_page_dialog(&self, _: Option<shell::ShownPageDialog>, _: &mut App) {}
     fn answer_page_dialog(&self, _: u64, _: u64, _: shell::PageReply, _: &mut App) {}

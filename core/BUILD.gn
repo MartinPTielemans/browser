@@ -51,6 +51,8 @@ config("app_calls") {
 source_set("browser_core") {
   configs += [ ":app_calls" ]
   sources = [
+    "agent_page.cc",
+    "agent_page.h",
     "agent_session.cc",
     "agent_session.h",
     "api.cc",
@@ -184,6 +186,8 @@ source_set("browser_core") {
     "//chrome/browser/ui/views/interaction:impl",
     "//chrome/common",
     "//chrome/common/profiler",
+    "//components/autofill/content/browser",
+    "//components/autofill/core/browser",
     "//components/content_settings/core/browser",
     "//components/content_settings/core/common",
     "//components/download/content/public",

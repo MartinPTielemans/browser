@@ -656,6 +656,10 @@ typedef struct bc_host {
   // The text bc_tab_read_text asked for as |request|, UTF-8, or null if the tab had no page loaded
   // or closed first.
   void (*tab_text)(void* context, bc_id tab, uint64_t request, const char* text);
+  // The answer to bc_agent_page's |request| for |tab|: with |error|, |text| says why it couldn't,
+  // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
+  // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
+  void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -809,6 +813,57 @@ BC_EXPORT bool bc_agent_release_tab(const char* agent, bc_id tab);
 // The client of the agent with the id |agent| disconnected. Ends each of its sessions and returns
 // how many it had. Agent code calls it.
 BC_EXPORT size_t bc_agent_disconnected(const char* agent);
+
+// Opens a tab loading the http(s) |url| at the top of the Today tabs of the Space of the agent with
+// the id |agent|, without showing it: no window shows another Space or tab, and no page takes the
+// keyboard, because of it. Returns 0, opening none, for any other URL, an agent without a Space or
+// with no window open. The agent's session in the tab starts, as bc_agent_may_act's does, and
+// tab_opened tells of the tab, then spaces_changed. Agent code calls it.
+BC_EXPORT bc_id bc_agent_open_tab(const char* agent, const char* url);
+
+// Loads the http(s) |url| in |tab|, if it's in the Space of the agent with the id |agent|, and
+// returns whether it does: never another URL. Agent code calls it after bc_agent_may_act.
+BC_EXPORT bool bc_agent_navigate(const char* agent, bc_id tab, const char* url);
+
+// What bc_agent_page does in a tab. Each but SCREENSHOT then answers with the page's accessibility
+// tree, once the page has settled, as an action can start a navigation.
+// The tree alone.
+#define BC_AGENT_PAGE_SNAPSHOT 0
+// Clicks the element: its center, scrolled into view first.
+#define BC_AGENT_PAGE_CLICK 1
+// Types |text| into the element, in place of what it holds, and with SUBMIT presses Return. Never
+// into a password field.
+#define BC_AGENT_PAGE_TYPE 2
+#define BC_AGENT_PAGE_TYPE_SUBMIT 3
+// Presses the key |text| names: Enter, Tab, Escape, Backspace, Delete, Space, ArrowUp, ArrowDown,
+// ArrowLeft, ArrowRight, PageUp, PageDown, Home or End.
+#define BC_AGENT_PAGE_KEY 4
+// Scrolls the element into view, or with no element the page by most of a screen.
+#define BC_AGENT_PAGE_SCROLL_DOWN 5
+#define BC_AGENT_PAGE_SCROLL_UP 6
+// Goes back, or forward, in the tab's history.
+#define BC_AGENT_PAGE_BACK 7
+#define BC_AGENT_PAGE_FORWARD 8
+// A JPEG of what the page's view shows.
+#define BC_AGENT_PAGE_SCREENSHOT 9
+
+// Does |action|, a BC_AGENT_PAGE_ value, in |tab| for the agent with the id |agent|, to |element|,
+// a backendDOMNodeId from the tree, or 0, with |text| as the action says, else null. Then
+// agent_page_done with |request|, from a task of its own. Refused, with an error, if the tab isn't
+// in the agent's Space or its page isn't http(s). Through Chromium's DevTools protocol, inside the
+// browser, never a remote-debugging port, and never with the agent's own script. The tree leaves
+// out what fields hold: no node's value, and nothing under a field, where Chromium puts the text
+// typed or filled into it, and it marks password fields. A tab whose page the browser unloaded gets
+// it back, not shown. While an agent works in a tab its page keeps drawing, hidden, as a tab Chrome
+// captures does, until a while after its last action or the end of its session there. Chrome's
+// autofill suggestions close before each input, so an agent's keys never fill the user's data.
+// Agent code calls it after bc_agent_may_act.
+BC_EXPORT void bc_agent_page(const char* agent,
+                             bc_id tab,
+                             uint64_t request,
+                             int action,
+                             int64_t element,
+                             const char* text);
 
 // The user takes |tab| back from the agent at work in it, as at the end of a handoff. Ends that
 // agent's session there and returns whether one had it. The user's: agents get none.

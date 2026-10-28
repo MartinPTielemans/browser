@@ -66,6 +66,7 @@ mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
+mod agent_question;
 mod picture;
 mod recent_downloads;
 #[cfg(test)]
@@ -1101,6 +1102,9 @@ pub struct Shell {
     questions: HashMap<u64, Question>,
     /// Where the question's card was drawn last, which the log says when it changes.
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// What an agent asks the user first, in every window (agent_question.rs).
+    agent_question: Option<crate::agents::Question>,
+    agent_question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
@@ -1283,6 +1287,8 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            agent_question: None,
+            agent_question_drawn: Rc::default(),
             drm_notes: HashMap::new(),
             drm_drawn: Rc::default(),
             crash_cards: HashMap::new(),
@@ -2826,6 +2832,7 @@ impl Shell {
                 .children(self.dragged_tile(cx))
                 .children(self.turning_drag())
                 .children(self.question_card(cx))
+                .children(self.agent_question_card(cx))
                 .children(self.drm_note_card(cx)),
         };
         sidebar
