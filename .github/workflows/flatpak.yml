@@ -1,5 +1,6 @@
 # ilo's Flatpak (tools/flatpak.sh) from the prod build on the prebuilt Linux engine, as an artifact,
-# then installed and started on X11 in Xvfb to see that its first window draws.
+# then installed and started on X11 in Xvfb to see that its first window draws and that, in the new
+# profile, uBlock Origin is on: the Extensions menu lists it only while ad blocking is on.
 # Run it by hand to build from a branch whose packaging didn't change. release.yml calls it for a
 # release's Flatpak, the `ilo-flatpak` artifact.
 name: Flatpak
@@ -49,15 +50,20 @@ jobs:
           retention-days: 14
 
       - name: Install and start
+        env:
+          UBLOCK: oghkpboejbohceocapipmnjifoklonij
         run: |
           flatpak install --user -y --noninteractive app/build/ilo.flatpak
+          # Where the core looks for it on Linux: beside chrome.
+          files=$(flatpak info --user --show-location app.ilo.browser)/files
+          grep -q '"key":' "$files/ilo/ublock/manifest.json"
           mkdir -p app/build/flatpak-start
           cd app/build/flatpak-start
           dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' bash -c '
             flatpak run app.ilo.browser > ilo.log 2>&1 &
             pid=$!
             for _ in $(seq 120); do
-              grep -q "browser: UI shown" ilo.log && break
+              grep -q "browser: extensions menu .*$UBLOCK" ilo.log && break
               kill -0 $pid 2>/dev/null || break
               sleep 1
             done
@@ -66,6 +72,8 @@ jobs:
             wait $pid || true'
           cat ilo.log
           grep -q "browser: UI shown" ilo.log
+          grep -q "browser: extensions menu .*$UBLOCK" ilo.log ||
+            { echo "::error::uBlock Origin isn't on in a new profile."; exit 1; }
 
       - uses: actions/upload-artifact@v4
         if: always()

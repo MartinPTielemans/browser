@@ -20,6 +20,8 @@ if [ "$(uname -s)" = Linux ]; then
   mkdir -p build
   cp -al "$(cd .deps/engine && pwd -P)" build/Browser
   cp target/release/libBrowser.so build/Browser/
+  # uBlock Origin goes beside chrome, the core's assets folder here, as in the Flatpak's /app/ilo.
+  cp -R "$(./fetch-ublock.sh)" build/Browser/ublock
   exit 0
 fi
 [ -e .deps/Chromium.app ] || ./setup.sh

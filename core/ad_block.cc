@@ -164,7 +164,8 @@ void ApplyOffSites(Profile* profile, const extensions::Extension& extension) {
       &extension, sites, extensions::PermissionsData::GetDefaultPolicyAllowedHosts(context));
 }
 
-// Loads it into |profile| from the framework's resources, as --load-extension would: synchronously,
+// Loads it into |profile| from the assets folder (the framework's resources on the Mac, the folder
+// of chrome or chrome.dll elsewhere), as --load-extension would: synchronously,
 // and kept for this launch only, so the next one loads the version the browser comes with then.
 void Load(Profile* profile) {
   base::FilePath resources;

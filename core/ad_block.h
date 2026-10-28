@@ -10,8 +10,8 @@ class WebContents;
 
 namespace browser_core {
 
-// Ad blocking (docs/ux-spec.md › Ad blocking): the uBlock Origin build.sh puts in the framework's
-// resources, loaded into every profile at each launch, so it updates with the browser and never
+// Ad blocking (docs/ux-spec.md › Ad blocking): the uBlock Origin the app puts in the engine's assets
+// folder (app/ublock.ini says where on each OS), loaded into every profile at each launch, so it updates with the browser and never
 // from a store, and on in private windows. The core gives it its settings as policy, under the
 // platform's, and turns it off everywhere or for a site as the user says. None of it is the
 // agents': they get no call that changes it.

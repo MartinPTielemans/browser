@@ -42,6 +42,7 @@ modules:
       - install -Dm644 -t /app/share/applications app.ilo.browser.desktop
       - install -Dm644 -t /app/share/icons/hicolor/scalable/apps app.ilo.browser.svg
       - install -Dm644 -t /app/share/metainfo app.ilo.browser.metainfo.xml
+      - install -Dm644 krb5-NOTICE /app/share/licenses/org.chromium.Chromium.BaseApp/krb5/NOTICE
     sources:
       - type: dir
         path: ../../../build/Browser
@@ -56,3 +57,9 @@ modules:
         path: app.ilo.browser.svg
       - type: file
         path: app.ilo.browser.metainfo.xml
+      # The licence of the BaseApp's MIT Kerberos, which the BaseApp leaves out: flatpak-builder looks
+      # for one only in krb5's src/, where the BaseApp builds it. Its tag follows the BaseApp's krb5.
+      - type: file
+        url: https://raw.githubusercontent.com/krb5/krb5/krb5-1.22.2-final/NOTICE
+        sha256: d37fcb886de2ad1c602f61c99c6893bcbd9a1949f54d9a6bb40d191204eb605e
+        dest-filename: krb5-NOTICE

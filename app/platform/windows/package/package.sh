@@ -40,6 +40,9 @@ if [ ! -f "$engine/chrome.exe" ]; then
   [ -z "$release" ] || fail "no engine in $engine, which setup.sh fetches."
   alone=-app-only
   echo "package: no engine in $engine, so Browser.dll is packed alone, which doesn't run."
+elif [ ! -f "$engine/ublock/manifest.json" ]; then
+  # The core loads uBlock Origin from beside chrome.dll, where setup.sh puts it.
+  fail "no uBlock Origin in $engine/ublock. Run setup.sh again."
 fi
 test_identity=
 if store identity-name | grep -q PLACEHOLDER || store publisher | grep -q PLACEHOLDER ||

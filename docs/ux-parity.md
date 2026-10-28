@@ -277,7 +277,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | On by default | MVP | every profile, new and existing, and private windows, from the first page; nothing to install | Helium, Flecha |
-| [ ] | Engine | MVP | upstream uBlock Origin 1.75.0, pinned with its sha256, in the framework, loaded at each launch; updates with the browser; listed in the Extensions menu, pinnable, no Remove | Ours |
+| [ ] | Engine | MVP | upstream uBlock Origin 1.75.0, pinned with its sha256, beside the engine on every OS, loaded at each launch; updates with the browser; listed in the Extensions menu, pinnable, no Remove | Ours |
 | [ ] | Turning it off | MVP | Site Controls' first row, per site, reloading the page; Settings › General, everywhere | Ours |
 | [ ] | Filter lists | MVP | weekly while open, and 37 s after a launch when stale; never more often; source a default service URL | principles 1, 2 |
 | [ ] | First launch | MVP | requests through for about 3 s until the lists load; closing it: measure first | principle 1 |

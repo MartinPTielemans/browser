@@ -194,7 +194,7 @@ and U+FFFD. The license's full text is next to them, in app/assets/fonts/Inter-O
   Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 
 uBlock Origin (https://github.com/gorhill/uBlock), GNU General Public License v3.0 or later
-Shipped modified, in the app's framework's resources, as app/build.sh puts it there: release
+Shipped modified, on every OS, beside the engine (app/ublock.ini says where): release
 1.75.0, the version and sha256 app/ublock.ini pins, whose source is at
 https://github.com/gorhill/uBlock/tree/1.75.0. app/fetch-ublock.sh adds a "key" to its manifest
 and changes js/tab.js and js/traffic.js, each saying so on its first line, so its housekeeping
@@ -570,9 +570,10 @@ Flatpak's.
   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 The Chromium BaseApp (https://github.com/flathub/org.chromium.Chromium.BaseApp), branch 25.08
-The Flatpak is built on it, so its files are in the Flatpak, unchanged. flatpak-builder installs
-each one's license under /app/share/licenses/org.chromium.Chromium.BaseApp/ there, and its manifest
-names each source:
+The Flatpak is built on it, so its files are in the Flatpak, unchanged. Each one's license is under
+/app/share/licenses/org.chromium.Chromium.BaseApp/ there: flatpak-builder installs the BaseApp's,
+and ilo's manifest adds MIT Kerberos's NOTICE, which the BaseApp leaves out. Its manifest names
+each source:
 - cobalt (https://github.com/refi64/cobalt), release v2024.10, Mozilla Public License 2.0
   (https://mozilla.org/MPL/2.0/), which starts ilo. Its source is at that release; its files name
   no copyright holder, and refi64 wrote it.

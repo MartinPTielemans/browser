@@ -87,6 +87,10 @@ case $(uname -s) in
         cp -r "$engine" .deps/engine
         echo "$engine" >.deps/engine/.from
       fi
+      # uBlock Origin goes beside chrome.dll, the core's assets folder here, where package.sh
+      # takes it from with the engine.
+      rm -rf .deps/engine/ublock
+      cp -r "$(./fetch-ublock.sh)" .deps/engine/ublock
     else
       echo "No Windows engine for this checkout yet, so only the tests and the preview build." >&2
     fi
