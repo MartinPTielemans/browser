@@ -977,7 +977,8 @@ impl Shell {
     }
 
     /// A Space's card: its name over the rows the sidebar would show, in its colour. A click shows
-    /// the Space, and the brush shows its menu, for what the Space can be changed in.
+    /// the Space, and the brush or a right-click shows its menu, for what the Space can be changed
+    /// in.
     fn space_card(&self, space: &Space, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let id = space.id;
         let rows = space.card_lines().into_iter().map(|line| match line {
@@ -1047,6 +1048,12 @@ impl Shell {
             .shadow(vec![shadow])
             .block_mouse_except_scroll()
             .on_click(cx.listener(move |shell, _, _, cx| shell.pick_space(id, cx)))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.space_menu(id, event.position, cx)
+                }),
+            )
             .group("space-card")
             // Over the gradient and under the rows.
             .child(
@@ -1650,12 +1657,17 @@ fn of(received: i64, total: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, Line, Space,
-        bar_drawn, card_x, download_menu_items, downloads_progress, library_band, panel_at_rest,
-        past_end, plus_x, receded_opacity, spaces_width,
+        CARD_WIDTH, Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, Line,
+        Space, bar_drawn, card_x, download_menu_items, downloads_progress, library_band,
+        panel_at_rest, past_end, plus_x, receded_opacity, spaces_width,
     };
+    use std::rc::Rc;
+
+    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
+
+    use crate::shell::recorder::Recorder;
     use crate::shell::sidebar::window_buttons_at;
-    use crate::shell::{Folders, Split, rubber_band};
+    use crate::shell::{Folders, Section, Shell, Split, rubber_band};
 
     fn space(pinned: &[u64], today: &[u64], folders: Folders, splits: Vec<Split>) -> Space {
         Space {
@@ -1711,6 +1723,41 @@ mod tests {
         assert_eq!(card.card_lines(), [Line::Folder(10, 0)]);
         card.shown = 3;
         assert_eq!(card.card_lines(), [Line::Folder(10, 0), Line::Tab(3, 1)]);
+    }
+
+    /// A right-click on a card shows its Space's menu at the pointer, as a right-click on the
+    /// sidebar's name does, and leaves the Space shown and the Library open.
+    #[gpui::test]
+    fn a_right_click_on_a_card_shows_its_space_s_menu(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        // The second Space has a colour, so its menu, unlike the first's, offers to remove it.
+        shell.update(cx, |shell, cx| {
+            let space = |id: u64, color| {
+                (id, format!("Space {id}").into(), color, 1, "".into(), "".into(), "".into())
+            };
+            shell.set_spaces(vec![space(1, None), space(2, Some(0x3d81f9))], cx);
+            shell.set_space(1, cx);
+            shell.section = Section::Spaces;
+            shell.set_library(true, cx);
+            // At rest where it opens.
+            shell.library_motion = None;
+            shell.sidebar_fade = None;
+        });
+        cx.run_until_parked();
+        host.take();
+        let height = cx.update(|window, _| f32::from(window.viewport_size().height));
+        let card = point(px(card_x(1) + CARD_WIDTH / 2.), px(height / 2.));
+        cx.simulate_mouse_down(card, MouseButton::Right, Modifiers::none());
+        cx.simulate_mouse_up(card, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        let titles = host.menus.borrow().last().cloned().unwrap_or_default();
+        assert!(titles.iter().any(|(title, _)| title == "Rename Space"), "no Space menu");
+        assert!(host.shown.borrow().is_empty(), "the right-click showed the Space");
+        assert!(shell.read_with(cx, |shell, _| shell.library_open), "the Library closed");
+        cx.update(|_, cx| host.choose("Remove Theme Color", cx));
+        assert_eq!(host.take(), ["space theme 2 none", "space color 2 none"]);
     }
 
     /// Past its end, the Library gives about as far as the Space pages do past theirs on a short
