@@ -23,7 +23,7 @@ private_url="${site}private.html?private-only"
 log="$out/private.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$regular_url" "$app/Contents/MacOS/Browser" < "$out/drive" \
+BROWSER_DRIVE=1 BROWSER_URL="$regular_url" "$browser" < "$out/drive" \
   > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -126,7 +126,7 @@ quit
 [ -s "$saved" ] || fail "the quit saved no Spaces"
 # A page's history is kept in Chrome's pickles, base64 in the file, so its URLs are read decoded.
 pages=$(grep -oE '"[A-Za-z0-9+/]{16,}={0,2}"' "$saved" | tr -d '"' |
-  while read -r each; do echo "$each" | base64 -D; done | LC_ALL=C tr -c '[:print:]' '\n')
+  while read -r each; do echo "$each" | base64 -d; done | LC_ALL=C tr -c '[:print:]' '\n')
 echo "$pages" | grep -q 'private\.html' || fail "the quit didn't save the regular window's page"
 echo "$pages" | grep -q 'private-only' && fail "the Spaces file has a private window's page"
 history="$(dirname "$saved")/Default/History"
@@ -140,7 +140,7 @@ fi
 
 # The relaunch brings back the regular window alone.
 log="$out/private-relaunch.log"
-"$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+"$browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await '^browser: restored in ' || fail "the relaunch didn't bring back the Spaces"
 await "^browser: loaded [0-9]* $regular_url\$" || fail "the relaunch didn't load the regular page"

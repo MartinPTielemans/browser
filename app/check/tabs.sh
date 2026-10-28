@@ -55,7 +55,7 @@ log="$out/tabs.log"
 trace="$PWD/$out/trace.json"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" --enable-tracing=latency \
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" --enable-tracing=latency \
   --enable-tracing-format=json --trace-startup-file="$trace" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"

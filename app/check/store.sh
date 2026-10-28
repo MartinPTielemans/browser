@@ -21,7 +21,7 @@ open_store() {
   log="$out/$1.log"
   step=0
   BROWSER_DRIVE=1 BROWSER_URL="$store" BROWSER_PROFILE_DIR="$profile_dir" \
-    "$app/Contents/MacOS/Browser" $updates < "$out/drive" > "$log" 2>&1 &
+    "$browser" $updates < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await '^browser: loaded [0-9]* https://[a-z]*\.google\.com/' ||

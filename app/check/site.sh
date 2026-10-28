@@ -178,7 +178,7 @@ a.href = "/bounce?to=" + encodeURIComponent(to);
 document.title = "hop " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "safari");
 </script>' > "$out/site/hop.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
-  base64 -D > "$out/site/icon.png"
+  base64 -d > "$out/site/icon.png"
 # A heavy page, shaped like a video site's home grid: a sticky header over 300 tiles, each a 320 by
 # 180 picture of its own URL, which the browser decodes once a tile, and lines in a web font, a
 # copy of one of macOS's. Its title says "grid" once the pictures and the font are in and it has
