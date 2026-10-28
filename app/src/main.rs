@@ -35,6 +35,9 @@ use gpui::{
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod drop_targets;
+#[cfg(target_os = "windows")]
+#[path = "../platform/windows/drive_menus.rs"]
+mod drive_menus;
 mod find_bar;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/menu_window.rs"]
@@ -66,6 +69,10 @@ mod platform {
 
     unsafe extern "C" {
         pub fn drive_start();
+        #[cfg(target_os = "windows")]
+        pub fn drive_watch_menus(
+            menus: extern "C" fn(ui_view: *mut c_void, title: *const c_char, bar: bool) -> bool,
+        );
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         #[cfg(not(target_os = "linux"))]
         pub fn host_ui_view() -> *mut c_void;
@@ -4386,6 +4393,8 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         .collect();
     if std::env::var_os("BROWSER_DRIVE").is_some() {
         unsafe { platform::drive_start() };
+        #[cfg(target_os = "windows")]
+        unsafe { platform::drive_watch_menus(drive_menus::run) };
     }
     let host = bc::bc_host {
         launching: Some(launching),

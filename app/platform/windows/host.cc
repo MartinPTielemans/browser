@@ -14,6 +14,8 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <map>
@@ -248,6 +250,12 @@ std::vector<HWND>& UiViews() {
   return views;
 }
 
+// Every UI view host_ui_view made, closed ones too, for the driver's window numbers.
+std::vector<HWND>& MadeUiViews() {
+  static std::vector<HWND> views;
+  return views;
+}
+
 void* UiViewOf(HWND root) {
   for (HWND view : UiViews()) {
     if (IsWindow(view) && GetAncestor(view, GA_ROOT) == root) {
@@ -350,24 +358,28 @@ bool g_settings_placed = false;
 // While the link target or a reveal shows, the pointer's moves over the app's windows.
 HHOOK g_mouse_hook = nullptr;
 
-LRESULT CALLBACK MouseMoved(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION && wparam == WM_MOUSEMOVE) {
-    POINT point = reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt;
-    if (g_link_pointer && g_link_shown_over && IsWindowVisible(g_link_target.hwnd)) {
-      HWND root = Root(g_link_shown_over);
+// The pointer at |point| on screen, for the link target and the reveals.
+void PointerMoved(POINT point) {
+  if (g_link_pointer && g_link_shown_over && IsWindowVisible(g_link_target.hwnd)) {
+    HWND root = Root(g_link_shown_over);
+    POINT in = point;
+    ScreenToClient(root, &in);
+    const double scale = Scale(root);
+    g_link_pointer(in.x / scale, in.y / scale);
+  }
+  for (auto& [ui_view, reveal] : g_reveals) {
+    if (reveal.pointer_moved && IsWindowVisible(reveal.floating.hwnd)) {
+      HWND root = Root(ui_view);
       POINT in = point;
       ScreenToClient(root, &in);
-      const double scale = Scale(root);
-      g_link_pointer(in.x / scale, in.y / scale);
+      reveal.pointer_moved(ui_view, in.x / Scale(root));
     }
-    for (auto& [ui_view, reveal] : g_reveals) {
-      if (reveal.pointer_moved && IsWindowVisible(reveal.floating.hwnd)) {
-        HWND root = Root(ui_view);
-        POINT in = point;
-        ScreenToClient(root, &in);
-        reveal.pointer_moved(ui_view, in.x / Scale(root));
-      }
-    }
+  }
+}
+
+LRESULT CALLBACK MouseMoved(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION && wparam == WM_MOUSEMOVE) {
+    PointerMoved(reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt);
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
@@ -404,13 +416,20 @@ void ShowCorner(Corner& corner, void* ui_view, bool keyboard) {
 void (*g_control_released)(void) = nullptr;
 HHOOK g_key_hook = nullptr;
 
-LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION && g_control_released && (GetKeyState(VK_CONTROL) & 0x8000) == 0) {
+// A key went down or up: Control may have been let go.
+void KeyChanged() {
+  if (g_control_released && (GetKeyState(VK_CONTROL) & 0x8000) == 0) {
     void (*released)(void) = g_control_released;
     g_control_released = nullptr;
     Later([released] { released(); });
     UnhookWindowsHookEx(g_key_hook);
     g_key_hook = nullptr;
+  }
+}
+
+LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION) {
+    KeyChanged();
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
@@ -517,10 +536,10 @@ void PostMenuDismiss(bool give_back) {
 // Every pointer event in the app, before the window under the pointer hears it: the menu takes
 // what's on it, so a press outside closes it and goes no further (a right-press outside passes
 // through, to open that window's own menu), as the Mac's local monitor does.
-LRESULT CALLBACK MenuMouse(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION && g_menu.shown && g_menu.pointer) {
+bool MenuTakesPointer(WPARAM message, POINT pt) {
+  if (g_menu.shown && g_menu.pointer) {
     int kind = -1;
-    switch (wparam) {
+    switch (message) {
       case WM_MOUSEMOVE:
       case WM_NCMOUSEMOVE:
         kind = 0;
@@ -553,13 +572,18 @@ LRESULT CALLBACK MenuMouse(int code, WPARAM wparam, LPARAM lparam) {
         break;
     }
     if (kind >= 0) {
-      const POINT pt = reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt;
       const double scale = Scale(g_menu.hwnd);
-      if (g_menu.pointer(kind, (pt.x - g_menu.frame.left) / scale,
-                         (pt.y - g_menu.frame.top) / scale)) {
-        return 1;
-      }
+      return g_menu.pointer(kind, (pt.x - g_menu.frame.left) / scale,
+                            (pt.y - g_menu.frame.top) / scale);
     }
+  }
+  return false;
+}
+
+LRESULT CALLBACK MenuMouse(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION &&
+      MenuTakesPointer(wparam, reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt)) {
+    return 1;
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
@@ -567,17 +591,24 @@ LRESULT CALLBACK MenuMouse(int code, WPARAM wparam, LPARAM lparam) {
 // While the menu shows, a shortcut (a key with Ctrl, Alt or the Windows key) closes it and goes no
 // further, as it was typed at the menu; its own keys, such as the arrows, Enter and Esc, reach its
 // window, which has the keyboard.
-LRESULT CALLBACK MenuKeys(int code, WPARAM wparam, LPARAM lparam) {
+bool MenuTakesKey(WPARAM wparam, LPARAM lparam) {
   const bool down = (HIWORD(lparam) & KF_UP) == 0;
-  if (code == HC_ACTION && g_menu.shown && down) {
+  if (g_menu.shown && down) {
     const bool chord = (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000) ||
                        (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000);
     const bool modifier = wparam == VK_CONTROL || wparam == VK_MENU || wparam == VK_SHIFT ||
                           wparam == VK_LWIN || wparam == VK_RWIN;
     if (chord && !modifier) {
       PostMenuDismiss(true);
-      return 1;
+      return true;
     }
+  }
+  return false;
+}
+
+LRESULT CALLBACK MenuKeys(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION && MenuTakesKey(wparam, lparam)) {
+    return 1;
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
@@ -752,12 +783,6 @@ bool PreviewPng(const std::wstring& path, std::vector<uint8_t>* png, double* wid
 
 extern "C" {
 
-void drive_start(void) {
-  // shortcut: the test driver (platform/mac/drive.mm) isn't ported, so check.sh doesn't run on
-  // Windows; port it when the checks do.
-  fputs("browser: no test driver on Windows yet\n", stderr);
-}
-
 // Centered in the primary display's work area, in GPUI's logical pixels from its top-left.
 void host_centered(double width, double height, double* x, double* y) {
   RECT work;
@@ -832,6 +857,7 @@ void* host_ui_view(void) {
   HWND holder = CreateWindowExW(0, holder_class, L"", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0, 0,
                                 nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
   UiViews().push_back(holder);
+  MadeUiViews().push_back(holder);
   return holder;
 }
 
@@ -1369,6 +1395,41 @@ bool host_menu_window_dismiss(void) {
   return true;
 }
 
+}  // extern "C"
+
+namespace {
+
+// The task dialog host_ask shows, for host_choose, and its buttons' labels and ids.
+HWND g_alert = nullptr;
+std::vector<std::pair<std::wstring, int>> g_alert_buttons;
+
+std::string Utf8(const std::wstring& wide) {
+  const int length =
+      WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+  std::string utf8(length > 0 ? length - 1 : 0, '\0');
+  if (length > 1) {
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, utf8.data(), length, nullptr, nullptr);
+  }
+  return utf8;
+}
+
+HRESULT CALLBACK AlertEvent(HWND hwnd, UINT event, WPARAM, LPARAM, LONG_PTR texts) {
+  if (event == TDN_CREATED) {
+    g_alert = hwnd;
+    // Its texts and buttons, as the Mac's driver logs an alert's, for check.sh to wait for.
+    if (getenv("BROWSER_DRIVE")) {
+      fprintf(stderr, "browser: modal shown %s\n", reinterpret_cast<const char*>(texts));
+    }
+  } else if (event == TDN_DESTROYED) {
+    g_alert = nullptr;
+  }
+  return S_OK;
+}
+
+}  // namespace
+
+extern "C" {
+
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
   std::wstring title = Wide(message), text = Wide(detail);
   std::vector<std::wstring> labels;
@@ -1395,6 +1456,14 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   config.cButtons = static_cast<UINT>(task_buttons.size());
   config.pButtons = task_buttons.data();
   config.nDefaultButton = task_buttons.empty() ? 0 : task_buttons[0].nButtonID;
+  std::string texts = std::string(message ? message : "") + ", " + (detail ? detail : "");
+  g_alert_buttons.clear();
+  for (const TASKDIALOG_BUTTON& button : task_buttons) {
+    texts += ", " + Utf8(button.pszButtonText);
+    g_alert_buttons.emplace_back(button.pszButtonText, button.nButtonID);
+  }
+  config.pfCallback = AlertEvent;
+  config.lpCallbackData = reinterpret_cast<LONG_PTR>(texts.c_str());
   // Common Controls 6, which has task dialogs, only where the process's manifest asks for it.
   using TaskDialogIndirectFn = HRESULT(WINAPI*)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
   auto task_dialog = reinterpret_cast<TaskDialogIndirectFn>(
@@ -1609,12 +1678,44 @@ void host_day_starts(double starts[4]) {
   starts[3] = mktime(&last_week) * 1000.0;
 }
 
-bool host_choose(const char*) {
+bool host_choose(const char* title) {
+  if (!g_alert) {
+    return false;
+  }
+  for (const auto& [label, id] : g_alert_buttons) {
+    if (label == Wide(title)) {
+      PostMessageW(g_alert, TDM_CLICK_BUTTON, id, 0);
+      return true;
+    }
+  }
   return false;
 }
 
-void* host_browser_window(size_t) {
-  return nullptr;
+// The browser window, its root HWND.
+void* host_browser_window(size_t index) {
+  if (index >= MadeUiViews().size() || !IsWindow(MadeUiViews()[index])) {
+    return nullptr;
+  }
+  HWND root = Root(MadeUiViews()[index]);
+  return root != MadeUiViews()[index] && IsWindowVisible(root) ? root : nullptr;
+}
+
+// For the driver (drive.cc), whose input is posted to the app's windows, which the thread hooks
+// above never hear: it hands them each pointer event, at |x|, |y| on screen, and each key. Each
+// returns whether ilo's menu took it, which then goes no further.
+bool host_drive_pointer(unsigned message, long x, long y) {
+  const POINT point{x, y};
+  if (message == WM_MOUSEMOVE && g_mouse_hook) {
+    PointerMoved(point);
+  }
+  return g_menu_mouse_hook && MenuTakesPointer(message, point);
+}
+
+bool host_drive_key(unsigned vk, long lparam) {
+  if (g_key_hook) {
+    KeyChanged();
+  }
+  return g_menu_key_hook && MenuTakesKey(vk, lparam);
 }
 
 }  // extern "C"

@@ -44,7 +44,7 @@ forget_engine_sites
 log="$out/clear.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -1060,14 +1060,14 @@ quit
 # the dev build lists for the run (main.rs). The run above kept it, and turned its note off, so the
 # profile forgets both first, or the site kept would open there without the list. The app launches
 # at its page, a new tab's first load, as a link from another app's would be.
-listed_prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
+listed_prefs="$profile_dir/Default/Preferences"
 forget_engine_sites
 listed_launch() {
   log="$out/clear-listed-$1.log"
   step=0
   rm -f "$saved"
   BROWSER_DRIVE=1 BROWSER_STREAMING_TEST_HOST=127.0.0.1 BROWSER_URL="http://127.0.0.1:$port/engine.html" \
-    "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+    "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await_load

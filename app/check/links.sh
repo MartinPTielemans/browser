@@ -12,7 +12,7 @@ serve
 log="$out/links.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -74,7 +74,7 @@ launch() {
   open -a "$app" --env BROWSER_DISPLAY="$BROWSER_DISPLAY" --stdout "$log" --stderr "$log" ${2:+"$2"}
   pid=
   for _ in $(seq 100); do
-    pid=$(pgrep -nf "$app/Contents/MacOS/Browser" || true)
+    pid=$(pgrep -nf "$browser" || true)
     [ -n "$pid" ] && break
     sleep 0.1
   done
@@ -83,17 +83,17 @@ launch() {
 }
 # Quits the app `open` launched, which isn't this shell's child to wait for.
 quit_launched() {
-  osascript -e 'tell application id "dev.browser.app" to quit'
+  quit_app
   for _ in $(seq 20); do
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
   done
   kill -0 "$pid" 2>/dev/null && fail "the app didn't quit"
   for _ in $(seq 10); do
-    pgrep -f "$app/Contents" > /dev/null || break
+    pgrep -f "$procs" > /dev/null || break
     sleep 0.5
   done
-  pgrep -f "$app/Contents" > /dev/null && fail "Chromium helper processes were left running"
+  pgrep -f "$procs" > /dev/null && fail "Chromium helper processes were left running"
   return 0
 }
 # Milliseconds from the process's start to the line "browser: $1 at <ms> ms".

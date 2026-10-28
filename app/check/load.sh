@@ -4,7 +4,7 @@
 
 log="$out/load.log"
 rm -f "$saved" "$launch_frame"
-BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' "$app/Contents/MacOS/Browser" \
+BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' "$browser" \
   < /dev/null > "$log" 2>&1 &
 pid=$!
 await_load

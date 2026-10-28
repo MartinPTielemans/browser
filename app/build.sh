@@ -22,6 +22,23 @@ if [ "$(uname -s)" = Linux ]; then
   cp target/release/libBrowser.so build/Browser/
   exit 0
 fi
+# On Windows, under Git Bash, the same: build/Browser, a copy of the engine, with Browser.dll beside
+# chrome.exe, which loads it (windows/Cargo.toml).
+case "$(uname -s)" in
+  MINGW* | MSYS*)
+    [ -e .deps/engine/chrome.exe ] || ./setup.sh
+    [ -e .deps/engine/chrome.exe ] || { echo "No Windows engine in .deps/engine." >&2; exit 1; }
+    features=
+    [ "${1:-}" != prod ] || features="--features prod"
+    # shellcheck disable=SC2086 # no features, or one flag and its value
+    cargo build --release --manifest-path windows/Cargo.toml --target-dir target $features
+    rm -rf build/Browser
+    mkdir -p build
+    cp -al .deps/engine build/Browser
+    cp target/release/Browser.dll build/Browser/
+    exit 0
+    ;;
+esac
 [ -e .deps/Chromium.app ] || ./setup.sh
 # setup.sh vendors it since the app patched it; a checkout set up before that hasn't got it.
 [ -d .deps/accesskit_macos ] || {
