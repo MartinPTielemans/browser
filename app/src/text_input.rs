@@ -43,15 +43,17 @@ actions!(
         Redo,
         PasteAndGo,
         PasteAndSearch,
+        OpenMenu,
     ]
 );
 
 /// Shows a field's context menu: `items`' titles, dimmed where they aren't enabled and a line for
-/// an empty one, at `position` in `window`, and calls `chosen` with the index of the one chosen
-/// once it closes. The app's, `menu::field_menu`, shows it in ilo's own menu.
+/// an empty one, at `position` in `window`, with its first item highlighted where it opened from
+/// the keyboard, and calls `chosen` with the index of the one chosen once it closes. The app's,
+/// `menu::field_menu`, shows it in ilo's own menu.
 pub struct FieldMenu(pub Rc<ShowMenu>);
 
-pub type ShowMenu = dyn Fn(Vec<(SharedString, bool)>, Point<Pixels>, &Window, Chosen, &mut App);
+pub type ShowMenu = dyn Fn(Vec<(SharedString, bool)>, Point<Pixels>, bool, &Window, Chosen, &mut App);
 pub type Chosen = Box<dyn FnOnce(usize, &mut Window, &mut App)>;
 
 impl Global for FieldMenu {}
@@ -92,6 +94,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-left", Home, context),
         KeyBinding::new("cmd-right", End, context),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, context),
+        // Full Keyboard Access's, and Windows' and Linux's, way to a field's menu.
+        KeyBinding::new("shift-f10", OpenMenu, context),
+        KeyBinding::new("menu", OpenMenu, context),
         // So the Edit menu shows them. The menu's Undo and Redo go to the first responder, which
         // undoes for itself, as a page does.
         KeyBinding::new("cmd-z", Undo, context),
@@ -288,6 +293,29 @@ impl TextInput {
         if at < self.selected_range.start || at > self.selected_range.end {
             self.move_to(at, window, cx);
         }
+        self.show_menu(menu, event.position, false, window, cx);
+    }
+
+    /// ⇧F10 or the Menu key shows the field's menu under the caret, its first item highlighted.
+    fn open_menu(&mut self, _: &OpenMenu, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(menu) = cx.try_global::<FieldMenu>().map(|menu| menu.0.clone()) else {
+            return;
+        };
+        let Some(bounds) = self.last_bounds else { return };
+        let x = (self.last_layout.as_ref())
+            .filter(|line| line.text == self.content)
+            .map_or(px(0.), |line| line.x_for_index(self.cursor_offset()));
+        self.show_menu(menu, point(bounds.left() + x, bounds.bottom()), true, window, cx);
+    }
+
+    fn show_menu(
+        &mut self,
+        menu: Rc<ShowMenu>,
+        position: Point<Pixels>,
+        from_keys: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let selected = !self.selected_range.is_empty();
         let mut items: Vec<(&str, bool, Option<Box<dyn Action>>)> = vec![
             ("Cut", selected, Some(Box::new(Cut))),
@@ -310,7 +338,7 @@ impl TextInput {
                 window.dispatch_action(action, cx);
             }
         });
-        menu(titles, event.position, window, chosen, cx);
+        menu(titles, position, from_keys, window, chosen, cx);
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _window: &mut Window, _: &mut Context<Self>) {
@@ -897,6 +925,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::home))
             .on_action(cx.listener(Self::end))
             .on_action(cx.listener(Self::show_character_palette))
+            .on_action(cx.listener(Self::open_menu))
             .on_action(cx.listener(Self::paste))
             // A field's text has no style, so it pastes as Paste does.
             .on_action(cx.listener(|field, _: &PasteAndMatchStyle, window, cx| {

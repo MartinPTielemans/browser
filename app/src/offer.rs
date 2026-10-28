@@ -335,7 +335,7 @@ impl OfferPrompt {
                 input.update(cx, |input, cx| input.reset(username.clone(), window, cx));
             }
         });
-        menu(items, field_bottom_left(), window, chosen, cx);
+        menu(items, field_bottom_left(), false, window, chosen, cx);
     }
 }
 

@@ -503,3 +503,103 @@ fn swatches_widen_their_submenu() {
     let with = level_of(&lay_out(&entries, at(100., 100.), area(), &width_of), Some(5));
     assert_eq!(with.size.width - plain.size.width, px(super::SWATCH + GAP));
 }
+
+/// What VoiceOver reads of the tab menu: a menu with the keyboard, its items in order with where
+/// each stands, the lines between them, the dimmed one flagged, and the submenu's row saying it
+/// opens one. The highlight is what VoiceOver reads as the keys move it, into the submenu too.
+#[gpui::test]
+fn voiceover_reads_the_menu_and_follows_the_keys(cx: &mut TestAppContext) {
+    use gpui::accesskit::{HasPopup, NodeId, Role, Toggled, TreeUpdate};
+    let host = Rc::new(Recorder::default());
+    let window = cx.update(|cx| super::open(host.clone(), cx)).expect("no window for the menu");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_a11y_activation();
+    show_menu(cx);
+    let named = |tree: &TreeUpdate, role: Role, label: &str| -> NodeId {
+        let found = tree.nodes.iter().find(|(_, node)| node.role() == role && node.label() == Some(label));
+        found.unwrap_or_else(|| panic!("no {role:?} called {label}")).0
+    };
+    let node = |tree: &TreeUpdate, id: NodeId| tree.nodes.iter().find(|(each, _)| *each == id).unwrap().1.clone();
+    let focused = |tree: &TreeUpdate| node(tree, tree.focus).label().map(str::to_owned);
+
+    let tree = cx.a11y_tree().expect("GPUI built a tree");
+    let menu = named(&tree, Role::Menu, "Menu");
+    assert_eq!(tree.focus, menu, "the menu has the keyboard, nothing highlighted yet");
+    let rows: Vec<_> = (node(&tree, menu).children().iter())
+        .map(|&child| node(&tree, child))
+        .map(|row| (row.role(), row.label().unwrap_or("").to_owned()))
+        .collect();
+    let item = |title: &str| (Role::MenuItem, title.to_owned());
+    let line = (Role::Splitter, String::new());
+    assert_eq!(
+        rows,
+        [
+            item("Copy Link"),
+            line.clone(),
+            item("Rename…"),
+            item("Mute"),
+            item("Duplicate"),
+            item("Move to"),
+            line,
+            item("Archive Tab"),
+            item("Archive Tabs Below"),
+        ]
+    );
+    let archive = node(&tree, named(&tree, Role::MenuItem, "Archive Tab"));
+    assert_eq!((archive.position_in_set(), archive.size_of_set()), (Some(6), Some(7)));
+    assert!(node(&tree, named(&tree, Role::MenuItem, "Mute")).is_disabled());
+    let move_to = node(&tree, named(&tree, Role::MenuItem, "Move to"));
+    assert_eq!((move_to.has_popup(), move_to.is_expanded()), (Some(HasPopup::Menu), Some(false)));
+
+    cx.simulate_keystrokes("down");
+    assert_eq!(focused(&cx.a11y_tree().unwrap()).as_deref(), Some("Copy Link"));
+    cx.simulate_keystrokes("down down");
+    assert_eq!(focused(&cx.a11y_tree().unwrap()).as_deref(), Some("Duplicate"), "past the line and Mute");
+
+    cx.simulate_keystrokes("m right");
+    let tree = cx.a11y_tree().unwrap();
+    named(&tree, Role::Menu, "Move to");
+    assert_eq!(node(&tree, named(&tree, Role::MenuItem, "Move to")).is_expanded(), Some(true));
+    let space = node(&tree, named(&tree, Role::MenuItemRadio, "Space 1"));
+    assert_eq!(space.toggled(), Some(Toggled::True));
+    assert_eq!(focused(&tree).as_deref(), Some("Space 1"));
+}
+
+/// 0xRRGGBBAA `top` over the opaque 0xRRGGBBAA `under`, as 0xRRGGBB.
+fn over(top: u32, under: u32) -> u32 {
+    let alpha = (top & 0xff) as f32 / 255.;
+    let channel = |shift: u32| {
+        let (t, u) = (((top >> shift) & 0xff) as f32, ((under >> shift) & 0xff) as f32);
+        ((t * alpha + u * (1. - alpha)).round() as u32) << (shift - 8)
+    };
+    channel(24) | channel(16) | channel(8)
+}
+
+/// Every label a menu draws reads at 4.5:1 against what it's on, in both looks, which are all a
+/// theme picks of the menu, as the panel is opaque over it. Dimmed items are exempt, as WCAG's
+/// rule exempts what can't be used. Once the palette (#335) gives the highlight each Space's
+/// accent, this sweeps the accents too.
+#[test]
+fn every_label_reads_at_4_5_to_1_in_both_looks() {
+    use super::{DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL, PRESSED, highlight};
+    let (fill, label) = highlight();
+    for look in [Look::Dark, Look::Light] {
+        let palette = look.palette();
+        let panel = palette.fill >> 8;
+        for (what, color) in
+            [("label", palette.label), ("shortcut", palette.secondary), ("destructive", palette.destructive)]
+        {
+            let ratio = contrast(over(color, palette.fill), panel);
+            assert!(ratio >= 4.5, "{look:?}'s {what} is {ratio:.2}:1");
+        }
+        for (what, on, text) in [("highlight", fill, label), ("delete", DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL)] {
+            let ratio = contrast(over(text, on), over(on, palette.fill));
+            assert!(ratio >= 4.5, "{look:?}'s {what} label is {ratio:.2}:1");
+        }
+        // The press darkens the highlight for as long as the button is down, under 4.5:1 with
+        // #324's Ink 0.18, so it's held to 3:1 until the palette (#335) settles it.
+        let pressed = over(PRESSED, fill);
+        let ratio = contrast(over(label, fill), pressed);
+        assert!(ratio >= 3., "{look:?}'s pressed label is {ratio:.2}:1");
+    }
+}
