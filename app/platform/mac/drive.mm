@@ -25,6 +25,10 @@
 //                                         delete (forward), pageup, pagedown, up, down, left,
 //                                         right, f12 or f10. "+" is on "-"'s key, as on a Danish
 //                                         keyboard
+//   keydown <key> [repeat]                <key>, as key names it, going down, or with repeat the
+//                                         repeat the keyboard sends while it's held, to the key
+//                                         window then, as a held key's repeats go
+//   keyup <key>                           <key> let go
 //   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
 //                                         down or up; key holds them only for its own key
 //   type <text>                           lowercase letters, dots and spaces
@@ -512,7 +516,12 @@ NSEventModifierFlags Modifiers(std::istringstream& words) {
   return flags;
 }
 
-bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
+// Posts |key| to |window| as |types|, each a repeat if |repeat| says so.
+bool Key(NSWindow* window,
+         const std::string& key,
+         NSEventModifierFlags flags,
+         std::initializer_list<NSEventType> types = {NSEventTypeKeyDown, NSEventTypeKeyUp},
+         bool repeat = false) {
   auto code = kKeyCodes.find(key);
   if (code == kKeyCodes.end()) {
     return false;
@@ -532,7 +541,7 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
              key == "f10") {
     flags |= NSEventModifierFlagFunction;
   }
-  for (NSEventType type : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {
+  for (NSEventType type : types) {
     [NSApp postEvent:[NSEvent keyEventWithType:type
                                       location:NSZeroPoint
                                  modifierFlags:flags
@@ -541,7 +550,7 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
                                        context:nil
                                     characters:characters
                    charactersIgnoringModifiers:characters
-                                     isARepeat:NO
+                                     isARepeat:repeat
                                        keyCode:code->second]
              atStart:NO];
   }
@@ -1481,6 +1490,16 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   NSWindow* key_window = NSApp.keyWindow ?: window;
+  if (action == "keydown" || action == "keyup") {
+    std::string key, repeat;
+    words >> key >> repeat;
+    const NSEventType type = action == "keydown" ? NSEventTypeKeyDown : NSEventTypeKeyUp;
+    if (!Key(key_window, key, 0, {type}, repeat == "repeat")) {
+      return false;
+    }
+    done();
+    return true;
+  }
   if (action == "key" || action == "flags") {
     std::string key;
     if (action == "key") {

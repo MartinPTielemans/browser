@@ -977,6 +977,35 @@ void HoldKeys(NSWindow* window) {
                  });
 }
 
+// A held Escape's repeats go only to the window its press went to. The press that closes an
+// overlay, such as the command bar or the find bar, leaves the browser window with the keyboard,
+// and the repeats would go on to the page there, taking it out of its full screen or closing its
+// own dialog (#385). Once the key is let go, the next press goes wherever the keyboard is.
+void WatchHeldEscape() {
+  static bool watching = false;
+  if (watching) {
+    return;
+  }
+  watching = true;
+  constexpr unsigned short kEscape = 53;
+  static NSInteger pressed_in = 0;
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp
+                                        handler:^NSEvent*(NSEvent* event) {
+                                          if (event.keyCode != kEscape) {
+                                            return event;
+                                          }
+                                          if (event.type == NSEventTypeKeyUp) {
+                                            pressed_in = 0;
+                                          } else if (!event.ARepeat) {
+                                            pressed_in = NSApp.keyWindow.windowNumber;
+                                          } else if (pressed_in &&
+                                                     NSApp.keyWindow.windowNumber != pressed_in) {
+                                            return nil;
+                                          }
+                                          return event;
+                                        }];
+}
+
 }  // namespace
 
 namespace {
@@ -1185,6 +1214,7 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
     }
   }
   WatchMainWindow();
+  WatchHeldEscape();
   if (above && above->window) {
     [window orderWindow:NSWindowBelow relativeTo:above->window.windowNumber];
   } else {
