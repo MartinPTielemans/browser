@@ -75,6 +75,41 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
     let segments: Vec<Rgba> = cards.iter().map(|&at| over(at, WHITE, rgba(CARD_SEGMENTS).a)).collect();
     let label = segments.iter().map(|&at| contrast(rgb(CARD_LABEL), at)).fold(f32::MAX, f32::min);
     check("picker segment label", label, TEXT);
+    // A Library card is its Space's window, drawn in its palette, split segments too.
+    let card: Vec<Rgba> = (0..=16).flat_map(|y| palette.window_at(theme, 0.5, y as f32 / 16.)).collect();
+    check("card split segment title", on(palette.text(0.78), &card), TEXT);
+    // The theme picker's panel is the pickers' card, and the site controls the overlay, each with
+    // plates of the ink on it.
+    let overlay = palette.overlay;
+    let on_overlay = |plates: &[f32]| -> Vec<Rgba> { plates.iter().map(|&plate| over(overlay, ink, plate)).collect() };
+    let on_card = |plates: &[f32]| -> Vec<Rgba> {
+        cards.iter().flat_map(|&at| plates.iter().map(move |&plate| over(at, ink, plate))).collect()
+    };
+    {
+        use crate::tokens::theme_picker::*;
+        let chosen = on_card(&[APPEARANCE_CHOSEN]);
+        check("picker appearance", on(palette.on_overlay_glyph(APPEARANCE_COLOR), &chosen), GLYPH);
+        // − and + keep Arc's white 0.35 beside the count they change, under 3:1 on the card.
+        let field = on_card(&[FIELD_FILL]);
+        check("picker handle ring", on(Hsla::from(ink), &field), GLYPH);
+        let track = on_card(&[TRACK_FILL]);
+        check("picker wave", on(palette.plate(WAVE_ON), &track), GLYPH);
+        check("picker knob", on(Hsla::from(ink), &track), GLYPH);
+        check("picker swept dot", on(palette.plate(DIAL_SWEPT), &cards), GLYPH);
+    }
+    {
+        use crate::tokens::site_controls::*;
+        for (name, alpha) in [("text", TEXT), ("state", SECONDARY), ("link", LINK)] {
+            check(&format!("site controls {name}"), on(palette.on_overlay(alpha), &[overlay]), super::TEXT);
+        }
+        let tiles = on_overlay(&[TILE_TOP, TILE_TOP + HOVERED, PLATE, PLATE_HOVERED, MORE_FILL + HOVERED]);
+        check("site controls tile glyph", on(palette.on_overlay_glyph(TEXT), &tiles), GLYPH);
+        let lock = on_overlay(&[PLATE, PLATE_HOVERED]);
+        check("site controls lock label", on(palette.on_overlay(TEXT), &lock), super::TEXT);
+        check("site controls off glyph", on(palette.on_overlay_glyph(OFF_GLYPH), &on_overlay(&[OFF])), GLYPH);
+        check("site controls on circle", against(&[overlay]), GLYPH);
+        check("site controls on glyph", contrast(palette.accent_label, accent), GLYPH);
+    }
     // The Space's swatch, ringed where its edge doesn't reach 3:1 on the window.
     let swatch = match theme {
         Some(theme) => Window::of(theme).swatch(),
