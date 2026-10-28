@@ -13,6 +13,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/agent_autofill.h"
 #include "browser_core/agent_page.h"
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
@@ -1564,7 +1565,13 @@ void bc_tab_close_below(bc_id id) {
 }
 
 void bc_tab_move_to_space(bc_id id, bc_id space) {
+  browser_core::Space* from = browser_core::Space::Holding(id);
+  const bool agents = from && from->agent();
   browser_core::Window::MoveToSpace(id, space);
+  browser_core::Space* to = browser_core::Space::Holding(id);
+  if (agents && to && !to->agent()) {
+    browser_core::FillForUser(id);
+  }
 }
 
 void bc_tab_close(bc_id id, bool split) {
