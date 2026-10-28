@@ -39,6 +39,9 @@ mod find_bar;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/panels.rs"]
+mod panels;
 mod reveal;
 mod settings;
 
@@ -2648,6 +2651,9 @@ fn open_window_as(
                     set_frames(id, shell, frame, viewport);
                     shell.full_screen_step("laid", viewport);
                 }
+                // The panels keep their place from the page's top right corner.
+                #[cfg(target_os = "linux")]
+                panels::place(ui_view);
             })
             .detach();
             let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });

@@ -30,6 +30,33 @@ struct Shown {
 
 thread_local! {
     static OVERLAYS: RefCell<[Option<Overlay>; 2]> = const { RefCell::new([None, None]) };
+    /// The app's overlays that have each browser window's keyboard, by their views.
+    static LENT: RefCell<Vec<(bc::bc_id, usize)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The overlay of `view` takes the keyboard of `window`, or gives it back. The core lends it while
+/// any has it, as the find bar can keep it under the command bar.
+pub(crate) fn lend_keyboard(window: bc::bc_id, view: *mut c_void, takes: bool) {
+    let entry = (window, view as usize);
+    let (before, after) = LENT.with_borrow_mut(|lent| {
+        let before = lent.iter().any(|&(each, _)| each == window);
+        lent.retain(|&each| each != entry);
+        if takes {
+            lent.push(entry);
+        }
+        (before, lent.iter().any(|&(each, _)| each == window))
+    });
+    if before != after {
+        unsafe { bc::bc_window_overlay_takes_keyboard(window, after) };
+    }
+}
+
+/// Whether an overlay but that of `view` has the keyboard of `window`.
+pub(crate) fn keyboard_lent_to_another(window: bc::bc_id, view: *mut c_void) -> bool {
+    LENT.with_borrow(|lent| {
+        lent.iter()
+            .any(|&(each, other)| each == window && other != view as usize)
+    })
 }
 
 /// The overlays by index, as check.sh reads them in the log.
@@ -123,7 +150,7 @@ pub extern "C" fn host_show_overlay(
         return;
     };
     if !was_shown {
-        unsafe { bc::bc_window_overlay_takes_keyboard(window, true) };
+        lend_keyboard(window, view, true);
     }
     gpui_linux::show_overlay(view, ui_view, bounds, radius, true, left_overlay);
     let (origin, size) = (bounds.origin, bounds.size);
@@ -169,9 +196,7 @@ fn hide(overlay: c_int) -> bool {
     }) else {
         return false;
     };
-    gpui_linux::hide_overlay(view, move || unsafe {
-        bc::bc_window_overlay_takes_keyboard(window, false)
-    });
+    gpui_linux::hide_overlay(view, move || lend_keyboard(window, view, false));
     eprintln!("browser: {} hidden", NAMES[overlay as usize]);
     true
 }
