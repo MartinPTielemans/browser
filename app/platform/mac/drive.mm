@@ -94,10 +94,15 @@
 //                                         "browser: menu bar <menu>: <titles>", enabled as
 //                                         AppKit would show them now, written as "menu shown"
 //                                         writes a menu's, and chooses none
+//   openmenu <menu>                       opens the main menu's <menu>, the same menu the menu
+//                                         bar opens, near the window's top left, tracked until
+//                                         dismiss or choose closes it. Commands still come in
+//                                         while it's open, as with any menu
 //   choose <title>                        chooses the item titled <title> in the menu a right
 //                                         click showed, the page's too, or the button in the
 //                                         alert shown, Chrome's too
-//   dismiss                               closes the menu a right click showed, choosing none
+//   dismiss                               closes the menu a right click or openmenu showed,
+//                                         choosing none
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page, Chromium's or Safari's engine's: letters add to a
 //                                         composition, space converts it to 日本語, return
@@ -1416,6 +1421,22 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     return false;
   }
+  if (action == "openmenu") {
+    NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
+    NSMenu* menu = [NSApp.mainMenu itemWithTitle:title].submenu;
+    if (!menu) {
+      return false;
+    }
+    // Tracking it doesn't return until it closes, so it opens after this command is done.
+    NSView* view = window.contentView;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [menu popUpMenuPositioningItem:nil
+                          atLocation:NSMakePoint(40, NSHeight(view.bounds) - 40)
+                              inView:view];
+    });
+    done();
+    return true;
+  }
   if (action == "menubar") {
     NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
     NSMenu* menu = [NSApp.mainMenu itemWithTitle:title].submenu;
@@ -1463,7 +1484,11 @@ bool Run(const std::string& line, void (^done)(void)) {
   }
   if (action == "dismiss") {
     if (!host_menu_window_dismiss()) {
-      return false;
+      NSMenu* menu = g_tracked;
+      if (!menu) {
+        return false;
+      }
+      [menu cancelTracking];
     }
     dispatch_async(dispatch_get_main_queue(), done);
     return true;

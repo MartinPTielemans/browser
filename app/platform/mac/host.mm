@@ -502,6 +502,40 @@ void AddOver(NSWindow* parent, NSWindow* child) {
   [parent addChildWindow:child ordered:NSWindowAbove];
 }
 
+// The menus AppKit tracks now, the menu bar's and context menus alike, and what waits for them
+// to close.
+NSHashTable<NSMenu*>* g_menus_open;
+void (*g_after_menus)(void);
+
+void WatchMenus() {
+  if (g_menus_open) {
+    return;
+  }
+  g_menus_open = [NSHashTable weakObjectsHashTable];
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  [center addObserverForName:NSMenuDidBeginTrackingNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    [g_menus_open addObject:notification.object];
+                  }];
+  [center addObserverForName:NSMenuDidEndTrackingNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    [g_menus_open removeObject:notification.object];
+                    if (g_menus_open.allObjects.count > 0 || !g_after_menus) {
+                      return;
+                    }
+                    void (*apply)(void) = g_after_menus;
+                    g_after_menus = nullptr;
+                    // Once AppKit has finished closing it: GCD's main queue waits for that.
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                      apply();
+                    });
+                  }];
+}
+
 // From the first browser window, the levels follow the main window and the active app.
 void WatchMainWindow() {
   static bool watching = false;
@@ -1184,6 +1218,7 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
       [view addSubview:g_launch_picture];
     }
   }
+  WatchMenus();
   WatchMainWindow();
   if (above && above->window) {
     [window orderWindow:NSWindowBelow relativeTo:above->window.windowNumber];
@@ -1387,6 +1422,14 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {
                                                   }
                                                 }];
   }
+}
+
+bool host_after_menus(void (*apply)(void)) {
+  if (g_menus_open.allObjects.count == 0) {
+    return false;
+  }
+  g_after_menus = apply;
+  return true;
 }
 
 void host_watch_resigning_active(void (*resigning)(void)) {

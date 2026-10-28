@@ -147,6 +147,8 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {}
 
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
+bool host_after_menus(void (*apply)(void)) { return false; }
+
 void host_watch_resigning_active(void (*resigning)(void)) {}
 
 void host_watch_active(void (*became_active)(void)) {}

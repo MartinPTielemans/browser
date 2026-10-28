@@ -475,6 +475,9 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
 // shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
 void host_watch_full_screen(void (*)(void*, bool)) {}
 
+// A window's menu bar isn't replaced while it's open on Windows: it's modal and runs no tasks.
+bool host_after_menus(void (*)(void)) { return false; }
+
 void host_watch_resigning_active(void (*resigning)(void)) {
   g_resigning_active = resigning;
   WatchForeground();
