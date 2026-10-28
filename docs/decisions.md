@@ -110,3 +110,16 @@ Consequences now:
 - The core exposes one API that both the UI and agents use. Agents are not a bolt-on.
 - "Agent Space" is a kind of Space in the data model from the start.
 - The main risk is prompt injection from page content. Permissions and confirmations limit the damage but don't solve it, so confirmation UI and the activity log ship together with the MCP server, never after it.
+
+## 9. Crash reports: opt-in, to a self-hostable GlitchTip
+
+Crashpad writes a minidump of every crash on the user's device. None leaves it unless the user turns on Settings › Privacy › Send Crash Reports, which is off: then the core sends each report not yet sent to the build's collector, the minidump alone, without cookies, and deletes it once the collector has it. Turning it off deletes the reports not yet sent. Agents get no path to the setting.
+
+- **Collector: [GlitchTip](https://glitchtip.com) (MIT).** It takes Breakpad minidumps at Sentry's endpoint, symbolicates them with uploaded debug files, and self-hosts from one Docker Compose file. Sentry itself is under the FSL, not an open-source license, so a fork couldn't run it on the same terms as the browser; Socorro, Mozilla's, isn't supported outside Mozilla.
+- **A default service URL.** `app/branding/crash-reports` holds the collector's minidump endpoint, `https://<host>/api/<project id>/minidump/?sentry_key=<key>`, read off the project's DSN, `https://<key>@<host>/<project id>`. Empty, as a fork's starts, the build sends nothing and Settings has no Privacy tab.
+- **Setup.** Run GlitchTip with its Docker Compose file (glitchtip.com/documentation/install), make an organization and a project, put the endpoint above in `app/branding/crash-reports`, and make an auth token with `project:write` for the symbols.
+- **Symbols at release.** `tools/release.sh` uploads the Release engine's dSYMs and the app's executable with `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does, whenever the build names a collector. The engine builds with ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions and lines outside Blink, and Blink's only their library.
+- **Pages left out.** Chrome records the page's URL in crash keys; the core's content client doesn't. Reports leave out the memory that pointers on the stack lead to, which can hold a page's, and Chrome's dumps of processes that didn't crash. The stacks themselves can still hold a URL or page text, so the setting is the user's to turn on, never ours.
+- **No timers.** The handler's own upload thread wakes every 15 minutes, so it stays off, as ungoogled-chromium has it. The core sends once the browser has started and when the user turns sending on; one that fails waits for the next launch.
+
+Revisit if GlitchTip stops taking minidumps or symbol files, or stops being open source.

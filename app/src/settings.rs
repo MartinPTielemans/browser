@@ -107,17 +107,27 @@ enum Tab {
     General,
     Profiles,
     Shortcuts,
+    Privacy,
     Advanced,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::General, Tab::Profiles, Tab::Shortcuts, Tab::Advanced];
+    const ALL: [Tab; 5] =
+        [Tab::General, Tab::Profiles, Tab::Shortcuts, Tab::Privacy, Tab::Advanced];
+
+    /// The tabs this build has: Privacy only holds crash reports, which a build without a collector
+    /// never sends.
+    fn shown() -> impl Iterator<Item = Tab> {
+        let collector = !crash_reports_collector().is_empty();
+        Tab::ALL.into_iter().filter(move |&tab| tab != Tab::Privacy || collector)
+    }
 
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
             Tab::Profiles => "Profiles",
             Tab::Shortcuts => "Shortcuts",
+            Tab::Privacy => "Privacy",
             Tab::Advanced => "Advanced",
         }
     }
@@ -127,6 +137,7 @@ impl Tab {
             Tab::General => "icons/settings.svg",
             Tab::Profiles => "icons/user.svg",
             Tab::Shortcuts => "icons/keyboard.svg",
+            Tab::Privacy => "icons/lock.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
         }
     }
@@ -457,7 +468,7 @@ impl Settings {
 
     /// The title, and the toolbar's tabs. Dragging either moves the window, as a toolbar does.
     fn bar(&self, accent: Rgba, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let tabs = Tab::ALL.map(|tab| {
+        let tabs = Tab::shown().map(|tab| {
             let shown = tab == self.tab;
             let color = if shown { accent } else { rgb(TAB_TEXT) };
             div()
@@ -486,7 +497,8 @@ impl Settings {
                         .text_color(color)
                         .child(tab.name()),
                 )
-        });
+        })
+        .collect::<Vec<_>>();
         div()
             .flex_none()
             .h(px(TITLE_BAR + TOOLBAR))
@@ -566,21 +578,7 @@ impl Settings {
             });
             button("make-default-browser", "Make Default").on_click(make)
         });
-        div()
-            .px(px(PADDING))
-            .py(px(PADDING))
-            .flex()
-            .items_center()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(div().truncate().child(row.title()))
-                    .child(
-                        div().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(row.detail()),
-                    ),
-            )
-            .children(make.map(|make| make.ml(px(PADDING))))
+        detailed_row(row.title(), row.detail(), make.map(IntoElement::into_any_element))
     }
 
     /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
@@ -840,6 +838,19 @@ impl Settings {
         .detach();
     }
 
+    /// Send Crash Reports, off by default, with where they go and what turning it off does under
+    /// it, as the default browser's row has its way back.
+    fn privacy(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
+        let send = unsafe { bc::bc_send_crash_reports() };
+        let send = self.toggle("send crash reports", send, set_send_crash_reports, accent, cx);
+        let detail = format!(
+            "Reports go to {}. Turning this off deletes those not yet sent.",
+            crash_reports_collector()
+        );
+        let row = detailed_row("Send crash reports", detail, Some(send));
+        div().child(group([row])).into_any_element()
+    }
+
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
@@ -1072,6 +1083,19 @@ fn set_haptics(haptics: bool) {
     unsafe { bc::bc_set_haptics(haptics) };
 }
 
+fn set_send_crash_reports(send: bool) {
+    unsafe { bc::bc_set_send_crash_reports(send) };
+}
+
+/// The host crash reports go to, or nothing in a build that names none.
+fn crash_reports_collector() -> String {
+    let length = unsafe { bc::bc_crash_reports_collector(std::ptr::null_mut(), 0) };
+    let mut host = vec![0u8; length + 1];
+    unsafe { bc::bc_crash_reports_collector(host.as_mut_ptr().cast(), host.len()) };
+    host.truncate(length);
+    String::from_utf8_lossy(&host).into_owned()
+}
+
 /// Opens Chromium's settings in a new tab, for what this window doesn't offer yet, and goes to it.
 fn more_settings(cx: &mut App) {
     // check.sh waits for this line.
@@ -1108,6 +1132,29 @@ fn row(icon: Option<(&'static str, u32)>, name: &'static str, control: AnyElemen
         .children(icon.map(|(glyph, color)| tile(glyph, color)))
         .child(div().flex_1().min_w_0().truncate().child(name))
         .child(div().flex_none().ml(px(PADDING)).child(control))
+}
+
+/// A row with a grey line under its name, and its control, if any, at the right.
+fn detailed_row(
+    name: impl Into<SharedString>,
+    detail: impl Into<SharedString>,
+    control: Option<AnyElement>,
+) -> gpui::Div {
+    div()
+        .px(px(PADDING))
+        .py(px(PADDING))
+        .flex()
+        .items_center()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(div().truncate().child(name.into()))
+                .child(
+                    div().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(detail.into()),
+                ),
+        )
+        .children(control.map(|control| div().flex_none().ml(px(PADDING)).child(control)))
 }
 
 /// A row's icon: a white glyph on a tile of colour.
@@ -1239,6 +1286,7 @@ impl Render for Settings {
                 self.profiles(&profiles, cx)
             }
             Tab::Shortcuts => self.shortcuts(accent, cx),
+            Tab::Privacy => self.privacy(accent, cx),
             Tab::Advanced => self.advanced(accent, cx),
         };
         div()

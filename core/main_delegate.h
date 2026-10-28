@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "browser_core/public/browser_core.h"
+#include "build/build_config.h"
 // Compiled into chrome_dll, which links this directory in.
 #include "chrome/app/chrome_main_delegate.h"  // nogncheck
 
@@ -26,7 +27,11 @@ class MainDelegate : public ChromeMainDelegate {
  protected:
   std::optional<int> BasicStartupComplete() override;
   void PreSandboxStartup() override;
+#if BUILDFLAG(IS_LINUX)
+  void ZygoteForked() override;
+#endif
   std::optional<int> PreBrowserMain() override;
+  content::ContentClient* CreateContentClient() override;
   content::ContentBrowserClient* CreateContentBrowserClient() override;
 };
 

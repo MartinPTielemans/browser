@@ -22,6 +22,7 @@ sidebar_point="100 400"
 cleanup() {
   # The servers may be gone already, and under set -e a failed kill would end the trap here.
   [ -z "${server:-}" ] || kill "$server" 2>/dev/null || true
+  [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do

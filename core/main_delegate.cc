@@ -13,6 +13,7 @@
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/crash_reports.h"
@@ -40,6 +41,7 @@
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/termination_notification.h"
+#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
@@ -129,7 +131,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
       if (g_host.started) {
         g_host.started(g_host.context);
       }
-      crash_reports::CrashIfTesting();
+      crash_reports::Started();
     }));
   }
 
@@ -195,6 +197,12 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
         is_primary_main_frame, is_in_fenced_frame_tree, sandbox_flags, page_transition,
         has_user_gesture, initiating_origin, initiator_document, isolation_info, out_factory);
   }
+};
+
+// Chrome's, but for the page's URL and top origin, which Chrome records for its crash reports.
+class ContentClient : public ChromeContentClient {
+ public:
+  void SetActiveURL(const GURL& url, std::string top_origin) override {}
 };
 
 }  // namespace
@@ -312,6 +320,21 @@ void MainDelegate::PreSandboxStartup() {
     crash_reports::PlaceReports();
   }
   ChromeMainDelegate::PreSandboxStartup();
+  crash_reports::LeaveOutPages();
+}
+
+#if BUILDFLAG(IS_LINUX)
+void MainDelegate::ZygoteForked() {
+  // Chrome's starts Crashpad in a page's process as the zygote forks it.
+  ChromeMainDelegate::ZygoteForked();
+  crash_reports::LeaveOutPages();
+}
+#endif
+
+content::ContentClient* MainDelegate::CreateContentClient() {
+  // In place of ChromeMainDelegate's, which is its member, in every process.
+  static base::NoDestructor<ContentClient> content_client;
+  return content_client.get();
 }
 
 std::optional<int> MainDelegate::PreBrowserMain() {
