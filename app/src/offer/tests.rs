@@ -157,7 +157,7 @@ fn the_picker_puts_the_username_chosen_in_the_field(cx: &mut TestAppContext) {
     let shown: Rc<RefCell<Option<(Vec<String>, Chosen)>>> = Rc::default();
     let menu = shown.clone();
     prompt.cx.cx.update(|cx| {
-        cx.set_global(FieldMenu(Rc::new(move |items, _, _, chosen, _| {
+        cx.set_global(FieldMenu(Rc::new(move |items, _, _, _, chosen, _| {
             let titles = items.iter().map(|(title, _)| title.to_string()).collect();
             *menu.borrow_mut() = Some((titles, chosen));
         })))

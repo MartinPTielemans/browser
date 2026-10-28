@@ -2,10 +2,11 @@
 # and the window's buttons stay in the header row. A page that goes full screen takes the window
 # with it, and escape or the page leaving brings both back, the page resized once each way, straight
 # to its new size, and its leaving reported once, timed from the page's request to the window's and
-# the UI's steps, going in and out. The command bar opens in full screen and
-# keeps the keyboard when a page commits under it, then gives the keyboard to the new page, and
-# scrolling a long page doesn't stutter. Dragging the window's background moves the window, and the
-# buttons, URL field and rows keep their presses. A double-click there zooms it, and one in the
+# the UI's steps, going in and out. The footer's menu flips up at the screen's bottom in full screen.
+# The command bar opens in full screen and keeps the keyboard when a page commits under it, then
+# gives the keyboard to the new page, and scrolling a long page doesn't stutter. Dragging the
+# window's background moves the window, and the buttons, URL field and rows keep their presses. A
+# double-click there zooms it, and one in the
 # sidebar below the rows opens a new tab. ⌘S, with the page or the UI focused, and the sidebar
 # button hide the sidebar and the window's buttons, and the card takes its place, through a resize;
 # ⌘S brings them back, and the core hears the page moves for each motion and is still after it. The
@@ -197,6 +198,16 @@ send state
 ../tools/window-screenshot.sh "$pid" "$out/fullscreen.png" || fail "no window to capture"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
+# The footer is at the screen's bottom in full screen, so the +'s menu flips up over the pointer.
+post click 204 $((height - 25))
+expect '^browser: menu shown New Space…, New Folder…$' "the footer's + in full screen showed no menu"
+expect '^browser: menu window at ' "the +'s menu in full screen didn't open its window"
+top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d, -f2)
+[ "$top" -lt $((height - 65)) ] ||
+  fail "the +'s menu at the screen's bottom opened down, its window's top at $top, not up over the pointer"
+../tools/window-screenshot.sh "$pid" "$out/fullscreen-menu.png" || fail "no window to capture"
+send key escape
+expect '^browser: menu closed$' "escape didn't close the +'s menu in full screen"
 send fullscreen
 expect '^browser: window left full screen$' "the window didn't leave full screen"
 check_layout "after full screen"
