@@ -35,11 +35,11 @@ config("linux_exports") {
 }
 
 config("app_calls") {
-  # The core calls the app through pointers it gets from the app (BC_APP_ENTRY, bc_host), which
-  # are in another library, so Clang's indirect-call check, on in official Linux builds, traps on
-  # every one.
+  # Clang's indirect-call check, on in official Linux builds, traps on the core's calls into the
+  # app (cfi_ignores.txt says why and how).
   if (is_cfi) {
-    cflags = [ "-fno-sanitize=cfi-icall" ]
+    cflags = [ "-fsanitize-ignorelist=" + rebase_path("cfi_ignores.txt", root_build_dir) ]
+    inputs = [ "cfi_ignores.txt" ]
   }
 }
 
