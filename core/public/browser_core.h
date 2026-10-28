@@ -636,6 +636,12 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 // prepared, as what Chromium reads can include the UI's, which wait in the UI's queue.
 BC_EXPORT void* bc_wayland_display(void (*dispatched)(void));
 
+// The scale Chromium draws at on the main display, in pixels a point, as the desktop sets it (on X11
+// through GTK, from GDK_SCALE and the font resolution) or --force-device-scale-factor does. On X11,
+// where the app's UI has a connection of its own, the UI draws at it too, so its points are the
+// pages'. Works from started.
+BC_EXPORT double bc_display_scale(void);
+
 // On Linux under Wayland, |window|'s wl_surface, for the app's UI to be a subsurface of, under the
 // pages, with its content's size in points; else null. The app's UI, not bc_window_open's
 // |ui_view|, which is null there, then follows window_resized.
