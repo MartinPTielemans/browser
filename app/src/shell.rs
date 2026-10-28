@@ -604,6 +604,8 @@ enum Naming {
 struct Renaming {
     naming: Naming,
     name: Entity<TextInput>,
+    /// Whether the field is in the Space's card in the Library rather than in the sidebar.
+    in_library: bool,
     /// Keeps the name once the field loses GPUI's focus, as Finder does.
     _blur: Option<Subscription>,
 }
@@ -912,6 +914,9 @@ pub struct Shell {
     tip_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
     button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
+    /// The icon slots the Library's Space cards were last drawn with, by Space, for their
+    /// tooltips to hang from.
+    slot_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
     /// went past or back, from how far in it was then.
     scrolled: bool,
@@ -1189,6 +1194,7 @@ impl Shell {
             sidebar_origin: Rc::default(),
             tip_frames: Rc::default(),
             button_frames: Rc::default(),
+            slot_frames: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
             tools_on: false,
@@ -2552,6 +2558,10 @@ impl Render for Shell {
             Naming::Folder(folder) => self.is_folder(folder),
             _ => true,
         });
+        // A name being typed in a card is kept as the Library closes over it, however it closes.
+        if !self.library_open && self.renaming.as_ref().is_some_and(|renaming| renaming.in_library) {
+            self.keep_name(window, cx);
+        }
         if drawn
             && std::mem::take(&mut self.focus_renaming)
             && let Some(renaming) = &mut self.renaming
@@ -3300,6 +3310,15 @@ fn name_box(palette: &Palette, icon: bool) -> gpui::Div {
 /// The dashed square that holds the icon's place before a Space's name, in the name row `name_box`
 /// makes, while the icon picker shows for a Space with no icon.
 fn icon_placeholder() -> impl IntoElement {
+    dashed_square(rgba(ICON_PLACEHOLDER_COLOR).into())
+        .absolute()
+        .left(px(FAVICON_X + FAVICON_SIZE / 2. - ICON_PLACEHOLDER / 2.))
+        .top(px((NAME_HEIGHT - ICON_PLACEHOLDER) / 2.))
+        .size(px(ICON_PLACEHOLDER))
+}
+
+/// A square of Arc's dashes in `color`, as big as it's laid out.
+pub(super) fn dashed_square(color: Hsla) -> gpui::Canvas<()> {
     let line = ICON_PLACEHOLDER_LINE;
     canvas(
         |_, _, _| {},
@@ -3314,29 +3333,31 @@ fn icon_placeholder() -> impl IntoElement {
             let mut path = PathBuilder::stroke(px(line)).dash_array(&[px(dash), px(gap)]);
             split_targets::rounded_rect(&mut path, inner, px(ICON_PLACEHOLDER_RADIUS) - inset);
             if let Ok(path) = path.build() {
-                window.paint_path(path, rgba(ICON_PLACEHOLDER_COLOR));
+                window.paint_path(path, color);
             }
         },
     )
-    .absolute()
-    .left(px(FAVICON_X + FAVICON_SIZE / 2. - ICON_PLACEHOLDER / 2.))
-    .top(px((NAME_HEIGHT - ICON_PLACEHOLDER) / 2.))
-    .size(px(ICON_PLACEHOLDER))
 }
 
 /// A Space's icon before its name, in the name row `name_box` makes, if it has one: its emoji, or
 /// its glyph in the name's colour.
 pub(super) fn space_icon(palette: &Palette, icon: &str) -> Option<gpui::Div> {
-    let drawn = match SpaceIcon::parse(icon) {
-        SpaceIcon::Dot => return None,
-        SpaceIcon::Emoji(emoji) => SharedString::from(emoji.to_string()).into_any_element(),
-        SpaceIcon::Glyph(index) => svg()
-            .path(GLYPHS[index].1)
-            .size(px(SPACE_GLYPH))
-            .text_color(palette.text(SPACE_NAME))
-            .into_any_element(),
-    };
-    Some(icon_slot(drawn))
+    space_icon_drawn(palette, icon).map(icon_slot)
+}
+
+/// A Space's emoji, or its glyph in the name's colour, if it has an icon.
+pub(super) fn space_icon_drawn(palette: &Palette, icon: &str) -> Option<gpui::AnyElement> {
+    match SpaceIcon::parse(icon) {
+        SpaceIcon::Dot => None,
+        SpaceIcon::Emoji(emoji) => Some(SharedString::from(emoji.to_string()).into_any_element()),
+        SpaceIcon::Glyph(index) => Some(
+            svg()
+                .path(GLYPHS[index].1)
+                .size(px(SPACE_GLYPH))
+                .text_color(palette.text(SPACE_NAME))
+                .into_any_element(),
+        ),
+    }
 }
 
 /// The place before a Space's name that its icon takes, with `drawn` in it.
