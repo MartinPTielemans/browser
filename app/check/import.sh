@@ -91,7 +91,7 @@ send clickkey 575 134
 expect '^browser: import pick Arc$' "Import… on Arc's row didn't show what comes from it"
 ../tools/window-screenshot.sh "$pid" "$out/import-pick.png" || fail "no window to capture"
 # Arc's three choices: Spaces, Favorites and History.
-send clickkey 588 268
+send clickkey 590 282
 expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 3 favorites, 0 pages$' \
   "Import didn't plan Arc's 2 Spaces, 6 pinned tabs and 3 favorites"
 expect '^browser: added profile [0-9]* Work$' "Arc's Work profile didn't come in"
@@ -109,7 +109,7 @@ grep -q "^browser: profiled space $work $work_profile\$" "$log" ||
 send clickkey 590 145
 send clickkey 575 134
 expect '^browser: import pick Arc$' "Import… didn't show Arc's choices again"
-send clickkey 588 268
+send clickkey 590 282
 expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 favorites, 0 pages$' \
   "the second import would add something again"
 expect '^browser: import done: Everything from Arc is here already\.$' "the second import said it added something"
@@ -118,7 +118,7 @@ expect '^browser: import done: Everything from Arc is here already\.$' "the seco
 send clickkey 590 145
 send clickkey 575 185
 expect '^browser: import pick Chrome$' "Import… on Chrome's row didn't show what comes from it"
-send clickkey 588 231
+send clickkey 590 245
 expect '^browser: import from Chrome: 1 Spaces, 3 pinned tabs, 0 favorites, 2 pages$' \
   "Import didn't plan Chrome's bookmarks and history"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Chrome's 2 pages"
@@ -128,7 +128,7 @@ expect '^browser: import done: 1 Space, 3 pinned tabs and 2 pages of history cam
 send clickkey 590 145
 send clickkey 575 185
 expect '^browser: import pick Chrome$' "Import… didn't show Chrome's choices again"
-send clickkey 588 231
+send clickkey 590 245
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
@@ -136,7 +136,7 @@ expect '^browser: import done: Everything from Chrome is here already\.$' \
 send clickkey 590 145
 send clickkey 575 236
 expect '^browser: import pick Firefox$' "Import… on Firefox's row didn't show what comes from it"
-send clickkey 588 231
+send clickkey 590 245
 expect '^browser: import from Firefox: 1 Spaces, 2 pinned tabs, 0 favorites, 2 pages$' \
   "Import didn't plan Firefox's bookmarks and history"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Firefox's 2 pages"
@@ -146,7 +146,7 @@ expect '^browser: import done: 1 Space, 2 pinned tabs and 2 pages of history cam
 send clickkey 590 145
 send clickkey 575 236
 expect '^browser: import pick Firefox$' "Import… didn't show Firefox's choices again"
-send clickkey 588 231
+send clickkey 590 245
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Firefox's pages again"
 expect '^browser: import done: Everything from Firefox is here already\.$' \
   "the second import from Firefox said it added something"
