@@ -6,7 +6,8 @@
 // child windows of their own; a function with an empty body leaves its part out, and one that
 // answers says "no" or "none". The overlays, the command bar, the icon picker and the dialog, are
 // overlays.rs's, the find bar and the offer are panels.rs's, ilo's menus are menu_window.rs's, the
-// HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's and Settings is
+// HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's, the Site
+// Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's and Settings is
 // settings_window.rs's, as GPUI's Linux platform shows them.
 
 #include "../host.h"
@@ -187,28 +188,6 @@ bool host_can_draw_emoji(const char*) {
 
 void host_hold_keys(void) {}
 
-void host_add_site_controls(void* view, void (*dismissed)(void)) {}
-
-void host_set_site_controls_shape(const double* corners, size_t count) {}
-
-void host_show_site_controls(void* ui_view, double left, double top, double width, double height) {}
-
-void host_set_site_controls_height(double height) {}
-
-void host_site_controls_drew(double scale, double opacity, double x, double y) {}
-
-void host_release_site_controls(void) {}
-
-void host_hide_site_controls(void) {}
-
-void host_add_capture(void* view, void (*dismissed)(void)) {}
-
-void host_show_capture(void* ui_view, double left, double top, double width, double height) {}
-
-void host_capture_camera(bool camera) {}
-
-void host_hide_capture(void) {}
-
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
@@ -224,12 +203,6 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
 void host_show_window_buttons(void* ui_view, bool shown) {}
 
 void host_press_window_button(void* ui_view, int button) {}
-
-void host_add_reveal(void* ui_view, void* reveal_view, void (*pointer_moved)(void* ui_view, double x)) {}
-
-void host_show_reveal(void* ui_view, double width) {}
-
-void host_hide_reveal(void* ui_view) {}
 
 bool host_close_other_window(void) {
   return false;

@@ -20,7 +20,28 @@ struct Reveal {
 
 impl Render for Reveal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.shell.update(cx, |shell, cx| shell.render_reveal(window, cx))
+        let panel = self.shell.update(cx, |shell, cx| shell.render_reveal(window, cx));
+        // On Linux the page is Chromium's, whose pointer the host doesn't hear, so this window
+        // says where the pointer is over it, and as it leaves, that it's past the panel.
+        #[cfg(target_os = "linux")]
+        let panel = {
+            let (moved, left) = (self.shell.clone(), self.shell.clone());
+            gpui::div()
+                .id("reveal")
+                .size_full()
+                .on_mouse_move(move |event, _, cx| {
+                    let x = event.position.x.into();
+                    moved.update(cx, |shell, cx| shell.pointer_at(x, cx));
+                })
+                .on_hover(move |hovered, _, cx| {
+                    if !*hovered {
+                        left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx));
+                    }
+                })
+                .child(panel)
+                .into_any_element()
+        };
+        panel
     }
 }
 
