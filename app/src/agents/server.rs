@@ -127,6 +127,9 @@ impl Connection {
 impl Drop for Server {
     fn drop(&mut self) {
         self.shared.stopped.store(true, Ordering::SeqCst);
+        // Closed here, on the UI thread, which its task's wake then is, not on the last server
+        // thread to let go of it.
+        self.shared.events.close_channel();
         // `accept` returns for a connection, which then finds the server stopped.
         #[cfg(unix)]
         {
