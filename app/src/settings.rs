@@ -1374,9 +1374,17 @@ impl Settings {
                 let entries: Vec<gpui::Div> = (model.activity(client.id()).take(ACTIVITY_SHOWN))
                     .map(|entry| {
                         let what = agents::tools::describe(&entry.action);
-                        let detail: SharedString = match entry.refused.is_empty() {
-                            true => entry.site.clone(),
-                            false => format!("Refused: {}", entry.refused).into(),
+                        let refused = (entry.steps.iter().map(|step| &step.refused))
+                            .find(|refused| !refused.is_empty())
+                            .unwrap_or(&entry.refused);
+                        let steps = (entry.steps.iter())
+                            .map(|step| agents::tools::describe(&step.action));
+                        let detail: SharedString = if !refused.is_empty() {
+                            format!("Refused: {refused}").into()
+                        } else if !entry.steps.is_empty() {
+                            steps.collect::<Vec<_>>().join(" · ").into()
+                        } else {
+                            entry.site.clone()
                         };
                         let detail = Some(detail).filter(|detail| !detail.is_empty());
                         let ago = div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL));
@@ -1465,7 +1473,7 @@ impl Settings {
         } else if client == Client::Other {
             "Any MCP client".into()
         } else {
-            "Not connected".into()
+            format!("Not connected. Connect adds the browser to {}", client.config()).into()
         };
         let index = client as usize;
         let setup = (connected && client == Client::Other).then(|| model.setup(client)).flatten();

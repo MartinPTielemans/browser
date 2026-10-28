@@ -202,7 +202,9 @@ fn the_server_answers_what_needs_no_browser() {
             "type",
             "press_key",
             "scroll",
-            "screenshot"
+            "screenshot",
+            "run_steps",
+            "hand_off"
         ]
     );
     assert_eq!(list["id"], "a");

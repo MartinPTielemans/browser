@@ -774,6 +774,10 @@ impl Shell {
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
             Command::RevealTab => return self.reveal_tab(cx),
+            // In an agent's Space ⌘↩ is the bar's Take Over or Hand Back.
+            Command::BackToPinnedUrl if self.agent_bar().is_some() => {
+                return self.agent_bar_primary(cx);
+            }
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
             Command::Clear => return self.clear(cx),
@@ -1116,7 +1120,7 @@ impl Shell {
             Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
-            Command::BackToPinnedUrl => page.away_from_pinned_url,
+            Command::BackToPinnedUrl => page.away_from_pinned_url || self.agent_bar().is_some(),
             Command::CloseSplitPane
             | Command::SeparatePane
             | Command::SeparateSplit
