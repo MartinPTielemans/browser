@@ -51,9 +51,9 @@ git -C .deps/accesskit_macos add -A
 git -C .deps/accesskit_macos -c user.name=setup -c user.email=setup@localhost commit -qm upstream
 git -C .deps/accesskit_macos apply "$PWD/patches/accesskit-macos-actions.patch"
 
-# The engine: the Mac's, linked here; on Linux, the prebuilt one the engine's CI publishes, linked
-# here when there is one for this checkout; on Windows, an artifact unzipped by hand. Without one
-# there is the UI alone: the tests and the preview (AGENTS.md, Dev).
+# The engine: the Mac's, linked here; on Linux and Windows, the prebuilt one the engine's CI
+# publishes, when there is one for this checkout. Without one there is the UI alone: the tests and
+# the preview (AGENTS.md, Dev).
 case $(uname -s) in
   Darwin)
     engines=$(cd .. && pwd)/engine
@@ -78,10 +78,18 @@ case $(uname -s) in
     fi
     ;;
   MINGW*)
-    # shortcut: no prebuilt Windows engine to fetch yet; publish engine-windows.yml's artifact as
-    # fetch.sh's download for Windows once it builds.
-    [ -d .deps/engine ] || echo "No engine in .deps/engine: unzip the chromium artifact of
-.github/workflows/engine-windows.yml there to build the browser. The preview runs without it." >&2
+    # Git Bash's ln copies a directory without being asked to, so the copy is made here, once per
+    # engine, with the engine it came from noted in it.
+    engines=$(cd .. && pwd)/engine
+    if engine=$("$engines/fetch.sh"); then
+      if [ "$(cat .deps/engine/.from 2>/dev/null)" != "$engine" ]; then
+        rm -rf .deps/engine
+        cp -r "$engine" .deps/engine
+        echo "$engine" >.deps/engine/.from
+      fi
+    else
+      echo "No Windows engine for this checkout yet, so only the tests and the preview build." >&2
+    fi
     ;;
 esac
 
