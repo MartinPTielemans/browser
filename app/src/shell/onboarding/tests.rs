@@ -7,7 +7,7 @@ use std::{
 
 use gpui::{Entity, Focusable, Modifiers, TestAppContext, VisualTestContext, point, px};
 
-use super::{Drawn, END_FADE, INTRO_END, STEP_MOTION, Step};
+use super::{Drawn, END_FADE, INTRO_END, OptIn, STEP_MOTION, Step};
 use crate::import::ImportEvent;
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
@@ -239,14 +239,70 @@ fn the_colour_picked_is_the_first_spaces(cx: &mut TestAppContext) {
     assert!(calls.contains(&format!("space theme 1 {theme}")), "{calls:?}");
 }
 
-/// A page shown covers the window, so it ends the flow at once.
+/// A page shown covers the window, so it ends the flow at once, with no command bar over it.
 #[gpui::test]
 fn a_page_shown_ends_it(cx: &mut TestAppContext) {
-    let (shell, cx, _) = first_window(cx);
+    let (shell, cx, host) = first_window(cx);
     started(&shell, cx);
     shell.update(cx, |shell, cx| shell.set_selected(1, cx));
     cx.run_until_parked();
     assert_eq!(step(&shell, cx), None);
+    assert!(host.command_bars.borrow().is_empty());
+}
+
+/// The flow ends in the first Space with the command bar up, as ⌘T has it, and a line on the card
+/// under it until a page shows.
+#[gpui::test]
+fn it_ends_with_the_command_bar_up(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Color);
+    cx.simulate_keystrokes("escape");
+    assert!(host.command_bars.borrow().is_empty(), "not while the flow fades");
+    later(&shell, cx, END_FADE);
+    assert_eq!(step(&shell, cx), None);
+    assert_eq!(host.command_bars.borrow().len(), 1, "the bar is up");
+    assert!(shell.read_with(cx, |shell, _| shell.in_hint));
+    shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+    cx.run_until_parked();
+    assert!(!shell.read_with(cx, |shell, _| shell.in_hint), "a page shown takes the line away");
+}
+
+/// The opt-ins step shows the switches offered, each Settings' own and set as it's turned, and
+/// none offered leaves the step out.
+#[gpui::test]
+fn the_opt_ins_show_only_those_offered(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    let offered = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+        shell.update(cx, |shell, cx| shell.opt_ins(cx))
+    };
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Color);
+    cx.simulate_keystrokes("escape");
+    later(&shell, cx, END_FADE);
+    assert_eq!(step(&shell, cx), None, "with neither offered, the colour is the last step");
+
+    // With no collector set up, only the agents' switch shows.
+    host.agents.set(Some(false));
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::OptIns);
+    assert_eq!(offered(&shell, cx), vec![(OptIn::Agents, false)]);
+    host.take();
+    shell.update(cx, |shell, cx| shell.onboarding_switch(OptIn::Agents, cx));
+    assert_eq!(host.take(), vec!["agents true".to_string()]);
+    assert_eq!(offered(&shell, cx), vec![(OptIn::Agents, true)]);
+    cx.simulate_keystrokes("escape");
+    let ending = shell.read_with(cx, |shell, _| shell.onboarding.as_ref().unwrap().ending);
+    assert!(ending.is_some(), "it's the last step");
+    assert_eq!(host.agents.get(), Some(true), "Skip leaves a switch as it was turned");
+    later(&shell, cx, END_FADE);
+
+    host.crash_reports.set(Some(false));
+    host.agents.set(Some(false));
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::OptIns);
+    let both = vec![(OptIn::CrashReports, false), (OptIn::Agents, false)];
+    assert_eq!(offered(&shell, cx), both, "both off to begin with");
 }
 
 /// Help › Welcome to ilo plays it again: here when the window shows no page, else in a new window,
