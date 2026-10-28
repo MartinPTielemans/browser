@@ -2,10 +2,10 @@
 // browser runs as libBrowser.so in Chromium's own chrome, and GPUI's window sits in the browser
 // window as the core puts it there.
 //
-// shortcut: most of it does nothing yet. Menus, alerts, the find bar and the rest that float over
-// the page need child windows of their own; a function with an empty body leaves its part out, and
-// one that answers says "no" or "none". The overlays, the command bar and the icon picker, are
-// overlays.rs's, as GPUI's Linux platform shows them.
+// shortcut: most of it does nothing yet. Menus, alerts and the rest that float over the page need
+// child windows of their own; a function with an empty body leaves its part out, and one that
+// answers says "no" or "none". The overlays, the command bar and the icon picker, are overlays.rs's,
+// and the find bar is panels.rs's, as GPUI's Linux platform shows them.
 
 #include "../host.h"
 
@@ -166,8 +166,6 @@ double host_since_launch(void) {
   return (now.tv_sec + now.tv_nsec / 1e9 - StartedSinceBoot()) * 1000;
 }
 
-void host_forget_window(void* ui_view) {}
-
 // shortcut: overlays don't shrink or cast a shadow on Linux yet (overlays.rs).
 void host_set_overlay_shrink(int overlay) {}
 
@@ -184,19 +182,11 @@ bool host_can_draw_emoji(const char*) {
 
 void host_hold_keys(void) {}
 
-void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {}
-
-void host_show_find_bar(void* ui_view, bool keyboard) {}
-
-void host_hide_find_bar(void* ui_view) {}
-
 void host_add_offer(void* ui_view, void* offer_view, double right, double top) {}
 
 void host_show_offer(void* ui_view) {}
 
 void host_hide_offer(void* ui_view) {}
-
-void host_set_pane_corner(void* ui_view, double right, double top) {}
 
 void host_add_hud(void* hud_view, double right, double top, double margin) {}
 

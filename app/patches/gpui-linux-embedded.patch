@@ -23,10 +23,10 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..f557e9ec6b 100644
+index a5390e77f8..6f29770087 100644
 --- i/crates/gpui_linux/src/gpui_linux.rs
 +++ w/crates/gpui_linux/src/gpui_linux.rs
-@@ -1,4 +1,12 @@
+@@ -1,4 +1,13 @@
  #![cfg(any(target_os = "linux", target_os = "freebsd"))]
  mod linux;
  
@@ -36,12 +36,13 @@ index a5390e77f8..f557e9ec6b 100644
 +pub use linux::{
 +    Corner, EmbeddedKeyboard, current_platform, dispatch_embedded, dispatch_embedded_after_read,
 +    embed, embed_wayland, embed_x11, embedded_fd, embedder_size, hide_overlay, leave_overlay,
-+    linux_platform, move_overlay, new_host_window, overlay_size, set_overlay_outline, show_overlay,
++    linux_platform, move_overlay, new_host_window, overlay_size, set_overlay_keyboard,
++    set_overlay_outline, set_overlay_panel, show_overlay,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{open_next_window_in_surface, resize_embedded};
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..b65fb5bc82 100644
+index e4da54b52b..338150e32e 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
 @@ -2,6 +2,7 @@ mod dispatcher;
@@ -58,7 +59,7 @@ index e4da54b52b..b65fb5bc82 100644
  pub(crate) use keyboard::*;
 +pub use overlay::{
 +    Corner, embedder_size, hide_overlay, leave_overlay, move_overlay, overlay_size,
-+    set_overlay_outline, show_overlay,
++    set_overlay_keyboard, set_overlay_outline, set_overlay_panel, show_overlay,
 +};
  pub(crate) use platform::*;
 +pub use platform::{
@@ -78,15 +79,17 @@ index e4da54b52b..b65fb5bc82 100644
  
 diff --git i/crates/gpui_linux/src/linux/overlay.rs w/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..62ce7681df
+index 0000000000..addb0c4418
 --- /dev/null
 +++ w/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,496 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
 +//! with the keyboard gets the keys until it hides, and the embedder hears when the user leaves it:
-+//! a press outside it, or the keyboard going to another window.
++//! a press outside it, or the keyboard going to another window. A panel, such as a find bar, stays
++//! in its window instead (`set_overlay_panel`), and takes the keys and gives them back while it
++//! shows (`set_overlay_keyboard`).
 +//!
 +//! The embedder asks from inside GPUI's updates, where the overlay can't draw, so what it asks of
 +//! the display happens once GPUI's loop next runs, in order, as does telling it the user left.
@@ -134,6 +137,13 @@ index 0000000000..62ce7681df
 +        hidden: Box<dyn FnOnce()>,
 +    },
 +    Left(usize),
++    /// An overlay that shows takes the keys, or gives them back.
++    Keyboard {
++        view: usize,
++        keyboard: bool,
++    },
++    /// A press in a panel that shows without the keys.
++    Pressed(usize),
 +    /// The keyboard left the embedder's window, unless it's back by the time this runs, as a
 +    /// compositor sends a leave and an enter together when the keyboard's keymap changes.
 +    KeyboardLeft,
@@ -149,6 +159,62 @@ index 0000000000..62ce7681df
 +    static PARENTS: RefCell<Vec<(usize, u32)>> = const { RefCell::new(Vec::new()) };
 +    /// The outlines overlays have that aren't rounded rectangles (`set_overlay_outline`).
 +    static OUTLINES: RefCell<Vec<(usize, Vec<Corner>)>> = const { RefCell::new(Vec::new()) };
++    /// The panels (`set_overlay_panel`), with what a press in each runs.
++    static PANELS: RefCell<Vec<(usize, fn(*mut c_void))>> = const { RefCell::new(Vec::new()) };
++}
++
++/// Makes the overlay `view` a panel of the window it shows over, from its next show on: on X11 a
++/// window inside that one rather than over every other, which moves with it and stays under other
++/// apps' windows, as a find bar or a toast does that stays while the user is elsewhere. Its edges
++/// aren't blended there. A press in it while it hasn't the keys runs `pressed`, after the event.
++pub fn set_overlay_panel(view: *mut c_void, pressed: fn(*mut c_void)) {
++    let view = view as usize;
++    PANELS.with_borrow_mut(|all| {
++        all.retain(|(each, _)| *each != view);
++        all.push((view, pressed));
++    });
++}
++
++/// Whether `view` is a panel that shows.
++#[allow(dead_code)]
++pub(crate) fn is_shown_panel(view: usize) -> bool {
++    is_shown(view) && is_panel(view)
++}
++
++#[allow(dead_code)]
++pub(crate) fn is_panel(view: usize) -> bool {
++    PANELS.with_borrow(|all| all.iter().any(|(each, _)| *each == view))
++}
++
++/// Gives the overlay `view` that shows the keys, or gives them back to the window that had them,
++/// as it keeps showing. `left` runs when the user next leaves it. One that has them already only
++/// waits for the user to leave again.
++pub fn set_overlay_keyboard(view: *mut c_void, keyboard: bool, left: fn(*mut c_void)) {
++    let view = view as usize;
++    let changed = SHOWN.with_borrow_mut(|all| {
++        let shown = all.iter_mut().find(|shown| shown.view == view)?;
++        shown.left = Some(left);
++        let changed = shown.keyboard != keyboard;
++        if changed {
++            shown.keyboard = keyboard;
++            shown.ready = false;
++        }
++        Some(changed)
++    });
++    if changed == Some(true) {
++        later(Op::Keyboard { view, keyboard });
++    }
++}
++
++/// A press in GPUI's window `view`: a panel that shows without the keys hears of it.
++#[allow(dead_code)]
++pub(crate) fn pressed_in(view: usize) {
++    let without_keys = SHOWN.with_borrow(|all| {
++        all.iter().any(|shown| shown.view == view && !shown.keyboard)
++    });
++    if without_keys && is_panel(view) {
++        later(Op::Pressed(view));
++    }
 +}
 +
 +/// A corner of an overlay's outline: x and y in logical pixels from its top left, and the radius
@@ -389,6 +455,14 @@ index 0000000000..62ce7681df
 +                    left(view as *mut c_void);
 +                }
 +            }
++            Op::Pressed(view) => {
++                let pressed = PANELS.with_borrow(|all| {
++                    all.iter().find(|(each, _)| *each == view).map(|&(_, pressed)| pressed)
++                });
++                if let Some(pressed) = pressed.filter(|_| is_shown(view)) {
++                    pressed(view as *mut c_void);
++                }
++            }
 +            Op::Hide {
 +                view,
 +                keyboard,
@@ -404,7 +478,7 @@ index 0000000000..62ce7681df
 +            }
 +            op => {
 +                let shown = match op {
-+                    Op::Show { view, .. } => Some(view),
++                    Op::Show { view, .. } | Op::Keyboard { view, .. } => Some(view),
 +                    _ => None,
 +                };
 +                super::platform::with_embedded_connection(|connection| apply(op, connection));
@@ -436,7 +510,8 @@ index 0000000000..62ce7681df
 +            }
 +            Op::Move { view, bounds, .. } => super::wayland::move_overlay(view as _, bounds),
 +            Op::Hide { view, keyboard, .. } => super::wayland::hide_overlay(view as _, keyboard),
-+            Op::Left(_) | Op::KeyboardLeft => {}
++            Op::Keyboard { view, keyboard } => super::wayland::overlay_keyboard(view as _, keyboard),
++            Op::Left(_) | Op::Pressed(_) | Op::KeyboardLeft => {}
 +        },
 +        #[cfg(feature = "x11")]
 +        DisplayConnection::X11(x11) => {
@@ -454,7 +529,9 @@ index 0000000000..62ce7681df
 +                        all.retain(|&(each, _)| each != view);
 +                        all.push((view, parent as u32));
 +                    });
-+                    let from = x11.show_overlay(view as _, parent as _, bounds, &outline, keyboard);
++                    let panel = is_panel(view);
++                    let from =
++                        x11.show_overlay(view as _, parent as _, bounds, &outline, keyboard, panel);
 +                    if let Some(from) = from.log_err() {
 +                        FOCUS_FROM.with_borrow_mut(|all| all.push((view, from)));
 +                    }
@@ -469,7 +546,8 @@ index 0000000000..62ce7681df
 +                        all.iter().find(|&&(each, _)| each == view).map(|&(_, parent)| parent)
 +                    });
 +                    if let Some(parent) = parent {
-+                        x11.move_overlay(view as _, parent, bounds, &outline).log_err();
++                        let panel = is_panel(view);
++                        x11.move_overlay(view as _, parent, bounds, &outline, panel).log_err();
 +                    }
 +                }
 +                Op::Hide { view, .. } => {
@@ -479,7 +557,22 @@ index 0000000000..62ce7681df
 +                    });
 +                    x11.hide_overlay(view as _, from.unwrap_or(0)).log_err();
 +                }
-+                Op::Left(_) | Op::KeyboardLeft => {}
++                Op::Keyboard { view, keyboard: true } => {
++                    if let Some(from) = x11.overlay_takes_focus(view as _).log_err() {
++                        FOCUS_FROM.with_borrow_mut(|all| {
++                            all.retain(|&(each, _)| each != view);
++                            all.push((view, from));
++                        });
++                    }
++                }
++                Op::Keyboard { view, keyboard: false } => {
++                    let from = FOCUS_FROM.with_borrow_mut(|all| {
++                        let at = all.iter().position(|&(each, _)| each == view)?;
++                        Some(all.remove(at).1)
++                    });
++                    x11.overlay_gives_focus(view as _, from.unwrap_or(0)).log_err();
++                }
++                Op::Left(_) | Op::Pressed(_) | Op::KeyboardLeft => {}
 +            }
 +        }
 +        #[allow(unreachable_patterns)]
@@ -775,7 +868,7 @@ index cbc962bcff..bcad8dfaae 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git i/crates/gpui_linux/src/linux/wayland/client.rs w/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..1c1ff85613 100644
+index 2d40cf7fa9..038a28b879 100644
 --- i/crates/gpui_linux/src/linux/wayland/client.rs
 +++ w/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -1092,7 +1185,7 @@ index 2d40cf7fa9..1c1ff85613 100644
                      focused_window.handle_input(input);
                      focused_window.set_hovered(false);
                  }
-@@ -2514,11 +2602,27 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2514,11 +2602,30 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  }
                  let button = linux_button_to_gpui(button);
                  let Some(button) = button else { return };
@@ -1102,6 +1195,9 @@ index 2d40cf7fa9..1c1ff85613 100644
 +                    let on = (state.mouse_focused_window.as_ref())
 +                        .map(|window| window.surface().id().as_ptr() as usize);
 +                    crate::linux::overlay::pressed(on);
++                    if let Some(on) = on {
++                        crate::linux::overlay::pressed_in(on);
++                    }
 +                }
                  if state.mouse_focused_window.is_none() {
                      return;
@@ -1120,7 +1216,7 @@ index 2d40cf7fa9..1c1ff85613 100644
                          if let Some(window) = state.keyboard_focused_window.clone() {
                              if state.composing && state.text_input.is_some() {
                                  drop(state);
-@@ -3479,3 +3583,178 @@ mod tests {
+@@ -3479,3 +3586,185 @@ mod tests {
          );
      }
  }
@@ -1287,6 +1383,13 @@ index 2d40cf7fa9..1c1ff85613 100644
 +    if let Some(window) = overlay_window(view) {
 +        window.move_over(bounds);
 +        flush(&window);
++    }
++}
++
++/// The overlay window of the `view` surface that shows takes the keys, or gives them back.
++pub(crate) fn overlay_keyboard(view: *mut std::ffi::c_void, keyboard: bool) {
++    if let Some(window) = overlay_window(view) {
++        window.set_focused(keyboard);
 +    }
 +}
 +
@@ -1622,7 +1725,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..4538607afb 100644
+index e21f019c64..74a84fa91f 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1682,7 +1785,25 @@ index e21f019c64..4538607afb 100644
              }
              Event::VisibilityNotify(event) => {
                  let mut state = self.0.borrow_mut();
-@@ -1069,6 +1083,17 @@ impl X11Client {
+@@ -1044,6 +1058,17 @@ impl X11Client {
+                         height: event.height.into(),
+                     },
+                 };
++                // A panel the embedder sent under its siblings as it mapped, taking it for its
++                // own output (`show_overlay`), goes back over them.
++                if event.above_sibling == x11rb::NONE
++                    && crate::linux::overlay::is_shown_panel(event.window as usize)
++                {
++                    let xcb = self.0.borrow().xcb_connection.clone();
++                    let raise =
++                        xproto::ConfigureWindowAux::new().stack_mode(xproto::StackMode::ABOVE);
++                    xcb.configure_window(event.window, &raise).log_err();
++                    xcb.flush().log_err();
++                }
+                 let window = self.get_window(event.window)?;
+                 window
+                     .set_bounds(bounds)
+@@ -1069,6 +1094,17 @@ impl X11Client {
                  self.enable_ime();
              }
              Event::FocusOut(event) => {
@@ -1700,15 +1821,16 @@ index e21f019c64..4538607afb 100644
                  let window = self.get_window(event.event)?;
                  window.set_active(false);
                  let mut state = self.0.borrow_mut();
-@@ -1230,6 +1255,7 @@ impl X11Client {
+@@ -1230,6 +1266,8 @@ impl X11Client {
              }
              Event::XinputButtonPress(event) => {
                  let window = self.get_window(event.event)?;
 +                window.focus_if_hosted();
++                crate::linux::overlay::pressed_in(event.event as usize);
                  let mut state = self.0.borrow_mut();
  
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -1416,6 +1442,7 @@ impl X11Client {
+@@ -1416,6 +1454,7 @@ impl X11Client {
                  drop(state);
  
                  let window = self.get_window(event.event)?;
@@ -1716,7 +1838,7 @@ index e21f019c64..4538607afb 100644
                  window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
                      pressed_button,
                      position,
-@@ -2052,6 +2079,9 @@ impl X11ClientState {
+@@ -2052,6 +2091,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -1726,7 +1848,7 @@ index e21f019c64..4538607afb 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2117,177 @@ impl X11ClientState {
+@@ -2087,6 +2129,214 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -1808,8 +1930,10 @@ index e21f019c64..4538607afb 100644
 +    /// Shows GPUI's unmapped window `view` over the embedder's `parent` (`crate::linux::overlay`):
 +    /// a window of its own, which no window manager takes, in the shape of `outline`. Not a child of
 +    /// `parent`, as an X server doesn't blend a child window with what's under it, where a
-+    /// compositor blends a window's edges with whatever is. With `keyboard` it takes the input
-+    /// focus, and this returns the window that had it.
++    /// compositor blends a window's edges with whatever is. A `panel` is a child of the window
++    /// `parent` is in instead, over `parent`, so it moves with that window and stays under other
++    /// windows, with its edges unblended. With `keyboard` it takes the input focus, and this
++    /// returns the window that had it.
 +    pub(crate) fn show_overlay(
 +        &self,
 +        view: xproto::Window,
@@ -1817,18 +1941,24 @@ index e21f019c64..4538607afb 100644
 +        bounds: Bounds<Pixels>,
 +        outline: &[crate::linux::overlay::Corner],
 +        keyboard: bool,
++        panel: bool,
 +    ) -> anyhow::Result<xproto::Window> {
 +        let xcb = &self.xcb_connection;
-+        xcb.change_window_attributes(
-+            view,
-+            &xproto::ChangeWindowAttributesAux::new().override_redirect(1),
-+        )?;
-+        self.move_overlay(view, parent, bounds, outline)?;
++        if panel {
++            // Not `parent` itself, whose shape has holes where the embedder's pages show.
++            let within = xcb.query_tree(parent)?.reply()?.parent;
++            xcb.reparent_window(view, within, 0, 0)?;
++        } else {
++            xcb.change_window_attributes(
++                view,
++                &xproto::ChangeWindowAttributesAux::new().override_redirect(1),
++            )?;
++        }
++        self.move_overlay(view, parent, bounds, outline, panel)?;
 +        xcb.map_window(view)?;
 +        let mut from = x11rb::NONE;
 +        if keyboard {
-+            from = xcb.get_input_focus()?.reply()?.focus;
-+            xcb.set_input_focus(xproto::InputFocus::PARENT, view, x11rb::CURRENT_TIME)?;
++            from = self.overlay_takes_focus(view)?;
 +        }
 +        xcb.flush()?;
 +        Ok(from)
@@ -1841,12 +1971,16 @@ index e21f019c64..4538607afb 100644
 +        parent: xproto::Window,
 +        bounds: Bounds<Pixels>,
 +        outline: &[crate::linux::overlay::Corner],
++        panel: bool,
 +    ) -> anyhow::Result<()> {
 +        let xcb = &self.xcb_connection;
 +        let scale = self.scale_factor;
-+        let root = xcb.setup().roots[self.x_root_index].root;
++        let within = match panel {
++            true => xcb.query_tree(parent)?.reply()?.parent,
++            false => xcb.setup().roots[self.x_root_index].root,
++        };
 +        let origin = (bounds.origin).map(|each| (f32::from(each) * scale) as i16);
-+        let at = (xcb.translate_coordinates(parent, root, origin.x, origin.y)?).reply()?;
++        let at = (xcb.translate_coordinates(parent, within, origin.x, origin.y)?).reply()?;
 +        let (x, y) = (at.dst_x, at.dst_y);
 +        let width = (f32::from(bounds.size.width) * scale).round();
 +        let height = (f32::from(bounds.size.height) * scale).round();
@@ -1864,6 +1998,7 @@ index e21f019c64..4538607afb 100644
 +        let outline: Vec<_> = (outline.iter())
 +            .map(|&(x, y, radius)| (x * scale, y * scale, radius * scale))
 +            .collect();
++        let blended = self.compositor_present && !panel;
 +        xcb.shape_rectangles(
 +            shape::SO::SET,
 +            shape::SK::BOUNDING,
@@ -1871,9 +2006,35 @@ index e21f019c64..4538607afb 100644
 +            view,
 +            0,
 +            0,
-+            &outline_rows(&outline, height as i16, self.compositor_present),
++            &outline_rows(&outline, height as i16, blended),
 +        )?;
 +        xcb.flush()?;
++        Ok(())
++    }
++
++    /// Gives the overlay `view` that shows the input focus, and returns the window that had it.
++    pub(crate) fn overlay_takes_focus(
++        &self,
++        view: xproto::Window,
++    ) -> anyhow::Result<xproto::Window> {
++        let xcb = &self.xcb_connection;
++        let from = xcb.get_input_focus()?.reply()?.focus;
++        xcb.set_input_focus(xproto::InputFocus::PARENT, view, x11rb::CURRENT_TIME)?;
++        xcb.flush()?;
++        Ok(from)
++    }
++
++    /// Gives the input focus back to `from` if the overlay `view` still has it.
++    pub(crate) fn overlay_gives_focus(
++        &self,
++        view: xproto::Window,
++        from: xproto::Window,
++    ) -> anyhow::Result<()> {
++        let xcb = &self.xcb_connection;
++        if from != x11rb::NONE && xcb.get_input_focus()?.reply()?.focus == view {
++            xcb.set_input_focus(xproto::InputFocus::PARENT, from, x11rb::CURRENT_TIME)?;
++            xcb.flush()?;
++        }
 +        Ok(())
 +    }
 +
@@ -1883,10 +2044,8 @@ index e21f019c64..4538607afb 100644
 +        view: xproto::Window,
 +        from: xproto::Window,
 +    ) -> anyhow::Result<()> {
++        self.overlay_gives_focus(view, from)?;
 +        let xcb = &self.xcb_connection;
-+        if from != x11rb::NONE && xcb.get_input_focus()?.reply()?.focus == view {
-+            xcb.set_input_focus(xproto::InputFocus::PARENT, from, x11rb::CURRENT_TIME)?;
-+        }
 +        xcb.unmap_window(view)?;
 +        xcb.flush()?;
 +        Ok(())
@@ -1904,7 +2063,7 @@ index e21f019c64..4538607afb 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2620,6 +2821,11 @@ fn get_scale_factor(
+@@ -2620,6 +2870,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -1916,7 +2075,7 @@ index e21f019c64..4538607afb 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3104,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3153,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -1960,7 +2119,7 @@ index e21f019c64..4538607afb 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3456,101 @@ mod tests {
+@@ -3213,3 +3505,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
