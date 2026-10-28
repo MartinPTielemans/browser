@@ -1,6 +1,7 @@
 //! The extensions of the shown Space's profile: the menu bar's Extensions menu lists and runs them,
-//! as their toolbar buttons do in Chrome, the pinned ones' actions show at the URL field's end, and
-//! their keyboard commands run from the page and the UI (docs/ux-spec.md › Extensions).
+//! as their toolbar buttons do in Chrome, the pinned ones' actions show at the URL field's end, the
+//! Site Controls' grid lists every turned-on one's, and their keyboard commands run from the page
+//! and the UI (docs/ux-spec.md › Extensions).
 
 use std::sync::Arc;
 
@@ -9,6 +10,8 @@ use gpui::{
     MouseDownEvent, Pixels, Point, SharedString, div, img, point, prelude::*, px, rgb, rgba, size,
     svg,
 };
+
+use crate::site_controls;
 
 use super::{
     MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
@@ -50,7 +53,7 @@ pub struct ExtensionCommand {
     pub suggested: bool,
 }
 
-/// A pinned extension's action as the window shows it, for the tab shown.
+/// An extension's action as the window shows it, for the tab shown.
 #[derive(Clone)]
 pub struct ExtensionAction {
     pub id: SharedString,
@@ -61,6 +64,9 @@ pub struct ExtensionAction {
     pub badge_color: u32,
     /// It acts on the tab.
     pub enabled: bool,
+    /// It shows at the URL field's end. The core reports the others only while the Site Controls
+    /// show.
+    pub pinned: bool,
 }
 
 #[derive(Clone, PartialEq, Action)]
@@ -143,18 +149,32 @@ impl Shell {
         self.update_menus(cx);
     }
 
-    /// The pinned actions the window shows, for its tab shown.
+    /// The actions the window shows, for its tab shown: the pinned ones, then, while the Site
+    /// Controls show, the others, which only their grid lists.
     pub fn set_extension_actions(&mut self, actions: Vec<ExtensionAction>, cx: &mut Context<Self>) {
+        let (pinned, unpinned) = actions.into_iter().partition(|action| action.pinned);
+        self.extension_actions = pinned;
+        self.unpinned_actions = unpinned;
         // check.sh waits for this line.
-        let shown: Vec<String> = (actions.iter())
+        let shown: Vec<String> = (self.extension_actions.iter())
             .map(|action| match action.badge.is_empty() {
                 true => action.id.to_string(),
                 false => format!("{}:{}", action.id, action.badge),
             })
             .collect();
         log!("browser: extension actions {}", shown.join(" "));
-        self.extension_actions = actions;
+        // The panel takes them only while it shows for the tab.
+        let grid = self.site_controls_extensions();
+        self.browser.site_controls_extensions(self.selected, grid, cx);
         cx.notify();
+    }
+
+    /// The Site Controls' grid: every turned-on extension of the shown Space's profile, as its
+    /// action is for the tab shown.
+    pub(super) fn site_controls_extensions(&self) -> Vec<site_controls::Extension> {
+        let profile = self.shown_space().map_or(0, |space| space.profile);
+        let extensions = self.extensions.get(&profile).map_or(&[][..], Vec::as_slice);
+        grid(&self.extension_actions, &self.unpinned_actions, extensions)
     }
 
     /// The name of the extension whose page `url` is, in the shown Space's profile, which the URL
@@ -185,8 +205,25 @@ impl Shell {
             let corner = point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET));
             Bounds::new(corner, Default::default())
         });
+        self.run_extension_from(id, anchor, cx);
+    }
+
+    /// Runs the extension's action on the tab shown, its popup hanging from `anchor` in the
+    /// window, as from its Site Controls tile.
+    pub fn run_extension_from(&mut self, id: &str, anchor: Bounds<Pixels>, cx: &mut Context<Self>) {
+        if self.selected == 0 {
+            return;
+        }
         let ran = self.browser.run_extension(id, anchor, cx);
-        // check.sh waits for this line.
+        // check.sh waits for these lines.
+        let (origin, size) = (anchor.origin, anchor.size);
+        log!(
+            "browser: run extension {id} from {} {} {} {}",
+            f32::from(origin.x),
+            f32::from(origin.y),
+            f32::from(size.width),
+            f32::from(size.height)
+        );
         log!("browser: run extension {id} {}", if ran { "ran" } else { "refused" });
     }
 
@@ -469,6 +506,30 @@ fn keystroke_text(keystroke: &Keystroke) -> String {
     text + &keystroke.key
 }
 
+/// The Site Controls' grid, from the window's `pinned` and `unpinned` actions and the profile's
+/// `extensions`, which are by name: the pinned in the URL field's order, then the others by name,
+/// leaving out any the profile has turned off. An action that doesn't act on the tab is dimmed.
+fn grid(
+    pinned: &[ExtensionAction],
+    unpinned: &[ExtensionAction],
+    extensions: &[Extension],
+) -> Vec<site_controls::Extension> {
+    let turned_on = |id: &SharedString| {
+        extensions.iter().find(|extension| extension.id == *id).is_none_or(|each| each.enabled)
+    };
+    let tile = |action: &ExtensionAction| site_controls::Extension {
+        id: action.id.clone(),
+        title: action.title.clone(),
+        icon: action.icon.clone(),
+        enabled: action.enabled,
+    };
+    let others = (extensions.iter())
+        .filter(|extension| extension.enabled)
+        .filter_map(|extension| unpinned.iter().find(|action| action.id == extension.id));
+    let pinned = pinned.iter().filter(|action| turned_on(&action.id));
+    pinned.chain(others).map(tile).collect()
+}
+
 /// How many of `count` actions show in `places`, and whether the overflow button takes the last
 /// place, for the rest.
 fn fit_actions(places: usize, count: usize) -> (usize, bool) {
@@ -480,7 +541,12 @@ fn fit_actions(places: usize, count: usize) -> (usize, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Extension, ExtensionCommand, UserKeys, command_for, fit_actions};
+    use std::rc::Rc;
+
+    use gpui::{AppContext, TestAppContext};
+
+    use super::{Extension, ExtensionAction, ExtensionCommand, UserKeys, command_for, fit_actions};
+    use crate::shell::{Command, Folders, Shell, recorder::Recorder};
 
     fn extension(id: &str, enabled: bool, commands: &[(&str, &str, bool)]) -> Extension {
         Extension {
@@ -518,6 +584,64 @@ mod tests {
         assert_eq!(run("shift-cmd-l"), None);
         assert_eq!(run("cmd-s").as_deref(), Some("b side"));
         assert_eq!(run("alt-shift-p"), None);
+    }
+
+    fn action(id: &str, pinned: bool) -> ExtensionAction {
+        ExtensionAction {
+            id: id.to_string().into(),
+            title: id.to_string().into(),
+            icon: None,
+            badge: Default::default(),
+            badge_color: 0,
+            enabled: true,
+            pinned,
+        }
+    }
+
+    /// The Site Controls list every turned-on extension of the shown Space's profile: the pinned
+    /// ones first, in the URL field's order, then the others by name, which the core reports once
+    /// the panel opens. A turned-off one stays off the grid, and the URL field keeps the pinned.
+    #[gpui::test]
+    fn site_controls_list_every_turned_on_extension_pinned_first(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space 1".into(), None, 7, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_space(1, cx);
+            shell.set_selected(10, cx);
+            let pinned = |mut extension: Extension| {
+                extension.pinned = true;
+                extension
+            };
+            // By name, as the core lists them.
+            let extensions = vec![
+                extension("alpha", true, &[]),
+                pinned(extension("beta", true, &[])),
+                extension("delta", true, &[]),
+                extension("gamma", false, &[]),
+                pinned(extension("zeta", true, &[])),
+            ];
+            shell.set_extensions(7, extensions, cx);
+            // Zeta was pinned first.
+            shell.set_extension_actions(vec![action("zeta", true), action("beta", true)], cx);
+            shell.run(Command::SiteControls, "ui", cx);
+        });
+        let last = || host.site_controls_extensions.borrow().last().cloned().unwrap_or_default();
+        assert_eq!(host.site_controls.borrow().len(), 1);
+        assert_eq!(last(), ["zeta", "beta"]);
+        shell.update(cx, |shell, cx| {
+            let others = [action("delta", false), action("gamma", false), action("alpha", false)];
+            let actions = [action("zeta", true), action("beta", true)].into_iter().chain(others);
+            shell.set_extension_actions(actions.collect(), cx);
+        });
+        assert_eq!(last(), ["zeta", "beta", "alpha", "delta"]);
+        let toolbar: Vec<String> = (shell.read_with(cx, |shell, _| shell.extension_actions.clone()))
+            .iter()
+            .map(|action| action.id.to_string())
+            .collect();
+        assert_eq!(toolbar, ["zeta", "beta"]);
     }
 
     /// Every pinned action has a place to be run from: its own, or the overflow button's.

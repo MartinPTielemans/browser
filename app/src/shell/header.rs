@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use crate::command_bar::PLACEHOLDER_TEXT;
-use crate::site_controls::{Extension, Place};
+use crate::site_controls::Place;
 
 use gpui::{
     Bounds, Context, Div, Hsla, MouseButton, Pixels, SharedString, Stateful, Window, canvas, div,
@@ -205,7 +205,7 @@ impl Shell {
 
     /// Opens the Site Controls under the URL field, hanging from their button, or with the field
     /// hidden at the page's top left corner, as an extension's popup is; or closes them. They list
-    /// the pinned extensions, which the toolbar has.
+    /// every turned-on extension, the pinned ones first, which the core reports once they show.
     pub(super) fn site_controls(&mut self, cx: &mut Context<Self>) {
         if self.selected == 0 {
             return;
@@ -221,14 +221,7 @@ impl Shell {
             }
             None => Place::Corner(point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET))),
         };
-        let extensions = (self.extension_actions.iter())
-            .filter(|action| action.enabled)
-            .map(|action| Extension {
-                id: action.id.clone(),
-                title: action.title.clone(),
-                icon: action.icon.clone(),
-            })
-            .collect();
+        let extensions = self.site_controls_extensions();
         self.browser.site_controls(self.selected, place, self.viewport, extensions, cx);
     }
 

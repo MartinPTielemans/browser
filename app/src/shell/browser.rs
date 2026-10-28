@@ -358,6 +358,13 @@ pub trait Browser {
         extensions: Vec<crate::site_controls::Extension>,
         cx: &mut App,
     );
+    /// The extensions the Site Controls list, if they show for the tab, as the core reported them.
+    fn site_controls_extensions(
+        &self,
+        tab: u64,
+        extensions: Vec<crate::site_controls::Extension>,
+        cx: &mut App,
+    );
     /// Starts capture mode over the tab's page, at `frame` in the window with corners of `radius`,
     /// or leaves it if it's on; or with `full_page` captures all of the page and copies it.
     fn capture(
