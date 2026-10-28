@@ -107,7 +107,16 @@ class Space {
   // Puts |tab| in Today. One the user opened (|opener| 0) goes at the top, under "+ New Tab". One a
   // page in this Space opened goes in Chrome's place: right under its opener if it opened in front,
   // or under the tabs its opener already opened behind it. A pinned opener's tabs go at the top.
+  // One opened in front makes the Space forget where its other tabs came from, as Chrome's tab
+  // strip does, so closing it goes back to its opener rather than to a tab opened earlier.
   void Add(bc_id tab, bc_id opener, bool foreground);
+  // The user showed |shown| after |was|, either of them perhaps another Space's. Unless one opened
+  // the other or one tab opened both, the user went on to something else, and the Space forgets
+  // where its tabs came from, as Chrome's tab strip does on a switch the user makes.
+  void UserShowed(bc_id was, bc_id shown);
+  // Forgets where each tab came from, so closing one shows its neighbour, as Chrome's tab strip
+  // does once the user goes somewhere other than by a link.
+  void ForgetOpeners();
   // Puts |tab| at |index| in Today, else at the bottom, and below a split |index| is inside.
   void AddAt(bc_id tab, size_t index);
   // Puts |tab| at |index| in |folder|, else in the pinned tabs, counted as Move counts, else at

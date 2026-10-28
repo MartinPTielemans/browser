@@ -1038,7 +1038,9 @@ BC_EXPORT void bc_window_page_moving(bc_id window, bool moving);
 // the rest of its split, focused. A click in another page of the split focuses that one. A page
 // another window shows moves here live, with its split; that window keeps the tab selected and
 // shows no page until it shows a tab again. Then window_space_shown if the Space changed, and
-// window_selected. For a tab another window shows, the user's: agents get none.
+// window_selected. A switch to a tab that isn't the shown tab's opener, a tab it opened or a sibling
+// has their Spaces forget which tabs opened which, as Chrome's tab strip does on a switch it's asked
+// for. For a tab another window shows, the user's: agents get none.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
 // Gives the page the window shows the keyboard, from the UI or wherever in the window it is, as a
