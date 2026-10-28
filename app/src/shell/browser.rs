@@ -216,6 +216,8 @@ pub trait Browser {
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.
     fn create_profile(&self, name: &str, cx: &mut App) -> u64;
+    /// What the import view (crate::import) reads and adds through, for the first launch's step.
+    fn import_host(&self) -> Rc<dyn crate::import::Host>;
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
     fn delete_profile(&self, profile: u64, cx: &mut App);
     /// Shows ilo's own menu of `items` at `position` in the window, or in the reveal's panel if
