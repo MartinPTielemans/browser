@@ -3,8 +3,10 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::net::TcpStream;
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, SystemTime};
 
@@ -138,8 +140,13 @@ fn agents(
     cx: &mut TestAppContext,
 ) -> Entity<Agents> {
     let (browser, configs) = (browser.clone(), configs.clone());
-    // Any free port, so the tests run beside a browser and each other.
-    cx.new(|_| Agents::new(browser, configs, path, 0))
+    // A socket of the test's own, so the tests run beside a browser and each other.
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let number = NEXT.fetch_add(1, Ordering::SeqCst);
+    let folder = std::env::temp_dir().join(format!("agents-ui-{}-{number}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let (socket, bridge) = (folder.join("Agents.sock"), PathBuf::from("/app/mcp-bridge"));
+    cx.new(|_| Agents::new(browser, configs, path, socket, bridge))
 }
 
 /// Claude Code, connected.
@@ -188,35 +195,32 @@ fn log(
     })
 }
 
-/// The switch is off at first, and the server runs only while it's on: on, it takes a connection
-/// on its port; off, the port is closed again.
+/// The switch is off at first, and the server runs only while it's on: on, its socket is in place
+/// for the user alone and takes a connection; off, the socket is gone.
 #[gpui::test]
 fn agents_are_off_until_the_user_turns_them_on(cx: &mut TestAppContext) {
     let (browser, configs) = (Made::with_agent_space(), Arc::new(Configs::default()));
     let agents = agents(&browser, &configs, None, cx);
     assert!(!agents.read_with(cx, |agents, _| agents.is_on()));
     assert!(agents.read_with(cx, |agents, _| agents.server.is_none()));
+    let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
+    assert!(!socket.exists());
 
     agents.update(cx, |agents, cx| agents.set_on(true, cx));
-    let port = agents.read_with(cx, |agents, _| agents.server.as_ref().unwrap().0.port());
-    assert!(
-        agents
-            .read_with(cx, |agents, _| agents.url())
-            .ends_with(&format!(":{port}/mcp"))
-    );
-    assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
+    let mode = std::fs::metadata(&socket).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+    assert!(UnixStream::connect(&socket).is_ok());
 
     agents.update(cx, |agents, cx| agents.set_on(false, cx));
     assert!(agents.read_with(cx, |agents, _| agents.server.is_none()));
-    // The listener closes as its thread sees the server stopped.
-    let closed = (0..100).any(|_| {
-        std::thread::sleep(Duration::from_millis(10));
-        TcpStream::connect(("127.0.0.1", port)).is_err()
-    });
-    assert!(closed, "the server still takes connections once off");
+    assert!(!socket.exists());
+    assert!(
+        UnixStream::connect(&socket).is_err(),
+        "the server still takes connections once off"
+    );
 }
 
-/// Connect writes the server's address and a token into the client's config, and the server
+/// Connect writes the bridge, the socket and a token into the client's config, and the server
 /// takes that token as the agent's. Connecting again replaces the token, and the old one stops
 /// working.
 #[gpui::test]
@@ -225,7 +229,9 @@ fn connect_gives_the_client_a_token_the_server_takes(cx: &mut TestAppContext) {
     let (client, entry) = configs.connected.lock().unwrap()[0].clone();
     assert_eq!(client, Client::ClaudeCode);
     assert_eq!(entry.name, server_name());
-    assert!(entry.url.starts_with("http://127.0.0.1:") && entry.url.ends_with("/mcp"));
+    assert_eq!(entry.bridge, "/app/mcp-bridge");
+    let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
+    assert_eq!(entry.socket, socket.to_str().unwrap());
     assert_eq!(entry.token.len(), 64);
     let tokens = |cx: &mut TestAppContext| {
         agents.read_with(cx, |agents, _| agents.tokens.lock().unwrap().clone())
@@ -280,12 +286,12 @@ fn another_client_gets_its_setup_to_paste(cx: &mut TestAppContext) {
         .unwrap();
     let setup: Value = serde_json::from_str(&setup).unwrap();
     let server = &setup["mcpServers"][server_name()];
-    assert_eq!(server["type"], "http");
+    let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
+    assert_eq!(server["type"], "stdio");
+    assert_eq!(server["command"], "/app/mcp-bridge");
+    assert_eq!(server["args"], json!([socket.to_str().unwrap()]));
     let token = configs.connected.lock().unwrap()[0].1.token.clone();
-    assert_eq!(
-        server["headers"]["Authorization"],
-        format!("Bearer {token}")
-    );
+    assert_eq!(server["env"][bridge::TOKEN], token);
 }
 
 /// list_tabs makes the agent's Space the first time, named as the agent, and lists only its tabs,

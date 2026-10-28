@@ -43,7 +43,7 @@ sign() {
 
 # Inside out and without --deep, which would sign every nested part with the outer part's
 # entitlements: the loose libraries and executables first, then each helper app, then the
-# framework that holds them, then the app.
+# framework that holds them, then the agents' bridge beside the app's executable, then the app.
 framework=$app/Contents/Frameworks/Chromium\ Framework.framework
 version=$(cd "$framework/Versions/Current" && pwd -P)
 while IFS= read -r -d '' f; do
@@ -57,6 +57,7 @@ for helper in "$version"/Helpers/*.app; do
   esac
 done
 sign "$framework"
+sign "$app/Contents/MacOS/mcp-bridge"
 # Sparkle's installer and its window, then Sparkle, as Sparkle's documentation signs them.
 sparkle=$app/Contents/Frameworks/Sparkle.framework
 if [ -d "$sparkle" ]; then
