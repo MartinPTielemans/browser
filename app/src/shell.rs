@@ -2851,6 +2851,10 @@ impl Shell {
                 Some(other) => self.still_page(other).into_any_element(),
                 None => continue,
             };
+            // A right-click under the rows, rows, buttons and fields taking their own, is for the
+            // Space whose page is there. A Space left for one sliding in has gone already: its
+            // page's part is the incoming Space's (`press_at_rest`).
+            let menu = space == self.space || self.swipe.is_some();
             pages.push(
                 div()
                     .id(("page", space))
@@ -2859,6 +2863,16 @@ impl Shell {
                     .bottom_0()
                     .left(px(x))
                     .w(px(width))
+                    .when(menu, |page| {
+                        page.on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                                if shell.drag.is_none() && shell.renaming.is_none() {
+                                    shell.empty_space_menu(space, event.position, cx)
+                                }
+                            }),
+                        )
+                    })
                     .child(page),
             );
         }
