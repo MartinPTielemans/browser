@@ -467,7 +467,8 @@ post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
-send clickkey 120 169
+# More Settings… sits under Advanced's two switch rows, the haptics' and the link previews'.
+send clickkey 120 211
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
 expect '^browser: loaded [0-9]* chrome://settings/$' \
