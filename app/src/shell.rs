@@ -910,6 +910,9 @@ pub struct Shell {
     /// The frames the favorites' tiles and the folders' plates were last drawn in, in the window,
     /// for their tooltips to hang from.
     tip_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// How long each frame drawn while the Spaces' pages moved took the sidebar, in ms, for the
+    /// settle's log.
+    paging_frames: Rc<RefCell<Vec<f32>>>,
     /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
     button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
@@ -1190,6 +1193,7 @@ impl Shell {
             list_scroll: ScrollHandle::new(),
             sidebar_origin: Rc::default(),
             tip_frames: Rc::default(),
+            paging_frames: Rc::default(),
             button_frames: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
@@ -2457,6 +2461,7 @@ impl Shell {
         if let Some(settle) = self.settle.take_if(|settle| settle.offset().is_none()) {
             // check.sh reads these lines.
             log!("browser: settled space {}", settle.space);
+            self.log_paging_frames();
         }
         let moving = !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
             || !self.tile_slides.is_empty()
@@ -2798,6 +2803,7 @@ impl Shell {
     /// The sidebar: the header's buttons, the URL field and the Space's tabs, or the Create a
     /// Space form, over the switcher. Docked, or in the reveal's panel.
     fn sidebar(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let started = Instant::now();
         let sidebar = div()
             .absolute()
             .top_0()
@@ -2839,6 +2845,7 @@ impl Shell {
             .children(self.switcher(cx))
             .children(self.flying_icon())
             .child(self.press_listener())
+            .children(self.paging_frame(started))
     }
 
     /// The Spaces' pages under the URL field, side by side while they move. Each keeps its own
