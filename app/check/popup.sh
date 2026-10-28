@@ -195,8 +195,8 @@ expect '^browser: menu shown .*Select All' \
   "a right-click in the page's text field didn't show its menu"
 menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 case "$menu" in
-*"Language Settings"*"Paste"*"Writing Direction › Default"*"Inspect") ;;
-*) fail "the text field's menu lacks Language Settings, Paste, Writing Direction or Inspect: $menu" ;;
+*"Paste"*"Select All"*"Language Settings"*"Writing Direction › Default"*"Inspect") ;;
+*) fail "the text field's menu lacks Paste, Select All, Language Settings, Writing Direction or Inspect, in that order: $menu" ;;
 esac
 ../tools/window-screenshot.sh "$pid" "$out/field-page-menu.png" || fail "no window to capture"
 send choose Select All
