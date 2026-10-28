@@ -303,18 +303,16 @@ class WindowViews : public views::WidgetObserver,
           .rectangles = std::move(hole),
       });
     }
-    // The overlays shown, which their own shapes round.
-    std::vector<x11::Rectangle> overlays;
+    // The overlays shown, in the shapes that round them, so that the pages show at their corners.
     for (const auto& [overlay, frame] : overlays_) {
-      overlays.push_back(XRectangle(frame));
-    }
-    if (!overlays.empty()) {
-      shape.Rectangles(x11::Shape::RectanglesRequest{
+      shape.Combine(x11::Shape::CombineRequest{
           .operation = x11::Shape::So::Union,
           .destination_kind = x11::Shape::Sk::Bounding,
-          .ordering = x11::ClipOrdering::Unsorted,
+          .source_kind = x11::Shape::Sk::Bounding,
           .destination_window = ui_,
-          .rectangles = std::move(overlays),
+          .x_offset = static_cast<int16_t>(frame.x()),
+          .y_offset = static_cast<int16_t>(frame.y()),
+          .source_window = overlay,
       });
     }
   }
@@ -500,20 +498,28 @@ class WindowViews : public views::WidgetObserver,
     return ui_main_;
   }
 
-  // Keeps |overlays_| to the overlays mapped in |ui_|, in pixels, and the UI's shape open for them.
+  // Keeps |overlays_| to the overlays mapped in |ui_|, in pixels, and the UI's shape open for them,
+  // as each reshapes itself too.
   void OverlayChanged(const x11::Event& event) {
     std::optional<x11::Window> changed;
     if (auto* map = event.As<x11::MapNotifyEvent>(); map && map->event == ui_) {
       if (map->window == UIMain()) {
         return;
       }
-      auto geometry = x11::Connection::Get()->GetGeometry(map->window).Sync();
+      x11::Connection* connection = x11::Connection::Get();
+      auto geometry = connection->GetGeometry(map->window).Sync();
       if (!geometry) {
         return;
       }
+      connection->shape().SelectInput(
+          x11::Shape::SelectInputRequest{.destination_window = map->window, .enable = true});
       overlays_[map->window] =
           gfx::Rect(geometry->x, geometry->y, geometry->width, geometry->height);
       changed = map->window;
+    } else if (auto* reshape = event.As<x11::Shape::NotifyEvent>();
+               reshape && reshape->shape_kind == x11::Shape::Sk::Bounding &&
+               overlays_.contains(reshape->affected_window)) {
+      changed = reshape->affected_window;
     } else if (auto* configure = event.As<x11::ConfigureNotifyEvent>();
                configure && configure->event == ui_ && overlays_.contains(configure->window)) {
       overlays_[configure->window] =
