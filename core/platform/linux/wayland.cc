@@ -9,9 +9,13 @@
 #include "browser_core/hooks.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/base/hit_test.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/ozone/platform/wayland/host/proxy/wayland_proxy.h"
 #include "ui/views/widget/widget_delegate.h"
+#include "ui/views/window/frame_view.h"
 #include "ui/views/window/native_frame_view.h"
 
 // On Wayland the app's UI shares Chromium's connection, so it can be a subsurface of the browser
@@ -24,6 +28,13 @@
 namespace browser_core::platform {
 
 namespace {
+
+// The resize edge's width, Arc's and Dia's outer 3 pt (docs/ux-spec.md › Dragging the window), here
+// inside the window, so thinner than the card's margin, where the pointer stopped at the window's
+// left edge brings the hidden sidebar out. The corners' length along each edge is Chrome's own
+// frame's on Linux (OpaqueBrowserFrameView). In DIPs.
+constexpr int kResizeEdge = 3;
+constexpr int kResizeCorner = 16;
 
 void (*g_app_dispatched)() = nullptr;
 
@@ -83,12 +94,31 @@ void SetUpWindow(views::Widget::InitParams& params, views::WidgetDelegate& deleg
   // asks for none (_MOTIF_WM_HINTS), and under Wayland one would also make the compositor ignore
   // the input region.
   params.remove_standard_frame = true;
-  // shortcut: no edges to resize by or title bar to move by; the app's header is to take them, as
-  // its buttons are on the Mac. A frame view that draws nothing, in place of GTK's title bar.
+  // A frame view that draws nothing, in place of GTK's title bar, with Chromium's own frameless
+  // resizing: a press in the band at its edges asks the compositor or window manager to resize
+  // the window (xdg_toplevel.resize, _NET_WM_MOVERESIZE), and the pointer there takes the edge's
+  // cursor. shortcut: no title bar to move by; the app's header is to take it.
   delegate.SetFrameViewFactory(
       base::BindRepeating([](views::Widget* widget) -> std::unique_ptr<views::FrameView> {
-        return std::make_unique<views::NativeFrameView>(widget);
+        auto frame = std::make_unique<views::NativeFrameView>(widget);
+        // Unretained: the frame view holds the callback, and the widget holds the frame view.
+        frame->set_non_client_hit_test_callback(base::BindRepeating(
+            [](views::FrameView* frame, views::Widget* widget, const gfx::Point& point) {
+              const int edge = ResizeEdgeOf(widget);
+              if (!edge) {
+                return static_cast<int>(HTNOWHERE);
+              }
+              return frame->GetHTComponentForFrame(point, gfx::Insets(edge), kResizeCorner,
+                                                   kResizeCorner,
+                                                   widget->widget_delegate()->CanResize());
+            },
+            base::Unretained(frame.get()), base::Unretained(widget)));
+        return frame;
       }));
+}
+
+int ResizeEdgeOf(views::Widget* widget) {
+  return widget->IsMaximized() || widget->IsFullscreen() ? 0 : kResizeEdge;
 }
 
 }  // namespace browser_core::platform
