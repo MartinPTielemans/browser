@@ -2470,6 +2470,15 @@ impl Browser for Engine {
         settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
     }
 
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        let offered = !settings::crash_reports_collector().is_empty();
+        offered.then(|| unsafe { bc::bc_send_crash_reports() })
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        settings::set_send_crash_reports(on);
+    }
+
     fn new_window(&self, cx: &mut App) {
         let id = self.window;
         // Outside the shell's update, as the new window's shell reads this one's.

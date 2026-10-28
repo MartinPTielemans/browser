@@ -902,6 +902,9 @@ button-keys = 0xffff_ff33
 button-keys-height = 20.0
 button-keys-inset = 5.0
 button-keys-radius = 6.0
+# The onboarding's last line, at the card's foot under the command bar it leaves up, as the line
+# under the mark is set.
+hint-bottom = 40.0
 
 [shell.extensions]
 # The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -1105,6 +1108,12 @@ swatch-edge = 0.12
 # boxes this much of the ink over it.
 import-width = 556.0
 import-surface = 0.05
+# The opt-ins step's switches, Settings' own, a row each under its line: the switch's name over its
+# one sentence, at body, and the switch at the row's end.
+opt-in-width = 420.0
+opt-in-gap = 20.0
+opt-in-line = 18.0
+opt-in-switch-gap = 24.0
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners
