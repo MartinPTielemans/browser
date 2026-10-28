@@ -3,7 +3,7 @@
 # Each run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
-#   split favorites extensions windows private capture passwords links access trouble
+#   split favorites extensions windows private capture passwords links access trouble quit
 # The store run installs from Google's Web Store, so it needs the network and runs only when named:
 # ./check.sh store.
 # Every run but load needs Browser to be the active app, and window and find take it full screen
@@ -14,7 +14,7 @@
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
 # windows and input then never reach the owner's session. The runs need what Linux has yet:
-# load, and history, keys and tabs among the driven ones. Captures are the session's whole output.
+# load, and history, keys, tabs and quit among the driven ones. Captures are the session's whole output.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
@@ -23,6 +23,7 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites extensions windows private capture passwords links access trouble"
+runs="$runs quit"
 named="store"
 for run in "$@"; do
   case " $runs $named " in
