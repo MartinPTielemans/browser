@@ -1230,6 +1230,16 @@ unsafe extern "C" fn tab_link_target(
     });
 }
 
+/// Gives the keyboard in `window` to the UI, whose GPUI view is `view`. On Linux the core says whose
+/// the keys are, and takes them from the page.
+fn focus_ui(window: bc::bc_id, view: *mut c_void) {
+    unsafe { platform::host_focus(view) };
+    #[cfg(target_os = "linux")]
+    unsafe {
+        bc::bc_window_ui_takes_keyboard(window)
+    };
+}
+
 /// A window's shell's requests, as calls to the core. The core reports back once each call has
 /// returned.
 struct Engine {
@@ -1721,7 +1731,7 @@ impl Browser for Engine {
     }
 
     fn focus_ui(&self, _: &mut App) {
-        unsafe { platform::host_focus(self.view) };
+        focus_ui(self.window, self.view);
     }
 
     fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, _: &mut App) {
@@ -2725,7 +2735,7 @@ fn finish_opening(
     if seeded {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
         if ui_keyboard && let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
-            unsafe { platform::host_focus(view) };
+            focus_ui(id, view);
         }
         return;
     }
