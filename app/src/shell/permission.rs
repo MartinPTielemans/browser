@@ -12,9 +12,9 @@ use gpui::{
     point, prelude::*, px, rgba, svg,
 };
 
-use crate::palette::Palette;
+use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED};
 use super::{
-    HOVERED, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, Shell, TITLE, URL_FIELD, URL_FIELD_HEIGHT,
+    NAV, NAV_RADIUS, PLATE_INSET, Shell, TITLE, URL_FIELD, URL_FIELD_HEIGHT,
     URL_FIELD_TOP,
 };
 
@@ -134,7 +134,8 @@ pub(super) fn card_close(palette: &Palette, id: &'static str) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .rounded(px(NAV_RADIUS))
-        .hover(|style| style.bg(palette.plate(NAV_HOVERED)))
+        .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
+        .active(|style| style.bg(palette.plate(STATE_PRESSED)))
         .child(svg().path("icons/x.svg").size(px(CLOSE_GLYPH)).text_color(palette.glyph(NAV)))
 }
 
@@ -153,7 +154,8 @@ pub(super) fn card_button(palette: &Palette, id: &'static str, label: &'static s
         .text_center()
         .rounded(px(NAV_RADIUS))
         .bg(palette.plate(URL_FIELD))
-        .hover(|style| style.bg(palette.plate(HOVERED)))
+        .hover(|style| style.bg(palette.state(URL_FIELD, STATE_HOVERED)))
+        .active(|style| style.bg(palette.state(URL_FIELD, STATE_PRESSED)))
         .font_weight(FontWeight::MEDIUM)
         .text_color(palette.text(TITLE))
         .child(label)

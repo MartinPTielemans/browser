@@ -27,6 +27,7 @@ use crate::tokens::palette::{
     STAND_IN, TINT,
 };
 pub use crate::tokens::palette::SECOND_AT;
+pub use crate::tokens::palette::{STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STATE_SELECTED_HOVERED};
 use crate::tokens::palette::{ACCENT_HOVERED, ACCENT_PRESSED, INTENSITY_FLOOR, INTENSITY_SPAN, RING, SELECTION};
 /// The ends of the scale each family's text runs toward, which the accent's search needs, and the
 /// ground a swatch's colours are judged on.
@@ -167,7 +168,12 @@ impl Palette {
             card: rgba(CARD),
             swatch: Swatch::of(None, window),
         };
-        let overlays = [palette.overlay, palette.dialog];
+        // Text and glyphs on an overlay read on it and on a control's plate under the pointer.
+        let under = state_alpha(OVERLAY_REST, STATE_HOVERED);
+        let overlays: Vec<Rgba> = [palette.overlay, palette.dialog]
+            .into_iter()
+            .flat_map(|fill| [fill, over(fill, ink, under)])
+            .collect();
         palette.overlay_floor = least_alpha(ink, &overlays, TEXT + BETWEEN);
         palette.overlay_glyph_floor = least_alpha(ink, &overlays, GLYPH + BETWEEN);
         palette.card = palette.solve_card(window);
@@ -269,6 +275,23 @@ impl Palette {
     /// shadow.
     pub fn faint(&self, alpha: f32) -> Hsla {
         Hsla::from(self.ink).opacity(alpha)
+    }
+
+    /// A control's fill in `state`, a step of the ladder, laid over its resting plate `rest`, as
+    /// one plate of the ink.
+    pub fn state(&self, rest: f32, state: f32) -> Hsla {
+        self.plate(state_alpha(rest, state))
+    }
+
+    /// A control whose resting fill `rest` is opaque and not of the ink, in `state`.
+    pub fn state_over(&self, rest: Rgba, state: f32) -> Hsla {
+        over(rest, self.ink, state).into()
+    }
+
+    /// A step of the ladder on a surface that's dark on any theme, with Paper's text on it, such as
+    /// the find bar, the icon picker and Settings.
+    pub fn on_dark(state: f32) -> Hsla {
+        Hsla::from(rgb(PAPER)).opacity(state)
     }
 
     /// A plate under a row or a field, Paper at `alpha`.
@@ -563,6 +586,15 @@ fn layer_alpha(theme: &Theme) -> f32 {
 /// The window's tinted material over a black and over a white backdrop, under black at `shade`.
 fn grounds(shade: f32) -> [Rgba; 2] {
     [GROUND_OVER_BLACK, GROUND_OVER_WHITE].map(|ground| over(rgb(ground), BLACK, shade))
+}
+
+/// The most a control on an overlay rests at under its text: a chip's or a button's plate.
+const OVERLAY_REST: f32 = 0.1;
+
+/// The alpha of a control resting at `rest` in `state`: the ladder's plate laid over its own, up
+/// to the selected row's, the most the window's colour is worked out for text on.
+pub const fn state_alpha(rest: f32, state: f32) -> f32 {
+    (rest + state - rest * state).min(SELECTED_PLATE)
 }
 
 /// Ink or Paper, whichever reads more on `color`.

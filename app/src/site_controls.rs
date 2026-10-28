@@ -21,7 +21,7 @@ use gpui::{
 
 use crate::{
     icon_picker,
-    palette::{self, Palette},
+    palette::{self, Palette, STATE_HOVERED, STATE_PRESSED},
     shell::{Command, MenuEntry, cubic_bezier, scaled::scaled},
     tooltip,
 };
@@ -51,8 +51,6 @@ use crate::tokens::site_controls::TILE_TOP;
 use crate::tokens::site_controls::TILE_BOTTOM;
 use crate::tokens::site_controls::TILE_HIGHLIGHT;
 use crate::tokens::site_controls::PLATE;
-use crate::tokens::site_controls::HOVERED;
-use crate::tokens::site_controls::PLATE_HOVERED;
 use crate::tokens::site_controls::EXTENSION_ICON;
 use crate::tokens::site_controls::PLUS_GLYPH;
 use crate::tokens::site_controls::HEADING_SIZE;
@@ -882,10 +880,12 @@ impl SiteControls {
             .on_click(cx.listener(move |panel, _, _, cx| panel.run_tile(tile, frame, cx)))
             .child(
                 div()
+                    .id("state")
                     .absolute()
                     .size_full()
                     .rounded(px(TILE_RADIUS))
-                    .hover(move |style| style.bg(palette.plate(HOVERED))),
+                    .hover(move |style| style.bg(palette.plate(STATE_HOVERED)))
+                    .active(move |style| style.bg(palette.plate(STATE_PRESSED))),
             )
             .child(
                 svg().path(tile.glyph).size(px(tile.glyph_size)).text_color(palette.on_overlay_glyph(TEXT)),
@@ -908,7 +908,8 @@ impl SiteControls {
                 .w(frame.size.width).h(frame.size.height)
                 .rounded(px(TILE_RADIUS))
                 .bg(palette.plate(PLATE))
-                .hover(move |style| style.bg(palette.plate(PLATE_HOVERED)))
+                .hover(move |style| style.bg(palette.state(PLATE, STATE_HOVERED)))
+                .active(move |style| style.bg(palette.state(PLATE, STATE_PRESSED)))
                 .flex()
                 .items_center()
                 .justify_center();
@@ -1146,7 +1147,8 @@ impl SiteControls {
             )
             .map(|button| match site.certificate {
                 true => button
-                    .hover(move |style| style.bg(palette.plate(PLATE_HOVERED)))
+                    .hover(move |style| style.bg(palette.state(PLATE, STATE_HOVERED)))
+                    .active(move |style| style.bg(palette.state(PLATE, STATE_PRESSED)))
                     .on_click(cx.listener(|panel, _, _, cx| {
                         panel.run("certificate", Run::Certificate, cx)
                     })),
@@ -1160,7 +1162,8 @@ impl SiteControls {
             .size(px(FOOTER))
             .rounded_full()
             .bg(palette.plate(MORE_FILL))
-            .hover(move |style| style.bg(palette.plate(HOVERED)))
+            .hover(move |style| style.bg(palette.state(MORE_FILL, STATE_HOVERED)))
+            .active(move |style| style.bg(palette.state(MORE_FILL, STATE_PRESSED)))
             .flex()
             .items_center()
             .justify_center()

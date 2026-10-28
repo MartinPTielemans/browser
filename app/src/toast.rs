@@ -16,7 +16,7 @@ use gpui::{
     accesskit::Live, prelude::*, px, rgba, size, svg,
 };
 
-use crate::palette::Palette;
+use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED};
 use crate::shell::{CARD_INSET, cubic_bezier, scaled::scaled_from_top, spring};
 
 // Arc's, measured at 2× (docs/ux-spec.md › Toast): 46.5 tall, 8 inside the card's top right
@@ -34,7 +34,6 @@ use crate::tokens::toast::CHIP_RADIUS;
 use crate::tokens::toast::CHIP_X;
 use crate::tokens::toast::CHIP_GAP;
 use crate::tokens::toast::CHIP_FILL;
-use crate::tokens::toast::CHIP_HOVERED;
 use crate::tokens::toast::CHIP_GLYPH;
 use crate::tokens::toast::KEY_GAP;
 use crate::tokens::toast::KEY_COLOR;
@@ -464,7 +463,8 @@ impl Render for Toast {
                     .items_center()
                     .rounded(px(CHIP_RADIUS))
                     .bg(palette.plate(CHIP_FILL))
-                    .hover(move |style| style.bg(palette.plate(CHIP_HOVERED)))
+                    .hover(move |style| style.bg(palette.state(CHIP_FILL, STATE_HOVERED)))
+                    .active(move |style| style.bg(palette.state(CHIP_FILL, STATE_PRESSED)))
                     .font_weight(FontWeight::SEMIBOLD)
                     .when(a11y, |chip| {
                         let name = match &button.label {

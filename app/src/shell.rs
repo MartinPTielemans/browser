@@ -367,7 +367,8 @@ use crate::tokens::shell::CLEAR_HOVERED;
 use crate::tokens::shell::SLEEPING_FAVICON;
 use crate::tokens::shell::TILE;
 use crate::tokens::shell::TILE_EDGE;
-use crate::tokens::shell::TILE_HOVERED;
+/// A tile, and the URL field, under the pointer: the ladder's hover over its resting plate.
+pub(crate) const TILE_HOVERED: f32 = crate::palette::state_alpha(TILE, crate::palette::STATE_HOVERED);
 use crate::tokens::shell::TILE_RING;
 use crate::tokens::shell::TILE_UNTHEMED;
 use crate::tokens::shell::NAV;

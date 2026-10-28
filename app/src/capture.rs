@@ -16,6 +16,7 @@ use gpui::{
 };
 use image::{Frame, RgbaImage};
 
+use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED};
 use crate::toast;
 
 actions!(capture, [Leave]);
@@ -53,7 +54,6 @@ use crate::tokens::capture::TEXT_SIZE;
 use crate::tokens::capture::SEPARATOR;
 use crate::tokens::capture::SEPARATOR_COLOR;
 use crate::tokens::capture::MENU_BOTTOM;
-use crate::tokens::capture::ROW_HOVERED;
 use crate::tokens::capture::ROW_INSET;
 /// How far the pointer moves with the button down before a click is a drag (ours).
 const DRAG: f32 = 4.;
@@ -606,7 +606,8 @@ impl Capture {
                 .flex()
                 .items_center()
                 .rounded(px(MENU_RADIUS - ROW_INSET))
-                .hover(|style| style.bg(rgba(ROW_HOVERED)))
+                .hover(|style| style.bg(Palette::on_dark(STATE_HOVERED)))
+                .active(|style| style.bg(Palette::on_dark(STATE_PRESSED)))
                 .on_click(cx.listener(move |capture, _, _, cx| capture.run(action, cx)))
                 .child(svg().path(action.glyph()).size(px(GLYPH)).text_color(Hsla::from(rgb(PAPER)).opacity(GLYPH_COLOR)))
                 .child(div().ml(px(TEXT_LEFT - GLYPH_LEFT - GLYPH)).child(action.label()))

@@ -19,7 +19,10 @@ use gpui::{
     div, hsla, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
-use crate::{palette, shell::cubic_bezier};
+use crate::{
+    palette::{self, STATE_PRESSED},
+    shell::cubic_bezier,
+};
 
 actions!(dialog, [Confirm, Cancel]);
 
@@ -512,6 +515,7 @@ impl Render for Dialog {
             .border_color(palette.plate(CANCEL_BORDER))
             .bg(palette.plate(CANCEL_FILL))
             .hover(move |style| style.bg(palette.plate(CANCEL_HOVERED)))
+            .active(move |style| style.bg(palette.state(CANCEL_FILL, STATE_PRESSED)))
             .text_color(palette.on_overlay(CANCEL_TEXT))
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Cancel, cx)));
         // A text-only button in Cancel's look, its label as far in from each side.
@@ -528,6 +532,7 @@ impl Render for Dialog {
                 .border_color(palette.plate(CANCEL_BORDER))
                 .bg(palette.plate(CANCEL_FILL))
                 .hover(move |style| style.bg(palette.plate(CANCEL_HOVERED)))
+                .active(move |style| style.bg(palette.state(CANCEL_FILL, STATE_PRESSED)))
                 .text_color(palette.on_overlay(CANCEL_TEXT))
                 .child(label)
                 .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Also, cx)))

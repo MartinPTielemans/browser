@@ -9,7 +9,7 @@
 use std::{ops::Range, rc::Rc, time::Instant};
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Global,
+    AnyElement, App, Bounds, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla,
     KeyBinding, MouseButton, PathBuilder, Pixels, Point, Rgba, ScrollStrategy, SharedString,
     Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBackgroundAppearance,
     WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, canvas, div, point,
@@ -18,6 +18,7 @@ use gpui::{
 
 use crate::{
     command_bar,
+    palette::{INK, Palette, STATE_HOVERED, STATE_PRESSED},
     shell::{KEY_CONTEXT, cubic_bezier},
     space_icon::{self, GLYPHS, SpaceIcon, has_icon},
     text_input::{self, TextInput},
@@ -500,8 +501,14 @@ impl IconPicker {
                     let palette = crate::palette::current(cx);
                     segment.bg(palette.accent).text_color(palette.accent_label)
                 })
-                // The other takes the trash's plate under the pointer (ours: Arc's isn't recorded).
-                .when(!chosen, |segment| segment.hover(|style| style.bg(rgba(HOVERED))))
+                // The other takes the ladder under the pointer (ours: Arc's isn't recorded), in Ink, away
+                // from its white label, which reads on the track with no more room, as the
+                // accent's states move away from theirs.
+                .when(!chosen, |segment| {
+                    segment
+                        .hover(|style| style.bg(Hsla::from(rgb(INK)).opacity(STATE_HOVERED)))
+                        .active(|style| style.bg(Hsla::from(rgb(INK)).opacity(STATE_PRESSED)))
+                })
                 .child(label)
                 .on_click(cx.listener(move |picker, _, window, cx| {
                     if picker.picking.as_ref().is_some_and(|picking| picking.tab != tab) {
@@ -519,7 +526,8 @@ impl IconPicker {
                 .items_center()
                 .justify_center()
                 .rounded(px(SEGMENTS_RADIUS))
-                .hover(|trash| trash.bg(rgba(HOVERED)))
+                .hover(|trash| trash.bg(Palette::on_dark(STATE_HOVERED)))
+                .active(|trash| trash.bg(Palette::on_dark(STATE_PRESSED)))
                 .child(svg().path("icons/trash.svg").size(px(TRASH_GLYPH)).text_color(rgb(LABEL)))
                 .on_click(cx.listener(|picker, _, _, cx| picker.pick("", cx)))
         });
@@ -669,13 +677,18 @@ impl IconPicker {
 fn cell(id: (&'static str, usize), chosen: bool, content: impl IntoElement) -> Stateful<Div> {
     div().id(id).size(px(PITCH)).flex().items_center().justify_center().child(
         div()
+            .id("plate")
             .size(px(PLATE))
             .flex()
             .items_center()
             .justify_center()
             .rounded(px(PLATE_RADIUS))
             .when(chosen, |plate| plate.bg(rgba(CHOSEN)))
-            .when(!chosen, |plate| plate.hover(|plate| plate.bg(rgba(HOVERED))))
+            .when(!chosen, |plate| {
+                plate
+                    .hover(|plate| plate.bg(Palette::on_dark(STATE_HOVERED)))
+                    .active(|plate| plate.bg(Palette::on_dark(STATE_PRESSED)))
+            })
             .child(content),
     )
 }

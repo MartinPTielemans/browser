@@ -15,11 +15,10 @@ use gpui::{
 
 use super::{
     access::Accessible,
-    Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
-    NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
-    Shell, Space, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
-    SPACE_SWATCH_SHOWN, icon_slot, name_box, plate, row_box, space_icon, spring_to, split_plate,
-    still_clear, title,
+    Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, MenuEntry, NAV,
+    NAV_RADIUS, NAV_SIZE, PLATE_INSET, SECONDARY, SEGMENT_FAVICON_X, Shell, Space, UNSELECTED_TITLE,
+    clean_link, divider_box, favicon, folder_icon, host, SPACE_SWATCH_SHOWN, icon_slot, name_box,
+    plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
     header::TipSide,
 };
 use crate::{menu::Look, text_input::TextInput};
@@ -66,9 +65,9 @@ use crate::tokens::shell::library::SECTION_LABEL_Y;
 use crate::tokens::shell::library::SECTION_LABEL_HEIGHT;
 use crate::tokens::shell::library::SECTION_LABEL;
 use crate::tokens::shell::library::SECTION_GLYPH_UNSELECTED;
-use crate::tokens::shell::library::SECTION_HOVERED;
+use crate::palette::{STATE_HOVERED, STATE_PRESSED};
 use crate::tokens::shell::library::SECTION_GAP;
-use crate::tokens::shell::library::LIBRARY_PLATE;
+use crate::tokens::shell::library::{LIBRARY_PLATE, SECTION_HOVERED};
 pub(super) use crate::tokens::shell::library::LIBRARY_BACK_INSET;
 
 use crate::tokens::shell::library::SPACES_LEFT;
@@ -785,7 +784,8 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
-            .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+            .hover(|style| style.bg(self.palette.plate(STATE_HOVERED)))
+            .active(|style| style.bg(self.palette.plate(STATE_PRESSED)))
             .on_click(cx.listener(|shell, _, _, cx| {
                 shell.run(Command::ViewLibrary, "library", cx)
             }))
@@ -1006,7 +1006,8 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
-            .hover(|style| style.bg(palette.plate(NAV_HOVERED)))
+            .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
+            .active(|style| style.bg(palette.plate(STATE_PRESSED)))
             .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
                 cx.stop_propagation();
                 shell.space_menu(id, event.position(), cx);
@@ -1048,7 +1049,7 @@ impl Shell {
                     .absolute()
                     .inset_0()
                     .rounded(px(CARD_RADIUS))
-                    .group_hover("space-card", |style| style.bg(palette.plate(SECTION_HOVERED))),
+                    .group_hover("space-card", |style| style.bg(palette.plate(STATE_HOVERED))),
             )
             .child(
                 name_box(&palette, icon.is_some())
@@ -1120,8 +1121,8 @@ impl Shell {
                     .relative()
                     .rounded(px(ARCHIVED_RADIUS))
                     .block_mouse_except_scroll()
-                    .hover(|style| style.bg(self.palette.plate(HOVERED)))
-                    .active(|style| style.bg(self.palette.plate(PRESSED)))
+                    .hover(|style| style.bg(self.palette.plate(STATE_HOVERED)))
+                    .active(|style| style.bg(self.palette.plate(STATE_PRESSED)))
                     .on_click(cx.listener(move |shell, _, _, cx| shell.restore_archived(id, cx)))
                     .on_mouse_down(
                         MouseButton::Right,
@@ -1311,8 +1312,8 @@ impl Shell {
         // GPUI never hears the release that ends the system's drag, and would keep the row
         // pressed.
         let dragged = matches!(self.download_press, Some((pressed, _, true)) if pressed == id);
-        row.hover(|style| style.bg(self.palette.plate(HOVERED)))
-            .when(!dragged, |row| row.active(|style| style.bg(self.palette.plate(PRESSED))))
+        row.hover(|style| style.bg(self.palette.plate(STATE_HOVERED)))
+            .when(!dragged, |row| row.active(|style| style.bg(self.palette.plate(STATE_PRESSED))))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -1507,7 +1508,8 @@ impl Shell {
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
             .map(|button| self.with_tooltip(button, command, TipSide::Beside, cx))
-            .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+            .hover(|style| style.bg(self.palette.plate(STATE_HOVERED)))
+            .active(|style| style.bg(self.palette.plate(STATE_PRESSED)))
             // A button has one hover handler, so this one also carries the tooltip's.
             .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
                 shell.hover_button(command, TipSide::Beside, *hovered, cx);
