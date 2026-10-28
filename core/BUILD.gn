@@ -117,6 +117,7 @@ source_set("browser_core") {
     "platform/keyboard.h",
     "platform/keychain.h",
     "platform/native_hosts.h",
+    "platform/playready.h",
     "platform/system_page.h",
     "platform/window_views.h",
     "popular_sites.cc",
@@ -330,14 +331,19 @@ source_set("browser_core") {
       "platform/native_hosts_win.cc",
       "platform/win/app_library.cc",
       "platform/win/keyboard.cc",
+      "platform/win/playready.cc",
       "platform/win/window_views.cc",
     ]
     deps += [
       "//chrome/installer/util:with_no_strings",
+      "//components/cdm/common:buildflags",
       "//ui/base/ime",
     ]
   } else {
-    sources += [ "platform/native_hosts_posix.cc" ]
+    sources += [
+      "platform/native_hosts_posix.cc",
+      "platform/playready_none.cc",
+    ]
   }
   if (is_linux) {
     sources += [
