@@ -988,9 +988,7 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind)
   params.bounds = bounds;
   params.name = "BrowserCoreWindow";
 #if BUILDFLAG(IS_LINUX)
-  if (platform::OnWayland()) {
-    platform::SetUpWaylandWindow(params, *delegate_);
-  }
+  platform::SetUpWindow(params, *delegate_);
 #endif
   widget_->Init(std::move(params));
   widget_observation_.Observe(widget_.get());

@@ -74,10 +74,14 @@ void* WaylandSurfaceOf(views::Widget* widget, gfx::Size* size) {
       widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget());
 }
 
-void SetUpWaylandWindow(views::Widget::InitParams& params, views::WidgetDelegate& delegate) {
+void SetUpWindow(views::Widget::InitParams& params, views::WidgetDelegate& delegate) {
   // Translucent, or the surface's opaque region lets the compositor skip drawing the UI under it.
-  params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
-  // A frame of the compositor's own makes it ignore the input region.
+  if (OnWayland()) {
+    params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
+  }
+  // No frame of the window manager's, whose buttons would show beside the app's: on X11 the window
+  // asks for none (_MOTIF_WM_HINTS), and under Wayland one would also make the compositor ignore
+  // the input region.
   params.remove_standard_frame = true;
   // shortcut: no edges to resize by or title bar to move by; the app's header is to take them, as
   // its buttons are on the Mac. A frame view that draws nothing, in place of GTK's title bar.

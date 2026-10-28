@@ -23,9 +23,10 @@ void* JoinWaylandDisplay(void (*dispatched)());
 // |widget|'s wl_surface, and its content's size in DIPs. Null off Wayland.
 void* WaylandSurfaceOf(views::Widget* widget, gfx::Size* size);
 
-// Makes the browser window's surface see-through and frameless, for the app's UI under it to show
-// and take the clicks the pages don't.
-void SetUpWaylandWindow(views::Widget::InitParams& params, views::WidgetDelegate& delegate);
+// Makes the browser window frameless, under Wayland and X11, as the app draws the window's buttons,
+// and under Wayland see-through, for the app's UI under it to show and take the clicks the pages
+// don't.
+void SetUpWindow(views::Widget::InitParams& params, views::WidgetDelegate& delegate);
 
 // Gives the keyboard in |widget|'s window to the app's UI (bc_window_ui_takes_keyboard), and whether
 // the UI has it (bc_window_keyboard_is_ui). In window_views.cc, as on X11 the core follows the X
