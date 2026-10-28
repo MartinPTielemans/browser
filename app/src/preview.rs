@@ -17,6 +17,8 @@ use browser::shell::{
 use browser::command_bar::{self, Suggestion};
 use browser::icon_picker::{self, Recents};
 use browser::menu;
+use browser::palette::{self, Palette};
+use browser::theme::Theme;
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -904,11 +906,6 @@ impl Browser for Fake {
     ) {
     }
 
-    // macOS's default blue.
-    fn accent_color(&self) -> u32 {
-        0x007aff
-    }
-
     fn context_menu(
         &self,
         items: Vec<MenuEntry>,
@@ -985,6 +982,16 @@ impl command_bar::Host for PreviewBar {
 }
 
 /// Opens the command bar at `at`, with the suggestions for what `mode` has typed.
+/// PREVIEW_THEME=#RRGGBB gives the first Space a theme of that colour alone, and
+/// PREVIEW_THEME="x=… y=… colors=3 …" the theme as the core keeps it.
+fn preview_theme() -> Option<Theme> {
+    let text = std::env::var("PREVIEW_THEME").ok()?;
+    match text.strip_prefix('#') {
+        Some(hex) => u32::from_str_radix(hex, 16).ok().map(Theme::of_color),
+        None => Theme::parse(&text),
+    }
+}
+
 fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     let page = |text: &str, detail: &str, url: &str, tab: u64| Suggestion {
         url: url.into(),
@@ -1077,7 +1084,7 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     if command_bar::open_at(Rc::new(PreviewBar), bounds, true, cx).is_none() {
         return;
     }
-    command_bar::set_accent(0x4248cf, cx);
+    palette::set_current(Palette::of(preview_theme().as_ref()), cx);
     match typed {
         "" => command_bar::show(None, tabs, None, cx),
         typed => command_bar::show(Some((0, typed.to_string().into())), Vec::new(), None, cx),
@@ -1135,7 +1142,7 @@ fn main() {
                 // The preview's Spaces and favorites are in its one profile, 0.
                 // PREVIEW_SPACE_ICONS=1 gives them glyphs, for the footer's row of icons.
                 let glyphs = std::env::var_os("PREVIEW_SPACE_ICONS").is_some();
-                let spaces: Vec<SpaceEntry> =
+                let mut spaces: Vec<SpaceEntry> =
                     (first_space..)
                         .zip(SPACES)
                         .zip(["glyph:star", "glyph:leaf"])
@@ -1148,6 +1155,10 @@ fn main() {
                             (id, name.into(), color, 0, icon.into(), agent, "".into())
                         })
                         .collect();
+                if let Some(theme) = preview_theme() {
+                    spaces[0].2 = Some(theme.main_color());
+                    spaces[0].6 = theme.to_text().into();
+                }
                 let first_archived = first_space + SPACES.len() as u64;
                 let archive = (first_archived..)
                     .zip(ARCHIVE)
@@ -1331,7 +1342,7 @@ fn main() {
             {
                 let picked: icon_picker::Picked = Rc::new(|_, _| {});
                 let subject = icon_picker::Subject::Space(1);
-                icon_picker::show(subject, icon.into(), point(0., 0.), 0x3d81f9, picked, cx);
+                icon_picker::show(subject, icon.into(), point(0., 0.), picked, cx);
             }
         }
         // PREVIEW_MENU=<x>,<y>[,<key>…] right-clicks there in the window, as on a row or a Space's

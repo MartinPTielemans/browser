@@ -6,7 +6,7 @@ use std::sync::Arc;
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, DispatchPhase, Image, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, SharedString, Size, canvas, div, img, point, prelude::*,
-    px, rgba, size, svg,
+    px, size, svg,
 };
 
 use super::{
@@ -115,9 +115,9 @@ impl Shell {
                 .items_center()
                 .justify_center()
                 .rounded(px(NAV_RADIUS))
-                .hover(|style| style.bg(rgba(NAV_HOVERED)))
-                .active(|style| style.bg(rgba(PRESSED)))
-                .child(svg().path(icon).size(px(URL_BUTTON_GLYPH)).text_color(rgba(NAV)))
+                .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+                .active(|style| style.bg(self.palette.plate(PRESSED)))
+                .child(svg().path(icon).size(px(URL_BUTTON_GLYPH)).text_color(self.palette.glyph(NAV)))
         };
         let header = div()
             .h(px(HEADER))
@@ -135,7 +135,7 @@ impl Shell {
                     .min_w_0()
                     .truncate()
                     .text_size(px(HEADER_TEXT))
-                    .text_color(rgba(TITLE))
+                    .text_color(self.palette.text(TITLE))
                     .child(panel.name.clone()),
             )
             .child(button("side-panel-menu", "icons/ellipsis.svg").on_click(cx.listener(

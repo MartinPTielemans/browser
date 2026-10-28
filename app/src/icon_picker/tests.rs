@@ -70,7 +70,7 @@ impl Picker {
         let recorded = host.clone();
         let picked: Picked = Rc::new(move |icon, _| recorded.record(format!("picked {icon:?}")));
         let icon = SharedString::from(icon.to_string());
-        cx.update(|cx| show(subject, icon, point(23., 66.), 0x3d81f9, picked, cx));
+        cx.update(|cx| show(subject, icon, point(23., 66.), picked, cx));
         let cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
         Picker { cx, window, host }

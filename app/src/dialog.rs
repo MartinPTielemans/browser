@@ -19,7 +19,7 @@ use gpui::{
     div, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
-use crate::{command_bar, shell::cubic_bezier};
+use crate::{palette, shell::cubic_bezier};
 
 actions!(dialog, [Confirm, Cancel]);
 
@@ -536,18 +536,22 @@ impl Render for Dialog {
                 .child(label)
                 .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Also, cx)))
         });
-        let (fill, hovered, ledge): (Hsla, Hsla, Hsla) = match question.tone {
+        let white = Hsla::from(rgb(TEXT));
+        let (fill, hovered, ledge, label): (Hsla, Hsla, Hsla, Hsla) = match question.tone {
             Tone::Destructive => {
-                (rgb(ACTION).into(), rgb(ACTION_HOVERED).into(), rgba(ACTION_LEDGE).into())
+                (rgb(ACTION).into(), rgb(ACTION_HOVERED).into(), rgba(ACTION_LEDGE).into(), white)
             }
             Tone::Safe => (
                 rgb(SAFE_ACTION).into(),
                 rgb(SAFE_ACTION_HOVERED).into(),
                 rgb(SAFE_ACTION_LEDGE).into(),
+                white,
             ),
             Tone::Accent => {
-                let accent = command_bar::accent(cx);
-                (accent, Hsla { l: accent.l - ACCENT_HOVERED, ..accent }, accent.opacity(0.2))
+                let palette = palette::current(cx);
+                let accent = Hsla::from(palette.accent);
+                let hovered = Hsla { l: accent.l - ACCENT_HOVERED, ..accent };
+                (accent, hovered, accent.opacity(0.2), palette.accent_label.into())
             }
         };
         let action = (!question.action.is_empty()).then(|| {
@@ -563,13 +567,13 @@ impl Render for Dialog {
                         svg()
                             .path("icons/corner-down-left.svg")
                             .size(px(RETURN_GLYPH))
-                            .text_color(rgb(TEXT)),
+                            .text_color(label),
                     ),
             )
             .bg(fill)
             .hover(move |style| style.bg(hovered))
             .shadow(vec![shadow(ledge, 2., 0., 0.)])
-            .text_color(rgb(TEXT))
+            .text_color(label)
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
         });
         let list = question.list.iter().map(|(line, sublines)| {

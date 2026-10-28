@@ -105,26 +105,26 @@ field-radius = 20.0
 field-input-text = 13.0
 # Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
 beside-end = 70.0
-# Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
-fill = 0x1919_19db
-line-color = 0xffff_ff1a
-title = 0xffff_ffd9
-dim = 0xffff_ff59
+# The bar is the palette's overlay, opaque, and what's on it the palette's ink at these alphas
+# (Arc's white ones over its #191919), text raised to the overlay's floor (palette.rs).
+line-color = 0.1
+title = 0.85
+dim = 0.35
 # The row under the pointer while the selection is elsewhere: white 0.05, (31, 31, 31) on the
 # (19, 19, 19) panel (Arc 1.170 rec).
-hovered = 0xffff_ff0d
-placeholder = 0xffff_ff87
+hovered = 0.05
+placeholder = 0.53
+# The glyphs on rows that aren't selected, and the arrow on a row that switches to a tab.
+row-glyph = 0.7
+arrow = 0.65
+# The selected row's detail, in the accent's label.
+selected-dim = 0.75
 caret = 0x4a77d4
 selection = 0x787d_86b3
 # A tile under an icon or a hint's key, and a command's shortcut (ours).
-chip = 0xffff_ff14
+chip = 0.08
 # The arrow's tile on a row that switches to a tab.
-arrow-tile = 0xffff_ff0a
-# The accent's lightness is held to this so white reads on it (Arc's is 0.53).
-accent-lightness = 0.55
-accent = 0x4248cf
-# Its words and glyphs, which a row dims from.
-text = 0xffffff
+arrow-tile = 0.04
 # A command's keys, as chips.
 chip-radius = 6.0
 
@@ -291,9 +291,8 @@ chosen = 0xffff_ff40
 # Arc's hover wasn't captured: half the chosen plate.
 hovered = 0xffff_ff1f
 hint = 0xffff_ff87
-# The search field's caret, and the chosen segment's label on the accent.
+# The search field's caret.
 caret = 0xffffff
-chosen-text = 0xffffff
 
 [icon-picker.emoji]
 # The search field, 44 under the card's top, a segment control's height and the grid's width.
@@ -321,8 +320,8 @@ radius = 6.0
 # The rim's thickness, 0.5 pt.
 rim = 0.5
 text-size = 11.0
-secondary = 0xffffff99
-primary = 0xffffff
+secondary = 0.6
+primary = 1.0
 
 [menu]
 # ilo's own context menu (ours, #331): 24 pt rows of 13 pt text in an opaque panel, Ink-2 in a dark
@@ -396,20 +395,20 @@ row-gap = 6.0
 field-x = 10.0
 chevron = 24.0
 glyph = 14.0
-# The permission card's buttons and colours.
+# The permission card's buttons, and its colours as alphas of the palette's ink.
 buttons-top = 12.0
 button-height = 28.0
 button-x = 12.0
 button-gap = 8.0
 plate-radius = 6.0
-title = 0xffff_ffff
-detail = 0xffff_ffc7
-plate = 0xffff_ff1a
-hovered = 0xffff_ff1f
+title = 1.0
+detail = 0.78
+plate = 0.1
+hovered = 0.12
 # Ours: Save or Update stands out from the others.
-default-plate = 0xffff_ff33
+default-plate = 0.2
 # The find bar's.
-placeholder = 0xffff_ff87
+placeholder = 0.53
 caret = 0x4a77_d4ff
 selection = 0x787d_86b3
 
@@ -426,6 +425,30 @@ row = 12.0
 panel = 16.0
 # A sheet the user types into, or sorts things in: the command bar, the pickers.
 sheet = 20.0
+
+[palette]
+# The chrome's text and glyphs, Ink on a light window and Paper on a dark one (#320).
+ink = 0x16140f
+paper = 0xf3f0e8
+# Under the theme: the window's material darkened, or lit nearly to white.
+dark-underlay = 0x0b0b0b
+light-underlay = 0xfafaf9
+# What floats over a dark window, the command bar, a menu and the theme picker's panel, and a
+# dialog. Over a light one they're Paper.
+overlay-dark = 0x1f1d17
+dialog-dark = 0x2a2720
+# The accent of a Space without a theme: ilo green (#0B8045), lighter, so Ink reads on it at
+# 4.6:1 where Paper on #0B8045 is 4.4:1.
+no-theme-accent = 0x289054
+# Two colours go from the main one at the window's top left to the second this far along its
+# diagonal (Arc 1.170 rec at 2×, with Ardia's account of Arc's rule: OKLab, 45°, to 75 %).
+second-at = 0.75
+# How strongly the window takes a theme's colours at intensity `i`: `INTENSITY_FLOOR +
+# INTENSITY_SPAN * i` (Arc's, measured at 0.81 and 0.24), times k.
+intensity-floor = 0.2
+intensity-span = 0.55
+# A Space swatch's ring, a hairline.
+ring = 1.0
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
@@ -602,7 +625,7 @@ loading-row-min = 48.0
 # The status dot (ours, #321): the row's text at 0.6 while its page loads, Signal green while an
 # agent works in the tab. Breathing, from 0.35 of its strength to all of it, says it's loading.
 status-dot = 6.0
-status-loading = 0xffff_ff99
+status-loading = 0.6
 status-agent = 0x0e9f55
 breath-low = 0.35
 # A coloured dot's ring, in the neutral opposite the rows' text, so it reads on any theme.
@@ -640,7 +663,11 @@ switcher-inset = 42.0
 plus-inset = 8.0
 space-pitch = 34.0
 space-height = 34.0
-space-dot = 8.0
+# A Space without an icon shows its theme as a swatch: 14 pt for the Space shown and 10 for the
+# others (#320), 12 under the pointer (ours).
+space-swatch-shown = 14.0
+space-swatch = 10.0
+space-swatch-hovered = 12.0
 form-title-top = 140.0
 form-title-height = 20.0
 form-inset = 14.0
@@ -656,83 +683,73 @@ form-chevron = 18.0
 create-bottom = 96.0
 cancel-bottom = 66.5
 cancel-height = 15.0
-# The window's layers over its material (docs/ux-spec.md › Window material): a tint of black 0.25,
-# then the Space's gradient, its stops at 0.36 (0.12 for a neutral colour) in a layer at 0.5.
-# Dia's tint is 0.4, but material 29 draws darker in our window than Dia's measures, so the
-# lighter tint brings the window to Dia's composite. check/window.sh measures it.
-tint = 0x0000_0040
-gradient-alpha = 0.18
-neutral-gradient-alpha = 0.06
-# A colour under this HSL saturation is neutral (ours: Dia's line isn't measured).
-neutral = 0.1
-# A private window's layer in the gradient's place: black, darker than any Space and without its
-# colour (ours: Arc's and Dia's private look isn't recorded).
+# The window's layers over its material (docs/ux-spec.md › Window material): the palette's
+# underlay (palette.rs), then the Space's theme. A private window's layer in the theme's place:
+# black, darker than any Space and without its colour (ours: Arc's and Dia's private look isn't
+# recorded).
 private-shade = 0.35
-# What stands in for the material where the window's look has to be opaque, under rows it covers
-# or in the reveal's panel over the page: Dia's composite over grey 20, before the gradient (ours).
-material-stand-in = 0x131313
 # Dia's card, #121212 at 0.5: what shows before a page first paints.
 card = 0x1212_1280
-# Arc's row tokens (docs/ux-spec.md › Tab rows): the tab shown is white 0.2, a row under the
-# pointer 0.12 and a pressed one 0.065, with no line or shadow in dark mode. Titles are Dia's,
-# white, at 0.78 unless selected (ours: Arc's aren't measured).
-title = 0xffffffff
-unselected-title = 0xffffffc7
-selected = 0xffff_ff33
+# Everything below is an alpha of the palette's ink, Ink or Paper (palette.rs): text and glyphs
+# through its floors, plates in Paper's terms. Arc's row tokens (docs/ux-spec.md › Tab rows): the
+# tab shown is 0.2, a row under the pointer 0.12 and a pressed one 0.065, with no line or shadow.
+# Titles at 0.78 unless selected (#320's ladder).
+title = 1.0
+unselected-title = 0.78
+selected = 0.2
 # The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
-selected-hovered = 0xffff_ff5c
-hovered = 0xffff_ff1f
-pressed = 0xffff_ff11
-secondary = 0xffffff99
-# The close button's square under the pointer: Dia's subtle fill, white 0.12, at the header
-# buttons' radius (ours: Dia's fill isn't measured).
-close-hovered = 0xffffff1f
-url-field = 0xffffff1a
-new-tab = 0xffffff8c
-new-tab-plus = 0xffffff40
-# The Clear divider's line, white 0.15 (Arc).
-divider = 0xffffff26
-# The edge under the favorites while the list is scrolled: Dia's separator, white 0.09.
-scroll-edge = 0xffffff17
-# Clear, white 0.32, and white 0.81 under the pointer: Arc lights the word and its arrow, with no
-# plate (Arc in use, the owner's captures, 2026-10-26).
-clear = 0xffffff52
-clear-hovered = 0xffffffcf
+selected-hovered = 0.36
+hovered = 0.12
+pressed = 0.065
+secondary = 0.62
+# The close button's square under the pointer: Dia's subtle fill, 0.12, at the header buttons'
+# radius (ours: Dia's fill isn't measured).
+close-hovered = 0.12
+url-field = 0.1
+new-tab = 0.62
+new-tab-plus = 0.45
+# The Clear divider's line, 0.15 (Arc).
+divider = 0.15
+# The edge under the favorites while the list is scrolled: Dia's separator, 0.09.
+scroll-edge = 0.09
+# Clear, 0.62 (#320's secondary), and 0.81 under the pointer: Arc lights the word and its arrow,
+# with no plate (Arc in use, the owner's captures, 2026-10-26).
+clear = 0.62
+clear-hovered = 0.81
 # A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 sleeping-favicon = 0.5
-# A favorite's tile: white 0.10 at rest (Dia), with the resting level's rim, and under the pointer
-# white 0.15 (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and
-# black with Dia's default selection ring, white 0.45, where the icon gives no theme.
+# A favorite's tile: 0.10 at rest (Dia), with the resting level's rim, and under the pointer 0.15
+# (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and black
+# with Dia's default selection ring, white 0.45, where the icon gives no theme.
 tile = 0.1
 tile-hovered = 0.15
-tile-ring = 0xffff_ff73
+tile-ring = 0.45
 tile-unthemed = 0x0000_00ff
-# The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
-# forward with nowhere to go, over a hover plate of white 0.077.
-nav = 0xffffff99
-nav-disabled = 0xffffff42
-nav-hovered = 0xffffff14
-# The Space's name, white 0.56, and the switcher's dots: white 0.5 for the Space shown and 0.19
-# for the others (Arc), 0.3 under the pointer (ours: Arc's isn't measured).
-space-name = 0xffffff8f
-space-shown = 0xffffff80
-space-other = 0xffffff30
-space-hovered = 0xffffff4d
-# The form (Arc): a white title, plates of white 0.075, a placeholder of white 0.55, and Create
-# Space in Arc's blue with a white label, all of it at 0.4 until there's a name.
-form-text = 0xffffff
-form-plate = 0xffffff13
-form-placeholder = 0xffffff8c
-# The rows' glyphs are white 0.5, and the profile's pill white 0.1 over its row.
-form-glyph-color = 0xffffff80
-form-pill = 0xffffff1a
-create = 0x2129fb
+# The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
+# with nowhere to go, over a hover plate of 0.077.
+nav = 0.6
+nav-disabled = 0.26
+nav-hovered = 0.077
+# The Space's name and the switcher's icons, on #320's ladder: 0.62, then 0.6 for the Space shown
+# and 0.35 for the others, 0.5 under the pointer (ours: Arc's isn't measured).
+space-name = 0.62
+space-shown = 0.6
+space-other = 0.35
+space-hovered = 0.5
+# The form (Arc): a title in the ink, plates of 0.075, a placeholder of 0.55, and Create Space in
+# the palette's accent and its label, all of it at 0.4 until there's a name.
+form-text = 1.0
+form-plate = 0.075
+form-placeholder = 0.55
+# The rows' glyphs are 0.5, and the profile's pill 0.1 over its row.
+form-glyph-color = 0.5
+form-pill = 0.1
 create-unnamed = 0.4
 # The reveal panel's radius, the plates' 12 and their 8 in (ours), and its 0.5 pt light border, as
 # in a capture of Arc at 1×: one pixel of white 0.27 over the panel, which half a pixel of white
 # 0.54 makes.
 reveal-radius = 20.0
-reveal-border = 0xffffff8a
+reveal-border = 0.54
 window-button-y = 24.0
 window-button-size = 14.0
 window-button-glyph = 0x00000080
@@ -826,10 +843,11 @@ url-placeholder = 0xffff_ff52
 # Where the card's left edge goes while the Library is open: the Library's right edge, which is
 # this for Downloads and Archived Tabs and `spaces_width` for Spaces.
 library-width = 417.0
+# The Library's colours are alphas of the palette's ink (palette.rs), plates in Paper's terms.
 # The column of sections, and the line at its edge.
 column-width = 112.0
-column = 0xffffff0f
-column-edge = 0xffffff0a
+column = 0.06
+column-edge = 0.04
 # A section's button, its glyph centred 31 below its top and its label 56 below.
 section-x = 8.0
 section-width = 97.0
@@ -839,14 +857,14 @@ section-glyph = 20.0
 section-glyph-y = 31.0
 section-label-y = 56.0
 section-label-height = 15.0
-section-label = 0xffffffd9
+section-label = 0.85
 # Ours: the glyph of a section not shown, and the plate under one hovered.
-section-glyph-unselected = 0xffffff99
-section-hovered = 0xffffff0d
+section-glyph-unselected = 0.6
+section-hovered = 0.05
 # Between two sections' buttons, 100 apart.
 section-gap = 20.0
 # The plate under the selected section and the search field.
-library-plate = 0xffffff17
+library-plate = 0.09
 # The back button, at the column's bottom.
 library-back-inset = 8.0
 # The "Library" heading at the column's top, in the display face, in the section labels' white:
@@ -876,7 +894,7 @@ card-name-height = 38.0
 card-brush = 28.0
 card-brush-glyph = 14.0
 card-brush-right = 13.0
-card-brush-color = 0xffffff59
+card-brush-color = 0.35
 plus-gap = 33.0
 plus-size = 30.0
 plus-fill = 0x1f2aff
@@ -896,7 +914,7 @@ search-radius = 12.0
 search-glyph = 15.0
 search-glyph-x = 14.5
 search-text-x = 44.0
-search-placeholder = 0xffffff8f
+search-placeholder = 0.56
 # The command bar's.
 search-caret = 0x4a77d4
 search-selection = 0x787d_86b3
@@ -919,8 +937,8 @@ archived-radius = 12.0
 # Ours: a running download's bar, under its text, and the footer button's, under its glyph.
 progress-height = 3.0
 progress-bottom = 6.0
-progress-track = 0xffffff1f
-progress-fill = 0xffffff99
+progress-track = 0.12
+progress-fill = 0.6
 button-progress-width = 16.0
 button-progress-height = 2.0
 button-progress-bottom = 4.0
@@ -937,9 +955,7 @@ cut = 0.5
 # The + on it: its arms across, and their thickness.
 plus = 13.0
 plus-stroke = 1.5
-# The Space's colour on the circle is no lighter than this, for the white on it.
-accent-lightness = 0.55
-# The circle's white has this much of the Space's colour.
+# The circle's label colour, Ink or Paper, has this much of the Space's accent.
 white-tint = 0.09
 dot = 13.0
 # The glow: its brightest white, how far left its middle reaches, and the strips it's drawn in.
@@ -980,7 +996,7 @@ column = 40.0
 icon = 26.0
 text-x = 61.0
 text-end = 12.0
-name = 0xffffffff
+name = 1.0
 name-size = 15.0
 name-line = 19.0
 age-size = 11.0
@@ -1005,11 +1021,11 @@ header-text = 13.0
 [shell.split-targets]
 target-radius = 20.0
 target-dash-inset = 9.5
-# Ours: a target's fill, a step lighter than the window's, and its 0.5 pt edge. Under the tab the
-# fill takes the accent at TARGET_ACCENT, and the line, glyph and title the accent.
-target-lighter = 0.06
+# Ours: a target's fill, a step lighter than the window's in Ink or Paper (the palette's
+# target-plate), and its 0.5 pt edge. Under the tab the fill takes the accent at the palette's
+# target-accent, the line the accent, and the glyph and title full Ink or Paper: text never takes
+# the accent.
 target-edge = 0.14
-target-accent = 0.15
 target-dashes = 0.25
 target-text = 0.6
 picture-radius = 12.0
@@ -1024,16 +1040,6 @@ half-glyph-radius = 3.5
 check-box = 24.0
 # The check is Lucide's, so it draws at the icons' one stroke, `shell::assets::ICON_STROKE`.
 check-stroke = 2.25
-
-[shell.themes]
-# Two colours go from the main one at the window's top left to the second this far along its
-# diagonal (Arc 1.170 rec at 2×, with Ardia's account of Arc's rule: OKLab, 45°, to 75 %).
-second-at = 0.75
-# How strongly the window takes a theme's colours at intensity `i`: in proportion to
-# `INTENSITY_FLOOR + INTENSITY_SPAN * i`, so the slider's start is the colour as before themes
-# and its left end washes most of it out (ours, fitted to Arc's window at 0.81 and 0.24).
-intensity-floor = 0.2
-intensity-span = 0.55
 
 [shell.tile-theme]
 # A pixel counts towards the icon's colour from this alpha.
@@ -1209,8 +1215,6 @@ swatches = [0xf0eae5, 0xe59eba, 0x9e749b, 0xe1676f, 0xef8c63, 0xf2d46c, 0x73e49b
 swatch-x = 60.5
 swatch-pitch = 29.5
 swatch = 24.0
-swatch-ring = 1.5
-swatch-ring-shade = 0.88
 # The intensity's wave slider: a pill with a sine over it, brighter left of the knob.
 slider-y = 452.0
 track-left = 18.5
@@ -1263,14 +1267,14 @@ chip-height = 26.0
 chip-radius = 6.0
 chip-x = 9.0
 chip-gap = 8.0
-chip-fill = 0xffff_ff1a
+chip-fill = 0.1
 # A button's chip under the pointer, which Arc's wasn't recorded with (ours).
-chip-hovered = 0xffff_ff29
+chip-hovered = 0.16
 # A button's glyph, as Arc's Share is (Capture's toast at 3×).
 chip-glyph = 13.0
 key-gap = 5.0
-# The key in an Undo button: white at 0.6, ours.
-key-color = 0xffff_ff99
+# The key in an Undo button, ours. It and the chips are alphas of the palette's ink.
+key-color = 0.6
 # It darkens from the window's colour at its top to this much of it at its bottom (Arc's goes
 # from (40,22,80) to (31,17,62) in a purple Space).
 shade = 0.78
@@ -1281,8 +1285,6 @@ window-width = 420.0
 window-height = 114.0
 note-height = 41.0
 note-top = 4.0
-# Its words and a button's glyph.
-text = 0xffffff
 
 [tooltip]
 # How far below the tile or row it names the tooltip's top is, or above it if it doesn't fit
@@ -1338,4 +1340,3 @@ window-width = 178.0
 window-height = 122.0
 # Its fill once the window it was over has gone.
 fill = 0x333333
-text = 0xffffff

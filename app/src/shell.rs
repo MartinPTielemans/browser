@@ -22,6 +22,7 @@ use crate::{
     icon_picker::Subject,
     space_icon::{GLYPHS, SpaceIcon},
     text_input::TextInput,
+    palette::Palette,
     theme::Theme,
 };
 
@@ -317,7 +318,9 @@ use crate::tokens::shell::SWITCHER_INSET;
 use crate::tokens::shell::PLUS_INSET;
 use crate::tokens::shell::SPACE_PITCH;
 use crate::tokens::shell::SPACE_HEIGHT;
-use crate::tokens::shell::SPACE_DOT;
+use crate::tokens::shell::SPACE_SWATCH_SHOWN;
+use crate::tokens::shell::SPACE_SWATCH;
+use crate::tokens::shell::SPACE_SWATCH_HOVERED;
 // A Space's icon in the switcher takes its dot's place in the same item. Its glyph is 16 pt, a
 // favicon's size (ours, *interim*).
 const SPACE_ICON_SWITCHER: f32 = EMOJI_SIZE;
@@ -351,12 +354,7 @@ use crate::tokens::shell::CREATE_BOTTOM;
 use crate::tokens::shell::CANCEL_BOTTOM;
 use crate::tokens::shell::CANCEL_HEIGHT;
 
-use crate::tokens::shell::TINT;
-use crate::tokens::shell::GRADIENT_ALPHA;
-use crate::tokens::shell::NEUTRAL_GRADIENT_ALPHA;
-use crate::tokens::shell::NEUTRAL;
 use crate::tokens::shell::PRIVATE_SHADE;
-use crate::tokens::shell::MATERIAL_STAND_IN;
 use crate::tokens::shell::CARD;
 use crate::tokens::shell::TITLE;
 use crate::tokens::shell::UNSELECTED_TITLE;
@@ -390,7 +388,6 @@ use crate::tokens::shell::FORM_PLATE;
 use crate::tokens::shell::FORM_PLACEHOLDER;
 use crate::tokens::shell::FORM_GLYPH_COLOR;
 use crate::tokens::shell::FORM_PILL;
-use crate::tokens::shell::CREATE;
 use crate::tokens::shell::CREATE_UNNAMED;
 // Create sends the form away from the bottom up, as Arc does (docs/ux-spec.md › Creating): the
 // buttons fade, then the rows, the field and the title fade as they sink, each over 150 ms.
@@ -1099,8 +1096,10 @@ pub struct Shell {
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
     background_pressed: bool,
-    /// The system's accent colour, as 0xRRGGBB.
-    accent_color: u32,
+    /// What the chrome draws with, for the Space shown (palette.rs), and each theme's, worked
+    /// out once.
+    palette: Palette,
+    palettes: RefCell<Vec<(Option<Theme>, Palette)>>,
     /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
     /// picker, or a Space's theme picker; and when it was asked for.
     picker_pending: Option<(Pending, Instant)>,
@@ -1126,7 +1125,6 @@ impl Shell {
         let sidebar_width = browser
             .saved_sidebar_width()
             .map_or(SIDEBAR_WIDTH, |width| width.clamp(SIDEBAR_MIN, SIDEBAR_MAX));
-        let accent_color = browser.accent_color();
         Self {
             browser,
             focus_handle: cx.focus_handle(),
@@ -1272,7 +1270,8 @@ impl Shell {
             icon_placeholder: None,
             switching: None,
             background_pressed: false,
-            accent_color,
+            palette: Palette::default(),
+            palettes: RefCell::default(),
             private: false,
         }
     }
@@ -2572,8 +2571,8 @@ impl Render for Shell {
         }
         self.lay_out_moving_page(cx);
         let card_left = self.card_left();
-        let focus_color = self.shown_space().and_then(|space| space.color);
-        let focus_color = focus_color.unwrap_or(self.accent_color);
+        self.update_palette(cx);
+        let focus_color = packed(self.palette.accent.into());
         if self.focus_color != Some(focus_color) {
             self.focus_color = Some(focus_color);
             self.browser.set_focus_color(focus_color, cx);
@@ -2651,7 +2650,7 @@ impl Render for Shell {
             .size_full()
             .relative()
             .font_family(".SystemUIFont")
-            .bg(rgba(TINT))
+            .bg(self.palette.tint)
             // The rows, buttons and fields keep their presses. Everywhere else is the window's
             // background, which moves the window as a title bar does.
             .on_mouse_down(
@@ -2700,8 +2699,7 @@ impl Shell {
         let (frame, _) = self.page_frame(self.viewport);
         let panes = self.panes(self.selected);
         let glow = BoxShadow {
-            color: Hsla::from(rgb(self.focus_color.unwrap_or(self.accent_color)))
-                .opacity(FOCUS_GLOW_ALPHA),
+            color: Hsla::from(self.palette.accent).opacity(FOCUS_GLOW_ALPHA),
             offset: point(px(0.), px(0.)),
             blur_radius: px(FOCUS_GLOW),
             spread_radius: px(0.),
@@ -2835,8 +2833,8 @@ impl Shell {
         let row = |tab: u64| {
             let row = row_box().pl(px(PLATE_INSET + space.depth(tab) as f32 * FOLDER_INDENT));
             if let Some((name, open)) = space.folders.folders.get(&tab) {
-                let name = title(name.clone(), false).pr(px(TITLE_END_INSET));
-                return row.child(plate(folder_icon(*open), name));
+                let name = title(&self.palette, name.clone(), false).pr(px(TITLE_END_INSET));
+                return row.child(plate(folder_icon(&self.palette, *open), name));
             }
             let panes = space.panes(tab);
             if panes.len() > 1 {
@@ -2846,19 +2844,19 @@ impl Shell {
                     .map(|&pane| self.segment(pane, width, pane == tab, pane == selected));
                 return row.child(
                     split_plate(segments)
-                        .when(panes.contains(&selected), |plate| selected_plate(plate, 1., 0.)),
+                        .when(panes.contains(&selected), |plate| selected_plate(&self.palette, plate, 1., 0.)),
                 );
             }
             let icon = div()
                 .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
                 .child(self.tab_icon(tab));
             row.child(
-                plate(icon, title(self.title(tab), tab == selected).pr(px(TITLE_END_INSET)))
-                    .when(tab == selected, |plate| selected_plate(plate, 1., 0.)),
+                plate(icon, title(&self.palette, self.title(tab), tab == selected).pr(px(TITLE_END_INSET)))
+                    .when(tab == selected, |plate| selected_plate(&self.palette, plate, 1., 0.)),
             )
         };
-        let (plus, new_tab) = new_tab_label();
-        let icon = space_icon(&space.icon);
+        let (plus, new_tab) = new_tab_label(&self.palette);
+        let icon = space_icon(&self.palette, &space.icon);
         let (pinned, today) = space.rows();
         let room = self.tiles_room();
         div()
@@ -2867,16 +2865,16 @@ impl Shell {
             .flex_col()
             .when(room > 0., |page| page.child(div().flex_none().h(px(room))))
             .child(
-                name_box(icon.is_some())
+                name_box(&self.palette, icon.is_some())
                     .children(icon)
                     .child(div().truncate().child(space.name.clone())),
             )
             .children(pinned.into_iter().map(row))
             .when(!today.is_empty(), |page| {
                 let clear = self.tools_shown().then(|| {
-                    still_clear(space.clears_last(space.shown)).opacity(self.tools_opacity())
+                    still_clear(&self.palette, space.clears_last(space.shown)).opacity(self.tools_opacity())
                 });
-                page.child(divider_box(self.hairline(), clear))
+                page.child(divider_box(&self.palette, self.hairline(), clear))
             })
             .child(row_box().child(plate(plus, new_tab)))
             .children(today.into_iter().map(row))
@@ -3042,8 +3040,8 @@ impl Shell {
                     .w(px(self.width()))
                     .rounded(px(REVEAL_RADIUS))
                     .border(px(0.5))
-                    .border_color(rgba(REVEAL_BORDER))
-                    .bg(self.gradient(Some(rgb(MATERIAL_STAND_IN).into())))
+                    .border_color(self.palette.faint(REVEAL_BORDER))
+                    .bg(self.gradient(Some(self.palette.underlay.into())))
                     .child(self.window_buttons(cx))
                     .child(self.sidebar(cx).left_0())
                     .child(self.scroll_listener(false, cx)),
@@ -3211,7 +3209,7 @@ fn row_box() -> gpui::Div {
 
 /// The row with the Space's name, over its tabs, with room before the name for the Space's icon if
 /// it has one.
-fn name_box(icon: bool) -> gpui::Div {
+fn name_box(palette: &Palette, icon: bool) -> gpui::Div {
     div()
         .flex_none()
         .h(px(NAME_HEIGHT))
@@ -3221,7 +3219,7 @@ fn name_box(icon: bool) -> gpui::Div {
         .pr(px(FAVICON_X))
         .text_size(px(text::BODY))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(rgba(SPACE_NAME))
+        .text_color(palette.text(SPACE_NAME))
 }
 
 /// The dashed square that holds the icon's place before a Space's name, in the name row `name_box`
@@ -3253,33 +3251,36 @@ fn icon_placeholder() -> impl IntoElement {
 
 /// A Space's icon before its name, in the name row `name_box` makes, if it has one: its emoji, or
 /// its glyph in the name's colour.
-pub(super) fn space_icon(icon: &str) -> Option<gpui::Div> {
+pub(super) fn space_icon(palette: &Palette, icon: &str) -> Option<gpui::Div> {
     let drawn = match SpaceIcon::parse(icon) {
         SpaceIcon::Dot => return None,
         SpaceIcon::Emoji(emoji) => SharedString::from(emoji.to_string()).into_any_element(),
         SpaceIcon::Glyph(index) => svg()
             .path(GLYPHS[index].1)
             .size(px(SPACE_GLYPH))
-            .text_color(rgba(SPACE_NAME))
+            .text_color(palette.text(SPACE_NAME))
             .into_any_element(),
     };
-    Some(
-        div()
-            .absolute()
-            .left(px(SPACE_ICON_X))
-            .top_0()
-            .h_full()
-            .w(px(SPACE_ICON_SLOT))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(SPACE_ICON_TEXT))
-            .child(drawn),
-    )
+    Some(icon_slot(drawn))
+}
+
+/// The place before a Space's name that its icon takes, with `drawn` in it.
+pub(super) fn icon_slot(drawn: impl IntoElement) -> gpui::Div {
+    div()
+        .absolute()
+        .left(px(SPACE_ICON_X))
+        .top_0()
+        .h_full()
+        .w(px(SPACE_ICON_SLOT))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(SPACE_ICON_TEXT))
+        .child(drawn)
 }
 
 /// The divider under the pinned tabs: a line, and `clear` at its end while it shows.
-fn divider_box(line: Pixels, clear: Option<impl IntoElement>) -> gpui::Div {
+fn divider_box(palette: &Palette, line: Pixels, clear: Option<impl IntoElement>) -> gpui::Div {
     // Clear ends where the titles do, 17 in from the edge.
     let right = if clear.is_some() { FAVICON_X } else { DIVIDER_X };
     div().flex_none().h(px(DIVIDER_HEIGHT)).child(
@@ -3291,7 +3292,7 @@ fn divider_box(line: Pixels, clear: Option<impl IntoElement>) -> gpui::Div {
             .h(px(CLEAR_HEIGHT))
             .flex()
             .items_center()
-            .child(div().flex_1().h(line).bg(rgba(DIVIDER)))
+            .child(div().flex_1().h(line).bg(palette.faint(DIVIDER)))
             .children(clear),
     )
 }
@@ -3300,7 +3301,7 @@ fn divider_box(line: Pixels, clear: Option<impl IntoElement>) -> gpui::Div {
 /// The word stays at the titles' end, and the arrow's room opens `room` of the way before it, which
 /// moves the line's end, so nothing jumps as the arrow comes and goes. It hangs out by a margin
 /// that takes its clicks, and the word keeps its place.
-fn clear_label(arrow: AnyElement, room: f32, color: u32) -> gpui::Div {
+fn clear_label(palette: &Palette, arrow: AnyElement, room: f32, color: f32) -> gpui::Div {
     div()
         .flex_none()
         .ml(px(DIVIDER_GAP - CLEAR_HIT_OUT))
@@ -3311,7 +3312,7 @@ fn clear_label(arrow: AnyElement, room: f32, color: u32) -> gpui::Div {
         .items_center()
         .text_size(px(text::SMALL))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(rgba(color))
+        .text_color(palette.text(color))
         .child(
             div().relative().flex_none().h_full().w(px(room * CLEAR_ARROW_ROOM)).child(
                 div()
@@ -3326,19 +3327,19 @@ fn clear_label(arrow: AnyElement, room: f32, color: u32) -> gpui::Div {
 
 /// Clear, with the arrow while `arrow`, where it doesn't change on the button: a Space's page
 /// beside the one shown, and a Library card.
-fn still_clear(arrow: bool) -> gpui::Div {
+fn still_clear(palette: &Palette, arrow: bool) -> gpui::Div {
     let glyph = match arrow {
-        true => svg().path(ARROW_DOWN).size(px(CLEAR_ARROW)).text_color(rgba(CLEAR)),
-        false => return clear_label(div().into_any_element(), 0., CLEAR),
+        true => svg().path(ARROW_DOWN).size(px(CLEAR_ARROW)).text_color(palette.text(CLEAR)),
+        false => return clear_label(palette, div().into_any_element(), 0., CLEAR),
     };
-    clear_label(glyph.into_any_element(), 1., CLEAR)
+    clear_label(palette, glyph.into_any_element(), 1., CLEAR)
 }
 
 /// "+ New Tab": its plus and its label. The plus is drawn as a favicon is, so it centres on the
 /// label as a favicon does on its title; a "+" set in text sat on its font's baseline, 2 pt low.
-fn new_tab_label() -> (gpui::Svg, gpui::Div) {
-    let plus = svg().path("icons/plus.svg").size(px(FAVICON_DRAWN)).text_color(rgba(NEW_TAB_PLUS));
-    let label = div().text_size(px(text::BODY)).text_color(rgba(NEW_TAB)).child("New Tab");
+fn new_tab_label(palette: &Palette) -> (gpui::Svg, gpui::Div) {
+    let plus = svg().path("icons/plus.svg").size(px(FAVICON_DRAWN)).text_color(palette.glyph(NEW_TAB_PLUS));
+    let label = div().text_size(px(text::BODY)).text_color(palette.text(NEW_TAB)).child("New Tab");
     (plus, label)
 }
 
@@ -3364,22 +3365,22 @@ fn plate(icon: impl IntoElement, label: impl IntoElement) -> gpui::Div {
 }
 
 /// A folder's icon, open or closed.
-fn folder_icon(open: bool) -> AnyElement {
+fn folder_icon(palette: &Palette, open: bool) -> AnyElement {
     svg()
         .path(swap::folder_glyph(open))
         .size(px(FAVICON_DRAWN))
-        .text_color(rgba(SECONDARY))
+        .text_color(palette.text(SECONDARY))
         .into_any_element()
 }
 
 /// A tab's favicon, or a globe for a page without one.
-fn favicon(favicon: Option<Arc<Image>>) -> AnyElement {
+fn favicon(palette: &Palette, favicon: Option<Arc<Image>>) -> AnyElement {
     match favicon {
         Some(favicon) => img(favicon).size(px(FAVICON_DRAWN)).into_any_element(),
         None => svg()
             .path("icons/globe.svg")
             .size(px(FAVICON_DRAWN))
-            .text_color(rgba(SECONDARY))
+            .text_color(palette.text(SECONDARY))
             .into_any_element(),
     }
 }
@@ -3397,19 +3398,19 @@ fn split_plate(segments: impl IntoIterator<Item = impl IntoElement>) -> gpui::Di
 }
 
 /// The selected tab's plate, at `opacity` while it fades in.
-fn selected_plate(plate: gpui::Div, opacity: f32, hover: f32) -> gpui::Div {
-    let (rest, under) = (Hsla::from(rgba(SELECTED)), Hsla::from(rgba(SELECTED_HOVERED)));
+fn selected_plate(palette: &Palette, plate: gpui::Div, opacity: f32, hover: f32) -> gpui::Div {
+    let (rest, under) = (palette.plate(SELECTED), palette.plate(SELECTED_HOVERED));
     plate.bg(Hsla { a: (rest.a + (under.a - rest.a) * hover) * opacity, ..rest })
 }
 
 /// A tab row's title, cut off at the row's trailing edge.
-fn title(title: SharedString, selected: bool) -> gpui::Div {
+fn title(palette: &Palette, title: SharedString, selected: bool) -> gpui::Div {
     div()
         .flex_1()
         .min_w_0()
         .truncate()
         .text_size(px(text::BODY))
-        .text_color(rgba(if selected { TITLE } else { UNSELECTED_TITLE }))
+        .text_color(palette.text(if selected { TITLE } else { UNSELECTED_TITLE }))
         .child(title)
 }
 

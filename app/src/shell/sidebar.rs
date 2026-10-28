@@ -6,12 +6,11 @@ use std::time::Instant;
 
 use gpui::{
     Context, CursorStyle, DispatchPhase, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Rgba, canvas, div, linear_color_stop, linear_gradient, prelude::*, px, rgb,
+    MouseUpEvent, Rgba, canvas, div, linear_color_stop, linear_gradient, prelude::*, px,
 };
 
 use super::{
-    CARD_INSET, GRADIENT_ALPHA, MATERIAL_STAND_IN, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, PRIVATE_SHADE,
-    REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
+    CARD_INSET, PRIVATE_SHADE, REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
     REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX,
     SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Settle, Shell, settle_progress, spring,
 };
@@ -250,12 +249,6 @@ impl Shell {
         self.reveal_step().unwrap_or(if self.revealed { 1. } else { 0. })
     }
 
-    /// The system's accent colour changed, which the window's gradient follows.
-    pub fn accent_color_changed(&mut self, cx: &mut Context<Self>) {
-        self.accent_color = self.browser.accent_color();
-        cx.notify();
-    }
-
     /// The Space the window's colour is of, and while the sidebar pages between two, the one
     /// beside and how far the colour has gone to it, 0 to 1: a switch next door changes the
     /// colour ahead of the slide, anything else with the pages.
@@ -293,20 +286,15 @@ impl Shell {
     }
 
     /// `space`'s colour `x` of the way across the window and `y` of the way down, as the gradient
-    /// has it.
-    fn space_color_at(&self, space: u64, x: f32, y: f32) -> Rgba {
-        // A Space without a colour has the system's accent colour, as in Dia.
+    /// has it: its theme's, or nothing over the underlay without one.
+    pub(super) fn space_color_at(&self, space: u64, x: f32, y: f32) -> Rgba {
         if self.private {
             return Rgba { r: 0., g: 0., b: 0., a: PRIVATE_SHADE };
         }
-        if let Some(theme) = self.theme_of(space) {
-            return self.theme_color_at(&theme, x, y);
+        match self.space_theme(space) {
+            Some(theme) => self.theme_color_at(&theme, self.palette_of(space).layer_alpha, x, y),
+            None => Rgba { r: 0., g: 0., b: 0., a: 0. },
         }
-        let space = self.spaces.iter().find(|each| each.id == space);
-        let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
-        let color = Hsla::from(rgb(color));
-        let alpha = if color.s < NEUTRAL { NEUTRAL_GRADIENT_ALPHA } else { GRADIENT_ALPHA };
-        Rgba::from(Hsla { l: (color.l + 0.25 * y).min(1.), ..color }.opacity(alpha))
     }
 
     /// `space`'s gradient from top to bottom, for what is as tall as the window, such as its card
@@ -332,9 +320,15 @@ impl Shell {
         self.window_fill_at(0.5)
     }
 
+    /// The colours the chrome draws with over the Space shown, for what floats over the page in
+    /// the window's colour: a toast, the zoom HUD, a password offer.
+    pub fn palette(&self) -> crate::palette::Palette {
+        self.palette
+    }
+
     /// The window's look, opaque, `y` of the way down.
     pub(super) fn window_fill_at(&self, y: f32) -> Hsla {
-        Hsla::from(rgb(MATERIAL_STAND_IN)).blend(self.gradient_color(y))
+        Hsla::from(self.palette.underlay).blend(self.gradient_color(y))
     }
 
     /// The pointer is at `x` in the browser window: kept at its left edge it brings the hidden

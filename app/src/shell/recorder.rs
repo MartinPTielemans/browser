@@ -630,10 +630,6 @@ impl Browser for Recorder {
         }
     }
 
-    fn accent_color(&self) -> u32 {
-        Default::default()
-    }
-
     fn command_bar(
         &self,
         _: Option<(u64, SharedString)>,

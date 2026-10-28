@@ -628,7 +628,7 @@ impl Shell {
     }
 
     /// `space`'s swatch: its theme's first two colours, or its one colour going lighter down as
-    /// the window's gradient does, with the system's accent for a Space without one.
+    /// the window's gradient does, with the untinted palette's accent for a Space without one.
     pub(super) fn space_swatch(&self, space: u64) -> Swatch {
         if let Some(theme) = self.theme_of(space) {
             let colors = theme.colors();
@@ -638,7 +638,8 @@ impl Shell {
         }
         let entry = self.spaces.iter().find(|each| each.id == space);
         let color = self.theme_of(space).map(|theme| theme.main_color());
-        let color = color.or(entry.and_then(|each| each.color)).unwrap_or(self.accent_color);
+        let untinted = || crate::theme::packed(crate::palette::Palette::of(None).accent);
+        let color = color.or(entry.and_then(|each| each.color)).unwrap_or_else(untinted);
         let hsla = Hsla::from(rgb(color));
         let lighter = crate::theme::packed(Rgba::from(Hsla { l: (hsla.l + 0.25).min(1.), ..hsla }));
         Swatch { from: color, to: lighter }
@@ -697,7 +698,7 @@ fn space_menu_head(space: u64, has_icon: bool, has_theme: bool) -> Vec<(MenuEntr
         MenuEntry::new("Edit Theme Color…", true),
         Box::new(move |shell, cx| shell.edit_space_theme(space, cx)),
     ));
-    // The way back to the system's accent, which the picker has none of (ours: Arc's isn't
+    // The way back to no theme, and ilo green, which the picker has none of (ours: Arc's isn't
     // recorded).
     if has_theme {
         items.push((

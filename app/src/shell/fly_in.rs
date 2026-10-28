@@ -3,7 +3,7 @@
 
 use std::{collections::HashSet, time::Instant};
 
-use gpui::{Context, Window, div, img, prelude::*, px, rgba, svg};
+use gpui::{Context, Window, div, img, prelude::*, px, svg};
 
 use super::{
     Download, DownloadState, FOOTER_HEIGHT, LIST_TOP, NAV_SIZE, SECONDARY, Shell, cubic_bezier,
@@ -97,7 +97,7 @@ impl Shell {
             None => svg()
                 .path("icons/file.svg")
                 .size_full()
-                .text_color(rgba(SECONDARY))
+                .text_color(self.palette.text(SECONDARY))
                 .into_any_element(),
         };
         Some(

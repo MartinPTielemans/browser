@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use gpui::{
-    Context, Div, FontWeight, MouseButton, Stateful, Window, div, prelude::*, px, rgba, svg,
+    Context, Div, FontWeight, MouseButton, Stateful, Window, div, prelude::*, px, svg,
 };
 
 use super::{
@@ -111,7 +111,7 @@ impl Shell {
                 let opacity = card.since.map_or(0., |since| {
                     fade_at(0., 1., now.saturating_duration_since(since).as_secs_f32(), FADE)
                 });
-                let reload = card_button("crash-reload", RELOAD)
+                let reload = card_button(&self.palette, "crash-reload", RELOAD)
                     // check.sh clicks it where this says it is.
                     .child(card_listener("crash reload", &self.crash_reload_drawn, tab))
                     .flex_none()
@@ -124,7 +124,7 @@ impl Shell {
                 let words = div()
                     .text_size(px(WORDS_SIZE))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(rgba(TITLE))
+                    .text_color(self.palette.text(TITLE))
                     .child(STOPPED);
                 Some(
                     div()
@@ -177,7 +177,7 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(svg().path(MARK).size(px(SPEAKER_DRAWN)).text_color(rgba(SECONDARY)))
+                .child(svg().path(MARK).size(px(SPEAKER_DRAWN)).text_color(self.palette.text(SECONDARY)))
         })
     }
 }

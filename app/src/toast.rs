@@ -13,9 +13,10 @@ use gpui::{
     App, Bounds, ClickEvent, Context, FontWeight, Global, Hsla, Pixels, Point, Role,
     SharedString, Task, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, div, linear_color_stop, linear_gradient, point,
-    accesskit::Live, prelude::*, px, rgb, rgba, size, svg,
+    accesskit::Live, prelude::*, px, size, svg,
 };
 
+use crate::palette::Palette;
 use crate::shell::{CARD_INSET, cubic_bezier, scaled::scaled_from_top, spring};
 
 // Arc's, measured at 2× (docs/ux-spec.md › Toast): 46.5 tall, 8 inside the card's top right
@@ -54,7 +55,6 @@ const LEAVE: f32 = 0.07;
 const NOTE: &str = "To exit full screen, press ⎋.";
 use crate::tokens::toast::NOTE_HEIGHT;
 use crate::tokens::toast::NOTE_TOP;
-use crate::tokens::toast::TEXT;
 const NOTE_RIGHT: f32 = CARD_INSET;
 const NOTE_TIME: Duration = Duration::from_millis(4800);
 
@@ -159,8 +159,8 @@ impl Shown {
 
 pub struct Toast {
     host: Rc<dyn Host>,
-    /// The window's colour, which the toast takes.
-    fill: Box<dyn Fn(&App) -> Hsla>,
+    /// The window's colour, which the toast takes, and the palette its text is drawn in.
+    look: Box<dyn Fn(&App) -> (Hsla, Palette)>,
     shown: Option<Shown>,
     /// Whether the host was last told it takes clicks.
     takes_clicks: bool,
@@ -171,10 +171,10 @@ struct ToastWindow(WindowHandle<Toast>);
 impl Global for ToastWindow {}
 
 /// Opens the toast's window, hidden, for `host` to show over the browser window, ahead of time as
-/// the find bar's is. The toast takes `fill`'s colour.
+/// the find bar's is. The toast takes `look`'s colour and palette.
 pub fn open(
     host: Rc<dyn Host>,
-    fill: impl Fn(&App) -> Hsla + 'static,
+    look: impl Fn(&App) -> (Hsla, Palette) + 'static,
     cx: &mut App,
 ) -> Option<WindowHandle<Toast>> {
     let options = WindowOptions {
@@ -200,7 +200,7 @@ pub fn open(
         ..Default::default()
     };
     let window = cx.open_window(options, |_, cx| {
-        cx.new(|_| Toast { host, fill: Box::new(fill), shown: None, takes_clicks: false })
+        cx.new(|_| Toast { host, look: Box::new(look), shown: None, takes_clicks: false })
     });
     match window {
         Ok(window) => {
@@ -440,7 +440,7 @@ impl Render for Toast {
             log!("browser: toast settled");
         }
         let pose = shown.pose();
-        let fill = (self.fill)(cx);
+        let (fill, palette) = (self.look)(cx);
         let bottom = Hsla { l: fill.l * SHADE, ..fill };
         let a11y = window.is_a11y_active();
         let buttons: Vec<_> = (shown.buttons.iter().enumerate())
@@ -452,8 +452,8 @@ impl Render for Toast {
                     .flex()
                     .items_center()
                     .rounded(px(CHIP_RADIUS))
-                    .bg(rgba(CHIP_FILL))
-                    .hover(|style| style.bg(rgba(CHIP_HOVERED)))
+                    .bg(palette.plate(CHIP_FILL))
+                    .hover(move |style| style.bg(palette.plate(CHIP_HOVERED)))
                     .font_weight(FontWeight::SEMIBOLD)
                     .when(a11y, |chip| {
                         let name = match &button.label {
@@ -474,11 +474,11 @@ impl Render for Toast {
                 match &button.label {
                     Label::Text(text) => chip.child(text.clone()),
                     Label::Glyph(path) => chip.child(
-                        svg().path(*path).size(px(CHIP_GLYPH)).text_color(rgb(TEXT)),
+                        svg().path(*path).size(px(CHIP_GLYPH)).text_color(palette.ink),
                     ),
                     // The key is fainter than the word it goes with.
                     Label::Keyed(text, key) => chip.gap(px(KEY_GAP)).child(text.clone()).child(
-                        div().text_color(rgba(KEY_COLOR)).child(key.clone()),
+                        div().text_color(palette.text(KEY_COLOR)).child(key.clone()),
                     ),
                 }
             })
@@ -510,7 +510,7 @@ impl Render for Toast {
             .opacity(pose.opacity)
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)
-            .text_color(rgb(TEXT))
+            .text_color(palette.ink)
             .child(shown.text.clone())
             .children(shown.key.clone().map(|(key, rest)| {
                 div()
@@ -524,7 +524,7 @@ impl Render for Toast {
                             .flex()
                             .items_center()
                             .rounded(px(CHIP_RADIUS))
-                            .bg(rgba(CHIP_FILL))
+                            .bg(palette.plate(CHIP_FILL))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(key),
                     )

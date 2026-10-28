@@ -316,9 +316,6 @@ pub trait Browser {
         plate: Option<(crate::link_target::Plate, Bounds<Pixels>, crate::link_target::Side)>,
         cx: &mut App,
     );
-    /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
-    /// it changes.
-    fn accent_color(&self) -> u32;
     /// Opens the command bar for a new tab or on `editing`'s URL, with `tabs` to list before
     /// anything is typed: over `field`, the URL field's box in the window, else centred over it.
     fn command_bar(
