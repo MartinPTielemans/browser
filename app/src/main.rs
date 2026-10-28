@@ -1868,6 +1868,11 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_answer_permission(tab, answer as i32) };
     }
 
+    fn answer_agent(&self, question: u64, answer: browser::agents::Answer, _: &mut App) {
+        // After the shell's update, as the answer tells every window's shell the next question.
+        agents_core::update(move |agents, cx| agents.answer(question, answer, cx));
+    }
+
     fn show_page_dialog(&self, shown: Option<shell::ShownPageDialog>, cx: &mut App) {
         // The dialog shows over the window last key, as the others do; another's waits for it.
         if self.window != front().0 {
@@ -4022,6 +4027,24 @@ unsafe extern "C" fn agent_session_ended(
     });
 }
 
+/// The core's answer to an agent's action in a tab (bc_agent_page): why it couldn't, a
+/// screenshot, or the page's tree.
+unsafe extern "C" fn agent_page_done(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    request: u64,
+    text: *const c_char,
+    error: bool,
+) {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    // check.sh reads this line.
+    match error {
+        true => log!("browser: agent page {tab} {request} error: {text}"),
+        false => log!("browser: agent page {tab} {request} {}", text.len()),
+    }
+    agents_core::update(move |agents, cx| agents.page_done(request, text, error, cx));
+}
+
 /// The text of a tab's page that bc_tab_read_text asked for, or null if it had none.
 unsafe extern "C" fn tab_text(_: *mut c_void, tab: bc::bc_id, request: u64, text: *const c_char) {
     let text = (!text.is_null())
@@ -5218,6 +5241,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
         tab_text: Some(tab_text),
+        agent_page_done: Some(agent_page_done),
         ..Default::default()
     };
     (args, host)
