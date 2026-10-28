@@ -12,7 +12,7 @@ use gpui::{
 use super::{
     SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
     Settle, Shell, Space, Swipe, WEB, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at,
-    rubber_band, library::library_band, wheel_gestures::GAP,
+    rubber_band, library::library_band, wheel_gestures::{GAP, LONG},
 };
 
 impl Shell {
@@ -313,8 +313,12 @@ impl Shell {
         let took = self.scroll_at(&phase(TouchPhase::Moved, event.delta), at, window, cx);
         let lift = phase(TouchPhase::Ended, still);
         self.web_wheel_quiet = Some(cx.spawn_in(window, async move |shell, cx| {
-            cx.background_executor().timer(GAP).await;
-            shell.update_in(cx, |shell, window, cx| shell.web_quiet(&lift, Instant::now(), window, cx)).ok();
+            // Slowed fingers lift after GAP, and others after LONG.
+            for wait in [GAP, LONG - GAP] {
+                cx.background_executor().timer(wait).await;
+                let lift = lift.clone();
+                shell.update_in(cx, |shell, window, cx| shell.web_quiet(&lift, Instant::now(), window, cx)).ok();
+            }
         }));
         took
     }

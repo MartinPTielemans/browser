@@ -12,7 +12,7 @@ use gpui::{
     Entity, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase, VisualTestContext, point, px,
 };
 
-use crate::shell::{SWIPE_TRACKING, Shell, recorder::Recorder, wheel_gestures::GAP};
+use crate::shell::{SWIPE_TRACKING, Shell, recorder::Recorder, wheel_gestures::{GAP, LONG}};
 
 /// A trackpad's events, and AppKit's momentum after the fingers lift, 120 a second.
 const EVENT_MS: f64 = 1000. / 120.;
@@ -271,7 +271,11 @@ fn in_app(cx: &mut TestAppContext, events: &[Event], end_ms: f64) -> Run {
 
 /// The site's demo: the browser's wheel events, each at its stamp, and the quiet timer after each.
 fn in_demo(cx: &mut TestAppContext, events: &[Event], delivery: Delivery, end_ms: f64) -> Run {
-    let wheels = delivery.wheels(events);
+    in_demo_wheels(cx, delivery.wheels(events), end_ms)
+}
+
+/// The site's demo given `wheels`, each `(ms it comes, ms its stamp says, dx)`.
+fn in_demo_wheels(cx: &mut TestAppContext, wheels: Vec<(f64, f64, f32)>, end_ms: f64) -> Run {
     let gap = GAP.as_secs_f64() * 1000.;
     let mut sends: Vec<(f64, Send)> = Vec::new();
     for (i, &(at_ms, stamp_ms, dx)) in wheels.iter().enumerate() {
@@ -280,10 +284,12 @@ fn in_demo(cx: &mut TestAppContext, events: &[Event], delivery: Delivery, end_ms
             shell.web_scroll(&scroll(TouchPhase::Moved, dx), now - stamped, window, cx);
         })));
         let next = wheels.get(i + 1).map_or(f64::INFINITY, |next| next.0);
-        if at_ms + gap < next {
-            sends.push((at_ms + gap, Box::new(|shell, now, window, cx| {
-                shell.web_quiet(&scroll(TouchPhase::Ended, 0.), now, window, cx);
-            })));
+        for wait in [gap, LONG.as_secs_f64() * 1000.] {
+            if at_ms + wait < next {
+                sends.push((at_ms + wait, Box::new(|shell, now, window, cx| {
+                    shell.web_quiet(&scroll(TouchPhase::Ended, 0.), now, window, cx);
+                })));
+            }
         }
     }
     run(cx, end_ms, sends)
@@ -431,3 +437,101 @@ fn swipe_model_stats(cx: &mut TestAppContext) {
     }
 }
 
+/// The site's live check's `swipe:x,y,dx,24`: 24 wheels 16 ms apart, the second half falling
+/// away by `decay` an event, `dx` as the DOM has it (GPUI's is the other way).
+fn live_swipe(dx: f32, decay: f32) -> Vec<f32> {
+    (0..24).map(|i| if i < 12 { -dx } else { -dx * decay.powi(i - 11) }).collect()
+}
+
+/// Wheels from `deltas`, meant 16 ms apart from `start`, as a page's timer sends them: each a few ms
+/// late, or with chance `busy` up to 25 ms, and a seventh of those up to 25 + 200 × `busy` ms, as
+/// timing `seed` draws it from `n0` on. Each is stamped when sent, or with `coalesce`, summed while
+/// a frame held them.
+fn timed(deltas: &[f32], start: f64, seed: u64, n0: u64, busy: f64, coalesce: bool) -> Vec<(f64, f64, f32)> {
+    let mut wheels: Vec<(f64, f64, f32)> = Vec::new();
+    let mut at = start;
+    for (i, &dx) in deltas.iter().enumerate() {
+        let n = n0 + i as u64 * 3;
+        let roll = draw(seed, n);
+        let late = if roll < busy * 0.15 {
+            25. + 200. * busy * draw(seed, n + 1)
+        } else if roll < busy {
+            25. * draw(seed, n + 1)
+        } else {
+            3. * draw(seed, n + 1)
+        };
+        if coalesce {
+            // Meant at a steady 16 ms, held by frames of the page's, summed into the next it gets.
+            let meant = start + 16. * i as f64;
+            at = at.max(meant) + if roll < busy { late } else { 0. };
+            match wheels.last_mut() {
+                Some(last) if last.0 >= meant => {
+                    last.2 += dx;
+                    last.1 = meant;
+                }
+                _ => wheels.push((at, meant, dx)),
+            }
+        } else {
+            if i > 0 {
+                at += 16. + late;
+            }
+            wheels.push((at, at, dx));
+        }
+    }
+    wheels
+}
+
+/// The live check's swipe and its back swipe 900 ms later, in timing `seed` of a page's timer with
+/// `busy` and `coalesce`: the Spaces each swipe showed.
+fn live_check_pair(cx: &mut TestAppContext, prior: f32, decay: f32, busy: f64, coalesce: bool, seed: u64) -> [Vec<u64>; 2] {
+    let first = timed(&live_swipe(prior, decay), 0., seed, 0, busy, coalesce);
+    let gap = first.last().map_or(0., |last| last.0) + 900.;
+    let second = timed(&live_swipe(-40., decay), gap, seed, 500, busy, coalesce);
+    let end = second.last().map_or(gap, |last| last.0) + 1000.;
+    let alone = in_demo_wheels(cx, first.clone(), gap).shown;
+    let mut both = in_demo_wheels(cx, first.into_iter().chain(second).collect(), end).shown;
+    let after = both.split_off(alone.len().min(both.len()));
+    [both, after]
+}
+
+/// The site's live check, a swipe and then a back swipe 900 ms later, moves one Space each however
+/// late a busy page's timer sends their wheels, and whether its frames sum them.
+#[gpui::test]
+fn a_swipe_never_moves_more_than_one_space(cx: &mut TestAppContext) {
+    for prior in [40., -40.] {
+        for (busy, coalesce) in [(0., false), (0.6, false), (0.6, true)] {
+            for seed in 0..6 {
+                let shown = live_check_pair(cx, prior, 0.8, busy, coalesce, seed);
+                let way = format!("prior {prior}, busy {busy}, coalesce {coalesce}, seed {seed}");
+                assert!(shown.iter().all(|spaces| spaces.len() == 1), "{way}: {shown:?}");
+            }
+        }
+    }
+}
+
+/// The same over many more timings, decays and pages busier still, `SWIPE_SEEDS` timings each: no
+/// swipe moves more than one Space, though one held long enough may move none.
+#[gpui::test]
+#[ignore]
+fn a_swipe_never_moves_more_than_one_space_in_many_timings(cx: &mut TestAppContext) {
+    let seeds = std::env::var("SWIPE_SEEDS").ok().and_then(|n| n.parse().ok()).unwrap_or(100);
+    let mut doubles = 0;
+    for prior in [40., -40.] {
+        for decay in [0.7, 0.8, 0.85, 0.9] {
+            for (busy, coalesce) in [(0., false), (0.3, false), (0.6, false), (0.9, false), (0.3, true), (0.6, true), (0.9, true)] {
+                let (mut more, mut none) = (Vec::new(), Vec::new());
+                for seed in 0..seeds {
+                    let shown = live_check_pair(cx, prior, decay, busy, coalesce, seed);
+                    if shown.iter().any(|spaces| spaces.len() > 1) {
+                        more.push(format!("{seed}: {shown:?}"));
+                    } else if shown.iter().any(|spaces| spaces.is_empty()) {
+                        none.push(seed);
+                    }
+                }
+                eprintln!("prior {prior:>3} decay {decay:<4} busy {busy} coalesce {coalesce:>5}: more {more:?} none {none:?}");
+                doubles += more.len();
+            }
+        }
+    }
+    assert_eq!(doubles, 0, "swipes that moved more than one Space");
+}

@@ -2,17 +2,27 @@
 //! demo learns from them where fingers land and lift, which no browser says. After the fingers
 //! lift, AppKit's momentum carries on in deltas that fall away smoothly and steadily, each a
 //! little under the last, where the fingers' own wobble from event to event. So the fingers lift
-//! where the deltas start falling that smoothly, and land again where they rise out of the fall,
-//! turn back, or come after a pause. Speeds come from the events' own times, as a browser busy
-//! drawing hands on several summed into one, late.
+//! where the deltas start falling that smoothly, or stop coming once the fingers have slowed, and
+//! land again where they turn back, rise out of the fall in both speed and size, or come after a
+//! long silence. Speeds come from the events' own times, as a browser busy drawing hands on several
+//! summed into one, late; a page's timer stamps its own late, which only the sizes see through.
 
 use std::collections::VecDeque;
 use std::time::Duration;
 use web_time::Instant;
 
 /// Longer than a trackpad's 8 to 16 ms between events, and shorter than a hand takes to swipe
-/// again.
+/// again: fingers that had slowed under STOPPED lift after it.
 pub(super) const GAP: Duration = Duration::from_millis(60);
+/// Fingers going faster that lift make momentum on the Mac, so their silence is a page too busy to
+/// hand on their events; they lift after LONG, after which the next event lands fingers whatever
+/// it is. Longer than a busy page holds events back, so one swipe is never two.
+pub(super) const LONG: Duration = Duration::from_millis(300);
+/// Points a millisecond: fingers dragging slower lift with little or no momentum, and a swipe's
+/// stay faster until its momentum takes over. A page busy drawing holds a swipe's events back so
+/// it seems slower, so its deltas must be under a frame's worth at this speed too.
+const STOPPED: f32 = 1.;
+const FRAME: f32 = 16.;
 /// What a gesture's speed is taken over: two frames at 60 Hz, so summed events even out.
 const WINDOW: Duration = Duration::from_millis(34);
 /// Falls in a row, each to between FALL and all of the speed before, and for at least FALLING,
@@ -35,13 +45,12 @@ const SLOWED: f32 = 0.9;
 /// faster: neither half may fall more than CURVE times the other, give or take a whole point over
 /// WINDOW, which blurs the speed by that much.
 const CURVE: f32 = 2.;
-/// Out of momentum, a speed this much over its slowest, and by this many points a millisecond, is
-/// fingers again: a tail's whole points wobble a point, never by half.
+/// Out of momentum, a speed this much over its slowest, by this many points a millisecond, with a
+/// delta this much over its smallest, is fingers again: a tail's whole points wobble a point, never
+/// by half, summed events rise in size but not speed, and late ones stamped late rise in speed but
+/// not size.
 const RISE: f32 = 1.5;
 const RISE_SPEED: f32 = 0.05;
-/// After a gap, a gesture going on at under this much of its speed paused: a busy page hands on a
-/// gesture that kept moving at its speed, summed.
-const PAUSED: f32 = 0.5;
 
 #[derive(Default)]
 pub(super) struct WheelGestures {
@@ -69,8 +78,9 @@ enum State {
     #[default]
     Idle,
     Fingers,
-    /// The momentum's direction and its slowest speed yet.
-    Momentum { sign: f32, slowest: f32 },
+    /// After the fingers lift, in the momentum's direction, with its slowest speed and smallest
+    /// delta yet.
+    Momentum { sign: f32, slowest: f32, smallest: f32 },
 }
 
 /// What a wheel event says of the fingers, ahead of its own delta, which moves them or, after
@@ -84,17 +94,21 @@ pub(super) struct Cut {
 impl WheelGestures {
     /// A wheel event that came at `at`, whose larger delta is `delta` points.
     pub(super) fn event(&mut self, delta: f32, at: Instant) -> Cut {
-        let last = self.recent.back().copied();
-        // The first event of a gesture is as long as a trackpad's between events.
-        let since = last.map_or(Duration::from_millis(8), |last| at.duration_since(last.at));
-        let speed = delta / (since.as_secs_f32() * 1000.).max(1.);
-        let before = self.speed();
-        let paused = last.is_none()
-            || since > GAP && speed.abs() < PAUSED * before.abs();
-        if paused {
+        let mut last = self.recent.back().copied();
+        let fresh = last.is_none_or(|last| at.duration_since(last.at) >= LONG);
+        if fresh {
+            last = None;
             self.recent.clear();
             self.speeds.clear();
             self.peak = 0.;
+        }
+        // The first event of a gesture is as long as a trackpad's between events.
+        let since = last.map_or(Duration::from_millis(8), |last| at.duration_since(last.at));
+        let speed = delta / (since.as_secs_f32() * 1000.).max(1.);
+        // Fingers that had slowed and went quiet lifted there, in the way they went.
+        let stopped = matches!(self.state, State::Fingers) && !fresh && since > GAP && self.slowed();
+        if stopped {
+            self.state = self.lifted();
         }
         self.recent.push_back(Wheel { at, delta, since, speed });
         while self.recent.len() > FALLS + 1
@@ -116,30 +130,47 @@ impl WheelGestures {
             self.speeds.pop_front();
         }
         let (state, cut) = match self.state {
-            State::Fingers if paused => (State::Fingers, Cut { lifted: true, landed: true }),
+            State::Fingers if fresh => (State::Fingers, Cut { lifted: true, landed: true }),
+            State::Idle | State::Momentum { .. } if fresh => {
+                (State::Fingers, Cut { landed: true, ..Cut::default() })
+            }
             State::Idle => (State::Fingers, Cut { landed: true, ..Cut::default() }),
-            State::Momentum { .. } if paused => (State::Fingers, Cut { landed: true, ..Cut::default() }),
             State::Fingers if self.falling() || self.slowing() => {
-                let state = State::Momentum { sign: now.signum(), slowest: now.abs() };
+                let state = State::Momentum { sign: now.signum(), slowest: now.abs(), smallest: delta.abs() };
                 (state, Cut { lifted: true, ..Cut::default() })
             }
             State::Fingers => (State::Fingers, Cut::default()),
-            State::Momentum { sign, slowest } => {
+            State::Momentum { sign, slowest, smallest } => {
                 let turned = now.signum() != sign && now.abs() >= RISE_SPEED;
-                let rose = now.abs() > RISE * slowest && now.abs() - slowest >= RISE_SPEED;
+                let rose = now.abs() > RISE * slowest
+                    && now.abs() - slowest >= RISE_SPEED
+                    && delta.abs() >= RISE * smallest;
                 if turned || rose {
                     // The fingers' own speed is taken from here on.
                     self.recent.retain(|wheel| wheel.at == at);
                     self.speeds.clear();
                     self.peak = 0.;
-                    (State::Fingers, Cut { landed: true, ..Cut::default() })
+                    (State::Fingers, Cut { lifted: stopped, landed: true })
                 } else {
-                    (State::Momentum { sign, slowest: slowest.min(now.abs()) }, Cut::default())
+                    let (slowest, smallest) = (slowest.min(now.abs()), smallest.min(delta.abs()));
+                    (State::Momentum { sign, slowest, smallest }, Cut { lifted: stopped, ..Cut::default() })
                 }
             }
         };
         self.state = state;
         cut
+    }
+
+    /// Momentum from the gesture's last event, as the fingers lift there.
+    fn lifted(&self) -> State {
+        let delta = self.recent.back().map_or(0., |last| last.delta);
+        State::Momentum { sign: delta.signum(), slowest: self.speed().abs(), smallest: delta.abs() }
+    }
+
+    /// Whether the fingers had slowed under STOPPED, in speed and in their last delta's size.
+    fn slowed(&self) -> bool {
+        let last = self.recent.back().map_or(0., |last| last.delta);
+        self.speed().abs() < STOPPED && last.abs() < STOPPED * FRAME
     }
 
     /// The gesture's speed over the last WINDOW, in points a millisecond with its sign.
@@ -192,16 +223,15 @@ impl WheelGestures {
         held && never_rose && even && now < then && now >= gentle * then && now <= SLOWED * self.peak
     }
 
-    /// No event since the last, at `now`: whether that lifts fingers still down.
+    /// No event since the last, at `now`: whether that lifts fingers still down, after GAP if they
+    /// had slowed and LONG if not. What comes next is their momentum until it turns or rises.
     pub(super) fn quiet(&mut self, now: Instant) -> bool {
-        if self.recent.back().is_some_and(|last| now.duration_since(last.at) < GAP) {
+        let Some(last) = self.recent.back() else { return false };
+        let wait = if self.slowed() { GAP } else { LONG };
+        if now.duration_since(last.at) < wait || !matches!(self.state, State::Fingers) {
             return false;
         }
-        let lifted = matches!(self.state, State::Fingers);
-        self.state = State::Idle;
-        self.recent.clear();
-        self.speeds.clear();
-        self.peak = 0.;
-        lifted
+        self.state = self.lifted();
+        true
     }
 }
