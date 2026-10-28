@@ -14,6 +14,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
+#include "base/scoped_multi_source_observation.h"
 #include "base/scoped_observation.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
@@ -23,6 +24,7 @@
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/aura/window_tree_host_platform.h"
 #include "ui/compositor/layer.h"
@@ -160,6 +162,7 @@ x11::Rectangle XRectangle(const gfx::Rect& rect) {
 }
 
 class WindowViews : public views::WidgetObserver,
+                    public aura::WindowObserver,
                     public aura::client::FocusChangeObserver,
                     public ui::EventHandler,
                     public x11::EventObserver {
@@ -221,6 +224,18 @@ class WindowViews : public views::WidgetObserver,
       }
       holder->RemoveChild(view);
     }
+  }
+
+  // Holds |page| and |devtools| in |slot|. A slot forgets one destroyed before the window is, as
+  // each tab's page is on quit, or emptying it would reach into the freed page.
+  void Keep(Slot& slot, aura::Window* page, aura::Window* devtools) {
+    for (aura::Window* view : {page, devtools}) {
+      if (view && !kept_.IsObservingSource(view)) {
+        kept_.AddObservation(view);
+      }
+    }
+    slot.page = page;
+    slot.devtools = devtools;
   }
 
   void Empty(Slot& slot, const Staying& staying = {}) {
@@ -429,7 +444,23 @@ class WindowViews : public views::WidgetObserver,
     Empty(side_panel_);
     panes_.clear();
     side_panel_ = Slot();
+    kept_.RemoveAllObservations();
     observation_.Reset();
+  }
+
+  // aura::WindowObserver: a page or DevTools a slot holds is going.
+  void OnWindowDestroying(aura::Window* window) override {
+    kept_.RemoveObservation(window);
+    auto forget = [window](Slot& slot) {
+      if (slot.page == window) {
+        slot.page = nullptr;
+      }
+      if (slot.devtools == window) {
+        slot.devtools = nullptr;
+      }
+    };
+    std::ranges::for_each(panes_, forget);
+    forget(side_panel_);
   }
 
   // aura::client::FocusChangeObserver: the core focusing a page gives it the keyboard.
@@ -546,6 +577,7 @@ class WindowViews : public views::WidgetObserver,
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
+  base::ScopedMultiSourceObservation<aura::Window, aura::WindowObserver> kept_{this};
   base::ScopedObservation<aura::client::FocusClient, aura::client::FocusChangeObserver>
       focus_observation_{this};
   x11::ScopedEventSelector children_events_;
@@ -665,8 +697,7 @@ void ShowPages(views::Widget* widget,
         holder->StackChildAbove(pane.page, devtools);
       }
     }
-    slot.page = pane.page;
-    slot.devtools = devtools;
+    views->Keep(slot, pane.page, devtools);
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->Show();
   }
@@ -680,7 +711,7 @@ void ShowPages(views::Widget* widget,
     aura::Window* holder = views->HolderFor(panel);
     DetachOthers(holder, side_panel->page, nullptr, staying);
     Hold(holder, side_panel->page, hidden);
-    panel.page = side_panel->page;
+    views->Keep(panel, side_panel->page, nullptr);
     panel.insets = InsetsOf(side_panel->frame, size);
     panel.bottom_corners_only = true;
     hidden ? holder->Hide() : holder->Show();
