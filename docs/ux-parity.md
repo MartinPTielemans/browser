@@ -359,15 +359,15 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Arc: Spaces → Spaces, profiles → profiles | MVP | yes | decision 5 |
-| [ ] | Arc: favorites, pinned tabs, custom names | MVP | favorites → favorites; pinned → pinned rows | Dia 1.52 P§20 |
-| [ ] | Arc: themes | MVP | `windowTheme` colours, intensity, noise, texture, appearance, light and dark | Arc 1.167 P§20 |
-| [ ] | Arc: folders | MVP | measure | — |
+| [x] | Arc: Spaces → Spaces, profiles → profiles | MVP | yes; Settings › Import | decision 5 |
+| [x] | Arc: favorites, pinned tabs, custom names | MVP | favorites → favorites; pinned → pinned rows | Dia 1.52 P§20 |
+| [ ] | Arc: themes | MVP | `windowTheme` colours, intensity, noise, texture, appearance, light and dark; built: colour, count, intensity, noise, appearance | Arc 1.167 P§20 |
+| [x] | Arc: folders | MVP | ours: folders, nested; split views as their tabs *interim*; measure | ours |
 | [ ] | Chrome: bookmarks, history, open tabs, passwords, addresses, cards | MVP | yes | P§20 |
 | [ ] | Chrome: cookies | MVP | never over existing ones, never into private | P§20 |
 | [ ] | Chrome: extensions | MVP | listed with store links, not installed | P§20 |
 | [ ] | Full Disk Access | MVP | explain, link to System Settings, re-check on return | P§20 |
-| [ ] | Rerun | MVP | adds nothing | P§20 |
+| [ ] | Rerun | MVP | adds nothing; built for Arc | P§20 |
 | [ ] | Where Chrome bookmarks land | MVP | measure | — |
 
 ## Updates
