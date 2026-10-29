@@ -21,8 +21,9 @@ use std::{
 use browser::flatpak;
 use browser::window_frames::{self, Frame};
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_preview,
-    link_target, log, menu, offer, passwords, site_controls, theme_picker, toast, tooltip, zoom_hud,
+    account, capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker,
+    link_preview, link_target, log, menu, offer, passwords, site_controls, theme_picker, toast,
+    tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -254,6 +255,7 @@ mod platform {
             ),
         );
         pub fn host_copy(text: *const c_char);
+        pub fn host_copy_secret(text: *const c_char, seconds: u32) -> bool;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -282,6 +284,7 @@ mod platform {
             detail: *const c_char,
             buttons: *const *const c_char,
             count: usize,
+            returns: bool,
         ) -> i32;
         pub fn host_add_dialog(dialog_view: *mut c_void);
         pub fn host_show_dialog(ui_view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
@@ -1897,7 +1900,10 @@ impl Browser for Engine {
             also: None,
             fields,
             check: (!asked.check.is_empty()).then(|| asked.check.clone()),
-            return_cancels: asked.kind == shell::DialogKind::OpenApp,
+            on_return: match asked.kind == shell::DialogKind::OpenApp {
+                true => dialog::Return::Cancel,
+                false => dialog::Return::Action,
+            },
         };
         let window = self.window;
         let kind = asked.kind;
@@ -2542,17 +2548,18 @@ impl Browser for Engine {
             )),
             fields: Vec::new(),
             check: None,
-            return_cancels: false,
+            on_return: dialog::Return::Action,
         };
         dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
     }
 }
 
-/// Asks `message` in an alert with `buttons`, the first the default, and returns the index of the
-/// one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert closes, so
-/// it's called in a task. Linux has no alert, and its loop can't wait for one (settings.rs).
+/// Asks `message` in an alert with `buttons`, the first the default if `returns`, and returns the
+/// index of the one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert
+/// closes, so it's called in a task. Linux has no alert, and its loop can't wait for one
+/// (settings.rs).
 #[cfg(not(target_os = "linux"))]
-fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
+fn ask(message: &str, detail: &str, buttons: &[&str], returns: bool) -> usize {
     let text = |text: &str| CString::new(text).unwrap_or_default();
     let (message, detail) = (text(message), text(detail));
     let buttons: Vec<CString> = buttons.iter().map(|button| text(button)).collect();
@@ -2563,6 +2570,7 @@ fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
             detail.as_ptr(),
             pointers.as_ptr(),
             pointers.len(),
+            returns,
         )
     };
     usize::try_from(chosen).unwrap_or(usize::MAX)
@@ -4422,7 +4430,7 @@ unsafe extern "C" fn window_extension_question(
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: false,
+        on_return: dialog::Return::Action,
     };
     let mut asked = false;
     if window == front().0 {
@@ -4616,6 +4624,99 @@ unsafe extern "C" fn profile_logins_changed(
 ) {
     let list = logins(list, count);
     update_app(|cx| settings::logins_changed(profile, list, cx));
+}
+
+/// A string the core passed, for as long as the app keeps it.
+fn core_text(text: *const c_char) -> SharedString {
+    match text.is_null() {
+        true => SharedString::default(),
+        false => unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into(),
+    }
+}
+
+/// The browser's account, for Settings. Never logged here: the email is the user's.
+unsafe extern "C" fn sync_changed(_: *mut c_void, state: *const bc::bc_sync_state) {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return;
+    };
+    let status = match state.status as u32 {
+        bc::BC_SYNC_SIGNING_IN => account::Status::SigningIn,
+        bc::BC_SYNC_FIRST_DEVICE => account::Status::FirstDevice,
+        bc::BC_SYNC_NEEDS_SECRET => account::Status::NeedsSecret,
+        bc::BC_SYNC_PAIRING => account::Status::Pairing,
+        bc::BC_SYNC_ON => account::Status::On,
+        _ => account::Status::SignedOut,
+    };
+    let problem = match state.problem as u32 {
+        bc::BC_SYNC_PROBLEM_WRONG_WORDS => Some(account::Problem::WrongWords),
+        bc::BC_SYNC_PROBLEM_DECLINED => Some(account::Problem::Declined),
+        bc::BC_SYNC_PROBLEM_EXPIRED => Some(account::Problem::Expired),
+        bc::BC_SYNC_PROBLEM_REMOVED => Some(account::Problem::Removed),
+        bc::BC_SYNC_PROBLEM_SERVER => Some(account::Problem::Server),
+        _ => None,
+    };
+    let state = account::State {
+        status,
+        problem,
+        server: core_text(state.server),
+        default_server: state.default_server,
+        email: core_text(state.email),
+        code: core_text(state.code),
+    };
+    update_app_later(move |cx| settings::sync_changed(state, cx));
+}
+
+/// Another device asks to be added to the account: the dialog asks over the front window, or
+/// leaves once the request has ended unanswered.
+unsafe extern "C" fn sync_pairing_asked(_: *mut c_void, pairing: *const bc::bc_sync_pairing) {
+    let Some(pairing) = (unsafe { pairing.as_ref() }) else {
+        // check.sh waits for this line.
+        log!("browser: pairing withdrawn");
+        update_app_later(dialog::withdraw_account);
+        return;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0., |since| since.as_secs_f64() * 1e3);
+    let mut day_starts = [0.; 4];
+    unsafe { platform::host_day_starts(day_starts.as_mut_ptr()) };
+    let pairing = account::Pairing {
+        id: core_text(pairing.id),
+        name: core_text(pairing.name),
+        os: core_text(pairing.os),
+        code: core_text(pairing.code),
+        asked: account::clock(now, day_starts[0]).into(),
+    };
+    // check.sh waits for this line.
+    log!("browser: pairing asked");
+    update_app_later(move |cx| {
+        let id = CString::new(pairing.id.as_str()).unwrap_or_default();
+        let answered = Box::new(move |add, _: &mut App| unsafe {
+            bc::bc_sync_answer_pairing(id.as_ptr(), add)
+        });
+        dialog::ask_account(account::pairing_question(&pairing), answered, cx);
+    });
+}
+
+/// The account's devices, which Settings asked the core for.
+unsafe extern "C" fn sync_devices_changed(
+    _: *mut c_void,
+    devices: *const bc::bc_sync_device,
+    count: usize,
+) {
+    let devices = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(devices, count) },
+    };
+    let devices = (devices.iter())
+        .map(|device| account::Device {
+            id: core_text(device.id),
+            name: core_text(device.name),
+            os: core_text(device.os),
+            current: device.current,
+        })
+        .collect();
+    update_app_later(move |cx| settings::devices_changed(devices, cx));
 }
 
 /// What came of a passwords file the import gave the core. Never logged: the counts are the
@@ -4990,6 +5091,14 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     if !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
+    // The sync server the account signs in to until the user names another, a default service URL
+    // a fork or a self-hosted server names in branding/sync-server (build.rs). Without one the
+    // build has none, and Settings › Account asks for the address. A --sync-url given to the app
+    // comes after and wins, in a dev build as in a check.
+    let sync_server = env!("SYNC_SERVER");
+    if !sync_server.is_empty() {
+        args.push(format!("--sync-url={sync_server}"));
+    }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
     args.extend(std::env::args().skip(1).filter(|arg| {
@@ -5066,6 +5175,9 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
+        sync_changed: Some(sync_changed),
+        sync_pairing_asked: Some(sync_pairing_asked),
+        sync_devices_changed: Some(sync_devices_changed),
         ..Default::default()
     };
     (args, host)

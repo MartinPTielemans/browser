@@ -7,8 +7,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use browser::account::{self, Account};
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
@@ -100,6 +101,7 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     General,
+    Account,
     Profiles,
     Passwords,
     Import,
@@ -109,8 +111,9 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 7] = [
+    const ALL: [Tab; 8] = [
         Tab::General,
+        Tab::Account,
         Tab::Profiles,
         Tab::Passwords,
         Tab::Import,
@@ -129,6 +132,7 @@ impl Tab {
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
+            Tab::Account => "Account",
             Tab::Profiles => "Profiles",
             Tab::Passwords => "Passwords",
             Tab::Import => "Import",
@@ -141,6 +145,7 @@ impl Tab {
     fn icon(self) -> &'static str {
         match self {
             Tab::General => "icons/settings.svg",
+            Tab::Account => "icons/cloud.svg",
             Tab::Profiles => "icons/user.svg",
             Tab::Passwords => "icons/key-round.svg",
             Tab::Import => "icons/arrow-down-to-line.svg",
@@ -288,6 +293,7 @@ pub struct Settings {
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
     default_browser: Entity<DefaultBrowser>,
+    account: Entity<Account>,
     /// The sites with ad blocking off, as General last logged them for check.sh.
     off_sites_logged: Option<String>,
     /// Where each Turn On has been logged, so it logs only where it moves to.
@@ -316,6 +322,123 @@ impl dialog::Host for InWindow {
     fn show(&self, _: Option<Bounds<gpui::Pixels>>) {}
 
     fn hide(&self) {}
+}
+
+/// The browser's account, as the Account tab asks the core for it.
+struct CoreAccount {
+    /// Where it asks before signing out or showing the words on Linux, which has no alert.
+    #[cfg(target_os = "linux")]
+    dialog: Entity<dialog::Dialog>,
+}
+
+impl account::Host for CoreAccount {
+    fn set_server(&self, server: &str) -> bool {
+        let server = CString::new(server).unwrap_or_default();
+        unsafe { bc::bc_sync_set_server(server.as_ptr()) }
+    }
+
+    fn sign_in(&self) {
+        unsafe { bc::bc_sync_sign_in() };
+    }
+
+    fn cancel(&self) {
+        unsafe { bc::bc_sync_cancel() };
+    }
+
+    fn sign_out(&self) {
+        unsafe { bc::bc_sync_sign_out() };
+    }
+
+    fn recovery_words(&self) -> String {
+        // 24 words of at most 8 letters, and the spaces between them.
+        let mut words = [0u8; 256];
+        let length = unsafe { bc::bc_sync_recovery_words(words.as_mut_ptr().cast(), words.len()) };
+        String::from_utf8_lossy(&words[..length.min(words.len() - 1)]).into_owned()
+    }
+
+    fn enter_recovery_words(&self, words: &str) -> bool {
+        let words = CString::new(words).unwrap_or_default();
+        unsafe { bc::bc_sync_enter_recovery_words(words.as_ptr()) }
+    }
+
+    fn start_over(&self) {
+        unsafe { bc::bc_sync_start_over() }
+    }
+
+    fn request_pairing(&self) {
+        unsafe { bc::bc_sync_request_pairing() };
+    }
+
+    fn read_devices(&self) {
+        unsafe { bc::bc_sync_read_devices() };
+    }
+
+    fn remove_device(&self, id: &str) {
+        let id = CString::new(id).unwrap_or_default();
+        unsafe { bc::bc_sync_remove_device(id.as_ptr()) };
+    }
+
+    fn copy_secret(&self, text: &str, kept: Duration, cx: &mut App) {
+        let secret = CString::new(text).unwrap_or_default();
+        let seconds = u32::try_from(kept.as_secs()).unwrap_or(u32::MAX);
+        if unsafe { platform::host_copy_secret(secret.as_ptr(), seconds) } {
+            return;
+        }
+        account::copy_for(text, kept, cx);
+    }
+
+    /// In an alert, or on Linux in Settings' own dialog, as a profile's Delete asks.
+    fn confirm(
+        &self,
+        message: String,
+        detail: String,
+        action: &'static str,
+        on_return: dialog::Return,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        #[cfg(target_os = "linux")]
+        dialog::ask_in(&self.dialog, message, detail, action, on_return, confirmed, window, cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = window;
+            let returns = on_return == dialog::Return::Action;
+            cx.spawn(async move |cx| {
+                if crate::ask(&message, &detail, &[action, "Cancel"], returns) == 0 {
+                    cx.update(confirmed).ok();
+                }
+            })
+            .detach();
+        }
+    }
+}
+
+/// The account as the core last said it is, for the Account tab when Settings first opens.
+#[derive(Default)]
+struct Synced(account::State);
+
+impl Global for Synced {}
+
+/// The browser's account changed.
+pub fn sync_changed(state: account::State, cx: &mut App) {
+    cx.set_global(Synced(state.clone()));
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.account.update(cx, |account, cx| account.set_state(state, cx));
+        };
+        window.update(cx, changed).ok();
+    }
+}
+
+/// The account's devices, which the Account tab asked the core for.
+pub fn devices_changed(devices: Vec<account::Device>, cx: &mut App) {
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.account.update(cx, |account, cx| account.set_devices(devices, cx));
+        };
+        window.update(cx, changed).ok();
+    }
 }
 
 /// The system's default browser, for General's row.
@@ -488,6 +611,8 @@ fn open(cx: &mut App) {
     // ⌘W, pressed as Ctrl+W off the Mac, as the browser's own shortcuts are.
     let close = if crate::shell::OFF_THE_MAC { "ctrl-w" } else { "cmd-w" };
     cx.bind_keys([gpui::KeyBinding::new(close, CloseSettings, Some("Settings"))]);
+    account::bind_keys(cx);
+    let synced = cx.try_global::<Synced>().map(|synced| synced.0.clone()).unwrap_or_default();
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -531,7 +656,18 @@ fn open(cx: &mut App) {
                 .detach();
                 dialog
             };
+            let host = CoreAccount {
+                #[cfg(target_os = "linux")]
+                dialog: dialog.clone(),
+            };
+            let account = cx.new(|cx| {
+                let mut account = Account::new(Rc::new(host), cx);
+                account.set_state(synced, cx);
+                account
+            });
+            cx.observe(&account, |_, _, cx| cx.notify()).detach();
             Settings {
+                account,
                 #[cfg(target_os = "linux")]
                 dialog,
                 default_browser,
@@ -1084,6 +1220,7 @@ impl Settings {
             message,
             detail.into(),
             "Delete",
+            dialog::Return::Action,
             Box::new(move |_| {
                 unsafe { bc::bc_profile_delete(profile) };
             }),
@@ -1094,7 +1231,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, detail, &["Delete", "Cancel"]) == 0 {
+                if crate::ask(&message, detail, &["Delete", "Cancel"], true) == 0 {
                     unsafe { bc::bc_profile_delete(profile) };
                 }
             })
@@ -1264,6 +1401,7 @@ impl Settings {
             message,
             detail,
             "Remove",
+            dialog::Return::Action,
             Box::new(move |_| crate::remove_login(profile, &login)),
             window,
             cx,
@@ -1272,7 +1410,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"], true) == 0 {
                     crate::remove_login(profile, &login);
                 }
             })
@@ -1654,6 +1792,7 @@ impl Render for Settings {
                 self.focus_field(&profiles, window, cx);
                 self.profiles(&profiles, cx)
             }
+            Tab::Account => self.account.clone().into_any_element(),
             Tab::Passwords => self.passwords(&profiles(), cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
             Tab::Privacy => self.privacy(accent, cx),

@@ -450,7 +450,8 @@ void host_focus(void* view) {}
 
 // Nothing asks: Chromium's loop can't wait here for an answer, so Settings asks in a dialog of its
 // own (settings.rs).
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   return -1;
 }
 
@@ -478,6 +479,12 @@ void host_file_preview(const char*,
 }
 
 void host_copy(const char* text) {}
+
+// shortcut: Linux's clipboard is GPUI's, which can't add the x-kde-passwordManagerHint type that
+// keeps a secret out of clipboard histories, so the app copies it through GPUI unmarked.
+bool host_copy_secret(const char* text, uint32_t seconds) {
+  return false;
+}
 
 void host_open_in_safari(const char* url) {}
 
