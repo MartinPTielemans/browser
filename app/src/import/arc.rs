@@ -47,6 +47,7 @@ pub fn parse(json: &str) -> Result<Found, String> {
         spaces,
         favorites,
         history: Vec::new(),
+        extensions: Vec::new(),
     })
 }
 

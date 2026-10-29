@@ -381,7 +381,11 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Chrome: cookies | MVP | not imported: no other browser's cookies or passwords are decrypted, and the user signs in again | #453 |
 | [x] | Firefox, Zen, LibreWolf: bookmarks, history | MVP | ours: as Chrome's family's, from `places.sqlite` | ours |
 | [x] | Safari: bookmarks, Reading List, history | MVP | ours: as Chrome's family's, the Reading List as a folder | ours |
-| [ ] | Chrome: extensions | MVP | listed with store links, not installed. Not built. Next: the import reads the profile's extensions from its Preferences and lists the Web Store's with their store links, checked with an extension in the import run's made-up Chrome | P§20 |
+| [ ] | Chrome: extensions | MVP | listed with store links, not installed. Built for Chrome's family and Arc, from each profile's `Extensions` folder, and checked by `cargo test`. To tick: an extension in the import run's made-up Chrome, and a capture of the list | P§20 |
+| [ ] | Extensions keep their pins | MVP | one pinned in the other browser is pinned once it's added from the list (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a run that adds one from the store | Arc help |
+| [ ] | Another ad blocker | MVP | left off the extension list, as uBlock Origin is built in, said once with Add Anyway (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a capture of the line | Arc help |
+| [ ] | Choose bookmark folders | MVP | Choose folders, a checkbox a folder, all ticked (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a capture of the box and an import run that unticks one | Arc help |
+| [ ] | Suggested favorites | MVP | the first launch's Your favorites, after the import: the sites its history visited most, ticked, worked out on the machine and sent nowhere (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: the onboarding run with a made-up Chrome's history, and a capture of the step | Arc help |
 | [x] | Full Disk Access | MVP | explain, link to System Settings, re-check on return; Safari's | P§20 |
 | [x] | Rerun | MVP | adds nothing | P§20 |
 | [x] | Where Chrome bookmarks land | MVP | ours: a Space named after the browser, the bar's bookmarks pinned, or in a folder past 12; measure Arc's | ours |

@@ -574,6 +574,15 @@ popup-end = 22.5
 chevrons = 14.0
 # Buttons under the boxes are 11 below them.
 buttons-top = 11.0
+# Ours: a checkbox, as the dialog's, 8 before its name, ticked in the accent with a white tick;
+# and a disclosure, such as the import's Choose folders, its chevron 4 after its words.
+check-box = 16.0
+check-radius = 6.0
+check-gap = 8.0
+check-glyph = 12.0
+check-tick = 0xffffff
+disclosure-gap = 4.0
+disclosure-glyph = 12.0
 # Ours, for the Shortcuts tab: a header 8 over each box, 20 below the box before, and keys in
 # chips as the command bar shows them, at least 56 wide so they line up, with a command's way
 # back to its default 6 before its chip.
