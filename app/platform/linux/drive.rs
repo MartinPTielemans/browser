@@ -209,16 +209,7 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
     X.with_borrow_mut(|x| {
         if x.is_none() {
             let (connection, screen) = x11rb::connect(None).ok()?;
-            let screen = &connection.setup().roots[screen];
-            let root = screen.root;
-            // The server's own pointer goes to the screen's far corner, out of the window. Under
-            // the window, a page that maps as a tab shows would take it, and the server would tell
-            // GPUI the pointer left, ending the hover the driver's events gave it and starting a
-            // held row's drag.
-            let (right, bottom) = (screen.width_in_pixels - 1, screen.height_in_pixels - 1);
-            connection
-                .warp_pointer(x11rb::NONE, root, 0, 0, 0, 0, right as i16, bottom as i16)
-                .ok()?;
+            let root = connection.setup().roots[screen].root;
             *x = Some(Rc::new((connection, root)));
         }
         x.clone()
@@ -544,11 +535,6 @@ fn hover(to: Target, state: u16) -> Option<()> {
 /// Sends a press of `button`, 1 the left, 2 the middle, 3 the right and 4 to 7 the wheel's, or its
 /// release, at `at`, with `state` the modifiers and the buttons held before it.
 fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
-    // A press in another window moves there first, as a hand's pointer does: GPUI's enter alone
-    // doesn't hover what's under it, so its leave would unhover nothing.
-    if press && HOVERED.get().map(|from| from.window) != Some(at.window) {
-        motion(at, state)?;
-    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
