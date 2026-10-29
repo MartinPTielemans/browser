@@ -2200,6 +2200,7 @@ impl Shell {
     }
 
     pub fn set_page(&mut self, tab: u64, page: Page, cx: &mut Context<Self>) {
+        let developer_mode = self.developer_mode(tab);
         // check.sh reads these lines.
         let flag = |on| if on { 1 } else { 0 };
         log!(
@@ -2241,6 +2242,10 @@ impl Shell {
         self.tab_changed(tab, changed, cx);
         if let Some(trouble) = trouble {
             self.trouble_changed(tab, trouble, cx);
+        }
+        // View › Developer names it, so only its change rebuilds the menus, not each load.
+        if tab == self.selected && self.developer_mode(tab) != developer_mode {
+            self.update_menus(cx);
         }
     }
 

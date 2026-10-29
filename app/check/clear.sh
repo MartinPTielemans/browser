@@ -19,7 +19,7 @@
 # Controls, from the page, open a panel under the field that lists the site's permissions as
 # Chrome's page info does. A value changed there sticks, and its Reset permissions sets them back.
 # Their Developer Mode row lists localhost on by itself, and turns it off and on for the tab, as the
-# command bar's Turn off and Turn on Developer Mode for this site do.
+# command bar's Turn off and Turn on Developer Mode for this site do, and View › Developer's.
 # Escape, a click outside and the button close it. A page that asks for Widevine brings a note under
 # the field, which ClearKey doesn't. From macOS 14 its button shows the page in Safari's engine, in
 # the tab, and the profile keeps the site for it: the site's cookies, HttpOnly too, and its
@@ -615,6 +615,19 @@ bar_command toggle-developer-mode "Turn off Developer Mode for this site\$" "dev
 expect "^browser: page $r developer mode 0\$" "the command bar didn't turn Developer Mode off"
 bar_command toggle-developer-mode "Turn on Developer Mode for this site\$" "developer mode"
 expect "^browser: page $r developer mode 1\$" "the command bar didn't turn Developer Mode on"
+# So does View › Developer's last item, named by what it would do.
+developer="Developer › JavaScript Console$maybe, Developer › Turn"
+send menubar View
+expect "^browser: menu bar View: .*, $developer off Developer Mode for this site$maybe, " \
+  "View › Developer doesn't end with Turn off Developer Mode for this site"
+send menu Developer › Turn off Developer Mode for this site
+expect '^browser: command toggle-developer-mode via ui$' "View's Turn off Developer Mode didn't run"
+expect "^browser: page $r developer mode 0\$" "View › Developer didn't turn Developer Mode off"
+send menubar View
+expect "^browser: menu bar View: .*, $developer on Developer Mode for this site$maybe, " \
+  "View › Developer didn't name Turn on Developer Mode for this site once it was off"
+send menu Developer › Turn on Developer Mode for this site
+expect "^browser: page $r developer mode 1\$" "View › Developer didn't turn Developer Mode on"
 # The page asks and is refused without a question.
 send click $page_point
 send key a
