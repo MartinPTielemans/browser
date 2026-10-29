@@ -2080,6 +2080,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://history");
     }
 
+    fn site_search_settings(&self, _: &mut App) {
+        open_tab(self.window, "chrome://settings/searchEngines");
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }

@@ -675,6 +675,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
   - The selected row that hints shows "Search <engine>" dimmed and a Tab key at the input's end, as Arc's hint (Panel).
   - In the search, the engine's name is a chip before the input, whose placeholder is "Search <engine>".
   - The rows are the core's searches only, without commands, sums or well-known sites. Nothing is listed until something is typed, and ↩ does nothing until then.
+- **Site Search Settings** (Arc's help centre). The bar's "Site Search Settings" command, found by "site search", "search engines" or "keywords", opens Chromium's search engines page (chrome://settings/searchEngines) in a new tab, where the profile's site searches are added and edited, each a name, a keyword and a URL with %s for the query. It's Arc's own place for them, arc://settings/searchEngines, and ilo opens Chromium's history and extensions pages the same way, so a Settings section of ours would be more to build for the same form. A private window doesn't offer it, as it keeps no engines of its own, and agents have no path to it, as they get no pages outside http(s). Not built: Arc's toast that suggests a site's search and turns it on in every profile.
 
 **Keys**
 

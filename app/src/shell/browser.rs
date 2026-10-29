@@ -186,6 +186,9 @@ pub trait Browser {
     fn set_side_panel_width(&self, width: f32, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
+    /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
+    /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
+    fn site_search_settings(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
