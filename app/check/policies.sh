@@ -1,52 +1,58 @@
 # A policy written where an administrator puts ilo's, under its bundle id (docs/policies.md),
-# reaches Chromium: a default search engine set by policy gives the command bar's search row its
-# URL. Written with defaults, the policy is recommended, as one in the user's own preferences is,
-# so the run has a new profile of its own, where no engine the user picked outranks it. The Mac's
-# alone: Linux's and Windows' policies go where only an administrator can write.
+# reaches Chromium: a download folder set by policy is where a page's download goes. Written with
+# defaults, the policy is recommended, as one in the user's own preferences is, so the run has a new
+# profile of its own, where no folder the user picked outranks it. It isn't the default search
+# engine, which on a Mac without MDM Chromium ignores, as it does every policy it calls sensitive.
+# The Mac's alone: Linux's and Windows' policies go where only an administrator can write.
 
 policies_check() {
   if [ "$(uname)" != Darwin ]; then
     echo "skip: policies. Linux's and Windows' go where only an administrator can write."
     return 0
   fi
-  # The run's policy, which lib.sh's cleanup takes out of the app's preferences after a failure too.
-  policies="DefaultSearchProviderEnabled DefaultSearchProviderName DefaultSearchProviderKeyword"
-  policies="$policies DefaultSearchProviderSearchURL"
-  defaults write "$app_id" DefaultSearchProviderEnabled -bool true
-  defaults write "$app_id" DefaultSearchProviderName -string "Check Search"
-  defaults write "$app_id" DefaultSearchProviderKeyword -string check
-  defaults write "$app_id" DefaultSearchProviderSearchURL \
-    -string 'https://search.example/?q={searchTerms}'
+  serve
+  downloads="$PWD/$out/policies/downloads"
   profile_dir="$PWD/$out/policies/profile"
-  rm -rf "$profile_dir"
-  mkdir -p "$profile_dir"
+  rm -rf "${out:?}/policies"
+  mkdir -p "$downloads" "$profile_dir"
+  # The run's policy, which lib.sh's cleanup takes out of the app's preferences after a failure too.
+  policies=DownloadDirectory
+  defaults write "$app_id" DownloadDirectory -string "$downloads"
+  # "p" typed in the page downloads a file with a name of the run's own, which a download that went
+  # to the Downloads folder instead leaves there until the run takes it out.
+  file=ilo-policy-check.txt
+  printf '%s' "<title>loading</title><a id=p download=$file href=notes.txt></a>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = \"ready\"));
+onkeydown = e => { if (e.key == \"p\") p.click(); };
+</script>" > "$out/site/policy.html"
   log="$out/policies.log"
   step=0
-  BROWSER_DRIVE=1 BROWSER_URL='data:text/html,<h1>Policies</h1>' \
+  BROWSER_DRIVE=1 BROWSER_URL="${site}policy.html" \
     BROWSER_PROFILE_DIR="$profile_dir" "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await_load
+  await '^browser: title [0-9]* ready$' || fail "the policies run's page didn't draw"
   send click $page_point
   if [ "$active" != 1 ]; then
     exec 3>&-
     quit
     forget_policies
-    echo "skip: policies. Browser wasn't the active app, so the command bar didn't get its keys."
+    echo "skip: policies. Browser wasn't the active app, so the page ignored the click."
     return 0
   fi
-  send key t cmd
-  expect '^browser: command bar shown$' "⌘T didn't open the command bar"
-  send type policy
-  searched='https://search\.example/?q=policy'
-  expect "^browser: command bar suggestions \"policy\" in [0-9.]* ms: .*$searched" \
-    "the command bar's search row didn't use the policy's engine"
+  send type p
+  expect "^browser: download [0-9]* done $file\$" "the page's download didn't finish"
+  if [ ! -f "$downloads/$file" ]; then
+    rm -f "$HOME/Downloads/$file"
+    fail "the download didn't go in the policy's folder"
+  fi
   ../tools/window-screenshot.sh "$pid" "$out/policies.png" || fail "no window to capture"
-  send key escape
   exec 3>&-
   quit
   forget_policies
-  echo "ok: a default search engine set by policy under the app's bundle id gives the command" \
-    "bar's search row its URL"
+  echo "ok: a download folder set by policy under the app's bundle id is where a page's download" \
+    "goes. Window: $out/policies.png"
 }
 policies_check
