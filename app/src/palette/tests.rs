@@ -168,6 +168,7 @@ fn states(palette: &Palette, theme: Option<&Theme>) -> Vec<(String, Hsla, f32, V
         ("Library card name", palette.text(shell::UNSELECTED_TITLE), TEXT, lay(&window, 0., &[STATE_HOVERED])),
         ("Library and side panel buttons", palette.glyph(shell::NAV), GLYPH, lay(&window, 0., &PRESSABLE)),
         ("URL field host", palette.text(shell::SECONDARY), TEXT, lay(&window, shell::URL_FIELD, &[STATE_HOVERED])),
+        ("URL field placeholder", palette.text(shell::header::URL_PLACEHOLDER), TEXT, lay(&window, shell::URL_FIELD, &[STATE_HOVERED])),
         ("question card button", palette.text(shell::TITLE), TEXT, lay(&window, shell::URL_FIELD, &PRESSABLE)),
         ("offer button", palette.text(offer::TITLE), TEXT, lay(&window, offer::PLATE, &PRESSABLE)),
         ("offer chevron", palette.glyph(offer::DETAIL), GLYPH, lay(&window, 0., &PRESSABLE)),
