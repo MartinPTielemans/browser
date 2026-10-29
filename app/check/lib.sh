@@ -37,8 +37,9 @@ swatch_x() { echo "$1" | awk '{ print 13 + 60.5 + 29.5 * $1 }'; }
 # Its profiles, in the one the check starts with, for a Space with tabs and an empty one.
 profile=$(cased "Profile › Default (checked), Profile › New Profile (disabled)")
 empty_profile=$(cased "Profile › Default (checked), Profile › New Profile")
-# The product's name, which the app's menus and alerts use.
+# The product's name, which the app's menus and alerts use, and the dev build's id.
 app_name=$(cat branding/name)
+app_id=dev.browser.app
 # The KeyboardEvent property a page reads ⌘ from, which off the Mac is pressed with Ctrl (keys.rs).
 cmd_key=metaKey
 { windows || [ "$(uname)" = Linux ]; } && cmd_key=ctrlKey
@@ -52,6 +53,9 @@ cleanup() {
   [ -z "${server:-}" ] || kill "$server" 2>/dev/null || true
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
+  [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  # A run's temp dir, such as the updates run's with its key.
+  [ -z "${scratch:-}" ] || rm -rf "$scratch"
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -110,7 +114,7 @@ quit_app() {
   elif [ "$(uname)" = Linux ]; then
     kill -INT "$pid"
   else
-    osascript -e 'tell application id "dev.browser.app" to quit'
+    osascript -e "tell application id \"$app_id\" to quit"
   fi
 }
 quit() {

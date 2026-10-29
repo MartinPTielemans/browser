@@ -3,12 +3,13 @@
 # Each run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
-#   split favorites cards extensions adblock windows private capture passwords links preview access
-#   trouble dialogs crash import quit onboarding
+#   split favorites cards extensions adblock adblock-lists windows private capture passwords
+#   passkeys links preview access trouble dialogs crash import updates quit onboarding
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
-# Every run but load and crash needs Browser to be the active app, and window and find take it
-# full screen for a moment.
+# Every run but load and crash needs Browser to be the active app, and window, find and updates
+# take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
+# build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
 # another; BROWSER_DISPLAY=main opens it on the main display.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -32,8 +33,8 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
-runs="$runs split favorites cards extensions adblock windows private capture passwords links preview"
-runs="$runs access trouble dialogs crash import quit onboarding"
+runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
+runs="$runs passkeys links preview access trouble dialogs crash import updates quit onboarding"
 named="store adblock-live"
 for run in "$@"; do
   case " $runs $named " in
