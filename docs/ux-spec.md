@@ -1010,7 +1010,7 @@ Arc's theme, read by Ardia from Arc 1.167's shader and the code that feeds it (P
 
 See Spaces › Agent Space. The confirmation UI and the activity log ship in the same change as the MCP server (decision 8).
 
-- **What agents may do** (ours). `bc_agent_may_act` lets an agent do only what a user does in a page, the reference agent's tab tools: click, close_tab, navigate, press_key, read_page, screenshot, select_option, snapshot and type. It refuses the rest whatever the tab, saying why in the activity-log entry: ad_blocking, devtools and passwords each with their own reason, any other as an action agents don't have. A refused call starts no session. Until the activity log has a window, these rows tick from the refusals the agents run asserts in its log.
+- **What agents may do** (ours). `bc_agent_may_act` lets an agent do only what a user does in a page, the reference agent's and the MCP server's tab tools: back, click, close_tab, forward, hand_off, navigate, press_key, read_page, screenshot, scroll, select_option, snapshot and type. It refuses the rest whatever the tab, saying why in the activity-log entry: ad_blocking, devtools and passwords each with their own reason, any other as an action agents don't have. A refused call starts no session. Until the activity log has a window, these rows tick from the refusals the agents run asserts in its log.
 
 ## Picked by the owner, not on the roadmap
 
