@@ -14,6 +14,10 @@ impl Shell {
         backups: Vec<SidebarBackup>,
         cx: &mut Context<Self>,
     ) {
+        if let Some(newest) = backups.first() {
+            // check.sh chooses it by this line.
+            log!("browser: newest sidebar backup {profile} {}", newest.label);
+        }
         self.sidebar_backups.insert(profile, backups);
         self.update_menus(cx);
     }

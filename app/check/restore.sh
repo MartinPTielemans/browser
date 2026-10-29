@@ -559,6 +559,52 @@ exec 3>&-
 quit
 grep -q '"fullscreen": *true' "$saved" &&
   fail "the window was saved full screen for the page that was full screen at the quit"
+
+# Help › Restore Earlier Sidebar brings back the profile's sidebar from a backup, which the core
+# takes as it saves the Spaces, in the profile's directory. The sidebar it replaces becomes the
+# newest backup, which brings it back in turn. Without the run's earlier backups, the first one
+# taken is this launch's sidebar.
+backups="$(dirname "$saved")/Default/Sidebar Backups"
+rm -rf "$backups"
+log="$out/sidebar-backups.log"
+step=0
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the launch for sidebar backups didn't restore the Spaces"
+await '^browser: sidebar backups of Default: 1$' || fail "saving the Spaces took no backup"
+ls "$backups"/*.json > /dev/null 2>&1 || fail "the backup isn't in the profile's directory"
+await '^browser: newest sidebar backup ' || fail "Help wasn't given the backup"
+backed_up=$(today | wc -w)
+open_from_bar "${site}notes.txt"
+expect "^browser: today [0-9 ]*\$" "the tab opened after the backup isn't in Today"
+await_today() {
+  for _ in $(seq 100); do
+    [ "$(today | wc -w)" = "$1" ] && return 0
+    sleep 0.1
+  done
+  fail "$2: Today is \"$(today)\""
+}
+await_today $((backed_up + 1)) "the tab opened after the backup isn't in Today"
+# By the newest's label, as the menu names it.
+restore_newest() {
+  label=$(grep '^browser: newest sidebar backup ' "$log" | tail -1 | cut -d' ' -f6-)
+  send menu "Restore Earlier Sidebar › $label"
+  expect "^browser: dialog shown Restore the sidebar from " "$1 didn't ask first"
+  expect '^browser: dialog settled$' "$1's dialog didn't settle"
+  send key return
+  expect '^browser: dialog confirmed$' "return didn't choose Restore"
+  expect '^browser: sidebar of Default restored, [1-9][0-9]* Spaces$' "$1 didn't restore the sidebar"
+  expect "^browser: sidebar backups of Default: $2\$" "$1 didn't keep the sidebar it replaced"
+}
+restore_newest "Restore Earlier Sidebar" 2
+await_today "$backed_up" "the backup's sidebar came back with the tab opened after it"
+../tools/window-screenshot.sh "$pid" "$out/sidebar-restored.png" || fail "no window to capture"
+# The sidebar replaced is the newest backup, so restoring it undoes the restore.
+restore_newest "Restoring the sidebar replaced" 3
+await_today $((backed_up + 1)) "restoring the sidebar replaced didn't bring back the tab"
+exec 3>&-
+quit
 echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so, unless a page took it there. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays. A tab put back unshown has no page until it's shown, when it loads scrolled where it was."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png, $out/unloaded-scrolled.png,"
 echo "  $out/recent-downloads.png"
