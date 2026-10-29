@@ -3384,6 +3384,22 @@ void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double 
   g_dragged = dragged;
 }
 
+void host_watch_escape(bool (*pressed)(void)) {
+  constexpr unsigned short kEscape = 53;
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                        handler:^NSEvent*(NSEvent* event) {
+                                          const NSEventModifierFlags flags =
+                                              event.modifierFlags &
+                                              NSEventModifierFlagDeviceIndependentFlagsMask;
+                                          if (event.keyCode == kEscape && !event.ARepeat &&
+                                              !(flags & ~NSEventModifierFlagFunction) &&
+                                              pressed()) {
+                                            return nil;
+                                          }
+                                          return event;
+                                        }];
+}
+
 void host_watch_control(void (*released)(void)) {
   g_control_released = released;
   if (g_control_monitor) {

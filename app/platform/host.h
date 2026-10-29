@@ -492,6 +492,11 @@ void host_dock_dot(bool colored, uint32_t color);
 // view has the keyboard.
 void host_watch_control(void (*released)(void));
 
+// Calls |pressed| for each ⎋ going down in the app, whichever view has the keyboard, before the
+// view has it. It returns whether it used the key, and then no view gets it. A page in Safari's
+// engine hands the app no plain key, as Chromium's hands back the keys it doesn't keep.
+void host_watch_escape(bool (*pressed)(void));
+
 // A link or a file that a drag from the page or another app carries.
 typedef struct {
   // Its URL, UTF-8.
