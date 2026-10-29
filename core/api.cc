@@ -903,6 +903,15 @@ void bc_set_warn_before_quitting(bool warn) {
   browser_core::SessionChanged();
 }
 
+bool bc_restore_windows(void) {
+  return browser_core::UserSettings().restore_windows;
+}
+
+void bc_set_restore_windows(bool restore) {
+  browser_core::UserSettings().restore_windows = restore;
+  browser_core::SessionChanged();
+}
+
 bool bc_warn_moving_profiles(void) {
   return browser_core::UserSettings().warn_moving_profiles;
 }
