@@ -165,9 +165,11 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
+/// Or the switch for whether those keys count the favorites.
 enum Keys {
     Of(Command),
     Text(&'static str),
+    FavoritesNumbered,
 }
 
 /// The Shortcuts tab, in the menus' order and names.
@@ -187,6 +189,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
             ("Tabs 1 to 8", Keys::Text("⌘1 – ⌘8")),
+            ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -1635,7 +1638,7 @@ impl Settings {
 
     /// The search, then the commands it finds by section, each with its keys in a chip. A click on
     /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
-    /// a command its default back, and Restore Defaults every command.
+    /// a command its default back, and Restore Defaults every command, with the favorites numbered.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let typed = self.search.read(cx).text().to_string();
         let found = found(&typed, cx);
@@ -1647,6 +1650,10 @@ impl Settings {
                     let control = match keys {
                         Keys::Of(command) => self.shortcut(*command, accent, cx),
                         Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                        Keys::FavoritesNumbered => {
+                            let on = shell::user_keys(cx).favorites_numbered();
+                            self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
+                        }
                     };
                     row(None, *name, control)
                 })
@@ -2074,6 +2081,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
             Keys::Text(text) => Some(text.to_string()),
+            Keys::FavoritesNumbered => None,
         };
         shell::shortcut_found(typed, name, label.as_deref())
     });
@@ -2096,6 +2104,12 @@ fn shortcuts_path() -> String {
 pub fn read_shortcuts(cx: &mut App) {
     let text = std::fs::read_to_string(shortcuts_path()).unwrap_or_default();
     cx.set_global(UserKeys::parse(&text));
+}
+
+/// Include Favorites in ⌘1–⌘8, kept with the user's keys.
+fn set_favorites_numbered(numbered: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_favorites_numbered(numbered));
+    save_shortcuts(cx);
 }
 
 fn save_shortcuts(cx: &App) {
