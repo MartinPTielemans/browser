@@ -1524,23 +1524,26 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
 
 void host_watch_window_active(void (*changed)(void* ui_view, bool active)) {
   // A child window over it, such as the command bar, takes the keyboard but not the main window's
-  // place, so the window stays active under it, as its material does.
+  // place, so the window stays active under it, as its material does. Posted: a window the UI
+  // opens, such as ⇧⌘N's, takes the main window's place while the UI is still handling the key.
   for (NSNotificationName name in @[
          NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification,
          NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification
        ]) {
-    [NSNotificationCenter.defaultCenter addObserverForName:name
-                                                    object:nil
-                                                     queue:nil
-                                                usingBlock:^(NSNotification*) {
-                                                  for (auto& browser : g_browsers) {
-                                                    if (browser->window) {
-                                                      changed((__bridge void*)browser->ui_view,
-                                                              NSApp.active &&
-                                                                  browser->window.isMainWindow);
-                                                    }
-                                                  }
-                                                }];
+    [NSNotificationCenter.defaultCenter
+        addObserverForName:name
+                    object:nil
+                     queue:nil
+                usingBlock:^(NSNotification*) {
+                  dispatch_async(dispatch_get_main_queue(), ^{
+                    for (auto& browser : g_browsers) {
+                      if (browser->window) {
+                        changed((__bridge void*)browser->ui_view,
+                                NSApp.active && browser->window.isMainWindow);
+                      }
+                    }
+                  });
+                }];
   }
 }
 
