@@ -16,4 +16,4 @@ ninja -C "$out" build.ninja >/dev/null
 # jobs, as on the Mac (engine/build.sh says why).
 export PYTHON_CPU_COUNT=2
 jobs=${BUILD_JOBS:-$(($(awk '/^MemTotal:/ { print $2 }' /proc/meminfo) / (3 << 20)))}
-exec ninja -C "$out" -j "$jobs" chrome chrome_crashpad_handler browser_core_unittests
+exec ninja -C "$out" -j "$jobs" chrome chrome_crashpad_handler
