@@ -12,6 +12,12 @@ g_browser_core_sync_invalidations.
 SyncServiceImpl gives the engine the core's server when it sets g_browser_core_sync_url, read as
 each engine starts, so a server the user names takes effect at their next sign-in, without a
 restart, where --sync-url is read once.
+DataTypeWorker asks the core, through g_browser_core_sync_hold_commit, whether a type's changes
+wait to commit, so nothing of a type Chromium can encrypt goes up until the account's passphrase
+encrypts it, which the server doesn't hold, and not the keystore key it does; and once the
+passphrase's types are encrypted it nudges, since the passphrase's other changes came first. It
+gives each commit to g_browser_core_sync_check_commit as it leaves, for the core to stop one that
+isn't ciphertext only.
 
 --- a/components/sync/service/sync_auth_manager.h
 +++ b/components/sync/service/sync_auth_manager.h
@@ -197,3 +203,51 @@ restart, where --sync-url is read once.
              base::BindOnce(
                  create_http_post_provider_factory_override_for_test_.value_or(
                      create_http_post_provider_factory_),
+--- a/components/sync/engine/data_type_worker.cc
++++ b/components/sync/engine/data_type_worker.cc
+@@ -48,6 +48,14 @@
+ #include "components/sync/protocol/proto_memory_estimations.h"
+ #include "components/sync/protocol/sync_entity.pb.h"
+ 
++// browser_core: whether a type's changes wait to commit, and a last look at each commit before
++// it goes (//browser_core/hooks.h).
++bool (*g_browser_core_sync_hold_commit)(syncer::DataType type,
++                                        bool encrypted,
++                                        syncer::PassphraseType passphrase) = nullptr;
++void (*g_browser_core_sync_check_commit)(syncer::DataType type,
++                                         const syncer::CommitRequestDataList& commit) = nullptr;
++
+ namespace syncer {
+ 
+ namespace {
+@@ -441,6 +449,8 @@
+     // Push the new key name to the processor.
+     SendPendingUpdatesToProcessorIfReady();
+   }
++  // browser_core: a type held until it's encrypted may commit now.
++  NudgeIfReadyToCommit();
+ }
+ 
+ void DataTypeWorker::OnCryptographerChange() {
+@@ -965,6 +975,10 @@
+          (data_type_state_.encryption_key_name() ==
+           cryptographer_->GetDefaultEncryptionKeyName()));
+ 
++  if (g_browser_core_sync_check_commit) {
++    g_browser_core_sync_check_commit(type_, response);
++  }
++
+   return std::make_unique<CommitContributionImpl>(
+       type_, data_type_state_.type_context(), std::move(response),
+       base::BindOnce(&DataTypeWorker::OnCommitResponse,
+@@ -1011,6 +1025,10 @@
+ }
+ 
+ bool DataTypeWorker::CanCommitItems() const {
++  if (g_browser_core_sync_hold_commit &&
++      g_browser_core_sync_hold_commit(type_, encryption_enabled_, passphrase_type_)) {
++    return false;
++  }
+   // We can only commit if we've received the initial update response and aren't
+   // blocked by missing encryption keys.
+   return IsInitialSyncAtLeastPartiallyDone(

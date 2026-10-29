@@ -66,14 +66,34 @@ source_set("sync_keys") {
   ]
 }
 
+# What the account's sync lets go to its server, on sync's own sequences, apart so
+# browser_core_unittests tests it alone.
+source_set("sync_guard") {
+  sources = [
+    "sync_guard.cc",
+    "sync_guard.h",
+  ]
+  deps = [
+    "//base",
+    "//components/sync",
+    "//components/sync/protocol",
+  ]
+}
+
 # The core's logic that needs no browser. engine/linux/build.sh builds it and the engine's
 # workflow runs it.
 test("browser_core_unittests") {
-  sources = [ "sync_pairing_unittest.cc" ]
+  sources = [
+    "sync_guard_unittest.cc",
+    "sync_pairing_unittest.cc",
+  ]
   deps = [
+    ":sync_guard",
     ":sync_keys",
     "//base",
     "//base/test:run_all_unittests",
+    "//components/sync",
+    "//components/sync/protocol",
     "//testing/gtest",
   ]
 }
@@ -178,6 +198,7 @@ source_set("browser_core") {
 
   deps = [
     ":drm_request",
+    ":sync_guard",
     ":sync_keys",
     "//base",
     "//chrome/app:command_ids",

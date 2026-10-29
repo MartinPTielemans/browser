@@ -38,6 +38,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/profiles.h"
+#include "browser_core/sync_guard.h"
 #include "browser_core/sync_pairing.h"
 #include "browser_core/sync_relay.h"
 #include "browser_core/sync_words.h"
@@ -1585,6 +1586,15 @@ void Install() {
     return Account::Get().CreateInvalidations(profile);
   };
   g_browser_core_sync_url = [] { return Account::Get().SyncUrl(); };
+  g_browser_core_sync_hold_commit = &HoldSyncCommit;
+  g_browser_core_sync_check_commit = [](syncer::DataType type,
+                                        const syncer::CommitRequestDataList& commit) {
+    // The hold keeps a type from committing until the passphrase encrypts it, so a commit that
+    // isn't ciphertext is a bug that would give the server what it mustn't read. Stopping here
+    // sends nothing; dropping the commit instead would leave its changes in flight for good.
+    CHECK(SyncCommitIsCiphertext(type, commit))
+        << "plaintext in a commit of " << syncer::DataTypeToDebugString(type);
+  };
 }
 
 void Start() {

@@ -11,6 +11,9 @@
 #include "base/files/file_path.h"
 #include "base/functional/callback_forward.h"
 #include "components/permissions/permission_prompt.h"
+#include "components/sync/base/data_type.h"
+#include "components/sync/base/passphrase_enums.h"
+#include "components/sync/engine/commit_and_get_updates_types.h"
 #include "content/public/browser/login_delegate.h"
 #include "content/public/browser/weak_document_ptr.h"
 #include "extensions/browser/extension_install_prompt_client.h"
@@ -203,6 +206,15 @@ extern std::unique_ptr<syncer::SyncInvalidationsService> (*g_browser_core_sync_i
 // components/sync/service/sync_service_impl.cc: the server sync talks to, read as its engine
 // starts, in place of --sync-url's, which is read once.
 extern GURL (*g_browser_core_sync_url)();
+
+// components/sync/engine/data_type_worker.cc: whether |type|'s changes wait to commit, given
+// whether the type is encrypted and with which passphrase, and a last look at each commit before
+// it goes to the server. Both run on sync's own sequence.
+extern bool (*g_browser_core_sync_hold_commit)(syncer::DataType type,
+                                               bool encrypted,
+                                               syncer::PassphraseType passphrase);
+extern void (*g_browser_core_sync_check_commit)(syncer::DataType type,
+                                                const syncer::CommitRequestDataList& commit);
 
 // chrome/browser/sync/sync_service_factory.cc: the controllers of the core's own data types for
 // |profile|'s sync, such as ILO_SPACE's, after Chrome's.
