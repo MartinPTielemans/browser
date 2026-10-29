@@ -716,14 +716,15 @@ impl Shell {
     /// `space`'s swatch: its theme's first two colours, or its one colour going lighter down as
     /// the window's gradient does, with the untinted palette's accent for a Space without one.
     pub(super) fn space_swatch(&self, space: u64) -> Swatch {
-        if let Some(theme) = self.theme_of(space) {
+        let theme = self.theme_of(space).map(|theme| theme.shown(self.tone_of(space) == Tone::Dark));
+        if let Some(theme) = theme {
             let colors = theme.colors();
             if let [from, to, ..] = colors[..] {
                 return Swatch { from, to };
             }
         }
         let entry = self.spaces.iter().find(|each| each.id == space);
-        let color = self.theme_of(space).map(|theme| theme.main_color());
+        let color = theme.map(|theme| theme.main_color());
         let untinted = || crate::theme::packed(crate::palette::Palette::of(None, self.tone_of(space)).accent);
         let color = color.or(entry.and_then(|each| each.color)).unwrap_or_else(untinted);
         let hsla = Hsla::from(rgb(color));
