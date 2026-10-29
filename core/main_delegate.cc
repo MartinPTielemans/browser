@@ -111,7 +111,10 @@ base::FilePath FindNativeHost(const std::string& name) {
 class ExtraParts : public ChromeBrowserMainExtraParts {
  public:
   // Before Chrome stops taking factories, as the first profile is made.
-  void PreProfileInit() override { system_engine::RegisterProfilePrefs(); }
+  void PreProfileInit() override {
+    system_engine::RegisterProfilePrefs();
+    PasswordOffer::AllowGeneration();
+  }
 
   void PreBrowserStart() override {
     // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.

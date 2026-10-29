@@ -26,6 +26,10 @@ class PasswordOffer {
   // its passwords page action, the key its toolbar would show. The tab calls it on each navigation,
   // since the password manager's state for a page starts with one.
   static void WatchKey(content::WebContents* contents);
+  // Lets Chrome offer a strong password on a page's new-password field with no Google account,
+  // which it needs only to sync the password: the profile keeps it on this device, as it keeps
+  // those it saves. Once Chrome's strings are loaded.
+  static void AllowGeneration();
 
   // While one lives, Chrome hiding |tab|'s offer, as it does when the tab leaves its Browser or
   // another tab shows in its place there, keeps it: the tab's page is going to another window,

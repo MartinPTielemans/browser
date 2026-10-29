@@ -4,7 +4,9 @@
 # card form's submitted card brings the offer to save the card, which escape declines; another card
 # brings it again, and return saves that one. Edit › AutoFill › Credit Card… opens Chrome's
 # dropdown at the card's field, which says filling isn't secure on http. Every address and card is
-# made up, in a profile of the run's own, which no other run or the owner's copy reaches.
+# made up, in a profile of the run's own, which no other run or the owner's copy reaches. On a
+# sign-up form's new password field, Chrome's popup offers a strong password with no Google
+# account, saying it's saved on this device, and takes it.
 
 serve
 log="$out/autofill.log"
@@ -94,6 +96,18 @@ expect "^browser: autofill $tab 2 opened\$" \
   "Edit › AutoFill › Credit Card… didn't open the dropdown at the number field"
 ../tools/window-screenshot.sh "$pid" "$out/autofill-menu-card.png" || fail "no window to capture"
 send key escape
+
+# On a sign-up form's new password field, with no Google account, Chrome's popup offers a strong
+# password it says is saved on this device, and down then return take it. Had the popup not been
+# up, return would have sent the form, so the title proves it was there for the capture.
+go_from_bar "${site#http://}signup.html"
+expect "^browser: title $tab signup\$" "the sign-up form didn't load"
+send click 600 90
+send key down
+../tools/window-screenshot.sh "$pid" "$out/password-generation.png" || fail "no window to capture"
+send key return
+expect "^browser: title $tab generated\$" \
+  "Chrome's popup offered no strong password on the new password field, or return didn't take it"
 exec 3>&-
 quit
-echo "ok: a submitted address offers to save it where the password's offer is, and return saves it; Edit › AutoFill › Contact… opens Chrome's dropdown at the focused field, which previews the saved address; a submitted card offers to save it, escape declines and return saves another; Edit › AutoFill › Credit Card… opens the dropdown at the card's field. Windows: $out/address-offer.png, $out/autofill-menu-contact.png, $out/card-offer.png, $out/autofill-menu-card.png"
+echo "ok: a submitted address offers to save it where the password's offer is, and return saves it; Edit › AutoFill › Contact… opens Chrome's dropdown at the focused field, which previews the saved address; a submitted card offers to save it, escape declines and return saves another; Edit › AutoFill › Credit Card… opens the dropdown at the card's field; a new password field offers a strong password with no Google account, and takes it. Windows: $out/address-offer.png, $out/autofill-menu-contact.png, $out/card-offer.png, $out/autofill-menu-card.png, $out/password-generation.png"

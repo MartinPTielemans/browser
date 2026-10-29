@@ -106,6 +106,19 @@ setInterval(() => {
 }, 100);
 </script>" > "$out/site/$form.html"
 done
+# The sign-up form: a username field at y 30 and a new password's at y 90. Its title says "signup"
+# once it's drawn, and "generated" once the password field holds one longer than the run types.
+printf '%s' '<title>loading</title>
+<style>input{display:block;box-sizing:border-box;width:100%;height:60px;font:24px system-ui}</style>
+<form method=post action=signup><input autocomplete=username name=username>
+<input type=password autocomplete=new-password name=password id=password>
+<button style="width:1px;height:1px"></button></form>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "signup"));
+setInterval(() => {
+  if (document.getElementById("password").value.length >= 12) document.title = "generated";
+}, 100);
+</script>' > "$out/site/signup.html"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
 # page, and puts what the user answered in the title. "u" has it ask before it's left, and "o" goes
 # to a maps: link, which macOS opens in Maps.
