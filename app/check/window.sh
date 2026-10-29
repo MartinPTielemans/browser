@@ -168,18 +168,12 @@ expect "^browser: tab [0-9]* opened by $first in the foreground\$" "the page did
 tab=$(grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: page $tab back 0 forward 0 loading 1 \$" \
   "a tab opened to a page that hasn't come doesn't say it's loading"
-if [ "$(uname)" = Linux ]; then
+for _ in $(seq 20); do
   ../tools/window-screenshot.sh "$pid" "$out/before-paint.png" || fail "no window to capture"
   color=$(pixel "$out/before-paint.png" 0.6 0.5)
-  echo "skip: a page that hasn't drawn showing the card's colour: on Linux it shows $color until the stubs lane's fix/linux-unpainted-tab."
-else
-  for _ in $(seq 20); do
-    ../tools/window-screenshot.sh "$pid" "$out/before-paint.png" || fail "no window to capture"
-    color=$(pixel "$out/before-paint.png" 0.6 0.5)
-    dark "$color" && break
-  done
-  dark "$color" || fail "a page that hasn't drawn shows $color, not the card's colour"
-fi
+  dark "$color" && break
+done
+dark "$color" || fail "a page that hasn't drawn shows $color, not the card's colour"
 send key w cmd
 expect_tabs "$first" "$first" "after closing the tab of the page that hasn't come"
 send click $page_point
