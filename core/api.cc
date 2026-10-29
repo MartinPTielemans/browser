@@ -81,6 +81,14 @@ gfx::Rect ToRect(bc_rect rect) {
   return gfx::ToEnclosingRect(gfx::RectF(rect.x, rect.y, rect.width, rect.height));
 }
 
+// The window's widget while it's open. As the browser quits, Chromium can destroy its native window
+// before the core's Window goes, leaving a closed widget with no native widget behind it (#474).
+views::Widget* OpenWidget(bc_id id) {
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  views::Widget* widget = window ? window->widget() : nullptr;
+  return widget && !widget->IsClosed() ? widget : nullptr;
+}
+
 // Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
 size_t CopyString(const std::string& text, char* to, size_t capacity) {
   if (capacity > 0) {
@@ -182,10 +190,9 @@ double bc_display_scale(void) {
 
 void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
 #if BUILDFLAG(IS_LINUX)
-  browser_core::Window* window = browser_core::Window::FromId(id);
+  views::Widget* widget = OpenWidget(id);
   gfx::Size size;
-  void* surface =
-      window ? browser_core::platform::WaylandSurfaceOf(window->widget(), &size) : nullptr;
+  void* surface = widget ? browser_core::platform::WaylandSurfaceOf(widget, &size) : nullptr;
   *width = size.width();
   *height = size.height();
   return surface;
@@ -196,16 +203,13 @@ void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
 
 void bc_window_ui_takes_keyboard(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  if (browser_core::Window* window = browser_core::Window::FromId(id)) {
-    browser_core::platform::UITakesKeyboard(window->widget());
-  }
+  browser_core::platform::UITakesKeyboard(OpenWidget(id));
 #endif
 }
 
 bool bc_window_keyboard_is_ui(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  return window && browser_core::platform::KeyboardIsUI(window->widget());
+  return browser_core::platform::KeyboardIsUI(OpenWidget(id));
 #else
   return false;
 #endif
@@ -213,26 +217,24 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 
 void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
 #if BUILDFLAG(IS_LINUX)
-  if (browser_core::Window* window = browser_core::Window::FromId(id)) {
-    browser_core::platform::OverlayTakesKeyboard(window->widget(), takes);
-    window->OverlayTakesKeyboard(takes);
+  if (views::Widget* widget = OpenWidget(id)) {
+    browser_core::platform::OverlayTakesKeyboard(widget, takes);
+    browser_core::Window::FromId(id)->OverlayTakesKeyboard(takes);
   }
 #endif
 }
 
 void bc_window_minimize(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  if (window && window->widget()) {
-    window->widget()->Minimize();
+  if (views::Widget* widget = OpenWidget(id)) {
+    widget->Minimize();
   }
 #endif
 }
 
 void bc_window_toggle_maximized(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  views::Widget* widget = window ? window->widget() : nullptr;
+  views::Widget* widget = OpenWidget(id);
   if (!widget) {
     return;
   }
@@ -248,12 +250,12 @@ void bc_window_toggle_maximized(bc_id id) {
 
 void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double height) {
 #if BUILDFLAG(IS_LINUX)
-  if (browser_core::Window* window = browser_core::Window::FromId(id)) {
+  if (views::Widget* widget = OpenWidget(id)) {
     std::optional<gfx::Rect> caret;
     if (focused) {
       caret = gfx::ToEnclosingRect(gfx::RectF(x, y, 0, height));
     }
-    browser_core::platform::SetUITextInput(window->widget(), caret);
+    browser_core::platform::SetUITextInput(widget, caret);
   }
 #endif
 }
@@ -295,15 +297,14 @@ void bc_window_close(bc_id id) {
 }
 
 void bc_window_set_title(bc_id id, const char* title) {
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  if (window && window->widget() && title) {
-    window->widget()->widget_delegate()->SetTitle(base::UTF8ToUTF16(title));
+  views::Widget* widget = OpenWidget(id);
+  if (widget && widget->widget_delegate() && title) {
+    widget->widget_delegate()->SetTitle(base::UTF8ToUTF16(title));
   }
 }
 
 void bc_window_activate(bc_id id) {
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  views::Widget* widget = window ? window->widget() : nullptr;
+  views::Widget* widget = OpenWidget(id);
   if (!widget) {
     return;
   }
@@ -1475,17 +1476,16 @@ void bc_window_set_side_panel_width(bc_id window_id, double width) {
 
 void bc_window_start_move(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  if (window && window->widget()) {
-    browser_core::platform::StartMove(window->widget());
+  if (views::Widget* widget = OpenWidget(id)) {
+    browser_core::platform::StartMove(widget);
   }
 #endif
 }
 
 bool bc_window_is_maximized(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  return window && window->widget() && window->widget()->IsMaximized();
+  views::Widget* widget = OpenWidget(id);
+  return widget && widget->IsMaximized();
 #else
   return false;
 #endif

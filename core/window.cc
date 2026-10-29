@@ -1981,6 +1981,11 @@ void Window::ReportSelected() {
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
                      [](base::WeakPtr<Window> window, bc_id tab) {
+                       // Not for a window that's closing, or whose native window Chromium has
+                       // destroyed as the browser quits: the app would set its title (#474).
+                       if (window && (window->closing_ || window->widget_->IsClosed())) {
+                         window = nullptr;
+                       }
                        if (window && Host().window_selected) {
                          Host().window_selected(Host().context, window->id(), tab);
                        }
