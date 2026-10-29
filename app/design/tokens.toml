@@ -309,6 +309,10 @@ search-radius = 6.0
 search-padding = 8.0
 list-bottom = 6.0
 emoji-size = 20.0
+# The skin tone button at the search's right end, a hand in the tone the grid shows, which opens
+# the six tones along the field (ours: Arc's isn't recorded): a plate 4 short of the field's height.
+tone-plate = 20.0
+tone-emoji = 14.0
 # A group's header takes a row, its text on the plates' left edge and the row's bottom.
 header-text = 11.0
 header-left = 4.0
