@@ -8,6 +8,8 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <dwmapi.h>
+#include <propkey.h>
+#include <propvarutil.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -1102,8 +1104,63 @@ bool host_save_launch_picture(void*, const char*, double) {
   return false;
 }
 
-// shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
+namespace {
+
+// The jump list's tasks, which run the browser again with the switch the running one opens their
+// window for (core/main_delegate.cc, LaunchedAgain). Set each launch, as the browser may have
+// moved since, under the AppUserModelID Chromium gave the process.
+void SetJumpListTasks() {
+  HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  ComPtr<ICustomDestinationList> list;
+  ComPtr<IObjectCollection> tasks;
+  ComPtr<IObjectArray> removed;
+  UINT slots = 0;
+  if (SUCCEEDED(CoCreateInstance(CLSID_DestinationList, nullptr, CLSCTX_INPROC_SERVER,
+                                 IID_PPV_ARGS(&list))) &&
+      SUCCEEDED(CoCreateInstance(CLSID_EnumerableObjectCollection, nullptr,
+                                 CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&tasks))) &&
+      SUCCEEDED(list->BeginList(&slots, IID_PPV_ARGS(&removed)))) {
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    const std::pair<const wchar_t*, const wchar_t*> entries[] = {
+        {L"New Window", L"--new-window"},
+        {L"New Incognito Window", L"--incognito"},
+    };
+    for (const auto& [title, switches] : entries) {
+      ComPtr<IShellLinkW> link;
+      ComPtr<IPropertyStore> properties;
+      PROPVARIANT name;
+      if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                  IID_PPV_ARGS(&link))) ||
+          FAILED(link.As(&properties)) || FAILED(InitPropVariantFromString(title, &name))) {
+        continue;
+      }
+      link->SetPath(exe);
+      link->SetArguments(switches);
+      link->SetIconLocation(exe, 0);
+      properties->SetValue(PKEY_Title, name);
+      properties->Commit();
+      PropVariantClear(&name);
+      tasks->AddObject(link.Get());
+    }
+    ComPtr<IObjectArray> array;
+    if (SUCCEEDED(tasks.As(&array)) && SUCCEEDED(list->AddUserTasks(array.Get()))) {
+      list->CommitList();
+    } else {
+      list->AbortList();
+    }
+  }
+  if (SUCCEEDED(com)) {
+    CoUninitialize();
+  }
+}
+
+}  // namespace
+
+// Links a launch carries come in on the command line, so there's nothing to wait for. The jump
+// list is set off the main thread, as the shell writes it to disk, which launch needn't wait on.
 void host_watch_finished_launching(void (*finished)(void)) {
+  std::thread(SetJumpListTasks).detach();
   finished();
 }
 

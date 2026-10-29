@@ -2975,6 +2975,31 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     finished_launching();
 }
 
+/// On Linux and Windows, the browser was launched again: from the desktop file's actions or the
+/// jump list, as ⌘N and ⇧⌘N from the regular window in front, or with links, which open_links has
+/// opened, or with nothing, which brings the window in front forward. A private window's session
+/// stays its own, as for links.
+unsafe extern "C" fn launched_again(_: *mut c_void, what: c_int) {
+    // check.sh reads this line.
+    log!("browser: launched again: {what}");
+    let regular = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned());
+    let Some(from) = regular.or_else(|| WINDOWS.with_borrow(|windows| windows.first().cloned()))
+    else {
+        return;
+    };
+    let profile = || unsafe { bc::bc_space_profile(bc::bc_window_space(from.id)) };
+    match what as u32 {
+        bc::BC_LAUNCH_WINDOW if !from.private => {
+            update_app(|cx| _ = open_window(Some(from), None, cx));
+        }
+        bc::BC_LAUNCH_PRIVATE_WINDOW if profile() != 0 => {
+            let profile = profile();
+            update_app(|cx| _ = open_window(Some(from), Some(profile), cx));
+        }
+        _ => unsafe { platform::host_activate(from.ui_view) },
+    }
+}
+
 /// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
 /// that's an agent's, which none of the user's tabs go in. The last one opened shows.
 fn open_links_in(window: bc::bc_id, urls: &[String]) {
@@ -5343,6 +5368,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        launched_again: Some(launched_again),
         ..Default::default()
     };
     (args, host)
