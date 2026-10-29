@@ -1824,9 +1824,7 @@ impl account::Host for PreviewAccount {
     fn request_pairing(&self) {}
     fn read_devices(&self) {}
     fn remove_device(&self, _: &str) {}
-    fn copy_secret(&self, _: &str, _: Duration) -> bool {
-        true
-    }
+    fn copy_secret(&self, _: &str, _: Duration, _: &mut App) {}
     fn confirm(
         &self,
         message: String,

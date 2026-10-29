@@ -114,10 +114,10 @@ pub trait Host {
     fn request_pairing(&self);
     fn read_devices(&self);
     fn remove_device(&self, id: &str);
-    /// Puts the account's secret on this device's clipboard alone, marked for clipboard histories
-    /// and cloud clipboards to skip, and takes it off after `kept` unless something replaced it.
-    /// False where the clipboard can't be told that, which then isn't given it.
-    fn copy_secret(&self, text: &str, kept: Duration) -> bool;
+    /// Puts the account's secret on this device's clipboard, marked for clipboard histories and
+    /// cloud clipboards to skip where the system has a way, and takes it off after `kept` unless
+    /// something replaced it.
+    fn copy_secret(&self, text: &str, kept: Duration, cx: &mut App);
     /// Asks `message`, with `detail` under it, and calls `confirmed` if the user chooses `action`,
     /// in red, ↩ answering `on_return`.
     fn confirm(
@@ -435,9 +435,7 @@ impl Account {
         let Some(words) = &mut self.words else {
             return;
         };
-        if !self.host.copy_secret(&words.words.join(" "), WORDS_KEPT) {
-            return;
-        }
+        self.host.copy_secret(&words.words.join(" "), WORDS_KEPT, cx);
         words.copied = Some(cx.background_executor().now());
         // Once Copied is Copy again, and once the clipboard has let the words go.
         for after in [COPIED, WORDS_KEPT] {

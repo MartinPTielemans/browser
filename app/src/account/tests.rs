@@ -18,7 +18,7 @@ const WORDS: &str = "abandon ability able about above absent absorb abstract abs
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<String>>,
-    /// What set_server, enter_recovery_words and copy_secret answer.
+    /// What set_server and enter_recovery_words answer.
     refuse: Cell<bool>,
     /// The question asked, and what confirming it does, until a test answers.
     asked: RefCell<Option<(String, Box<dyn FnOnce(&mut App)>)>>,
@@ -80,9 +80,8 @@ impl Host for Recorder {
         self.record(format!("remove {id}"));
     }
 
-    fn copy_secret(&self, text: &str, kept: Duration) -> bool {
+    fn copy_secret(&self, text: &str, kept: Duration, _: &mut App) {
         self.record(format!("copy secret {} {}", text.split(' ').count(), kept.as_secs()));
-        !self.refuse.get()
     }
 
     fn confirm(
@@ -295,8 +294,7 @@ fn the_first_device_shows_its_words_once(cx: &mut TestAppContext) {
 }
 
 /// Copy puts the words on the clipboard as a secret, for this device alone and off it after a
-/// minute, and says so for as long as they're there (browser#641). Where the clipboard can't keep
-/// them to itself, nothing is copied and nothing says it was.
+/// minute, and says so for as long as they're there (browser#641).
 #[gpui::test]
 fn copied_words_say_they_leave_the_clipboard(cx: &mut TestAppContext) {
     let mut tab = shown(state(Status::FirstDevice), cx);
@@ -310,13 +308,6 @@ fn copied_words_say_they_leave_the_clipboard(cx: &mut TestAppContext) {
     tab.cx.executor().advance_clock(Duration::from_secs(2));
     tab.cx.run_until_parked();
     assert!(!tab.drawn("copied"), "the clipboard has let them go");
-
-    let mut tab = shown(state(Status::FirstDevice), cx);
-    tab.host.take();
-    tab.host.refuse.set(true);
-    tab.click("copy");
-    assert_eq!(tab.host.take(), ["copy secret 24 60"]);
-    assert!(!tab.drawn("copied"));
 }
 
 /// A new device asks the others to add it once, by itself, and shows the code once one answers.
