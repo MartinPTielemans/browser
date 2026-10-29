@@ -951,6 +951,13 @@ Sparkle 2 (Dia and Ardia, P§24). Its feed URL is a default service URL, so fork
 - Settings › General › Updates.
 - Measure Arc's update prompt, if one can still be triggered.
 
+### Sync
+
+Ours, through Settings › Account (Settings). The account keeps the same on each of its devices: the Spaces, with their names, colours, icons, themes, pinned tabs and folders in their order, and the first profile's bookmarks, passwords and open tabs. An agent's Space stays on its device. The server holds it all encrypted with the account's secret, which only the devices have, and knows a device only by its kind, such as "ilo on Mac", never by its name.
+
+- **A new device's first Space.** A browser makes a Space on its first run. When sync first brings the account's Spaces to a device, that Space goes while it's the device's only one and the user hasn't made it theirs: no name or icon of theirs, no pinned tabs or folders, no favorites. A colour or theme, as onboarding's first step gives it, is setup and doesn't keep it. Its Today tabs move to the top of the account's first Space, in their order, so nothing open goes. One the user made theirs stays beside the account's and syncs as any other. That's Arc's way on a new device (the owner). The account's first device keeps its own, as the account has none yet.
+- **Too soon.** A device that joins before the first device's Spaces reach the server, in the seconds after the first device turns sync on, finds none, so it keeps its own first Space and the account has both (*interim*).
+
 ## Phase 4 features
 
 ### Peek
