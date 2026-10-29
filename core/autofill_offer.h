@@ -7,6 +7,7 @@
 
 namespace autofill {
 class AutofillBubbleBase;
+class AutofillBubbleHandler;
 class SaveAddressBubbleController;
 class SaveCardBubbleController;
 }  // namespace autofill
@@ -29,6 +30,10 @@ class AutofillOffer {
       std::unique_ptr<autofill::SaveAddressBubbleController> controller);
   static autofill::AutofillBubbleBase* SaveCard(content::WebContents* contents,
                                                 autofill::SaveCardBubbleController* controller);
+  // The autofill bubble handler of the core's window holding |contents|, which its stand-in
+  // registered on the window's Browser (g_browser_core_autofill_bubble_handler). Null for a tab of
+  // no window's.
+  static autofill::AutofillBubbleHandler* HandlerFor(content::WebContents* contents);
   // Whether |tab| has one open.
   static bool Has(bc_id tab);
   // See bc_tab_answer_offer. Returns false if |tab| has none.
