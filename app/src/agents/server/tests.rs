@@ -292,6 +292,32 @@ fn the_agents_last_session_ending_says_bye() {
     assert!(next(&mut handed).is_none(), "the agent said bye twice");
 }
 
+/// A client that closes its end while its call waits on the user, as on an ask before opening a
+/// bank's site, ends its session: the UI hears the agent go and drops the call, as it drops what
+/// waits for an agent that went, and the server closes the connection, which the bridge waits for.
+#[test]
+fn a_client_closing_while_a_call_waits_ends_its_session() {
+    let (server, _, mut handed) = server();
+    let mut client = Client::connect(&server);
+    client.initialize();
+    assert!(matches!(next(&mut handed), Some(Event::Hello { .. })));
+    client.send(json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "open_tab", "arguments": { "url": "bank.example" } },
+    }));
+    let Some(Event::Call(waiting)) = next(&mut handed) else {
+        panic!("the call didn't reach the UI thread");
+    };
+    client.writer.shutdown(std::net::Shutdown::Write).unwrap();
+    match next(&mut handed) {
+        Some(Event::Bye { agent }) => assert_eq!(agent, "claude-code"),
+        _ => panic!("the UI didn't hear the agent go while its call waited"),
+    }
+    drop(waiting);
+    assert_eq!(client.read().unwrap()["result"]["isError"], true);
+    assert_eq!(client.read(), None, "the server kept the connection open");
+}
+
 /// Once the user disconnects the agent, its connection answers no more: the server closes it,
 /// and a token taken away stops the next message too.
 #[test]
