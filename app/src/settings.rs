@@ -10,6 +10,8 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use browser::default_browser::{self, DefaultBrowser, Os};
+#[cfg(target_os = "linux")]
+use browser::dialog;
 use browser::import::ImportView;
 use browser::log;
 use browser::passwords::{self, Login};
@@ -299,6 +301,21 @@ pub struct Settings {
     /// Made when the tab first shows, so the other browsers' files are read only once the user
     /// asks.
     import: Option<Entity<ImportView>>,
+    /// Where it asks before deleting a profile, over all of it, as the browser window's dialog
+    /// can't go over it on Linux.
+    #[cfg(target_os = "linux")]
+    dialog: Entity<dialog::Dialog>,
+}
+
+/// Settings' dialog, which it draws in its own content, so there's nothing to show.
+#[cfg(target_os = "linux")]
+struct InWindow;
+
+#[cfg(target_os = "linux")]
+impl dialog::Host for InWindow {
+    fn show(&self, _: Option<Bounds<gpui::Pixels>>) {}
+
+    fn hide(&self) {}
 }
 
 /// The system's default browser, for General's row.
@@ -490,7 +507,21 @@ fn open(cx: &mut App) {
             });
             let default_browser = cx.new(|_| DefaultBrowser::new(Rc::new(System), Os::current()));
             cx.observe(&default_browser, |_, _, cx| cx.notify()).detach();
+            #[cfg(target_os = "linux")]
+            let dialog = {
+                let dialog = dialog::in_window(Rc::new(InWindow), cx);
+                // Settings takes the keyboard back from the dialog once it has gone.
+                cx.observe_in(&dialog, window, |settings: &mut Settings, _, window, cx| {
+                    if window.focused(cx).is_none() {
+                        window.focus(&settings.focus, cx);
+                    }
+                })
+                .detach();
+                dialog
+            };
             Settings {
+                #[cfg(target_os = "linux")]
+                dialog,
                 default_browser,
                 tab: Tab::General,
                 focus: cx.focus_handle(),
@@ -946,7 +977,9 @@ impl Settings {
             let name = profile.name.clone();
             let delete = profile.deletable.then(|| {
                 button(&RowLook::settings(), ("delete-profile", id), "Delete").on_click(
-                    cx.listener(move |settings, _, _, cx| settings.delete(id, name.clone(), cx)),
+                    cx.listener(move |settings, _, window, cx| {
+                        settings.delete(id, name.clone(), window, cx)
+                    }),
                 )
             });
             div()
@@ -1022,16 +1055,38 @@ impl Settings {
     }
 
     /// Deletes the profile once the user confirms, in an alert, as the window has no room for the
-    /// browser window's dialog.
-    fn delete(&mut self, profile: u64, name: SharedString, cx: &mut Context<Self>) {
-        cx.spawn(async move |_, _| {
-            let message = format!("Delete “{name}”?");
-            let detail = "Its history, cookies and logins go with it.";
-            if crate::ask(&message, detail, &["Delete", "Cancel"]) == 0 {
+    /// browser window's dialog. Linux has no alert, so it asks in its own dialog over Settings.
+    fn delete(
+        &mut self,
+        profile: u64,
+        name: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let message = format!("Delete “{name}”?");
+        let detail = "Its history, cookies and logins go with it.";
+        #[cfg(target_os = "linux")]
+        dialog::ask_in(
+            &self.dialog,
+            message,
+            detail.into(),
+            "Delete",
+            Box::new(move |_| {
                 unsafe { bc::bc_profile_delete(profile) };
-            }
-        })
-        .detach();
+            }),
+            window,
+            cx,
+        );
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = window;
+            cx.spawn(async move |_, _| {
+                if crate::ask(&message, detail, &["Delete", "Cancel"]) == 0 {
+                    unsafe { bc::bc_profile_delete(profile) };
+                }
+            })
+            .detach();
+        }
     }
 
     /// Send Crash Reports, off by default, with where they go and what turning it off does under
@@ -1606,5 +1661,18 @@ impl Render for Settings {
                     .py(px(FIRST))
                     .child(content),
             )
+            .children(self.cover(cx))
+    }
+}
+
+impl Settings {
+    #[cfg(target_os = "linux")]
+    fn cover(&self, cx: &App) -> Option<AnyElement> {
+        dialog::cover(&self.dialog, cx)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn cover(&self, _: &App) -> Option<AnyElement> {
+        None
     }
 }
