@@ -112,8 +112,10 @@ so a crash of the browser in its first moments isn't caught. Its handler never u
 ungoogled-chromium's hunk that takes out the handler's upload thread and its URL stays, and the core
 sends them instead, only if the user says to (`docs/decisions.md`, 9). The reports are in the
 profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On Windows,
-`chrome_elf` starts Crashpad before the core runs, so they're in Chromium's default folder,
-`%LOCALAPPDATA%\Chromium\User Data\Crashpad`.
+`chrome_elf` starts Crashpad before the core runs, in the user data folder Chromium names after the
+product, which `patches/ours/chromium-windows-product-folder.patch` names after
+`app/branding/name`: `%LOCALAPPDATA%\ilo\User Data\Crashpad`, the prod profile's. A dev build's
+reports go there too.
 
 - **What's sent.** With Send Crash Reports on, the core sends each report not yet sent to the build's
   collector, the minidump alone, without cookies, and deletes it once the collector has it. One
