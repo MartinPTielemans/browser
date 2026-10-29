@@ -87,6 +87,48 @@ expect "^browser: page $a audible 0 muted 1\$" "the tab's sound didn't stop"
 send click 52 $(row 0 | cut -d' ' -f2)
 expect '^browser: command toggle-mute via sidebar$' "a click on the speaker didn't reach the UI"
 expect "^browser: page $a audible 0 muted 0\$" "a click on the speaker didn't unmute the tab"
+# Mute All Tabs mutes each tab, silent ones too, and the speaker unmutes it again.
+bar_command mute-all-tabs "Mute All Tabs" "mute all"
+expect "^browser: page $a audible 0 muted 1\$" "Mute All Tabs didn't mute the tab"
+send click 52 $(row 0 | cut -d' ' -f2)
+expect "^browser: page $a audible 0 muted 0\$" "a click on the speaker didn't unmute the tab again"
+# Share… shares the page, as the tab menu's does. A driven run's share sheet only logs.
+bar_command share "Share…" share
+expect '^browser: share http://[^ ]*$' "Share… didn't share the page"
+# Exit closes the bar, as ⎋ does.
+bar_command exit Exit exit
+expect '^browser: command bar hidden$' "Exit didn't close the command bar"
+# Enter Full Screen takes the window full screen, where the bar offers Exit Full Screen.
+bar_command toggle-full-screen "Enter Full Screen" "enter full"
+expect '^browser: full screen enter did ' "Enter Full Screen didn't take the window full screen"
+bar_command toggle-full-screen "Exit Full Screen" "exit full"
+expect '^browser: full screen exit did ' "Exit Full Screen didn't take the window out of full screen"
+# Spaces › Edit Theme… shows the Space's theme picker, as its menu's Edit Theme Color… does.
+send menu Edit Theme…
+expect '^browser: command edit-theme via ui$' "Edit Theme… didn't reach the UI"
+expect '^browser: theme picker shown$' "Edit Theme… didn't show the theme picker"
+expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
+../tools/window-screenshot.sh "$pid" "$out/edit-theme.png" || fail "no window to capture"
+send key escape
+expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
+# File › New Profile opens the New Space form for a Space in a new profile, whose Cancel deletes
+# the Space and shows the one it was opened from.
+home=$(space)
+send menu New Profile
+expect '^browser: command new-profile via ui$' "New Profile didn't reach the UI"
+expect '^browser: create profile [0-9]* Profile [0-9]*$' "New Profile didn't make a profile"
+made=$(sed -n 's/^browser: create profile \([0-9]*\) .*/\1/p' "$log" | tail -1)
+expect "^browser: profiled space [0-9]* $made\$" "the form's Space didn't go into the new profile"
+form=$(grep "^browser: profiled space [0-9]* $made\$" "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: settled space $form\$" "the new profile's form didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/new-profile.png" || fail "no window to capture"
+send layout
+content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
+  sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
+send click 114 $((${content#*x} - 74))
+expect "^browser: cancel space $form\$" "Cancel didn't take back the new profile's Space"
+expect "^browser: space $home in " "Cancel didn't show the Space New Profile was chosen in"
+expect "^browser: settled space $home\$" "the Space's page didn't settle after Cancel"
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -651,6 +693,6 @@ chrome_ms=$(echo "$spans" | grep -v incomplete | summary)
 [ -n "$chrome_ms" ] || fail "the trace has no finished tab switches"
 # grep -c finds none in a run where no switch was cut off, and exits 1 then.
 chrome_ms="$chrome_ms, $(echo "$spans" | grep -c incomplete || true) incomplete, not counted"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
+echo "ok: Mute All Tabs mutes each tab, Share… shares the page, Exit closes the command bar, Enter Full Screen and Exit Full Screen there take the window in and out, Edit Theme… shows the theme picker and New Profile the New Space form for a Space in a new profile; new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png, $out/edit-theme.png, $out/new-profile.png"

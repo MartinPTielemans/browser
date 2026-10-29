@@ -278,6 +278,8 @@ pub trait Browser {
     /// On Linux, whether the browser window is full screen, as the window manager or a page can
     /// put it. False on the Mac, where AppKit says when it goes and comes back.
     fn window_full_screen(&self) -> bool;
+    /// Puts the window full screen, or takes it out, as the system's own full-screen key does.
+    fn toggle_full_screen(&self, _cx: &mut App) {}
     /// Shows the sidebar reveal's window over the page, `width` points wide from the browser
     /// window's left edge and as tall as it. It calls `Shell::pointer_at` as the pointer moves
     /// anywhere in the browser's windows until it's hidden.

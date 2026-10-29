@@ -350,7 +350,8 @@ expect "^browser: selected $tab\$" "Duplicate didn't show the copy"
 expect "^browser: page $tab icon 🌟\$" "Duplicate didn't copy the tab's icon"
 expect_page example.org 1 0 "the copy Duplicate made"
 # The window is titled by the tab shown, which the Window menu lists it by. The menu bar names its
-# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses.
+# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses, and
+# File has Share…, which the tabs run chooses from the command bar.
 send title
 expect '^browser: key window titled Example Domain$' "the window isn't titled by the tab shown"
 maybe='\( (disabled)\)\{0,1\}'
@@ -362,9 +363,12 @@ expect "^browser: menu bar View: Hide Sidebar$maybe, " "View doesn't name ⌘S H
 send menubar Tabs
 expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Clear Today" \
   "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar or Clear Today"
+send menubar File
+expect "^browser: menu bar File: .*, Open Command Bar$maybe, New Profile$maybe, .*, Share…$maybe, Capture…" \
+  "File has no New Profile after Open Command Bar, or no Share… before Capture…"
 send menubar Spaces
-expect "^browser: menu bar Spaces: New Space…$maybe, Rename Space$maybe, Change Profile › Default (checked)$maybe, Change Profile › New Profile (disabled), Next Space" \
-  "Spaces has no Change Profile after Rename Space, with the Space's profile checked"
+expect "^browser: menu bar Spaces: New Space…$maybe, Edit Theme…$maybe, Rename Space$maybe, Change Profile › Default (checked)$maybe, Change Profile › New Profile (disabled), Next Space" \
+  "Spaces has no Edit Theme… after New Space…, or no Change Profile after Rename Space with the Space's profile checked"
 send menubar Archive
 expect "^browser: menu bar Archive: .*, View Archive…$maybe, " "Archive has no View Archive…"
 send menubar Window
