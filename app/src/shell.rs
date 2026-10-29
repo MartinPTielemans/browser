@@ -167,6 +167,9 @@ const SIDEBAR_EDGE: f32 = 6.;
 // the pointer is past the hold zone, both on Arc's springs. Its window starts at the browser
 // window's top-left corner, so a point is at the same place in both.
 pub use crate::tokens::shell::REVEAL_INSET;
+/// A second ⎋ this soon after the first leaves window full screen, as a held one's first repeat
+/// does, which macOS sends 375 ms after the press by default.
+const ESCAPE_AGAIN: Duration = Duration::from_millis(500);
 const REVEAL_HOLD: f32 = 24.;
 const REVEAL_WAIT: Duration = Duration::from_millis(100);
 const REVEAL_IN_RESPONSE: f32 = 0.175;
@@ -1038,6 +1041,8 @@ pub struct Shell {
     link_system: Option<WindowTextSystem>,
     /// Whether the window is full screen, as macOS last told once its transition was over.
     full_screen: bool,
+    /// When ⎋ last went down in window full screen, for a second press to leave it.
+    escaped: Option<Instant>,
     /// On Linux, whether the window is maximized, which its third button shows.
     maximized: bool,
     /// Whether the window went full screen for the page, so it comes back with it.
@@ -1321,6 +1326,7 @@ impl Shell {
             link: None,
             link_system: None,
             full_screen: false,
+            escaped: None,
             maximized: false,
             window_for_page: false,
             page_held: None,

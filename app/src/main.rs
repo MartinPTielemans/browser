@@ -2778,6 +2778,13 @@ unsafe extern "C" fn tab_key_before_page(
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
+    let escape = unsafe { &*key };
+    if escape.modifiers == 0
+        && unsafe { CStr::from_ptr(escape.key) } == c"Escape"
+        && update_tab_window(tab, |shell, cx| shell.escape_before_page(cx)).unwrap_or(false)
+    {
+        return true;
+    }
     // As in Chrome, the reserved shortcuts come first, then the extensions' keys.
     if run_page_shortcut(tab, key, true) {
         return true;
