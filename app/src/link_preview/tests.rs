@@ -150,6 +150,7 @@ fn its_keys() {
     // Esc is reserved, before the page, as Chromium's stop would otherwise take it.
     assert_eq!(key_action("escape", true), Some(KeyAction::Close));
     assert_eq!(key_action("cmd-enter", false), Some(KeyAction::Keep));
+    assert_eq!(key_action("shift-cmd-c", false), Some(KeyAction::CopyUrl));
     assert_eq!(key_action("cmd-w", true), Some(KeyAction::Close));
     assert_eq!(key_action("escape", false), None);
     assert_eq!(key_action("cmd-l", false), None);
