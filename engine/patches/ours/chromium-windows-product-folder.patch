@@ -1,0 +1,22 @@
+On Windows, Chromium's folders and registry key are ilo's own. chrome_elf starts Crashpad, and
+chrome.exe looks for a running browser to hand its launch to, from the user data folder
+install_static names, before the core adds the app's --user-data-dir. As Chromium's, that was
+%LOCALAPPDATA%\Chromium\User Data, which any other Chromium on the machine shares: ilo's crash
+reports went with theirs, and a launch while one ran opened in it instead. As app/branding/name's,
+it's %LOCALAPPDATA%\ilo\User Data, the prod app's profile folder, so its reports are in its own
+Crashpad folder and a launch goes to the ilo that's running.
+
+--- a/chrome/install_static/chromium_install_modes.h
++++ b/chrome/install_static/chromium_install_modes.h
+@@ -21,7 +21,10 @@
+ 
+ // The brand-specific product name to be included as a component of the install
+ // and user data directory paths.
+-inline constexpr wchar_t kProductPathName[] = L"Chromium";
++// browser_core: app/branding/name's, so the folders and registry key chrome_elf
++// and chrome.exe use before the app gives its --user-data-dir are ilo's, not
++// every other Chromium's on the machine.
++inline constexpr wchar_t kProductPathName[] = L"ilo";
+ 
+ // The brand-specific safe browsing client name.
+ inline constexpr char kSafeBrowsingName[] = "chromium";
