@@ -206,6 +206,20 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
     })
 }
 
+/// The browser window the overlay of `view` shows over, by its UI's view, and where in its
+/// content, if it shows: ilo's menu shows over it there (menu_window.rs).
+pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
+    let (window, bounds) = OVERLAYS.with_borrow(|overlays| {
+        (overlays.iter().flatten())
+            .find(|o| o.view == view)
+            .and_then(|o| o.shown.as_ref().map(|shown| (shown.window, shown.bounds)))
+    })?;
+    let ui_view = crate::WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
+    })?;
+    Some((ui_view, bounds))
+}
+
 /// Hides `overlay` if it shows, and says whether it did. The window has its keyboard back once
 /// the overlay's gone, as the input focus on X11 says who had it.
 fn hide(overlay: c_int) -> bool {
@@ -223,6 +237,11 @@ fn hide(overlay: c_int) -> bool {
 /// The user left the overlay of `view`: a press outside it, or the keyboard going elsewhere. GPUI
 /// says so once its events are dispatched, outside any update.
 fn left_overlay(view: *mut c_void) {
+    // To ilo's menu over it, such as its field's, which gives the keyboard back as it closes.
+    if crate::menu_window::over(view) {
+        gpui_linux::set_overlay_keyboard(view, true, left_overlay);
+        return;
+    }
     let overlay = OVERLAYS.with_borrow(|overlays| {
         overlays
             .iter()

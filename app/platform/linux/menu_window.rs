@@ -5,7 +5,7 @@
 //!
 //! shortcut: the pointer isn't the menu's first, so a press outside closes it and lands where it
 //! was pressed too, and a right-click elsewhere doesn't open that menu in its place. It stays
-//! inside its window, which it can't go past under Wayland, and shows only over a browser window.
+//! inside its window, which it can't go past under Wayland.
 //!
 //! From the Linux driver's branch (feat/linux-drive, a566b45), which shows it the same way.
 
@@ -29,6 +29,8 @@ thread_local! {
     /// The browser window it shows over, by its UI's view and the core's id, and that window's
     /// size as it showed; None while hidden.
     static SHOWN: Cell<Option<(*mut c_void, bc::bc_id, Size<Pixels>)>> = const { Cell::new(None) };
+    /// The overlay it opened from, such as the command bar for its field's menu, by its view.
+    static OVER: Cell<Option<*mut c_void>> = const { Cell::new(None) };
 }
 
 #[unsafe(no_mangle)]
@@ -38,6 +40,7 @@ pub extern "C" fn host_add_menu_window(
     dismissed: extern "C" fn(),
     choose: extern "C" fn(*const c_char) -> bool,
 ) {
+    gpui_linux::set_overlay_menu(view);
     MENU.set(Some(Box::leak(Box::new(Menu {
         view,
         dismissed,
@@ -54,7 +57,8 @@ pub(crate) fn take_pointer_on(panels: &[Bounds<Pixels>]) {
 }
 
 /// Shows the menu's window at `left`, `top`, `width`, `height` in the content of `ui_view`'s
-/// browser window, with its keyboard, or moves it there as a submenu opens.
+/// browser window, or of the overlay `ui_view` is, with its keyboard, or moves it there as a
+/// submenu opens.
 #[unsafe(no_mangle)]
 pub extern "C" fn host_show_menu_window(
     ui_view: *mut c_void,
@@ -65,6 +69,10 @@ pub extern "C" fn host_show_menu_window(
     height: f64,
 ) {
     let Some(menu) = MENU.get() else { return };
+    let (over, (ui_view, origin)) = match overlays::placed(ui_view) {
+        Some((browser, bounds)) => (Some(ui_view), (browser, bounds.origin)),
+        None => (None, (ui_view, point(px(0.), px(0.)))),
+    };
     let window = crate::window_with_view(ui_view);
     if window == 0 {
         return;
@@ -72,10 +80,11 @@ pub extern "C" fn host_show_menu_window(
     if SHOWN.get().is_none() {
         let content = gpui_linux::embedder_size(ui_view).unwrap_or_default();
         SHOWN.set(Some((ui_view, window, content)));
+        OVER.set(over);
         overlays::lend_keyboard(window, menu.view, true);
     }
     let bounds = Bounds::new(
-        point(px(left as f32), px(top as f32)),
+        origin + point(px(left as f32), px(top as f32)),
         size(px(width as f32), px(height as f32)),
     );
     // The menu draws its panels' corners and shadows inside its window.
@@ -89,16 +98,21 @@ pub extern "C" fn host_hide_menu_window() {
     let (Some(menu), Some((_, window, _))) = (MENU.get(), SHOWN.take()) else {
         return;
     };
+    OVER.take();
     let view = menu.view;
     gpui_linux::hide_overlay(view, move || overlays::lend_keyboard(window, view, false));
     eprintln!("browser: menu window hidden");
 }
 
-/// The window's content, in its own points: the menu stays inside it.
+/// The window's content, in the points of `ui_view`, its own or an overlay's over it: the menu
+/// stays inside it.
 #[unsafe(no_mangle)]
 pub extern "C" fn host_menu_area(ui_view: *mut c_void, _in_reveal: bool, area: *mut f64) {
+    let (ui_view, origin) = overlays::placed(ui_view)
+        .map_or((ui_view, point(px(0.), px(0.))), |(browser, bounds)| (browser, bounds.origin));
     let content = gpui_linux::embedder_size(ui_view).unwrap_or_default();
-    let edges = [0., 0., f64::from(content.width), f64::from(content.height)];
+    let (x, y) = (f64::from(origin.x), f64::from(origin.y));
+    let edges = [-x, -y, f64::from(content.width) - x, f64::from(content.height) - y];
     // SAFETY: the caller passes four.
     unsafe { std::slice::from_raw_parts_mut(area, 4) }.copy_from_slice(&edges);
 }
@@ -123,6 +137,11 @@ pub(crate) fn resized(ui_view: *mut c_void) {
     {
         forget_window(ui_view);
     }
+}
+
+/// Whether the menu shows over the overlay of `view`, having opened from it.
+pub(crate) fn over(view: *mut c_void) -> bool {
+    SHOWN.get().is_some() && OVER.get() == Some(view)
 }
 
 /// The menu's view while it shows, for the test driver (drive.rs).
