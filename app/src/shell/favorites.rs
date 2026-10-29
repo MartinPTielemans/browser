@@ -5,7 +5,7 @@ use std::{collections::HashMap, rc::Rc, time::Instant};
 
 use gpui::{
     Context, Hsla, MouseButton, MouseDownEvent, Role, canvas, div, hsla, img, prelude::*, px,
-    rgba,
+    rgba, svg,
 };
 
 use crate::elevation::Level;
@@ -16,8 +16,9 @@ use super::{
     access::Accessible,
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
     HOVERED, LIST_TOP,
-    PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
-    TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
+    PLATE_INSET, Place, Row, SECONDARY, SELECTED, SLEEPING_FAVICON, Shell, Slot, Space,
+    TALL_FAVORITES, TILE, TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MARK, TILE_MARK_INSET,
+    TILE_MIN, TILE_RADIUS, TILE_RING, rows::capture_glyph,
     TILE_UNTHEMED, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
     title,
 };
@@ -456,7 +457,26 @@ impl Shell {
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+            .children(self.tile_mark(tab))
             .child(self.icon_drawn(tab))
+    }
+
+    /// A favorite's mark in its tile's top right: what its page captures or shares, as its row's,
+    /// else a note while it plays sound (Arc animates musical notes; ours is still, as a song would
+    /// draw every frame).
+    fn tile_mark(&self, tab: u64) -> Option<impl IntoElement + use<>> {
+        let page = self.page(tab);
+        let playing = (page.audible && !page.muted).then_some("icons/eighth-note.svg");
+        let glyph = capture_glyph(&page).or(playing)?;
+        Some(
+            svg()
+                .path(glyph)
+                .absolute()
+                .top(px(TILE_MARK_INSET))
+                .right(px(TILE_MARK_INSET))
+                .size(px(TILE_MARK))
+                .text_color(self.palette.text(SECONDARY)),
+        )
     }
 
     /// Logs the icon `tab`'s tile draws once it's another than the one it drew, so a capture after

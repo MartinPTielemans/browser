@@ -16,6 +16,7 @@
 #include "browser_core/platform/system_page.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/session.h"
+#include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
 #include "content/public/browser/navigation_controller.h"
@@ -41,6 +42,7 @@ class Window;
 // page back once a window shows it (Wake), as Chrome loads a restored tab once it's shown.
 class Tab : public content::WebContentsObserver,
             public favicon::FaviconDriverObserver,
+            public MediaStreamCaptureIndicator::Observer,
             public platform::SystemPage::Delegate {
  public:
   // |contents|'s id, given the first time it's asked for.
@@ -245,6 +247,16 @@ class Tab : public content::WebContentsObserver,
                         bool icon_url_changed,
                         const gfx::Image& image) override;
 
+  // MediaStreamCaptureIndicator::Observer:
+  void OnIsCapturingVideoChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsCapturingAudioChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsBeingMirroredChanged(content::WebContents* contents, bool mirrored) override;
+  void OnIsCapturingTabChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsCapturingWindowChanged(content::WebContents* contents, bool capturing) override;
+  void OnIsCapturingDisplayChanged(content::WebContents* contents, bool capturing) override;
+  // Within those, for a change to this tab's page.
+  void CaptureChanged(content::WebContents* contents);
+
   // Tells the app the tab's state from a task of its own, as StateChanged does, for a change the
   // session doesn't keep.
   void ReportStateSoon();
@@ -297,6 +309,8 @@ class Tab : public content::WebContentsObserver,
   base::ScopedObservation<favicon::FaviconDriver, favicon::FaviconDriverObserver>
       favicon_observation_{this};
   base::CallbackListSubscription audible_subscription_;
+  base::ScopedObservation<MediaStreamCaptureIndicator, MediaStreamCaptureIndicator::Observer>
+      capture_observation_{this};
   std::unique_ptr<content::NavigationController::LoadURLParams> waiting_;
   bool crashed_ = false;
   // While the page is hung: Chrome's Wait, and the id of the renderer that hung, which Reload ends.

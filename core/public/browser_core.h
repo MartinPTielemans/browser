@@ -92,6 +92,13 @@ typedef struct bc_tab_state {
   // The system's engine shows the page, WebKit on the Mac, in place of Chromium
   // (bc_tab_set_system_engine).
   bool system_engine;
+  // The page uses the camera, or the microphone, as Chrome's tab strip marks it.
+  bool camera;
+  bool microphone;
+  // The page shares a screen, a window or another tab, as a call does.
+  bool sharing;
+  // Another page shares this tab, as a call shows it.
+  bool shared;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.

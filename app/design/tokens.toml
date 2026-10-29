@@ -673,6 +673,10 @@ tile-height = 41.0
 tile-gap = 6.0
 tile-min = 48.0
 tile-radius = 12.0
+# A favorite's mark in its tile's top right, while its page uses the camera or microphone, shares
+# or is shared, or plays sound (ours).
+tile-mark = 12.0
+tile-mark-inset = 4.0
 # Favorites taller than this much of the window scroll with the list instead of staying put
 # (Ardia), so they never leave the rows too little room.
 tall-favorites = 0.4

@@ -542,6 +542,13 @@ pub struct Page {
     pub trouble: Trouble,
     /// Safari's engine shows the page, in place of Chromium.
     pub system_engine: bool,
+    /// The page uses the camera, or the microphone.
+    pub camera: bool,
+    pub microphone: bool,
+    /// The page shares a screen, a window or another tab, as a call does.
+    pub sharing: bool,
+    /// Another page shares this tab.
+    pub shared: bool,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the

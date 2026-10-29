@@ -4411,6 +4411,10 @@ unsafe extern "C" fn tab_state_changed(
             _ => Trouble::Fine,
         },
         system_engine: state.system_engine,
+        camera: state.camera,
+        microphone: state.microphone,
+        sharing: state.sharing,
+        shared: state.shared,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
         update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));

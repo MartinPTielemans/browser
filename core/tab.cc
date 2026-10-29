@@ -30,6 +30,7 @@
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -238,6 +239,11 @@ void Tab::Attach(content::WebContents* contents) {
   if (auto* audible = RecentlyAudibleHelper::FromWebContents(contents)) {
     audible_subscription_ = audible->RegisterRecentlyAudibleChangedCallback(
         base::IgnoreArgs<bool>(base::BindRepeating(&Tab::ReportStateSoon, base::Unretained(this))));
+  }
+  // Its page's camera, microphone and sharing, as Chrome's tab strip marks them.
+  if (!capture_observation_.IsObserving()) {
+    capture_observation_.Observe(
+        MediaCaptureDevicesDispatcher::GetInstance()->GetMediaStreamCaptureIndicator().get());
   }
   // Its page's alert(), confirm() and prompt() ask with the app's dialog.
   ScriptDialogs::Attach(contents);
@@ -881,6 +887,12 @@ void Tab::ReportState() {
   const std::string url =
       (page ? page->url() : waiting_ ? waiting_->url : contents->GetVisibleURL()).spec();
   const RecentlyAudibleHelper* audible = RecentlyAudibleHelper::FromWebContents(contents);
+  // The system's engine shows its page's own markers, and Chromium's capture none of it.
+  const scoped_refptr<MediaStreamCaptureIndicator> capture =
+      MediaCaptureDevicesDispatcher::GetInstance()->GetMediaStreamCaptureIndicator();
+  const bool sharing = capture->IsCapturingTab(contents) ||
+                       capture->IsCapturingWindow(contents) ||
+                       capture->IsCapturingDisplay(contents);
   const bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = CanGoBack(),
@@ -894,6 +906,10 @@ void Tab::ReportState() {
       .trouble = Trouble(),
       .net_error = Trouble() == BC_PAGE_NETWORK_ERROR ? net_error_ : 0,
       .system_engine = page != nullptr,
+      .camera = !page && capture->IsCapturingVideo(contents),
+      .microphone = !page && capture->IsCapturingAudio(contents),
+      .sharing = !page && sharing,
+      .shared = !page && capture->IsBeingMirrored(contents),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
@@ -1243,6 +1259,37 @@ int Tab::Trouble() const {
     return BC_PAGE_HUNG;
   }
   return net_error_ ? BC_PAGE_NETWORK_ERROR : BC_PAGE_FINE;
+}
+
+void Tab::OnIsCapturingVideoChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingAudioChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsBeingMirroredChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingTabChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingWindowChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingDisplayChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::CaptureChanged(content::WebContents* contents) {
+  // Every tab hears every page's.
+  if (contents && contents == web_contents()) {
+    ReportStateSoon();
+  }
 }
 
 void Tab::WebContentsDestroyed() {

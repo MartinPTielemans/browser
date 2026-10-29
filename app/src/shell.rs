@@ -243,6 +243,7 @@ use crate::tokens::shell::TILE_HEIGHT;
 use crate::tokens::shell::TILE_GAP;
 use crate::tokens::shell::TILE_MIN;
 use crate::tokens::shell::TILE_RADIUS;
+use crate::tokens::shell::{TILE_MARK, TILE_MARK_INSET};
 use crate::tokens::shell::TALL_FAVORITES;
 use crate::tokens::shell::NAME_HEIGHT;
 // The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
@@ -2206,6 +2207,15 @@ impl Shell {
         if (page.audible, page.muted) != (entry.page.audible, entry.page.muted) {
             let (audible, muted) = (flag(page.audible), flag(page.muted));
             log!("browser: page {tab} audible {audible} muted {muted}");
+        }
+        let capture = |page: &Page| [page.camera, page.microphone, page.sharing, page.shared];
+        if capture(&page) != capture(&entry.page) {
+            let [camera, microphone, sharing, shared] = capture(&page).map(flag);
+            // check.sh waits for these lines.
+            log!(
+                "browser: page {tab} camera {camera} microphone {microphone} sharing {sharing} \
+                 shared {shared}"
+            );
         }
         if page.icon != entry.page.icon {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
