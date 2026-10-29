@@ -1,11 +1,11 @@
-# The browser on Linux, run and checked by app/check.sh (AGENTS.md, Verifying) under Xvfb, on X11,
-# on the Linux engine built from this commit's core: the safety net for what the Mac and Linux
-# share. Main's pushes and runs by hand only, on GitHub's hosted runners: never a pull request, and
-# never the self-hosted runner, which builds the engine. It never builds an engine: it takes the
-# newest engine-linux release in this commit's history (engine/fetch.sh), and a commit whose
-# core/public/browser_core.h no published engine has is skipped, as nothing can run it. Every run
-# in app/check/ shows in the summary: passed, failed, or skipped and why, with the lines a run
-# that passed skipped. Failures fail the job, which nothing waits on yet.
+# The browser on Linux, run and checked by app/check.sh (AGENTS.md, Verifying) under Xvfb and
+# openbox, on X11, on the Linux engine built from this commit's core: the safety net for what the
+# Mac and Linux share. Main's pushes and runs by hand only, on GitHub's hosted runners: never a
+# pull request, and never the self-hosted runner, which builds the engine. It never builds an
+# engine: it takes the newest engine-linux release in this commit's history (engine/fetch.sh), and
+# a commit whose core/public/browser_core.h no published engine has is skipped, as nothing can run
+# it. Every run in app/check/ shows in the summary: passed, failed, or skipped and why, with the
+# lines a run that passed skipped. Failures fail the job, which nothing waits on yet.
 name: Check on Linux
 
 on:
@@ -59,17 +59,17 @@ jobs:
 
       # bindgen reads the core's header with libclang; GPUI links xcb and xkbcommon, and draws with
       # Vulkan, which the GPU-less runner has in Mesa's software driver, lavapipe. check.sh runs
-      # the app under Xvfb (BROWSER_XVFB), captures it with ImageMagick's import and reads pixels
-      # with ImageMagick, whose `magick` Ubuntu's 6.9 calls `convert`. Ubuntu's AppArmor denies
-      # Chromium's sandbox the user namespaces it needs, so the runner allows them, and the sandbox
-      # stays on.
+      # the app under Xvfb and openbox (BROWSER_XVFB), captures it with ImageMagick's import and
+      # reads pixels with ImageMagick, whose `magick` Ubuntu's 6.9 calls `convert`. Ubuntu's
+      # AppArmor denies Chromium's sandbox the user namespaces it needs, so the runner allows them,
+      # and the sandbox stays on.
       - if: ${{ steps.engine.outputs.found == 'true' }}
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get update -q
           sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
             libx11-xcb-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers libegl1 \
-            libgl1-mesa-dri xvfb xauth imagemagick
+            libgl1-mesa-dri xvfb xauth openbox imagemagick
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
           printf '#!/bin/sh\nexec convert "$@"\n' > "$RUNNER_TEMP/bin/magick"
@@ -96,6 +96,9 @@ jobs:
         env:
           RUNS: ${{ inputs.runs }}
           BROWSER_XVFB: 1
+          # The runner's C.UTF-8 names no country, for which Chromium's search engines leave out
+          # DuckDuckGo, the one the core picks, so the command bar would offer no search.
+          LANG: en_US.UTF-8
         run: |
           out=$RUNNER_TEMP/check
           mkdir -p "$out"
@@ -107,7 +110,7 @@ jobs:
           *) runs=$RUNS ;;
           esac
           {
-            echo "Under Xvfb, on X11 with no window manager."
+            echo "Under Xvfb and openbox, on X11."
             echo
             echo "| Run | Result |"
             echo "|---|---|"
