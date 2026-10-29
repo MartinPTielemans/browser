@@ -45,6 +45,14 @@ document.onvisibilitychange = () => {
 </script>'
 log="$out/spaces.log"
 step=0
+# X11 sends a touchpad's scrolling with no start or end, so two fingers never page there (#554):
+# its steps go to the Spaces and the Library by key, click and wheel instead. Its clicks land on
+# whole pixels, at scale 1 here.
+x11=
+if [ "$(uname)" = Linux ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  x11=1
+  echo "skip: two fingers across the sidebar, on X11, which sends no touch phases (#554)."
+fi
 rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -100,11 +108,14 @@ expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on s
 at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
 [ "$(echo "$at" | awk '{ print $3, $4 }')" = "370 509" ] ||
   fail "the theme picker opened at $at, not 370 by 509"
-# Half way from the field's middle to its right edge is red: hue 0 at lightness 0.5.
+# Half way from the field's middle to its right edge is red: hue 0 at lightness 0.5. A whole
+# pixel's click lands half a point right of it and below.
 red="x=0.5000 y=0.0000 colors=1 intensity=0.810 grain=0.000 appearance=automatic"
+red_color=ff0000
+[ -z "$x11" ] || { red=${red/x=0.5000 y=0.0000/x=0.5030 y=0.0030}; red_color=ff0302; }
 send clickkey 276.5 178.5
 expect "^browser: theme picker set $second $red\$" "a click in the field didn't give a colour"
-expect "^browser: colored space $second ff0000\$" "the field's colour wasn't the Space's colour"
+expect "^browser: colored space $second $red_color\$" "the field's colour wasn't the Space's colour"
 expect "^browser: themed space $second $red\$" "the core didn't keep the Space's theme"
 # + makes it two colours, the second the first's opposite.
 send clickkey 211.5 316.5
@@ -181,6 +192,7 @@ expect "^browser: title $a visible 0\$" \
 # along the list scroll it, and a wheel's tick across pages once. Held partway, the next Space's
 # page shows beside the first's.
 swipe_point="110 500"
+if [ -z "$x11" ]; then
 # Fingers catch a page still sliding in from the dot's switch where it is, from which this swipe
 # would go on past halfway.
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
@@ -205,6 +217,10 @@ none_since '^browser: space [0-9]' || fail "a flick past the last Space showed a
 send swipe $swipe_point 1 -10 10
 expect '^browser: swipe along$' "two fingers along the list didn't read as scrolling"
 none_since '^browser: space [0-9]' || fail "two fingers along the list showed another Space"
+else
+  show_space "key 2 ctrl" select-space ui "$second" "$b"
+  expect "^browser: settled space $second\$" "the second Space's page didn't settle"
+fi
 send wheel $swipe_point 1
 expect '^browser: command select-space via wheel$' "a wheel's tick across the sidebar didn't page"
 expect "^browser: space $first in " "a wheel's tick across the sidebar didn't show the first Space"
@@ -213,6 +229,13 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 # Past the first Space is the Library. Held partway it shows beside the page, and let go short of
 # halfway it goes back. A flick brings it out and one the other way puts it back, and so do a
 # wheel's ticks.
+# $1 is how the driver moves, $2 its source and $3 whether the Library shows after it.
+library_to() {
+  send $1
+  expect "^browser: command view-library via $2\$" "a $1 didn't reach the Library"
+  expect "^browser: library $3\$" "a $1 didn't leave the Library $3"
+}
+if [ -z "$x11" ]; then
 post swipe $swipe_point 30 0 10 1500
 expect '^browser: library section ' "two fingers past the first Space didn't bring the Library out"
 ../tools/window-screenshot.sh "$pid" "$out/library-swipe.png" || fail "no window to capture"
@@ -220,12 +243,6 @@ await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 expect '^browser: library hidden$' "a swipe let go short of halfway didn't put the Library back"
 none_since '^browser: command view-library' ||
   fail "a swipe let go short of halfway opened the Library"
-# $1 is how the driver moves, $2 its source and $3 whether the Library shows after it.
-library_to() {
-  send $1
-  expect "^browser: command view-library via $2\$" "a $1 didn't reach the Library"
-  expect "^browser: library $3\$" "a $1 didn't leave the Library $3"
-}
 library_to "swipe $swipe_point 12 0 10" swipe shown
 # Fingers going on past where it opens take the Library on a little with the card, its column's
 # fill still reaching the window's left edge, lighter than the window right of it.
@@ -240,6 +257,7 @@ await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 none_since '^browser: command view-library' || fail "fingers past the Library's end closed it"
 expect '^browser: library shown$' "the Library didn't settle back where it opens"
 library_to "swipe $swipe_point -12 0 10" swipe hidden
+fi
 library_to "wheel $swipe_point 1" wheel shown
 # Its Spaces section is as wide as its two cards, 216 + 264 a Space as Arc's, unless that would
 # leave the page less than 400, and never narrower than one card's 480. The section's button is
@@ -263,14 +281,14 @@ library_to "wheel $swipe_point -1" wheel hidden
 
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
 post rightclick $(row 0)
-expect "^browser: menu shown Copy Link, $share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1 (checked), Move to › reading 日本語, Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)\$" "the tab's menu didn't offer the other Space"
+expect "^browser: menu shown Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1 (checked), Move to › reading 日本語, Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)\$" "the tab's menu didn't offer the other Space"
 send choose reading 日本語
 expect '^browser: command move-to-space via tab menu$' "Move to didn't run"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to didn't show the tab's new Space"
 expect_tabs "$a $b" "$a" "after Move to"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 post rightclick $(row 0)
-expect "^browser: menu shown Copy Link, $share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1, Move to › reading 日本語 (checked), Move to › New Space…, Archive Tab, Archive Tabs Below\$" "the moved tab's menu didn't offer the first Space"
+expect "^browser: menu shown Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1, Move to › reading 日本語 (checked), Move to › New Space…, Archive Tab, Archive Tabs Below\$" "the moved tab's menu didn't offer the first Space"
 send choose Space 1
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
 expect_tabs "$a" "$a" "after moving the tab back"
@@ -316,6 +334,7 @@ step=$slide
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 step=$now
 
+if [ -z "$x11" ]; then
 send swipe $swipe_point -10 0 10
 expect '^browser: swipe across$' "two fingers across the sidebar didn't page"
 none_since '^browser: new space ready$' || fail "a short pull past the last Space readied a Space"
@@ -325,6 +344,11 @@ expect '^browser: new space ready$' "a long pull past the last Space didn't read
 await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 expect '^browser: command new-space via swipe$' "letting go of a readied pull didn't make a Space"
 expect "^browser: spaces $first $second [0-9]*\$" "the pull didn't make a third Space"
+else
+  send menu New Space…
+  expect '^browser: command new-space via ui$' "New Space in the menu didn't run new-space"
+  expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
+fi
 third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
 expect "^browser: space $third in " "the window didn't show the third Space"
 send key return
@@ -359,6 +383,7 @@ expect '^browser: command new-space via ui$' "New Space in the menu didn't run n
 expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
 third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
 expect "^browser: settled space $third\$" "the form's page didn't settle"
+if [ -z "$x11" ]; then
 send swipe $swipe_point -40 0 10
 expect '^browser: swipe across$' "two fingers across the form didn't page"
 expect "^browser: settled space $third\$" "the form's page didn't settle back"
@@ -375,6 +400,10 @@ await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 expect "^browser: settled space $third\$" "the form's page didn't spring back"
 send swipe $swipe_point 12 0 10
 expect "^browser: cancel space $third\$" "two fingers back off the form didn't cancel it"
+else
+  send click 114 $((${content#*x} - 74))
+  expect "^browser: cancel space $third\$" "a click on Cancel didn't cancel"
+fi
 expect "^browser: space $first in " "a swipe back off the form didn't show the Space it came from"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 expect "^browser: spaces $first $second\$" "a swipe back off the form didn't delete its Space"
