@@ -959,6 +959,8 @@ Ardia's docs record nothing of Arc's Peek. Everything about it is in the capture
 
 It floats over the page, so it is a child window (decision 4).
 
+- **Reopening.** ⌘Z and ⇧⌘T reopen a closed Peek, as they reopen closed tabs (Arc). Closing one, by Esc, ⌘W, its button or a click outside, is a step of the window's undo history, Close Link Preview in the Edit menu: ⌘Z opens it again over the tab it was on, at the page it was at, growing from its link, and shows that tab first if another shows; ⇧⌘Z closes it. ⇧⌘T reopens it while no tab has closed since, as it reopens what closed last, and then ⌘Z has nothing of it to reopen. A private window keeps none, as it keeps no history. The user's alone: agents get no Peek (ours).
+
 ### Little Arc
 
 Arc's keys are recorded: ⌥⌘N, and ⌘O to open the page in the main window. The behavior below is Ardia's version (P§1), modeled on Arc and not measured from it.

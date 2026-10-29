@@ -2,7 +2,8 @@
 # its page in a tab of no Space, and the pinned tab stays on its page. Esc closes it and its page.
 # ⌘↩ keeps it as the top Today tab, shown, without loading it again. A click on the dim closes it,
 # and the page behind doesn't get the click. ⌘W with its page focused closes it, and not the tab
-# behind. A favorite's link opens it too. With the Settings switch off, the link goes in the pinned
+# behind. ⌘Z reopens a closed one over its tab at its page, and so does ⇧⌘T while no tab has closed
+# since. A favorite's link opens it too. With the Settings switch off, the link goes in the pinned
 # tab. Reports how long the first preview took to draw its first frame.
 
 serve
@@ -124,6 +125,29 @@ in_order "after ⌘W" '^browser: link preview closing (cmd-w)$' "^browser: tab $
 none_since '^browser: command close-tab' || fail "⌘W in the preview closed the tab behind"
 none_since "^browser: page $a unloaded 1\$" || fail "⌘W in the preview unloaded the pinned tab"
 
+# ⌘Z reopens the preview closed last over the pinned tab, at its page, growing from its link as it
+# draws. Esc closes it again, and ⇧⌘T reopens it too, as no tab has closed since.
+reopened() {
+  expect "^browser: link preview reopened over $a via $1\$" "$2 didn't reopen the closed preview"
+  expect "^browser: link preview [1-9][0-9]* $target\$" "$2 didn't open the preview at its page"
+  p=$(grep "^browser: link preview [1-9][0-9]* $target\$" "$log" | tail -1 | cut -d' ' -f4)
+  expect '^browser: link preview shown$' "$2: the reopened preview's window didn't show"
+  expect '^browser: link preview settled$' "$2: the reopened preview didn't settle"
+  expect "^browser: loaded $p $target\$" "$2: the reopened preview's page didn't load"
+}
+send key z cmd
+expect '^browser: command undo via page$' "⌘Z with the page focused didn't reach the UI"
+reopened undo "⌘Z"
+../tools/window-screenshot.sh "$pid" "$out/preview-reopened.png" || fail "no window to capture"
+send key escape
+in_order "after Esc on the reopened preview" '^browser: link preview closing (escape)$' \
+  "^browser: tab $p closed\$"
+send key t cmd shift
+reopened reopen-closed-tab "⇧⌘T"
+send key escape
+expect "^browser: tab $p closed\$" "Esc didn't close the preview ⇧⌘T reopened"
+still_home "after reopening the preview"
+
 # A favorite's links open it too: the pinned tab's copy, which Duplicate Tab in its menu puts at the
 # top of Today, under the pinned row, the divider and "+ New Tab", dragged onto the Space's name.
 away
@@ -167,5 +191,5 @@ none_since '^browser: link preview ' || fail "with previews off, the link opened
 
 exec 3>&-
 quit
-echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, and ⌘↩ keeps as the top Today tab, shown, without loading it again. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png"
+echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png"
 echo "  The first preview's first frame came $first_frame after the click reached the UI."

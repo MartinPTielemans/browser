@@ -1010,6 +1010,8 @@ pub struct Shell {
     history: undo::History,
     /// The toast shows an Undo button, which the next thing the user does takes away.
     undo_offered: bool,
+    /// The link preview the user closed last, for ⇧⌘T while no tab has closed since.
+    closed_preview: Option<crate::link_preview::Closed>,
     /// What the Edit menu was last told Undo and Redo do.
     edit_titles: (Option<&'static str>, Option<&'static str>),
     /// Whether the pointer is over the docked sidebar, which shows Clear and the URL field's button
@@ -1280,6 +1282,7 @@ impl Shell {
             drawn_hover: (None, None, "0"),
             history: undo::History::default(),
             undo_offered: false,
+            closed_preview: None,
             edit_titles: (None, None),
             sidebar_hovered: false,
             hover_changed: false,
