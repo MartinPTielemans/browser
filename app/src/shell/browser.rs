@@ -261,6 +261,8 @@ pub trait Browser {
     fn set_focus_color(&self, color: u32, cx: &mut App);
     /// What the window's pages show until their first frame, 0xRRGGBB.
     fn set_page_color(&self, color: u32, cx: &mut App);
+    /// Draws the window's material light, or dark, under the UI's tint.
+    fn set_window_light(&self, light: bool, cx: &mut App);
     /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
     /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
     /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.

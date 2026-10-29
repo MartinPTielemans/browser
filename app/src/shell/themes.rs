@@ -14,8 +14,8 @@ use super::{
     undo::{Prop, Value},
 };
 use crate::{
-    palette::{self, Palette, SECOND_AT},
-    theme::{self, GRAIN_STRENGTH, GRAIN_TILE, Theme},
+    palette::{self, Palette, SECOND_AT, Tone},
+    theme::{self, Appearance, GRAIN_STRENGTH, GRAIN_TILE, Theme},
     theme_picker::{self, Changed},
 };
 
@@ -44,20 +44,53 @@ impl Shell {
         })
     }
 
-    /// `space`'s palette, worked out once for each theme it shows rather than while drawing.
+    /// Whether `space`'s window is dark or light: as its theme's appearance forces it, else as
+    /// the system's is, as Arc's follows it. A private window is dark, as Arc's is.
+    pub(super) fn tone_of(&self, space: u64) -> Tone {
+        if self.private {
+            return Tone::Dark;
+        }
+        match self.theme_of(space).map(|theme| theme.appearance) {
+            Some(Appearance::Light) => Tone::Light,
+            Some(Appearance::Dark) => Tone::Dark,
+            Some(Appearance::Automatic) | None => self.system_tone,
+        }
+    }
+
+    /// Reads the system's appearance as the window draws, and draws the window again once it
+    /// changes, which GPUI doesn't by itself.
+    pub(super) fn watch_appearance(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        let system = match window.appearance() {
+            gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight => Tone::Light,
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => Tone::Dark,
+        };
+        self.system_tone = self.forced_tone.unwrap_or(system);
+        if self.appearance_watch.is_none() {
+            self.appearance_watch = Some(cx.observe_window_appearance(window, |_, _, cx| cx.notify()));
+        }
+    }
+
+    /// Draws the window as if the system's appearance were `tone`, as the preview does to show
+    /// either without changing the system's.
+    pub fn force_tone(&mut self, tone: Option<Tone>) {
+        self.forced_tone = tone;
+    }
+
+    /// `space`'s palette, worked out once for each theme and tone it shows rather than while
+    /// drawing.
     pub(super) fn palette_of(&self, space: u64) -> Palette {
-        let theme = self.space_theme(space);
+        let key = (self.space_theme(space), self.tone_of(space));
         let mut palettes = self.palettes.borrow_mut();
-        if let Some(at) = palettes.iter().position(|(each, _)| *each == theme) {
+        if let Some(at) = palettes.iter().position(|(each, _)| *each == key) {
             let kept = palettes.remove(at);
             palettes.push(kept);
             return kept.1;
         }
-        let palette = Palette::of(theme.as_ref());
+        let palette = Palette::of(key.0.as_ref(), key.1);
         if palettes.len() == PALETTES {
             palettes.remove(0);
         }
-        palettes.push((theme, palette));
+        palettes.push((key, palette));
         palette
     }
 
@@ -71,6 +104,11 @@ impl Shell {
             palette = palette.toward(&self.palette_of(beside), t);
         }
         self.palette = palette;
+        let light = palette.tone == Tone::Light;
+        if self.window_light != Some(light) {
+            self.window_light = Some(light);
+            self.browser.set_window_light(light, cx);
+        }
         if cx.try_global::<super::commands::ShellHandle>().is_some_and(|key| key.0 == cx.weak_entity()) {
             palette::set_current(palette, cx);
         }

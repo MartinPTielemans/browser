@@ -11,7 +11,7 @@ use super::{
 use crate::{
     menu::{Highlight, Look, Swatch},
     space_icon::{SpaceIcon, has_icon},
-    theme::Appearance,
+    palette::Tone,
 };
 
 /// ilo's nouns, which stay capitalized in a sentence, as Chrome's Incognito does.
@@ -229,11 +229,11 @@ impl Shell {
         );
     }
 
-    /// The look of the window's menus: light only where the Space's theme asks for it, as the rest
-    /// of the window is dark, with the Space's accent under the row the pointer or the keys are on.
+    /// The look of the window's menus: the Space's window's, dark or light, with its accent under
+    /// the row the pointer or the keys are on.
     pub fn menu_look(&self) -> Look {
-        let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
-        Look { light: light && !self.private, highlight: Highlight::of(&self.palette_of(self.space)) }
+        let palette = self.palette_of(self.space);
+        Look { light: palette.tone == Tone::Light, highlight: Highlight::of(&palette) }
     }
 
     /// Shows `items` at `position` in ilo's menu, or with the one at `over` there, as a pop-up
@@ -724,7 +724,7 @@ impl Shell {
         }
         let entry = self.spaces.iter().find(|each| each.id == space);
         let color = self.theme_of(space).map(|theme| theme.main_color());
-        let untinted = || crate::theme::packed(crate::palette::Palette::of(None).accent);
+        let untinted = || crate::theme::packed(crate::palette::Palette::of(None, self.tone_of(space)).accent);
         let color = color.or(entry.and_then(|each| each.color)).unwrap_or_else(untinted);
         let hsla = Hsla::from(rgb(color));
         let lighter = crate::theme::packed(Rgba::from(Hsla { l: (hsla.l + 0.25).min(1.), ..hsla }));

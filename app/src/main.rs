@@ -156,6 +156,7 @@ mod platform {
             height: *mut f64,
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
+        pub fn host_set_window_light(ui_view: *mut c_void, light: bool);
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
@@ -2198,6 +2199,10 @@ impl Browser for Engine {
 
     fn set_page_color(&self, color: u32, _: &mut App) {
         unsafe { bc::bc_window_set_page_color(self.window, color) };
+    }
+
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        unsafe { platform::host_set_window_light(self.ui_view, light) };
     }
 
     fn page_moving(&self, moving: bool, _: &mut App) {

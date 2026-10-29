@@ -18,7 +18,7 @@ use image::{Frame, RgbaImage};
 
 use crate::{
     icon_picker,
-    palette::{self, Palette, Swatch},
+    palette::{self, Palette, Swatch, Tone},
     shell::{KEY_CONTEXT, cubic_bezier},
     theme::{self, Appearance, DEFAULT_INTENSITY, MAX_COLORS, Theme},
 };
@@ -274,7 +274,8 @@ pub fn show(
                 glide: None,
                 pressed: None,
                 drawn: false,
-                palette: Palette::of(theme.as_ref()),
+                // The picker is a dark sheet over a dark or a light window, as the icon picker is.
+                palette: Palette::of(theme.as_ref(), Tone::Dark),
             });
             window.focus(&picker.focus, cx);
             picker.host.show(left, top, &corners(arrow_y));
