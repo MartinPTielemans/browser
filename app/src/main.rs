@@ -3240,6 +3240,10 @@ fn open_window_as(
         // Its Space drawn before it's on screen, rather than once the core's report comes.
         window.update(cx, |shell, _, cx| shell.set_space(space, cx)).ok();
     }
+    // From a full-screen window it goes full screen too, as Arc's ⌘N does, rather than opening on
+    // the desktop behind.
+    let full_screen = saved.is_none()
+        && from_shell.as_ref().is_some_and(|from| from.read(cx).is_full_screen());
     let first = from.is_none();
     // Once the page frame is set, so the tab shown loads at its size, and before the window is on
     // screen, so the core's reports of its tabs can come before its first frame.
@@ -3247,6 +3251,17 @@ fn open_window_as(
     match (&from, saved) {
         (Some(from), Some(_)) => unsafe { platform::host_show_window_behind(ui_view, from.ui_view) },
         _ => unsafe { platform::host_show_window(ui_view) },
+    }
+    if full_screen {
+        // As the green button, or on Linux the window manager's key, puts it there.
+        #[cfg(target_os = "linux")]
+        unsafe {
+            bc::bc_window_toggle_full_screen(id)
+        };
+        #[cfg(not(target_os = "linux"))]
+        unsafe {
+            platform::host_press_window_button(ui_view, 2)
+        };
     }
     log_frame(id, ui_view);
     if !first {

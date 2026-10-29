@@ -2309,6 +2309,11 @@ impl Shell {
         }
     }
 
+    /// Whether the window is full screen, as the host last said.
+    pub fn is_full_screen(&self) -> bool {
+        self.full_screen
+    }
+
     /// The window has gone full screen or left it: going, it says how to leave, as Arc's does,
     /// unless a page took it there, and leaving takes that away.
     pub fn set_full_screen(&mut self, entered: bool, cx: &mut Context<Self>) {
