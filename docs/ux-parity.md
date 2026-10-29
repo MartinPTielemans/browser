@@ -228,6 +228,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Settings window | MVP | 684 × 650, ⌘, and Settings…; toolbar of tabs with the accent on a plate; ⌘W and close hide it; opens on the tab shown last | Arc 1.170.0 cap, ax |
 | [x] | Boxes, rows, switch, pop-up and buttons | MVP | the spec's measures; the pop-up's menu opens over it | Arc 1.170.0 cap, ax |
 | [x] | Shortcuts tab | MVP | the browser's shortcuts by section, read-only | Ours |
+| [ ] | ⌃1–⌃9 rebindable | MVP | Go to Space 1 to 9, each its own row and keys, kept across a relaunch. Built, lib tests; not run in the app | Arc 1.170.0 (#682) |
+| [ ] | Restore windows from last session | MVP | Advanced's switch, on; off, a launch opens one window with no page, at the front one's frame, the Spaces, pinned tabs and favorites back and the Today tabs in the archive. Built; the core's part is uncompiled until an engine is built with it | Arc 1.170.0 Settings › Advanced (#684) |
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
 | [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit ilo?" in the dialog: "Quit, and don't ask again" at the left, Cancel ESC and a blue Quit ↩ at the right; no icon, so 172 tall where Arc's is 249; Dock and logout quits don't | Arc 1.170.0 cap, bin; Arc 1.170 rec |
