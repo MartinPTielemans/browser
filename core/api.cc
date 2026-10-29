@@ -938,6 +938,12 @@ bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   return window ? window->RestoreArchived(archived) : 0;
 }
 
+void bc_window_answer_downloads(bc_id window_id, bool cancel) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->AnswerDownloads(cancel);
+  }
+}
+
 void bc_extension_answer(bc_id question, bool accept) {
   browser_core::InstallQuestion::Answer(question, accept);
 }

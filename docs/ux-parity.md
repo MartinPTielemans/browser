@@ -323,7 +323,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Recent downloads over the Library button | MVP | up to 4 finished, newest at the bottom, 56 apart: 40 pt preview or 26 pt icon at 8, name 15 pt at 61 over its age; ours: after a 0.5 s rest (its own, not the tooltip's 0.73 s), 0.15 s fade, a row acts as the Library's *interim*; tooltip with key chips and glyph motion: #189 | owner's Arc cap |
 | [x] | Fly-in | MVP | ours: 32 → 16 pt icon from under the URL field to the button on a slight arc, 0.45 s on cubic-bezier(0.55, 0, 0.85, 0.4), fading over the last 30 %; Arc's: measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
 | [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
-| [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
+| [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert on the Mac and the app's dialog in its words on Linux and Windows; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
 
 ## Find in page
 
