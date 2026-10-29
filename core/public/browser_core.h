@@ -957,6 +957,24 @@ BC_EXPORT bc_id bc_profile_create(const char* name);
 // Space or a favorite is in, the one the core started with or the last. Then spaces_changed.
 BC_EXPORT bool bc_profile_delete(bc_id profile);
 
+// The settings below are the profile's own, as Arc's Settings › Profiles keeps them, and the
+// user's: agents get none. A profile that isn't loaded, as one no Space or favorite is in after a
+// relaunch, has none to read or set: it loads, then spaces_changed.
+
+// Copies the folder the profile's downloads go to, UTF-8, into |path| as bc_space_name does, or
+// nothing for a profile that isn't loaded.
+BC_EXPORT size_t bc_profile_download_folder(bc_id profile, char* path, size_t capacity);
+// Sends the profile's downloads to the folder at |path|, UTF-8, and returns whether it will: not
+// for a profile that isn't loaded, a path that isn't absolute, or a folder a policy sets.
+BC_EXPORT bool bc_profile_set_download_folder(bc_id profile, const char* path);
+// Sets |offers| to whether the profile offers to save a password the user signs in with, as
+// Chrome's Offer to save passwords, and returns whether it could: not for one that isn't loaded.
+// It still fills those it has.
+BC_EXPORT bool bc_profile_offers_passwords(bc_id profile, bool* offers);
+// Has the profile offer to save passwords, or not, and returns whether it will: not for a profile
+// that isn't loaded, or one a policy sets.
+BC_EXPORT bool bc_profile_set_offers_passwords(bc_id profile, bool offer);
+
 // A page of another browser's history, for bc_profile_add_history. Strings are UTF-8.
 typedef struct bc_history_page {
   const char* url;

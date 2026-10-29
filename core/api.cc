@@ -48,12 +48,15 @@
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/tabs/public/tab_interface.h"
 #include "components/zoom/page_zoom.h"
 #include "components/zoom/zoom_controller.h"
@@ -467,6 +470,48 @@ bc_id bc_profile_create(const char* name) {
 
 bool bc_profile_delete(bc_id profile) {
   return browser_core::DeleteProfile(profile);
+}
+
+size_t bc_profile_download_folder(bc_id profile_id, char* path, size_t capacity) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  return CopyString(
+      profile ? DownloadPrefs::FromBrowserContext(profile)->DownloadPath().AsUTF8Unsafe() : "",
+      path, capacity);
+}
+
+bool bc_profile_set_download_folder(bc_id profile_id, const char* path) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  const base::FilePath folder = base::FilePath::FromUTF8Unsafe(path ? path : "");
+  if (!profile || !folder.IsAbsolute()) {
+    return false;
+  }
+  DownloadPrefs* prefs = DownloadPrefs::FromBrowserContext(profile);
+  if (prefs->IsDownloadPathManaged()) {
+    return false;
+  }
+  // As Chrome's Location setting, which sets where Save Page As starts too.
+  prefs->SetDownloadPath(folder);
+  return true;
+}
+
+bool bc_profile_offers_passwords(bc_id profile_id, bool* offers) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  if (!profile || !offers) {
+    return false;
+  }
+  *offers = profile->GetPrefs()->GetBoolean(password_manager::prefs::kCredentialsEnableService);
+  return true;
+}
+
+bool bc_profile_set_offers_passwords(bc_id profile_id, bool offer) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  PrefService* prefs = profile ? profile->GetPrefs() : nullptr;
+  if (!prefs || !prefs->IsUserModifiablePreference(
+                    password_manager::prefs::kCredentialsEnableService)) {
+    return false;
+  }
+  prefs->SetBoolean(password_manager::prefs::kCredentialsEnableService, offer);
+  return true;
 }
 
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
