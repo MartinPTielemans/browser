@@ -128,15 +128,16 @@ so a build whose profile is elsewhere, as a dev build's is, does none of that.
   doesn't. Reports leave out the memory that pointers on the stack lead to, which can hold a
   page's, and Chrome's dumps of processes that didn't crash. The stacks can still hold a URL or
   page text, which is why sending is the user's to turn on.
-- **The collector.** `app/branding/crash-reports` holds GlitchTip's minidump endpoint,
+- **The collector.** `app/branding/crash-reports` holds the minidump endpoint of ilo's Sentry
+  project, in Sentry's EU region (organization `ilo-rg`, project `ilo`):
   `https://<host>/api/<project id>/minidump/?sentry_key=<key>`, read off the project's DSN,
-  `https://<key>@<host>/<project id>`. Only the prod build (`app/build.sh prod`, as every
-  release is) names it, so a dev build or a check never sends to it. Empty, as a fork's starts,
-  the build sends nothing and Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
-  (glitchtip.com/documentation/install), an organization and a project, and an auth token with
-  `project:write` for the symbols.
+  `https://<key>@<host>/<project id>`. The key is public, as every client carries it. Only the
+  prod build (`app/build.sh prod`, as every release is) names it, so a dev build or a check never
+  sends to it, and Settings › Privacy names it "Sentry (EU region)". Empty, as a fork's starts,
+  the build sends nothing and Settings has no Privacy tab. A fork names its own project's
+  endpoint, Sentry's or a self-hosted collector's that takes Sentry's minidump endpoint.
 - **Symbols.** When the build names a collector, each release job uploads its OS's with
-  `tools/symbols.sh`, through `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does.
+  `tools/symbols.sh`, through `sentry-cli debug-files upload`, to the same project.
   The Mac's are the Release engine's dSYMs and the app's executable; that engine builds with
   ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions
   and lines outside Blink, and Blink's only their library. Linux and Windows build with their
