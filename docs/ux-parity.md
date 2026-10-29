@@ -254,6 +254,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Undo and redo everywhere | MVP | ⌘Z and ⇧⌘Z across close, move, pin, favorite, folder, split, rename and archive edits, with Undo in the Edit menu named and a toast with an Undo ⌘Z button where the change isn't plain; each back in its exact place | ours (Arc: Clear and Delete Space only) |
 | [x] | Reopen closed tab ⇧⌘T | MVP | back in its place with its name, icon, mute and back/forward, and a split's tab back in its split. Pinned tabs don't close | Dia P§2 |
 | [x] | Auto-archive | MVP | a Today tab unseen for 12 hours goes in the archive, counted across a quit | Arc 1.170.0 settings |
+| [ ] | The first auto-archive's note | MVP | ours: the toast "Tabs unseen for 12 hours went to the archive." with View Archive and ×, no timer, once answered never again. To tick: `./check.sh restore`'s `archive-note.png`, and its later launch with no note | Arc help centre |
 | [x] | Auto-archive's other intervals | MVP | Settings › General: 12 hours (default), 24 hours, 7 days, 30 days, kept with the Spaces | Arc 1.170.0 bin |
 | [x] | ⌘W on a Today tab | MVP | Archive Tab: the tab goes in the archive | Arc 1.170.0 menus |
 | [x] | Library | MVP | slides in from its width to the left as it pushes the card to 417 at its width, on spring 0.245 s / ζ 0.92; the sidebar fades out in 33 ms, and back in over 130 ms from 80 ms; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec; Arc 1.x video |

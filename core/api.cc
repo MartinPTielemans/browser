@@ -1017,6 +1017,14 @@ void bc_set_link_previews(bool previews) {
   browser_core::SessionChanged();
 }
 
+bool bc_archive_note(void) {
+  return browser_core::ArchiveNoteShown();
+}
+
+void bc_dismiss_archive_note(void) {
+  browser_core::DismissArchiveNote();
+}
+
 bool bc_warn_before_quitting(void) {
   return browser_core::UserSettings().warn_before_quitting;
 }

@@ -749,6 +749,8 @@ typedef struct bc_host {
   // over |window|, and answer with bc_window_answer_downloads. A window asks one at a time. The Mac
   // asks in Chrome's own alert as the app quits. The user's: agents get none, as they can't quit.
   void (*window_downloads_question)(void* context, bc_id window, int count, bool last_private);
+  // The note on the first Today tabs auto-archive took came or went (bc_archive_note).
+  void (*archive_note_changed)(void* context);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1384,6 +1386,12 @@ BC_EXPORT size_t bc_archive_undo_remove(bc_id removal);
 // The core keeps it with the Spaces.
 BC_EXPORT double bc_archive_after(void);
 BC_EXPORT void bc_set_archive_after(double seconds);
+
+// Whether to show the note that auto-archive took Today tabs: from the first time it takes some
+// until the user dismisses it with bc_dismiss_archive_note, after which it never shows again, as
+// the core keeps that with the Spaces. Each change comes with archive_note_changed.
+BC_EXPORT bool bc_archive_note(void);
+BC_EXPORT void bc_dismiss_archive_note(void);
 
 // Whether the app taps the trackpad at its detents, as the user chose. The core keeps it with the
 // Spaces.
