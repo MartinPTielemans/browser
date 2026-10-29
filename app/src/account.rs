@@ -186,10 +186,11 @@ pub fn copy_for(text: &str, kept: Duration, cx: &mut App) {
     .detach();
 }
 
-/// The code as both devices show it, in two threes, so it's read and checked at a glance.
+/// The code as both devices show it, in two threes, so it's read and checked at a glance. A no-break
+/// space keeps them on one line in a sentence that wraps.
 pub fn grouped(code: &str) -> String {
     match code.len() == 6 && code.is_ascii() {
-        true => format!("{} {}", &code[..3], &code[3..]),
+        true => format!("{}\u{a0}{}", &code[..3], &code[3..]),
         false => code.to_owned(),
     }
 }

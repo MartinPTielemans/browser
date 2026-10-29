@@ -545,23 +545,24 @@ fn the_other_device_asks_with_the_code() {
     assert_eq!(
         question.detail.as_ref(),
         "It calls itself “Pixel 9” on Android, which nothing checks. Add it only if the device in \
-         front of you shows 312 568."
+         front of you shows 312\u{a0}568."
     );
     assert_eq!((question.action.as_ref(), question.cancel.as_ref()), ("Add", "Not me"));
     assert_eq!(question.on_return, Return::Cancel);
     let unnamed = Pairing { name: "".into(), os: "".into(), ..pairing.clone() };
     assert_eq!(
         pairing_question(&unnamed).detail.as_ref(),
-        "Add it only if the device in front of you shows 312 568."
+        "Add it only if the device in front of you shows 312\u{a0}568."
     );
     assert_eq!(grouped("007"), "007");
+    assert_eq!(grouped("312568"), "312\u{a0}568", "on one line");
 
     // A name can't pass for the dialog's own words, with lines of its own or at length.
     let forged = Pairing { name: "MacBook\nIt's yours. Add it".into(), os: "".into(), ..pairing };
     assert_eq!(
         pairing_question(&forged).detail.as_ref(),
         "It calls itself “MacBook It's yours. Add it”, which nothing checks. Add it only if the \
-         device in front of you shows 312 568."
+         device in front of you shows 312\u{a0}568."
     );
     assert_eq!(given(&"a".repeat(60)).chars().count(), 40);
 }
