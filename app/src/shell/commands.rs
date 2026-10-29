@@ -842,13 +842,13 @@ impl Shell {
                 return self.browser.clear_site(self.selected, true, cx);
             }
             // In window full screen ⎋ stops a load, and otherwise a second press or a held key
-            // leaves, as Arc's does, or the first if the user gave the browser ⎋ first. The
-            // page's presses were counted before it had them.
+            // leaves, as Arc's does, or the first unless the user left ⎋ to both. The page's
+            // presses were counted before it had them.
             Command::Stop if self.full_screen && !self.page_fullscreen => {
                 if self.page(self.selected).loading {
                     return self.browser.stop(self.selected, cx);
                 }
-                let first = user_keys(cx).escape_priority() != EscapePriority::Websites;
+                let first = user_keys(cx).escape_priority() != EscapePriority::Both;
                 if from != "page" && (first || self.escape_again()) {
                     return self.browser.press_window_button(WindowButton::Zoom, cx);
                 }
@@ -1018,19 +1018,20 @@ impl Shell {
     /// nothing to undo or redo, ⌘Z and ⇧⌘Z go on, for the Edit menu to give the page.
     /// ⎋ is going down in the page, which has it first, as in Arc: in window full screen a second
     /// press soon after the first, or a held key's repeat, leaves it instead. Returns whether it
-    /// did, and the page doesn't get the key. Given to the browser first in Settings › Shortcuts,
-    /// the first press leaves, and the page gets it too with Use Both.
+    /// did, and the page doesn't get the key. Given to the browser in Settings › Shortcuts, the
+    /// first press leaves; left to websites, the page has every press.
     pub fn escape_before_page(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.full_screen || self.page_fullscreen {
             return false;
         }
-        let priority = user_keys(cx).escape_priority();
-        if priority == EscapePriority::Websites && !self.escape_again() {
-            return false;
+        match user_keys(cx).escape_priority() {
+            EscapePriority::Websites => return false,
+            EscapePriority::Both if !self.escape_again() => return false,
+            _ => {}
         }
         log!("browser: command stop via page");
         self.browser.press_window_button(WindowButton::Zoom, cx);
-        priority != EscapePriority::Both
+        true
     }
 
     /// Keeps the window over other apps' windows, or lets it go back among them, and the Window
