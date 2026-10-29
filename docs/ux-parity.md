@@ -356,6 +356,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Docked width | MVP | Arc a third of the card; ours Chrome's 555 pt, then the user's, kept per profile | Arc 1.170.0 cap |
 | [x] | Undocked | MVP | Chrome's window, from DevTools' Dock side menu; ⌥⌘I from the page brings it to the front, ⌘C copies in it; Dia's 640 × 640 first, "Developer Tools - <url>" | Dia P§23, Chrome, owner's call 2026-10-29 |
 | [x] | Task Manager | MVP | Chrome's, from Help › Troubleshooting › Open Task Manager as Arc's; ⌘W closes it | Arc 1.170.0 menus, Chrome |
+| [x] | Record a Trace | MVP | Help › Troubleshooting and the command bar; a toast with Stop while it records; saved where the save panel picks, sent nowhere; no agent tool | Arc 1.170.0 menus, owner's call 2026-10-29 |
 | [x] | No agent DevTools or debugging port | MVP | none. Holds: no agent call opens DevTools or a port; `--remote-debugging-port` and `--remote-debugging-pipe` open one for whoever launches the browser, as the trouble run does. Built: the list of agents' actions refuses `devtools` with why, which `./check.sh agents` asserts in its activity-log line, ticking from it; on the Mac, the run logs `devtools refused: Agents get no DevTools or debugging port.` Not built: a check that a plain launch leaves no DevToolsActivePort | decision 8 |
 
 ## Developer Mode

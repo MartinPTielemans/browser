@@ -81,6 +81,10 @@
 //                                         titled <title>", such as a window of Chrome's
 //   pasteboard                            logs the text on the run's pasteboard, which stands in
 //                                         for the clipboard, as "browser: pasteboard text <text>"
+//   savepanel <path>                      saves at <path> through the save panel the app shows,
+//                                         as the user would pick it there, once it shows, logging
+//                                         "browser: save panel answered", or "browser: no save
+//                                         panel" if none shows within 5 s
 //   front                                 logs which of the app's windows other apps take for
 //                                         the one in front, as "browser: front <first>, main
 //                                         <window>, key <window>, ax focused <window>, ax main
@@ -824,6 +828,32 @@ void OrderFrontCharacterPalette(id, SEL, id) {
 NSPasteboard* g_pasteboard;
 IMP g_pasteboard_with_name;
 
+// Saves at |path| through the save panel showing, as the user would pick it there, once it shows,
+// which may be a moment after the app asked for it: for up to 5 s.
+void AnswerSavePanel(NSString* path, int tries, void (^done)(void)) {
+  for (NSWindow* window in NSApp.windows) {
+    if ([window isKindOfClass:NSSavePanel.class] && window.visible) {
+      NSSavePanel* panel = (NSSavePanel*)window;
+      panel.directoryURL = [NSURL fileURLWithPath:path.stringByDeletingLastPathComponent
+                                      isDirectory:YES];
+      panel.nameFieldStringValue = path.lastPathComponent;
+      [panel ok:nil];
+      fprintf(stderr, "browser: save panel answered\n");
+      done();
+      return;
+    }
+  }
+  if (tries == 0) {
+    fprintf(stderr, "browser: no save panel\n");
+    done();
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(),
+                 ^{
+                   AnswerSavePanel(path, tries - 1, done);
+                 });
+}
+
 NSPasteboard* GeneralPasteboard(id, SEL) {
   return g_pasteboard;
 }
@@ -1440,6 +1470,10 @@ bool Run(const std::string& line, void (^done)(void)) {
   if (action == "title") {
     fprintf(stderr, "browser: key window titled %s\n", NSApp.keyWindow.title.UTF8String ?: "");
     done();
+    return true;
+  }
+  if (action == "savepanel") {
+    AnswerSavePanel(@(line.substr(std::min(line.size(), action.size() + 1)).c_str()), 50, done);
     return true;
   }
   if (action == "pasteboard") {

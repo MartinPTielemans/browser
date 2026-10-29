@@ -1239,6 +1239,14 @@ unsafe extern "C" fn tab_captured(
     update_app_later(move |cx| capture::captured(tab, request, png, cx));
 }
 
+unsafe extern "C" fn trace_recorded(_: *mut c_void, json: *const c_char, size: usize) {
+    // check.sh reads this line.
+    log!("browser: trace recorded {size} bytes");
+    let json = (!json.is_null()).then(|| unsafe { std::slice::from_raw_parts(json.cast(), size) });
+    let json = json.map(<[u8]>::to_vec);
+    update_app_later(move |cx| shell::trace_recorded(json, cx));
+}
+
 unsafe extern "C" fn tab_pictured(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -2054,6 +2062,26 @@ impl Browser for Engine {
 
     fn task_manager(&self, _: &mut App) {
         unsafe { bc::bc_window_task_manager(self.window) };
+    }
+
+    fn start_trace(&self) -> bool {
+        unsafe { bc::bc_trace_start() }
+    }
+
+    fn stop_trace(&self) {
+        unsafe { bc::bc_trace_stop() };
+    }
+
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, cx: &mut App) {
+        let Some(stop) = stop else {
+            return toast::hide_resting(cx);
+        };
+        let button = toast::Button {
+            label: toast::Label::Text(shell::STOP.into()),
+            name: "stop",
+            run: Rc::new(move |_, cx| stop(cx)),
+        };
+        with_overlays(move |cx| toast::show_resting(shell::RECORDING, vec![button], cx), cx);
     }
 
     fn set_menus(&self, bar: &shell::MenuBar, cx: &mut App) {
@@ -4005,7 +4033,10 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
                     "Troubleshooting",
-                    vec![item("Open Task Manager", Command::TaskManager)],
+                    vec![
+                        item("Open Task Manager", Command::TaskManager),
+                        item(bar.trace_title(), Command::RecordTrace),
+                    ],
                 )),
             ],
         ),
@@ -5336,6 +5367,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),
         tab_captured: Some(tab_captured),
+        trace_recorded: Some(trace_recorded),
         tab_pictured: Some(tab_pictured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),

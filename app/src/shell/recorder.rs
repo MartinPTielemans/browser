@@ -519,6 +519,19 @@ impl Browser for Recorder {
 
     fn task_manager(&self, _: &mut App) {}
 
+    fn start_trace(&self) -> bool {
+        self.record("start trace".into());
+        true
+    }
+
+    fn stop_trace(&self) {
+        self.record("stop trace".into());
+    }
+
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, _: &mut App) {
+        self.record(format!("trace note {}", if stop.is_some() { "shown" } else { "hidden" }));
+    }
+
     fn set_menus(&self, bar: &MenuBar, _: &mut App) {
         *self.menu_bar.borrow_mut() = bar.clone();
     }

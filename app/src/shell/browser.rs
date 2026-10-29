@@ -161,6 +161,14 @@ pub trait Browser {
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
     /// Opens Chrome's Task Manager, with the page shown selected.
     fn task_manager(&self, cx: &mut App);
+    /// Starts recording a trace of the whole browser, and returns false if one is recording
+    /// already. The user's alone: agents get no tool for it.
+    fn start_trace(&self) -> bool;
+    /// Stops the trace, which comes back to `trace::recorded`.
+    fn stop_trace(&self);
+    /// Shows that a trace is recording in the toast, with Stop, which runs `stop`, until it's
+    /// pressed or `None` takes it away. Another toast shows in its place only for its own time.
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, cx: &mut App);
     /// Makes the menu bar show `bar`, if the window is the key one.
     fn set_menus(&self, bar: &MenuBar, cx: &mut App);
     /// Titles the window `title`, which the Window menu and Mission Control list it by.
