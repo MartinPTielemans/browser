@@ -161,6 +161,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ClearArchive | Command::CloseTab | Command::ViewArchive => "icons/archive.svg",
         Command::CollapseFolders | Command::CollapsePinned => "icons/fold-vertical.svg",
         Command::ExpandPinned => "icons/chevrons-up-down.svg",
+        Command::FocusSidebar => "icons/keyboard.svg",
         Command::NewFolder => "icons/folder-plus.svg",
         Command::TogglePin => "icons/pin.svg",
         Command::ToggleMute => "icons/volume-2.svg",

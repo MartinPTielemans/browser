@@ -2688,6 +2688,8 @@ unsafe extern "C" fn tab_key_before_page(
     }
     // Any key ends the hover card, as in Dia, the page's as the UI's.
     update_app(hover_card::close);
+    // The page has the keyboard, so the sidebar's ring of Focus Sidebar has gone stale.
+    update_tab_window(tab, |shell, cx| shell.leave_keys("page", cx));
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
@@ -3851,6 +3853,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Next Tab", Command::NextTab),
                 item("Previous Tab", Command::PreviousTab),
                 item("Reveal Tab in Sidebar", Command::RevealTab),
+                item("Focus Sidebar", Command::FocusSidebar),
                 MenuItem::separator(),
                 item("Clear Today", Command::Clear),
             ],

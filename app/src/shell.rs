@@ -80,6 +80,7 @@ mod rows;
 pub(crate) mod scaled;
 mod side_panel;
 mod sidebar;
+mod sidebar_keys;
 mod space_form;
 mod split_targets;
 mod swap;
@@ -958,6 +959,13 @@ pub struct Shell {
     marker_drawn: Cell<Option<(bool, Bounds<Pixels>)>>,
     /// Whether the pinned rows' chevron was last drawn for collapsed ones, and where.
     caret_drawn: Rc<Cell<Option<(bool, Bounds<Pixels>)>>>,
+    /// The row whose ring the keys move while the sidebar has the keyboard (sidebar_keys.rs), the
+    /// focus it takes them with, whether it takes them at the next draw, and where the ring was
+    /// last drawn.
+    keyed: Option<u64>,
+    sidebar_keys: FocusHandle,
+    focus_keys: bool,
+    keyed_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// Whether Clear and the URL field's button were fading in or shown at the last frame, the
     /// fade since it last changed, from how far in they were then, and whether they were drawn
     /// when the last line was logged.
@@ -1261,6 +1269,10 @@ impl Shell {
             scroll_edge_fade: None,
             marker_drawn: Cell::new(None),
             caret_drawn: Rc::default(),
+            keyed: None,
+            sidebar_keys: cx.focus_handle(),
+            focus_keys: false,
+            keyed_drawn: Rc::default(),
             tools_on: false,
             tools_fade: None,
             drawn_tools: false,
@@ -2686,6 +2698,8 @@ impl Render for Shell {
             self.drawn_copied = copied;
             log!("browser: copy url {copied}");
         }
+        self.step_keys(window, cx);
+        self.step_keyed_drawn();
         if std::mem::take(&mut self.focus_form)
             && let Some(form) = self.form()
         {
@@ -2842,6 +2856,7 @@ impl Render for Shell {
             let origin = point(px(width + RECEDE_X), self.viewport.height / 2.);
             // Whole: the Library fades in over it rather than cutting it (`library_opacity`).
             let sidebar = self.sidebar(cx).left(px(sidebar_left)).child(self.hover_listener(cx));
+            let sidebar = self.with_keys(sidebar, cx);
             // Its buttons recede with it, over the Library, as the window's do in Arc. Full screen
             // has none.
             let buttons = self.sidebar_buttons() && !window.is_fullscreen();
@@ -2870,6 +2885,7 @@ impl Render for Shell {
             .relative()
             .font_family(crate::face::UI)
             .bg(self.palette.tint)
+            .capture_any_mouse_down(cx.listener(|shell, _, _, cx| shell.leave_keys("press", cx)))
             // The rows, buttons and fields keep their presses. Everywhere else is the window's
             // background, which moves the window as a title bar does.
             .on_mouse_down(
