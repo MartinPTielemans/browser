@@ -1047,7 +1047,7 @@ impl Shell {
     /// sidebar's order. It leaves out the tab shown and what shows with it, as its suggestions do.
     /// All of them: the bar lists the first BAR_TABS_SHOWN, and looks through the rest for a name
     /// that what's typed starts.
-    fn bar_tabs(&self) -> Vec<BarTab> {
+    pub(super) fn bar_tabs(&self) -> Vec<BarTab> {
         let mut tabs = self.favorites.clone();
         if let Some(space) = self.shown_space() {
             tabs.extend(space_tabs(space));
@@ -1057,7 +1057,7 @@ impl Shell {
 
     /// The tabs Search Tabs lists: the command bar's, then the other Spaces' pinned and Today tabs,
     /// those shown most recently first, then the rest in the Spaces' order.
-    fn open_tabs(&self) -> Vec<BarTab> {
+    pub(super) fn open_tabs(&self) -> Vec<BarTab> {
         let others = self.spaces.iter().filter(|space| space.id != self.space);
         let others = self.recent_first(others.flat_map(space_tabs).collect());
         let mut tabs = self.bar_tabs();
@@ -1319,5 +1319,47 @@ mod tests {
         cx.simulate_keystrokes("shift-cmd-a");
         assert_eq!(host.searched_tabs.take(), [vec![12, 10, 21, 20]]);
         assert!(host.command_bars.take().is_empty(), "it opened the bar for a new tab too");
+    }
+
+    /// Another Space shown while the command bar is open gives the bar that Space's tabs once its
+    /// tab is selected, but the one shown, and New Tab keeps its plate there for the bar's pick.
+    /// With the bar closed, the bar hears nothing.
+    #[gpui::test]
+    fn the_open_command_bar_follows_another_space(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str| (id, name.into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space(1, "One"), space(2, "Two")], cx);
+            shell.set_tabs(1, Vec::new(), vec![11, 12], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![21, 22], Vec::new(), Folders::default(), cx);
+            for tab in [11, 12, 21, 22] {
+                let page = Page { url: format!("https://{tab}.test/").into(), ..Page::default() };
+                shell.set_page(tab, page, cx);
+            }
+            shell.set_space(1, cx);
+            shell.set_selected(11, cx);
+            shell.run(Command::NewTab, "ui", cx);
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+        });
+        assert_eq!(host.followed_tabs.take(), [vec![22]]);
+        assert!(shell.read_with(cx, |shell, _| shell.new_tab), "New Tab keeps its plate");
+        // A tab selected in the same Space isn't another Space.
+        shell.update(cx, |shell, cx| shell.set_selected(22, cx));
+        assert!(host.followed_tabs.take().is_empty());
+
+        host.bar_open.set(false);
+        shell.update(cx, |shell, cx| {
+            shell.set_space(1, cx);
+            shell.set_selected(11, cx);
+        });
+        assert!(host.followed_tabs.take().is_empty());
+        assert!(!shell.read_with(cx, |shell, _| shell.new_tab));
     }
 }

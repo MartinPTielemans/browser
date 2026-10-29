@@ -2408,6 +2408,16 @@ impl Browser for Engine {
         command_bar::is_open(cx)
     }
 
+    fn command_bar_follows(
+        &self,
+        tabs: Vec<BarTab>,
+        open_tabs: Vec<BarTab>,
+        cx: &mut App,
+    ) -> bool {
+        // The bar shows over the window in front; another's Space, as an agent's, isn't its.
+        self.window == front().0 && command_bar::space_shown(tabs, open_tabs, cx)
+    }
+
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
         with_overlays(move |cx| command_bar::show_split(with, pane, card, cx), cx);
     }
