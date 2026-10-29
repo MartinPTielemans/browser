@@ -113,7 +113,9 @@ ungoogled-chromium's hunk that takes out the handler's upload thread and its URL
 sends them instead, only if the user says to (`docs/decisions.md`, 9). The reports are in the
 profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On Windows,
 `chrome_elf` starts Crashpad before the core runs, so they're in Chromium's default folder,
-`%LOCALAPPDATA%\Chromium\User Data\Crashpad`.
+`%LOCALAPPDATA%\Chromium\User Data\Crashpad`, which any other Chromium on the machine shares. The
+core sends, offers and deletes reports only in the profile's folder, so on Windows it does none of
+that, and Settings has no Privacy tab.
 
 - **What's sent.** With Send Crash Reports on, the core sends each report not yet sent to the build's
   collector, the minidump alone, without cookies, and deletes it once the collector has it. One
