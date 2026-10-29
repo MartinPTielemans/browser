@@ -69,7 +69,8 @@ void host_window_closed(void* ui_view);
 // GPUI hears only of its own window's, which the page's taking the keyboard ends.
 void host_window_active(void* ui_view, bool active, bool whole_window);
 
-// Linux only: a capture's file name, as the Mac's save panel offers it.
+// A capture's file name for now, as macOS names a screenshot:
+// "Capture 2026-10-29 at 18.04.12.png".
 void host_capture_name(char* name, size_t capacity);
 
 // Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
@@ -524,13 +525,25 @@ bool host_trash(const char* path);
 bool host_drag_file(const char* path, void (*ended)(bool taken));
 
 // Looks up a preview of the file at |path|, a full path in UTF-8, off the main thread: for an
-// image, a thumbnail at most 96 pixels on its longer side, its aspect kept, else the system's icon
-// for the file, 52 pixels square. Then calls |done| on the main thread with |id|, the preview as a
-// PNG |size| bytes long, |width| by |height| pixels, and whether it's an image's thumbnail, or with
-// a null |png| if there's no file there.
+// image, or a video's first frame, a thumbnail at most 96 pixels on its longer side, its aspect
+// kept, else the system's icon for the file, 52 pixels square. Then calls |done| on the main thread
+// with |id|, the preview as a PNG |size| bytes long, |width| by |height| pixels, and whether it's a
+// thumbnail, or with a null |png| if there's no file there.
 void host_file_preview(const char* path, uint64_t id,
                        void (*done)(uint64_t id, const uint8_t* png, size_t size, double width,
                                     double height, bool image));
+
+// Plays the video at |path|, a full path in UTF-8, without sound and from its start again at its
+// end, for a tile |side| pixels square. Returns it for host_video_frame, or null if this platform
+// can't play one; a file that isn't a video the system plays gives no frames.
+void* host_video_open(const char* path, int side);
+
+// Copies the frame |video| shows now into |pixels|, |side| by |side| BGRA pixels with the frame's
+// middle filling them, and returns true, or returns false if there's no frame since the last.
+bool host_video_frame(void* video, uint8_t* pixels);
+
+// Stops |video| and frees it.
+void host_video_close(void* video);
 
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.

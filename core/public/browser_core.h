@@ -744,6 +744,8 @@ typedef struct bc_host {
   // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
   // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
   void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
+  // The note on the first Today tabs auto-archive took came or went (bc_archive_note).
+  void (*archive_note_changed)(void* context);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1375,6 +1377,12 @@ BC_EXPORT size_t bc_archive_undo_remove(bc_id removal);
 BC_EXPORT double bc_archive_after(void);
 BC_EXPORT void bc_set_archive_after(double seconds);
 
+// Whether to show the note that auto-archive took Today tabs: from the first time it takes some
+// until the user dismisses it with bc_dismiss_archive_note, after which it never shows again, as
+// the core keeps that with the Spaces. Each change comes with archive_note_changed.
+BC_EXPORT bool bc_archive_note(void);
+BC_EXPORT void bc_dismiss_archive_note(void);
+
 // Whether the app taps the trackpad at its detents, as the user chose. The core keeps it with the
 // Spaces.
 BC_EXPORT bool bc_haptics(void);
@@ -1387,6 +1395,11 @@ BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);
 BC_EXPORT void bc_set_link_previews(bool previews);
+// What the Library button's hover lists, as the user picked from the button's menu: bits for
+// images (1), videos (2), other files (4) and the captures saved to the Library (8), all by
+// default. The core keeps it with the Spaces.
+BC_EXPORT int bc_hover_kinds(void);
+BC_EXPORT void bc_set_hover_kinds(int kinds);
 // Whether the app warns before moving a tab to another profile's Space, which it does once, as Dia
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);
