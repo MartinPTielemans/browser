@@ -14,6 +14,23 @@ use crate::{
     theme::Appearance,
 };
 
+/// ilo's nouns, which stay capitalized in a sentence, as Chrome's Incognito does.
+const PROPER_NOUNS: [&str; 3] = ["Space", "Spaces", "Library"];
+
+/// `title`, written in title case, in sentence case, as Chromium's menus and the Windows and GNOME
+/// guidelines write theirs off the Mac, so ilo's menus read as the window's others do there.
+fn sentence_case(title: &str) -> String {
+    let word = |(i, word): (usize, &str)| {
+        let noun = word.trim_end_matches('…');
+        let acronym = noun.len() > 1 && noun.chars().all(|c| c.is_ascii_uppercase());
+        match i == 0 || acronym || PROPER_NOUNS.contains(&noun) {
+            true => word.to_string(),
+            false => word.to_lowercase(),
+        }
+    };
+    title.split(' ').enumerate().map(word).collect::<Vec<_>>().join(" ")
+}
+
 /// What an item of a menu does once chosen.
 pub(super) type MenuAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
 
@@ -38,7 +55,22 @@ pub struct MenuEntry {
 }
 
 impl MenuEntry {
-    pub fn new(title: impl Into<SharedString>, enabled: bool) -> Self {
+    /// An item ilo names, in the platform's case.
+    pub fn new(title: &'static str, enabled: bool) -> Self {
+        MenuEntry::named(MenuEntry::label(title), enabled)
+    }
+
+    /// `title`, an item ilo names, in the platform's case, also for a pop-up button showing it.
+    pub fn label(title: &'static str) -> SharedString {
+        match super::OFF_THE_MAC {
+            true => sentence_case(title).into(),
+            false => title.into(),
+        }
+    }
+
+    /// An item named by what it stands for, such as a Space's name, a page's title or Chromium's
+    /// item, as written.
+    pub fn named(title: impl Into<SharedString>, enabled: bool) -> Self {
         MenuEntry {
             title: title.into(),
             enabled,
@@ -251,7 +283,7 @@ impl Shell {
         for choice in choices {
             let profile = choice.profile;
             items.push((
-                MenuEntry::new(choice.name, choice.enabled).checked(choice.checked),
+                MenuEntry::named(choice.name, choice.enabled).checked(choice.checked),
                 Box::new(move |shell, cx| shell.browser.set_space_profile(space, profile, cx)),
             ));
         }
@@ -304,7 +336,7 @@ impl Shell {
             })
             .map(|(profile, name)| {
                 let (profile, name) = (*profile, name.clone());
-                let entry = MenuEntry::new(format!("Delete “{name}”"), true).destructive();
+                let entry = MenuEntry::named(format!("Delete “{name}”"), true).destructive();
                 let action: MenuAction =
                     Box::new(move |shell, cx| shell.delete_profile(profile, name, cx));
                 (entry, action)
@@ -521,7 +553,7 @@ impl Shell {
         items.push((MenuEntry::new("Move to Space", !others.is_empty()), "", Box::new(|_, _| {})));
         for (space, name, _) in others {
             items.push((
-                MenuEntry::new(name, true).swatch(self.space_swatch(space)).under(move_to),
+                MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
                 "move-to-space",
                 Box::new(move |shell, cx| shell.move_to_space(tab, space, cx)),
             ));
@@ -569,7 +601,7 @@ impl Shell {
         for (at, service) in services.into_iter().enumerate() {
             let (link, title) = (link.to_string(), self.title(tab));
             items.push((
-                MenuEntry::new(service, true).under(share),
+                MenuEntry::named(service, true).under(share),
                 "share",
                 Box::new(move |shell, cx| shell.browser.share(&link, &title, at, cx)),
             ));
@@ -641,7 +673,7 @@ impl Shell {
             for (space, name, shown) in self.spaces_to_move_to(true) {
                 let swatch = self.space_swatch(space);
                 items.push((
-                    MenuEntry::new(name, true).checked(shown).swatch(swatch).under(move_to),
+                    MenuEntry::named(name, true).checked(shown).swatch(swatch).under(move_to),
                     "move-to-space",
                     Box::new(move |shell, cx| {
                         if !shown {
@@ -797,8 +829,29 @@ mod empty_space_tests;
 mod tests {
     use gpui::{Entity, TestAppContext, point, px};
 
-    use super::{MenuEntry, space_menu_head, space_menu_label};
+    use super::{MenuEntry, sentence_case, space_menu_head, space_menu_label};
     use crate::shell::{Folders, Page, Shell, drag::detents::shell_with, recorder::Recorder};
+
+    /// Off the Mac, ilo's items are in sentence case, keeping its nouns Space and Library and
+    /// acronyms capitalized.
+    #[test]
+    fn items_off_the_mac_are_in_sentence_case() {
+        let cases = [
+            ("Add Split View", "Add split view"),
+            ("Archive Tabs Below", "Archive tabs below"),
+            ("Copy Link", "Copy link"),
+            ("Change Icon…", "Change icon…"),
+            ("New Space…", "New Space…"),
+            ("Move to Space", "Move to Space"),
+            ("Open Library…", "Open Library…"),
+            ("Back to Pinned URL", "Back to pinned URL"),
+            ("In Each Profile's Spaces", "In each profile's Spaces"),
+            ("Duplicate", "Duplicate"),
+        ];
+        for (title, sentence) in cases {
+            assert_eq!(sentence_case(title), sentence);
+        }
+    }
 
     fn titles(has_icon: bool, has_theme: bool) -> Vec<String> {
         let items = space_menu_head(1, has_icon, has_theme);

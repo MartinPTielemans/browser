@@ -1,14 +1,42 @@
 # What the runs share. check.sh sources it, then each run's file.
 
+# $1, ilo's menu items as the Mac's menus write them, or a pattern of them, as the app writes them
+# here (shell/menus.rs): off the Mac in sentence case, keeping each item's first word, Space,
+# Spaces, Library, acronyms and names in “”. Items are split at ", " and " › ". Not for names users
+# give elsewhere.
+cased() {
+  if [ "$(uname)" = Darwin ]; then
+    printf '%s\n' "$1"
+    return
+  fi
+  printf '%s\n' "$1" | awk '{
+    first = 1
+    quoted = 0
+    n = split($0, words, / /)
+    for (i = 1; i <= n; i++) {
+      word = words[i]
+      noun = word
+      sub(/,$/, "", noun)
+      sub(/…$/, "", noun)
+      if (word ~ /^“/) quoted = 1
+      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library"
+      printf "%s%s", (i > 1 ? " " : ""), (keep ? word : tolower(word))
+      if (word ~ /”/) quoted = 0
+      first = word ~ /,$/ || word == "›"
+    }
+    printf "\n"
+  }'
+}
+
 # A Space's theme in its menu: the theme picker, and once it has a colour, the way back to none.
-colors="Edit Theme Color…"
-themed="$colors, Remove Theme Color"
+colors=$(cased "Edit Theme Color…")
+themed=$(cased "$colors, Remove Theme Color")
 # Where the theme picker's swatches are, from its top left: 13 for its arrow, then a 29.5 pitch.
 swatch_y=380
 swatch_x() { echo "$1" | awk '{ print 13 + 60.5 + 29.5 * $1 }'; }
 # Its profiles, in the one the check starts with, for a Space with tabs and an empty one.
-profile="Profile › Default (checked), Profile › New Profile (disabled)"
-empty_profile="Profile › Default (checked), Profile › New Profile"
+profile=$(cased "Profile › Default (checked), Profile › New Profile (disabled)")
+empty_profile=$(cased "Profile › Default (checked), Profile › New Profile")
 # The product's name, which the app's menus and alerts use.
 app_name=$(cat branding/name)
 # The KeyboardEvent property a page reads ⌘ from, which off the Mac is pressed with Ctrl (keys.rs).
@@ -74,12 +102,13 @@ exited() {
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
 # user logs out. On Windows taskkill without /F closes the app's windows, as the user would, and
-# Chromium quits with its last one. On Linux SIGTERM is that way, which Chromium takes for a quit.
+# Chromium quits with its last one. On Linux SIGINT is that way: Chromium quits as from its menu,
+# where SIGTERM ends the session at once, without the startup trace tabs.sh reads.
 quit_app() {
   if windows; then
     taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null
   elif [ "$(uname)" = Linux ]; then
-    kill -TERM "$pid"
+    kill -INT "$pid"
   else
     osascript -e 'tell application id "dev.browser.app" to quit'
   fi
@@ -273,7 +302,8 @@ space() {
 
 # The pinned tabs the app last showed, top to bottom.
 pinned() {
-  grep '^browser: pinned' "$log" | tail -1 | sed 's/^browser: pinned *//'
+  grep '^browser: pinned' "$log" | grep -v '^browser: pinned extensions ' | tail -1 |
+    sed 's/^browser: pinned *//'
 }
 # Waits for the app to show the pinned tabs $1 over Today $2. $3 says what went wrong if it doesn't.
 expect_lists() {

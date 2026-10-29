@@ -210,4 +210,10 @@ extern std::vector<std::unique_ptr<syncer::DataTypeController>> (*g_browser_core
     Profile* profile,
     syncer::SyncService* sync_service);
 
+// components/component_updater/component_updater_service.cc: whether the component updater may
+// check for and download the component |id| as well as the three security components it always
+// does (engine/patches/ardia/chromium-component-updater-security-only.patch): Google's Widevine
+// module, once the user said yes. Every other component stays out of its requests.
+extern bool (*g_browser_core_component_allowed)(const std::string& id);
+
 #endif  // BROWSER_CORE_HOOKS_H_

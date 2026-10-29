@@ -175,16 +175,21 @@ send key w cmd
 expect_tabs "$first" "$first" "after closing the tab of the page that hasn't come"
 send click $page_point
 
-# 300 trackpad events of 10 points, 8 ms apart.
-send scroll $page_point 10 300
+# 300 trackpad events of 10 points, 8 ms apart. X11's events carry no distance, so the Linux driver
+# turns the wheel, which Chromium scrolls 120 points a notch there: 25 notches.
+scroll="10 300"
+[ "$(uname)" = Linux ] && scroll="1 25"
+send scroll $page_point $scroll
 expect '^browser: title [0-9]* frames' "scrolling didn't move the page"
 timing=$(grep -m1 '^browser: title [0-9]* frames' "$log" | sed 's/^browser: title [0-9]* //')
 echo "$timing" | grep -q ' scrolled 3000$' || fail "the page didn't scroll by exactly 3000 points: $timing"
 frames=$(echo "$timing" | sed 's/^frames \([0-9]*\) .*/\1/')
 slow=$(echo "$timing" | sed 's/.* slow \([0-9]*\) .*/\1/')
 # A VM's display runs at 60 Hz and its frames come when the host gives it time, so only a Mac's own
-# screen can judge the scroll, and a VM reports it.
-if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
+# screen can judge the scroll, and a VM reports it, as Linux's headless session does.
+if [ "$(uname)" = Linux ]; then
+  timing="$timing, in a headless session, not judged"
+elif [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   timing="$timing, in a VM, not judged"
 elif [ $((slow * 100)) -gt "$frames" ]; then
   fail "more than 1% of frames took longer than 1/60 s: $timing"
@@ -209,7 +214,7 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 # The footer is at the screen's bottom in full screen, so the +'s menu flips up over the pointer.
 post click 204 $((height - 25))
-expect '^browser: menu shown New Space…, New Folder…$' "the footer's + in full screen showed no menu"
+expect "^browser: menu shown $(cased 'New Space…, New Folder…')\$" "the footer's + in full screen showed no menu"
 expect '^browser: menu window at ' "the +'s menu in full screen didn't open its window"
 top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d, -f2)
 [ "$top" -lt $((height - 65)) ] ||
@@ -629,7 +634,7 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   # faint and known: stops at 0.06, from black at the top to 0.25 · 255 at the bottom.
   post rightclick 100 112
   expect '^browser: menu shown Rename Space' "a right-click on the Space's name showed no menu"
-  send choose Edit Theme Color…
+  send choose "$(cased 'Edit Theme Color…')"
   expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
   expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
   send clickkey 191.5 178.5

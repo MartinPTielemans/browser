@@ -183,6 +183,8 @@ thread_local! {
     static FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The modifiers the last key went with.
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
+    /// Whether the X server's keyboard has Control locked, for `hold_control`.
+    static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
     /// The last click in each window: its time, place and button.
     static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
         RefCell::default();
@@ -700,10 +702,43 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     state |= FLAGS.get();
     let modifiers = KeyButMask::CONTROL | KeyButMask::MOD1 | KeyButMask::SHIFT;
     KEY_FLAGS.set(state & u16::from(modifiers));
+    hold_control();
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
     code_events(code, state, kinds)
+}
+
+/// Has the X server's keyboard hold Control while the driver does, after `flags` or a key with it,
+/// as a real Control key would: the app's ⌃Tab walk lasts while the server says Control is held
+/// (gpui_linux::watch_control), and the events the driver sends change none of its state.
+fn hold_control() -> Option<()> {
+    use x11rb::protocol::xkb::{self, ConnectionExt as _};
+    let held = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL) != 0;
+    if held == CONTROL_LOCKED.get() {
+        return Some(());
+    }
+    let x = server()?;
+    let (connection, _) = &*x;
+    // The server takes no other XKB request from a client before this one.
+    connection.xkb_use_extension(1, 0).ok()?.reply().ok()?;
+    let control = xproto::ModMask::CONTROL;
+    let locks = if held { control } else { xproto::ModMask::from(0u16) };
+    let none = xproto::ModMask::from(0u16);
+    (connection.xkb_latch_lock_state(
+        xkb::ID::USE_CORE_KBD.into(),
+        control,
+        locks,
+        false,
+        xkb::Group::M1,
+        none,
+        false,
+        0,
+    ))
+    .ok()?;
+    connection.flush().ok()?;
+    CONTROL_LOCKED.set(held);
+    Some(())
 }
 
 /// Sends the key `code`'s events of `kinds`, with the modifiers `state`, as `key_events` does.
@@ -784,22 +819,57 @@ fn stacked() -> Option<Vec<Browser>> {
 }
 
 /// The pages of browser window `id`, as drive.mm lists their views: from the bottom-left corner of
-/// content `height` high.
-/// shortcut: where the shell lays them out, which the core follows, with no radius. They're Aura's
-/// windows in Chromium's one X window, and no core call says where they are.
-fn pages(id: bc::bc_id, height: f64) -> Option<String> {
+/// content `width` by `height`, with the radius of their corners if they're round.
+/// shortcut: where the shell lays them out and the radius it gives their corners, which the core
+/// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
+/// are or how round.
+fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
     let cx = CX.with_borrow(Clone::clone)?;
-    let pages = cx.update(|cx| Some(shell.upgrade()?.read(cx).shown_pages()))?;
+    let viewport = gpui::size(gpui::px(width as f32), gpui::px(height as f32));
+    let (pages, (_, radius)) = cx.update(|cx| {
+        let shell = shell.upgrade()?;
+        let shell = shell.read(cx);
+        Some((shell.shown_pages(), shell.page_frame(viewport)))
+    })?;
     let views = pages.into_iter().map(|(_, page)| {
         let [x, bottom, width, high] =
             [page.left(), page.bottom(), page.size.width, page.size.height].map(f32::from);
         let y = height - f64::from(bottom);
-        format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}")
+        let round = match radius > 0. {
+            true => format!(" radius {radius:.0}"),
+            false => String::new(),
+        };
+        format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}{round}")
     });
     Some(views.collect())
+}
+
+/// The ring the core draws inside a split view's focused page, over the pages, as the Mac's driver
+/// lists its view: from the content's bottom-left corner, as the pages are.
+fn ring(id: bc::bc_id, height: f64) -> Option<String> {
+    let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+    unsafe { bc::bc_window_focus_ring(id, &mut frame) }.then_some(())?;
+    let bc::bc_rect { x, y, width, height: high } = frame;
+    let y = height - (y + high);
+    Some(format!(", BrowserCoreFocusRing {x:.0},{y:.0} {width:.0}x{high:.0}"))
+}
+
+/// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
+/// the Mac's driver gives AppKit's, or "hidden" for each.
+fn buttons(id: bc::bc_id) -> Option<String> {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
+    })?;
+    let cx = CX.with_borrow(Clone::clone)?;
+    let drawn = cx.update(|cx| Some(shell.upgrade()?.read(cx).draws_own_window_buttons()))?;
+    let each = browser::shell::WINDOW_BUTTONS.map(|(x, _)| match drawn {
+        true => format!("{x:.1},{:.1}", browser::tokens::shell::WINDOW_BUTTON_Y),
+        false => "hidden".to_string(),
+    });
+    Some(each.join(" "))
 }
 
 /// `window`'s frame in points, from the root's top-left corner: x, y, width and height.
@@ -1059,6 +1129,7 @@ fn run_command(line: &str) -> Option<()> {
                 code_events(keycode(keysym)?.0, held, &[kind])?;
                 FLAGS.set(held ^ mask);
             }
+            hold_control();
             Some(())
         }
         // Repeats are presses like the first, so repeat changes nothing here.
@@ -1122,11 +1193,12 @@ fn run_command(line: &str) -> Option<()> {
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
-            let pages = pages(browser.id, height).unwrap_or_default();
+            let pages = pages(browser.id, width, height).unwrap_or_default();
+            let ring = ring(browser.id, height).unwrap_or_default();
             log!(
-                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}"
+                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}{ring}"
             );
-            log!("browser: layout buttons hidden hidden hidden");
+            log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
             let [left, top, ..] = frame(browser.window)?;
             for view in overlay_views() {
                 let [x, y, width, height] = frame(view as usize as u32)?;

@@ -155,6 +155,8 @@ source_set("browser_core") {
     "system_engine.h",
     "tab.cc",
     "tab.h",
+    "widevine.cc",
+    "widevine.h",
     "window.cc",
     "window.h",
   ]
@@ -215,6 +217,7 @@ source_set("browser_core") {
     "//chrome/browser/ui/views/interaction:impl",
     "//chrome/common",
     "//chrome/common/profiler",
+    "//components/component_updater",
     "//components/content_settings/core/browser",
     "//components/crash/core/app",
     "//components/content_settings/core/common",
@@ -259,6 +262,7 @@ source_set("browser_core") {
     ":sync_spaces_proto",
     "//components/sync_device_info",
     "//components/tabs:public",
+    "//components/update_client",
     "//components/url_formatter",
     "//components/viz/common",
     "//components/web_modal",
@@ -280,6 +284,7 @@ source_set("browser_core") {
     "//third_party/blink/public/mojom:mojom_core",
     "//third_party/boringssl",
     "//third_party/crashpad/crashpad/client",
+    "//third_party/widevine/cdm:buildflags",
     "//ui/base",
     "//ui/display",
     "//ui/events:dom_keycode_converter",
@@ -326,7 +331,18 @@ source_set("browser_core") {
     }
   }
   if (is_win || is_linux) {
-    sources += [ "platform/app_library.h" ]
+    sources += [
+      "platform/app_library.h",
+      "platform/focus_ring_aura.cc",
+      "platform/focus_ring_aura.h",
+    ]
+    deps += [
+      "//cc/paint",
+      "//skia",
+      "//ui/aura",
+      "//ui/compositor",
+      "//ui/gfx",
+    ]
   }
   if (is_win) {
     sources += [

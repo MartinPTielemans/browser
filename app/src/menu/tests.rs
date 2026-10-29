@@ -30,7 +30,7 @@ fn at(x: f32, y: f32) -> Point<Pixels> {
 }
 
 fn item(title: &str) -> MenuEntry {
-    MenuEntry::new(title.to_string(), true)
+    MenuEntry::named(title.to_string(), true)
 }
 
 fn under(parent: usize, title: &str) -> MenuEntry {
@@ -43,7 +43,7 @@ fn tab_menu() -> Vec<MenuEntry> {
         item("Copy Link"),                        // 0
         MenuEntry::line(),                        // 1
         item("Rename…"),                          // 2
-        MenuEntry::new("Mute".to_string(), false), // 3
+        MenuEntry::new("Mute", false),            // 3
         item("Duplicate"),                        // 4
         item("Move to"),                          // 5
         MenuEntry { checked: true, ..under(5, "Space 1") }, // 6
@@ -162,7 +162,7 @@ fn the_same_letter_again_goes_to_the_next_item_it_starts() {
 #[test]
 fn typing_ignores_accents_and_finds_only_what_can_be_chosen() {
     let now = Instant::now();
-    let entries = vec![item("Éditer"), MenuEntry::new("Mute".to_string(), false), item("Move")];
+    let entries = vec![item("Éditer"), MenuEntry::new("Mute", false), item("Move")];
     let mut menu = opened(entries, 100., 100.);
     menu.key(Key::Char('e'), now);
     assert_eq!(menu.highlighted(), ["Éditer"]);
