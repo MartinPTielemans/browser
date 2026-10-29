@@ -1,7 +1,7 @@
 # An MCP client reaches the browser through the bridge beside it once Settings › Agents is on and
 # it's connected, as the saved settings say here. The socket is the user's alone, and the bridge
 # gets nowhere without the agent's token. Its first call makes its Space, and it may list and read
-# only the tabs there: a list of the user's Space lists none, a read of the user's tab is refused,
+# only the tabs there: its list leaves out the user's tab, a read of the user's tab is refused,
 # with an activity-log entry, and a read of example.com, opened in its Space, gives the page's text.
 # A page with fields gives its prose and none of their values: typed, filled in or a password, in
 # its text and in its outline, and the agent can't type into the password field. It types into
@@ -115,12 +115,7 @@ case "$listed" in
   "Your Space has no tabs yet."*) ;;
   *) fail "list_tabs in a new Space said: $listed" ;;
 esac
-case "$listed" in *"$user_tab"*) fail "list_tabs listed the user's tab" ;; esac
-# Asked for the user's Space by its id, the core lists none of its tabs.
-user_space=$(grep -m1 '^browser: spaces ' "$log" | cut -d' ' -f3)
-listed=$(call list_tabs "{\"space\":$user_space}")
-[ "$listed" = "error: The Space isn't the agent's own." ] ||
-  fail "list_tabs of the user's Space answered: $listed"
+printf '%s\n' "$listed" | grep -q "^. $user_tab  " && fail "list_tabs listed the user's tab"
 
 refused=$(call read_page "{\"tab\":$user_tab}")
 [ "$refused" = "error: The tab isn't in the agent's own Space." ] ||
@@ -136,11 +131,14 @@ if [ "$driven" = 1 ]; then
   expect "^browser: space $agent\( in .*\)\{0,1\}\$" "⌃2 didn't show the agent's Space"
   open_from_bar example.com
   agent_tab=$tab
+  # The core lists the agent's Space alone: its tab, and not the user's Wikipedia tab in theirs.
   listed=$(call list_tabs '{}')
   case "$listed" in
     *"$agent_tab  Example Domain  https://example.com/"*) ;;
     *) fail "list_tabs didn't list the agent's tab: $listed" ;;
   esac
+  printf '%s\n' "$listed" | grep -q "^. $user_tab  " &&
+    fail "list_tabs listed the user's tab in another Space: $listed"
   read=$(call read_page "{\"tab\":$agent_tab}")
   case "$read" in
     "Tab $agent_tab: Example Domain"*"for use in documentation examples"*) ;;
