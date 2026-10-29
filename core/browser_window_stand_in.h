@@ -359,6 +359,9 @@ class BrowserWindowStandIn : public BrowserWindow,
 
   views::Widget* widget() const;
 
+  // Takes the window full screen for the page, or back, on |display_id| going.
+  void PutFullscreen(bool fullscreen, int64_t display_id);
+
   base::WeakPtr<Window> window_;
   raw_ptr<BrowserWindowInterface> browser_ = nullptr;
   std::unique_ptr<NoLocationBar> location_bar_;
@@ -367,6 +370,7 @@ class BrowserWindowStandIn : public BrowserWindow,
   NoAutofillBubbles autofill_bubbles_;
   views::UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> widget_observation_{this};
+  base::WeakPtrFactory<BrowserWindowStandIn> weak_factory_{this};
 };
 
 }  // namespace browser_core

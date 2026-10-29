@@ -198,6 +198,7 @@ class WindowViews : public views::WidgetObserver,
   Slot& side_panel() { return side_panel_; }
   FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  void set_held(bool held) { held_ = held; }
   UITextInput& ui_text_input() { return ui_text_input_; }
 
   // A slot's holder, made the first time it's needed, over the window's own views.
@@ -407,7 +408,9 @@ class WindowViews : public views::WidgetObserver,
 
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override {
-    LayOut();
+    if (!held_) {
+      LayOut();
+    }
     if (!OnWayland()) {
       if (ui_ != x11::Window::None) {
         SizeUI();
@@ -583,6 +586,8 @@ class WindowViews : public views::WidgetObserver,
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
+  // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
+  bool held_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
   x11::Window ui_main_ = x11::Window::None;
@@ -669,6 +674,7 @@ void ShowPages(views::Widget* widget,
     return;
   }
   views->set_corner_radius(corner_radius);
+  views->set_held(false);
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = ContentSizeOf(widget);
 
@@ -736,6 +742,12 @@ void ShowPages(views::Widget* widget,
   // With no page, the keys are the UI's, as on the Mac, where its view is all that's left.
   if (panes.empty()) {
     views->UITakesKeyboard();
+  }
+}
+
+void HoldPagesForResize(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->set_held(true);
   }
 }
 
