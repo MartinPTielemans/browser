@@ -19,9 +19,9 @@ use browser::command_bar::{self, Suggestion};
 use browser::dialog;
 use browser::icon_picker::{self, Recents};
 use browser::menu;
-use browser::palette::{self, Palette};
+use browser::palette::{self, Palette, Tone};
 use browser::site_controls::{self, Connection, Permission, Site, Value};
-use browser::theme::Theme;
+use browser::theme::{Appearance, Theme};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -843,6 +843,9 @@ impl Browser for Fake {
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
 
+    // The preview has no material: its window is the tint over GPUI's clear.
+    fn set_window_light(&self, _: bool, _: &mut App) {}
+
     fn page_moving(&self, _: bool, _: &mut App) {}
 
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
@@ -1094,6 +1097,16 @@ fn preview_theme() -> Option<Theme> {
     }
 }
 
+/// PREVIEW_APPEARANCE=light or =dark draws the window as if the system's appearance were that,
+/// as a headless session has none to switch.
+fn preview_tone() -> Option<Tone> {
+    match std::env::var("PREVIEW_APPEARANCE").ok()?.as_str() {
+        "light" => Some(Tone::Light),
+        "dark" => Some(Tone::Dark),
+        _ => None,
+    }
+}
+
 fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     let page = |text: &str, detail: &str, url: &str, tab: u64| Suggestion {
         url: url.into(),
@@ -1186,7 +1199,14 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     if command_bar::open_at(Rc::new(PreviewBar), bounds, true, cx).is_none() {
         return;
     }
-    palette::set_current(Palette::of(preview_theme().as_ref()), cx);
+    let theme = preview_theme();
+    let forced = theme.and_then(|theme| match theme.appearance {
+        Appearance::Light => Some(Tone::Light),
+        Appearance::Dark => Some(Tone::Dark),
+        Appearance::Automatic => None,
+    });
+    let tone = forced.or(preview_tone()).unwrap_or_default();
+    palette::set_current(Palette::of(theme.as_ref(), tone), cx);
     match typed {
         "" => command_bar::show(None, tabs, None, cx),
         typed => command_bar::show(Some((0, typed.to_string().into())), Vec::new(), None, cx),
@@ -1312,6 +1332,7 @@ fn main() {
                     }
                     _ => Shell::new(browser, cx),
                 };
+                shell.force_tone(preview_tone());
                 shell.set_profiles(vec![(0, "Default".into())], cx);
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
