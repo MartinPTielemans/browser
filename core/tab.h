@@ -76,6 +76,9 @@ class Tab : public content::WebContentsObserver,
                              bc_id tab,
                              const input::NativeWebKeyboardEvent& event,
                              bool editing);
+  // What the web names the key |event| is, as the app's shortcuts do, with its BC_MODIFIER_ flags
+  // held in |modifiers|.
+  static std::string KeyName(const input::NativeWebKeyboardEvent& event, uint32_t* modifiers);
 
   // A tab without its page, in |profile| and in no Space, as |saved| keeps it: its history, name,
   // icon, mute and when it was last seen. Tells the app its state, title and the favicon the

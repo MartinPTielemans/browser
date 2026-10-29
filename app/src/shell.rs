@@ -103,7 +103,7 @@ pub use extensions::{
 };
 pub use keys::{
     Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable, recorded,
-    reserved, user_keys, written_as,
+    reserved, user_keys, web_keystroke, written_as,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};

@@ -4,7 +4,7 @@
 //! change reaches them at once.
 
 use gpui::{
-    Action, App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction,
+    Action, App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, Modifiers, NoAction,
     OperatingSystem,
 };
 
@@ -189,15 +189,32 @@ fn pressed_in_page(key: &str, latin_key: &str, modifiers: u32, off_the_mac: bool
         false => bc::BC_MODIFIER_META,
     };
     let name = if modifiers & command != 0 && !latin_key.is_empty() { latin_key } else { key };
-    let name = match name {
+    keystroke + &gpui_key(name)
+}
+
+/// The key the web names `key`, such as "ArrowLeft" or " ", as GPUI names it.
+fn gpui_key(key: &str) -> String {
+    match key {
         "ArrowDown" => "down".to_string(),
         "ArrowUp" => "up".to_string(),
         "ArrowLeft" => "left".to_string(),
         "ArrowRight" => "right".to_string(),
         " " => "space".to_string(),
         name => name.to_lowercase(),
-    };
-    keystroke + &name
+    }
+}
+
+/// The keystroke GPUI has for the key the web names `key`, such as "G" or "ArrowLeft", with
+/// `modifiers` held, and the text it types if it's a character without ctrl, alt or cmd: one the
+/// core held from the page for a field of the app's (bc_hold_keys).
+pub fn web_keystroke(key: &str, modifiers: Modifiers) -> Keystroke {
+    let shortcut = modifiers.control || modifiers.alt || modifiers.platform;
+    let types = key.chars().count() == 1 && !shortcut;
+    Keystroke {
+        modifiers,
+        key: gpui_key(key),
+        key_char: types.then(|| key.to_string()),
+    }
 }
 
 /// The key `keystroke`, as this platform names it, as SHORTCUTS writes it: cmd-t for ctrl-t and

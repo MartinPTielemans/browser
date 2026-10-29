@@ -656,11 +656,14 @@ void ReleaseKeys(HWND from) {
     KillTimer(nullptr, g_hold_timer);
     g_hold_timer = 0;
   }
+  // A bar, or with none the page, which kept the shortcut.
+  const bool to_bar = g_keys_for || from;
   HWND to = g_keys_for ? g_keys_for : (from ? from : GetFocus());
   g_keys_for = nullptr;
   if (!g_held_keys.empty()) {
-    // check.sh reads this line.
-    fprintf(stderr, "browser: held %zu key events\n", g_held_keys.size());
+    // check.sh reads this line, which names the window that took them as the Mac's does.
+    fprintf(stderr, "browser: held %zu key events for %s\n", g_held_keys.size(),
+            to_bar ? "GPUIPanel" : "BrowserCoreNSWindow");
   }
   for (const MSG& held : g_held_keys) {
     PostMessageW(to, held.message, held.wParam, held.lParam);
