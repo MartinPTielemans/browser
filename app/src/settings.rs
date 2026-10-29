@@ -1146,8 +1146,8 @@ impl Settings {
             let (site, username) = passwords::lines(login);
             let login = login.clone();
             let remove = button(&RowLook::settings(), ("remove-login", index), "Remove");
-            let remove = remove.on_click(cx.listener(move |settings, _, _, cx| {
-                settings.remove(profile, login.clone(), cx)
+            let remove = remove.on_click(cx.listener(move |settings, _, window, cx| {
+                settings.remove(profile, login.clone(), window, cx)
             }));
             div()
                 .h(px(PROFILE_ROW))
@@ -1249,21 +1249,35 @@ impl Settings {
         self.pop_up(Popup::PasswordsProfile, items, picked, window, cx);
     }
 
-    /// Removes a saved login once the user confirms, in an alert, as a profile's Delete asks, as
-    /// nothing brings it back. A site set to Never comes off it at once: the offer coming again is
-    /// its way back.
-    fn remove(&mut self, profile: u64, login: Login, cx: &mut Context<Self>) {
+    /// Removes a saved login once the user confirms, in an alert, or on Linux in Settings' own
+    /// dialog, as a profile's Delete asks, as nothing brings it back. A site set to Never comes off
+    /// it at once: the offer coming again is its way back.
+    fn remove(&mut self, profile: u64, login: Login, window: &mut Window, cx: &mut Context<Self>) {
         if login.never {
             crate::remove_login(profile, &login);
             return;
         }
-        cx.spawn(async move |_, _| {
-            let (message, detail) = passwords::question(&login);
-            if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
-                crate::remove_login(profile, &login);
-            }
-        })
-        .detach();
+        let (message, detail) = passwords::question(&login);
+        #[cfg(target_os = "linux")]
+        dialog::ask_in(
+            &self.dialog,
+            message,
+            detail,
+            "Remove",
+            Box::new(move |_| crate::remove_login(profile, &login)),
+            window,
+            cx,
+        );
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = window;
+            cx.spawn(async move |_, _| {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                    crate::remove_login(profile, &login);
+                }
+            })
+            .detach();
+        }
     }
 
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
