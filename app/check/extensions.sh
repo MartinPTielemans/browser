@@ -1,9 +1,10 @@
 # The menu bar's Extensions menu lists the turned-on extensions of the shown Space's profile, by
 # name, over Pin to URL Field and Manage Extensions…. Choosing one runs its action on the tab shown,
-# as a click on its toolbar button does in Chrome: one without a popup hears the click, and one
-# with a popup opens it with the keyboard, which escape closes, giving the browser window the
-# keyboard back. Pin to URL Field's items pin an extension's action at the URL field's end, in the
-# order pinned, showing its badge for the tab shown as it changes. A click on a pinned action runs
+# as a click on its toolbar button does in Chrome: one without a popup hears the click, and a
+# pop-up window it opens is a window of its own, not a tab, and one with a popup opens it with the
+# keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field's
+# items pin an extension's action at the URL field's end, in the order pinned, showing its badge
+# for the tab shown as it changes. A click on a pinned action runs
 # it, its popup hanging from it, and its right-click menu unpins it, opens its options or its
 # details on Chrome's extensions page, or removes it once the user confirms. The actions that don't
 # fit are behind an overflow button in the last place, whose menu runs them. Manage Extensions…
@@ -19,7 +20,9 @@
 # a new tab.
 
 # Four unpacked extensions of the check's own, loaded as a developer loads one. A click on the
-# first gives the tab it's on a badge, then opens its page, and its command ⇧⌘Y opens another. The
+# first gives the tab it's on a badge, opens a pop-up window of its own as MetaMask's confirmations
+# do, which it closes once it has seen it's a window with one tab, then opens its page, which says
+# what it saw, and its command ⇧⌘Y opens another. The
 # second's popup gives it a badge on every tab, and ⌥⇧P opens it. The third has a popup and
 # options, and suggests ⌘J, Jump to Selection's key, which Chrome gives away, for a command. The
 # check removes it, and the next loads it again, as Chrome leaves an unpacked extension's folder.
@@ -28,7 +31,11 @@
 extensions="$PWD/$out/extensions"
 script='chrome.action.onClicked.addListener(async tab => {
   await chrome.action.setBadgeText({tabId: tab.id, text: "7"});
-  chrome.tabs.create({url: "clicked.html"});
+  const made = await chrome.windows.create(
+    {type: "popup", url: "made.html", width: 360, height: 240, focused: false});
+  const tabs = await chrome.tabs.query({windowId: made.id});
+  await chrome.windows.remove(made.id);
+  chrome.tabs.create({url: `clicked.html#${made.type}-${tabs.length}`});
 });
 chrome.commands.onCommand.addListener(() => chrome.tabs.create({url: "command.html"}));'
 # Chrome keeps running the script it first registered for an extension, so a changed script is a
@@ -42,6 +49,7 @@ cat > "$clicked_dir/manifest.json" << 'EOF'
  "commands": {"hello": {"suggested_key": {"default": "Ctrl+Shift+Y"}, "description": "Hello"}}}
 EOF
 echo '<title>clicked</title>' > "$clicked_dir/clicked.html"
+echo '<title>made</title>' > "$clicked_dir/made.html"
 echo '<title>command</title>' > "$clicked_dir/command.html"
 cat > "$extensions/popup/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Popup", "version": "1",
@@ -106,7 +114,7 @@ echo "$pinned" | grep -q '^browser: pinned extensions [0-9]* $' ||
 first=$(today | cut -d' ' -f1)
 # A just-installed extension's script adds its listener once it has run, and a click before then
 # goes unheard, so on a fresh profile it's chosen until it's heard.
-heard="^browser: loaded [0-9]* chrome-extension://$clicked/clicked.html\$"
+heard="^browser: loaded [0-9]* chrome-extension://$clicked/clicked.html#"
 for _ in $(seq 10); do
   send menu "Check Clicked"
   expect "^browser: run extension $clicked ran\$" \
@@ -117,6 +125,11 @@ for _ in $(seq 10); do
   done
 done
 none_since "$heard" && fail "Check Clicked didn't hear its click: it didn't open its page"
+# Its pop-up window is a window of its own, in its profile, as Chrome makes one, and not a tab.
+grep -q "^browser: loaded [0-9]* chrome-extension://$clicked/clicked.html#popup-1\$" "$log" ||
+  fail "Check Clicked's pop-up window wasn't a window with its one tab: $(grep clicked.html "$log")"
+grep -q "chrome-extension://$clicked/made.html" "$log" &&
+  fail "Check Clicked's pop-up window opened as a tab"
 # Pinned in the order pinned, on the extension's page's tab, where Check Clicked has no badge.
 send menu "Pin to URL Field › Check Popup"
 expect "^browser: pin extension $popup\$" "Pin to URL Field › Check Popup didn't reach the UI"
@@ -420,7 +433,7 @@ expect '^browser: side panel none$' "Close Side Panel didn't close the side pane
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. The Site Controls list the unpinned extensions by name, and a click on one's tile runs it, its popup hanging from the tile, and its right-click menu moves it to the top, pinning it, unpins it, and asks before removing it. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/site-controls-extensions.png, $out/site-controls-extension-popup.png, $out/site-controls-move-to-top.png, $out/site-controls-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
+echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and opens a pop-up window of its own, not a tab, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. The Site Controls list the unpinned extensions by name, and a click on one's tile runs it, its popup hanging from the tile, and its right-click menu moves it to the top, pinning it, unpins it, and asks before removing it. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/site-controls-extensions.png, $out/site-controls-extension-popup.png, $out/site-controls-move-to-top.png, $out/site-controls-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
 
 # A desktop app's native messaging host that only another Chromium browser's folder has, as
 # 1Password writes its own only for the browsers it knows. The launch has a profile without one and

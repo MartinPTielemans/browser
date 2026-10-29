@@ -33,7 +33,7 @@ Revisit if cherry-picking from Helium costs more per release than taking its who
 
 ## 3. Architecture: Chrome's framework plus our own window host
 
-Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. One native window holds a Chrome `Browser` per profile, each with a stand-in `BrowserWindow` that has no UI. Tab views are parented directly into our window, and popups become tabs. The window is the core's, a Chrome Views widget as in Ardia, and GPUI draws as a view inside it, under the tab views.
+Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. One native window holds a Chrome `Browser` per profile, each with a stand-in `BrowserWindow` that has no UI. Tab views are parented directly into our window, and pages' popups become tabs. A window an extension makes, as MetaMask's confirmations, is Chrome's own, as undocked DevTools are (owner, 2026-10-29). The window is the core's, a Chrome Views widget as in Ardia, and GPUI draws as a view inside it, under the tab views.
 
 - This keeps the whole `chrome/` layer, so extensions, the Web Store, autofill, passkeys and DevTools keep working.
 - Ardia ships on this design today.
