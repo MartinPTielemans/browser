@@ -749,6 +749,12 @@ fn what_an_agent_may_not_do_is_refused_and_logged(cx: &mut TestAppContext) {
     assert!(answer.recv().unwrap().error);
     assert!(browser.navigated.borrow().is_empty());
     assert_eq!(log(&agents, "claude-code", cx)[0].0, "navigate");
+
+    // The account is the user's alone: its secret reads their passwords.
+    for tool in ["sign_in", "recovery_words", "sync"] {
+        let answer = call(&agents, "claude-code", tool, json!({}), cx);
+        assert_eq!(answer.recv().unwrap(), ToolResult::error(format!("There's no tool {tool}.")));
+    }
 }
 
 /// An order asks the user first, in the card: Allow Once lets it go this time and asks again
