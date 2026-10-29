@@ -277,8 +277,10 @@ void host_window_opened(void* ui_view, uint64_t window) {
 }
 
 void host_window_active(void* ui_view, bool active, bool whole_window) {
+  // GPUI tells of a window's activation inside its update, and the app's answer updates the window,
+  // which it can't from inside one, so it hears after.
   if (active && g_key_window_changed) {
-    g_key_window_changed(ui_view);
+    Later([ui_view] { g_key_window_changed(ui_view); });
   }
   // On X11 a click in the page takes the keyboard from GPUI's window but leaves the app active,
   // and GPUI hears nothing of the browser window's own.
