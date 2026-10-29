@@ -19,6 +19,7 @@
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
+#include "components/infobars/core/infobar_manager.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -43,6 +44,7 @@ class Window;
 class Tab : public content::WebContentsObserver,
             public favicon::FaviconDriverObserver,
             public MediaStreamCaptureIndicator::Observer,
+            public infobars::InfoBarManager::Observer,
             public platform::SystemPage::Delegate {
  public:
   // |contents|'s id, given the first time it's asked for.
@@ -141,6 +143,9 @@ class Tab : public content::WebContentsObserver,
 
   // Mutes or unmutes the tab, as Chrome's speaker button does.
   void SetMuted(bool muted);
+  // While another page shares a tab, has it share this tab's page instead, as Chrome's infobar's
+  // Share this tab instead does.
+  void ShareInstead();
   bool muted() const;
 
   // The page the system's engine shows in place of Chromium's (system_engine.h), else null. Its
@@ -257,6 +262,13 @@ class Tab : public content::WebContentsObserver,
   // Within those, for a change to this tab's page.
   void CaptureChanged(content::WebContents* contents);
 
+  // infobars::InfoBarManager::Observer, for Chrome's tab sharing infobar, which ShareInstead acts
+  // through and the app never shows:
+  void OnInfoBarAdded(infobars::InfoBar* infobar) override;
+  void OnInfoBarRemoved(infobars::InfoBar* infobar, bool animate) override;
+  void OnInfoBarReplaced(infobars::InfoBar* old_infobar, infobars::InfoBar* new_infobar) override;
+  void OnManagerWillBeDestroyed(infobars::InfoBarManager* manager) override;
+
   // Tells the app the tab's state from a task of its own, as StateChanged does, for a change the
   // session doesn't keep.
   void ReportStateSoon();
@@ -311,6 +323,8 @@ class Tab : public content::WebContentsObserver,
   base::CallbackListSubscription audible_subscription_;
   base::ScopedObservation<MediaStreamCaptureIndicator, MediaStreamCaptureIndicator::Observer>
       capture_observation_{this};
+  base::ScopedObservation<infobars::InfoBarManager, infobars::InfoBarManager::Observer>
+      infobar_observation_{this};
   std::unique_ptr<content::NavigationController::LoadURLParams> waiting_;
   bool crashed_ = false;
   // While the page is hung: Chrome's Wait, and the id of the renderer that hung, which Reload ends.

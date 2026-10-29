@@ -2217,6 +2217,10 @@ impl Shell {
                  shared {shared}"
             );
         }
+        if page.share_instead != entry.page.share_instead {
+            // check.sh waits for this line.
+            log!("browser: page {tab} share instead {}", flag(page.share_instead));
+        }
         if page.icon != entry.page.icon {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
             log!("browser: page {tab} icon {icon}");

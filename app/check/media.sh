@@ -1,13 +1,15 @@
 # A tab in a call says so on its row, as Chrome's tab strip does: the camera while its page uses
 # the camera, the microphone alone, or the screen while it shares a screen, a window or a tab, and
-# the tab it shares shows the screen too. The marks go once the call ends. Chromium's fake camera
+# the tab it shares shows the screen too. While it shares a tab, another tab's menu has Share This
+# Tab Instead, which moves the share there. The marks go once the call ends. Chromium's fake camera
 # and microphone stand in for real ones, and the share takes the tab titled Shared without its
 # picker; the question for the camera is answered with Allow, as the user would, since the fake
 # question Chromium can put in its place never tells the browser what's captured.
 
 serve
-# "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, and
-# "o" opens that tab, the same page with ?Shared, whose title is what follows the ?.
+# "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
+# opens that tab, the same page with ?Shared, whose title is what follows the ?, and "p" one titled
+# Other.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 const name = decodeURIComponent(location.search.slice(1));
@@ -25,8 +27,8 @@ onkeydown = async e => {
       streams.forEach(stream => stream.getTracks().forEach(track => track.stop()));
       streams = [];
       document.title = "ended";
-    } else if (e.key == "o") {
-      window.open("call.html?Shared");
+    } else if (e.key == "o" || e.key == "p") {
+      window.open(e.key == "o" ? "call.html?Shared" : "call.html?Other");
     }
   } catch (error) {
     document.title = "refused " + error.name;
@@ -51,14 +53,24 @@ if [ "$active" != 1 ]; then
   exit 0
 fi
 
-# The tab the call shares, opened under it, then the call's tab shown again.
+# The tab the call shares and the one it shares instead, opened from it, then the call's tab
+# shown again. Each opens under it, so the call's tab is found by its place in Today.
+# shown_again <tab>: shows <tab> by its ⌘ number and gives its page the keyboard.
+shown_again() {
+  n=$(today | tr ' ' '\n' | grep -nx "$1" | cut -d: -f1)
+  switch "$((n + $(pinned | wc -w))) cmd" "$1"
+  send click $page_point
+}
 send key o
 expect "^browser: today \($a [0-9][0-9]*\|[0-9][0-9]* $a\)\$" "the page didn't open the tab to share"
 b=$(today | tr ' ' '\n' | grep -vx "$a")
 expect "^browser: title $b Shared\$" "the tab to share didn't draw"
-n=$(today | tr ' ' '\n' | grep -nx "$a" | cut -d: -f1)
-switch "$((n + $(pinned | wc -w))) cmd" "$a"
-send click $page_point
+shown_again "$a"
+send key p
+expect "^browser: today .* .* .*\$" "the page didn't open the tab to share instead"
+c=$(today | tr ' ' '\n' | grep -vx "$a" | grep -vx "$b")
+expect "^browser: title $c Other\$" "the tab to share instead didn't draw"
+shown_again "$a"
 
 send key c
 expect "^browser: page $a asks ${site%/} to " "the call didn't ask for the camera and microphone"
@@ -81,14 +93,26 @@ expect "^browser: page $a camera 1 microphone 1 sharing 1 shared 0\$" \
   "the call's tab didn't show it shares"
 expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 1\$" \
   "the tab shared didn't show it's shared"
+expect "^browser: page $c share instead 1\$" "the other tab wasn't offered to share instead"
 ../tools/window-screenshot.sh "$pid" "$out/media-sharing.png" || fail "no window to capture"
 
+# The other tab's menu, from its row, moves the share there.
+post rightclick $(row "$(($(today | tr ' ' '\n' | grep -nx "$c" | cut -d: -f1) - 1))")
+expect "^browser: menu shown .*$(cased 'Share This Tab Instead')" \
+  "the other tab's menu didn't offer Share This Tab Instead"
+send choose "$(cased 'Share This Tab Instead')"
+expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 1\$" \
+  "Share This Tab Instead didn't share the other tab"
+expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 0\$" \
+  "Share This Tab Instead left the first tab shared"
+
+send click $page_point
 send key e
 expect "^browser: page $a camera 0 microphone 0 sharing 0 shared 0\$" \
   "the call's tab kept its mark once the call ended"
-expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 0\$" \
+expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
   "the tab shared kept its mark once the share ended"
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, and the marks go when the call ends."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends."

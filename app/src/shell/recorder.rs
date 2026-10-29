@@ -302,6 +302,10 @@ impl Browser for Recorder {
 
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        self.record(format!("share instead {tab}"));
+    }
+
     fn clear(&self, _: &mut App) -> u64 {
         let id = self.core.ticket();
         self.edit(format!("clear as {id}"));

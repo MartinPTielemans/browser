@@ -99,6 +99,8 @@ typedef struct bc_tab_state {
   bool sharing;
   // Another page shares this tab, as a call shows it.
   bool shared;
+  // Another page shares a tab, and bc_tab_share_instead would have it share this one.
+  bool share_instead;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -1864,6 +1866,11 @@ BC_EXPORT void bc_tab_set_icon(bc_id tab, const char* icon);
 // Mutes or unmutes the tab, whatever page it's at. Duplicating it and ⇧⌘T keep it muted; a quit
 // doesn't. Then tab_state_changed.
 BC_EXPORT void bc_tab_set_muted(bc_id tab, bool muted);
+
+// While a page shares a tab and the tab's state has share_instead, has the page share this tab's
+// page in its place, as Chrome's Share this tab instead does. The user's: agents get none, as it
+// would show a page to whoever the call reaches. Then tab_state_changed, for both tabs.
+BC_EXPORT void bc_tab_share_instead(bc_id tab);
 
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
 // shows the tab first. Then tab_closed for each, and space_changed.

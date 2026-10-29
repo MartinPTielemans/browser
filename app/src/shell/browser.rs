@@ -72,6 +72,8 @@ pub trait Browser {
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Mutes `tab`, or unmutes it.
     fn set_muted(&self, tab: u64, muted: bool, cx: &mut App);
+    /// Has the page sharing a tab share `tab` in its place.
+    fn share_instead(&self, tab: u64, cx: &mut App);
     /// Closes the Today tabs of the Space shown, but the one shown, unless it shows them all, and
     /// returns the id of the clear, or 0 if it closed none.
     fn clear(&self, cx: &mut App) -> u64;
@@ -549,6 +551,8 @@ pub struct Page {
     pub sharing: bool,
     /// Another page shares this tab.
     pub shared: bool,
+    /// Another page shares a tab, and `share_instead` would have it share this one.
+    pub share_instead: bool,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the

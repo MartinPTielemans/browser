@@ -91,6 +91,10 @@ impl Shell {
         if !favorite && self.split_partner(tab).is_some() {
             actions.push(Action::Split);
         }
+        // Chrome offers it on every tab but those the share is from and of.
+        if self.page(tab).share_instead {
+            actions.push(Action::ShareInstead);
+        }
         actions
     }
 
@@ -119,6 +123,7 @@ impl Shell {
                             self.browser.split_with(tab, with, false, cx);
                         }
                     }
+                    Action::ShareInstead => self.browser.share_instead(tab, cx),
                 }
             }
         }

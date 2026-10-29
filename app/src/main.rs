@@ -1749,6 +1749,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_muted(tab, muted) };
     }
 
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_share_instead(tab) };
+    }
+
     fn clear(&self, _: &mut App) -> u64 {
         unsafe { bc::bc_window_clear(self.window) }
     }
@@ -4415,6 +4419,7 @@ unsafe extern "C" fn tab_state_changed(
         microphone: state.microphone,
         sharing: state.sharing,
         shared: state.shared,
+        share_instead: state.share_instead,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
         update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));

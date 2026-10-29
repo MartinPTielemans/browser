@@ -751,6 +751,14 @@ impl Shell {
             "toggle-mute",
             Box::new(move |shell, cx| shell.toggle_mute(tab, cx)),
         ));
+        // While a page shares another tab, as Chrome's infobar offers it on the rest.
+        if page.share_instead {
+            items.push((
+                MenuEntry::new("Share This Tab Instead", true),
+                "share-instead",
+                Box::new(move |shell, cx| shell.browser.share_instead(tab, cx)),
+            ));
+        }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Add Split View", panes.len() < MAX_PANES),

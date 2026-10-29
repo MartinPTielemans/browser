@@ -36,6 +36,7 @@
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
+#include "chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/error_page/content/browser/net_error_auto_reloader.h"
@@ -44,6 +45,8 @@
 #include "components/favicon_base/favicon_types.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
+#include "components/infobars/content/content_infobar_manager.h"
+#include "components/infobars/core/infobar.h"
 #include "components/input/native_web_keyboard_event.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/tabs/public/tab_interface.h"
@@ -138,6 +141,26 @@ void Forget(bc_id id) {
   std::unique_ptr<Tab> tab = std::move(it->second);
   Tabs().erase(it);
   base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE, std::move(tab));
+}
+
+// Chrome's tab sharing infobar on |contents|, which every tab has while a page shares a tab, if
+// it offers Share this tab instead: the app's controls stand for the infobar, which never shows.
+TabSharingInfoBarDelegate* ShareInsteadInfoBar(content::WebContents* contents) {
+  auto* manager = contents ? infobars::ContentInfoBarManager::FromWebContents(contents) : nullptr;
+  if (!manager) {
+    return nullptr;
+  }
+  for (infobars::InfoBar* infobar : manager->infobars()) {
+    if (infobar->delegate()->GetIdentifier() !=
+        infobars::InfoBarDelegate::TAB_SHARING_INFOBAR_DELEGATE) {
+      continue;
+    }
+    auto* sharing = static_cast<TabSharingInfoBarDelegate*>(infobar->delegate());
+    constexpr auto kInstead = TabSharingInfoBarDelegate::kShareThisTabInstead;
+    return (sharing->GetButtons() & kInstead) && sharing->IsButtonEnabled(kInstead) ? sharing
+                                                                                    : nullptr;
+  }
+  return nullptr;
 }
 
 }  // namespace
@@ -244,6 +267,11 @@ void Tab::Attach(content::WebContents* contents) {
   if (!capture_observation_.IsObserving()) {
     capture_observation_.Observe(
         MediaCaptureDevicesDispatcher::GetInstance()->GetMediaStreamCaptureIndicator().get());
+  }
+  // Chrome's tab sharing infobar comes and goes on it as a page starts and stops sharing a tab.
+  infobar_observation_.Reset();
+  if (auto* infobars = infobars::ContentInfoBarManager::FromWebContents(contents)) {
+    infobar_observation_.Observe(infobars);
   }
   // Its page's alert(), confirm() and prompt() ask with the app's dialog.
   ScriptDialogs::Attach(contents);
@@ -910,6 +938,7 @@ void Tab::ReportState() {
       .microphone = !page && capture->IsCapturingAudio(contents),
       .sharing = !page && sharing,
       .shared = !page && capture->IsBeingMirrored(contents),
+      .share_instead = !page && ShareInsteadInfoBar(contents),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
@@ -1285,6 +1314,28 @@ void Tab::OnIsCapturingDisplayChanged(content::WebContents* contents, bool) {
   CaptureChanged(contents);
 }
 
+void Tab::ShareInstead() {
+  if (TabSharingInfoBarDelegate* sharing = ShareInsteadInfoBar(web_contents())) {
+    sharing->ShareThisTabInstead();
+  }
+}
+
+void Tab::OnInfoBarAdded(infobars::InfoBar*) {
+  ReportStateSoon();
+}
+
+void Tab::OnInfoBarRemoved(infobars::InfoBar*, bool) {
+  ReportStateSoon();
+}
+
+void Tab::OnInfoBarReplaced(infobars::InfoBar*, infobars::InfoBar*) {
+  ReportStateSoon();
+}
+
+void Tab::OnManagerWillBeDestroyed(infobars::InfoBarManager*) {
+  infobar_observation_.Reset();
+}
+
 void Tab::CaptureChanged(content::WebContents* contents) {
   // Every tab hears every page's.
   if (contents && contents == web_contents()) {
@@ -1293,8 +1344,9 @@ void Tab::CaptureChanged(content::WebContents* contents) {
 }
 
 void Tab::WebContentsDestroyed() {
-  // The driver is the page's too, and may go before the tab does.
+  // The driver is the page's too, and may go before the tab does, as may its infobars.
   favicon_observation_.Reset();
+  infobar_observation_.Reset();
   audible_subscription_ = {};
   system_page_.reset();
   // Unloaded, it stays without its page.

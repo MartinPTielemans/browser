@@ -587,6 +587,9 @@ impl Browser for Fake {
         });
     }
 
+    // The made-up pages share nothing.
+    fn share_instead(&self, _: u64, _: &mut App) {}
+
     fn can_use_system_engine(&self) -> bool {
         true
     }
