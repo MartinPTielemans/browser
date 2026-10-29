@@ -1771,8 +1771,8 @@ impl Settings {
             .into_any_element()
     }
 
-    /// Exit Full Screen's ⎋, which can't be changed, and who has it first: Arc's pop-up, its own
-    /// Prefer Websites by default.
+    /// Exit Full Screen's ⎋, which can't be changed, and who has it: Arc's pop-up, its own Use Both
+    /// by default.
     fn escape_priority(&self, cx: &mut Context<Self>) -> AnyElement {
         let chosen = shell::user_keys(cx).escape_priority();
         let drawn = self.escape_popup.clone();
