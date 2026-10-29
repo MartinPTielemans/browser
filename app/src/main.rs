@@ -4762,6 +4762,48 @@ unsafe extern "C" fn window_extension_popup(
     }
 }
 
+/// On Linux and Windows, Chrome asks whether to quit, or close the last private window, cancelling
+/// `count` downloads running. In the words of Chrome's alert on the Mac, with the app's name where
+/// it names Chromium, and ↩ on Continue Downloading, as there.
+unsafe extern "C" fn window_downloads_question(
+    _: *mut c_void,
+    window: bc::bc_id,
+    count: c_int,
+    last_private: bool,
+) {
+    let question = dialog::Question {
+        icon: None,
+        message: match count {
+            1 => "Download is in progress",
+            _ => "Downloads are in progress",
+        }
+        .into(),
+        detail: match last_private {
+            true => "Quit Incognito mode anyway?",
+            false => concat!("Quit ", env!("APP_NAME"), " anyway?"),
+        }
+        .into(),
+        list: Vec::new(),
+        action: "Quit".into(),
+        cancel: "Continue Downloading".into(),
+        // Quit cancels the downloads, which can't be taken back.
+        tone: dialog::Tone::Destructive,
+        also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: true,
+    };
+    let answered =
+        Box::new(move |cancel, _: &mut App| unsafe { bc::bc_window_answer_downloads(window, cancel) });
+    // With no UI to ask in, the browser stays open, as it does with no dialog to ask in.
+    if CX.with_borrow(Option::is_none) {
+        unsafe { bc::bc_window_answer_downloads(window, false) };
+        return;
+    }
+    // A private window's close can ask from inside the app's own call.
+    update_app_later(move |cx| dialog::ask_chrome(question, answered, cx));
+}
+
 unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
     update_window(window, |shell, cx| shell.show_downloads(cx));
 }
@@ -5374,6 +5416,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        window_downloads_question: Some(window_downloads_question),
         ..Default::default()
     };
     (args, host)
