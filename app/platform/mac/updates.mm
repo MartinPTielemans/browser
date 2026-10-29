@@ -51,18 +51,66 @@ NSString* OwnSignature() {
   return CFBridgingRelease(text);
 }
 
-// Reads the cookie key as Chromium will, so macOS asks for it now if it's going to. The key itself
-// is dropped at once.
-OSStatus ReadKey(NSString* name) {
-  NSDictionary* query = @{
+// The cookie key's item, Chromium's, in the login keychain, or with |suffix|, the spare that holds
+// the key while the item is made again.
+NSDictionary* KeyItem(NSString* name, NSString* suffix = @"") {
+  NSString* service = [NSString stringWithFormat:@"%@ Safe Storage%@", name, suffix];
+  return @{
     (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-    (__bridge id)kSecAttrService : [name stringByAppendingString:@" Safe Storage"],
+    (__bridge id)kSecAttrService : service,
     (__bridge id)kSecAttrAccount : name,
-    (__bridge id)kSecReturnData : @YES,
   };
-  CFTypeRef key = nullptr;
-  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &key);
-  if (key) CFRelease(key);
+}
+NSString* const kSpare = @" (moving)";
+
+OSStatus CopyKey(NSDictionary* item, NSData** key) {
+  NSMutableDictionary* query = [item mutableCopy];
+  query[(__bridge id)kSecReturnData] = @YES;
+  CFTypeRef data = nullptr;
+  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &data);
+  *key = CFBridgingRelease(data);
+  return status;
+}
+
+// Adds |item| with |key|. macOS grants an item to the designated requirement of the app that
+// adds it, and to no other.
+OSStatus AddKey(NSDictionary* item, NSData* key) {
+  NSMutableDictionary* attributes = [item mutableCopy];
+  attributes[(__bridge id)kSecAttrLabel] = item[(__bridge id)kSecAttrService];
+  attributes[(__bridge id)kSecValueData] = key;
+  return SecItemAdd((__bridge CFDictionaryRef)attributes, nullptr);
+}
+
+// Reads the cookie key as Chromium will, so macOS asks for it now if it's going to. A launch that
+// stopped while the item was made again left the key in the spare, which goes back first.
+OSStatus ReadKey(NSString* name, NSData** key) {
+  OSStatus status = CopyKey(KeyItem(name), key);
+  if (status == errSecItemNotFound && CopyKey(KeyItem(name, kSpare), key) == errSecSuccess) {
+    status = AddKey(KeyItem(name), *key);
+    Log([NSString stringWithFormat:@"the cookie key came back from its spare: %d", (int)status]);
+    // Not found would let Chromium make a new key, and lose the profile's cookies and passwords.
+    if (status == errSecItemNotFound) status = errSecIO;
+  }
+  return status;
+}
+
+// Makes the cookie key's item again, holding the same key, so that it's granted to this app's
+// designated requirement instead of the one that made it. Signed with the team's requirement
+// (tools/requirement.sh), every build the team signs reads it after that, whichever of its
+// identities signed it, and the move from Apple Development to Developer ID asks nothing. Changing
+// the item's access in place would ask for the keychain's password; making it again doesn't.
+OSStatus Regrant(NSString* name, NSData* key) {
+  NSDictionary* spare = KeyItem(name, kSpare);
+  SecItemDelete((__bridge CFDictionaryRef)spare);
+  OSStatus status = AddKey(spare, key);
+  if (status != errSecSuccess) return status;
+  status = SecItemDelete((__bridge CFDictionaryRef)KeyItem(name));
+  if (status == errSecSuccess) status = AddKey(KeyItem(name), key);
+  // The spare stays only while the item lacks the key.
+  NSData* kept = nil;
+  if (CopyKey(KeyItem(name), &kept) == errSecSuccess && [kept isEqual:key]) {
+    SecItemDelete((__bridge CFDictionaryRef)spare);
+  }
   return status;
 }
 
@@ -347,11 +395,20 @@ bool host_keep_keychain_key(void) {
     return true;
   }
   for (;;) {
-    OSStatus status = ReadKey(name);
+    NSData* key = nil;
+    OSStatus status = ReadKey(name, &key);
     // Not there: a first launch, and Chromium makes one.
-    if (status == errSecSuccess || status == errSecItemNotFound) {
+    if (status == errSecItemNotFound) {
       [defaults setObject:signature forKey:kKeySignature];
       return true;
+    }
+    if (status == errSecSuccess) {
+      OSStatus regranted = Regrant(name, key);
+      Log([NSString stringWithFormat:@"the cookie key regranted to %@: %d", signature, (int)regranted]);
+      // Where it couldn't be, the item still has the key, unless it's only in the spare.
+      if (regranted == errSecSuccess) [defaults setObject:signature forKey:kKeySignature];
+      status = ReadKey(name, &key);
+      if (status == errSecSuccess) return true;
     }
     Log([NSString stringWithFormat:@"the cookie key couldn't be read: %d", (int)status]);
     // AppKit isn't up before Chromium starts, so the alert is the system's.

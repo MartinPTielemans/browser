@@ -7,7 +7,8 @@
 #   links preview access trouble dialogs crash import quit onboarding
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
-# Updates and passkeys run only when named too, until they pass on the Mac.
+# Updates and passkeys run only when named too, until they pass on the Mac. So does keychain,
+# which uses the real Keychain, on the prod build and only in a check VM.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
 # take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
 # build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
@@ -36,7 +37,7 @@ fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
 runs="$runs links preview access trouble dialogs crash import quit onboarding"
-named="store adblock-live updates passkeys"
+named="store adblock-live updates passkeys keychain"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
