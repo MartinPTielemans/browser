@@ -801,11 +801,11 @@ impl Shell {
                 if self.browser.close_other_window(cx) {
                     return;
                 }
-                // On the Mac a window closed in full screen only came out of it and stayed open,
-                // so it comes out first, as the green button takes it, and closes once windowed.
-                if cfg!(target_os = "macos") && self.full_screen {
-                    self.close_when_windowed = true;
-                    return self.browser.press_window_button(WindowButton::Zoom, cx);
+                // AppKit drops a close that comes while it takes the window into full screen or
+                // out, so that one waits for the window to get there.
+                if self.browser.full_screen_moving() {
+                    self.close_when_settled = true;
+                    return;
                 }
                 return self.browser.close_window(cx);
             }

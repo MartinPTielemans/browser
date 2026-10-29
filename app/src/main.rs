@@ -163,6 +163,7 @@ mod platform {
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
+        pub fn host_full_screen_moving(ui_view: *mut c_void) -> bool;
         pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
@@ -2330,6 +2331,10 @@ impl Browser for Engine {
         cfg!(target_os = "linux") && unsafe { bc::bc_window_is_full_screen(self.window) }
     }
 
+    fn full_screen_moving(&self) -> bool {
+        unsafe { platform::host_full_screen_moving(self.ui_view) }
+    }
+
     fn show_reveal(&self, width: f32, _: &mut App) {
         unsafe { platform::host_show_reveal(self.ui_view, width.into()) };
     }
@@ -3288,8 +3293,10 @@ fn open_window_as(
         window.update(cx, |shell, _, cx| shell.set_space(space, cx)).ok();
     }
     // From a full-screen window it goes full screen too, as Arc's ⌘N does, rather than opening on
-    // the desktop behind.
-    let full_screen = saved.is_none()
+    // the desktop behind. On the Mac AppKit takes it there itself as it's shown, and the green
+    // button's toggle on top waited out AppKit's way in and then took it back out.
+    let full_screen = cfg!(target_os = "linux")
+        && saved.is_none()
         && from_shell.as_ref().is_some_and(|from| from.read(cx).is_full_screen());
     let first = from.is_none();
     // Once the page frame is set, so the tab shown loads at its size, and before the window is on
@@ -3300,15 +3307,8 @@ fn open_window_as(
         _ => unsafe { platform::host_show_window(ui_view) },
     }
     if full_screen {
-        // As the green button, or on Linux the window manager's key, puts it there.
-        #[cfg(target_os = "linux")]
-        unsafe {
-            bc::bc_window_toggle_full_screen(id)
-        };
-        #[cfg(not(target_os = "linux"))]
-        unsafe {
-            platform::host_press_window_button(ui_view, 2)
-        };
+        // As the window manager's key puts it there.
+        unsafe { bc::bc_window_toggle_full_screen(id) };
     }
     log_frame(id, ui_view);
     if !first {

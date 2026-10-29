@@ -1041,8 +1041,8 @@ pub struct Shell {
     link_system: Option<WindowTextSystem>,
     /// Whether the window is full screen, as macOS last told once its transition was over.
     full_screen: bool,
-    /// Close Window came in full screen, on the Mac, and the window closes once it's out.
-    close_when_windowed: bool,
+    /// Close Window came as the window went into full screen or out, and it closes once there.
+    close_when_settled: bool,
     /// When ⎋ last went down in window full screen, for a second press to leave it.
     escaped: Option<Instant>,
     /// The window stays on top of other apps' windows (Window › Stay On Top).
@@ -1335,7 +1335,7 @@ impl Shell {
             link: None,
             link_system: None,
             full_screen: false,
-            close_when_windowed: false,
+            close_when_settled: false,
             escaped: None,
             on_top: false,
             maximized: false,
@@ -2380,7 +2380,7 @@ impl Shell {
         if !entered || !self.page_fullscreen {
             self.browser.full_screen_note(entered, cx);
         }
-        if !entered && std::mem::take(&mut self.close_when_windowed) {
+        if std::mem::take(&mut self.close_when_settled) {
             self.browser.close_window(cx);
         }
     }

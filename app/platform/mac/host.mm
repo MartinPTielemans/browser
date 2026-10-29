@@ -227,6 +227,9 @@ struct Browser {
   double offer_top = 0;
   bool offer_keyboard = false;
 
+  // AppKit is taking the window into full screen or out, until it says it's done.
+  bool full_screen_moving = false;
+
   // How far the focused page's top right corner is inside the card's, in a split view, which the
   // find bar, the offer and the HUD keep to.
   double page_right = 0;
@@ -1547,6 +1550,18 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
 
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {
   for (NSNotificationName name in
+       @[ NSWindowWillEnterFullScreenNotification, NSWindowWillExitFullScreenNotification ]) {
+    [NSNotificationCenter.defaultCenter addObserverForName:name
+                                                    object:nil
+                                                     queue:nil
+                                                usingBlock:^(NSNotification* notification) {
+                                                  if (Browser* browser =
+                                                          BrowserOf(notification.object)) {
+                                                    browser->full_screen_moving = true;
+                                                  }
+                                                }];
+  }
+  for (NSNotificationName name in
        @[ NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification ]) {
     const bool entered = name == NSWindowDidEnterFullScreenNotification;
     [NSNotificationCenter.defaultCenter addObserverForName:name
@@ -1555,11 +1570,17 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {
                                                 usingBlock:^(NSNotification* notification) {
                                                   if (Browser* browser =
                                                           BrowserOf(notification.object)) {
+                                                    browser->full_screen_moving = false;
                                                     changed((__bridge void*)browser->ui_view,
                                                             entered);
                                                   }
                                                 }];
   }
+}
+
+bool host_full_screen_moving(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  return browser && browser->full_screen_moving;
 }
 
 static bool (*g_swiped)(void* ui_view, double x, double y, bool back);

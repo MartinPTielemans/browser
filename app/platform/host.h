@@ -109,6 +109,10 @@ void host_watch_key_window(void (*changed)(void* ui_view));
 // macOS's transition is over.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 
+// Whether the browser window of |ui_view| is on its way into full screen or out, from the start of
+// macOS's transition to the end host_watch_full_screen reports. False where there's none to wait.
+bool host_full_screen_moving(void* ui_view);
+
 // Asks |swiped| about each swipe between pages in a browser window, at its point in |ui_view|
 // from the top left, in points; one it takes, by returning true, goes no further.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back));

@@ -373,6 +373,11 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
 // shortcut does it, and only Chromium's window hears it; the core's widget would report it.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
+// The window manager's full screen is there or not as the core asks; nothing is in between.
+bool host_full_screen_moving(void*) {
+  return false;
+}
+
 // GPUI's Wayland client hands the app the touchpad's three-finger swipes over the page
 // (gpui_linux::watch_embedder_swipes, in main.rs), which the compositor sends unless it keeps them
 // for its own, such as for workspaces. X11 sends them to the page's window alone, Chromium's.

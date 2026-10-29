@@ -965,6 +965,10 @@ impl Browser for Fake {
         false
     }
 
+    fn full_screen_moving(&self) -> bool {
+        false
+    }
+
     // The reveal's window is the app's, over the page, which the preview has neither of.
     fn show_reveal(&self, _: f32, _: &mut App) {}
 

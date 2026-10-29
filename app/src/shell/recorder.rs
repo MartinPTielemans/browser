@@ -59,6 +59,8 @@ pub(super) struct Recorder {
     pub(super) detents: Cell<usize>,
     /// How many tabs and folders it was asked to move.
     pub(super) moves: Cell<usize>,
+    /// The window is on its way into full screen or out, as `full_screen_moving` answers.
+    pub(super) full_screen_moving: Cell<bool>,
     /// Whether the system opens links with it, as `is_default_browser` answers.
     pub(super) default_browser: Cell<bool>,
     /// The system it says it runs on, the Mac unless a test says.
@@ -718,6 +720,10 @@ impl Browser for Recorder {
 
     fn window_full_screen(&self) -> bool {
         false
+    }
+
+    fn full_screen_moving(&self) -> bool {
+        self.full_screen_moving.get()
     }
 
     fn show_reveal(&self, _: f32, _: &mut App) {}

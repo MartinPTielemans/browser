@@ -225,26 +225,26 @@ fn a_page_leaving_as_its_window_starts_out_waits_for_the_resize(cx: &mut TestApp
     page_takes_the_window(&shell, cx);
 }
 
-/// Close Window in full screen takes the window out first on the Mac, and closes it once it's
-/// out, once; elsewhere it closes at once.
+/// Close Window in full screen closes the window at once. One that comes while the window is on
+/// its way out, or in, waits for it to get there, then closes it, once.
 #[gpui::test]
-fn close_window_in_full_screen_closes_once_out(cx: &mut TestAppContext) {
+fn close_window_waits_out_a_full_screen_transition(cx: &mut TestAppContext) {
     let (shell, host) = two_spaces(cx);
+    let closes =
+        |host: &Recorder| host.take().iter().filter(|call| *call == "close window").count();
     shell.update(cx, |shell, cx| shell.set_full_screen(true, cx));
     host.take();
     shell.update(cx, |shell, cx| shell.run(Command::CloseWindow, "key", cx));
-    let asked: Vec<String> =
-        host.take().into_iter().filter(|call| call == ZOOM || call == "close window").collect();
-    if !cfg!(target_os = "macos") {
-        assert_eq!(asked, ["close window"]);
-        return;
+    assert_eq!(closes(&host), 1, "the window in full screen didn't close at once");
+
+    for entering in [false, true] {
+        host.full_screen_moving.set(true);
+        shell.update(cx, |shell, cx| shell.run(Command::CloseWindow, "key", cx));
+        assert_eq!(closes(&host), 0, "the close didn't wait, entering {entering}");
+        host.full_screen_moving.set(false);
+        shell.update(cx, |shell, cx| shell.set_full_screen(entering, cx));
+        assert_eq!(closes(&host), 1, "the window didn't close once there, entering {entering}");
+        shell.update(cx, |shell, cx| shell.set_full_screen(!entering, cx));
+        assert_eq!(closes(&host), 0, "a later transition closed it again");
     }
-    assert_eq!(asked, [ZOOM], "the window closed in full screen");
-    shell.update(cx, |shell, cx| shell.set_full_screen(false, cx));
-    assert!(host.take().contains(&"close window".to_string()), "the window didn't close once out");
-    shell.update(cx, |shell, cx| {
-        shell.set_full_screen(true, cx);
-        shell.set_full_screen(false, cx);
-    });
-    assert!(!host.take().contains(&"close window".to_string()), "a later exit closed it again");
 }
