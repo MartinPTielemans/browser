@@ -611,6 +611,8 @@ impl Browser for Fake {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn set_developer_mode(&self, _: u64, _: bool, _: &mut App) {}
+
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 

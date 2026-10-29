@@ -180,6 +180,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::SavePage => "icons/save.svg",
         Command::Print => "icons/printer.svg",
         Command::ViewSource => "icons/code.svg",
+        Command::ToggleDeveloperMode => "icons/square-code.svg",
         Command::InspectElements => "icons/square-mouse-pointer.svg",
         Command::JavaScriptConsole => "icons/terminal.svg",
         Command::ManageExtensions | Command::AddExtension => "icons/puzzle.svg",

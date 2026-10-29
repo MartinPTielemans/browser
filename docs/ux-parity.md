@@ -349,7 +349,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Per site, on for localhost | MVP | a flag the profile keeps by site; localhost, its subdomains, 127.0.0.1 and [::1] on by themselves; http(s) only; a private window follows the profile and can't change it; every tab at the site follows a change. `./check.sh clear` reads it On for a localhost page in Site Controls, turns it off and on, and logs the tab's `page <tab> developer mode 0` and `1` as each draws | Arc help centre |
-| [x] | Site Controls row | MVP | after Block ads and trackers: Lucide's code, "Developer Mode", On or Off, a switch on a click; none outside http(s) or in a private window. Ours, as Arc's isn't recorded | Arc help centre, ours |
+| [x] | Site Controls row | MVP | after Block ads and trackers: Lucide's square-code, "Developer Mode", On or Off, a switch on a click; none outside http(s) or in a private window. Ours, as Arc's isn't recorded | Arc help centre, ours |
+| [x] | Command bar | MVP | "Turn on Developer Mode for this site", or "Turn off …" while on, the one that would change it; http(s) pages outside a private window. `./check.sh clear` types "developer mode", turns it off and on from the bar, and logs the tab's `developer mode 0` and `1` | Arc help centre, Arc 1.170.0 menus |
 
 ## Capture
 

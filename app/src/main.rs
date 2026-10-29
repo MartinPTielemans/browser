@@ -1855,6 +1855,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_clear_site(tab, cookies) };
     }
 
+    fn set_developer_mode(&self, tab: u64, on: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_developer_mode(tab, on) };
+    }
+
     fn answer_permission(&self, tab: u64, answer: shell::Answer, _: &mut App) {
         let answer = match answer {
             shell::Answer::Allow => bc::BC_PERMISSION_ALLOW,

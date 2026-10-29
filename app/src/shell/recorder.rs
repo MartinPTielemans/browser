@@ -408,6 +408,10 @@ impl Browser for Recorder {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn set_developer_mode(&self, tab: u64, on: bool, _: &mut App) {
+        self.record(format!("developer mode {tab} {on}"))
+    }
+
     fn answer_permission(&self, tab: u64, answer: Answer, _: &mut App) {
         self.record(format!("answer {tab} {answer:?}"))
     }

@@ -77,8 +77,8 @@ const ENGINE_NAME: &str = "Safari's engine";
 const AD_BLOCKING: &str = "icons/shield.svg";
 /// Ours: the site's logins, in place of Chrome's key icon and its manage bubble.
 const PASSWORDS: &str = "icons/key-round.svg";
-/// Ours: Developer Mode's row, as Arc's panel's isn't recorded.
-const DEVELOPER_MODE: &str = "icons/code.svg";
+/// Ours: Developer Mode's row, as Arc's panel's isn't recorded, and its command's in the bar.
+const DEVELOPER_MODE: &str = "icons/square-code.svg";
 const DEVELOPER_MODE_NAME: &str = "Developer Mode";
 const PASSWORDS_NAME: &str = "Passwords";
 use crate::tokens::site_controls::MANAGED_OPACITY;

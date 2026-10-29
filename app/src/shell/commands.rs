@@ -111,6 +111,8 @@ pub enum Command {
     JavaScriptConsole,
     /// Opens Chrome's Task Manager.
     TaskManager,
+    /// Turns Developer Mode on or off for the page's site.
+    ToggleDeveloperMode,
     /// Opens Chrome's extensions page in a new tab.
     ManageExtensions,
     /// Opens the Web Store in a new tab, as Dia's Add Extension… does.
@@ -263,6 +265,11 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
 /// sidebar to hide.
 const HIDE_SIDEBAR: &str = "Hide Sidebar";
 
+/// The page's Developer Mode's rows in the command bar, of which it lists the one that would change
+/// it (Arc's, in sentence case).
+const DEVELOPER_MODE_ON: &str = "Turn on Developer Mode for this site";
+const DEVELOPER_MODE_OFF: &str = "Turn off Developer Mode for this site";
+
 /// The commands the command bar finds, with the words besides their names' that find them, in
 /// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
 /// (docs/ux-spec.md › Command bar › Commands). Among equal matches, the first here comes first.
@@ -318,6 +325,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Developer Tools", Command::DevTools, &["devtools"]),
     ("Inspect Elements", Command::InspectElements, &[]),
     ("JavaScript Console", Command::JavaScriptConsole, &[]),
+    (DEVELOPER_MODE_ON, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
+    (DEVELOPER_MODE_OFF, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
     ("Open Task Manager", Command::TaskManager, &[]),
     ("Manage Extensions…", Command::ManageExtensions, &["plugins"]),
     ("Add Extension…", Command::AddExtension, &[]),
@@ -594,6 +603,7 @@ impl Command {
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
             Command::TaskManager => "task-manager",
+            Command::ToggleDeveloperMode => "toggle-developer-mode",
             Command::ManageExtensions => "manage-extensions",
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
@@ -816,6 +826,10 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
+            Command::ToggleDeveloperMode => {
+                let on = !self.page(self.selected).developer_mode;
+                return self.browser.set_developer_mode(self.selected, on, cx);
+            }
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
@@ -1112,8 +1126,10 @@ impl Shell {
             Command::Back => page.can_go_back,
             Command::Forward => page.can_go_forward,
             Command::Stop => page.loading,
-            // Only a web page has a site to clear.
-            Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
+            // Only a web page has a site to clear, or to show in Developer Mode.
+            Command::ClearCacheAndRefresh
+            | Command::ClearCookiesAndRefresh
+            | Command::ToggleDeveloperMode => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
             Command::BackToPinnedUrl => page.away_from_pinned_url,
@@ -1173,6 +1189,10 @@ impl Shell {
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
+            Command::ToggleDeveloperMode => {
+                let on = self.page(self.selected).developer_mode;
+                (name == if on { DEVELOPER_MODE_OFF } else { DEVELOPER_MODE_ON }).then_some(name)
+            }
             _ => Some(name),
         }
     }
@@ -1209,6 +1229,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ViewHistory
             | Command::ManageExtensions
             | Command::AddExtension
+            | Command::ToggleDeveloperMode
     )
 }
 
@@ -1315,5 +1336,62 @@ mod tests {
         cx.simulate_keystrokes("shift-cmd-a");
         assert_eq!(host.searched_tabs.take(), [vec![12, 10, 21, 20]]);
         assert!(host.command_bars.take().is_empty(), "it opened the bar for a new tab too");
+    }
+
+    /// The command bar offers to turn Developer Mode on for a web page and off for one in it, and
+    /// neither for a page with no site or in a private window, which can't change it.
+    #[gpui::test]
+    fn developer_mode_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let listed = |shell: &Shell| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command);
+            (find_commands("developer mode", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::ToggleDeveloperMode)
+                .map(|found| if found.name == DEVELOPER_MODE_ON { "on" } else { "off" })
+                .collect()
+        };
+        let page = |url: &str, developer_mode| Page {
+            url: url.to_string().into(),
+            developer_mode,
+            ..Page::default()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| {
+            let mut shell = Shell::new(browser, cx);
+            let space = (1, "One".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("https://example.com/", false), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell), ["on"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            assert_eq!(listed(shell), ["off"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("chrome://settings/", false), cx);
+            assert!(listed(shell).is_empty());
+        });
+        let calls = host.take();
+        let changes: Vec<&String> = calls.iter().filter(|call| call.contains("developer")).collect();
+        assert_eq!(changes, ["developer mode 10 true", "developer mode 10 false"]);
+
+        let browser = host.clone();
+        let private = cx.new(|cx| {
+            let mut shell = Shell::private_window(browser, 1, "Private".into(), 0, cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        private.update(cx, |shell, _| assert!(listed(shell).is_empty()));
     }
 }
