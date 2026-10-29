@@ -262,6 +262,22 @@ bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #endif
 }
 
+bool bc_window_dialog(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> dialog =
+      widget ? browser_core::platform::DialogFrame(widget) : std::nullopt;
+  if (!dialog) {
+    return false;
+  }
+  *frame = {static_cast<double>(dialog->x()), static_cast<double>(dialog->y()),
+            static_cast<double>(dialog->width()), static_cast<double>(dialog->height())};
+  return true;
+#else
+  return false;
+#endif
+}
+
 void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
 #if BUILDFLAG(IS_LINUX)
   if (views::Widget* widget = OpenWidget(id)) {

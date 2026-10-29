@@ -897,6 +897,19 @@ void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret) {
   }
 }
 
+std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
+  // A tab's dialog is a widget the window owns, an aura window in it, which the X server and the
+  // compositor don't see.
+  for (views::Widget* dialog : views::Widget::GetAllOwnedWidgets(widget->GetNativeView())) {
+    if (dialog->IsVisible()) {
+      gfx::Rect frame = dialog->GetWindowBoundsInScreen();
+      frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
+      return frame;
+    }
+  }
+  return std::nullopt;
+}
+
 void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Linux; the page shows its last frame unscaled until it redraws.
 }

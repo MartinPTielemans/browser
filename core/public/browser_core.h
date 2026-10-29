@@ -809,6 +809,11 @@ BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 // For the test driver, which sees the Mac's ring as a view.
 BC_EXPORT bool bc_window_focus_ring(bc_id window, bc_rect* frame);
 
+// On Linux, whether a tab's dialog, such as print preview, shows over |window|, and if so its frame
+// in |frame|, from the top-left of the window's content. For the test driver, which can't see it,
+// as the Mac's sees it as a child window.
+BC_EXPORT bool bc_window_dialog(bc_id window, bc_rect* frame);
+
 // On Linux, while an overlay of the app's over |window|, such as the command bar, has the keyboard:
 // neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
 // to have them back once the overlay gives them up (|takes| false).

@@ -931,6 +931,15 @@ fn ring(id: bc::bc_id, height: f64) -> Option<String> {
     Some(format!(", BrowserCoreFocusRing {x:.0},{y:.0} {width:.0}x{high:.0}"))
 }
 
+/// A tab's dialog over `id`, such as print preview, from the content's top-left corner, and its
+/// size, as the Mac's driver lists a child window.
+fn dialog(id: bc::bc_id) -> Option<String> {
+    let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+    unsafe { bc::bc_window_dialog(id, &mut frame) }.then_some(())?;
+    let bc::bc_rect { x, y, width, height } = frame;
+    Some(format!("{x:.0},{y:.0} {width:.0}x{height:.0}"))
+}
+
 /// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
 /// the Mac's driver gives AppKit's, or "hidden" for each.
 fn buttons(id: bc::bc_id) -> Option<String> {
@@ -1349,8 +1358,8 @@ fn run_command(line: &str) -> Option<()> {
             Some(())
         }
         // The window's content and the views the X server has in it: GPUI's, and the overlays
-        // over it. shortcut: the pages are aura windows in Chromium's window, which the X server
-        // doesn't see, so they aren't listed.
+        // over it, with a tab's dialog, which the core reports. shortcut: the pages are aura
+        // windows in Chromium's window, which the X server doesn't see, so they aren't listed.
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
@@ -1360,6 +1369,9 @@ fn run_command(line: &str) -> Option<()> {
                 "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}{ring}"
             );
             log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
+            if let Some(dialog) = dialog(browser.id) {
+                log!("browser: layout child {dialog}");
+            }
             let [left, top, ..] = frame(browser.window)?;
             let views = overlay_views().into_iter().map(|view| view as usize as u32);
             for view in views.chain(popups(browser.window).unwrap_or_default()) {
