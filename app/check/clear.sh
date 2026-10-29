@@ -75,6 +75,8 @@ expect '^browser: link target hidden$' "the plate stayed after the pointer left 
 # delete the page's site's cache and cookies and load the page again.
 send key k
 expect "^browser: title $a cookie [^ ]* cache 1\$" "k in the served page didn't open the cookie page"
+# A key before the page has loaded can reach the page it replaced.
+expect "^browser: page $a back 1 forward 0 loading 0 ${site}clear.html\$" "the cookie page didn't finish loading"
 send key c
 expect "^browser: title $a cookie set\$" "c in the cookie page didn't set a cookie"
 send key r cmd
