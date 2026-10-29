@@ -669,7 +669,10 @@ impl Shell {
             move |_, _, window, _| {
                 let moved = shell.clone();
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
-                    if phase == DispatchPhase::Capture {
+                    // Only a move holding the button drags: on Linux the pointer leaving the
+                    // window, as a page maps under it, is a move holding none, to its corner.
+                    let held = event.pressed_button == Some(MouseButton::Left);
+                    if phase == DispatchPhase::Capture && held {
                         moved.update(cx, |shell, cx| shell.drag_to(event.position, cx)).ok();
                     }
                 });
