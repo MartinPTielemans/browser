@@ -871,17 +871,11 @@ void ReportBackups(const std::string& dir, const std::vector<base::Time>& times)
   if (!Host().sidebar_backups_changed) {
     return;
   }
-  const auto year = [](base::Time time) {
-    base::Time::Exploded exploded;
-    time.LocalExplode(&exploded);
-    return exploded.year;
-  };
   std::vector<std::string> labels;
   for (base::Time time : times) {
-    // Dates, not "Today", which would be wrong by the next day. ICU puts the user's order and
-    // clock on the skeleton.
-    labels.push_back(base::UTF16ToUTF8(base::LocalizedTimeFormatWithPattern(
-        time, year(time) == year(base::Time::Now()) ? "EEEEdMMMMjmm" : "EEEEdMMMMyjmm")));
+    // Dates, not "Today", which would be wrong by the next day, in the user's locale and clock.
+    labels.push_back(base::UTF16ToUTF8(base::TimeFormatFriendlyDate(time) + u", " +
+                                       base::TimeFormatTimeOfDay(time)));
   }
   std::vector<bc_sidebar_backup> backups;
   for (size_t i = 0; i < times.size(); ++i) {
