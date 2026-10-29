@@ -16,6 +16,7 @@
 #include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/autofill_offer.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
@@ -239,6 +240,7 @@ void Install(const bc_host& host) {
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_populate_frame_binders = &PopulateFrameBinders;
   g_browser_core_password_prompt = &PasswordOffer::Prompt;
+  g_browser_core_autofill_bubble_handler = &AutofillOffer::HandlerFor;
 #if BUILDFLAG(IS_MAC)
   g_browser_core_open_links = &OpenLinks;
 #endif

@@ -1,10 +1,70 @@
-Lets the core's windows, which have no BrowserView, take a saved address: accepting the app's offer
-to save one runs the iOS promo's check, which reads the BrowserView. The core's windows have no
-promo for Chrome on iOS.
+Lets the core's windows, which have no BrowserView, take a submitted address: Chrome finds a tab's
+window for the address offers by its BrowserView, which is null for the core's tabs, so the core
+gives the autofill bubble handler of its tab's window (g_browser_core_autofill_bubble_handler).
+Accepting the offer runs the iOS promo's check, which reads the BrowserView too; the core's windows
+have no promo for Chrome on iOS.
 
 --- a/chrome/browser/ui/autofill/address_bubbles_controller.cc
 +++ b/chrome/browser/ui/autofill/address_bubbles_controller.cc
-@@ -312,10 +312,14 @@
+@@ -45,10 +45,27 @@
+ #include "components/sync/base/user_selectable_type.h"
+ #include "ui/base/l10n/l10n_util.h"
+ 
++// browser_core: see browser_core/hooks.h.
++autofill::AutofillBubbleHandler* (*g_browser_core_autofill_bubble_handler)(
++    content::WebContents* web_contents) = nullptr;
++
+ namespace autofill {
+ 
+ namespace {
+ 
++// browser_core: Chrome finds a tab's window by its BrowserView, which the
++// core's windows don't have, so the core gives the handler of its tab's window.
++AutofillBubbleHandler* BubbleHandlerFor(content::WebContents* web_contents) {
++  if (g_browser_core_autofill_bubble_handler) {
++    if (AutofillBubbleHandler* handler =
++            g_browser_core_autofill_bubble_handler(web_contents)) {
++      return handler;
++    }
++  }
++  return BrowserWindow::FindBrowserWindowWithWebContents(web_contents)
++      ->GetAutofillBubbleHandler();
++}
++
+ AutofillBubbleBase* ShowSaveBubble(
+     const AutofillProfile& profile,
+     AutofillClient::SaveAddressBubbleType save_address_bubble_type,
+@@ -58,8 +75,7 @@
+   auto controller = std::make_unique<SaveAddressBubbleController>(
+       delegate, web_contents, profile, save_address_bubble_type);
+ 
+-  return BrowserWindow::FindBrowserWindowWithWebContents(web_contents)
+-      ->GetAutofillBubbleHandler()
++  return BubbleHandlerFor(web_contents)
+       ->ShowSaveAddressProfileBubble(web_contents, std::move(controller),
+                                      shown_by_user_gesture);
+ }
+@@ -72,8 +88,7 @@
+     base::WeakPtr<AddressBubbleControllerDelegate> delegate) {
+   auto update_controller = std::make_unique<UpdateAddressBubbleController>(
+       delegate, web_contents, profile, original_profile);
+-  return BrowserWindow::FindBrowserWindowWithWebContents(web_contents)
+-      ->GetAutofillBubbleHandler()
++  return BubbleHandlerFor(web_contents)
+       ->ShowUpdateAddressProfileBubble(
+           web_contents, std::move(update_controller), shown_by_user_gesture);
+ }
+@@ -83,8 +98,7 @@
+                                     const AutofillProfile& autofill_profile) {
+   // TODO(crbug.com/381390420): Expose the `AutofillBubbleHandler` in
+   // `BrowserWindowInterface` and use that instead.
+-  return BrowserWindow::FindBrowserWindowWithWebContents(web_contents)
+-      ->GetAutofillBubbleHandler()
++  return BubbleHandlerFor(web_contents)
+       ->ShowAddressSignInPromo(web_contents, autofill_profile);
+ }
+ #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
+@@ -312,10 +326,14 @@
  }
  
  void AddressBubblesController::MaybeShowIOSDektopAddressPromo() {
