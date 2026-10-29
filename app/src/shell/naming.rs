@@ -253,11 +253,17 @@ impl Shell {
                 (icon.icon.clone(), anchor, picked)
             }
             Subject::Tab(tab) => {
-                // The favicon's middle, in from the row by the folders the tab is in.
-                let x = f32::from(row.left())
-                    + FAVICON_X
-                    + self.depth(tab) as f32 * FOLDER_INDENT
-                    + FAVICON_SIZE / 2.;
+                // The favicon's middle: a tile's, else in from the row by the folders the tab is
+                // in.
+                let x = match self.favorites.contains(&tab) {
+                    true => f32::from(row.center().x),
+                    false => {
+                        f32::from(row.left())
+                            + FAVICON_X
+                            + self.depth(tab) as f32 * FOLDER_INDENT
+                            + FAVICON_SIZE / 2.
+                    }
+                };
                 let anchor = point(x, f32::from(row.center().y));
                 let picked: Picked = Rc::new(move |icon, cx| {
                     shell
