@@ -99,6 +99,8 @@ std::string RefusedAction(std::string_view action) {
       {"ad_blocking", "Agents can't change ad blocking. It's the user's, in Site Controls."},
       {"devtools", "Agents get no DevTools or debugging port."},
       {"passwords", "Agents never read passwords, cookies or autofill data."},
+      {"profile_settings",
+       "Agents can't change a profile's settings. They're the user's, in Settings › Profiles."},
   });
   if (kAllowed.contains(action)) {
     return std::string();
