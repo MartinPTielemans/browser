@@ -14,6 +14,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/wall_clock_timer.h"
+#include "browser_core/downloads.h"
 #include "browser_core/profiles.h"
 #include "browser_core/host.h"
 #include "browser_core/session.h"
@@ -65,8 +66,8 @@ class PrefsFactory : public ProfileKeyedServiceFactory {
 // Whether the Spaces, and with them the default, have been read.
 bool g_default_read = false;
 
-// |space|'s time: its profile's own, or for one not loaded, the profile its tabs open in.
-base::TimeDelta ArchiveAfter(const Space& space) {
+// |profile|'s time, unless the check gave one.
+base::TimeDelta ArchiveAfter(Profile* profile) {
   static const std::optional<base::TimeDelta> given = []() -> std::optional<base::TimeDelta> {
     int seconds = 0;
     const std::string value =
@@ -76,7 +77,7 @@ base::TimeDelta ArchiveAfter(const Space& space) {
     }
     return std::nullopt;
   }();
-  return given.value_or(ProfileArchiveAfter(ProfileFor(space.profile())));
+  return given.value_or(ProfileArchiveAfter(profile));
 }
 
 base::WallClockTimer& Timer() {
@@ -89,7 +90,8 @@ bool g_schedule_posted = false;
 // Each Today tab no window shows, with its page or without.
 void ForEachUnseen(base::FunctionRef<void(bc_id, Tab*, base::TimeDelta)> each) {
   for (Space* space : Space::All()) {
-    const base::TimeDelta after = ArchiveAfter(*space);
+    // Its profile's own, or for one not loaded, the profile its tabs open in.
+    const base::TimeDelta after = ArchiveAfter(ProfileFor(space->profile()));
     // A copy, as closing a tab takes it out.
     for (bc_id id : std::vector<bc_id>(space->today())) {
       Tab* tab = Tab::Get(id);
@@ -130,6 +132,9 @@ void ArchiveDue() {
   for (bc_id id : due) {
     Window::CloseTab(id);
   }
+  if (g_default_read) {
+    RemoveOldDownloads([](Profile* profile) { return ArchiveAfter(profile); });
+  }
   if (!due.empty() && !g_archived) {
     g_archived = true;
     if (!UserSettings().archive_noted) {
@@ -146,6 +151,14 @@ void Schedule() {
     const base::Time due = tab->last_seen() + after;
     next = next ? std::min(*next, due) : due;
   });
+  // Not until a profile's time is read, as it may be longer than the 12 hours before it.
+  std::optional<base::Time> download;
+  if (g_default_read) {
+    download = NextOldDownload([](Profile* profile) { return ArchiveAfter(profile); });
+  }
+  if (download) {
+    next = std::min(next.value_or(base::Time::Max()), *download);
+  }
   if (next) {
     Timer().Start(FROM_HERE, *next, base::BindOnce(&ArchiveDue));
   } else {
@@ -172,6 +185,8 @@ void ArchiveDefaultRead() {
   for (Profile* profile : g_browser_process->profile_manager()->GetLoadedProfiles()) {
     GiveArchiveDefault(profile);
   }
+  // Old downloads waited for their profiles' time.
+  ScheduleAutoArchive();
 }
 
 base::TimeDelta ProfileArchiveAfter(Profile* profile) {

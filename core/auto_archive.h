@@ -8,12 +8,14 @@ class Profile;
 namespace browser_core {
 
 // Arc's auto-archive: a Today tab no window has shown for 12 hours, or the time the user chose for
-// its Space's profile in Settings › Profiles, closes into the archive, but for one playing sound. One timer waits for the tab unseen
-// longest, on the wall clock, so it keeps time through sleep and a quit (the Spaces keep when each
-// tab was last seen).
+// its Space's profile in Settings › Profiles, closes into the archive, but for one playing sound,
+// and a download that ended its profile's time ago leaves the Library's list, its file staying.
+// One timer waits for whichever is due first, on the wall clock, so it keeps time through sleep
+// and a quit (the Spaces keep when each tab was last seen, and Chrome's history when each download
+// ended).
 //
-// Looks again for that tab, from a task of its own, as the Spaces, the tabs windows show or the
-// time chosen change.
+// Looks again for that tab or download, from a task of its own, as the Spaces, the tabs windows
+// show, the downloads or the time chosen change.
 void ScheduleAutoArchive();
 
 // Registers the pref that keeps each profile's time. Before the first profile is made.
