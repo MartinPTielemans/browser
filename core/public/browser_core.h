@@ -1832,6 +1832,14 @@ BC_EXPORT void bc_window_start_move(bc_id window);
 // maximizing and restoring change them.
 BC_EXPORT bool bc_window_is_maximized(bc_id window);
 
+// On Linux, as bc_window_is_maximized: whether |window| is full screen, as the window manager's
+// own full-screen key or a page can put it. The UI asks as the window's bounds change.
+BC_EXPORT bool bc_window_is_full_screen(bc_id window);
+
+// On Linux: puts |window| full screen, or takes it out, as the window manager's own full-screen key
+// does, for the test driver. bc_window_toggle_maximized takes it out as Escape asks.
+BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
+
 #ifdef __cplusplus
 }
 #endif

@@ -629,6 +629,10 @@ impl Browser for Recorder {
         false
     }
 
+    fn window_full_screen(&self) -> bool {
+        false
+    }
+
     fn show_reveal(&self, _: f32, _: &mut App) {}
 
     fn saved_sidebar_width(&self) -> Option<f32> {

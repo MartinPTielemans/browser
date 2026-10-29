@@ -1490,3 +1490,20 @@ bool bc_window_is_maximized(bc_id id) {
   return false;
 #endif
 }
+
+bool bc_window_is_full_screen(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  return widget && widget->IsFullscreen();
+#else
+  return false;
+#endif
+}
+
+void bc_window_toggle_full_screen(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  if (views::Widget* widget = OpenWidget(id)) {
+    widget->SetFullscreen(!widget->IsFullscreen());
+  }
+#endif
+}

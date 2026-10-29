@@ -20,8 +20,9 @@
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
 //! commits its text to a field of the UI's, not a page's. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
-//! no alerts yet. The others, such as ime, swipe, drags from other apps, full screen
-//! and displays, the driver can't do yet, and says so as drive.mm does.
+//! no alerts yet. fullscreen toggles the window's full screen through the core. The others, such as
+//! ime, swipe, drags from other apps and displays, the driver can't do yet, and says so as drive.mm
+//! does.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -1066,6 +1067,12 @@ fn run_command(line: &str) -> Option<()> {
         "keyup" => key_events(words.next()?, none, &[xproto::KEY_RELEASE_EVENT]),
         "type" => rest.chars().try_for_each(|c| key(&c.to_string(), none)),
         "insert" => insert(rest),
+        // As the window manager's full-screen key, through the core, as the Mac's goes through the
+        // green button.
+        "fullscreen" => {
+            unsafe { bc::bc_window_toggle_full_screen(driven()?.id) };
+            Some(())
+        }
         "resize" | "place" => {
             let browser = driven()?;
             let scale = scale();
