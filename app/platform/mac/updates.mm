@@ -232,6 +232,14 @@ bool SignedLikeThisApp(NSURL* app) {
   return NO;
 }
 
+- (void)updater:(SPUUpdater*)updater didFindValidUpdate:(SUAppcastItem*)item {
+  Log([NSString stringWithFormat:@"update %@ found", item.versionString]);
+}
+
+- (void)updater:(SPUUpdater*)updater willScheduleUpdateCheckAfterDelay:(NSTimeInterval)delay {
+  Log([NSString stringWithFormat:@"update check in %.0f s", delay]);
+}
+
 - (void)updater:(SPUUpdater*)updater willInstallUpdate:(SUAppcastItem*)item {
   [self keepNotes:item];
 }
@@ -268,6 +276,22 @@ bool SignedLikeThisApp(NSURL* app) {
                                         forUpdate:(SUAppcastItem*)update
                                             state:(SPUUserUpdateState*)state {
   self.waiting = !handleShowingUpdate;
+  NSString* outcome = handleShowingUpdate ? @"shown" : @"held in full screen";
+  Log([NSString stringWithFormat:@"update %@ %@", update.versionString, outcome]);
+}
+
+- (void)standardUserDriverDidReceiveUserAttentionForUpdate:(SUAppcastItem*)update {
+  Log([NSString stringWithFormat:@"update %@ alert has the keyboard", update.versionString]);
+}
+
+// The notes the alert shows, as they are: the log has their first line.
+- (NSAttributedString*)standardUserDriverWillShowReleaseNotesText:(NSAttributedString*)notes
+                                                        forUpdate:(SUAppcastItem*)update
+                                         withBundleDisplayVersion:(NSString*)displayVersion
+                                                    bundleVersion:(NSString*)version {
+  NSString* first = [notes.string componentsSeparatedByString:@"\n"].firstObject;
+  Log([NSString stringWithFormat:@"update %@ notes %@", update.versionString, first]);
+  return nil;
 }
 
 - (void)standardUserDriverWillFinishUpdateSession {
@@ -279,6 +303,7 @@ bool SignedLikeThisApp(NSURL* app) {
   dispatch_async(dispatch_get_main_queue(), ^{
     if (!self.waiting || AnyFullScreen()) return;
     self.waiting = NO;
+    Log(@"update shown after full screen");
     [self.controller checkForUpdates:nil];
   });
 }
