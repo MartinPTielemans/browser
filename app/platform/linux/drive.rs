@@ -12,12 +12,13 @@
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
 //! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
-//! rightrelease, move, scroll, wheel, key, keydown, keyup, type, resize, place, order, layout,
+//! rightrelease, move, scroll, wheel, key, keydown, keyup, flags, type, resize, place, order, layout,
 //! state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
-//! cmd with Ctrl, ctrl with Alt and alt with both. scroll turns the wheel a notch for each event,
+//! cmd with Ctrl, ctrl with Alt and alt with both; flags presses and lets go of those keys, and
+//! the keys after it go with what it holds. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
-//! no alerts yet. The others, such as ime, insert, flags, swipe, drags from other apps, full screen
+//! no alerts yet. The others, such as ime, insert, swipe, drags from other apps, full screen
 //! and displays, the driver can't do yet, and says so as drive.mm does.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
@@ -117,6 +118,9 @@ thread_local! {
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
     /// The window the pointer is in, which hears it leave.
     static HOVERED: Cell<Option<Target>> = const { Cell::new(None) };
+    /// The modifiers the flags command holds, in an X state, which the keys go with until it lets
+    /// them go.
+    static FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The last click in each window: its time, place and button.
     static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
         RefCell::default();
@@ -349,7 +353,14 @@ fn target_in_key(x: f64, y: f64) -> Option<Target> {
     }
 }
 
-const BUTTON_MASKS: [u16; 3] = [1 << 8, 1 << 9, 1 << 10];
+/// The state's bit for `button` held: X has one for each of the first five, the wheel's among
+/// them, and none for the others.
+fn button_mask(button: u8) -> u16 {
+    match button {
+        1..=5 => 1 << (7 + button),
+        _ => 0,
+    }
+}
 
 /// Moves the pointer into `to`, telling the window it was in that it left, and `to` that it came.
 fn hover(to: Target, state: u16) -> Option<()> {
@@ -474,7 +485,7 @@ fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
         at,
         which,
         false,
-        state | BUTTON_MASKS[usize::from(which - 1)],
+        state | button_mask(which),
     )
 }
 
@@ -556,9 +567,15 @@ fn key(key: &str, state: u16) -> Option<()> {
 /// releases between them, as the X server sends them while it auto-repeats.
 fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     let (code, shift) = keycode(keysym(key)?)?;
+    state |= FLAGS.get();
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
+    code_events(code, state, kinds)
+}
+
+/// Sends the key `code`'s events of `kinds`, with the modifiers `state`, as `key_events` does.
+fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
     let x = server()?;
     let (connection, root) = &*x;
     // As the X server picks it: the window under the pointer when that's in the focus window, else
@@ -780,8 +797,8 @@ fn run_command(line: &str) -> Option<()> {
             };
             let to = relative_to(to, at.window)?;
             button(at, 1, true, none)?;
-            motion(to, BUTTON_MASKS[0])?;
-            button(to, 1, false, BUTTON_MASKS[0])
+            motion(to, button_mask(1))?;
+            button(to, 1, false, button_mask(1))
         }
         "press" | "dragto" | "release" | "rightpress" | "rightdragto" | "rightrelease" => {
             let (x, y) = point(&mut words)?;
@@ -789,7 +806,7 @@ fn run_command(line: &str) -> Option<()> {
                 Some(step) => (3, step),
                 None => (1, action),
             };
-            let held = BUTTON_MASKS[usize::from(which - 1)];
+            let held = button_mask(which);
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
@@ -833,6 +850,27 @@ fn run_command(line: &str) -> Option<()> {
         "key" => {
             let name = words.next()?;
             key(name, modifiers(words))
+        }
+        // Each modifier going down or up as its key does, the left one, in the state held before
+        // it, as the X server reports a key.
+        "flags" => {
+            let to = modifiers(words);
+            let keys = [
+                (KeyButMask::CONTROL, 0xffe3),
+                (KeyButMask::MOD1, 0xffe9),
+                (KeyButMask::SHIFT, 0xffe1),
+            ];
+            for (mask, keysym) in keys {
+                let (mask, held) = (u16::from(mask), FLAGS.get());
+                let kind = match (held & mask != 0, to & mask != 0) {
+                    (false, true) => xproto::KEY_PRESS_EVENT,
+                    (true, false) => xproto::KEY_RELEASE_EVENT,
+                    _ => continue,
+                };
+                code_events(keycode(keysym)?.0, held, &[kind])?;
+                FLAGS.set(held ^ mask);
+            }
+            Some(())
         }
         // Repeats are presses like the first, so repeat changes nothing here.
         "keydown" => key_events(words.next()?, none, &[xproto::KEY_PRESS_EVENT]),
