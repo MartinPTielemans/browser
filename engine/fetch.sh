@@ -5,7 +5,12 @@
 # engine-windows release built from a commit in this checkout's history, which
 # .github/workflows/engine-linux.yml and engine-windows-cross.yml make. It exits with 2 when no
 # engine fits this checkout, which CI takes for a reason to skip, and 1 on any other failure.
+# `fetch.sh symbols` does the same for the Windows engine's PDBs, which its release has beside it,
+# for crash reports (tools/symbols.sh).
+# Usage: fetch.sh [symbols]
 set -euo pipefail
+symbols=
+[ "${1:-}" != symbols ] || symbols=1
 cd "$(dirname "$0")"
 
 fail() {
@@ -19,6 +24,7 @@ none() {
 
 case $(uname -sm) in
 "Darwin arm64")
+  [ -z "$symbols" ] || fail "the Mac engine's symbols are its dSYMs, beside Chromium.app."
   [ -e prebuilt.ini ] || none "no prebuilt engine is published yet. Build one with engine/build.sh."
   commit=$(git config -f prebuilt.ini prebuilt.commit)
   url=$(git config -f prebuilt.ini prebuilt.url)
@@ -29,8 +35,10 @@ case $(uname -sm) in
 "Linux x86_64" | MINGW*" x86_64")
   case $(uname -s) in
   Linux) platform=linux asset=Chromium-linux-x64.tar.xz ;;
-  *) platform=windows asset=Chromium-windows-x64.zip ;;
+  *) platform=windows asset=Chromium-windows-x64${symbols:+-symbols}.zip ;;
   esac
+  [ -z "$symbols" ] || [ "$platform" = windows ] ||
+    fail "only the Windows engine keeps its symbols apart; the Linux engine's are in its files."
   repo=$(git config -f prebuilt.ini prebuilt.url | sed -E 's#^(https://github.com/[^/]+/[^/]+)/.*#\1#')
   # The release's tag is on the commit it was built from. The nearest one in this history wins.
   commit=
@@ -46,7 +54,7 @@ case $(uname -sm) in
   [ -n "$commit" ] ||
     none "no prebuilt $platform engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or run the engine-$platform workflow."
   url=$repo/releases/download/engine-$platform-${commit:0:12}/$asset
-  sha256=$(curl -fsSL "$url.sha256") || none "the release engine-$platform-${commit:0:12} has no engine yet."
+  sha256=$(curl -fsSL "$url.sha256") || none "the release engine-$platform-${commit:0:12} has no $asset yet."
   app=Chromium
   ;;
 *) fail "there's a prebuilt engine for Macs with Apple silicon, x86-64 Linux and x64 Windows only." ;;
@@ -76,7 +84,8 @@ if [ ! -d "$dir" ]; then
   esac
   rm "$archive"
   mv "$dir.part" "$dir"
-  # Earlier prebuilt engines go. A built app keeps its own copy.
-  find .deps/prebuilt -mindepth 1 -maxdepth 1 ! -name "$sha256" -exec rm -rf {} +
+  # Earlier prebuilt engines go, but not for the symbols, which go with the next engine. A built
+  # app keeps its own copy.
+  [ -n "$symbols" ] || find .deps/prebuilt -mindepth 1 -maxdepth 1 ! -name "$sha256" -exec rm -rf {} +
 fi
 echo "$dir/$app"

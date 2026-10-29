@@ -131,11 +131,15 @@ profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On W
   Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
   (glitchtip.com/documentation/install), an organization and a project, and an auth token with
   `project:write` for the symbols.
-- **Symbols.** When the build names a collector, `tools/release.sh` uploads the Release engine's
-  dSYMs and the app's executable with `sentry-cli debug-files upload`, which GlitchTip takes as
-  Sentry does. The engine builds with ungoogled-chromium-macos's `symbol_level=1` and
-  `blink_symbol_level=0`, so frames have functions and lines outside Blink, and Blink's only
-  their library.
+- **Symbols.** When the build names a collector, each release job uploads its OS's with
+  `tools/symbols.sh`, through `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does.
+  The Mac's are the Release engine's dSYMs and the app's executable; that engine builds with
+  ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions
+  and lines outside Blink, and Blink's only their library. Linux and Windows build with their
+  ungoogled-chromium's `symbol_level=0`, so frames have functions and no lines: on Linux from the
+  symbol tables of `chrome` and `libBrowser.so`, which the Flatpak keeps, and on Windows from PDBs,
+  the engine's in its release beside it (`windows/cross/package.sh`, `fetch.sh symbols`) and
+  `Browser.pdb`. Lines there would take `symbol_level=1`, a full rebuild of each engine.
 
 ## Rules
 
