@@ -790,7 +790,10 @@ impl Shell {
             Command::FavoriteTab => {
                 return self.favorite_tab(self.selected, usize::MAX, cx);
             }
-            Command::DuplicateTab => return self.browser.duplicate(self.selected, cx),
+            Command::DuplicateTab => {
+                self.browser.duplicate(self.selected, cx);
+                return;
+            }
             Command::RenameTab => return self.rename_tab(self.selected, cx),
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
