@@ -9,6 +9,7 @@
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
+#include "base/strings/cstring_view.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/uuid.h"
@@ -30,7 +31,7 @@ namespace browser_core {
 
 namespace {
 
-std::string FromEnvironment(const char* name) {
+std::string FromEnvironment(base::cstring_view name) {
   return base::Environment::Create()->GetVar(name).value_or(std::string());
 }
 
