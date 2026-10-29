@@ -1747,48 +1747,60 @@ fn preview_account(state: &str, cx: &mut App) {
     let options =
         WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
     let opened = cx.open_window(options, |window, cx| {
-        let account = cx.new(|cx| {
-            let mut account = Account::new(Rc::new(PreviewAccount), cx);
-            account.set_state(state, cx);
-            if status == Status::On {
-                account.set_devices(devices, cx);
-            }
-            account
+        let page = cx.new(|cx| {
+            let dialog = dialog::in_window(Rc::new(PreviewDialog), cx);
+            let host = Rc::new(PreviewAccount { dialog: dialog.clone() });
+            let account = cx.new(|cx| {
+                let mut account = Account::new(host, cx);
+                account.set_state(state, cx);
+                if status == Status::On {
+                    account.set_devices(devices, cx);
+                }
+                account
+            });
+            AccountPage { account, dialog }
         });
-        window.focus(&account.focus_handle(cx), cx);
-        cx.new(|_| AccountPage(account))
+        window.focus(&page.read(cx).account.focus_handle(cx), cx);
+        page
     });
     if let Err(error) = opened {
         log!("preview: couldn't open the account's window: {error}");
     }
 }
 
-/// The account's view on Settings' background, in from its sides as Settings' tabs are.
-struct AccountPage(gpui::Entity<Account>);
+/// The account's view on Settings' background, in from its sides as Settings' tabs are, with the
+/// dialog it asks in over all of it, as Settings has on Linux.
+struct AccountPage {
+    account: gpui::Entity<Account>,
+    dialog: gpui::Entity<dialog::Dialog>,
+}
 
 impl gpui::Render for AccountPage {
     fn render(
         &mut self,
         _: &mut gpui::Window,
-        _: &mut gpui::Context<Self>,
+        cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         use browser::tokens::settings::{BACKGROUND, FIRST, SIDE, TEXT};
         use browser::tokens::text;
         use gpui::{ParentElement, Styled, div, rgb};
         div()
+            .relative()
             .size_full()
             .bg(rgb(BACKGROUND))
             .font_family(browser::face::UI)
             .text_size(px(text::BODY))
             .text_color(rgb(TEXT))
-            .px(px(SIDE))
-            .py(px(FIRST))
-            .child(self.0.clone())
+            .child(div().px(px(SIDE)).py(px(FIRST)).child(self.account.clone()))
+            .children(dialog::cover(&self.dialog, cx))
     }
 }
 
-/// A made-up account: its recovery words are made-up words, and it asks nothing of a server.
-struct PreviewAccount;
+/// A made-up account: its recovery words are made-up words, and it asks nothing of a server. It
+/// asks the user in its window's dialog.
+struct PreviewAccount {
+    dialog: gpui::Entity<dialog::Dialog>,
+}
 
 impl account::Host for PreviewAccount {
     fn set_server(&self, _: &str) -> bool {
@@ -1812,12 +1824,13 @@ impl account::Host for PreviewAccount {
     fn copy(&self, _: &str) {}
     fn confirm(
         &self,
-        _: String,
-        _: String,
-        _: &'static str,
-        _: Box<dyn FnOnce(&mut App)>,
-        _: &mut gpui::Window,
-        _: &mut App,
+        message: String,
+        detail: String,
+        action: &'static str,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        window: &mut gpui::Window,
+        cx: &mut App,
     ) {
+        dialog::ask_in(&self.dialog, message, detail, action, confirmed, window, cx);
     }
 }

@@ -304,7 +304,8 @@ fn start_over_asks_then_shows_new_words(cx: &mut TestAppContext) {
     tab.click("use-words");
     tab.host.take();
     tab.click("start-over");
-    assert_eq!(tab.host.take(), ["ask Start sync over? Start Over"], "nothing goes until confirmed");
+    let asked = "ask Erase your synced data and start over? Erase and Start Over";
+    assert_eq!(tab.host.take(), [asked], "nothing goes until confirmed");
     tab.confirm();
     assert_eq!(tab.host.take(), ["start over"]);
     tab.set(state(Status::FirstDevice));

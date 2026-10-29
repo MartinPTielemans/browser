@@ -404,11 +404,11 @@ impl Account {
     fn start_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let host = self.host.clone();
         self.host.confirm(
-            "Start sync over?".into(),
-            "This deletes your synced data on the server and starts sync again. What's on this \
-             device stays."
+            "Erase your synced data and start over?".into(),
+            "This erases everything synced on the server, for every device. What's on this \
+             device stays, and syncs again under new recovery words. Your old words stop working."
                 .into(),
-            "Start Over",
+            "Erase and Start Over",
             Box::new(move |_| host.start_over()),
             window,
             cx,
