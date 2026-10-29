@@ -14,11 +14,12 @@
 //! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
 //! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
 //! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
-//! agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
+//! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl with Alt and alt with both, and ⌃Tab as Ctrl+Tab. flags presses and lets
-//! go of those keys, the last key's among them, and the keys after it go with what it holds. scroll turns the wheel a notch for each event,
+//! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
+//! commits its text to a field of the UI's, not a page's. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
-//! no alerts yet. The others, such as ime, insert, swipe, drags from other apps, full screen
+//! no alerts yet. The others, such as ime, swipe, drags from other apps, full screen
 //! and displays, the driver can't do yet, and says so as drive.mm does.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
@@ -37,7 +38,7 @@ use std::{
 };
 
 use browser::log;
-use gpui::{Menu, MenuItem};
+use gpui::{Keystroke, Menu, MenuItem, Modifiers};
 use x11rb::{
     connection::Connection,
     protocol::xproto::{
@@ -54,6 +55,11 @@ use crate::{
 unsafe extern "C" {
     // GLib's, from chrome, whose main loop is GLib's.
     fn g_idle_add(function: extern "C" fn(*mut c_void) -> c_int, data: *mut c_void) -> c_uint;
+    fn g_timeout_add(
+        interval: c_uint,
+        function: extern "C" fn(*mut c_void) -> c_int,
+        data: *mut c_void,
+    ) -> c_uint;
 }
 
 /// Starts reading commands from stdin.
@@ -87,17 +93,29 @@ fn idle(task: Box<dyn FnOnce() + Send>) {
     unsafe { g_idle_add(run, Box::into_raw(Box::new(task)) as *mut c_void) };
 }
 
+/// Runs `task` on the main thread `ms` from now, from a task already on it.
+fn after(ms: u32, task: Box<dyn FnOnce()>) {
+    extern "C" fn run(data: *mut c_void) -> c_int {
+        // SAFETY: the box `after` leaked, which runs once.
+        let task = unsafe { Box::from_raw(data as *mut Box<dyn FnOnce()>) };
+        task();
+        0
+    }
+    unsafe { g_timeout_add(ms, run, Box::into_raw(Box::new(task)) as *mut c_void) };
+}
+
 /// Reports command `n` done once Chromium and GPUI have handled its events: once the X server has
 /// handed them over, and the main loop has read them. Twice, as the server may write the windows'
 /// clients' events after its answer to the driver's. GPUI's are handled as it syncs, since xcb
-/// may have read them into its queue already, where they don't wake the loop.
+/// may have read them into its queue already, where they don't wake the loop. Then once the
+/// windows have drawn what the events changed.
 fn settle(n: u64) {
     sync();
     gpui_linux::sync_display();
     idle(Box::new(move || {
         sync();
         gpui_linux::sync_display();
-        idle(Box::new(move || {
+        drawn(Box::new(move || {
             let (key, focus, active) = keyboard();
             log!(
                 "browser: drive {n} done, key {key}, focus {focus}, active {}, marked none",
@@ -105,6 +123,44 @@ fn settle(n: u64) {
             );
         }));
     }));
+}
+
+/// Runs `then` once each browser window has drawn its next frame, as AppKit has by the time the
+/// Mac's driver reports: GPUI hit-tests the frame it drew last, so a click right after a command
+/// that changed the layout, such as a double-click that opens a field, would hit what was there
+/// before. A window that draws nothing, as a minimized one, is given up on after a few frames.
+fn drawn(then: Box<dyn FnOnce()>) {
+    let then = Rc::new(Cell::new(Some(then)));
+    // After the frame's draw, which follows its next-frame callbacks.
+    let finish = move || {
+        if let Some(then) = then.take() {
+            after(0, then);
+        }
+    };
+    let handles: Vec<_> = WINDOWS.with_borrow(|windows| windows.iter().map(|w| w.handle).collect());
+    let left = Rc::new(Cell::new(handles.len()));
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        for handle in handles {
+            let (waiting, finish) = (left.clone(), finish.clone());
+            let asked = cx.update(|cx| {
+                handle.update(cx, |_, window, _| {
+                    window.on_next_frame(move |_, _| {
+                        waiting.set(waiting.get() - 1);
+                        if waiting.get() == 0 {
+                            finish();
+                        }
+                    })
+                })
+            });
+            if asked.is_err() {
+                left.set(left.get() - 1);
+            }
+        }
+    }
+    match left.get() {
+        0 => finish(),
+        _ => after(100, Box::new(finish)),
+    }
 }
 
 thread_local! {
@@ -262,6 +318,30 @@ fn keyboard_window() -> Option<Keyboard> {
         .filter_map(browser)
         .find(|browser| within(connection, focus, browser.window))
         .map(|browser| Keyboard::Browser(browser, focus))
+}
+
+/// Commits `text` to the field of the UI or overlay with the keyboard, as an input method does, or
+/// the Mac's character palette: as a keystroke that types it, with no key, which GPUI hands the
+/// field as it would a commit.
+fn insert(text: &str) -> Option<()> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let focus = connection.get_input_focus().ok()?.reply().ok()?.focus;
+    let cx = CX.with_borrow(Clone::clone)?;
+    let typed = Keystroke {
+        modifiers: Modifiers::default(),
+        key: String::new(),
+        key_char: Some(text.to_string()),
+    };
+    cx.update(|cx| {
+        let handle = cx.windows().into_iter().find(|handle| {
+            (handle.update(cx, |_, window, _| crate::ns_view(window) as usize as u32))
+                .is_ok_and(|view| within(connection, focus, view))
+        })?;
+        handle.update(cx, |_, window, cx| window.dispatch_keystroke(typed, cx)).ok()
+    })
+    .filter(|&typed| typed)
+    .map(drop)
 }
 
 /// The done line's key window, focus and whether the app is active.
@@ -959,6 +1039,7 @@ fn run_command(line: &str) -> Option<()> {
         "keydown" => key_events(words.next()?, none, &[xproto::KEY_PRESS_EVENT]),
         "keyup" => key_events(words.next()?, none, &[xproto::KEY_RELEASE_EVENT]),
         "type" => rest.chars().try_for_each(|c| key(&c.to_string(), none)),
+        "insert" => insert(rest),
         "resize" | "place" => {
             let browser = driven()?;
             let scale = scale();
