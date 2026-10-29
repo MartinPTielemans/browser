@@ -144,6 +144,8 @@ pub(super) struct Recorder {
     pub(super) replies: RefCell<Vec<PageReply>>,
     /// What it says every agent's Space's menu lists.
     pub(super) agent_permissions: RefCell<super::AgentGrants>,
+    /// What the Library button's hover leaves out, none at first, as the core's default.
+    hover_kinds_off: Cell<u32>,
 }
 
 impl Recorder {
@@ -409,6 +411,14 @@ impl Browser for Recorder {
 
     fn list_captures(&self, _: &mut App) {
         self.record("list captures".into())
+    }
+
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        super::recent_downloads::HOVER_ALL & !self.hover_kinds_off.get()
+    }
+
+    fn set_hover_kinds(&self, kinds: u32, _: &mut App) {
+        self.hover_kinds_off.set(super::recent_downloads::HOVER_ALL & !kinds);
     }
 
     fn trash(&self, path: &str, _: &mut App) -> bool {
