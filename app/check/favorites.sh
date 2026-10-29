@@ -121,7 +121,7 @@ expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't sh
 check_layout "before the buttons' tooltips"
 # Off the Mac the chips name Ctrl and Shift (commands.rs's keys_named).
 library_keys='⇧⌘L' sidebar_keys='⌘S'
-[ "$(uname)" = Darwin ] || library_keys=CtrlShiftL sidebar_keys=CtrlS
+[ "$(uname)" = Darwin ] || library_keys=Ctrl+Shift+L sidebar_keys=Ctrl+S
 send move 24 $((height - 25))
 expect "^browser: tooltip shown View Library $library_keys\$" \
   "resting on the Library button didn't show View Library and $library_keys"
