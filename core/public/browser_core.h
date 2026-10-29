@@ -661,9 +661,10 @@ typedef struct bc_host {
                              size_t conflicted,
                              size_t skipped);
   // Another app asked the browser to open |urls|, |count| http, https or file URLs: a link clicked
-  // in Mail or Slack, `open https://…`, an .html file from Finder. Open each in a new tab of the
-  // user's, in front. Those that launched the browser come as AppKit finishes launching the app,
-  // before started or just after; open them over the Spaces bc_window_restore brings back. The
+  // in Mail or Slack, `open https://…`, an .html file from Finder, or on Linux and Windows the
+  // browser's command line. Open each in a new tab of the user's, in front. Those that launched the
+  // browser come as AppKit finishes launching the app, before started or just after, and on Linux
+  // and Windows just before started; open them over the Spaces bc_window_restore brings back. The
   // user's alone: a link a page opens, an agent's too, comes in tab_opened, and agents get no way
   // to make the browser the system's default, which only the user does, in the app's Settings or
   // the system's.
@@ -744,7 +745,20 @@ typedef struct bc_host {
   // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
   // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
   void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
+  // On Linux and Windows, the browser was launched again while it runs, from the desktop file's
+  // actions, the jump list or a link from another app: |what|, a BC_LAUNCH_ value, says what that
+  // launch asked for, once open_links has had its links. The second launch has exited by then.
+  // The user's alone: an agent's tools never launch the browser.
+  void (*launched_again)(void* context, int what);
 } bc_host;
+
+// What a second launch asked for, in bc_host's launched_again.
+// Only links, or nothing: bring the window in front to the front.
+#define BC_LAUNCH_FRONT 0
+// --new-window: a new window.
+#define BC_LAUNCH_WINDOW 1
+// --incognito: a new private window.
+#define BC_LAUNCH_PRIVATE_WINDOW 2
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
 // code once it has quit. Call it once, on the main thread; it runs the main run loop. Not on

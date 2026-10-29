@@ -1,0 +1,34 @@
+Lets the core take a second launch's command line (//browser_core/hooks.h): a link from another
+app while ilo is the default browser, a Linux desktop file's action or a Windows jump list task.
+The second process hands it to the running one over Chrome's ProcessSingleton and exits, and
+Chrome's StartupBrowserCreator would drop it, as the browser runs with --no-startup-window. The
+core gets it in place of Chrome's handling, once Chrome has checked the browser isn't quitting.
+
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -358,6 +358,12 @@
+ #include "components/component_updater/component_updater_service.h"
+ #endif
+
++// browser_core: the core takes a second launch's command line
++// (//browser_core/hooks.h).
++void (*g_browser_core_launched_again)(const base::CommandLine& command_line,
++                                      const base::FilePath& current_directory) =
++    nullptr;
++
+ namespace {
+
+ #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || \
+@@ -556,6 +562,12 @@
+   }
+ #endif
+
++  // browser_core: in place of Chrome's tabs and windows for it.
++  if (g_browser_core_launched_again) {
++    g_browser_core_launched_again(command_line, current_directory);
++    return;
++  }
++
+   StartupProfilePathInfo startup_profile_path_info =
+       GetStartupProfilePath(current_directory, command_line,
+                             /*ignore_profile_picker=*/false);

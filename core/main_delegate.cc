@@ -54,6 +54,13 @@
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
 
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+#include "components/url_formatter/url_fixer.h"
+#endif
+#if BUILDFLAG(IS_LINUX)
+#include "base/nix/xdg_util.h"
+#endif
+
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
 #include "browser_core/platform/app_library.h"
 #endif
@@ -74,9 +81,9 @@ namespace {
 
 bc_host g_host;
 
-#if BUILDFLAG(IS_MAC)
-// The links another app sent, to the app. Only pages and files: AppController strips Chrome's
-// own direct-launch scheme first, and any other scheme an app sends is no page to show.
+// The links another app sent, or a launch's command line named, to the app. Only pages and files:
+// AppController strips Chrome's own direct-launch scheme first, and any other scheme an app sends
+// is no page to show.
 void OpenLinks(const std::vector<GURL>& urls) {
   std::vector<std::string> specs;
   for (const GURL& url : urls) {
@@ -92,6 +99,36 @@ void OpenLinks(const std::vector<GURL>& urls) {
     links.push_back(spec.c_str());
   }
   g_host.open_links(g_host.context, links.data(), links.size());
+}
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+// The pages and files a launch's command line names, as Chrome reads them: a URL, or a path from
+// |current_directory|, or from this process's own folder if it's empty.
+std::vector<GURL> CommandLineLinks(const base::CommandLine& command_line,
+                                   const base::FilePath& current_directory) {
+  std::vector<GURL> urls;
+  for (const base::CommandLine::StringType& arg : command_line.GetArgs()) {
+    urls.push_back(url_formatter::FixupRelativeFile(current_directory, base::FilePath(arg)));
+  }
+  return urls;
+}
+
+// A second launch's command line, which its process handed over before it exited: the desktop
+// file's actions, the jump list's tasks and links from other apps start one.
+void LaunchedAgain(const base::CommandLine& command_line,
+                   const base::FilePath& current_directory) {
+#if BUILDFLAG(IS_LINUX)
+  // Wayland gives the focus only to a window activated with the token the launch was given.
+  base::CommandLine without_token = command_line;
+  base::nix::ExtractXdgActivationTokenFromCmdLine(without_token);
+#endif
+  OpenLinks(CommandLineLinks(command_line, current_directory));
+  if (g_host.launched_again) {
+    int what = command_line.HasSwitch(switches::kIncognito)   ? BC_LAUNCH_PRIVATE_WINDOW
+               : command_line.HasSwitch(switches::kNewWindow) ? BC_LAUNCH_WINDOW
+                                                              : BC_LAUNCH_FRONT;
+    g_host.launched_again(g_host.context, what);
+  }
 }
 #endif
 
@@ -136,6 +173,11 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
     if (Profile* profile = StartProfile()) {
       UseProfile(profile);
     }
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+    // Those the browser was launched with, such as a link from another app, which Chrome drops as
+    // it starts with no window. They open over the Spaces the session brings back.
+    OpenLinks(CommandLineLinks(*base::CommandLine::ForCurrentProcess(), base::FilePath()));
+#endif
     // Once the Spaces the last launch saved are read, and so once the run loop is running.
     LoadSession(base::BindOnce([] {
       if (g_host.started) {
@@ -244,6 +286,9 @@ void Install(const bc_host& host) {
   g_browser_core_password_prompt = &PasswordOffer::Prompt;
 #if BUILDFLAG(IS_MAC)
   g_browser_core_open_links = &OpenLinks;
+#endif
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+  g_browser_core_launched_again = &LaunchedAgain;
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
