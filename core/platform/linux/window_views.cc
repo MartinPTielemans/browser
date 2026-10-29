@@ -503,12 +503,18 @@ class WindowViews : public views::WidgetObserver,
       }
       const bool in = focus->opcode == x11::FocusEvent::In;
       switch (focus->detail) {
-        // GPUI took the input focus into the UI's window, as it does on a click, from the window or
-        // from another's.
+        // Out: GPUI took the input focus into the UI's window, as it does on a click. In: it came
+        // back up to the window's own, as a window manager focusing the window may move it, which
+        // while the keys are the UI's would leave them with neither (#593).
         case x11::NotifyDetail::Inferior:
+          if (!in || ui_has_keyboard_) {
+            UITakesKeyboard();
+          }
+          break;
+        // GPUI took the input focus into the UI's window from another's.
         case x11::NotifyDetail::Virtual:
         case x11::NotifyDetail::NonlinearVirtual:
-          if (in != (focus->detail == x11::NotifyDetail::Inferior)) {
+          if (in) {
             UITakesKeyboard();
           }
           break;
