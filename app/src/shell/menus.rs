@@ -831,15 +831,30 @@ impl Shell {
             items.push((MenuEntry::new("Move to", true), "", Box::new(|_, _| {})));
             for (space, name, shown) in self.spaces_to_move_to(true) {
                 let swatch = self.space_swatch(space);
-                items.push((
-                    MenuEntry::named(name, true).checked(shown).swatch(swatch).under(move_to),
-                    "move-to-space",
-                    Box::new(move |shell, cx| {
-                        if !shown {
-                            shell.move_to_space(tab, space, cx)
-                        }
-                    }),
-                ));
+                let folders = self.folders_to_move_to(tab, space);
+                let entry = MenuEntry::named(name, true).checked(shown).swatch(swatch);
+                let to_space: MenuAction = Box::new(move |shell, cx| {
+                    if !shown {
+                        shell.move_to_space(tab, space, cx)
+                    }
+                });
+                if folders.is_empty() {
+                    items.push((entry.under(move_to), "move-to-space", to_space));
+                    continue;
+                }
+                // A Space with folders is a submenu of its Today tabs and its folders (Arc).
+                let parent = items.len();
+                items.push((entry.under(move_to), "", Box::new(|_, _| {})));
+                let today = MenuEntry::new("Today", true).checked(shown).under(parent);
+                items.push((today, "move-to-space", to_space));
+                items.push((MenuEntry::line().under(parent), "", Box::new(|_, _| {})));
+                for (folder, path) in folders {
+                    items.push((
+                        MenuEntry::named(path, true).under(parent),
+                        "move-to-folder",
+                        Box::new(move |shell, cx| shell.move_into_folder(tab, space, folder, cx)),
+                    ));
+                }
             }
             items.push((MenuEntry::line().under(move_to), "", Box::new(|_, _| {})));
             items.push((
@@ -870,6 +885,42 @@ impl Shell {
             .filter(|space| space.agent.is_empty() && (with_shown || space.id != self.space))
             .map(|space| (space.id, space.name.clone(), space.id == self.space))
             .collect()
+    }
+
+    /// The folders of `space` that `tab` can move into, in the sidebar's order, each named by its
+    /// path, "Docs / Old". None in another profile's Space, where the tab goes as a new tab.
+    fn folders_to_move_to(&self, tab: u64, space: u64) -> Vec<(u64, String)> {
+        let profile_of = |space: Option<&super::Space>| space.map(|space| space.profile);
+        let from = self.spaces.iter().find(|each| each.today.contains(&tab));
+        let Some(to) = self.spaces.iter().find(|each| each.id == space) else {
+            return Vec::new();
+        };
+        if profile_of(from) != Some(to.profile) {
+            return Vec::new();
+        }
+        let name = |folder: u64| to.folders.folders.get(&folder).map(|(name, _)| name.clone());
+        let path = |folder: u64| {
+            let mut path = vec![name(folder).unwrap_or_default()];
+            let mut parent = to.folder_of(folder);
+            while parent != 0 {
+                path.push(name(parent).unwrap_or_default());
+                parent = to.folder_of(parent);
+            }
+            path.reverse();
+            path.join(" / ")
+        };
+        let folders = to.pinned.iter().filter(|&&row| to.is_folder(row));
+        folders.map(|&folder| (folder, path(folder))).collect()
+    }
+
+    /// Move to › a folder: the tab goes to the folder's top, from its Space's Today tabs or
+    /// another Space's, as one step to undo.
+    fn move_into_folder(&mut self, tab: u64, space: u64, folder: u64, cx: &mut Context<Self>) {
+        if self.spaces.iter().any(|each| each.id == space && each.today.contains(&tab)) {
+            return self.move_tab_to(tab, true, folder, 0, cx);
+        }
+        self.send_to_space(tab, space, cx);
+        self.browser.move_tab(tab, true, folder, 0, cx);
     }
 
     /// `space`'s swatch: its theme's first two colours, or its one colour going lighter down as
@@ -1228,6 +1279,57 @@ mod tests {
         let calls = host.take();
         assert!(calls.contains(&"folder open 22 true".to_string()), "{calls:?}");
         assert!(calls.contains(&"open https://d.example/ true 22 0".to_string()), "{calls:?}");
+    }
+
+    /// Move to lists each Space's folders under it, by their paths, after its Today tabs, and a
+    /// folder chosen takes the tab at its top, in its Space or another of the same profile. Another
+    /// profile's Space lists none, as the tab goes there as a new tab.
+    #[gpui::test]
+    fn move_to_reaches_a_folder_in_any_space_of_the_profile(cx: &mut TestAppContext) {
+        let folders = Folders {
+            folders: [(20, ("Docs".into(), true))].into(),
+            parents: Default::default(),
+        };
+        let (shell, host) = shell_with(cx, &[20], &[10], folders);
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str, profile| {
+                (id, name.to_string().into(), None, profile, "".into(), "".into(), "".into())
+            };
+            let spaces = vec![space(1, "Work", 0), space(2, "Home", 0), space(3, "Other", 7)];
+            shell.set_spaces(spaces, cx);
+            let home = Folders {
+                folders: [(30, ("Old".into(), false)), (31, ("Older".into(), true))].into(),
+                parents: [(31, 30)].into(),
+            };
+            shell.set_tabs(2, vec![30, 31], vec![40], Vec::new(), home, cx);
+            let theirs = [(50, ("Theirs".into(), true))].into();
+            let other = Folders { folders: theirs, parents: Default::default() };
+            shell.set_tabs(3, vec![50], Vec::new(), Vec::new(), other, cx);
+        });
+        let menu = tab_menu(&shell, &host, cx, 10);
+        let start = menu.iter().position(|title| title.starts_with("Work › Today"));
+        let end = menu.iter().position(|title| title == "Move to › New Space…");
+        let (Some(start), Some(end)) = (start, end) else {
+            panic!("{menu:?}");
+        };
+        assert_eq!(
+            menu[start..=end],
+            [
+                "Work › Today (checked)",
+                "Work › Docs",
+                "Home › Today",
+                "Home › Old",
+                "Home › Old / Older",
+                "Move to › Other",
+                "Move to › New Space…",
+            ]
+        );
+        host.take_edits();
+        cx.update(|cx| host.choose("Docs", cx));
+        assert_eq!(host.take_edits(), ["move 10 true 20 0"]);
+        tab_menu(&shell, &host, cx, 10);
+        cx.update(|cx| host.choose("Old / Older", cx));
+        assert_eq!(host.take_edits(), ["space 10 2", "move 10 true 31 0"]);
     }
 
     /// File › Share… and the command bar's Share… open the same sheet for the page shown, and
