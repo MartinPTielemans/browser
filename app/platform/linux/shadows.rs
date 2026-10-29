@@ -15,8 +15,10 @@ use std::{
 use gpui::{
     App, AppContext as _, Bounds, BoxShadow, Context, IntoElement, ParentElement as _, Pixels,
     Render, Styled as _, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
-    WindowKind, WindowOptions, div, hsla, point, px, size,
+    RootLook, WindowKind, WindowOptions, div, hsla, point, px, size,
 };
+
+use crate::motion::{self, Motion};
 
 /// What an overlay's level draws, in the terms of host_set_overlay_elevation.
 #[derive(Clone, Copy)]
@@ -68,6 +70,8 @@ struct Slot {
     corners: Option<Vec<(f32, f32, f32)>>,
     /// The card's corners' radius, as it showed last.
     radius: f32,
+    /// Where the overlay's top left is in the shadow's window, as it showed last.
+    inset: gpui::Point<Pixels>,
     shown: bool,
 }
 
@@ -135,6 +139,7 @@ pub extern "C" fn host_set_overlay_elevation(
                 window: None,
                 corners: None,
                 radius: 0.,
+                inset: point(px(0.), px(0.)),
                 shown: false,
             })
         });
@@ -163,7 +168,11 @@ fn open(overlay: c_int, cx: &mut App) {
         eprintln!("browser: couldn't open the shadow window of overlay {overlay}");
         return;
     };
-    let Ok(view) = window.update(cx, |_, window, _| crate::ns_view(window)) else {
+    let Ok(view) = window.update(cx, |_, window, _| {
+        let view = crate::ns_view(window);
+        motion::attach_to(window, view);
+        view
+    }) else {
         return;
     };
     gpui_linux::set_overlay_pointer(view, Some(&[]));
@@ -227,6 +236,7 @@ fn place(
             card.origin - point(px(sides), px(above)),
             card.bottom_right() + point(px(sides), px(below)),
         );
+        slot.inset = bounds.origin - framed.origin;
         Some((window, view, changed, framed))
     })??;
     // It draws the card's corners from what it holds, which a new size alone doesn't redraw.
@@ -236,6 +246,25 @@ fn place(
         });
     }
     Some((view, framed))
+}
+
+/// The shadow of `overlay` moves as `motion` says, its origin in the overlay, as it grows in or
+/// shrinks away. It scales with the card, as GPUI draws a shadow under all of the card, which the
+/// card must cover, where the Mac's shadow is cut out of it.
+pub(crate) fn follow(overlay: c_int, mut motion: Motion) {
+    if let Some(Some((view, inset))) = with(overlay, |slot| Some((slot.window?.1, slot.inset))) {
+        motion.origin += inset;
+        motion::start(view, motion);
+    }
+}
+
+/// `overlay` drew a frame of its own motion at `scale` about `origin`, in it, and `opacity`, which
+/// its shadow takes, about the same point.
+pub(crate) fn drew(overlay: c_int, scale: f32, opacity: f32, origin: gpui::Point<Pixels>) {
+    if let Some(Some((view, inset))) = with(overlay, |slot| Some((slot.window?.1, slot.inset))) {
+        let origin = origin + inset;
+        motion::hold(view, RootLook { scale, origin, opacity, moving: false });
+    }
 }
 
 /// `overlay` hides.

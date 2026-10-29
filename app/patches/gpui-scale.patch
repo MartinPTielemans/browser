@@ -244,10 +244,104 @@ index 6cb33874b2..0066ba74a2 100644
  
  #[cfg_attr(
 diff --git a/crates/gpui/src/window.rs b/crates/gpui/src/window.rs
-index c559412e56..1548bd627a 100644
+index c559412e56..3fb5df7566 100644
 --- a/crates/gpui/src/window.rs
 +++ b/crates/gpui/src/window.rs
-@@ -4227,6 +4227,25 @@ impl Window {
+@@ -737,6 +737,19 @@ impl<M: Focusable + EventEmitter<DismissEvent> + Render> ManagedView for M {}
+ /// Emitted by implementers of [`ManagedView`] to indicate the view should be dismissed, such as when a view is presented as a modal.
+ pub struct DismissEvent;
+ 
++/// How a window paints all it draws in a frame of its motion (`Window::set_root_look`).
++#[derive(Clone, Copy, Debug)]
++pub struct RootLook {
++    /// Its size, about `origin` in the window.
++    pub scale: f32,
++    /// The point it scales about.
++    pub origin: Point<Pixels>,
++    /// How much it covers what's under the window, from 0 to 1.
++    pub opacity: f32,
++    /// Whether the motion goes on past this frame.
++    pub moving: bool,
++}
++
+ type FrameCallback = Box<dyn FnOnce(&mut Window, &mut App)>;
+ 
+ pub(crate) type AnyMouseListener =
+@@ -1247,6 +1260,10 @@ pub struct Window {
+     pub(crate) rendered_entity_stack: Vec<EntityId>,
+     pub(crate) element_offset_stack: Vec<Point<Pixels>>,
+     pub(crate) element_opacity: f32,
++    root_look: Option<Box<dyn Fn() -> RootLook>>,
++    /// Its root look's motion goes on, which no frame rate limit slows.
++    root_moving: Rc<Cell<bool>>,
++    cursor_override: Option<CursorStyle>,
+     pub(crate) content_mask_stack: Vec<ContentMask<Pixels>>,
+     pub(crate) requested_autoscroll: Option<Bounds<Pixels>>,
+     /// The [`TextInputConfiguration`] most recently forwarded to the platform
+@@ -1664,6 +1681,7 @@ impl Window {
+         let next_frame_callbacks: Rc<RefCell<Vec<FrameCallback>>> = Default::default();
+         let input_rate_tracker = Rc::new(RefCell::new(InputRateTracker::default()));
+         let last_frame_time = Rc::new(Cell::new(None));
++        let root_moving = Rc::new(Cell::new(false));
+ 
+         platform_window
+             .request_decorations(window_decorations.unwrap_or(WindowDecorations::Server));
+@@ -1773,6 +1791,7 @@ impl Window {
+             let mut cx = cx.to_async();
+             let invalidator = invalidator.clone();
+             let active = active.clone();
++            let root_moving = root_moving.clone();
+             let needs_present = needs_present.clone();
+             let next_frame_callbacks = next_frame_callbacks.clone();
+             let input_rate_tracker = input_rate_tracker.clone();
+@@ -1830,7 +1849,10 @@ impl Window {
+                         && next_frame_callbacks.borrow().is_empty())
+                 {
+                     None
+-                } else if !active.get() && !input_rate_tracker.borrow_mut().is_high_rate() {
++                } else if !active.get()
++                    && !root_moving.get()
++                    && !input_rate_tracker.borrow_mut().is_high_rate()
++                {
+                     inactive_frame_interval.map(|interval| (interval, FrameRateLimit::Inactive))
+                 } else if let Some(ThermalState::Critical | ThermalState::Serious) = thermal_state {
+                     Some((Duration::from_micros(16667), FrameRateLimit::Thermal))
+@@ -2156,6 +2178,9 @@ impl Window {
+             element_offset_stack: Vec::new(),
+             content_mask_stack: Vec::new(),
+             element_opacity: 1.0,
++            root_look: None,
++            root_moving,
++            cursor_override: None,
+             requested_autoscroll: None,
+             last_text_input_configuration: None,
+             focused_text_input: None,
+@@ -3761,7 +3786,23 @@ impl Window {
+         #[cfg(feature = "profiler")]
+         let paint_start = Instant::now();
+         self.invalidator.set_phase(DrawPhase::Paint);
+-        root_element.paint(self, cx);
++        match self.root_look.as_ref().map(|look| look()) {
++            Some(look) => {
++                self.root_moving.set(look.moving);
++                if look.moving {
++                    self.on_next_frame(|window, _| window.refresh());
++                }
++                self.with_element_opacity(Some(look.opacity), |window| {
++                    match look.scale == 1. {
++                        true => root_element.paint(window, cx),
++                        false => window.with_scale(look.scale, look.origin, |window| {
++                            root_element.paint(window, cx)
++                        }),
++                    }
++                });
++            }
++            None => root_element.paint(self, cx),
++        }
+ 
+         #[cfg(any(feature = "inspector", debug_assertions))]
+         self.paint_inspector(inspector_element, cx);
+@@ -4227,6 +4268,40 @@ impl Window {
          result
      }
  
@@ -270,10 +364,37 @@ index c559412e56..1548bd627a 100644
 +        result
 +    }
 +
++    /// Paints all the window draws as `look` says for each frame, drawing again while it says
++    /// the motion goes on, as a window an embedder shows grows in or fades out; or as it is with
++    /// none. Its root mustn't scale what it paints itself, as scales don't nest.
++    pub fn set_root_look(&mut self, look: Option<Box<dyn Fn() -> RootLook>>) {
++        self.root_look = look;
++        self.refresh();
++    }
++
++    /// Shows `style` wherever the pointer is over the window, whatever it draws asks, as an
++    /// embedder's tool does; or what it draws asks, with none.
++    pub fn set_cursor_override(&mut self, style: Option<CursorStyle>, cx: &mut App) {
++        self.cursor_override = style;
++        self.reset_cursor_style(cx);
++    }
++
      pub(crate) fn with_element_opacity<R>(
          &mut self,
          opacity: Option<f32>,
-@@ -7097,18 +7116,24 @@ impl Window {
+@@ -5578,9 +5653,8 @@ impl Window {
+     fn reset_cursor_style(&self, cx: &mut App) {
+         // Set the cursor only if we're the active window.
+         if self.is_window_hovered() {
+-            let style = self
+-                .rendered_frame
+-                .cursor_style(self)
++            let style = (self.cursor_override)
++                .or_else(|| self.rendered_frame.cursor_style(self))
+                 .unwrap_or(CursorStyle::Arrow);
+             cx.platform.set_cursor_style(style);
+         }
+@@ -7097,18 +7171,24 @@ impl Window {
  
          // Fall back to built-in action handling.
          match request.action {

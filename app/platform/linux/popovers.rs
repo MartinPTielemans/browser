@@ -2,14 +2,20 @@
 //! with its keyboard until the user leaves them, as their windows do on the Mac. GPUI shows each as
 //! an overlay of that window (overlays.rs); the core lends it the window's keyboard while it has it.
 //!
-//! The Site Controls cast their shadow from a window under them (shadows.rs).
+//! The Site Controls cast their shadow from a window under them (shadows.rs), which scales and
+//! fades with the frames they draw of their motion.
 //!
-//! shortcut: no blur under the Site Controls, which show and go without their motion's scale, and
-//! the pointer over Capture is the arrow, not a camera.
+//! The pointer over Capture is the crosshair while it would be the camera on the Mac.
+//!
+//! shortcut: no blur under the Site Controls, and no camera: a crosshair is a cursor both X11's
+//! cursor themes and Wayland's cursor shapes name, as a picture would need one of each.
 
-use std::{cell::RefCell, ffi::c_void};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::c_void,
+};
 
-use gpui::{Bounds, Pixels, point, px, size};
+use gpui::{Bounds, CursorStyle, Pixels, point, px, size};
 
 use crate::{bc, overlays, shadows};
 
@@ -43,6 +49,8 @@ struct Shown {
 
 thread_local! {
     static POPOVERS: RefCell<Vec<Popover>> = const { RefCell::new(Vec::new()) };
+    /// The pointer over Capture is the camera, not the arrow, as it is till its menu shows.
+    static CAMERA: Cell<bool> = const { Cell::new(true) };
 }
 
 fn add(kind: Kind, view: *mut c_void, dismissed: extern "C" fn()) {
@@ -89,6 +97,10 @@ fn show(kind: Kind, ui_view: *mut c_void, left: f64, top: f64, width: f64, heigh
     }
     gpui_linux::set_overlay_pointer(view, None);
     if kind == Kind::SiteControls {
+        // It comes in from nothing, as their frames say (host_site_controls_drew).
+        if !had {
+            shadows::drew(SITE_CONTROLS, 1., 0., point(px(0.), px(0.)));
+        }
         shadows::show(SITE_CONTROLS, ui_view, bounds, 0.);
     }
     gpui_linux::show_overlay(view, ui_view, bounds, px(0.), true, left_popover);
@@ -226,7 +238,12 @@ pub extern "C" fn host_set_site_controls_height(height: f64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn host_site_controls_drew(_scale: f64, _opacity: f64, _x: f64, _y: f64) {}
+pub extern "C" fn host_site_controls_drew(scale: f64, opacity: f64, x: f64, y: f64) {
+    if with(Kind::SiteControls, |p| p.shown.is_some()) == Some(true) {
+        let origin = point(px(x as f32), px(y as f32));
+        shadows::drew(SITE_CONTROLS, scale as f32, opacity as f32, origin);
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn host_release_site_controls() {
@@ -254,13 +271,26 @@ pub extern "C" fn host_show_capture(
     height: f64,
 ) {
     if show(Kind::Capture, ui_view, left, top, width, height) {
+        camera();
         // check.sh reads this line.
         eprintln!("browser: capture shown at {left} {top} {width} {height}");
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn host_capture_camera(_camera: bool) {}
+pub extern "C" fn host_capture_camera(camera: bool) {
+    CAMERA.set(camera);
+    self::camera();
+}
+
+/// Capture's window shows the pointer as the camera, or the arrow, as `CAMERA` says.
+fn camera() {
+    let Some(view) = with(Kind::Capture, |p| p.view) else { return };
+    let style = CAMERA.get().then_some(CursorStyle::Crosshair);
+    crate::update_app_later(move |cx| {
+        overlays::update_window(view, cx, |window, cx| window.set_cursor_override(style, cx));
+    });
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn host_hide_capture() {

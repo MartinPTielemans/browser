@@ -402,9 +402,6 @@ void host_window_closed(void* ui_view) {
   }
 }
 
-// shortcut: overlays don't shrink on Linux yet (overlays.rs).
-void host_set_overlay_shrink(int overlay) {}
-
 bool host_can_draw_emoji(const char*) {
   return true;
 }
