@@ -27,6 +27,9 @@ pub enum Kind {
     /// Arc's favorites.
     Favorites,
     Bookmarks,
+    /// The Web Store's extensions of a browser of Chrome's family, as a folder of their store
+    /// pages beside its bookmarks.
+    Extensions,
     /// Safari's Reading List, as a folder beside its bookmarks.
     ReadingList,
     History,
@@ -38,6 +41,7 @@ impl Kind {
             Kind::Spaces => "Spaces, with their pinned tabs and folders",
             Kind::Favorites => "Favorites",
             Kind::Bookmarks => "Bookmarks, as a Space's pinned tabs",
+            Kind::Extensions => "Extensions, as a folder of their Web Store pages",
             Kind::ReadingList => "Reading List, as a folder in that Space",
             Kind::History => "History",
         }
@@ -87,10 +91,12 @@ impl From<String> for ReadError {
 pub fn kinds(source: &Source) -> &'static [Kind] {
     if source.arc_sidebar().is_some() {
         &[Kind::Spaces, Kind::Favorites, Kind::History]
-    } else if source.browser.family == Family::Safari {
-        &[Kind::Bookmarks, Kind::ReadingList, Kind::History]
     } else {
-        &[Kind::Bookmarks, Kind::History]
+        match source.browser.family {
+            Family::Chromium => &[Kind::Bookmarks, Kind::Extensions, Kind::History],
+            Family::Firefox => &[Kind::Bookmarks, Kind::History],
+            Family::Safari => &[Kind::Bookmarks, Kind::ReadingList, Kind::History],
+        }
     }
 }
 

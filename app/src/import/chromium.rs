@@ -1,5 +1,6 @@
-//! What a Chromium-based browser's profile holds: its bookmarks, from its `Bookmarks`, and its
-//! history, from its `History`, a SQLite file. Arc's sidebar is arc.rs's.
+//! What a Chromium-based browser's profile holds: its bookmarks, from its `Bookmarks`, its
+//! extensions from the Web Store, from its `Extensions`, and its history, from its `History`, a
+//! SQLite file. Arc's sidebar is arc.rs's.
 
 use std::path::Path;
 use std::time::SystemTime;
@@ -11,6 +12,8 @@ use super::read::{Copy, Kind, Read, ReadError, folder_name, micros, pinned};
 
 /// Chromium's times count microseconds from 1601, 11,644,473,600 seconds before 1970.
 const FROM_1601: i64 = 11_644_473_600_000_000;
+/// The update URL the Web Store gives each extension it installs, in its manifest.
+const STORE_UPDATES: &str = "https://clients2.google.com/service/update2/crx";
 
 /// What of `picked` the profile at `path` has, its history since `since`.
 pub fn read(path: &Path, picked: &[Kind], since: SystemTime) -> Result<Read, ReadError> {
@@ -18,6 +21,13 @@ pub fn read(path: &Path, picked: &[Kind], since: SystemTime) -> Result<Read, Rea
     let bookmarks = path.join("Bookmarks");
     if picked.contains(&Kind::Bookmarks) && bookmarks.is_file() {
         read.pinned = self::bookmarks(&std::fs::read_to_string(&bookmarks)?)?;
+    }
+    let extensions = self::extensions(path);
+    if picked.contains(&Kind::Extensions) && !extensions.is_empty() {
+        read.pinned.push(Node::Folder {
+            name: "Extensions".into(),
+            children: extensions.into_iter().map(Node::Tab).collect(),
+        });
     }
     let history = path.join("History");
     if picked.contains(&Kind::History) && history.is_file() {
@@ -49,6 +59,62 @@ pub fn bookmarks(json: &str) -> Result<Vec<Node>, String> {
             .filter_map(|(key, fallback)| folder(key, fallback))
             .collect(),
     ))
+}
+
+/// The extensions the profile at `path` has from the Web Store, by name, each a tab at its store
+/// page, where the user adds it again: none is installed, as an extension's settings and data stay
+/// in the other browser. Those from elsewhere stay out, with no page to add them from.
+pub fn extensions(path: &Path) -> Vec<Tab> {
+    let Ok(folders) = std::fs::read_dir(path.join("Extensions")) else {
+        return Vec::new();
+    };
+    let mut tabs: Vec<Tab> = folders
+        .flatten()
+        .filter_map(|folder| {
+            let id = folder.file_name().into_string().ok()?;
+            // A folder for each version kept, the one running among them.
+            let version = std::fs::read_dir(folder.path())
+                .ok()?
+                .flatten()
+                .map(|version| version.path())
+                .find(|version| version.join("manifest.json").is_file())?;
+            let manifest = std::fs::read_to_string(version.join("manifest.json")).ok()?;
+            let manifest: Value = serde_json::from_str(&manifest).ok()?;
+            if manifest.get("update_url").and_then(Value::as_str) != Some(STORE_UPDATES) {
+                return None;
+            }
+            let name = manifest
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Some(Tab {
+                url: format!("https://chromewebstore.google.com/detail/{id}"),
+                name: localized(&version, &manifest, name).unwrap_or(id),
+            })
+        })
+        .collect();
+    tabs.sort_by_key(|tab| tab.name.to_lowercase());
+    tabs
+}
+
+/// `name` from an extension's manifest, which may name a message in its default locale's
+/// `messages.json` instead, as `__MSG_appName__`, matched without regard to case.
+fn localized(folder: &Path, manifest: &Value, name: &str) -> Option<String> {
+    let Some(key) = name
+        .strip_prefix("__MSG_")
+        .and_then(|key| key.strip_suffix("__"))
+    else {
+        return Some(name.trim().to_string()).filter(|name| !name.is_empty());
+    };
+    let locale = manifest.get("default_locale")?.as_str()?;
+    let messages =
+        std::fs::read_to_string(folder.join("_locales").join(locale).join("messages.json"));
+    let messages: Value = serde_json::from_str(&messages.ok()?).ok()?;
+    let (_, message) = messages
+        .as_object()?
+        .iter()
+        .find(|(each, _)| each.eq_ignore_ascii_case(key))?;
+    Some(message.get("message")?.as_str()?.trim().to_string()).filter(|name| !name.is_empty())
 }
 
 /// A bookmark folder's children that come in.
