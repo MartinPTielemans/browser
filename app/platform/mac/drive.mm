@@ -77,8 +77,13 @@
 //                                         zoom buttons, and whether it's full screen, as
 //                                         "browser: layout full screen <0|1>"
 //   state                                 nothing, for the done line's report
-//   title                                 logs the key window's title, as "browser: key window
-//                                         titled <title>", such as a window of Chrome's
+//   title [<text>]                        logs the key window's title, as "browser: key window
+//                                         titled <title>", such as a window of Chrome's. With
+//                                         <text>, once the title has it, for up to 10 s, as a
+//                                         window Chrome opens takes the keyboard and its title a
+//                                         moment after the command that opens it; else "browser:
+//                                         no key window titled <text>, windows <title> | <title>",
+//                                         the app's windows shown, the key one marked "(key)"
 //   pasteboard                            logs the text on the run's pasteboard, which stands in
 //                                         for the clipboard, as "browser: pasteboard text <text>"
 //   savepanel <path>                      picks <path> in the save panel the app began, once it
@@ -876,6 +881,35 @@ NSSavePanel* SavePanel(id self, SEL selector) {
   return panel;
 }
 
+// Logs the key window's title once it has |text|, for up to 10 s, or the app's windows if none
+// does: a window Chrome opens, such as undocked DevTools, takes the keyboard a moment after the
+// command that opens it, and its page's title after that.
+void AwaitKeyTitle(NSString* text, int tries, void (^done)(void)) {
+  NSString* title = NSApp.keyWindow.title ?: @"";
+  if (text.length == 0 || [title containsString:text]) {
+    fprintf(stderr, "browser: key window titled %s\n", title.UTF8String);
+    done();
+    return;
+  }
+  if (tries == 0) {
+    NSMutableArray<NSString*>* shown = [NSMutableArray array];
+    for (NSWindow* window in NSApp.windows) {
+      if (window.visible) {
+        [shown addObject:[NSString stringWithFormat:@"%@%@", window.title,
+                                                    window.keyWindow ? @" (key)" : @""]];
+      }
+    }
+    fprintf(stderr, "browser: no key window titled %s, windows %s\n", text.UTF8String,
+            [shown componentsJoinedByString:@" | "].UTF8String);
+    done();
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(),
+                 ^{
+                   AwaitKeyTitle(text, tries - 1, done);
+                 });
+}
+
 // Picks |path| in the save panel the app began, once it has, which may be a moment after the app
 // asked for it: for up to 5 s.
 void AnswerSavePanel(NSString* path, int tries, void (^done)(void)) {
@@ -1516,8 +1550,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "title") {
-    fprintf(stderr, "browser: key window titled %s\n", NSApp.keyWindow.title.UTF8String ?: "");
-    done();
+    AwaitKeyTitle(@(line.substr(std::min(line.size(), action.size() + 1)).c_str()), 100, done);
     return true;
   }
   if (action == "savepanel") {

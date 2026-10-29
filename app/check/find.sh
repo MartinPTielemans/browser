@@ -418,8 +418,9 @@ send click $page_point
 send key j cmd alt
 expect '^browser: command javascript-console via page$' \
   "⌥⌘J with the page focused didn't reach the UI"
-send title
-expect '^browser: key window titled .*Tools - ' "⌥⌘J didn't open DevTools in a window of their own"
+# The window takes the keyboard, and its title, a moment after the command.
+send title DevTools
+expect '^browser: key window titled DevTools' "⌥⌘J didn't open DevTools in a window of their own"
 await_views 1 "with DevTools undocked"
 # The console's prompt takes the keyboard once DevTools have loaded, so the copy is tried until
 # it has.
@@ -441,8 +442,8 @@ send window 1
 send click $page_point
 send key i cmd alt
 expect '^browser: command devtools via page$' "⌥⌘I with the page focused didn't reach the UI"
-send title
-expect '^browser: key window titled .*Tools - ' "⌥⌘I didn't bring undocked DevTools to the front"
+send title DevTools
+expect '^browser: key window titled DevTools' "⌥⌘I didn't bring undocked DevTools to the front"
 send window 1
 await_views 1 "after ⌥⌘I with DevTools undocked"
 quit_by_key
