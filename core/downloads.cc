@@ -14,6 +14,7 @@
 #include "base/supports_user_data.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/host.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_crx_util.h"
@@ -41,6 +42,14 @@ struct DownloadId : base::SupportsUserData::Data {
   static constexpr char kKey[] = "browser_core::DownloadId";
   bc_id id = NewId();
 };
+
+// When |item| stopped, or started if it never did, and nothing while it runs or is paused.
+std::optional<base::Time> EndOf(const download::DownloadItem& item) {
+  if (item.GetState() == download::DownloadItem::IN_PROGRESS) {
+    return std::nullopt;
+  }
+  return item.GetEndTime().is_null() ? item.GetStartTime() : item.GetEndTime();
+}
 
 bc_id IdOf(download::DownloadItem* item) {
   auto* data = static_cast<DownloadId*>(item->GetUserData(DownloadId::kKey));
@@ -113,7 +122,11 @@ class Downloads : public download::AllDownloadItemNotifier::Observer {
 
  private:
   // download::AllDownloadItemNotifier::Observer:
-  void OnManagerInitialized(content::DownloadManager* manager) override { Changed(); }
+  // Auto-archive takes old downloads off the list too, so it looks again as one ends.
+  void OnManagerInitialized(content::DownloadManager* manager) override {
+    Changed();
+    ScheduleAutoArchive();
+  }
   // A deleted profile's downloads leave the list.
   void OnManagerGoingDown(content::DownloadManager* manager) override { Changed(); }
   void OnDownloadCreated(content::DownloadManager* manager,
@@ -123,6 +136,9 @@ class Downloads : public download::AllDownloadItemNotifier::Observer {
   void OnDownloadUpdated(content::DownloadManager* manager,
                          download::DownloadItem* item) override {
     Changed();
+    if (EndOf(*item)) {
+      ScheduleAutoArchive();
+    }
   }
   void OnDownloadRemoved(content::DownloadManager* manager,
                          download::DownloadItem* item) override {
@@ -239,6 +255,25 @@ void ActOnDownload(bc_id id, int action) {
 void ClearDownloads() {
   for (download::DownloadItem* item : TheDownloads().Listed()) {
     if (item->GetState() != download::DownloadItem::IN_PROGRESS) {
+      item->Remove();
+    }
+  }
+}
+
+std::optional<base::Time> NextOldDownload(base::TimeDelta after) {
+  std::optional<base::Time> next;
+  for (download::DownloadItem* item : TheDownloads().Listed()) {
+    if (std::optional<base::Time> end = EndOf(*item)) {
+      next = std::min(next.value_or(base::Time::Max()), *end + after);
+    }
+  }
+  return next;
+}
+
+void RemoveOldDownloads(base::TimeDelta after) {
+  const base::Time now = base::Time::Now();
+  for (download::DownloadItem* item : TheDownloads().Listed()) {
+    if (std::optional<base::Time> end = EndOf(*item); end && *end + after <= now) {
       item->Remove();
     }
   }
