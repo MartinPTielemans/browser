@@ -351,13 +351,14 @@ expect "^browser: renamed profile $spare spare 日本語\$" \
   "the new profile wasn't named: $(grep '^browser: renamed profile' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-profiles.png" || fail "no window to capture"
 # Settings asks in an alert, and off the Mac, which has none, in its dialog, where escape cancels
-# and return deletes.
+# and return deletes. The dialog covers Settings, taking its clicks, until it has gone.
 asks=alert
 [ "$(uname)" = Linux ] && asks=dialog
 settings_answer() {
   if [ "$asks" = dialog ]; then
     expect '^browser: dialog settled$' "Settings' dialog didn't settle"
     case $1 in Cancel) send key escape ;; *) send key return ;; esac
+    expect '^browser: dialog hidden$' "Settings' dialog didn't go"
   else
     send choose "$1"
   fi
