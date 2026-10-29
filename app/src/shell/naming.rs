@@ -62,6 +62,13 @@ impl Shell {
         cx.notify();
     }
 
+    /// The first Space's card's name in its field, for the preview.
+    pub fn preview_rename_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(space) = self.spaces.first().map(|space| space.id) {
+            self.rename_space_in_card(space, window, cx);
+        }
+    }
+
     /// Puts the Space's name in a field in its card in the Library, all selected, to type a new one
     /// over, and leaves the Library open and the Space where it was, as Arc does. It keeps the
     /// name in another card's field first.
