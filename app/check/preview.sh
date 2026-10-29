@@ -222,7 +222,7 @@ send click $page_point
 expect "^browser: title $a pressed [0-9]*\$" "a click on the test page's lower part didn't reach it"
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
-send clickkey 491 60
+send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 # Its switch is the row under the haptics', as General's rows are 42 apart.
 send clickkey 592 168

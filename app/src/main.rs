@@ -105,6 +105,7 @@ mod system;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/window_buttons.rs"]
 mod window_buttons;
+mod link_rules_host;
 mod reveal;
 mod agents_core;
 mod settings;
@@ -3498,6 +3499,8 @@ fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -
     } else {
         unsafe { bc::bc_window_show_space(window, create_space("Space 1", 0)) };
     }
+    // The rules name the Spaces by their places, so they're read once the Spaces are back.
+    link_rules_host::read();
     let links = LAUNCH_LINKS.take().unwrap_or_default();
     match std::env::var("BROWSER_URL") {
         Ok(url) => open_tab(window, &url),
@@ -3546,8 +3549,11 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     else {
         return;
     };
-    open_links_in(window.id, &urls);
-    unsafe { platform::host_activate(window.ui_view) };
+    let shown = open_links_in(window.id, &urls);
+    let ui_view = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == shown).map_or(window.ui_view, |w| w.ui_view)
+    });
+    unsafe { platform::host_activate(ui_view) };
     // AppKit hands over the links that launched the browser all at once, so the first window
     // needn't wait for it to finish.
     finished_launching();
@@ -3606,39 +3612,56 @@ pub fn clear_browsing_data(profile: u64) -> bool {
     true
 }
 
-/// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
-/// that's an agent's, which none of the user's tabs go in. The last one opened shows.
-fn open_links_in(window: bc::bc_id, urls: &[String]) {
-    if urls.is_empty() {
-        return;
-    }
-    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
-    let shown = unsafe { bc::bc_window_space(window) };
-    let space = if users(shown) {
-        shown
-    } else {
-        let last = WINDOWS.with_borrow(|windows| {
-            windows.iter().find(|w| w.id == window).map_or(0, |w| w.users_space)
-        });
-        let spaces = ids(bc::bc_spaces);
-        match spaces.contains(&last) && users(last) {
-            true => last,
-            false => spaces.into_iter().find(|&space| users(space)).unwrap_or(0),
-        }
-    };
-    if space == 0 {
-        return;
-    }
-    if space != shown {
-        unsafe { bc::bc_window_show_space(window, space) };
-    }
+/// Opens `urls` as new tabs in `front`, the regular window in front, in the Space it shows, or in
+/// the user's it showed last if that's an agent's, which none of the user's tabs go in. A link a
+/// rule sends to another Space opens in the regular window showing it, else in `front` switched to
+/// it. The last one opened shows, and the window it's in is returned.
+fn open_links_in(front: bc::bc_id, urls: &[String]) -> bc::bc_id {
+    let mut window = front;
     for url in urls {
+        let routed = link_rules_host::route(url);
+        let showing = (routed != 0).then(|| {
+            WINDOWS.with_borrow(|windows| {
+                let shows = |w: &&BrowserWindow| unsafe { bc::bc_window_space(w.id) } == routed;
+                windows.iter().filter(|w| !w.private).find(shows).map(|w| w.id)
+            })
+        });
+        window = showing.flatten().unwrap_or(front);
+        let space = match routed {
+            0 => users_space_of(window),
+            routed => routed,
+        };
+        if space == 0 {
+            continue;
+        }
+        if space != unsafe { bc::bc_window_space(window) } {
+            unsafe { bc::bc_window_show_space(window, space) };
+        }
         let tab = open_tab_behind(window, url, false);
         if tab != 0 {
             unsafe { bc::bc_window_select(window, tab) };
         }
         // check.sh reads this line.
         log!("browser: link from another app {url}: tab {tab} in space {space} of window {window}");
+    }
+    window
+}
+
+/// The Space `window` shows, or the user's it showed last if that's an agent's, else the user's
+/// first, or 0.
+fn users_space_of(window: bc::bc_id) -> bc::bc_id {
+    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
+    let shown = unsafe { bc::bc_window_space(window) };
+    if users(shown) {
+        return shown;
+    }
+    let last = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == window).map_or(0, |w| w.users_space)
+    });
+    let spaces = ids(bc::bc_spaces);
+    match spaces.contains(&last) && users(last) {
+        true => last,
+        false => spaces.into_iter().find(|&space| users(space)).unwrap_or(0),
     }
 }
 
@@ -4972,6 +4995,8 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_spaces(spaces.clone(), cx);
     });
     update_app(settings::refresh);
+    // The rules name their Spaces by place, which a Space moved or deleted changes.
+    link_rules_host::save();
     // After the update under way, as an import waiting here makes Spaces of its own.
     update_app_later(import_host::spaces_changed);
 }
