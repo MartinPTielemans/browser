@@ -75,6 +75,8 @@ expect '^browser: link target hidden$' "the plate stayed after the pointer left 
 # delete the page's site's cache and cookies and load the page again.
 send key k
 expect "^browser: title $a cookie [^ ]* cache 1\$" "k in the served page didn't open the cookie page"
+# A key before the page has loaded can reach the page it replaced.
+expect "^browser: page $a back 1 forward 0 loading 0 ${site}clear.html\$" "the cookie page didn't finish loading"
 send key c
 expect "^browser: title $a cookie set\$" "c in the cookie page didn't set a cookie"
 send key r cmd
@@ -309,6 +311,8 @@ expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T after Clear didn't
 expect "^browser: today [0-9][0-9]* $e\$" \
   "⇧⌘T after Clear didn't reopen the top tab: Today is \"$(today)\""
 t=$(today | cut -d' ' -f1)
+# It shows the tab it reopened once the page has drawn, which a slow renderer leaves for after ⌘Z.
+expect "^browser: selected $t\( in .*\)\{0,1\}\$" "⇧⌘T after Clear didn't show the tab it reopened"
 send key z cmd
 expect '^browser: command undo via ui$' "⌘Z with the UI focused didn't run"
 expect "^browser: today $t $e [0-9][0-9]*\$" \
@@ -730,7 +734,7 @@ EOF
 early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
 send click $((nx + nw / 2)) $((ny + nh - 26))
 # Safari's engine keeps a store for each profile from macOS 14; before it, the note offers Safari.
-if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
+if [ "$(uname)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   drm_done="Safari's engine"
   [ -z "$early" ] || fail "WebKit loaded before its first page: $early"
   # Play in This Tab shows the page in Safari's engine, in the tab, and the note goes.
@@ -831,7 +835,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   send type abc
   expect "^browser: title $tab value abc\$" "typing didn't reach the text field in Safari's engine"
   for shortcut in "a select" "c copy"; do
-    read -r letter did <<<"$shortcut"
+    letter=${shortcut% *} did=${shortcut#* }
     send key "$letter" cmd
     expect "^browser: title $tab $did abc\$" \
       "⌘$(echo "$letter" | tr a-z A-Z) in Safari's engine's text field didn't $did its text"
