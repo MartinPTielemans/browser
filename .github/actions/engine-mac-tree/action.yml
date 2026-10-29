@@ -1,0 +1,35 @@
+# Saves the Mac engine's build tree as artifacts of this run, or restores one a run saved
+# (tree.mjs). Its dependencies come from `npm install` in this folder, in a step before.
+name: Engine tree on the Mac
+description: Saves or restores the Mac engine's build tree, with its files' dates, as artifacts
+inputs:
+  mode:
+    description: save or restore
+    required: true
+  root:
+    description: The folder the tree's paths are relative to
+    required: true
+  paths:
+    description: To save, the paths in root that make the tree, separated by spaces
+    default: ''
+  run:
+    description: To restore, the run whose tree it is
+    default: ''
+  name:
+    description: The tree's name, which its artifacts are named after
+    default: mac-tree
+  retention:
+    description: The days a saved tree's artifacts stay, 90 at most in a public repository
+    default: '90'
+  commit:
+    description: The commit a saved tree was built from, the run's own by default
+    default: ''
+  token:
+    description: A token with actions read, to restore another run's tree
+    default: ${{ github.token }}
+outputs:
+  commit:
+    description: The commit a restored tree was built from
+runs:
+  using: node24
+  main: tree.mjs

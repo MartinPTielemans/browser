@@ -2,7 +2,8 @@
 # disk once the image's extras go, the memory build.sh's job count is set from, how the build's
 # tools install, and how long the tree takes to save to artifacts and restore on a fresh runner,
 # with the image's spare Xcodes as a tree of the same kind of files. Each job's summary has the
-# numbers. On pushes to its own branch that change it, and by hand.
+# numbers. On macos-26 only, the image with the SDK Chromium 156 builds with (setup.sh). On pushes to
+# its own branch that change it, and by hand.
 name: Engine on the Mac, measured
 
 on:
@@ -27,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-26]
+        os: [macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 300
     steps:
@@ -95,10 +96,8 @@ jobs:
         run: npm install -s --no-audit --no-fund
 
       # The spare Xcodes stand in for the tree: hundreds of thousands of files, binaries and text.
-      - name: Save
-        env:
-          TREE_NAME: tree-${{ matrix.os }}
-          TREE_RETENTION_DAYS: 1
+      - name: The stand-in
+        id: stand-in
         run: |
           default=$(cd "$(xcode-select -p)/../.." && pwd -P)
           spare=()
@@ -109,16 +108,23 @@ jobs:
           kb=$(du -sk "${spare[@]/#//Applications/}" | awk '{ s += $1 } END { print s }')
           files=$(find "${spare[@]/#//Applications/}" | wc -l | tr -d ' ')
           echo "the stand-in: ${#spare[@]} Xcodes, $((kb >> 20)) GB on disk, $files files" | tee -a "$GITHUB_STEP_SUMMARY"
-          start=$SECONDS
-          node .github/actions/engine-mac-tree/tree.mjs save /Applications "${spare[@]}" 2>&1 | tee "$RUNNER_TEMP/save.log"
-          echo "saved: $(tail -1 "$RUNNER_TEMP/save.log"), $((SECONDS - start)) s in all" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "paths=${spare[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Save
+        uses: ./.github/actions/engine-mac-tree
+        with:
+          mode: save
+          root: /Applications
+          paths: ${{ steps.stand-in.outputs.paths }}
+          name: tree-${{ matrix.os }}
+          retention: 1
 
   restore:
     needs: save
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-26]
+        os: [macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 300
     steps:
@@ -146,12 +152,16 @@ jobs:
           echo "free before the restore, with one Xcode: $(free) GB" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Restore
-        env:
-          TREE_NAME: tree-${{ matrix.os }}
+        uses: ./.github/actions/engine-mac-tree
+        with:
+          mode: restore
+          root: ${{ runner.temp }}/tree
+          run: ${{ github.run_id }}
+          name: tree-${{ matrix.os }}
+
+      - name: The tree restored
         run: |
-          start=$SECONDS
-          node .github/actions/engine-mac-tree/tree.mjs restore "$HOME/tree" "$GITHUB_RUN_ID" 2>&1 | tee "$RUNNER_TEMP/restore.log"
-          kb=$(du -sk "$HOME/tree" | cut -f1)
-          files=$(find "$HOME/tree" | wc -l | tr -d ' ')
+          kb=$(du -sk "$RUNNER_TEMP/tree" | cut -f1)
+          files=$(find "$RUNNER_TEMP/tree" | wc -l | tr -d ' ')
           free=$(df -g /System/Volumes/Data | awk 'NR == 2 { print $4 }')
-          echo "restored: $(tail -1 "$RUNNER_TEMP/restore.log"), $((SECONDS - start)) s in all; $((kb >> 20)) GB, $files files; $free GB free after" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "restored: $((kb >> 20)) GB, $files files; $free GB free after" | tee -a "$GITHUB_STEP_SUMMARY"
