@@ -112,3 +112,28 @@ fn another_windows_tab_drops_where_the_line_marks(cx: &mut TestAppContext) {
     assert_eq!(place, Some((false, 0, 1)));
     assert!(shell.read_with(cx, |shell, _| shell.drag.is_none()));
 }
+
+/// Over the page away from the split targets, let go, the tab opens in a window of its own that
+/// grows out of its picture, centred on the pointer; over a target it joins the split instead.
+#[gpui::test]
+fn away_from_the_targets_it_opens_a_window_from_its_picture(cx: &mut TestAppContext) {
+    let (shell, host, cx) = window(cx, &[1, 2, 3]);
+    shell.update(cx, |shell, cx| shell.set_selected(2, cx));
+    let card = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport).0);
+    let (middle, left) = (card.center(), card.left() + card.size.width * 0.1 + px(30.));
+    let (x, y) = (f32::from(middle.x), f32::from(middle.y));
+    let y_row = press(&shell, cx, 1);
+    drag_to(&shell, cx, X, y_row + 60.);
+    drag_to(&shell, cx, x, y);
+    host.take();
+    shell.update(cx, |shell, cx| shell.drop_row(cx));
+    assert_eq!(host.take(), [format!("open window 1 {} {} 209 109.5 0.2", x - 104.5, y - 54.75)]);
+    assert_eq!(host.take_edits(), Vec::<String>::new());
+
+    press(&shell, cx, 1);
+    drag_to(&shell, cx, X, y_row + 60.);
+    drag_to(&shell, cx, f32::from(left), y);
+    shell.update(cx, |shell, cx| shell.drop_row(cx));
+    assert!(host.take().iter().all(|call| !call.starts_with("open window")));
+    assert_eq!(host.take_edits(), ["split 1 2 true"]);
+}
