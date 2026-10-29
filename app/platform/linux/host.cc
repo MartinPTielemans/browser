@@ -304,14 +304,7 @@ void host_capture_name(char* name, size_t capacity) {
   }
 }
 
-// No sight of the displays' layout (host_centered), so a window opens where the compositor puts it.
-size_t host_screens(double* frames, size_t count) {
-  return 0;
-}
-
-bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
-  return false;
-}
+// host_screens and host_window_frame are frames.rs's, which reads them from the X server.
 
 // shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
 void host_watch_finished_launching(void (*finished)(void)) {
@@ -325,9 +318,7 @@ void host_dock_dot_launch(const char* profile_dir) {}
 
 void host_dock_dot(bool colored, uint32_t color) {}
 
-// The compositor places each window (host_centered), so the next opens where it's put, at the size
-// the app asks for, the default one, as nothing here reads the size of the one before.
-void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
+// host_cascaded is frames.rs's too.
 
 // Through the core, as the window is Chromium's: under Wayland its toplevel, which GPUI's window is
 // a subsurface in.
