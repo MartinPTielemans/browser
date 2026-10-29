@@ -53,7 +53,7 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
     settings_window,
 };
 
@@ -222,6 +222,7 @@ fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(panels::shown());
     views.extend(menu_window::shown());
+    views.extend(reveal_window::shown());
     views
 }
 
@@ -531,9 +532,14 @@ fn hover(to: Target, state: u16) -> Option<()> {
     Some(())
 }
 
-/// Sends a press of `button`, 1 the left, 3 the right and 4 to 7 the wheel's, or its release, at
-/// `at`, with `state` the modifiers and the buttons held before it.
+/// Sends a press of `button`, 1 the left, 2 the middle, 3 the right and 4 to 7 the wheel's, or its
+/// release, at `at`, with `state` the modifiers and the buttons held before it.
 fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
+    // A press in another window moves there first, as a hand's pointer does: GPUI hovers what's
+    // under the pointer only on a move, so without one its leave would unhover nothing.
+    if press && HOVERED.get().map(|from| from.window) != Some(at.window) {
+        motion(at, state)?;
+    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
@@ -586,11 +592,14 @@ fn motion(at: Target, state: u16) -> Option<()> {
     connection.flush().ok()
 }
 
-/// A click of `which` (1 the left, 3 the right, 4 to 7 the wheel's) at `at`, the second of a
-/// double click with `again`. A first click waits until GPUI wouldn't count it with the last
-/// one, as the driver clicks faster than a hand does.
-fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
-    if which <= 3 && !again {
+/// Before a press of `which` at `at`, waits until GPUI wouldn't count it with the last press
+/// there, as the driver presses faster than a hand does, unless it's the second of a double click
+/// (`again`). A drag's press counts too, so a click where a drag began isn't a double click.
+fn space_press(at: Target, which: u8, again: bool) {
+    if which > 3 {
+        return;
+    }
+    if !again {
         let last = LAST_CLICKS.with_borrow(|clicks| clicks.get(&at.window).copied());
         if let Some((then, last, last_which)) = last
             && last_which == which
@@ -603,10 +612,14 @@ fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
             );
         }
     }
-    if which <= 3 {
-        let now = std::time::Instant::now();
-        LAST_CLICKS.with_borrow_mut(|clicks| clicks.insert(at.window, (now, at, which)));
-    }
+    let now = std::time::Instant::now();
+    LAST_CLICKS.with_borrow_mut(|clicks| clicks.insert(at.window, (now, at, which)));
+}
+
+/// A click of `which` (1 the left, 2 the middle, 3 the right, 4 to 7 the wheel's) at `at`, the
+/// second of a double click with `again`.
+fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
+    space_press(at, which, again);
     button(at, which, true, state)?;
     button(
         at,
@@ -1051,10 +1064,14 @@ fn run_command(line: &str) -> Option<()> {
             }
             connection.flush().ok()
         }
-        "click" | "rightclick" | "doubleclick" => {
+        "click" | "rightclick" | "middleclick" | "doubleclick" => {
             let (x, y) = point(&mut words)?;
             let at = target_at(x, y)?;
-            let which = if action == "rightclick" { 3 } else { 1 };
+            let which = match action {
+                "rightclick" => 3,
+                "middleclick" => 2,
+                _ => 1,
+            };
             click(at, which, click_modifiers(words), false)?;
             if action == "doubleclick" {
                 click(at, 1, none, true)?;
@@ -1091,6 +1108,7 @@ fn run_command(line: &str) -> Option<()> {
                 ..target_in(driven()?.window, x2, y2)?
             };
             let to = relative_to(to, at.window)?;
+            space_press(at, 1, false);
             button(at, 1, true, none)?;
             motion(to, button_mask(1))?;
             button(to, 1, false, button_mask(1))
@@ -1105,6 +1123,7 @@ fn run_command(line: &str) -> Option<()> {
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
+                space_press(at, which, false);
                 return button(at, which, true, none);
             }
             let to = target_in(driven()?.window, x, y)?;
