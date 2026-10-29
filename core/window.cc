@@ -1152,7 +1152,10 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   PasswordOffer::Moving moving(freed);
   HoldPictured();
   // A full-screen page's tab leaving takes the window out with it, within ActivateTabAt.
+  LogFullScreenState("show, leaving", leaving);
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
+  LogFullScreenState("show, activated", contents);
+  LogFullScreenState("show, left", leaving);
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
   std::vector<bc_id> panes = space ? space->Panes(tab) : std::vector<bc_id>{tab};
@@ -1173,6 +1176,8 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   // wait for its new size: the app lays them out once it has it (LeaveFullScreen).
   if (!platform::PagesHeldForResize(widget_.get())) {
     LayOutPage();
+  } else {
+    fprintf(stderr, "browser: fs: show waits for the window's size\n");
   }
   if (freed) {
     LogHandover("giver let go", Handing(id_, freed));
@@ -1274,7 +1279,12 @@ void Window::LayOutPage() {
   if (panel_page && !side_panel_frame_.IsEmpty() && !(shown_ && shown_->IsFullscreen())) {
     panel = platform::SidePanelPage{panel_page->GetNativeView(), side_panel_frame_};
   }
+  fprintf(stderr, "browser: fs: lay out %zu pages in %s, held %d\n", shown.size(),
+          page_frame_.ToString().c_str(), platform::PagesHeldForResize(widget_.get()));
   platform::ShowPages(widget_.get(), panes, page_corner_radius_, focused, focus_color_, panel);
+  for (content::WebContents* each : shown) {
+    LogFullScreenState("laid out", each);
+  }
   if (panel_page != side_panel_laid_out_.get()) {
     side_panel_laid_out_ = panel_page ? panel_page->GetWeakPtr() : nullptr;
     ReportSidePanelSoon();
@@ -2240,6 +2250,10 @@ void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
 }
 
 void Window::LeaveFullScreen() {
+  fprintf(stderr, "browser: fs: leave window %llu, window full screen %d, for page %d, held %d\n",
+          static_cast<unsigned long long>(id_), widget_->IsFullscreen(), FullScreenForPage(),
+          platform::PagesHeldForResize(widget_.get()));
+  LogFullScreenState("leave, shown", shown_.get());
   // The app lays a page leaving out once, at the window's new size, which off the Mac it hears of
   // after the window has resized.
   if (FullScreenForPage()) {
@@ -2263,6 +2277,7 @@ void Window::LeaveFullScreen() {
       return;
     }
   }
+  fprintf(stderr, "browser: fs: let go, for page %d\n", FullScreenForPage());
   // Off the Mac the window is out as SetFullscreen returns. The window manager's own way out has
   // taken it out already, which Chromium's X11 window ignores, still counting itself full screen.
   if (widget_->IsFullscreen()) {
@@ -2272,6 +2287,8 @@ void Window::LeaveFullScreen() {
     if (!alive) {
       return;
     }
+    fprintf(stderr, "browser: fs: window out, held %d\n",
+            platform::PagesHeldForResize(widget_.get()));
   }
 #endif
   // Chrome's controller keeps a page full screen until it hears the window is out, ignoring the

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -763,6 +764,9 @@ void ShowPages(views::Widget* widget,
     return;
   }
   views->set_corner_radius(corner_radius);
+  if (views->held()) {
+    fprintf(stderr, "browser: fs: pages let go, %zu shown\n", panes.size());
+  }
   views->set_held(false);
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = ContentSizeOf(widget);
@@ -840,6 +844,7 @@ void ShowPages(views::Widget* widget,
 
 void HoldPagesForResize(views::Widget* widget) {
   if (WindowViews* views = ViewsOf(widget)) {
+    fprintf(stderr, "browser: fs: pages held\n");
     views->set_held(true);
   }
 }
