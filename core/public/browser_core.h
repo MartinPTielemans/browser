@@ -731,6 +731,11 @@ typedef struct bc_host {
   // bc_profile_add_history added |added| pages to |profile|'s history, once for each call that
   // returned true, in order.
   void (*history_added)(void* context, bc_id profile, size_t added);
+  // On Linux and Windows, the browser is quitting, or with |last_private| the last window of a
+  // private profile closing, with |count| downloads running, which it would cancel: ask the user
+  // over |window|, and answer with bc_window_answer_downloads. A window asks one at a time. The Mac
+  // asks in Chrome's own alert as the app quits. The user's: agents get none, as they can't quit.
+  void (*window_downloads_question)(void* context, bc_id window, int count, bool last_private);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -852,6 +857,11 @@ BC_EXPORT bc_id bc_window_open_saved(size_t index, bc_rect bounds, void* ui_view
 // before it, which shows its tab live again if it showed one this window took. Else its pages get
 // their unload handlers. Then window_closed. The user's: agents get none.
 BC_EXPORT void bc_window_close(bc_id window);
+
+// Answers window_downloads_question, if the window still asks: |cancel| cancels the downloads and
+// goes on quitting or closing. Otherwise the browser stays open, and Chrome shows the downloads
+// (window_show_downloads). The user's: agents get none.
+BC_EXPORT void bc_window_answer_downloads(bc_id window, bool cancel);
 
 // Titles the window as the window manager shows it, for a host that can't reach the window itself,
 // as under Wayland, where the window is Chromium's.
