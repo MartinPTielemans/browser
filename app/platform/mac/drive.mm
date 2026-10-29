@@ -87,6 +87,10 @@
 //                                         T3 Code's window capture takes. Each is "driven",
 //                                         "window <n>" for another browser window, "none", or
 //                                         "<class> <width>x<height> <accessibility role>"
+//   levels                                logs the level of the key window's browser window
+//                                         and of each window over it, as "browser: levels
+//                                         <level>: <class> <level> layer <layer>, …", <layer>
+//                                         the window server's, such as Chromium's bubbles
 //   backdrop <grey>|off                   a window of the driver's in <grey> (0–255, sRGB) behind
 //                                         the browser window and 100 points past its edges, for
 //                                         the window's material to blur something known. Each
@@ -1408,6 +1412,34 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     bc_age_tabs_for_testing(seconds);
+    done();
+    return true;
+  }
+  if (action == "levels") {
+    NSWindow* window = NSApp.keyWindow;
+    while (window.parentWindow) {
+      window = window.parentWindow;
+    }
+    NSArray* infos = CFBridgingRelease(
+        CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID));
+    NSMutableDictionary<NSNumber*, NSNumber*>* layers = [NSMutableDictionary dictionary];
+    for (NSDictionary* info in infos) {
+      layers[info[(id)kCGWindowNumber]] = info[(id)kCGWindowLayer];
+    }
+    NSMutableString* line =
+        [NSMutableString stringWithFormat:@"browser: levels %ld:", (long)window.level];
+    NSMutableArray<NSWindow*>* over = [window.childWindows mutableCopy] ?: [NSMutableArray array];
+    for (NSUInteger i = 0; i < over.count; i++) {
+      [over addObjectsFromArray:over[i].childWindows ?: @[]];
+    }
+    for (NSWindow* child in over) {
+      NSNumber* layer = layers[@(child.windowNumber)];
+      if (layer) {
+        [line appendFormat:@" %@ %ld layer %d,", NSStringFromClass(child.class),
+                           (long)child.level, layer.intValue];
+      }
+    }
+    fprintf(stderr, "%s\n", line.UTF8String);
     done();
     return true;
   }

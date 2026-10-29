@@ -10,9 +10,9 @@
 # a new window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
 # forward rather than taking the page. With the first window in full screen, other apps take the
 # second for the window in front once the user is in it. Window › Stay On Top keeps a window over
-# other apps' with the command bar over it, and back, except on Linux, which doesn't offer it. On
-# the Mac the Dock icon's menu's New Window
-# and New Incognito Window open a window and a private one. From macOS 14, a page in Safari's engine,
+# other apps' with the command bar over it, and on the Mac Chromium's popups, such as a datalist's
+# list, and back, except on Linux, which doesn't offer it. On the Mac the Dock icon's menu's New
+# Window and New Incognito Window open a window and a private one. From macOS 14, a page in Safari's engine,
 # which the Site Controls turn on for a page that asks for Widevine, moves to another window the
 # same way, and the window it left draws WebKit's picture of it, which the core gives from a task of
 # its own (#364: an answer inside the call that asked aborted the browser). A heavy page and a light
@@ -487,10 +487,33 @@ else
   ../tools/window-screenshot.sh "$pid" "$out/windows-on-top.png" || fail "no window to capture"
   send key escape
   expect '^browser: command bar hidden$' "escape didn't close the command bar over a window on top"
+  # Chromium's own popups and bubbles over a window on top are on top too, such as the list an
+  # input with a datalist drops down: none is under the window's level, where it would be hidden.
+  # The driver reads levels from AppKit, so it looks on the Mac.
+  if [ "$(uname)" = Darwin ]; then
+    printf '<title>datalist</title><input list=l style="position:fixed;inset:0"><datalist id=l><option value=ada><option value=grace></datalist>' > "$out/site/datalist.html"
+    open_site datalist.html
+    listing=$tab
+    send click $page_point
+    send key down
+    for _ in $(seq 100); do
+      send levels
+      grep '^browser: levels ' "$log" | tail -1 | grep -q NativeWidgetMacNSWindow && break
+      sleep 0.1
+    done
+    levels=$(grep '^browser: levels ' "$log" | tail -1)
+    echo "$levels" | grep -q '^browser: levels 3: .*NativeWidgetMacNSWindow' ||
+      fail "the datalist's list didn't drop down over the window on top: $levels"
+    echo "$levels" | grep -q ' layer [0-2],' && fail "a window over the window on top was under its level: $levels"
+    ../tools/window-screenshot.sh "$pid" "$out/windows-on-top-list.png" || fail "no window to capture"
+    send key escape
+    send key w cmd
+    expect "^browser: tab $listing closed\$" "⌘W didn't close the datalist's tab"
+  fi
   send menu "Window › Stay On Top"
   expect '^browser: window on top false$' "a second Stay On Top didn't put the window back"
   expect "$lowered" "a second Stay On Top didn't lower the window among other apps'"
-  on_top=", Window › Stay On Top keeps a window over other apps' with the command bar over it"
+  on_top=", Window › Stay On Top keeps a window over other apps' with the command bar and Chromium's popups over it"
 fi
 
 # The Dock icon's menu runs the File menu's New Window and New Incognito Window. Linux and Windows
