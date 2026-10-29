@@ -949,6 +949,9 @@ pub struct Shell {
     /// went past or back, from how far in it was then.
     scrolled: bool,
     scroll_edge_fade: Option<(Instant, f32)>,
+    /// The edge the selected tab's marker was last drawn at, true for the top, and its frame in
+    /// the window (`shown_marker`).
+    marker_drawn: Cell<Option<(bool, Bounds<Pixels>)>>,
     /// Whether Clear and the URL field's button were fading in or shown at the last frame, the
     /// fade since it last changed, from how far in they were then, and whether they were drawn
     /// when the last line was logged.
@@ -1248,6 +1251,7 @@ impl Shell {
             slot_frames: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
+            marker_drawn: Cell::new(None),
             tools_on: false,
             tools_fade: None,
             drawn_tools: false,
@@ -3021,7 +3025,8 @@ impl Shell {
                             }),
                         )
                     })
-                    .child(page),
+                    .child(page)
+                    .when(space == self.space, |page| page.children(self.shown_marker(cx))),
             );
         }
         div()

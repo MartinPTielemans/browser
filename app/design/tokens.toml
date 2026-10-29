@@ -698,6 +698,10 @@ drop-ring-x = 7.0
 drop-line-end = 2.0
 drop = 0xffff_ffe6
 plate-radius = 12.0
+# While the selected tab's row is scrolled out past the list's top or bottom, a sliver of its plate
+# this tall shows at that edge, and a click this far in from the edge scrolls back to it (ours).
+shown-marker = 4.0
+shown-marker-hit = 14.0
 favicon-x = 17.0
 favicon-size = 18.0
 # The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot

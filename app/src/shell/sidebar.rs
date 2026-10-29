@@ -1,15 +1,20 @@
 //! The sidebar's width, which its edge drags; hiding and showing it, and while it's
-//! hidden, its reveal over the page (docs/ux-spec.md › Sidebar reveal); and its
-//! gradient in the Space's colour.
+//! hidden, its reveal over the page (docs/ux-spec.md › Sidebar reveal); its gradient in the
+//! Space's colour; and the marker for the selected tab's row scrolled out of the list.
 
 use std::time::Instant;
 
 use gpui::{
-    Context, CursorStyle, DispatchPhase, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Rgba, canvas, div, linear_color_stop, linear_gradient, prelude::*, px,
+    Bounds, ClickEvent, Context, CursorStyle, DispatchPhase, Hsla, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Rgba, canvas, div, linear_color_stop, linear_gradient, point,
+    prelude::*, px, size,
 };
 
+use super::access::Accessible as _;
+use crate::tokens::shell::{SHOWN_MARKER, SHOWN_MARKER_HIT};
+
 use super::{
+    PLATE_INSET, ROW_HEIGHT, Row, SELECTED, Slot,
     CARD_INSET, PRIVATE_SHADE, REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
     REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX,
     SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Settle, Shell, settle_progress, spring,
@@ -183,6 +188,68 @@ impl Shell {
         }
         self.revealing = (!shut.is_empty()).then_some(tab);
         self.scroll_to_row(tab);
+    }
+
+    /// Whether the selected tab's row is scrolled wholly out past the list's top (true) or its
+    /// bottom (false), as the list was last drawn. None while any of it shows.
+    fn selected_row_past(&self) -> Option<bool> {
+        let Row::Tab(row) = self.selected_row() else {
+            return None;
+        };
+        let top = *self.layout().get(&Slot::Tab(row))? + self.tiles_room();
+        let height = f32::from(self.list_scroll.bounds().size.height);
+        past(top, -f32::from(self.list_scroll.offset().y), height)
+    }
+
+    /// While the selected tab's row is scrolled out of the list, a sliver of its plate at the
+    /// edge it's past, over the list, which a click scrolls back to it (Arc; the look is ours).
+    pub(super) fn shown_marker(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let past = self.selected_row_past();
+        let list = self.list_scroll.bounds();
+        let drawn = past.map(|top| {
+            let y = if top { list.top() } else { list.bottom() - px(SHOWN_MARKER_HIT) };
+            let width = list.size.width - px(2. * PLATE_INSET);
+            let origin = point(list.left() + px(PLATE_INSET), y);
+            (top, Bounds::new(origin, size(width, px(SHOWN_MARKER_HIT))))
+        });
+        if self.marker_drawn.replace(drawn) != drawn {
+            // check.sh waits for these lines, and clicks the marker where it says, in the window.
+            match drawn {
+                Some((top, frame)) => log!(
+                    "browser: shown tab marker {} at {} {} {} {}",
+                    if top { "top" } else { "bottom" },
+                    f32::from(frame.origin.x),
+                    f32::from(frame.origin.y),
+                    f32::from(frame.size.width),
+                    f32::from(frame.size.height)
+                ),
+                None => log!("browser: shown tab marker hidden"),
+            }
+        }
+        let top = past?;
+        let tab = self.selected;
+        let sliver = div()
+            .w_full()
+            .h(px(SHOWN_MARKER))
+            .rounded(px(SHOWN_MARKER / 2.))
+            .bg(self.palette.plate(SELECTED));
+        let marker = div()
+            .id("shown-marker")
+            .absolute()
+            .left(px(PLATE_INSET))
+            .right(px(PLATE_INSET))
+            .h(px(SHOWN_MARKER_HIT))
+            .flex()
+            .flex_col()
+            .map(|marker| if top { marker.top_0() } else { marker.bottom_0().justify_end() })
+            .block_mouse_except_scroll()
+            .when(self.a11y, |marker| marker.button_named("Scroll to the Selected Tab"))
+            .on_click(cx.listener(move |shell, _: &ClickEvent, _, cx| {
+                shell.scroll_to_row(tab);
+                cx.notify();
+            }))
+            .child(sliver);
+        Some(marker)
     }
 
     /// Whether the window's own buttons show (`window_buttons_at`).
@@ -439,13 +506,25 @@ pub(super) fn window_buttons_at(
     }
 }
 
+/// Whether a row `top` down the list is wholly past its top (true) or bottom (false), with the list
+/// scrolled `scrolled` and `height` of it showing. None while any of it shows, and before the
+/// list's first layout.
+fn past(top: f32, scrolled: f32, height: f32) -> Option<bool> {
+    match () {
+        _ if height <= 0. => None,
+        _ if top + ROW_HEIGHT <= scrolled => Some(true),
+        _ if top >= scrolled + height => Some(false),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
     use gpui::{
-        Bounds, Context, Entity, MouseButton, MouseDownEvent, Render, TestAppContext, Window,
-        WindowBounds, WindowOptions, point, prelude::*, px, size,
+        Bounds, Context, Entity, Modifiers, MouseButton, MouseDownEvent, Render, TestAppContext,
+        VisualTestContext, Window, WindowBounds, WindowOptions, point, prelude::*, px, size,
     };
 
     use super::super::{
@@ -491,6 +570,49 @@ mod tests {
             shell.list_scroll.offset().y
         });
         assert_eq!(offset, px(0.));
+    }
+
+    /// Draws the shell again, as the app's next frame does.
+    fn draw(shell: &Entity<Shell>, cx: &mut VisualTestContext) {
+        shell.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+    }
+
+    /// The selected tab's row scrolled out past the list's bottom, and then its top, puts a sliver
+    /// of its plate at that edge, and a click on it scrolls the list back to the row, which takes
+    /// it away.
+    #[gpui::test]
+    fn a_marker_shows_where_the_selected_row_scrolled_out_is(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            shell.set_tabs(1, Vec::new(), (10..70).collect(), Vec::new(), Folders::default(), cx);
+            shell.set_selected(69, cx);
+        });
+        draw(&shell, cx);
+        // Showing it scrolled the list to its row; the wheel takes the list back up.
+        shell.update(cx, |shell, _| shell.list_scroll.set_offset(point(px(0.), px(0.))));
+        draw(&shell, cx);
+        let marker = shell.read_with(cx, |shell, _| shell.marker_drawn.get());
+        let (top, frame) = marker.expect("no marker for the row under the list's bottom");
+        assert!(!top, "the marker for the row under the list's bottom is at its top");
+        cx.simulate_click(frame.center(), Modifiers::none());
+        draw(&shell, cx);
+        let (marker, scrolled) = shell.read_with(cx, |shell, _| {
+            (shell.marker_drawn.get(), shell.list_scroll.offset().y)
+        });
+        assert_eq!(marker, None, "the marker stayed once its row scrolled into the list");
+        assert!(scrolled < px(0.), "a click on the marker didn't scroll to the row");
+        // The top row selected there, past the list's top.
+        shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+        draw(&shell, cx);
+        shell.update(cx, |shell, _| shell.list_scroll.set_offset(point(px(0.), scrolled)));
+        draw(&shell, cx);
+        let marker = shell.read_with(cx, |shell, _| shell.marker_drawn.get());
+        assert!(matches!(marker, Some((true, _))), "no marker at the top: {marker:?}");
     }
 
     /// Presses the sidebar's edge where it's drawn, and drags it to `to`, a list of x's.

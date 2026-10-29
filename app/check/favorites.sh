@@ -3,9 +3,10 @@
 # card, which other apps don't take for the window in front, and the footer's Library button
 # and the header's sidebar button name themselves with their shortcuts' keys on chips, and Clear
 # says what it does. A click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its top, the list shows an
-# edge under the tile, and showing a tab under its bottom scrolls to the tab's row. Away from its
-# URL, a double-click on the tile goes back there. ⌘W unloads it and keeps the tile, showing the
-# top Today tab. The tile's menu duplicates it to the top of Today. Launched
+# edge under the tile, and showing a tab under its bottom scrolls to the tab's row. Scrolled out of
+# the list, the shown tab's row has a marker at the edge it's past, which scrolls back to it. Away
+# from its URL, a double-click on the tile goes back there. ⌘W unloads it and keeps the tile,
+# showing the top Today tab. The tile's menu duplicates it to the top of Today. Launched
 # again, the app brings the favorite back, shown, and Remove from Favorites in its menu puts it at
 # the top of Today. A row dragged onto the tiles turns into a tile, and a tile dragged into the list
 # into a row. Today rows dragged onto the tiles become favorites where they're dropped, a tile
@@ -195,6 +196,19 @@ expect '^browser: scroll edge shown$' "the list scrolled to a row didn't show it
 ../tools/window-screenshot.sh "$pid" "$out/list-scrolled.png" || fail "no window to capture"
 switch "2 cmd" "$c"
 none_since '^browser: list scrolled' || fail "showing a tab in view scrolled the list"
+# Shown again, the last tab's row is in view, and with the list scrolled back to its top, under its
+# bottom, so a sliver of its plate marks it there; a click on that scrolls the list back to the row.
+switch "9 cmd" "$b"
+send scroll 100 200 -10 5
+expect '^browser: shown tab marker bottom at ' \
+  "the shown tab's row scrolled under the list's bottom didn't put its marker there"
+../tools/window-screenshot.sh "$pid" "$out/shown-marker.png" || fail "no window to capture"
+marker=$(grep '^browser: shown tab marker bottom at ' "$log" | tail -1 |
+  awk '{ printf "%d %d", $7 + $9 / 2, $8 + $10 / 2 }')
+send click $marker
+expect "^browser: list scrolled to [1-9][0-9.]* for $b\$" \
+  "a click on the marker didn't scroll the list to the shown tab's row"
+expect '^browser: shown tab marker hidden$' "the marker stayed with the shown tab's row back in view"
 send resize $size
 expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
 # ⌘, from the page opens Settings on General. Its switch turns the warning before quitting off, the
@@ -492,4 +506,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: dialog shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Windows: $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom, and marks the row of the tab shown scrolled out of it at that edge, a click on the mark scrolling back to it. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Windows: $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/shown-marker.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
