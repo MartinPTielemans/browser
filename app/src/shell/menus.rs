@@ -53,6 +53,9 @@ pub struct MenuEntry {
     pub over: bool,
     /// The Space it stands for, whose swatch goes before its title.
     pub swatch: Option<Swatch>,
+    /// Whether it's shown and chosen in place of the item before it while ⌥ is held, as AppKit's
+    /// alternates are, taking no row of its own.
+    pub alternate: bool,
 }
 
 impl MenuEntry {
@@ -81,6 +84,7 @@ impl MenuEntry {
             destructive: false,
             over: false,
             swatch: None,
+            alternate: false,
         }
     }
 
@@ -99,6 +103,11 @@ impl MenuEntry {
 
     pub(super) fn destructive(self) -> Self {
         MenuEntry { destructive: true, ..self }
+    }
+
+    /// The item before it's ⌥ alternate.
+    fn alternate(self) -> Self {
+        MenuEntry { alternate: true, ..self }
     }
 
     fn swatch(self, swatch: Swatch) -> Self {
@@ -500,9 +509,18 @@ impl Shell {
             "close-tab",
             Box::new(|shell, cx| shell.close_chosen(cx)),
         );
+        // ⇧⌘C does it too, as Arc's Copy URLs does (owner, 2026-10-29).
+        let copy: (MenuEntry, &'static str, MenuAction) = (
+            MenuEntry::new("Copy URLs", true).shortcut(Command::CopyUrl, keys),
+            "copy-url",
+            Box::new(|shell, cx| shell.copy_chosen(cx)),
+        );
+        let line = || -> (MenuEntry, &'static str, MenuAction) {
+            (MenuEntry::line(), "", Box::new(|_, _| {}))
+        };
         // A private window's tabs are Today's alone, and stay in it.
         if self.private {
-            return vec![close];
+            return vec![copy, line(), close];
         }
         let pin = if self.chosen_pin() { "Pin Tabs" } else { "Unpin Tabs" };
         let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
@@ -533,8 +551,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.move_chosen_to_space(space, cx)),
             ));
         }
-        items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
-        items.push(close);
+        items.extend([line(), copy, line(), close]);
         items
     }
 
@@ -736,11 +753,22 @@ impl Shell {
         let last = panes[panes.len() - 1];
         let below = self.today().iter().skip_while(|&&id| id != last).count() > 1;
         let link = clean_link(&page.url);
-        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![(
-            MenuEntry::new("Copy Link", !link.is_empty()).shortcut(Command::CopyUrl, keys),
-            "copy-link",
-            Box::new(move |shell, cx| shell.copy_link(tab, cx)),
-        )];
+        let markdown = MenuEntry::new("Copy Link as Markdown", !link.is_empty())
+            .shortcut(Command::CopyMarkdownLink, keys)
+            .alternate();
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
+            (
+                MenuEntry::new("Copy Link", !link.is_empty()).shortcut(Command::CopyUrl, keys),
+                "copy-link",
+                Box::new(move |shell, cx| shell.copy_link(tab, false, cx)),
+            ),
+            // Holding ⌥ makes Copy Link copy it as Markdown, as ⌥⇧⌘C does (owner, 2026-10-29).
+            (
+                markdown,
+                "copy-markdown-link",
+                Box::new(move |shell, cx| shell.copy_link(tab, true, cx)),
+            ),
+        ];
         self.push_share(&mut items, tab, &link, position);
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
@@ -895,11 +923,10 @@ impl Shell {
     }
 
     /// Copy Link: copies `tab`'s URL without its tracking parameters, as ⇧⌘C does the tab
-    /// shown's.
-    fn copy_link(&mut self, tab: u64, cx: &mut Context<Self>) {
-        let link = clean_link(&self.page(tab).url);
-        if !link.is_empty() {
-            self.copy(&link, "Copied Current URL", cx);
+    /// shown's, or as a Markdown link, as ⌥⇧⌘C does.
+    fn copy_link(&mut self, tab: u64, markdown: bool, cx: &mut Context<Self>) {
+        if let Some((text, toast)) = self.link_to_copy(tab, markdown) {
+            self.copy(&text, toast, cx);
         }
     }
 
@@ -1059,7 +1086,9 @@ mod tests {
             (true, false) => title,
         };
         (entries.iter().enumerate())
-            .filter(|(at, entry)| !entry.title.is_empty() && !parents.contains(at))
+            .filter(|(at, entry)| {
+                !entry.title.is_empty() && !parents.contains(at) && !entry.alternate
+            })
             .map(|(_, entry)| {
                 let title = match entry.parent {
                     Some(parent) => format!("{} › {}", entries[parent].title, entry.title),
@@ -1110,13 +1139,19 @@ mod tests {
                 "Archive Tabs Below",
             ]
         );
-        // Copy Link alone shows its key, as in Arc's.
-        let entries = host.entries.borrow();
+        // Copy Link alone shows its key, as in Arc's, and so does its ⌥ alternate.
+        let entries = host.entries.borrow().clone();
         let keyed: Vec<&str> = (entries.iter())
             .filter(|entry| entry.shortcut.is_some())
             .map(|entry| entry.title.as_ref())
             .collect();
-        assert_eq!(keyed, ["Copy Link"]);
+        assert_eq!(keyed, ["Copy Link", "Copy Link as Markdown"]);
+        assert!(entries[1].alternate && !entries[0].alternate);
+        host.take();
+        cx.update(|cx| host.choose("Copy Link as Markdown", cx));
+        let title = shell.read_with(cx, |shell, _| shell.title(10));
+        let markdown = format!("copy [{title}](https://example.com/)");
+        assert!(host.take().contains(&markdown), "{markdown}");
     }
 
     /// The last tab has none below to archive, and a tab with no page has no link to copy or share.
@@ -1302,7 +1337,7 @@ mod tests {
         host.take();
         assert_eq!(
             tab_menu(&shell, &host, cx, 5),
-            ["Pin Tabs", "New Folder with Tabs", "Move to Space › Home", "Close Tabs"]
+            ["Pin Tabs", "New Folder with Tabs", "Move to Space › Home", "Copy URLs", "Close Tabs"]
         );
         host.take_edits();
         cx.update(|cx| host.choose("Pin Tabs", cx));

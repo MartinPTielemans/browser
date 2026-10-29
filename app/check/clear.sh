@@ -332,13 +332,14 @@ expect "^browser: selected $tab\$" "Duplicate didn't show the copy"
 expect "^browser: page $tab icon 🌟\$" "Duplicate didn't copy the tab's icon"
 expect_page example.org 1 0 "the copy Duplicate made"
 # The window is titled by the tab shown, which the Window menu lists it by. The menu bar names its
-# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses.
+# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses,
+# then Paste URL as New Tab.
 send title
 expect '^browser: key window titled Example Domain$' "the window isn't titled by the tab shown"
 maybe='\( (disabled)\)\{0,1\}'
 send menubar Edit
-expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Select All" \
-  "the Edit menu has no Paste and Match Style after Paste"
+expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Paste URL as New Tab$maybe, Select All" \
+  "the Edit menu has no Paste and Match Style and Paste URL as New Tab after Paste"
 send menubar View
 expect "^browser: menu bar View: Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
 send menubar Tabs
