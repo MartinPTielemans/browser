@@ -276,11 +276,11 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | On by default | MVP | every profile, new and existing, and private windows, from the first page; nothing to install. Built (`core/ad_block.cc`, #476): `check/adblock.sh` blocks on a new profile, a private window and the same profile launched again, and reports whether that launch's first page was blocked before a reload; needs Mac run | Helium, Flecha |
-| [ ] | Engine | MVP | upstream uBlock Origin 1.75.0, pinned with its sha256, in the framework, loaded at each launch; updates with the browser; listed in the Extensions menu, pinnable, no Remove. Built (`app/ublock.ini`, `app/fetch-ublock.sh`, `core/ad_block.cc`, #476): the adblock run checks the shipped version against `ublock.ini`, the menu, a pin and an action menu without Remove, on both launches; needs Mac run | Ours |
-| [ ] | Turning it off | MVP | Site Controls' first row, per site, reloading the page; Settings › General, everywhere. Built (#476): the adblock run turns it off and on for a site and everywhere, with captures; needs Mac run | Ours |
+| [ ] | On by default | MVP | every profile, new and existing, and private windows, from the first page; nothing to install. Built (`core/ad_block.cc`, #476): on the Mac, `check/adblock.sh` blocks on a new profile, a private window and the same profile launched again, but that launch's first page loads the ad script and shows the ad until a reload | Helium, Flecha |
+| [x] | Engine | MVP | upstream uBlock Origin 1.75.0, pinned with its sha256, in the framework, loaded at each launch; updates with the browser; listed in the Extensions menu, pinnable, no Remove. Built (`app/ublock.ini`, `app/fetch-ublock.sh`, `core/ad_block.cc`, #476): the adblock run checks the shipped version against `ublock.ini`, the menu, a pin and an action menu without Remove, on both launches | Ours |
+| [x] | Turning it off | MVP | Site Controls' first row, per site, reloading the page; Settings › General, everywhere. Built (#476): the adblock run turns it off and on for a site and everywhere, with captures | Ours |
 | [ ] | Filter lists | MVP | weekly while open, and 37 s after a launch when stale; never more often; source a default service URL. Built: `core/ad_block.cc` gives uBlock Origin a 168 h update period and `kFilterListsSource`; the 37 s is uBlock Origin's own. Not checked: no run sees its list requests, which needs a check-only list source served locally | principles 1, 2 |
-| [ ] | First launch | MVP | requests through for about 3 s until the lists load; closing it: measure first. The adblock run reports how long a new profile's first launch let them through, to a reload's wait; needs Mac run | principle 1 |
+| [ ] | First launch | MVP | requests through for about 3 s until the lists load; closing it: measure first. The adblock run reports how long a new profile's first launch let them through, to a reload's wait: 7.2 s over 6 loads on the Mac | principle 1 |
 | [ ] | Cost | MVP | page-load and memory numbers, with and without it, against the performance gate. Not built: no run measures page load or memory with it and without | principle 1 |
 | [ ] | No agent path | MVP | agents can't change it, everywhere or for a site. Holds today, since there is no MCP server; ticks with its allowlist test | decision 8 |
 
@@ -291,7 +291,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Save / update prompt | MVP | page top right; Save / Update Password, username picker, Never, No Thanks in Chrome's words; look: measure | Dia P§16, Chrome |
 | [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
 | [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
-| [ ] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture; needs Mac run | Chrome |
+| [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
 | [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
