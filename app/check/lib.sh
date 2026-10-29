@@ -273,7 +273,8 @@ space() {
 
 # The pinned tabs the app last showed, top to bottom.
 pinned() {
-  grep '^browser: pinned' "$log" | tail -1 | sed 's/^browser: pinned *//'
+  grep '^browser: pinned' "$log" | grep -v '^browser: pinned extensions ' | tail -1 |
+    sed 's/^browser: pinned *//'
 }
 # Waits for the app to show the pinned tabs $1 over Today $2. $3 says what went wrong if it doesn't.
 expect_lists() {
