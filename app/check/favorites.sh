@@ -194,8 +194,13 @@ expect '^browser: drawn at 1000x340$' "the window didn't draw at its new size"
 send scroll 100 200 10 5
 expect '^browser: scroll edge shown$' "the list scrolled past its top didn't show its edge"
 ../tools/window-screenshot.sh "$pid" "$out/scroll-edge.png" || fail "no window to capture"
-edge=$(pixel "$out/scroll-edge.png" 0.1 $(echo "135.5 / 340" | bc -l))
-gap=$(pixel "$out/scroll-edge.png" 0.1 $(echo "133.5 / 340" | bc -l))
+# On Linux the capture is check.sh's whole Xvfb screen, with the window at its top left at 1×.
+across=1000 down=340
+[ "$(uname)" = Linux ] && read -r across down < <(
+  python3 -I -c 'import struct, sys; print(*struct.unpack(">II", open(sys.argv[1], "rb").read(24)[16:]))' \
+    "$out/scroll-edge.png")
+edge=$(pixel "$out/scroll-edge.png" $(echo "100 / $across" | bc -l) $(echo "135.5 / $down" | bc -l))
+gap=$(pixel "$out/scroll-edge.png" $(echo "100 / $across" | bc -l) $(echo "133.5 / $down" | bc -l))
 brighter "$edge" "$gap" || fail "the edge is $edge over the sidebar's $gap"
 send scroll 100 200 -10 5
 expect '^browser: scroll edge hidden$' "the list back at its top didn't hide its edge"
