@@ -716,7 +716,7 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
 - **Commands.** Arc's View menu: Add Split View ⌃+, Close this Split Pane ⌃⇧-, Separate Page from Split View, and Expand Current Split, which leaves the other pane 220 pt wide at any card width and gives the focused one the rest, in one frame; pressed again it does nothing, and it's kept after a quit (Arc 1.170.0 ax, rec). Ours, where nothing's recorded: it's in the command bar and the View menu after Developer, with no key; it works on the pane focused when it's run, so a split expanded and then focused on the other pane stays as it was until run again; with three panes each of the others keeps 220 pt, and on a card too short for that the others take an even share at most, so the focused pane is never the smaller (an even split at the narrowest); the way out is the divider, dragged or double-clicked to even. The core keeps it as a flag on the pane that took the card and works the widths out at every layout, so the others stay 220 pt as the window or the sidebar changes the card's width; it ends when the divider is dragged or double-clicked, or a pane joins or leaves, and it's saved with the session, not as shares. No agent path: agents have no split operations (decision 8 wants a user action and an agent path together; split layout is the user's, so it gets one only if agents get splits). Arc's ⌃⇧] / ⌃⇧[ switch split views, not panes (Keyboard). Dia's Flip, Change Orientation, Move Pane Left/Right and Separate All are in the command bar as Flip Split View, Change Orientation, Move Pane Left, Move Pane Right and Separate All Pages, kept out of Arc's menu; the focused page stays focused. Change Orientation stacks the panes or puts them back side by side; in a stacked split, left is up (*interim*: Dia's names for them there aren't recorded). ⌃⇧] and ⌃⇧[ focus the next and previous pane (Dia, *interim*).
 - **Kept.** A split comes back after a quit, stacked if it was, at its sizes or still expanded, and so does one brought back by ⇧⌘T or Undo Clear, at even sizes.
 
-**Drag targets** ("Add left split" and "Add right split" at each pane's sides)
+**Drag targets** ("Add left split" and "Add right split" at the card's sides, "Add top split" and "Add bottom split" at its top and bottom)
 
 | Stage | Size (fraction of the card) | From the card's side | Look |
 |---|---|---|---|
@@ -734,7 +734,8 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
   - The picture of the window: radius 10 with a white 0.25 rim, traffic lights 6 pt, and the tab's favicon and title on a page under them. Dia's picture has the page's image.
   - The tab becomes the picture at once, not after a frame or two.
   - On a drop, the split shows at once, focused on the tab dropped. Away from a target, the tab goes back to its row until there are windows to open.
-  - Over a stacked split the targets stay at the card's sides, and the left one puts the tab at the top, the right one at the bottom.
+  - A split has one orientation, so a page alone has all four targets, a split side by side the left and right ones, and a stacked split the top and bottom ones. Let go on the top or bottom one, a page alone stacks with the tab (Arc).
+  - The top and bottom targets are the side ones turned, each as long as 0.28 of the card's width at rest, 0.45 grown and 0.51 under the tab, so they fit between the side targets, and their centre leans toward the pointer's y.
   - Targets are at the card's sides only, not at each pane's. Favorites, folders and split rows get none, and neither does a tab of the split shown or a split that is full.
 
 ### Settings
