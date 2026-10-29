@@ -285,8 +285,18 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
     // First, so the features below join the app's rather than being replaced by them. The app's
     // switches go after the ones Chromium was given, which still win.
+    // The arguments the process was given, which the app reads its switches from, as Chromium read
+    // them: on Linux it has since written its process title over them (#605).
+    std::vector<std::string> given;
+    for (const base::CommandLine::StringType& arg : command_line->argv()) {
+#if BUILDFLAG(IS_WIN)
+      given.push_back(base::WideToUTF8(arg));
+#else
+      given.push_back(arg);
+#endif
+    }
     std::vector<std::string> app_switches;
-    const bc_host* host = platform::LoadApp(&app_switches);
+    const bc_host* host = platform::LoadApp(given, &app_switches);
     if (!host) {
       LOG(ERROR) << "no app: the engine has no " << BC_APP_LIBRARY << " beside it with "
                  << BC_APP_ENTRY;

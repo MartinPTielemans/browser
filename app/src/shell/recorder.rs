@@ -57,6 +57,12 @@ pub(super) struct Recorder {
     pub(super) detents: Cell<usize>,
     /// How many tabs and folders it was asked to move.
     pub(super) moves: Cell<usize>,
+    /// Whether the system opens links with it, as `is_default_browser` answers.
+    pub(super) default_browser: Cell<bool>,
+    /// The system it says it runs on, the Mac unless a test says.
+    pub(super) os: Cell<Option<crate::default_browser::Os>>,
+    /// The import finds no browser on the machine.
+    pub(super) no_browsers: Cell<bool>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -577,9 +583,13 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    // The import's made-up Arc, so the first launch has a browser to import from, unless a test
+    // says there's none.
     fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
-        let nowhere = std::path::Path::new("/nonexistent");
-        let roots = crate::import::sources::Roots::under(nowhere, crate::import::sources::Os::Mac);
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/src/import/fixture");
+        let home = if self.no_browsers.get() { "/nonexistent" } else { fixture };
+        let os = crate::import::sources::Os::Mac;
+        let roots = crate::import::sources::Roots::under(std::path::Path::new(home), os);
         std::rc::Rc::new(crate::import::Detached(roots))
     }
 
@@ -609,7 +619,9 @@ impl Browser for Recorder {
     ) {
     }
 
-    fn focus_ui(&self, _: &mut App) {}
+    fn focus_ui(&self, _: &mut App) {
+        self.record("focus ui".into())
+    }
 
     fn focus_page(&self, _: &mut App) {
         self.record("focus page".into())
@@ -814,6 +826,18 @@ impl Browser for Recorder {
 
     fn welcome_window(&self, _: &mut App) {
         self.record("welcome window".into())
+    }
+
+    fn is_default_browser(&self) -> bool {
+        self.default_browser.get()
+    }
+
+    fn make_default_browser(&self, _: &mut App) {
+        self.record("make default browser".into())
+    }
+
+    fn os(&self) -> crate::default_browser::Os {
+        self.os.get().unwrap_or(crate::default_browser::Os::Mac)
     }
 
     fn close_window(&self, _: &mut App) {

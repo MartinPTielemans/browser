@@ -1106,6 +1106,18 @@ skip-chip = 0.08
 # A step comes in from this far right as the one before leaves this far left, so the steps read as
 # a row.
 shift = 32.0
+# The colour step's swatches, the theme picker's, in a row under its line, a step larger than the
+# picker's 24 as the only thing on the screen to pick. The one picked is ringed in the ink, a gap
+# off it, and each has a hairline edge, so the lightest reads on Paper.
+swatch = 28.0
+swatch-pitch = 40.0
+swatch-gap = 28.0
+swatch-ring = 2.0
+swatch-edge = 0.12
+# The import step holds the import view as wide as Settings' boxes, on the flow's ground, its
+# boxes this much of the ink over it.
+import-width = 556.0
+import-surface = 0.05
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners

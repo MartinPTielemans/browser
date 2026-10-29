@@ -2501,6 +2501,14 @@ impl Browser for Engine {
         });
     }
 
+    fn is_default_browser(&self) -> bool {
+        unsafe { platform::host_is_default_browser() }
+    }
+
+    fn make_default_browser(&self, _: &mut App) {
+        unsafe { platform::host_make_default_browser(settings::default_browser_answered) };
+    }
+
     fn welcome_window(&self, cx: &mut App) {
         let id = self.window;
         cx.defer(move |cx| {
@@ -5008,9 +5016,11 @@ fn profile_dir() -> String {
     })
 }
 
-/// What the app gives the core to start with: Chromium's switches, and the callbacks.
-fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
-    let mut args: Vec<String> = std::env::args().take(1).collect();
+/// What the app gives the core to start with: Chromium's switches, from the arguments the process
+/// was `given`, and the callbacks.
+fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
+    let mut given = given.into_iter();
+    let mut args: Vec<String> = given.next().into_iter().collect();
     let profile = profile_dir();
     args.extend([
         format!("--user-data-dir={profile}"),
@@ -5053,7 +5063,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
-    args.extend(std::env::args().skip(1).filter(|arg| {
+    args.extend(given.filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
     }));
     let args: Vec<CString> = args
@@ -5152,7 +5162,7 @@ fn main() {
         }
         unsafe { platform::host_take_update_notes(update_notes) };
     }
-    let (args, host) = switches_and_host();
+    let (args, host) = switches_and_host(std::env::args().collect());
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
     std::process::exit(code);
@@ -5212,7 +5222,16 @@ fn main() {
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn bc_app_host(argc: *mut c_int, argv: *mut *const *const c_char) -> *const bc::bc_host {
-    let (args, host) = switches_and_host();
+    // The arguments the process was given, from the core: Chromium on Linux has written its process
+    // title over the ones std::env::args reads, joining each to the next (#605).
+    let given = match unsafe { (*argc, *argv) } {
+        (count, given) if count > 0 && !given.is_null() => {
+            unsafe { std::slice::from_raw_parts(given, count as usize) }
+        }
+        _ => &[],
+    };
+    let given = (given.iter()).map(|&arg| unsafe { CStr::from_ptr(arg) }.to_string_lossy().into());
+    let (args, host) = switches_and_host(given.collect());
     let pointers: Vec<*const c_char> = args.leak().iter().map(|arg| arg.as_ptr()).collect();
     unsafe {
         *argc = pointers.len() as c_int;
