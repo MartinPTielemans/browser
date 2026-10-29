@@ -196,9 +196,11 @@ expect '^browser: scroll edge shown$' "the list scrolled past its top didn't sho
 ../tools/window-screenshot.sh "$pid" "$out/scroll-edge.png" || fail "no window to capture"
 # On Linux the capture is check.sh's whole Xvfb screen, with the window at its top left at 1×.
 across=1000 down=340
-[ "$(uname)" = Linux ] && read -r across down < <(
-  python3 -I -c 'import struct, sys; print(*struct.unpack(">II", open(sys.argv[1], "rb").read(24)[16:]))' \
+if [ "$(uname)" = Linux ]; then
+  across=$(python3 -I -c 'import struct, sys; print(*struct.unpack(">II", open(sys.argv[1], "rb").read(24)[16:]))' \
     "$out/scroll-edge.png")
+  down=${across#* } across=${across% *}
+fi
 edge=$(pixel "$out/scroll-edge.png" $(echo "100 / $across" | bc -l) $(echo "135.5 / $down" | bc -l))
 gap=$(pixel "$out/scroll-edge.png" $(echo "100 / $across" | bc -l) $(echo "133.5 / $down" | bc -l))
 brighter "$edge" "$gap" || fail "the edge is $edge over the sidebar's $gap"
