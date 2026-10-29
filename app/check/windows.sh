@@ -9,7 +9,10 @@
 # which shows its page again; in the last window it quits. ⇧↩ in the command bar opens its page in
 # a new window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
 # forward rather than taking the page. With the first window in full screen, other apps take the
-# second for the window in front once the user is in it. From macOS 14, a page in Safari's engine,
+# second for the window in front once the user is in it. Window › Stay On Top keeps a window over
+# other apps' with the command bar over it, and back, except on Linux, which doesn't offer it. On
+# the Mac the Dock icon's menu's New Window
+# and New Incognito Window open a window and a private one. From macOS 14, a page in Safari's engine,
 # which the Site Controls turn on for a page that asks for Widevine, moves to another window the
 # same way, and the window it left draws WebKit's picture of it, which the core gives from a task of
 # its own (#364: an answer inside the call that asked aborted the browser). A heavy page and a light
@@ -464,10 +467,60 @@ send key w cmd shift
 expect "^browser: window closed $fourth\$" "⇧⌘W didn't close the window the pages moved to"
 send window 1
 
+# Window › Stay On Top keeps the window over other apps' and the command bar over it, and a second
+# choice puts it back. Linux's compositors don't let a window ask for that, so it isn't offered.
+if [ "$(uname)" = Linux ]; then
+  send menubar Window
+  expect '^browser: menu bar Window: ' "the Window menu wasn't listed"
+  grep '^browser: menu bar Window: ' "$log" | tail -1 | grep -q 'Stay On Top' &&
+    fail "the Window menu offers Stay On Top on Linux"
+else
+  case "$(uname)" in
+    Darwin) raised='^browser: window level 3$' lowered='^browser: window level 0$' ;;
+    *) raised='^browser: window topmost 1$' lowered='^browser: window topmost 0$' ;;
+  esac
+  send menu "Window › Stay On Top"
+  expect '^browser: window on top true$' "Stay On Top didn't keep the window on top"
+  expect "$raised" "Stay On Top didn't raise the window over other apps'"
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar over a window on top"
+  ../tools/window-screenshot.sh "$pid" "$out/windows-on-top.png" || fail "no window to capture"
+  send key escape
+  expect '^browser: command bar hidden$' "escape didn't close the command bar over a window on top"
+  send menu "Window › Stay On Top"
+  expect '^browser: window on top false$' "a second Stay On Top didn't put the window back"
+  expect "$lowered" "a second Stay On Top didn't lower the window among other apps'"
+  on_top=", Window › Stay On Top keeps a window over other apps' with the command bar over it"
+fi
+
+# The Dock icon's menu runs the File menu's New Window and New Incognito Window. Linux and Windows
+# have no Dock menu yet.
+if [ "$(uname)" = Darwin ]; then
+  send dock New Window
+  expect '^browser: command new-window via ' "the Dock menu's New Window didn't run New Window"
+  expect '^browser: window opened [0-9]' "the Dock menu's New Window didn't open a window"
+  docked=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+  send window "$(grep -c '^browser: window opened ' "$log")"
+  send key w cmd shift
+  expect "^browser: window closed $docked\$" "⇧⌘W didn't close the Dock menu's window"
+  send window 1
+  send dock New Incognito Window
+  expect '^browser: command new-private-window via ' \
+    "the Dock menu's New Incognito Window didn't run New Incognito Window"
+  expect '^browser: private window opened [0-9]* profile [0-9]*$' \
+    "the Dock menu's New Incognito Window didn't open a private window"
+  docked=$(grep '^browser: private window opened ' "$log" | tail -1 | cut -d' ' -f5)
+  send window "$(grep -c '^browser: window opened ' "$log")"
+  send key w cmd shift
+  expect "^browser: window closed $docked\$" "⇧⌘W didn't close the Dock menu's private window"
+  send window 1
+  dock_menu=", the Dock icon's menu opens a window and a private one"
+fi
+
 # ⇧⌘W in the last window quits. It's the driver's last command: the app doesn't report it done.
 post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
 forget_engine_sites
-echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab${webkit_moved:-}. Each stage of a page's move between windows: $out/handover-summary.txt. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png${webkit_moved:+, $out/windows-webkit-pictured.png}"
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab${webkit_moved:-}${on_top:-}${dock_menu:-}. Each stage of a page's move between windows: $out/handover-summary.txt. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png${webkit_moved:+, $out/windows-webkit-pictured.png}${on_top:+, $out/windows-on-top.png}"

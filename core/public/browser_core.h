@@ -1886,7 +1886,9 @@ BC_EXPORT void bc_tab_close_below(bc_id tab);
 // with it. A page can't take its cookies and logins to another profile, so into another profile's
 // Space the tab goes as a new one, with its history, name and mute, which loads once it's shown.
 // The old one closes, kept out of the archive and ⇧⌘T's tabs, as it lives on in the new one; then
-// tab_closed. Nothing moves into an agent's Space: a tab leaves one only.
+// tab_closed. Nothing moves into an agent's Space: a tab leaves one only. Nor into a private or
+// Blank Window's own, nor out of a private one; out of a Blank Window's, that window shows another
+// of its own tabs, as it shows no other Space.
 BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 
 // Zooms the tab's page in (|step| 1) or out (-1) to Chrome's next level, or back to 100 % (0), for
@@ -1957,6 +1959,15 @@ BC_EXPORT void bc_window_show_space_empty(bc_id window, bc_id space);
 // tabs never move to a regular window, nor regular tabs to it. Closing it closes its tabs. Returns
 // 0 if |profile| isn't loaded or Chromium is quitting. The user's alone: agents get none.
 BC_EXPORT bc_id bc_window_open_private(bc_rect bounds, void* ui_view, bc_id profile);
+
+// Opens a Blank Window, Arc's, at |bounds|, as bc_window_open_private does but in |profile| itself:
+// its pages have the profile's logins and cookies and go in its history, but its Space, which
+// holds its tabs as Today tabs, is never saved, archived or listed by bc_spaces, and no other
+// window shows it. bc_tab_move_to_space moves a tab out to one of the user's Spaces, live, and the
+// window shows another of its own; nothing moves in. Closing it closes its own tabs, and gives
+// those moved out to a regular window. The user's alone, as a private window is: bc_windows leaves
+// it out. Returns 0 if |profile| isn't loaded or Chromium is quitting.
+BC_EXPORT bc_id bc_window_open_blank(bc_rect bounds, void* ui_view, bc_id profile);
 
 // Extensions' side panels. Each profile's tabs have their own, as each Chrome window does: one for
 // every tab, or one for a tab that its extension gave it, which shows only while that tab does. An

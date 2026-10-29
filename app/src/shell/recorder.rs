@@ -702,6 +702,14 @@ impl Browser for Recorder {
         }
     }
 
+    fn can_stay_on_top(&self) -> bool {
+        true
+    }
+
+    fn set_on_top(&self, on_top: bool, _: &mut App) {
+        self.record(format!("on top {on_top}"));
+    }
+
     fn start_window_move(&self, _: &mut App) {}
 
     fn window_maximized(&self) -> bool {
@@ -971,4 +979,8 @@ impl Browser for Recorder {
     }
 
     fn new_private_window(&self, _: &mut App) {}
+
+    fn new_blank_window(&self, _: &mut App) {
+        self.record("new blank window".into())
+    }
 }

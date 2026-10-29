@@ -169,6 +169,8 @@ impl Tab {
 enum Keys {
     Of(Command),
     Text(&'static str),
+    /// ⎋ leaving window full screen, with who has it first.
+    Escape,
 }
 
 /// The Shortcuts tab, in the menus' order and names.
@@ -178,11 +180,13 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("New Tab", Keys::Of(Command::NewTab)),
             ("New Window", Keys::Of(Command::NewWindow)),
+            ("Blank Window", Keys::Of(Command::NewBlankWindow)),
             ("New Incognito Window", Keys::Of(Command::NewPrivateWindow)),
             ("Open Command Bar", Keys::Of(Command::EditUrl)),
             ("Search Tabs", Keys::Of(Command::SearchTabs)),
             ("Archive Tab", Keys::Of(Command::CloseTab)),
             ("Close Window", Keys::Of(Command::CloseWindow)),
+            ("Stay On Top", Keys::Of(Command::StayOnTop)),
             ("Restore Last Closed Tab", Keys::Of(Command::ReopenClosedTab)),
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
@@ -208,6 +212,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Refresh the Page", Keys::Of(Command::Reload)),
             ("Force Refresh the Page", Keys::Of(Command::ForceReload)),
             ("Stop Loading", Keys::Of(Command::Stop)),
+            ("Exit Full Screen", Keys::Escape),
             ("Find", Keys::Of(Command::Find)),
             ("Find Next", Keys::Of(Command::FindNext)),
             ("Find Previous", Keys::Of(Command::FindPrevious)),
@@ -283,12 +288,14 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     ),
 ];
 
-/// The pop-up buttons in General, top to bottom after the switch.
+/// The pop-up buttons: General's, top to bottom after the switch, then the other tabs'.
 #[derive(Clone, Copy, PartialEq)]
 enum Popup {
     ArchiveAfter,
     Favorites,
     PasswordsProfile,
+    /// Shortcuts' Exit Full Screen, which scrolls and so is where it was drawn.
+    EscapePriority,
 }
 
 pub struct Settings {
@@ -315,6 +322,8 @@ pub struct Settings {
     off_sites_logged: Option<String>,
     /// Where each Turn On has been logged, so it logs only where it moves to.
     turn_on_logged: Rc<RefCell<Vec<String>>>,
+    /// Where Exit Full Screen's pop-up button was drawn, for its menu to open over it.
+    escape_popup: Rc<Cell<Option<Bounds<gpui::Pixels>>>>,
     /// The profile whose logins the Passwords tab lists, once the user has picked one.
     passwords_profile: Option<u64>,
     /// Each profile's logins, as the core last told them.
@@ -662,6 +671,7 @@ fn open(cx: &mut App) {
                 search,
                 off_sites_logged: None,
                 turn_on_logged: Rc::default(),
+                escape_popup: Rc::default(),
                 passwords_profile: None,
                 logins: HashMap::new(),
                 asked: HashSet::new(),
@@ -1059,7 +1069,13 @@ impl Settings {
     ) {
         self.choosing = Some(which);
         cx.notify();
-        show_menu(ns_view(window), items, popup_text(which), false, Look::dark(), picked, cx);
+        let at = match (which, self.escape_popup.get()) {
+            (Popup::EscapePriority, Some(drawn)) => {
+                drawn.origin + point(px(CONTROL_PADDING), px(0.))
+            }
+            _ => popup_text(which),
+        };
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// The pop-up's menu closed.
@@ -1651,6 +1667,7 @@ impl Settings {
                     let control = match keys {
                         Keys::Of(command) => self.shortcut(*command, accent, cx),
                         Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                        Keys::Escape => self.escape_priority(cx),
                     };
                     row(None, *name, control)
                 })
@@ -1754,6 +1771,58 @@ impl Settings {
             .into_any_element()
     }
 
+    /// Exit Full Screen's ⎋, which can't be changed, and who has it first: Arc's pop-up, its own
+    /// Prefer Websites by default.
+    fn escape_priority(&self, cx: &mut Context<Self>) -> AnyElement {
+        let chosen = shell::user_keys(cx).escape_priority();
+        let drawn = self.escape_popup.clone();
+        let at = canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
+            .absolute()
+            .inset_0();
+        let popup = self.popup(
+            Popup::EscapePriority,
+            chosen.title().into(),
+            POPUP_WIDTH,
+            cx.listener(move |settings, _, window, cx| {
+                settings.choose_escape_priority(chosen, window, cx)
+            }),
+        );
+        div()
+            .flex()
+            .items_center()
+            .gap(px(CHIP_GAP))
+            .child(chip("⎋".into(), rgb(DETAIL)))
+            .child(popup.relative().child(at))
+            .into_any_element()
+    }
+
+    /// Opens Exit Full Screen's pop-up menu over its button, and keeps who has ⎋ first with the
+    /// shortcuts.
+    fn choose_escape_priority(
+        &mut self,
+        chosen: shell::EscapePriority,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (shell::EscapePriority::ALL.iter())
+            .map(|&each| {
+                let on = each == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(each.title(), true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some(priority) = picked.map(|index| shell::EscapePriority::ALL[index]) {
+                shell::change_keys(cx, |keys| keys.set_escape_priority(priority));
+                // check.sh waits for this line.
+                log!("browser: escape priority {}", priority.title());
+                save_shortcuts(cx);
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::EscapePriority, items, picked, window, cx);
+    }
+
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.
     fn start_recording(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         self.refused = None;
@@ -1827,8 +1896,8 @@ fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
         Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
         // Under Unload's switch.
         Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
-        // The Passwords tab's first row.
-        Popup::PasswordsProfile => (POPUP_WIDTH, 0.),
+        // The Passwords tab's first row, and Exit Full Screen's, before it's drawn.
+        Popup::PasswordsProfile | Popup::EscapePriority => (POPUP_WIDTH, 0.),
     };
     point(
         px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),
@@ -2078,6 +2147,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
             Keys::Text(text) => Some(text.to_string()),
+            Keys::Escape => Some("⎋".to_string()),
         };
         shell::shortcut_found(typed, name, label.as_deref())
     });

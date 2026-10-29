@@ -283,6 +283,11 @@ pub trait Browser {
     fn show_window_buttons(&self, shown: bool, cx: &mut App);
     /// Does what a click on the window's close, minimize or zoom button does.
     fn press_window_button(&self, button: WindowButton, cx: &mut App);
+    /// Whether the platform can keep a window over other apps' windows.
+    fn can_stay_on_top(&self) -> bool;
+    /// Keeps the window over other apps' windows, with its overlays over it, or lets it go back
+    /// among them.
+    fn set_on_top(&self, on_top: bool, cx: &mut App);
     /// On Linux, has the browser window follow the pointer, on a drag's first move over the
     /// window's background, as GPUI's own move can't: its window is inside the browser window.
     fn start_window_move(&self, cx: &mut App);
@@ -521,6 +526,9 @@ pub trait Browser {
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);
+    /// Opens a Blank Window in the shown Space's profile, after this one's draw. Not from a
+    /// private window, whose profile is off the record.
+    fn new_blank_window(&self, cx: &mut App);
     /// Closes this window. Its tabs go to the window that was in front before it, live.
     fn close_window(&self, cx: &mut App);
 }

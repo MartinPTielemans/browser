@@ -21,6 +21,8 @@ pub struct MenuBar {
     pub profiles: Option<(Vec<ProfileChoice>, bool)>,
     /// View › Appearance's choice, which it checks.
     pub appearance: Appearance,
+    /// Whether the window stays on top of other apps' windows, or None where the platform can't.
+    pub on_top: Option<bool>,
 }
 
 /// A profile a Space can be in, as its menus list it.
@@ -53,9 +55,10 @@ impl Shell {
     fn menu_bar(&self) -> MenuBar {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         // A private window lists neither Spaces nor extensions: its one Space isn't one of them,
-        // and Chrome keeps extensions out of a private session.
+        // and Chrome keeps extensions out of a private session. A Blank Window, in the profile
+        // itself, lists its extensions.
         let extensions = (self.extensions.get(&profile).into_iter().flatten())
-            .filter(|extension| extension.enabled && !self.private)
+            .filter(|extension| extension.enabled && (!self.private || self.blank))
             .cloned()
             .collect();
         let spaces = (self.spaces.iter())
@@ -70,6 +73,7 @@ impl Shell {
             pinned,
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
             appearance: self.app_appearance,
+            on_top: self.browser.can_stay_on_top().then_some(self.on_top),
         }
     }
 
@@ -134,6 +138,21 @@ mod tests {
         assert_eq!(host.menu_bar.borrow().pin_title(), "Unpin Tab");
         shell.update(cx, |shell, cx| shell.run(Command::ToggleSidebar, "ui", cx));
         assert_eq!(host.menu_bar.borrow().sidebar_title(), "Show Sidebar");
+    }
+
+    /// Window › Stay On Top keeps the window over other apps' and checks itself, and again lets it
+    /// go back among them.
+    #[gpui::test]
+    fn stay_on_top_turns_on_and_off_with_its_check(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[10], Folders::default());
+        assert_eq!(host.menu_bar.borrow().on_top, Some(false));
+        host.take();
+        shell.update(cx, |shell, cx| shell.run(Command::StayOnTop, "ui", cx));
+        assert!(host.take().contains(&"on top true".to_string()));
+        assert_eq!(host.menu_bar.borrow().on_top, Some(true));
+        shell.update(cx, |shell, cx| shell.run(Command::StayOnTop, "ui", cx));
+        assert!(host.take().contains(&"on top false".to_string()));
+        assert_eq!(host.menu_bar.borrow().on_top, Some(false));
     }
 
     /// The window is titled by the tab shown, as the sidebar names it, and by its Space with none.

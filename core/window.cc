@@ -191,8 +191,8 @@ void KeepClosed(bc_id id) {
   Tab* tab = Tab::Get(id);
   Space* space = Space::Holding(id);
   // One not in a Space never showed, a pinned tab closes only when its page closes itself, and a
-  // private window's leaves nothing behind.
-  if (!tab || !space || space->IsPinned(id) || space->off_the_record()) {
+  // window's own Space leaves nothing behind.
+  if (!tab || !space || space->IsPinned(id) || space->own()) {
     return;
   }
   SavedTab saved = tab->Save();
@@ -352,10 +352,24 @@ Window* Window::OpenPrivate(const gfx::Rect& bounds, void* ui_view, Profile* pro
   if (!window) {
     return nullptr;
   }
+  window->own_space_ = true;
   window->off_the_record_ = true;
   // Its Browser now, which holds the private session for as long as the window is open.
   window->BrowserFor(StartPrivateSession(profile));
-  window->ShowSpace(Space::CreateOffTheRecord(DirOf(profile))->id(), /*page=*/false);
+  window->ShowSpace(Space::CreateOwn(DirOf(profile), /*off_the_record=*/true)->id(),
+                    /*page=*/false);
+  return window;
+}
+
+// static
+Window* Window::OpenBlank(const gfx::Rect& bounds, void* ui_view, Profile* profile) {
+  Window* window = Open(bounds, ui_view);
+  if (!window) {
+    return nullptr;
+  }
+  window->own_space_ = true;
+  window->ShowSpace(Space::CreateOwn(DirOf(profile), /*off_the_record=*/false)->id(),
+                    /*page=*/false);
   return window;
 }
 
@@ -472,7 +486,7 @@ Window* Window::Holding(bc_id tab) {
     if (window->closing_ || window->off_the_record_ != OffTheRecord(held)) {
       continue;
     }
-    if (!window->off_the_record_ || (space && space->id() == window->space_)) {
+    if (!window->own_space_ || (space && space->id() == window->space_)) {
       return window;
     }
   }
@@ -679,9 +693,9 @@ void Window::OnTabClosing(bc_id tab) {
   // One closing with the last regular window, or as the browser quits, comes back at the next
   // launch. A private window's never does.
   const auto regular_closing = [](const auto& entry) {
-    return entry.second->closing_ && !entry.second->off_the_record_;
+    return entry.second->closing_ && !entry.second->own_space_;
   };
-  if (!(space && space->off_the_record()) &&
+  if (!(space && space->own()) &&
       (browser_shutdown::IsTryingToQuit() || std::ranges::any_of(Windows(), regular_closing))) {
     KeepSession();
   }
@@ -761,8 +775,8 @@ void Window::MoveToFavorites(bc_id tab, size_t index) {
   }
   Tab* moving = Tab::Get(tab);
   Space* space = Space::Holding(tab);
-  // A private window's tabs are never saved, as the favorites are.
-  if (!moving || !space || space->off_the_record()) {
+  // A window's own tabs are never saved, as the favorites are.
+  if (!moving || !space || space->own()) {
     return;
   }
   // Under Each Space the favorites are the user's Spaces' own, and an agent's has none.
@@ -786,7 +800,7 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   Window* window = Holding(tab);
   Space* shown = window ? Space::FromId(window->space_) : nullptr;
   // A favorite is the user's, so it doesn't move into an agent's Space.
-  if (!shown || shown->agent() || shown->off_the_record() || !Favorites::ShownIn(tab, *shown)) {
+  if (!shown || shown->agent() || shown->own() || !Favorites::ShownIn(tab, *shown)) {
     return;
   }
   // In the Space before it leaves the favorites, as above.
@@ -805,7 +819,7 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
 // static
 void Window::SetSpaceProfile(bc_id space, const std::string& profile) {
   Space* in = Space::FromId(space);
-  if (!in || in->off_the_record() || !in->pinned_rows().empty() || !in->today().empty() ||
+  if (!in || in->own() || !in->pinned_rows().empty() || !in->today().empty() ||
       in->profile() == profile) {
     return;
   }
@@ -884,10 +898,11 @@ void Window::CloseBelow(bc_id tab) {
 void Window::MoveToSpace(bc_id tab, bc_id space) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  // No tab moves into an agent's Space, which would put it in the agent's reach, and Chrome never
-  // moves a page between incognito and regular windows.
-  if (!from || !to || from == to || to->agent() || from->off_the_record() ||
-      to->off_the_record() || DeletingSpaces().contains(space)) {
+  // No tab moves into an agent's Space, which would put it in the agent's reach, nor into a
+  // window's own, and Chrome never moves a page between incognito and regular windows. A Blank
+  // Window's tabs move out to the user's Spaces.
+  if (!from || !to || from == to || to->agent() || to->own() || from->off_the_record() ||
+      DeletingSpaces().contains(space)) {
     return;
   }
   // A page can't take its cookies and logins to another profile, so it opens there again.
@@ -907,8 +922,9 @@ void Window::MoveToSpace(bc_id tab, bc_id space) {
   }
   from->Remove(tab);
   for (auto& [id, window] : Windows()) {
-    if (window->selected_ == tab && window->let_go_) {
-      // Its page went to another window, which takes it along.
+    if (window->selected_ == tab && (window->let_go_ || window->own_space_)) {
+      // Its page went to another window, which takes it along, or it left a Blank Window, which
+      // shows its own Space alone.
       window->Pick(next);
     } else if (window->selected_ == tab) {
       // ShowSpace keeps |next| as the tab the old Space shows.
@@ -1288,9 +1304,8 @@ void Window::LayOutPage() {
 
 void Window::ShowSpace(bc_id space, bool page) {
   const Space* in = Space::FromId(space);
-  // A private window shows its own Space alone, and no other window shows it.
-  if (!in || space == space_ || in->off_the_record() != off_the_record_ ||
-      (off_the_record_ && space_)) {
+  // A private or Blank Window shows its own Space alone, and no other window shows it.
+  if (!in || space == space_ || in->own() != own_space_ || (own_space_ && space_)) {
     return;
   }
   const bc_id tab = page ? TabToShowIn(space) : 0;
@@ -1399,11 +1414,11 @@ void Window::SetPageMoving(bool moving) {
 
 void Window::Select(bc_id tab) {
   const Tab* selecting = Tab::Get(tab);
-  // A private window shows its own tabs alone, and a regular one never shows them: Chrome never
-  // moves a page between incognito and regular windows.
+  // A private or Blank Window shows its own tabs alone, and a regular one never shows them: Chrome
+  // never moves a page between incognito and regular windows.
   const Space* holding = Space::Holding(tab);
-  if (!selecting ||
-      (off_the_record_ ? !holding || holding->id() != space_ : OffTheRecord(selecting))) {
+  if (!selecting || (own_space_ ? !holding || holding->id() != space_
+                                : OffTheRecord(selecting) || (holding && holding->own()))) {
     return;
   }
   // A tab without its page, and each of its split's, gets it back here, as it's shown.
@@ -1524,8 +1539,13 @@ void Window::HandOver(Window& to) {
     if (!into) {
       return;
     }
-    // Last first: the Browser closes as its last tab leaves, and isn't touched after.
+    // Last first: the Browser closes as its last tab leaves, and isn't touched after. A Blank
+    // Window's own tabs stay, to close with it; those moved out of it go.
     for (int index = tabs->count() - 1; index >= 0; --index) {
+      const Space* holding = Space::Holding(Tab::IdOf(tabs->GetWebContentsAt(index)));
+      if (holding && holding->own()) {
+        continue;
+      }
       std::unique_ptr<tabs::TabModel> moved = tabs->DetachTabAtForInsertion(index);
       base::AutoReset<bool> opening(&to.opening_tab_, true);
       into->GetTabStripModel()->InsertDetachedTabAt(into->GetTabStripModel()->count(),
@@ -1624,8 +1644,8 @@ size_t Window::UndoClear(bc_id clear) {
 }
 
 bc_id Window::UndoDeleteSpace(bc_id id) {
-  // The regular windows' Spaces, which a private window never shows.
-  if (off_the_record_) {
+  // The regular windows' Spaces, which a private or Blank Window never shows.
+  if (own_space_) {
     return 0;
   }
   std::vector<DeletedSpace>& deleted = DeletedSpaces();
@@ -1673,15 +1693,15 @@ bc_id Window::UndoDeleteSpace(bc_id id) {
 }
 
 bc_id Window::ReopenClosedTab() {
-  // The closed tabs are the regular windows', as a private window's leave nothing behind.
-  if (ClosedTabs().empty() || off_the_record_) {
+  // The closed tabs are the regular windows', as a window's own leave nothing behind.
+  if (ClosedTabs().empty() || own_space_) {
     return 0;
   }
   return ReopenClosed(ClosedTabs().back().id, /*show=*/true);
 }
 
 bc_id Window::ReopenClosed(bc_id id, bool show) {
-  std::optional<ClosedTab> taken = off_the_record_ ? std::nullopt : TakeClosed(id);
+  std::optional<ClosedTab> taken = own_space_ ? std::nullopt : TakeClosed(id);
   if (!taken) {
     return 0;
   }
@@ -1880,7 +1900,7 @@ bool Window::RunExtensionCommand(const std::string& id, const std::string& name)
 
 bc_id Window::RestoreArchived(bc_id id) {
   // The archive is the regular windows'.
-  if (off_the_record_) {
+  if (own_space_) {
     return 0;
   }
   std::optional<ArchivedTab> archived = TakeArchived(id);
@@ -2009,17 +2029,18 @@ void Window::Close() {
   }
   // Its tabs are in Spaces every regular window shows, so with another one open they go there,
   // live, and no page closes. A window with a picture of a page this one showed shows it again. A
-  // private window's tabs close with it.
+  // private window's tabs close with it, and a Blank Window's own do (HandOver).
   Window* to = nullptr;
   for (Window* window : All()) {
-    if (window != this && !window->closing_ && !window->off_the_record_) {
+    if (window != this && !window->closing_ && !window->own_space_) {
       to = window;
       break;
     }
   }
   const bool hand_over = to && !off_the_record_ && !browser_shutdown::IsTryingToQuit();
   if (hand_over) {
-    for (bc_id pane : panes_) {
+    // A Blank Window shows its own tabs alone, which close with it.
+    for (bc_id pane : own_space_ ? std::vector<bc_id>() : panes_) {
       HoldWhileMoving(Tab::FromId(pane));
     }
     // Its pages out of its view first, as the view goes with the window. The app has no use for a
@@ -2069,17 +2090,17 @@ void Window::Destroy() {
   // next window to open there. One that had tabs was kept as they closed (OnTabClosing).
   const bool last_regular = std::ranges::none_of(Windows(), [this](const auto& entry) {
     const Window* other = entry.second.get();
-    return other != this && !other->off_the_record_ && !other->closing_;
+    return other != this && !other->own_space_ && !other->closing_;
   });
-  if (!off_the_record_ && last_regular) {
+  if (!own_space_ && last_regular) {
     KeepSession();
   }
-  // Its tabs without pages close as its pages did: a private window's, and with the last regular
-  // window every regular one. Quitting, they stay for the next launch.
-  if ((off_the_record_ || last_regular) && !browser_shutdown::IsTryingToQuit()) {
+  // Its tabs without pages close as its pages did: a private or Blank Window's own, and with the
+  // last regular window every regular one. Quitting, they stay for the next launch.
+  if ((own_space_ || last_regular) && !browser_shutdown::IsTryingToQuit()) {
     for (Tab* tab : Tab::All()) {
       const Space* space = Space::Holding(tab->id());
-      const bool its = off_the_record_ ? space && space->id() == space_ : !OffTheRecord(tab);
+      const bool its = own_space_ ? space && space->id() == space_ : !OffTheRecord(tab);
       if (!tab->web_contents() && its) {
         tab->Close();
       }
@@ -2094,21 +2115,22 @@ void Window::Destroy() {
   // the order of its members.
   suggestions_.reset();
   widget_->CloseNow();
-  // A private window's Space goes with it, its tabs closed, and the last one's session ends. A
-  // regular one leaves the session while another stays open; the last stays in it, for the next
-  // launch to open again.
-  if (off_the_record_) {
+  // A private or Blank Window's Space goes with it, its tabs closed, and the last private one's
+  // session ends. A regular one leaves the session while another stays open; the last stays in
+  // it, for the next launch to open again.
+  if (own_space_) {
     const Space* space = Space::FromId(space_);
     const std::string profile = space ? space->profile() : std::string();
     Space::Delete(space_);
-    if (!profile.empty()) {
+    // A Blank Window's profile is the user's own, which stays.
+    if (off_the_record_ && !profile.empty()) {
       EndPrivateSession(ProfileFor(profile));
-    } else {
+    } else if (off_the_record_) {
       LOG(ERROR) << "browser: private window " << id_
                  << " closed with no Space to end its session";
     }
   } else if (std::ranges::any_of(Windows(), [](const auto& entry) {
-               return !entry.second->off_the_record_;
+               return !entry.second->own_space_;
              })) {
     SessionChanged();
   }
@@ -2263,7 +2285,7 @@ bool Window::FullScreenForPage() const {
 void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
   // The session keeps each regular window's frame, saved a while after it moves, so a crash
   // keeps it too.
-  if (!off_the_record_) {
+  if (!own_space_) {
     SessionChanged();
   }
 }

@@ -191,6 +191,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::NextTab => "icons/arrow-down.svg",
         Command::PreviousTab => "icons/arrow-up.svg",
         Command::ViewLibrary => "icons/library.svg",
+        Command::StayOnTop => "icons/layers.svg",
         Command::ViewDownloads => "icons/arrow-down-to-line.svg",
         Command::ViewHistory => "icons/rotate-ccw-clock.svg",
         Command::Settings | Command::SiteSearchSettings => "icons/settings.svg",

@@ -1,10 +1,11 @@
-// The Dock icon's dot in a Space's color (docs/ux-spec.md › Dock dot), painted over macOS's own
-// drawing of the app's icon, so it keeps the icon style's glass and shading. Drawing that takes
-// from 10 ms to, right after a style change, 3 s, so it's done off the main thread, and only the
-// swap, 10–45 ms in the Dock, runs on it.
+// The Dock icon's menu (docs/ux-spec.md › Dock menu), and its dot in a Space's color (Dock dot).
+// The dot is painted over macOS's own drawing of the app's icon, so it keeps the icon style's glass
+// and shading. Drawing that takes from 10 ms to, right after a style change, 3 s, so it's done off
+// the main thread, and only the swap, 10–45 ms in the Dock, runs on it.
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 
 #include <atomic>
 #include <cstdlib>
@@ -138,7 +139,34 @@ void Ask() {
   });
 }
 
+// The main menu's items the Dock icon's menu offers, by title.
+NSArray<NSString*>* g_dock_titles;
+
+// The main menu's item titled |title|, in a submenu.
+NSMenuItem* MainMenuItem(NSString* title) {
+  for (NSMenuItem* top in NSApp.mainMenu.itemArray) {
+    NSInteger index = [top.submenu indexOfItemWithTitle:title];
+    if (index >= 0) {
+      return [top.submenu itemAtIndex:index];
+    }
+  }
+  return nil;
+}
+
 }  // namespace
+
+// Runs a main menu item for the Dock icon's menu.
+@interface DockMenuTarget : NSObject
+@end
+
+@implementation DockMenuTarget
+- (void)choose:(NSMenuItem*)item {
+  // The Dock doesn't bring the app forward, and the new window would open behind the app in front.
+  [NSApp activateIgnoringOtherApps:YES];
+  NSMenuItem* chosen = MainMenuItem(item.title);
+  [NSApp sendAction:chosen.action to:chosen.target from:chosen];
+}
+@end
 
 void host_dock_dot_launch(const char* profile_dir) {
   g_saved = [NSString stringWithFormat:@"%s/dock-dot", profile_dir];
@@ -162,4 +190,31 @@ void host_dock_dot(bool colored, uint32_t color) {
   g_colored = colored;
   g_color = color;
   Ask();
+}
+
+void host_set_dock_menu(const char* const* titles, size_t count) {
+  NSMutableArray<NSString*>* list = [NSMutableArray array];
+  for (size_t i = 0; i < count; ++i) {
+    [list addObject:@(titles[i])];
+  }
+  g_dock_titles = list;
+  // Chrome's AppController is the app's delegate, and its Dock menu opens Chrome's own windows.
+  // The main menu's items are made anew as it changes, so they're looked up as the Dock asks.
+  static DockMenuTarget* target = [[DockMenuTarget alloc] init];
+  method_setImplementation(
+      class_getInstanceMethod([NSApp.delegate class], @selector(applicationDockMenu:)),
+      imp_implementationWithBlock(^NSMenu*(id, NSApplication*) {
+        NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
+        for (NSString* title in g_dock_titles) {
+          NSMenuItem* item = MainMenuItem(title);
+          if (item) {
+            NSMenuItem* offered = [[NSMenuItem alloc] initWithTitle:title
+                                                             action:@selector(choose:)
+                                                      keyEquivalent:@""];
+            offered.target = target;
+            [menu addItem:offered];
+          }
+        }
+        return menu;
+      }));
 }

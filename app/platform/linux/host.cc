@@ -326,6 +326,18 @@ void host_dock_dot_launch(const char* profile_dir) {}
 
 void host_dock_dot(bool colored, uint32_t color) {}
 
+// Wayland gives an app no way to keep its window over others, and X11's needs the browser window,
+// which is Chromium's.
+bool host_can_stay_on_top(void) {
+  return false;
+}
+
+void host_set_on_top(void* ui_view, bool on_top) {}
+
+// interim: the desktop file's actions start a second process, whose command line reaches Chrome's
+// startup and not the app (#669).
+void host_set_dock_menu(const char* const* titles, size_t count) {}
+
 // The compositor places each window (host_centered), so the next opens where it's put, at the size
 // the app asks for, the default one, as nothing here reads the size of the one before.
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
