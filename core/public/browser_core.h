@@ -296,6 +296,18 @@ typedef struct bc_login {
   const char* key;
 } bc_login;
 
+// An address or a card Chrome's autofill keeps in a profile, as Settings lists it. A card's number
+// never leaves the core, not even its last digits.
+typedef struct bc_autofill_entry {
+  // An address's name, or its email for one without; a card's nickname, else the name on it.
+  const char* title;
+  // An address's first line and city; a card's network and expiry, such as "Visa, Exp: 06/27".
+  const char* detail;
+  bool card;
+  // What bc_profile_remove_autofill takes back to name it; not for showing.
+  const char* key;
+} bc_autofill_entry;
+
 // Whether the ad blocker runs on the site of a tab's page, as its Site Controls show: not the
 // user's to change there (a page that isn't http(s), one the system's engine shows, a private
 // window, or ad blocking off), on, or turned off for the site.
@@ -649,6 +661,12 @@ typedef struct bc_host {
                                  bc_id profile,
                                  const bc_login* logins,
                                  size_t count);
+  // The profile's saved addresses, most recently changed first, then its cards, after
+  // bc_profile_read_autofill, and again each time they change. The user's alone: agents hear none.
+  void (*profile_autofill_changed)(void* context,
+                                   bc_id profile,
+                                   const bc_autofill_entry* entries,
+                                   size_t count);
   // bc_profile_import_passwords is done with its file: |result| is a BC_PASSWORDS_IMPORT_ value,
   // and with BC_PASSWORDS_IMPORTED, |imported| logins came in, or were here already, |conflicted|
   // were kept as the profile had them, as it holds another password for that site and username,
@@ -1055,13 +1073,19 @@ BC_EXPORT size_t bc_profile_download_folder(bc_id profile, char* path, size_t ca
 // Sends the profile's downloads to the folder at |path|, UTF-8, and returns whether it will: not
 // for a profile that isn't loaded, a path that isn't absolute, or a folder a policy sets.
 BC_EXPORT bool bc_profile_set_download_folder(bc_id profile, const char* path);
-// Sets |offers| to whether the profile offers to save a password the user signs in with, as
-// Chrome's Offer to save passwords, and returns whether it could: not for one that isn't loaded.
-// It still fills those it has.
-BC_EXPORT bool bc_profile_offers_passwords(bc_id profile, bool* offers);
-// Has the profile offer to save passwords, or not, and returns whether it will: not for a profile
+// What a profile offers to save, for bc_profile_offers_to_save: the password the user signs in
+// with, as Chrome's Offer to save passwords, which still fills those it has; and the address or the
+// card the user fills a form with, as Chrome's Save and fill addresses and Save and fill payment
+// methods, which fill nothing while off.
+#define BC_SAVE_PASSWORDS 0
+#define BC_SAVE_ADDRESSES 1
+#define BC_SAVE_CARDS 2
+// Sets |offers| to whether the profile offers to save |what|, a BC_SAVE_ value, and returns
+// whether it could: not for a profile that isn't loaded.
+BC_EXPORT bool bc_profile_offers_to_save(bc_id profile, int what, bool* offers);
+// Has the profile offer to save |what|, or not, and returns whether it will: not for a profile
 // that isn't loaded, or one a policy sets.
-BC_EXPORT bool bc_profile_set_offers_passwords(bc_id profile, bool offer);
+BC_EXPORT bool bc_profile_set_offers_to_save(bc_id profile, int what, bool offer);
 // Copies the search engines the user picks the profile's default from, each "keyword\tname" on a
 // line of its own, UTF-8, into |engines| as bc_space_name does. Nothing for a profile that isn't
 // loaded, until its engines have, or while a policy or an extension picks its default.
@@ -1836,6 +1860,12 @@ BC_EXPORT void bc_profile_remove_login(bc_id profile,
                                        const char* key,
                                        const char* username,
                                        bool never);
+// Reads the profile's saved addresses and cards, then profile_autofill_changed, and again each time
+// they change while the profile is loaded. Nothing for a profile that isn't loaded.
+BC_EXPORT void bc_profile_read_autofill(bc_id profile);
+// Removes the profile's address or card of |key|, as bc_autofill_entry gives it. Then
+// profile_autofill_changed.
+BC_EXPORT void bc_profile_remove_autofill(bc_id profile, const char* key);
 // What bc_profile_import_passwords did with its file, for passwords_imported.
 #define BC_PASSWORDS_IMPORTED 0
 // The file couldn't be read.

@@ -19,6 +19,7 @@
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/autofill_data.h"
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
@@ -61,6 +62,7 @@
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "components/autofill/core/common/autofill_prefs.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/tabs/public/tab_interface.h"
@@ -611,23 +613,37 @@ bool bc_profile_set_download_folder(bc_id profile_id, const char* path) {
   return true;
 }
 
-bool bc_profile_offers_passwords(bc_id profile_id, bool* offers) {
+// The pref of a BC_SAVE_ value, or null.
+static const char* OfferPref(int what) {
+  switch (what) {
+    case BC_SAVE_PASSWORDS:
+      return password_manager::prefs::kCredentialsEnableService;
+    case BC_SAVE_ADDRESSES:
+      return autofill::prefs::kAutofillProfileEnabled;
+    case BC_SAVE_CARDS:
+      return autofill::prefs::kAutofillCreditCardEnabled;
+  }
+  return nullptr;
+}
+
+bool bc_profile_offers_to_save(bc_id profile_id, int what, bool* offers) {
   Profile* profile = browser_core::ProfileOrLoad(profile_id);
-  if (!profile || !offers) {
+  const char* pref = OfferPref(what);
+  if (!profile || !pref || !offers) {
     return false;
   }
-  *offers = profile->GetPrefs()->GetBoolean(password_manager::prefs::kCredentialsEnableService);
+  *offers = profile->GetPrefs()->GetBoolean(pref);
   return true;
 }
 
-bool bc_profile_set_offers_passwords(bc_id profile_id, bool offer) {
+bool bc_profile_set_offers_to_save(bc_id profile_id, int what, bool offer) {
   Profile* profile = browser_core::ProfileOrLoad(profile_id);
   PrefService* prefs = profile ? profile->GetPrefs() : nullptr;
-  if (!prefs || !prefs->IsUserModifiablePreference(
-                    password_manager::prefs::kCredentialsEnableService)) {
+  const char* pref = OfferPref(what);
+  if (!prefs || !pref || !prefs->IsUserModifiablePreference(pref)) {
     return false;
   }
-  prefs->SetBoolean(password_manager::prefs::kCredentialsEnableService, offer);
+  prefs->SetBoolean(pref, offer);
   return true;
 }
 
@@ -1498,6 +1514,14 @@ void bc_profile_read_logins(bc_id profile) {
 
 void bc_profile_remove_login(bc_id profile, const char* key, const char* username, bool never) {
   browser_core::Passwords::Remove(profile, key ? key : "", username ? username : "", never);
+}
+
+void bc_profile_read_autofill(bc_id profile) {
+  browser_core::autofill_data::Read(profile);
+}
+
+void bc_profile_remove_autofill(bc_id profile, const char* key) {
+  browser_core::autofill_data::Remove(profile, key ? key : "");
 }
 
 bool bc_profile_import_passwords(bc_id profile, const char* path) {
