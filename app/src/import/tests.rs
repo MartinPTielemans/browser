@@ -18,7 +18,7 @@ use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
 use super::{Host, ImportEvent, ImportView, Look, Passwords};
 use super::{firefox, safari};
-use crate::theme::{Appearance, Theme};
+use crate::theme::{Appearance, Texture, Theme};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/import/fixture")
@@ -103,14 +103,15 @@ fn arcs_sidebar_reads_as_its_spaces_and_favorites() {
     assert_eq!(urls(theirs), ["https://linear.app/"]);
 }
 
-/// A gradient's first colour is the main one, its colours as many as ours go, with Arc's
-/// intensity, grain and appearance; a colour outside sRGB is brought in. A Space with a light and
-/// a dark look that follows the system keeps both.
+/// A gradient's first colour is the main one, its colours as many as ours go, its third overlaid
+/// one exactly, with Arc's intensity, grain, texture and appearance; a colour outside sRGB is
+/// brought in. A Space with a light and a dark look that follows the system keeps both.
 #[test]
 fn arcs_theme_becomes_the_spaces_theme() {
     let sidebar = sidebar();
     let personal = sidebar.spaces[0].theme.unwrap();
-    assert_eq!(personal.count, 2);
+    assert_eq!(personal.count, 3);
+    assert_eq!((personal.colors()[2], personal.texture), (0x33cc99, Texture::Dust));
     assert_eq!(
         personal.main_color(),
         Theme::of_color(0x3366cc).main_color()
@@ -124,6 +125,7 @@ fn arcs_theme_becomes_the_spaces_theme() {
     let dark = work.shown(true);
     assert_eq!(dark.main_color(), Theme::of_color(0x1a1a33).main_color());
     assert_eq!((dark.count, dark.grain), (1, 0.), "a basic colour has no grain");
+    assert_eq!((work.texture, work.third), (Texture::Noise, None), "Arc's base as our noise");
     assert_eq!(work.shown(false).main_color(), work.main_color());
 }
 
@@ -787,7 +789,7 @@ fn an_import_brings_in_spaces_folders_and_favorites(cx: &mut TestAppContext) {
     );
     let personal = &state.spaces[1];
     assert_eq!((personal.profile, personal.icon.as_str()), (1, "🏠"));
-    assert_eq!(personal.theme.unwrap().count, 2);
+    assert_eq!(personal.theme.unwrap().count, 3);
     assert_eq!(
         shape(&personal.rows),
         "HN=https://news.ycombinator.com/, Reading[https://example.com/a, https://example.com/b, \

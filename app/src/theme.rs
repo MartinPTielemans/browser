@@ -1,7 +1,8 @@
 //! A Space's theme, as Arc's theme picker makes it: one to three colours placed in a square field,
-//! how strongly the window takes them, its grain, and its appearance (docs/ux-spec.md › Themes).
-//! A theme from Arc can also have another look for a dark window. The core keeps it with the
-//! Space as text, and the main colour as the Space's colour.
+//! how strongly the window takes them, its grain and the texture it lies in, and its appearance
+//! (docs/ux-spec.md › Themes). A theme from Arc can also have another look for a dark window, and
+//! its third colour exactly. The core keeps it with the Space as text, and the main colour as the
+//! Space's colour.
 //!
 //! The field is a disc of HSL colours about its centre (Arc 1.170 rec at 2×, twelve handles): the
 //! hue is the angle clockwise from the right, saturation is 1, and lightness is the distance from
@@ -25,6 +26,51 @@ pub enum Appearance {
     Automatic,
     Light,
     Dark,
+}
+
+/// The pattern grain lies over the window in, one of ours for each of Arc's four.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Texture {
+    /// Fine noise, every pixel its own: Arc's grain.
+    #[default]
+    Noise,
+    /// Scattered specks: Arc's sand.
+    Dust,
+    /// Diagonal threads: Arc's denim.
+    Weave,
+    /// Short fibres over a fainter noise: Arc's tweed.
+    Fleck,
+}
+
+impl Texture {
+    pub const ALL: [Texture; 4] = [Texture::Noise, Texture::Dust, Texture::Weave, Texture::Fleck];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Texture::Noise => "noise",
+            Texture::Dust => "dust",
+            Texture::Weave => "weave",
+            Texture::Fleck => "fleck",
+        }
+    }
+
+    /// The texture `name` names, as `name` writes it.
+    pub fn named(name: &str) -> Option<Texture> {
+        Texture::ALL.into_iter().find(|each| each.name() == name)
+    }
+
+    /// How strongly grain at 1 lies over the window in this texture, so that each moves the
+    /// window's colours as much as the others at the same grain.
+    pub fn strength(self) -> f32 {
+        use crate::tokens::theme::*;
+        GRAIN_STRENGTH
+            * match self {
+                Texture::Noise => 1.,
+                Texture::Dust => DUST_STRENGTH,
+                Texture::Weave => WEAVE_STRENGTH,
+                Texture::Fleck => FLECK_STRENGTH,
+            }
+    }
 }
 
 impl Appearance {
@@ -56,15 +102,19 @@ pub struct Theme {
     pub count: usize,
     /// 0 to 1: how strongly the window takes the colours.
     pub intensity: f32,
-    /// 0 to 1: how much grain lies over them.
+    /// 0 to 1: how much grain lies over them, and in what.
     pub grain: f32,
+    pub texture: Texture,
+    /// The third colour exactly, 0xRRGGBB, as Arc places it freely, in place of the one 210° from
+    /// the main one; the picker's own themes place it.
+    pub third: Option<u32>,
     pub appearance: Appearance,
     /// The look a dark window draws instead, where the theme has two, as Arc's can; the picker
     /// makes themes of one.
     pub dark: Option<Look>,
 }
 
-/// A theme's colours, intensity and grain, without its appearance.
+/// A theme's colours, intensity, grain and texture, without its appearance.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub x: f32,
@@ -73,6 +123,8 @@ pub struct Look {
     pub count: usize,
     pub intensity: f32,
     pub grain: f32,
+    pub texture: Texture,
+    pub third: Option<u32>,
 }
 
 impl Theme {
@@ -86,6 +138,8 @@ impl Theme {
             count: 1,
             intensity: DEFAULT_INTENSITY,
             grain: 0.,
+            texture: Texture::Noise,
+            third: None,
             appearance: Appearance::Automatic,
             dark: None,
         }
@@ -93,16 +147,16 @@ impl Theme {
 
     /// The theme's own look, the one a light window draws.
     pub fn look(&self) -> Look {
-        let Theme { x, y, saturation, count, intensity, grain, .. } = *self;
-        Look { x, y, saturation, count, intensity, grain }
+        let Theme { x, y, saturation, count, intensity, grain, texture, third, .. } = *self;
+        Look { x, y, saturation, count, intensity, grain, texture, third }
     }
 
     /// The theme as a window draws it, `dark` or light: its dark look on a dark window where it
     /// has one, as a theme of one look.
     pub fn shown(self, dark: bool) -> Theme {
         let look = self.dark.filter(|_| dark).unwrap_or(self.look());
-        let Look { x, y, saturation, count, intensity, grain } = look;
-        Theme { x, y, saturation, count, intensity, grain, dark: None, ..self }
+        let Look { x, y, saturation, count, intensity, grain, texture, third } = look;
+        Theme { x, y, saturation, count, intensity, grain, texture, third, dark: None, ..self }
     }
 
     /// A theme of `color`, 0xRRGGBB, alone: in the field at its hue and HSL lightness, and at its
@@ -133,11 +187,19 @@ impl Theme {
     /// The colours, the main one first, 0xRRGGBB.
     pub fn colors(&self) -> Vec<u32> {
         (0..self.count)
-            .map(|index| {
-                let (x, y) = self.handle(index);
-                color_at(x, y, self.saturation)
+            .map(|index| match self.third {
+                Some(third) if index == 2 => third,
+                _ => {
+                    let (x, y) = self.handle(index);
+                    color_at(x, y, self.saturation)
+                }
             })
             .collect()
+    }
+
+    /// How opaque the texture lies over the window.
+    pub fn grain_opacity(&self) -> f32 {
+        self.grain * self.texture.strength()
     }
 
     /// The main colour, which the core keeps as the Space's colour.
@@ -146,7 +208,7 @@ impl Theme {
     }
 
     /// The theme with colour `index` dragged to (x, y): the others keep their places round it,
-    /// and all take the field's colours there.
+    /// and all take the field's colours there, a third from Arc too.
     pub fn moved(self, index: usize, x: f32, y: f32) -> Theme {
         let offset = Self::offsets(self.count).get(index).copied().unwrap_or(0.);
         let (x, y) = rotated(x, y, -offset);
@@ -154,17 +216,18 @@ impl Theme {
         if (x, y) == (self.x, self.y) {
             return self;
         }
-        Theme { x, y, saturation: 1., ..self }
+        Theme { x, y, saturation: 1., third: None, ..self }
     }
 
-    /// The theme with `count` colours, from 1 to MAX_COLORS.
+    /// The theme with `count` colours, from 1 to MAX_COLORS, each in its place in the field.
     pub fn with_count(self, count: usize) -> Theme {
-        Theme { count: count.clamp(1, MAX_COLORS), ..self }
+        Theme { count: count.clamp(1, MAX_COLORS), third: None, ..self }
     }
 
     /// The text the core keeps; the saturation only once a swatch has set it, so a theme from the
-    /// field reads as it did before swatches kept theirs, and a dark look as its place, count,
-    /// intensity, grain and saturation.
+    /// field reads as it did before swatches kept theirs; the texture and third colour only where
+    /// a theme has them; and a dark look as its place, count, intensity, grain and saturation, then
+    /// its texture and third colour where it has either.
     pub fn to_text(&self) -> String {
         let text = format!(
             "x={:.4} y={:.4} colors={} intensity={:.3} grain={:.3} appearance={}",
@@ -175,17 +238,26 @@ impl Theme {
             self.grain,
             self.appearance.name()
         );
-        let text = if self.saturation < 1. {
-            format!("{text} saturation={:.4}", self.saturation)
-        } else {
-            text
-        };
-        match self.dark {
-            Some(Look { x, y, saturation, count, intensity, grain }) => format!(
-                "{text} dark={x:.4},{y:.4},{count},{intensity:.3},{grain:.3},{saturation:.4}"
-            ),
-            None => text,
+        let mut text = text;
+        if self.saturation < 1. {
+            text += &format!(" saturation={:.4}", self.saturation);
         }
+        if self.texture != Texture::Noise {
+            text += &format!(" texture={}", self.texture.name());
+        }
+        if let Some(third) = self.third {
+            text += &format!(" third={third:06x}");
+        }
+        if let Some(Look { x, y, saturation, count, intensity, grain, texture, third }) = self.dark {
+            text += &format!(" dark={x:.4},{y:.4},{count},{intensity:.3},{grain:.3},{saturation:.4}");
+            if texture != Texture::Noise || third.is_some() {
+                text += &format!(",{}", texture.name());
+            }
+            if let Some(third) = third {
+                text += &format!(",{third:06x}");
+            }
+        }
+        text
     }
 
     /// The theme `text` describes, as `to_text` writes it; None for empty text, or text without the
@@ -212,10 +284,12 @@ impl Theme {
                     theme.saturation = number.unwrap_or(theme.saturation).clamp(0., 1.)
                 }
                 "appearance" => {
-                    if let Some(appearance) = Appearance::ALL.iter().find(|a| a.name() == value) {
-                        theme.appearance = *appearance;
+                    if let Some(appearance) = Appearance::named(value) {
+                        theme.appearance = appearance;
                     }
                 }
+                "texture" => theme.texture = Texture::named(value).unwrap_or(theme.texture),
+                "third" => theme.third = hex(value),
                 "dark" => theme.dark = parse_look(value),
                 _ => {}
             }
@@ -225,9 +299,11 @@ impl Theme {
     }
 }
 
-/// A dark look as `to_text` writes it: x, y, count, intensity, grain and saturation.
+/// A dark look as `to_text` writes it: x, y, count, intensity, grain and saturation, then its
+/// texture and third colour where it has them.
 fn parse_look(text: &str) -> Option<Look> {
-    let numbers: Vec<f32> = (text.split(','))
+    let mut items = text.split(',');
+    let numbers: Vec<f32> = (items.by_ref().take(6))
         .map(|n| n.parse::<f32>().ok().filter(|n| n.is_finite()))
         .collect::<Option<_>>()?;
     let [x, y, count, intensity, grain, saturation] = numbers[..] else {
@@ -236,7 +312,14 @@ fn parse_look(text: &str) -> Option<Look> {
     let (x, y) = in_disc(x, y);
     let count = (count as usize).clamp(1, MAX_COLORS);
     let [intensity, grain, saturation] = [intensity, grain, saturation].map(|n| n.clamp(0., 1.));
-    Some(Look { x, y, saturation, count, intensity, grain })
+    let texture = items.next().and_then(Texture::named).unwrap_or_default();
+    let third = items.next().and_then(hex);
+    Some(Look { x, y, saturation, count, intensity, grain, texture, third })
+}
+
+/// 0xRRGGBB of six hex digits.
+fn hex(text: &str) -> Option<u32> {
+    (text.len() == 6).then(|| u32::from_str_radix(text, 16).ok()).flatten()
 }
 
 /// (x, y) turned `degrees` clockwise about the field's centre.
@@ -316,39 +399,107 @@ pub fn diagonal(x: f32, y: f32, width: f32, height: f32) -> f32 {
     ((x * width + y * height) / (width + height).max(1.)).clamp(0., 1.)
 }
 
-pub use crate::tokens::theme::GRAIN_STRENGTH;
+pub use crate::tokens::theme::{GRAIN_STRENGTH, INACTIVE_TEXTURE};
 
-/// Grain's side, in device pixels: a tile the window repeats.
+/// A texture's side, in device pixels: a tile the window repeats.
 pub const GRAIN_TILE: usize = 256;
 
 thread_local! {
-    static GRAIN: OnceCell<Arc<RenderImage>> = const { OnceCell::new() };
+    static TILES: [OnceCell<Arc<RenderImage>>; 4] = const { [const { OnceCell::new() }; 4] };
 }
 
-/// Noise to lay over the window's colours: each pixel white or black at a random strength, so it
-/// neither lightens nor darkens them on the whole. Made once, the same each time.
-pub fn grain_image() -> Arc<RenderImage> {
-    GRAIN.with(|grain| {
-        grain
-            .get_or_init(|| {
-                let mut state: u32 = 0x9e37_79b9;
-                let mut data = Vec::with_capacity(GRAIN_TILE * GRAIN_TILE * 4);
-                for _ in 0..GRAIN_TILE * GRAIN_TILE {
-                    // xorshift32
-                    state ^= state << 13;
-                    state ^= state >> 17;
-                    state ^= state << 5;
-                    let value = (state >> 24) as i32 - 128;
-                    let shade = if value >= 0 { 255 } else { 0 };
-                    let alpha = (value.unsigned_abs() * 2).min(255) as u8;
-                    data.extend([shade, shade, shade, alpha]);
+impl Texture {
+    /// The tile to lay over the window's colours, each pixel white or black, as many of each, so
+    /// it neither lightens nor darkens them on the whole. Made once, the same each time.
+    pub fn image(self) -> Arc<RenderImage> {
+        TILES.with(|tiles| {
+            tiles[self as usize]
+                .get_or_init(|| {
+                    let data = self.pixels().into_iter().flat_map(|(white, alpha)| {
+                        let shade = if white { 255 } else { 0 };
+                        [shade, shade, shade, (alpha.clamp(0., 1.) * 255.).round() as u8]
+                    });
+                    let image =
+                        RgbaImage::from_raw(GRAIN_TILE as u32, GRAIN_TILE as u32, data.collect())
+                            .expect("sized to fit");
+                    Arc::new(RenderImage::new(vec![Frame::new(image)]))
+                })
+                .clone()
+        })
+    }
+
+    /// Each pixel of the tile, row by row: whether it's white, and how opaque. Every pattern
+    /// repeats within the tile, so tiles meet without a seam.
+    pub(crate) fn pixels(self) -> Vec<(bool, f32)> {
+        const SIDE: usize = GRAIN_TILE;
+        let mut random = Random(0x9e37_79b9);
+        let noise = |random: &mut Random| {
+            let value = random.next() as f32 / u32::MAX as f32 * 2. - 1.;
+            (value >= 0., value.abs())
+        };
+        match self {
+            Texture::Noise => (0..SIDE * SIDE).map(|_| noise(&mut random)).collect(),
+            Texture::Dust => (0..SIDE * SIDE)
+                .map(|_| {
+                    let (white, alpha) = noise(&mut random);
+                    // One pixel in about twelve is a speck, the rest clear.
+                    if alpha < 1. / 12. { (white, 0.6 + 0.4 * random.unit()) } else { (white, 0.) }
+                })
+                .collect(),
+            Texture::Weave => {
+                // Each thread along the diagonal is a shade of its own, so the twill isn't flat.
+                let threads: Vec<f32> = (0..SIDE).map(|_| 0.45 + 0.55 * random.unit()).collect();
+                (0..SIDE * SIDE)
+                    .map(|at| {
+                        let (x, y) = (at % SIDE, at / SIDE);
+                        let white = (x + y) % 4 < 2;
+                        let (_, fine) = noise(&mut random);
+                        (white, threads[(x + SIDE - y) % SIDE] * (0.7 + 0.3 * fine))
+                    })
+                    .collect()
+            }
+            Texture::Fleck => {
+                let mut pixels: Vec<(bool, f32)> = (0..SIDE * SIDE)
+                    .map(|_| {
+                        let (white, alpha) = noise(&mut random);
+                        (white, alpha * 0.4)
+                    })
+                    .collect();
+                // Fibres 4 to 9 long, across or down, wrapping round the tile's edges.
+                for _ in 0..SIDE * SIDE / 40 {
+                    let (x, y) = (random.below(SIDE), random.below(SIDE));
+                    let (white, length) = (random.next() & 1 == 0, 4 + random.below(6));
+                    let across = random.next() & 1 == 0;
+                    let alpha = 0.7 + 0.3 * random.unit();
+                    for step in 0..length {
+                        let (x, y) = if across { ((x + step) % SIDE, y) } else { (x, (y + step) % SIDE) };
+                        pixels[y * SIDE + x] = (white, alpha);
+                    }
                 }
-                let image = RgbaImage::from_raw(GRAIN_TILE as u32, GRAIN_TILE as u32, data)
-                    .expect("sized to fit");
-                Arc::new(RenderImage::new(vec![Frame::new(image)]))
-            })
-            .clone()
-    })
+                pixels
+            }
+        }
+    }
+}
+
+/// xorshift32, so every tile is the same each time.
+struct Random(u32);
+
+impl Random {
+    fn next(&mut self) -> u32 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 17;
+        self.0 ^= self.0 << 5;
+        self.0
+    }
+
+    fn unit(&mut self) -> f32 {
+        self.next() as f32 / u32::MAX as f32
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        self.next() as usize % n
+    }
 }
 
 #[cfg(test)]
