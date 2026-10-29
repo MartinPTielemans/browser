@@ -409,35 +409,41 @@ send key z cmd shift
 expect '^browser: command redo via \(ui\|page\)$' "⇧⌘Z didn't redo Delete Folder"
 expect "^browser: outline $c\$" "⇧⌘Z didn't delete the folder again: $(outline)"
 
-# A file dragged over the pinned tab gets a line above it, and let go, it opens there pinned and
-# shows, titled by its name.
-t=$(today)
-../tools/window-screenshot.sh "$pid" "$out/drop-before.png" || fail "no window to capture"
-send dragover 100 150 file "$(cd "$out" && pwd)/site/notes.txt"
-expect '^browser: drag over HostUIView taken$' "the list didn't take a file dragged over it"
-expect '^browser: drop line in pinned 0$' "no line marked the file's place above the pinned tab"
-../tools/window-screenshot.sh "$pid" "$out/drop-line.png" || fail "no window to capture"
-send dragdrop 100 150
-expect '^browser: drag dropped$' "the list didn't take the file let go over it"
-expect '^browser: dropped 1 in pinned 0$' "the file didn't drop above the pinned tab"
-expect_lists "[0-9][0-9]* $c" "$t" "after dropping a file"
-e=$(pinned | cut -d' ' -f1)
-expect "^browser: selected $e\$" "the dropped file's tab didn't show"
-expect "^browser: loaded $e file:///.*/site/notes.txt\$" "the dropped file didn't load in its tab"
-# A link let go under the Today tab, whose row is centred at 292 under the two pinned tabs', the
-# divider and New Tab's, opens there.
-send dragdrop 100 330 url "${site}notes.txt"
-expect '^browser: dropped 1 in today 1$' "the link didn't drop under the Today tab"
-expect_lists "$e $c" "$t [0-9][0-9]*" "after dropping a link"
-d=$(today | cut -d' ' -f2)
-expect "^browser: selected $d\$" "the dropped link's tab didn't show"
-expect "^browser: loaded $d ${site}notes.txt\$" "the dropped link didn't load in its tab"
-../tools/window-screenshot.sh "$pid" "$out/dropped.png" || fail "no window to capture"
-# Text that isn't a web link isn't taken, and nothing opens.
-send dragover 100 300 text "javascript:document.title='dropped'"
-expect '^browser: drag over HostUIView refused$' "the list took a javascript: URL dragged as text"
-send dragleave
-none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
+if [ "$(uname)" = Linux ]; then
+  # Linux's host takes no drops from other apps yet (platform/linux/host.cc's host_take_drops),
+  # and its driver has no dragover, dragdrop or dragleave to send them.
+  echo "skip: drops from another app: Linux's host takes none yet, and its driver can't drag in"
+else
+  # A file dragged over the pinned tab gets a line above it, and let go, it opens there pinned and
+  # shows, titled by its name.
+  t=$(today)
+  ../tools/window-screenshot.sh "$pid" "$out/drop-before.png" || fail "no window to capture"
+  send dragover 100 150 file "$(cd "$out" && pwd)/site/notes.txt"
+  expect '^browser: drag over HostUIView taken$' "the list didn't take a file dragged over it"
+  expect '^browser: drop line in pinned 0$' "no line marked the file's place above the pinned tab"
+  ../tools/window-screenshot.sh "$pid" "$out/drop-line.png" || fail "no window to capture"
+  send dragdrop 100 150
+  expect '^browser: drag dropped$' "the list didn't take the file let go over it"
+  expect '^browser: dropped 1 in pinned 0$' "the file didn't drop above the pinned tab"
+  expect_lists "[0-9][0-9]* $c" "$t" "after dropping a file"
+  e=$(pinned | cut -d' ' -f1)
+  expect "^browser: selected $e\$" "the dropped file's tab didn't show"
+  expect "^browser: loaded $e file:///.*/site/notes.txt\$" "the dropped file didn't load in its tab"
+  # A link let go under the Today tab, whose row is centred at 292 under the two pinned tabs', the
+  # divider and New Tab's, opens there.
+  send dragdrop 100 330 url "${site}notes.txt"
+  expect '^browser: dropped 1 in today 1$' "the link didn't drop under the Today tab"
+  expect_lists "$e $c" "$t [0-9][0-9]*" "after dropping a link"
+  d=$(today | cut -d' ' -f2)
+  expect "^browser: selected $d\$" "the dropped link's tab didn't show"
+  expect "^browser: loaded $d ${site}notes.txt\$" "the dropped link didn't load in its tab"
+  ../tools/window-screenshot.sh "$pid" "$out/dropped.png" || fail "no window to capture"
+  # Text that isn't a web link isn't taken, and nothing opens.
+  send dragover 100 300 text "javascript:document.title='dropped'"
+  expect '^browser: drag over HostUIView refused$' "the list took a javascript: URL dragged as text"
+  send dragleave
+  none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
+fi
 exec 3>&-
 quit
 echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"

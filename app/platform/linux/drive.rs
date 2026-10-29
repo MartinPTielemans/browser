@@ -531,9 +531,30 @@ fn hover(to: Target, state: u16) -> Option<()> {
     Some(())
 }
 
-/// Sends a press of `button`, 1 the left, 3 the right and 4 to 7 the wheel's, or its release, at
-/// `at`, with `state` the modifiers and the buttons held before it.
+/// Whether `state` holds a button.
+fn holds(state: u16) -> bool {
+    (1..=5).any(|button| state & button_mask(button) != 0)
+}
+
+/// Puts the X server's own pointer at `at`, where the events say it is, before a press or a move
+/// with nothing held. Left elsewhere, it's under a page that maps as a tab shows, and the X server
+/// tells GPUI the pointer left its window, which ends its hover and starts a held row's drag. A
+/// held drag isn't warped, as the server's move would hold no button.
+fn warp(at: Target) -> Option<()> {
+    let x = server()?;
+    let (connection, root) = &*x;
+    connection
+        .warp_pointer(x11rb::NONE, *root, 0, 0, 0, 0, at.root_x, at.root_y)
+        .ok()?;
+    Some(())
+}
+
+/// Sends a press of `button`, 1 the left, 2 the middle, 3 the right and 4 to 7 the wheel's, or its
+/// release, at `at`, with `state` the modifiers and the buttons held before it.
 fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
+    if press && !holds(state) {
+        warp(at)?;
+    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
@@ -562,6 +583,9 @@ fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
 }
 
 fn motion(at: Target, state: u16) -> Option<()> {
+    if !holds(state) {
+        warp(at)?;
+    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
@@ -1051,10 +1075,14 @@ fn run_command(line: &str) -> Option<()> {
             }
             connection.flush().ok()
         }
-        "click" | "rightclick" | "doubleclick" => {
+        "click" | "rightclick" | "middleclick" | "doubleclick" => {
             let (x, y) = point(&mut words)?;
             let at = target_at(x, y)?;
-            let which = if action == "rightclick" { 3 } else { 1 };
+            let which = match action {
+                "rightclick" => 3,
+                "middleclick" => 2,
+                _ => 1,
+            };
             click(at, which, click_modifiers(words), false)?;
             if action == "doubleclick" {
                 click(at, 1, none, true)?;

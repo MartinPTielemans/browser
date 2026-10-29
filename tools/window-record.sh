@@ -3,9 +3,22 @@
 # recording (menus, the command bar), as on screen, but nothing from other apps. For PRs whose
 # change moves: a screen recording would include whatever else is open on the owner's Mac.
 # Prints "recording" once frames are being written, so a caller can start the motion then.
+# On Linux it records check.sh's Xvfb, which holds nothing but the app, and refuses elsewhere rather
+# than record the owner's screen.
 # Usage: tools/window-record.sh <pid> <seconds> <output.mp4>
 set -e
 [ $# -eq 3 ] || { echo "usage: $0 <pid> <seconds> <output.mp4>" >&2; exit 2; }
+if [ "$(uname)" = Linux ]; then
+  [ "${BROWSER_HEADLESS:-}" = xvfb ] || { echo "Records only check.sh's Xvfb." >&2; exit 1; }
+  kill -0 "$1" 2>/dev/null || { echo "process $1 isn't running" >&2; exit 1; }
+  rm -f "$3"
+  # Its root window is its whole screen. "recording" once the first frame is written.
+  ffmpeg -nostdin -loglevel error -f x11grab -framerate 30 -i "$DISPLAY" -t "$2" \
+    -pix_fmt yuv420p -progress pipe:1 "$3" |
+    awk '/^frame=[1-9]/ && !said { print "recording"; fflush(); said = 1 }'
+  [ -s "$3" ] || { echo "ffmpeg wrote no recording" >&2; exit 1; }
+  exit 0
+fi
 PID="$1" SECONDS_LONG="$2" OUT="$3" swift - <<'SWIFT'
 import Foundation
 import ScreenCaptureKit
