@@ -2589,6 +2589,21 @@ impl Browser for Engine {
         open_tab(self.window, url);
     }
 
+    fn new_note(&self, space: u64, beside: Option<u64>, cx: &mut App) {
+        let profile = unsafe { bc::bc_space_profile(space) };
+        let url = browser::notes::new_document(&name(bc::bc_profile_notes_service, profile));
+        // check.sh waits for this line.
+        log!("browser: new note {url}{}", if beside.is_some() { " split" } else { "" });
+        match beside {
+            // Outside the shell's update, which the split's layout updates.
+            Some(with) => {
+                let window = self.window;
+                cx.defer(move |cx| open_split(window, url, with, cx));
+            }
+            None => open_tab(self.window, url),
+        }
+    }
+
     fn site_search_settings(&self, _: &mut App) {
         open_tab(self.window, "chrome://settings/searchEngines");
     }
