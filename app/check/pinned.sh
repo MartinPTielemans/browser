@@ -530,7 +530,9 @@ grep -qx -- "  - \[.*\]($site)" "$out/spaces.md" ||
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Rename Folder, Delete Folder')\$" "the folder's menu isn't Rename Folder, Delete Folder"
+# Paste URL as New Tab comes and goes with the clipboard, so the items between aren't pinned here.
+expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Duplicate'), .*$(cased 'Delete Folder')\$" \
+  "the folder's menu isn't Rename Folder, Change Icon…, Duplicate … Delete Folder"
 send choose "$(cased 'Delete Folder')"
 expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
