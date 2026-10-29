@@ -798,10 +798,16 @@ impl Shell {
             Command::StayOnTop => return self.toggle_on_top(cx),
             Command::CloseWindow => {
                 // As ⌘W does, from a window of Chrome's it closes that one.
-                if !self.browser.close_other_window(cx) {
-                    self.browser.close_window(cx);
+                if self.browser.close_other_window(cx) {
+                    return;
                 }
-                return;
+                // On the Mac a window closed in full screen only came out of it and stayed open,
+                // so it comes out first, as the green button takes it, and closes once windowed.
+                if cfg!(target_os = "macos") && self.full_screen {
+                    self.close_when_windowed = true;
+                    return self.browser.press_window_button(WindowButton::Zoom, cx);
+                }
+                return self.browser.close_window(cx);
             }
             Command::TogglePin => {
                 if self.selected != 0 {
