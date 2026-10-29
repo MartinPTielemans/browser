@@ -149,6 +149,26 @@ impl Shell {
         cx.notify();
     }
 
+    /// Logs the frame that lays the page out beside the sidebar settled at a width. "sidebar
+    /// width" is logged as the edge is let go, which can come before that frame (#722).
+    pub(super) fn log_width_drawn(&mut self) {
+        let settled = self.resize.is_none()
+            && self.width_motion.is_none()
+            && self.sidebar_motion.is_none()
+            && !self.sidebar_hidden;
+        let beside = self.page_laid.is_some_and(|(frame, _)| {
+            f32::from(frame.origin.x) == self.sidebar_width
+        });
+        let drawn = (settled && beside).then_some(self.sidebar_width);
+        if drawn != self.width_drawn {
+            self.width_drawn = drawn;
+            if let Some(width) = drawn {
+                // check.sh waits for this line.
+                log!("browser: sidebar width {width} drawn");
+            }
+        }
+    }
+
     /// How far the sidebar has moved since `start`, or None once it's there.
     pub(super) fn sidebar_progress(&self, start: Instant) -> Option<f32> {
         let t = start.elapsed().as_secs_f32();

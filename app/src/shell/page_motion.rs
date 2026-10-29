@@ -169,6 +169,29 @@ mod tests {
         assert_eq!(events.last(), Some(&"still"), "{events:?}");
     }
 
+    /// The sidebar's edge let go past its narrowest: its width is logged at once, and drawn only
+    /// once the next frame lays the page out beside it, which check.sh waits for (#722).
+    #[gpui::test]
+    fn the_width_let_go_is_drawn_once_the_page_is_laid_out_beside_it(cx: &mut TestAppContext) {
+        let (shell, _, cx) = drawn(cx, false);
+        let drawn = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+            shell.read_with(cx, |shell, _| {
+                let laid = shell.page_laid.map(|(frame, _)| f32::from(frame.origin.x));
+                (shell.width_drawn, laid)
+            })
+        };
+        assert_eq!(drawn(&shell, cx), (Some(SIDEBAR_WIDTH), Some(SIDEBAR_WIDTH)));
+        shell.update(cx, |shell, cx| {
+            shell.press_edge(&press_at(shell.width() - 3.), cx);
+            shell.drag_edge(120., cx);
+            shell.let_go_edge(cx);
+            assert_eq!(shell.sidebar_width, 164.);
+            assert_eq!(shell.width_drawn, Some(SIDEBAR_WIDTH), "drawn before its frame");
+        });
+        cx.run_until_parked();
+        assert_eq!(drawn(&shell, cx), (Some(164.), Some(164.)));
+    }
+
     /// A split view's gap dragged resizes its pages through the core, not the page's frame: the
     /// core hears the page moves before the first new share, and stops when the pointer lets go.
     #[gpui::test]

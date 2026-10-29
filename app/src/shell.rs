@@ -1090,6 +1090,9 @@ pub struct Shell {
     /// The window's device pixels in a point, kept from render as `viewport` is.
     scale: f32,
     page_laid: Option<(Bounds<Pixels>, f32)>,
+    /// The width the docked sidebar had settled at when the last frame laid the page out beside
+    /// it, if it did.
+    width_drawn: Option<f32>,
     /// Whether the core was told the page's frame is moving (`page_motion`).
     page_moving_told: bool,
     /// While the command bar is open for a pane beside the tab shown, that tab. The pages shown
@@ -1332,6 +1335,7 @@ impl Shell {
             viewport: Size::default(),
             scale: 1.,
             page_laid: None,
+            width_drawn: None,
             page_moving_told: false,
             adding_pane: None,
             split_pending: None,
@@ -2800,6 +2804,7 @@ impl Render for Shell {
             }
         }
         self.lay_out_moving_page(cx);
+        self.log_width_drawn();
         self.show_page_dialog(cx);
         let card_left = self.card_left();
         self.update_palette(cx);

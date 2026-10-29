@@ -645,13 +645,16 @@ check_layout "after the new tab's toast's Show"
 # width it had, and ⌘S brings it back. A double-click on the edge puts back 228.
 send drag 225 400 325 400
 expect '^browser: sidebar width 328$' "dragging the sidebar's edge didn't widen the sidebar"
+expect '^browser: sidebar width 328 drawn$' "the page wasn't laid out beside the sidebar dragged wider"
 check_layout "with the sidebar dragged wider" 328
 send drag 325 400 700 400
 expect '^browser: sidebar width 500$' "dragged far past its widest, the sidebar didn't stop at 500"
+expect '^browser: sidebar width 500 drawn$' "the page wasn't laid out beside the sidebar at its widest"
 check_layout "with the sidebar at its widest" 500
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-wide.png" || fail "no window to capture"
 send drag 497 400 120 400
 expect '^browser: sidebar width 164$' "dragged past its narrowest, the sidebar didn't stop at 164"
+expect '^browser: sidebar width 164 drawn$' "the page wasn't laid out beside the sidebar at its narrowest"
 check_layout "with the sidebar at its narrowest" 164
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-narrow.png" || fail "no window to capture"
 # Clear of the window's edge, where the pointer would bring the hidden sidebar out.
