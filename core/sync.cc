@@ -740,6 +740,19 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     return start ? SyncServiceFactory::GetForProfile(start) : nullptr;
   }
 
+  // Whether the account's data has a passphrase, once sync's engine is up. A new account's server
+  // leaves Nigori unset, and the commit that sets it up waits for the setup the core holds, so
+  // until then Chromium knows no passphrase type: that's an account without one.
+  std::optional<bool> HasPassphrase() const {
+    syncer::SyncService* service = Service();
+    if (!service || !service->IsEngineInitialized()) {
+      return std::nullopt;
+    }
+    const std::optional<syncer::PassphraseType> type =
+        service->GetUserSettings()->GetPassphraseType();
+    return type && syncer::IsExplicitPassphrase(*type);
+  }
+
   int Status() const {
     if (!SignedIn()) {
       return signing_in_ ? BC_SYNC_SIGNING_IN : BC_SYNC_SIGNED_OUT;
@@ -750,19 +763,15 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     if (request_) {
       return BC_SYNC_PAIRING;
     }
-    syncer::SyncService* service = Service();
-    std::optional<syncer::PassphraseType> type;
-    if (service && service->IsEngineInitialized()) {
-      type = service->GetUserSettings()->GetPassphraseType();
-    }
+    const std::optional<bool> passphrase = HasPassphrase();
     // Starting over, the engine stops and starts again before it finds the passphrase gone.
-    if (starting_over_ && (!type || syncer::IsExplicitPassphrase(*type))) {
+    if (starting_over_ && passphrase.value_or(true)) {
       return BC_SYNC_NEEDS_SECRET;
     }
-    if (!type) {
+    if (!passphrase) {
       return BC_SYNC_SIGNING_IN;
     }
-    return syncer::IsExplicitPassphrase(*type) ? BC_SYNC_NEEDS_SECRET : BC_SYNC_FIRST_DEVICE;
+    return *passphrase ? BC_SYNC_NEEDS_SECRET : BC_SYNC_FIRST_DEVICE;
   }
 
   void Notify() {
@@ -790,7 +799,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     bc_sync_state state = {.status = status,
                            .problem = problem_,
                            .server = trimmed.c_str(),
-                           .default_server = !server_.is_valid(),
+                           .default_server = !server_.is_valid() && !server.empty(),
                            .email = email.c_str(),
                            .code = code.c_str()};
     Host().sync_changed(Host().context, &state);
@@ -1153,17 +1162,13 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   // Gives sync the secret's words, as the passphrase the account's data is encrypted with: a new
   // one on the account's first device, else the one it has.
   void UseSecret() {
-    syncer::SyncService* service = Service();
-    if (!secret_ || !service || !service->IsEngineInitialized()) {
+    const std::optional<bool> passphrase = HasPassphrase();
+    if (!secret_ || !passphrase) {
       return;
     }
-    syncer::SyncUserSettings* settings = service->GetUserSettings();
-    const std::optional<syncer::PassphraseType> type = settings->GetPassphraseType();
-    if (!type) {
-      return;
-    }
+    syncer::SyncUserSettings* settings = Service()->GetUserSettings();
     const std::string words = SyncWordsOf(*secret_);
-    if (syncer::IsExplicitPassphrase(*type)) {
+    if (*passphrase) {
       // The account's data was started over with another secret since this device kept it.
       if (settings->IsPassphraseRequired() && !settings->SetDecryptionPassphrase(words)) {
         secret_.reset();
@@ -1204,9 +1209,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   // syncer::SyncServiceObserver:
   void OnStateChanged(syncer::SyncService* sync) override {
     if (starting_over_ && sync->IsEngineInitialized()) {
-      const std::optional<syncer::PassphraseType> type =
-          sync->GetUserSettings()->GetPassphraseType();
-      starting_over_ = type && syncer::IsExplicitPassphrase(*type);
+      starting_over_ = HasPassphrase().value_or(true);
       // The engine's restart dropped the hold on sync's data types with first-time setup.
       if (!starting_over_ && !setup_ &&
           !sync->GetUserSettings()->IsInitialSyncFeatureSetupComplete()) {
