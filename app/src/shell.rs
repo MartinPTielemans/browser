@@ -392,6 +392,10 @@ use crate::tokens::shell::TILE;
 /// A tile, and the URL field, under the pointer: the ladder's hover over its resting plate.
 pub(crate) const TILE_HOVERED: f32 = crate::palette::state_alpha(TILE, crate::palette::STATE_HOVERED);
 use crate::tokens::shell::TILE_RING;
+use crate::tokens::shell::DEVELOPER_OUTLINE;
+use crate::tokens::shell::DEVELOPER_OUTLINE_WIDTH;
+use crate::tokens::shell::DEVELOPER_SELECTED;
+use crate::tokens::shell::DEVELOPER_TILE;
 use crate::tokens::shell::TILE_UNTHEMED;
 use crate::tokens::shell::NAV;
 use crate::tokens::shell::NAV_DISABLED;
@@ -1119,6 +1123,8 @@ pub struct Shell {
     window_title: SharedString,
     /// What the URL field said when it last drew, for its log line.
     url_field_drawn: RefCell<SharedString>,
+    /// The tab whose Developer Mode outline last drew, and where, for its log lines.
+    developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
     /// The other turned-on extensions' actions, which the core reports while the Site Controls
@@ -1334,6 +1340,7 @@ impl Shell {
             menus: MenuBar::default(),
             window_title: SharedString::default(),
             url_field_drawn: RefCell::default(),
+            developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
             side_panel: None,
@@ -3100,17 +3107,31 @@ impl Shell {
                 let segments = panes
                     .iter()
                     .map(|&pane| self.segment(&self.palette, pane, width, pane == tab, pane == selected));
+                let developer = panes.contains(&selected) && self.page(selected).developer_mode;
                 return row.child(
                     split_plate(segments)
-                        .when(panes.contains(&selected), |plate| selected_plate(&self.palette, plate, 1., 0.)),
+                        .when(panes.contains(&selected), |plate| {
+                            selected_plate(&self.palette, plate, 1., 0., developer)
+                        })
+                        .when(developer, |plate| {
+                            plate.child(developer_outline(&self.palette, PLATE_RADIUS))
+                        }),
                 );
             }
+            let page = self.page(tab);
             let icon = div()
-                .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+                .when(page.unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
                 .child(self.tab_icon(tab));
+            let bright = tab == selected || page.developer_mode;
+            let developer = tab == selected && page.developer_mode;
             row.child(
-                plate(icon, title(&self.palette, self.title(tab), tab == selected).pr(px(TITLE_END_INSET)))
-                    .when(tab == selected, |plate| selected_plate(&self.palette, plate, 1., 0.)),
+                plate(icon, title(&self.palette, self.title(tab), bright).pr(px(TITLE_END_INSET)))
+                    .when(tab == selected, |plate| {
+                        selected_plate(&self.palette, plate, 1., 0., developer)
+                    })
+                    .when(developer, |plate| {
+                        plate.child(developer_outline(&self.palette, PLATE_RADIUS))
+                    }),
             )
         };
         let (plus, new_tab) = new_tab_label(&self.palette);
@@ -3678,10 +3699,29 @@ fn split_plate(segments: impl IntoIterator<Item = impl IntoElement>) -> gpui::Di
         .children(segments)
 }
 
-/// The selected tab's plate, at `opacity` while it fades in.
-fn selected_plate(palette: &Palette, plate: gpui::Div, opacity: f32, hover: f32) -> gpui::Div {
-    let (rest, under) = (palette.plate(SELECTED), palette.plate(SELECTED_HOVERED));
+/// The selected tab's plate, at `opacity` while it fades in, firmer in Developer Mode.
+fn selected_plate(
+    palette: &Palette,
+    plate: gpui::Div,
+    opacity: f32,
+    hover: f32,
+    developer: bool,
+) -> gpui::Div {
+    let rest = palette.plate(if developer { DEVELOPER_SELECTED } else { SELECTED });
+    let under = palette.plate(SELECTED_HOVERED);
     plate.bg(Hsla { a: (rest.a + (under.a - rest.a) * hover) * opacity, ..rest })
+}
+
+/// The shown tab's outline in Developer Mode, inside its plate's or tile's `radius` corners, over
+/// its fill.
+fn developer_outline(palette: &Palette, radius: f32) -> gpui::Div {
+    div()
+        .absolute()
+        .inset_0()
+        .rounded(px(radius))
+        .border(px(DEVELOPER_OUTLINE_WIDTH))
+        .border_dashed()
+        .border_color(palette.text(DEVELOPER_OUTLINE))
 }
 
 /// A tab row's title, cut off at the row's trailing edge.

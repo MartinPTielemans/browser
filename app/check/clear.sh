@@ -20,7 +20,7 @@
 # Chrome's page info does. A value changed there sticks, and its Reset permissions sets them back.
 # Their Developer Mode row lists localhost on by itself, and turns it off and on for the tab, as the
 # command bar's Turn off and Turn on Developer Mode for this site do, and View › Developer's. In it
-# the URL field says the whole URL.
+# the URL field says the whole URL and the tab's row has its outline.
 # Escape, a click outside and the button close it. A page that asks for Widevine brings a note under
 # the field, which ClearKey doesn't. From macOS 14 its button shows the page in Safari's engine, in
 # the tab, and the profile keeps the site for it: the site's cookies, HttpOnly too, and its
@@ -612,14 +612,17 @@ send click $site_controls_point
 expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave"
 # The command bar offers what would change the page's Developer Mode, and turns it off and on.
-# Out of it the URL field says the host alone, and in it the whole URL again.
+# Out of it the URL field says the host alone and the tab's row loses its outline, and in it the
+# whole URL and the outline come back.
 bar_command toggle-developer-mode "Turn off Developer Mode for this site\$" "developer mode"
 expect "^browser: page $r developer mode 0\$" "the command bar didn't turn Developer Mode off"
 expect '^browser: url field localhost$' "out of Developer Mode the URL field didn't say the host"
+expect '^browser: developer outline none$' "out of Developer Mode the tab kept its outline"
 bar_command toggle-developer-mode "Turn on Developer Mode for this site\$" "developer mode"
 expect "^browser: page $r developer mode 1\$" "the command bar didn't turn Developer Mode on"
 expect "^browser: url field http://localhost:$port/index.html\$" \
   "in Developer Mode the URL field didn't say the whole URL"
+expect "^browser: developer outline $r at " "in Developer Mode the tab drew no outline"
 # So does View › Developer's last item, named by what it would do.
 developer="Developer › JavaScript Console$maybe, Developer › Turn"
 send menubar View
