@@ -95,6 +95,7 @@ pub mod elevation;
 pub mod face;
 #[cfg(target_os = "linux")]
 pub mod flatpak;
+pub mod folder_preview;
 pub mod hover_card;
 pub mod icon_picker;
 pub mod import;

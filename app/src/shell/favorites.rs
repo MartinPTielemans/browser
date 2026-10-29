@@ -10,6 +10,7 @@ use gpui::{
 
 use crate::elevation::Level;
 use crate::tooltip::{self, Anchor, Tip};
+use crate::icon_picker::Subject;
 
 use crate::palette::Palette;
 use super::{
@@ -346,7 +347,8 @@ impl Shell {
         let Row::Tab(tab) = row else {
             return;
         };
-        if !self.is_folder(tab) {
+        // A closed folder with tabs has its preview, which names it, in place of the tooltip.
+        if !self.is_folder(tab) || !self.previewed(tab).is_empty() {
             return;
         }
         let (name, title) = (self.folder_name(tab), FOLDER_TITLE_X);
@@ -452,7 +454,7 @@ impl Shell {
                 }),
             )
             .on_click(cx.listener(move |shell, _, _, cx| shell.clicked_tile(tab, cx)))
-            .children(self.drawn_for_picker(tab))
+            .children(self.drawn_for_picker(Subject::Tab(tab)))
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
