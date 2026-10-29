@@ -162,6 +162,8 @@ struct Settings {
   bool send_crash_reports = false;
   // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
   bool link_previews = true;
+  // What the Library button's hover lists, as bc_hover_kinds' bits.
+  int hover_kinds = 15;
   // When the newest crash report the user was offered was written, in seconds since 1970, so no
   // report is offered twice, nor one older.
   double crash_report_offered = 0;

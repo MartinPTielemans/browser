@@ -1405,6 +1405,11 @@ BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);
 BC_EXPORT void bc_set_link_previews(bool previews);
+// What the Library button's hover lists, as the user picked from the button's menu: bits for
+// images (1), videos (2), other files (4) and the captures saved to the Library (8), all by
+// default. The core keeps it with the Spaces.
+BC_EXPORT int bc_hover_kinds(void);
+BC_EXPORT void bc_set_hover_kinds(int kinds);
 // Whether the app warns before moving a tab to another profile's Space, which it does once, as Dia
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);
