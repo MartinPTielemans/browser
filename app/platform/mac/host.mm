@@ -2841,6 +2841,12 @@ NSString* CaptureName() {
 
 }  // namespace
 
+void host_capture_name(char* name, size_t capacity) {
+  if (capacity) {
+    strlcpy(name, CaptureName().UTF8String, capacity);
+  }
+}
+
 void host_copy_png(const uint8_t* png, size_t size) {
   NSPasteboard* pasteboard = CopyPasteboard();
   [pasteboard clearContents];

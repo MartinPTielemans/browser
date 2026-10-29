@@ -741,7 +741,7 @@ impl Browser for Fake {
     ) {
     }
 
-    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
+    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: bool, _: &mut App) {}
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 

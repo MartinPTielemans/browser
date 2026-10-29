@@ -12,6 +12,7 @@ compile_error!(env!("ENGINE_HEADER_MISMATCH"));
 use std::{
     cell::{Cell, RefCell},
     ffi::{CStr, CString, c_char, c_int, c_void},
+    path::PathBuf,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -124,7 +125,6 @@ mod platform {
         pub fn host_window_closed(ui_view: *mut c_void);
         #[cfg(target_os = "linux")]
         pub fn host_window_active(ui_view: *mut c_void, active: bool, whole_window: bool);
-        #[cfg(target_os = "linux")]
         pub fn host_capture_name(name: *mut c_char, capacity: usize);
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_show_window_behind(ui_view: *mut c_void, above_ui_view: *mut c_void);
@@ -1209,6 +1209,29 @@ impl capture::Host for CaptureHost {
         unsafe { platform::host_save_png(front().1, png.as_ptr(), png.len()) };
     }
 
+    fn save_to_library(&self, png: &[u8]) {
+        let media = PathBuf::from(profile_dir()).join("Media");
+        let name = capture_name();
+        let png = png.to_vec();
+        // A picture of a whole screen is megabytes, too many to write on the main thread.
+        std::thread::spawn(move || {
+            // Two captures in a second each keep theirs, as the system's screenshots do.
+            let stem = name.trim_end_matches(".png");
+            let path = (1..)
+                .map(|n| match n {
+                    1 => media.join(&name),
+                    n => media.join(format!("{stem} ({n}).png")),
+                })
+                .find(|path| !path.exists())
+                .unwrap_or_default();
+            match std::fs::create_dir_all(&media).and_then(|_| std::fs::write(&path, png)) {
+                // check.sh reads this line.
+                Ok(()) => log!("browser: saved to library {}", path.display()),
+                Err(error) => log!("couldn't save to the library at {}: {error}", path.display()),
+            }
+        });
+    }
+
     fn share(&self, png: &[u8], share: capture::Share) {
         let (view, at, messages) = match share {
             capture::Share::Menu(at) => (front().1, at, false),
@@ -1223,6 +1246,13 @@ impl capture::Host for CaptureHost {
             platform::host_share_png(png.as_ptr(), png.len(), view, x, y, width, height, messages)
         };
     }
+}
+
+/// A capture's file name, as the system names a screenshot.
+pub(crate) fn capture_name() -> String {
+    let mut name = [0 as c_char; 64];
+    unsafe { platform::host_capture_name(name.as_mut_ptr(), name.len()) };
+    unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned()
 }
 
 /// The user left capture mode: a click outside it, another window or another app.
@@ -2560,12 +2590,13 @@ impl Browser for Engine {
         frame: Bounds<Pixels>,
         radius: f32,
         full_page: bool,
+        library: bool,
         cx: &mut App,
     ) {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, cx),
+                false => capture::start(tab, frame, radius, library, cx),
             },
             cx,
         );
