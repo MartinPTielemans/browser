@@ -261,7 +261,7 @@ go_from_bar "$away_page"
 expect "^browser: title $a away\$" "the favorite didn't go to another page"
 expect "^browser: page $a away 1\$" "the favorite away from its URL didn't say so"
 post rightclick $tile
-expect "^browser: menu shown $(cased 'Back to Favorite URL, Duplicate Tab, Remove from Favorites, ')" \
+expect "^browser: menu shown $(cased 'Back to Favorite URL, Replace Favorite URL with Current, Duplicate Tab, Remove from Favorites, ')" \
   "the favorite's menu didn't offer Remove from Favorites"
 send choose "$(cased 'Remove from Favorites')"
 expect '^browser: favorites $' "Remove from Favorites left the tile"
@@ -304,7 +304,7 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 [ "$(grep '^browser: favorites' "$log" | tail -1)" = "browser: favorites $twin" ] ||
   fail "the second profile didn't keep the twin as its own favorite: $(grep '^browser: favorites' "$log" | tail -1)"
 post rightclick $tile
-expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, ')" \
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, ')" \
   "the second profile's favorite's menu didn't offer Remove from Favorites"
 send choose "$(cased 'Remove from Favorites')"
 expect '^browser: favorites $' "Remove from Favorites left the second profile's tile"
@@ -318,7 +318,7 @@ expect "^browser: selected $d\( in .*\)\{0,1\}\$" "⌘W didn't show the second S
 # one.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 218 60
+send clickkey 190 60
 expect '^browser: settings tab Profiles$' "a click on Profiles didn't show its tab"
 send doubleclickkey 130 170
 expect "^browser: rename profile $work\$" "a double-click on Profile 2 didn't put it in a field"

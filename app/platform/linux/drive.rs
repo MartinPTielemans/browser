@@ -417,8 +417,8 @@ fn target_in(window: xproto::Window, x: f64, y: f64) -> Option<Target> {
 }
 
 /// The window of the app's that the pointer at (`x`, `y`) in the driven browser window is over, as
-/// the X server picks it: an overlay over the window, then GPUI's window, but where its shape
-/// leaves holes for the pages, which are Chromium's window's.
+/// the X server picks it: an overlay over the window, or a panel in it, then GPUI's window, but
+/// where its shape leaves holes for the pages, which are Chromium's window's.
 fn target_at(x: f64, y: f64) -> Option<Target> {
     let browser = driven()?;
     let at = target_in(browser.window, x, y)?;
@@ -434,8 +434,8 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
         .reply()
         .ok()?
         .child;
-    // An overlay is a child of the root, and a panel, such as the find bar, one of the browser
-    // window's, over its page.
+    // An overlay is a child of the root, and a panel, such as the find bar or the offer to save a
+    // password, one of the browser window's, over its page.
     if let Some(view) = overlay_views()
         .into_iter()
         .find(|&view| [top.child, child].contains(&(view as usize as u32)))
@@ -1050,6 +1050,31 @@ fn zoom_changes(connection: &RustConnection) {
     }
 }
 
+/// Chromium's own windows over browser window `browser`, such as autofill's dropdown, which
+/// drive.mm lists among a window's child windows: those that show and that no window manager takes,
+/// from the bottom up. Chromium's are the X client's that made `browser`, as a window's id says,
+/// where GPUI's, such as the overlays' shadows, are another client's.
+fn popups(browser: xproto::Window) -> Option<Vec<xproto::Window>> {
+    let x = server()?;
+    let (connection, root) = &*x;
+    let client = !connection.setup().resource_id_mask;
+    let tops = connection.query_tree(*root).ok()?.reply().ok()?.children;
+    Some(
+        tops.into_iter()
+            .filter(|&top| top != browser && top & client == browser & client)
+            .filter(|&top| {
+                connection
+                    .get_window_attributes(top)
+                    .ok()
+                    .and_then(|cookie| cookie.reply().ok())
+                    .is_some_and(|a| {
+                        a.override_redirect && a.map_state == xproto::MapState::VIEWABLE
+                    })
+            })
+            .collect(),
+    )
+}
+
 /// The item of `menus` titled `title`, in a submenu too, or with "Submenu › Item", the item in the
 /// submenu so titled.
 fn menu_item<'a>(menus: &'a [Menu], title: &str) -> Option<&'a MenuItem> {
@@ -1336,8 +1361,9 @@ fn run_command(line: &str) -> Option<()> {
             );
             log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
             let [left, top, ..] = frame(browser.window)?;
-            for view in overlay_views() {
-                let [x, y, width, height] = frame(view as usize as u32)?;
+            let views = overlay_views().into_iter().map(|view| view as usize as u32);
+            for view in views.chain(popups(browser.window).unwrap_or_default()) {
+                let [x, y, width, height] = frame(view)?;
                 log!(
                     "browser: layout child {:.0},{:.0} {width:.0}x{height:.0}",
                     x - left,
