@@ -125,6 +125,9 @@ pub enum Command {
     RenameSpace,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
+    /// Brings back the shown Space's profile's sidebar from its backup taken at this time, in
+    /// milliseconds since 1970, once the user confirms.
+    RestoreSidebar(u64),
     /// The Space at this index in the switcher.
     SelectSpace(usize),
     NextSpace,
@@ -625,6 +628,7 @@ impl Command {
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
             Command::ChangeProfile(_) => "change-profile",
+            Command::RestoreSidebar(_) => "restore-sidebar",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
@@ -926,6 +930,7 @@ impl Shell {
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
+            Command::RestoreSidebar(time) => return self.restore_sidebar(time, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
             Command::PreviousSpace => {
@@ -1267,6 +1272,7 @@ fn private_runs(command: Command) -> bool {
             | Command::NewSpace
             | Command::RenameSpace
             | Command::ChangeProfile(_)
+            | Command::RestoreSidebar(_)
             | Command::SelectSpace(_)
             | Command::NextSpace
             | Command::PreviousSpace

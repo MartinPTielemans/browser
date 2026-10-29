@@ -154,6 +154,7 @@ source_set("browser_core") {
   deps = [
     ":drm_request",
     "//base",
+    "//base:i18n",
     "//chrome/app:command_ids",
     "//chrome/app:generated_resources",
     "//chrome/browser",
