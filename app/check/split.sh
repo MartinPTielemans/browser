@@ -11,9 +11,9 @@
 # Split gives the focused pane the card and the other 220 wide through a resize, and again does nothing. Change
 # Orientation stacks the panes, with the find bar at the focused one's corner. Launched again, the
 # app brings the split back stacked with both pages at the heights they were dragged to, and Change
-# Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩
-# in the command bar opens a URL beside the page, and ⌘W closes the focused pane, leaving the page
-# beside it alone, which ⇧⌘T puts back. The ✕ on a split's row closes all its panes, and the window
+# Orientation puts them side by side again, as each pane's split controls do. Separate Page from
+# Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, and ⌘W
+# closes the focused pane, leaving the page beside it alone, which ⇧⌘T puts back. The ✕ on a split's row closes all its panes, and the window
 # shows the tab above them. ⇧⌘T brings them back together. A row dragged onto the page brings a
 # target to each of the card's sides, which go when it's back over the sidebar, and let go on the
 # left one, the tab joins the page shown on its left. The command bar's Flip Split View, Move Pane
@@ -342,6 +342,19 @@ expect "^browser: splits $a+$b\$" "Change Orientation didn't put the panes side 
 read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $right" ] ||
   fail "the panes aren't side by side again with the ring on the right one: $pages"
+# Each pane's split controls, in the window's margin over it, show the split's menu, whose Change
+# Orientation stacks the split and, from the top pane's, puts it side by side again.
+controls=$(cased 'Change Orientation, Separate Page from Split View, Close this Split Pane')
+post click $((x + (half - 10) / 2)) 5
+expect "^browser: menu shown $controls\$" "a click on the left pane's split controls didn't show their menu"
+send choose "$(cased 'Change Orientation')"
+expect '^browser: command change-orientation via split controls$' \
+  "the split controls' Change Orientation didn't run"
+expect "^browser: splits $a/$b\$" "the split controls didn't stack the panes"
+post click $((x + w / 2)) 5
+expect "^browser: menu shown $controls\$" "a click on the top pane's split controls didn't show their menu"
+send choose "$(cased 'Change Orientation')"
+expect "^browser: splits $a+$b\$" "the top pane's split controls didn't put the panes side by side"
 send click $((x + w - 100)) 400
 # Separate Page from Split View shows the focused pane alone.
 send menu Separate Page from Split View

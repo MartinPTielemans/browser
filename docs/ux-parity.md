@@ -215,6 +215,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | ⌥-click a sidebar row | MVP | another tab joins the page shown, the page shown alone splits with a copy, a split's tab leaves it. Built, and checked by `cargo test`; to tick: a step in `./check.sh split`, run on the Mac | Arc help |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
 | [ ] | A split's menu | MVP | Mute under each tab's name; Duplicate copies the whole split. Built, and checked by `cargo test`; to tick: a capture of a split row's menu | Arc help |
+| [ ] | Split controls | MVP | a handle over each pane, whose menu changes orientation, separates or closes that pane; its look and place ours *interim*. Built, and checked by `cargo test`'s `each_pages_split_controls_act_on_that_page`; to tick: `./check.sh split`'s step with `via split controls`, run on the Mac | Arc help |
 | [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh pinned`'s ⌥⇧-click on the pinned tab's link, its `browser: pinned` line holding both and `pinned-split.png` | Arc release notes |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
