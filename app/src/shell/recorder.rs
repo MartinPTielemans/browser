@@ -230,8 +230,9 @@ impl Browser for Recorder {
         self.edit(format!("close below {tab}"));
     }
 
-    fn duplicate(&self, tab: u64, _: &mut App) {
-        self.record(format!("duplicate {tab}"))
+    fn duplicate(&self, tab: u64, _: &mut App) -> u64 {
+        self.record(format!("duplicate {tab}"));
+        self.make()
     }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
