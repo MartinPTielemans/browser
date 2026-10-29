@@ -404,7 +404,8 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void));
 // placed it inside the window.
 void host_show_hover_card(void* ui_view, double left, double top, double width, double height);
 
-// Fades the hover card's window out over |fade| seconds, then hides it.
+// Fades the hover card's window out over |fade| seconds as it shrinks back on a spring, then hides
+// it; at once with |fade| 0. It grows in as it shows, from where it is if it was going.
 void host_hide_hover_card(double fade);
 
 // Calls |pressed| each time the system says it's short of memory, for the UI to let go of what it
