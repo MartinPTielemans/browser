@@ -1207,6 +1207,10 @@ void host_cascaded(void* ui_view, double* x, double* y, double* width, double* h
   *height = (rect.bottom - rect.top) / scale;
 }
 
+// Interim: the window opens at its size, until DWM's motion for it is chosen.
+void host_grow_window(void* ui_view, double x, double y, double width, double height,
+                      double seconds) {}
+
 void host_set_window_title(void* ui_view, const char* title) {
   SetWindowTextW(Root(ui_view), Wide(title).c_str());
 }

@@ -726,7 +726,7 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
   - The look: a fill white 0.06 over the window's, a 0.5 pt edge of white 0.14, and dashes of white 0.25.
   - The picture of the window: radius 10 with a white 0.25 rim, traffic lights 6 pt, and the tab's favicon and title on a page under them. Dia's picture has the page's image.
   - The tab becomes the picture at once, not after a frame or two.
-  - On a drop, the split shows at once, focused on the tab dropped. Away from a target, the tab goes back to its row until there are windows to open.
+  - On a drop, the split shows at once, focused on the tab dropped. Away from a target, the tab opens in a window of its own (Sidebar › Dragging out of the list), which grows out of its picture over 200 ms, easing out, and takes the keyboard (Dia); under Reduce Motion it's simply there, as it is on Linux and Windows for now (*interim*). In full screen or a private window the tab goes back to its row.
   - Over a stacked split the targets stay at the card's sides, and the left one puts the tab at the top, the right one at the bottom.
   - Targets are at the card's sides only, not at each pane's. Favorites, folders and split rows get none, and neither does a tab of the split shown or a split that is full.
 

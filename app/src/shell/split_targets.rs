@@ -40,6 +40,9 @@ const TARGET_TRIGGER: f32 = 26.;
 /// The picture of a window the tab becomes over the page, centred on the pointer (Dia), and ours:
 /// its corners, rim, traffic lights and the page in it.
 const PICTURE: (f32, f32) = (209., 109.5);
+/// Let go away from the targets, the tab's window grows out of its picture over this long, easing
+/// out (ux-parity › Split view).
+const WINDOW_GROW: f32 = 0.2;
 use crate::tokens::shell::split_targets::PICTURE_RADIUS;
 use crate::elevation::Level;
 use crate::tokens::shell::split_targets::PICTURE_LIGHTS;
@@ -157,7 +160,8 @@ impl Shell {
     }
 
     /// The pointer let go of a tab over the page: over a target, it joins the page shown in a split
-    /// view on that side and shows there, and anywhere else it goes back to its row. Returns
+    /// view on that side and shows there, and anywhere else it opens in a window of its own grown
+    /// out of its picture, or in full screen or a private window goes back to its row. Returns
     /// whether it was over the page.
     pub(super) fn drop_over_page(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(drag) = &self.drag else {
@@ -166,12 +170,23 @@ impl Shell {
         let Some(over) = &drag.over_page else {
             return false;
         };
-        let (tab, with, side) = (drag.tab, over.with, over.side());
+        let (tab, with, side, pointer) = (drag.tab, over.with, over.side(), over.pointer);
         // The release that ends the drag isn't a click.
         self.dragged = true;
         self.settle_drag();
-        if let Some(left) = side {
-            self.browser.split_with(tab, with, left, cx);
+        match side {
+            Some(left) => self.browser.split_with(tab, with, left, cx),
+            // Full screen covers the display, and a private window's tabs stay in it.
+            None if !self.full_screen && !self.private => {
+                let (width, height) = PICTURE;
+                let corner = pointer - point(px(width / 2.), px(height / 2.));
+                let picture = Bounds::new(corner, size(px(width), px(height)));
+                let seconds = if cx.reduce_motion() { 0. } else { WINDOW_GROW };
+                // check.sh waits for this line.
+                log!("browser: dropped {tab} away from the targets");
+                self.browser.open_tab_window(tab, picture, seconds, cx);
+            }
+            None => {}
         }
         cx.notify();
         true

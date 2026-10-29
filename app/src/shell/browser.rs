@@ -73,6 +73,10 @@ pub trait Browser {
     /// window under it, if that marked where (`Shell::drop_tab_in`), whose page moves there live
     /// and which comes to the front. The user's: agents get none.
     fn drop_tab_out(&self, tab: u64, position: Point<Pixels>, cx: &mut App);
+    /// A tab dragged over this window's page was let go away from the split targets, its picture at
+    /// `picture` in this window: it opens in a window of its own, as `drop_tab_out`'s, which grows
+    /// out of the picture over `seconds`, or is simply there for none.
+    fn open_tab_window(&self, tab: u64, picture: Bounds<Pixels>, seconds: f32, cx: &mut App);
     /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
     /// hides it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);

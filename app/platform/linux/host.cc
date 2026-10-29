@@ -329,6 +329,10 @@ void host_dock_dot(bool colored, uint32_t color) {}
 // the app asks for, the default one, as nothing here reads the size of the one before.
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
 
+// Interim: the window opens at its size, as the compositor places it.
+void host_grow_window(void* ui_view, double x, double y, double width, double height,
+                      double seconds) {}
+
 // Through the core, as the window is Chromium's: under Wayland its toplevel, which GPUI's window is
 // a subsurface in.
 void host_set_window_title(void* ui_view, const char* title) {

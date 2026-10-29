@@ -85,6 +85,12 @@ void host_show_window_behind(void* ui_view, void* above_ui_view);
 // big, down and to the right as AppKit cascades windows, kept on its screen.
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height);
 
+// Grows the browser window of |ui_view| out of the frame |x| |y| |width| |height|, in
+// host_centered's terms, to its own over |seconds|, easing out. Leaves it be in full screen or for
+// no |seconds|. On the Mac only so far.
+void host_grow_window(void* ui_view, double x, double y, double width, double height,
+                      double seconds);
+
 // Names the browser window of |ui_view| in the Window menu's list of windows and in Mission
 // Control. The window doesn't draw it.
 void host_set_window_title(void* ui_view, const char* title);
