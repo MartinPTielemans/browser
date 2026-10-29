@@ -2,7 +2,8 @@
 # beside it, never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile
 # named Work as Arc's Local State names it, their pinned tabs and folders, and its favorites; from
 # Chrome and from Firefox their bookmarks as a Space named after each and their history, which the
-# core adds. Run again, each adds nothing. Then a passwords file, made up here, comes in through
+# core adds, with Chrome's open tabs, but for the one a bookmark pins, as that Space's Today tabs.
+# Run again, each adds nothing. Then a passwords file, made up here, comes in through
 # Chrome's password importer: the view says how many came in, deletes the file when asked, and a
 # second file with a login's password changed says it conflicted and kept the saved one. Settings'
 # Passwords tab lists what came in. Each step is captured.
@@ -30,6 +31,20 @@ cat > "$chrome/Default/Bookmarks" << 'EOF'
     {"type": "url", "name": "Docs", "url": "https://docs.example.org/"}]},
   "synced": {"type": "folder", "name": "Mobile bookmarks", "children": []}}, "version": 1}
 EOF
+# Chrome's last session, as its SNSS commands: a browser window with two tabs, the second a
+# bookmark's page.
+mkdir -p "$chrome/Default/Sessions"
+perl -e '
+sub cmd { my ($id, $body) = @_; pack("S<C", length($body) + 1, $id) . $body }
+sub nav { my ($tab, $index, $url) = @_;
+  my $pickle = pack("l<3", $tab, $index, length $url) . $url;
+  $pickle .= "\0" x (-length($pickle) % 4);
+  $pickle .= pack("l<", 0);
+  pack("l<", length $pickle) . $pickle }
+print "SNSS", pack("l<", 3), cmd(9, pack("l<2", 1, 0)),
+  cmd(0, pack("l<2", 1, 2)), cmd(2, pack("l<2", 2, 0)), cmd(6, nav(2, 0, "https://open.example.org/")),
+  cmd(0, pack("l<2", 1, 3)), cmd(2, pack("l<2", 3, 1)), cmd(6, nav(3, 0, "https://mail.example.org/")),
+  cmd(255, "")' > "$chrome/Default/Sessions/Session_13400000000000000"
 command -v sqlite3 > /dev/null || fail "no sqlite3 to write Chrome's History with"
 # Chromium counts microseconds from 1601: an hour and two hours ago.
 now=$(( ($(date +%s) + 11644473600) * 1000000 ))
@@ -102,7 +117,7 @@ expect '^browser: import drawn pick$' "Arc's choices didn't draw"
 ../tools/window-screenshot.sh "$pid" "$out/import-pick.png" || fail "no window to capture"
 # Arc's three choices: Spaces, Favorites and History.
 send clickkey 590 282
-expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 3 favorites, 0 pages$' \
+expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 0 open tabs, 3 favorites, 0 pages$' \
   "Import didn't plan Arc's 2 Spaces, 6 pinned tabs and 3 favorites"
 expect '^browser: added profile [0-9]* Work$' "Arc's Work profile didn't come in"
 await '^browser: import done: 2 Spaces, 6 pinned tabs and 3 favorites came in from Arc\.$' ||
@@ -123,22 +138,23 @@ send clickkey 575 134
 expect '^browser: import pick Arc$' "Import… didn't show Arc's choices again"
 expect '^browser: import drawn pick$' "Arc's choices didn't draw"
 send clickkey 590 282
-expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 favorites, 0 pages$' \
+expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 open tabs, 0 favorites, 0 pages$' \
   "the second import would add something again"
 expect '^browser: import done: Everything from Arc is here already\.$' "the second import said it added something"
 ../tools/window-screenshot.sh "$pid" "$out/import-again.png" || fail "no window to capture"
-# Chrome, the second row, brings its bookmarks and history, which the core adds.
+# Chrome, the second row, brings its bookmarks, open tab and history, which the core adds.
 expect '^browser: import drawn done$' "the import's end didn't draw"
 send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 198
 expect '^browser: import pick Chrome$' "Import… on Chrome's row didn't show what comes from it"
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
-send clickkey 590 245
-expect '^browser: import from Chrome: 1 Spaces, 3 pinned tabs, 0 favorites, 2 pages$' \
-  "Import didn't plan Chrome's bookmarks and history"
+# Chrome's three choices: Bookmarks, Open tabs and History.
+send clickkey 590 282
+expect '^browser: import from Chrome: 1 Spaces, 3 pinned tabs, 1 open tabs, 0 favorites, 2 pages$' \
+  "Import didn't plan Chrome's bookmarks, open tab and history"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Chrome's 2 pages"
-expect '^browser: import done: 1 Space, 3 pinned tabs and 2 pages of history came in from Chrome\.$' \
+expect '^browser: import done: 1 Space, 3 pinned tabs, 1 open tab and 2 pages of history came in from Chrome\.$' \
   "the import didn't say what came from Chrome"
 ../tools/window-screenshot.sh "$pid" "$out/import-chrome.png" || fail "no window to capture"
 expect '^browser: import drawn done$' "the import's end didn't draw"
@@ -147,7 +163,7 @@ expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 198
 expect '^browser: import pick Chrome$' "Import… didn't show Chrome's choices again"
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
-send clickkey 590 245
+send clickkey 590 282
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
@@ -159,7 +175,7 @@ send clickkey 575 258
 expect '^browser: import pick Firefox$' "Import… on Firefox's row didn't show what comes from it"
 expect '^browser: import drawn pick$' "Firefox's choices didn't draw"
 send clickkey 590 245
-expect '^browser: import from Firefox: 1 Spaces, 2 pinned tabs, 0 favorites, 2 pages$' \
+expect '^browser: import from Firefox: 1 Spaces, 2 pinned tabs, 0 open tabs, 0 favorites, 2 pages$' \
   "Import didn't plan Firefox's bookmarks and history"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Firefox's 2 pages"
 expect '^browser: import done: 1 Space, 2 pinned tabs and 2 pages of history came in from Firefox\.$' \

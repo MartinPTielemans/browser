@@ -99,6 +99,8 @@ impl Reader<'_> {
             pinned: pinned_container(space)
                 .map(|id| self.nodes(id, &mut HashSet::new()))
                 .unwrap_or_default(),
+            // Today tabs stay in Arc.
+            today: Vec::new(),
         }
     }
 

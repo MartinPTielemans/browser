@@ -44,6 +44,8 @@ pub struct Space {
     pub icon: String,
     pub theme: Option<Theme>,
     pub pinned: Vec<Node>,
+    /// The tabs the browser had open, as the Space's Today tabs, in its order.
+    pub today: Vec<Tab>,
 }
 
 /// A page from the browser's history.

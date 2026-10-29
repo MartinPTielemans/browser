@@ -3,7 +3,8 @@
 //! brings in what the user picks from one: Arc's Spaces with their names, icons, themes and
 //! profiles, their pinned tabs and folders, and its favorites; the other browsers' bookmarks, from
 //! Chromium's family, Firefox's and Safari, as a Space named after the browser, with Safari's
-//! Reading List; and every one's history. Saved passwords and cookies never come from another
+//! Reading List and the tabs Chromium's family had open as its Today tabs; and every one's
+//! history. Saved passwords and cookies never come from another
 //! browser's files: passwords come from a file the user exports, behind that browser's own
 //! sign-in, which Chrome's password importer reads (bc_profile_import_passwords), and the user
 //! signs in again to the rest.
@@ -20,6 +21,7 @@ pub mod found;
 pub mod plan;
 pub mod read;
 pub mod safari;
+pub mod session;
 pub mod sources;
 #[cfg(test)]
 mod tests;
@@ -45,7 +47,7 @@ use sources::{Family, Os, Roots, Source};
 pub trait Host {
     /// Where the other browsers' folders are: the user's, or a made-up home a check run gives.
     fn roots(&self) -> Roots;
-    fn existing(&self) -> Existing;
+    fn existing(&self, cx: &App) -> Existing;
     /// Makes a profile, which loads afterwards, and returns it.
     fn create_profile(&self, name: &str) -> u64;
     /// Makes a Space after the others, in the profile the browser started with, and gives it
@@ -61,6 +63,9 @@ pub trait Host {
     fn add_pinned(&self, space: u64, folder: u64, tab: &Tab);
     /// Makes a tab at `tab`'s URL the last of the favorites `space` shows, in its profile.
     fn add_favorite(&self, space: u64, tab: &Tab);
+    /// Opens a tab at `tab`'s URL at the top of `space`'s Today tabs, in its profile. Its page
+    /// loads once it's first shown.
+    fn add_today(&self, space: u64, tab: &Tab);
     /// Whether `profile` has loaded, so its history can take pages.
     fn profile_loaded(&self, profile: u64) -> bool;
     /// Adds `pages` to `profile`'s history but for those it has, and returns whether it will. If
@@ -118,7 +123,7 @@ impl Host for Detached {
     fn roots(&self) -> Roots {
         self.0.clone()
     }
-    fn existing(&self) -> Existing {
+    fn existing(&self, _: &App) -> Existing {
         Existing::default()
     }
     fn create_profile(&self, _: &str) -> u64 {
@@ -136,6 +141,7 @@ impl Host for Detached {
     }
     fn add_pinned(&self, _: u64, _: u64, _: &Tab) {}
     fn add_favorite(&self, _: u64, _: &Tab) {}
+    fn add_today(&self, _: u64, _: &Tab) {}
     fn profile_loaded(&self, _: u64) -> bool {
         true
     }
@@ -217,9 +223,9 @@ impl Job {
         spaces && history
     }
 
-    /// Adds the pinned tabs, folders and favorites, and returns the history for each profile, which
-    /// the core adds away from the UI.
-    pub fn finish(mut self, host: &dyn Host) -> Vec<(u64, Vec<Page>)> {
+    /// Adds the pinned tabs, folders, Today tabs and favorites, and returns the history for each
+    /// profile, which the core adds away from the UI.
+    pub fn finish(mut self, host: &dyn Host, cx: &App) -> Vec<(u64, Vec<Page>)> {
         fn add(host: &dyn Host, space: u64, folder: u64, adds: &[Add]) {
             for each in adds {
                 match each {
@@ -238,8 +244,12 @@ impl Job {
         }
         for (space, &(id, _)) in self.plan.spaces.iter().zip(&self.spaces) {
             add(host, id, 0, &space.pinned);
+            // Each opens at the top, so the last goes first to keep the browser's order.
+            for tab in space.today.iter().rev() {
+                host.add_today(id, tab);
+            }
         }
-        let existing = host.existing();
+        let existing = host.existing(cx);
         for (profile, tab) in &self.plan.favorites {
             let profile = self.profile(*profile);
             // A favorite goes in through a Space of its profile; one with no Space there stays out.
@@ -486,13 +496,15 @@ impl ImportView {
         let names: Vec<(String, String)> = (from.profiles.iter())
             .map(|profile| (profile.dir.clone(), profile.name.clone()))
             .collect();
-        let plan = plan::plan(&found, &names, &self.host.existing());
+        let plan = plan::plan(&found, &names, &self.host.existing(cx));
         let counts = plan.counts();
         // check.sh waits for this line.
         log!(
-            "browser: import from {name}: {} Spaces, {} pinned tabs, {} favorites, {} pages",
+            "browser: import from {name}: {} Spaces, {} pinned tabs, {} open tabs, {} favorites, {} \
+             pages",
             counts.spaces,
             counts.pinned,
+            counts.today,
             counts.favorites,
             counts.pages
         );
@@ -516,7 +528,7 @@ impl ImportView {
             }));
             return;
         };
-        for (profile, pages) in job.finish(&*self.host) {
+        for (profile, pages) in job.finish(&*self.host, cx) {
             let view = cx.entity().downgrade();
             let then = Box::new(move |added, cx: &mut App| {
                 view.update(cx, |view, cx| view.history_added(added, cx))
@@ -893,6 +905,7 @@ fn summary(name: &str, counts: Counts) -> SharedString {
     let parts: Vec<String> = [
         count(counts.spaces, "Space", "Spaces"),
         count(counts.pinned, "pinned tab", "pinned tabs"),
+        count(counts.today, "open tab", "open tabs"),
         count(counts.favorites, "favorite", "favorites"),
         count(counts.pages, "page of history", "pages of history"),
     ]

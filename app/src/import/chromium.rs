@@ -1,5 +1,6 @@
-//! What a Chromium-based browser's profile holds: its bookmarks, from its `Bookmarks`, and its
-//! history, from its `History`, a SQLite file. Arc's sidebar is arc.rs's.
+//! What a Chromium-based browser's profile holds: its bookmarks, from its `Bookmarks`, the tabs it
+//! had open, from its last session (session.rs), and its history, from its `History`, a SQLite
+//! file. Arc's sidebar is arc.rs's.
 
 use std::path::Path;
 use std::time::SystemTime;
@@ -18,6 +19,9 @@ pub fn read(path: &Path, picked: &[Kind], since: SystemTime) -> Result<Read, Rea
     let bookmarks = path.join("Bookmarks");
     if picked.contains(&Kind::Bookmarks) && bookmarks.is_file() {
         read.pinned = self::bookmarks(&std::fs::read_to_string(&bookmarks)?)?;
+    }
+    if picked.contains(&Kind::OpenTabs) {
+        read.today = super::session::open_tabs(path)?;
     }
     let history = path.join("History");
     if picked.contains(&Kind::History) && history.is_file() {
