@@ -186,9 +186,11 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Clear Today", Keys::Of(Command::Clear)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
+            ("Paste URL as New Tab", Keys::Of(Command::PasteUrlAsTab)),
             ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
             ("New Folder", Keys::Of(Command::NewFolder)),
             ("Collapse All Folders", Keys::Of(Command::CollapseFolders)),
+            ("Expand All Folders", Keys::Of(Command::ExpandFolders)),
         ],
     ),
     (

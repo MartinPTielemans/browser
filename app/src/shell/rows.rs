@@ -39,17 +39,17 @@ use crate::{
 pub(super) const CLEAR_TIP: &str = "Clear unpinned tabs in this space";
 
 impl Shell {
-    /// Closes every folder of the Space shown, all on one fold.
-    pub(super) fn collapse_folders(&mut self, cx: &mut Context<Self>) {
+    /// Opens or closes every folder of the Space shown, all on one fold.
+    pub(super) fn fold_folders(&mut self, open: bool, cx: &mut Context<Self>) {
         let Some(space) = self.shown_space() else {
             return;
         };
         let folders = space.folders.folders.keys().copied();
-        let open: Vec<u64> = folders.filter(|&folder| space.is_open(folder)).collect();
-        // The core reports each, and the first report has them all closed.
-        self.folding = (!open.is_empty()).then_some(false);
-        for folder in open {
-            self.browser.set_folder_open(folder, false, cx);
+        let changed: Vec<u64> = folders.filter(|&folder| space.is_open(folder) != open).collect();
+        // The core reports each, and the first report has them all folded.
+        self.folding = (!changed.is_empty()).then_some(open);
+        for folder in changed {
+            self.browser.set_folder_open(folder, open, cx);
         }
     }
 
@@ -1500,6 +1500,27 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(host.moves.get(), 1);
         assert!(!host.take().iter().any(|call| call.starts_with("select")));
+    }
+
+    /// Expand All Folders opens the Space's closed folders and Collapse All Folders closes its
+    /// open ones, each on one fold, leaving the rest alone.
+    #[gpui::test]
+    fn expand_and_collapse_all_fold_only_the_folders_that_change(cx: &mut TestAppContext) {
+        let docs = [(20, ("Docs".into(), true)), (22, ("Work".into(), false))];
+        let folders = Folders { folders: docs.into(), parents: Default::default() };
+        let (shell, cx, host) = window_with(cx, vec![20, 21, 22, 23], vec![4], 4, folders);
+        let folds = |command, cx: &mut VisualTestContext| {
+            host.take();
+            shell.update(cx, |shell, cx| shell.run(command, "ui", cx));
+            let calls = host.take();
+            let folds = calls.into_iter().filter(|call| call.starts_with("folder open"));
+            (folds.collect::<Vec<_>>(), shell.read_with(cx, |shell, _| shell.folding))
+        };
+        assert_eq!(folds(Command::ExpandFolders, cx), (vec!["folder open 22 true".into()], Some(true)));
+        assert_eq!(
+            folds(Command::CollapseFolders, cx),
+            (vec!["folder open 20 false".into()], Some(false))
+        );
     }
 
     /// A press on a folder's row closes it at once, as Arc's does, and a press again opens it.
