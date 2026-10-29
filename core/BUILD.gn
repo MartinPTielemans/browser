@@ -122,6 +122,8 @@ source_set("browser_core") {
     "link_target.h",
     "main_delegate.cc",
     "main_delegate.h",
+    "notes.cc",
+    "notes.h",
     "open_app_dialog.cc",
     "open_app_dialog.h",
     "page_menu.cc",
