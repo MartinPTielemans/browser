@@ -12,7 +12,8 @@ use std::{
 use gpui::{
     AnyElement, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight, Hsla,
     Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ObjectFit, Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, img,
+    ObjectFit, Pixels, Point, RenderImage, SharedString, Stateful, Subscription, Window, canvas,
+    div, img,
     linear_color_stop, linear_gradient, list,
     prelude::*, px, relative, svg,
 };
@@ -169,6 +170,13 @@ pub struct Archived {
     pub title: SharedString,
     /// When it was archived, in milliseconds since the Unix epoch.
     pub archived: f64,
+}
+
+/// A video a Media tile plays: its file's name, for the log, and the frame it shows, none before
+/// its first.
+pub(super) struct MediaVideo {
+    name: SharedString,
+    frame: Option<Arc<RenderImage>>,
 }
 
 /// A capture saved to the Library, as the browser lists them.
@@ -1034,7 +1042,8 @@ impl Shell {
                 .child(empty)
                 .into_any_element()
         } else {
-            let item = cx.processor(|shell, index, _, cx| shell.archive_item(index, cx));
+            let item =
+                cx.processor(|shell, index, window, cx| shell.archive_item(index, window, cx));
             list(library.list.clone(), item).size_full().into_any_element()
         };
         let width = self.library_width();
@@ -1322,7 +1331,12 @@ impl Shell {
 
     /// A line of the archive's list: a heading, or an archived tab, which reopens on a click and
     /// shows its menu on a right-click.
-    fn archive_item(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn archive_item(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(item) = self.library.as_ref().and_then(|library| library.items.get(index)) else {
             return div().into_any_element();
         };
@@ -1346,7 +1360,7 @@ impl Shell {
             }
             Item::Tab(tab) => tab,
             Item::Download(download) => return self.download_item(download, cx),
-            Item::Media(row) => return self.media_row(row, cx),
+            Item::Media(row) => return self.media_row(row, window, cx),
         };
         let Some(tab) = self.archive.get(tab) else {
             return div().into_any_element();
@@ -1412,6 +1426,7 @@ impl Shell {
     fn media_row(
         &mut self,
         row: [Option<Medium>; MEDIA_COLUMNS],
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let tiles: Vec<_> = row.iter().flatten().filter_map(|&medium| {
@@ -1423,7 +1438,7 @@ impl Shell {
                     (each.id, each.path.clone(), each.name.clone())
                 }),
             }?;
-            Some(self.media_tile(id, path, name, cx))
+            Some(self.media_tile(id, path, name, window, cx))
         }).collect();
         div()
             .pl(px(ARCHIVED_LEFT))
@@ -1440,6 +1455,7 @@ impl Shell {
         id: u64,
         path: SharedString,
         name: SharedString,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // Asked for once a tile first shows, as the archive's favicons are.
@@ -1448,7 +1464,12 @@ impl Shell {
             self.browser.file_preview(id, &path, cx);
         }
         let video = is_video(&name) == Some(true);
+        let playing = video.then(|| self.video_frame(id, &path, &name, window, cx)).flatten();
         let picture = match self.download_previews.get(&id).cloned().flatten() {
+            // Square, as the tile.
+            _ if let Some(frame) = playing => {
+                img(frame).size_full().rounded(px(MEDIA_RADIUS)).into_any_element()
+            }
             Some(preview) if preview.photo => {
                 img(preview.image).size_full().object_fit(ObjectFit::Cover).into_any_element()
             }
@@ -1503,6 +1524,62 @@ impl Shell {
                     .text_color(Hsla::white())
             }))
             .into_any_element()
+    }
+
+    /// The frame tile `id`'s video shows, playing it, without sound and again from its start, from
+    /// the tile's first draw until a frame without it. None before its first frame, and where the
+    /// platform plays none, while the tile shows its still.
+    fn video_frame(
+        &mut self,
+        id: u64,
+        path: &str,
+        name: &SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Arc<RenderImage>> {
+        if !self.media_videos.contains_key(&id) {
+            let side = (MEDIA_TILE * window.scale_factor()).ceil() as u32;
+            if !self.browser.open_video(id, path, side, cx) {
+                return None;
+            }
+            self.media_videos.insert(id, MediaVideo { name: name.clone(), frame: None });
+        }
+        self.videos_drawn.insert(id);
+        // Its next frame may be due by the window's.
+        window.request_animation_frame();
+        let video = self.media_videos.get_mut(&id)?;
+        if let Some(frame) = self.browser.video_frame(id, cx) {
+            match video.frame.replace(frame) {
+                // Each frame is an image of its own in GPUI's atlas, which keeps it until dropped.
+                Some(shown) => window.drop_image(shown).unwrap_or_default(),
+                // check.sh waits for this line.
+                None => log!("browser: media video playing {}", video.name),
+            }
+        }
+        video.frame.clone()
+    }
+
+    /// Stops the videos whose tiles the last frame didn't draw, as the Library closed, left Media
+    /// or scrolled them away.
+    pub(super) fn stop_videos(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let drawn = std::mem::take(&mut self.videos_drawn);
+        let gone: Vec<u64> =
+            self.media_videos.keys().filter(|id| !drawn.contains(id)).copied().collect();
+        for id in gone {
+            self.browser.close_video(id, cx);
+            let Some(video) = self.media_videos.remove(&id) else {
+                continue;
+            };
+            if let Some(frame) = video.frame {
+                window.drop_image(frame).unwrap_or_default();
+            }
+            // check.sh waits for this line.
+            log!("browser: media video stopped {}", video.name);
+        }
+        // Those left are drawn again in this frame, or stop in the next.
+        if !self.media_videos.is_empty() {
+            window.request_animation_frame();
+        }
     }
 
     /// Opens a file of the Library's Media in a tab at the top of the Today tabs, where the page
@@ -2265,6 +2342,47 @@ mod tests {
         cx.run_until_parked();
         assert!(host.take().contains(&"open file:///tmp/my%20photo.jpg".to_string()));
         assert!(!shell.read_with(cx, |shell, _| shell.library_open), "the Library stayed open");
+    }
+
+    /// A video's tile plays it from its first draw, and stops it once the Library closes.
+    #[gpui::test]
+    fn a_video_plays_in_its_tile_while_media_shows_it(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        let clip = Download {
+            id: 3,
+            name: "clip.mp4".into(),
+            path: "/tmp/clip.mp4".into(),
+            started: 1.,
+            ..download(DownloadState::Done, false)
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_downloads(vec![clip], cx);
+            shell.section = Section::Media;
+            shell.set_library(true, cx);
+            shell.library_motion = None;
+            shell.sidebar_fade = None;
+        });
+        cx.run_until_parked();
+        let opened = host.take();
+        assert!(opened.iter().any(|call| call.starts_with("open video 3 ")), "{opened:?}");
+        let shown = |cx: &mut gpui::VisualTestContext| {
+            let video = |shell: &Shell| shell.media_videos.get(&3).map(|each| each.frame.is_some());
+            shell.read_with(cx, |shell, _| video(shell))
+        };
+        assert_eq!(shown(cx), Some(true), "the tile didn't show the video's frame");
+        // Closed at once, as the slide out's frames don't come in a test, nor the frame after the
+        // first without the tile, which a window asks for.
+        shell.update(cx, |shell, cx| {
+            shell.close_library_now();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert!(host.take().contains(&"close video 3".to_string()), "the video played on");
+        assert_eq!(shown(cx), None);
     }
 
     /// A right-click on a capture's tile offers Open and Delete, which moves it to the Trash and

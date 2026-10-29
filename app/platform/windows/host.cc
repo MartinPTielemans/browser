@@ -2075,6 +2075,17 @@ void host_file_preview(const char* path,
   }).detach();
 }
 
+// shortcut: no video playback yet; Media's video tiles show their preview.
+void* host_video_open(const char*, int) {
+  return nullptr;
+}
+
+bool host_video_frame(void*, uint8_t*) {
+  return false;
+}
+
+void host_video_close(void*) {}
+
 void host_copy(const char* text) {
   std::wstring wide = Wide(text);
   if (!OpenClipboard(nullptr)) {

@@ -126,7 +126,7 @@ pub use recent_downloads::{FilePreview, HOVER_ALL};
 use clean_link::clean_link;
 use commands::ShellHandle;
 use fly_in::Flight;
-use library::{RECEDE_X, Section};
+use library::{MediaVideo, RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
 use recent_downloads::RecentDownloads;
@@ -1124,6 +1124,9 @@ pub struct Shell {
     /// The previews asked for the recent downloads' files and the Library's media, by download, or
     /// by `library::capture_id`, and the rows over the Library button.
     download_previews: HashMap<u64, Option<FilePreview>>,
+    /// The videos Media's tiles play, by tile, and the tiles drawn since the last frame.
+    media_videos: HashMap<u64, MediaVideo>,
+    videos_drawn: HashSet<u64>,
     recent_downloads: RecentDownloads,
     /// Every download a report has listed, whether one has come, and the new download's icon on its
     /// way to the Library button.
@@ -1365,6 +1368,8 @@ impl Shell {
             library_dragged: false,
             captures: Vec::new(),
             download_previews: HashMap::new(),
+            media_videos: HashMap::new(),
+            videos_drawn: HashSet::new(),
             recent_downloads: RecentDownloads::default(),
             downloads_seen: HashSet::new(),
             downloads_read: false,
@@ -2686,6 +2691,7 @@ impl Render for Shell {
         self.a11y = window.is_a11y_active();
         self.watch_appearance(window, cx);
         self.full_screen_step("drawn", window.viewport_size());
+        self.stop_videos(window, cx);
         // check.sh reads this line. It comes as the rows are drawn, so a click it sends next goes
         // to what's drawn.
         if std::mem::take(&mut self.outline_changed) {

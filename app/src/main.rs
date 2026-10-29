@@ -11,6 +11,7 @@ compile_error!(env!("ENGINE_HEADER_MISMATCH"));
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     ffi::{CStr, CString, c_char, c_int, c_void},
     path::PathBuf,
     rc::Rc,
@@ -258,6 +259,9 @@ mod platform {
                 image: bool,
             ),
         );
+        pub fn host_video_open(path: *const c_char, side: c_int) -> *mut c_void;
+        pub fn host_video_frame(video: *mut c_void, pixels: *mut u8) -> bool;
+        pub fn host_video_close(video: *mut c_void);
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
@@ -1703,6 +1707,23 @@ struct Engine {
     ui_view: *mut c_void,
     /// GPUI's view, which has the keyboard when the UI does.
     view: *mut c_void,
+    /// The videos Media's tiles play, by tile.
+    videos: RefCell<HashMap<u64, Video>>,
+}
+
+/// A video a Media tile plays, from the host, with the pixels its frames are copied into.
+struct Video {
+    player: *mut c_void,
+    side: u32,
+    pixels: Vec<u8>,
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        for (_, video) in self.videos.take() {
+            unsafe { platform::host_video_close(video.player) };
+        }
+    }
 }
 
 impl Browser for Engine {
@@ -1906,6 +1927,36 @@ impl Browser for Engine {
     fn file_preview(&self, download: u64, path: &str, _: &mut App) {
         if let Ok(path) = CString::new(path) {
             unsafe { platform::host_file_preview(path.as_ptr(), download, file_preview) };
+        }
+    }
+
+    fn open_video(&self, id: u64, path: &str, side: u32, _: &mut App) -> bool {
+        let Ok(path) = CString::new(path) else {
+            return false;
+        };
+        let player = unsafe { platform::host_video_open(path.as_ptr(), side as c_int) };
+        if player.is_null() {
+            return false;
+        }
+        let pixels = vec![0; side as usize * side as usize * 4];
+        self.videos.borrow_mut().insert(id, Video { player, side, pixels });
+        true
+    }
+
+    fn video_frame(&self, id: u64, _: &mut App) -> Option<Arc<gpui::RenderImage>> {
+        let mut videos = self.videos.borrow_mut();
+        let video = videos.get_mut(&id)?;
+        if !unsafe { platform::host_video_frame(video.player, video.pixels.as_mut_ptr()) } {
+            return None;
+        }
+        // BGRA, as GPUI draws a RenderImage's pixels.
+        let frame = image::RgbaImage::from_raw(video.side, video.side, video.pixels.clone())?;
+        Some(Arc::new(gpui::RenderImage::new(vec![image::Frame::new(frame)])))
+    }
+
+    fn close_video(&self, id: u64, _: &mut App) {
+        if let Some(video) = self.videos.borrow_mut().remove(&id) {
+            unsafe { platform::host_video_close(video.player) };
         }
     }
 
@@ -3290,7 +3341,12 @@ fn open_window_as(
             .detach();
             #[cfg(target_os = "linux")]
             system::watch_activation(window, ui_view, wayland_size.is_some(), cx);
-            let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });
+            let engine = Rc::new(Engine {
+                window: id,
+                ui_view,
+                view: ns_view(window),
+                videos: RefCell::default(),
+            });
             match (&from_shell, private_space) {
                 (_, Some((space, profile))) => {
                     Shell::private_window(engine, space, private_name(profile), profile, cx)
