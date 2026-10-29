@@ -21,6 +21,7 @@
 #include "browser_core/platform/linux/ui_text_input.h"
 #include "browser_core/platform/linux/wayland.h"
 #include "browser_core/window.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
@@ -203,7 +204,10 @@ class WindowViews : public views::WidgetObserver,
     if (!slot.holder) {
       slot.holder = std::make_unique<aura::Window>(nullptr);
       slot.holder->set_owned_by_parent(false);
-      slot.holder->Init(ui::LAYER_NOT_DRAWN);
+      // A colour where its page hasn't drawn, as an aura page draws nothing before its first
+      // frame, where the Mac's view shows its background.
+      slot.holder->Init(ui::LAYER_SOLID_COLOR);
+      slot.holder->layer()->SetColor(SK_ColorTRANSPARENT);
       slot.holder->SetName("BrowserCorePane");
       slot.holder->layer()->SetMasksToBounds(true);
       slot.holder->layer()->SetIsFastRoundedCorner(true);
@@ -704,6 +708,9 @@ void ShowPages(views::Widget* widget,
       }
     }
     views->Keep(slot, pane.page, devtools);
+    holder->layer()->SetColor(pane.color ? SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff,
+                                                         *pane.color & 0xff)
+                                         : SK_ColorTRANSPARENT);
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->Show();
   }
