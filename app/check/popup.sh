@@ -58,21 +58,32 @@ check_layout "with the popup's tab"
 ../tools/window-screenshot.sh "$pid" "$out/popup.png" || fail "no window to capture"
 # The page's context menu is Chrome's, with Arc's link items, without those Arc's leaves out or
 # whose UI is in Chrome's own window (Copy Link Text, Reading Mode, Lens, QR Code, Cast). It shows
-# in ilo's menu, with its top left at the click.
+# in ilo's menu, with its top left at the click. Off the Mac its items are in sentence case, as
+# Chrome's are there.
+if windows || [ "$(uname)" = Linux ]; then
+  in_tab='Open link in new tab'
+  link_items="$in_tab, Open link in new window, Open link in split view, "
+  link_items="${link_items}Open link in incognito window, Save link as…"
+else
+  in_tab='Open Link in New Tab'
+  link_items="$in_tab, Open Link in New Window, Open Link in Split View, "
+  link_items="${link_items}Open Link in Incognito Window, Save Link As…"
+fi
 send key 1 cmd
 expect "^browser: selected $opener in " "⌘1 didn't show the page again"
 post rightclick 250 30
 expect "^browser: page menu $opener at 250,30\$" \
   "the page's menu isn't at the click: $(grep '^browser: page menu' "$log" | tail -1)"
-expect '^browser: menu shown Open Link in New Tab, Open Link in New Window, Open Link in Split View, Open Link in Incognito Window, Save Link As…, ' \
+expect "^browser: menu shown $link_items, " \
   "a right-click on the page's link didn't show the link's menu"
 menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 case "$menu" in
-*"Link Text"* | *"Reading Mode"* | *Lens* | *"QR Code"* | *Cast*)
+*"Link Text"* | *"link text"* | *"Reading Mode"* | *"reading mode"* | *Lens* | *"QR Code"* | \
+  *"QR code"* | *Cast*)
   fail "the link's menu offers what Arc's leaves out: $menu" ;;
 esac
 ../tools/window-screenshot.sh "$pid" "$out/link-menu.png" || fail "no window to capture"
-send choose Open Link in New Tab
+send choose $in_tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
   "Open Link in New Tab didn't open a tab under the page"
 none_since '^browser: selected' || fail "Open Link in New Tab showed its tab"
@@ -89,9 +100,9 @@ expect "^browser: page $first unloaded 1\$" "the link's tab behind didn't wait t
 expect "^browser: page $first back 0 forward 0 loading 0 https://example.org/\$" \
   "the link's tab behind doesn't have the link's address"
 post rightclick 250 30
-expect '^browser: menu shown Open Link in New Tab, ' \
+expect "^browser: menu shown $in_tab, " \
   "a right-click on the link didn't show its menu"
-send choose Open Link in New Tab
+send choose $in_tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
   "Open Link in New Tab didn't open a second tab"
 second=$(behind)
@@ -116,9 +127,9 @@ expect "^browser: loaded $first https://example.org/\$" \
 switch "1 cmd" "$opener"
 # A third, still waiting at the quit, for the relaunch at the end.
 post rightclick 250 30
-expect '^browser: menu shown Open Link in New Tab, ' \
+expect "^browser: menu shown $in_tab, " \
   "a right-click on the link didn't show its menu"
-send choose Open Link in New Tab
+send choose $in_tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
   "Open Link in New Tab didn't open a third tab"
 third=$(behind)
