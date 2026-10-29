@@ -5,6 +5,7 @@ use gpui::{App, Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
     AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
+    commands::markdown_text,
     undo::{Prop, Value},
     user_keys,
 };
@@ -584,6 +585,7 @@ impl Shell {
 
     /// A folder's menu.
     fn folder_menu(&self, folder: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let links = !self.folder_links(folder).is_empty();
         vec![
             (
                 MenuEntry::new("Rename Folder", true),
@@ -592,11 +594,68 @@ impl Shell {
             ),
             (MenuEntry::line(), "", Box::new(|_, _| {})),
             (
+                MenuEntry::new("Copy All Links", links),
+                "copy-all-links",
+                Box::new(move |shell, cx| shell.copy_folder_links(folder, false, cx)),
+            ),
+            (
+                MenuEntry::new("Copy All Links as Markdown", links),
+                "copy-all-links-markdown",
+                Box::new(move |shell, cx| shell.copy_folder_links(folder, true, cx)),
+            ),
+            (
+                MenuEntry::new("Paste URL as New Tab", true),
+                "paste-url-as-tab",
+                Box::new(move |shell, cx| shell.paste_url_into(folder, cx)),
+            ),
+            (MenuEntry::line(), "", Box::new(|_, _| {})),
+            (
                 MenuEntry::new("Delete Folder", true).destructive(),
                 "delete-folder",
                 Box::new(move |shell, cx| shell.delete_folder_now(folder, cx)),
             ),
         ]
+    }
+
+    /// The tabs in `folder` and the folders in it, in the sidebar's order, with their links,
+    /// without their tracking parameters. Those with none are left out.
+    fn folder_links(&self, folder: u64) -> Vec<(u64, String)> {
+        let Some(space) = self.spaces.iter().find(|space| space.is_folder(folder)) else {
+            return Vec::new();
+        };
+        let within = |row: u64| {
+            let mut parent = space.folder_of(row);
+            while parent != 0 && parent != folder {
+                parent = space.folder_of(parent);
+            }
+            parent == folder
+        };
+        let tabs = space.pinned.iter().filter(|&&row| !space.is_folder(row) && within(row));
+        let links = tabs.map(|&tab| (tab, clean_link(&self.url(tab))));
+        links.filter(|(_, link)| !link.is_empty()).collect()
+    }
+
+    /// A folder's Copy All Links, as Arc's: each link on a line, or each a Markdown link, which
+    /// Arc's menu offers with ⌥ held.
+    fn copy_folder_links(&mut self, folder: u64, markdown: bool, cx: &mut Context<Self>) {
+        let lines: Vec<String> = (self.folder_links(folder).into_iter())
+            .map(|(tab, link)| match markdown {
+                false => link,
+                true => format!("[{}]({link})", markdown_text(&self.title(tab))),
+            })
+            .collect();
+        let toast = if markdown { "Copied Links as Markdown" } else { "Copied All Links" };
+        self.copy(&lines.join("\n"), toast, cx);
+    }
+
+    /// A folder's Paste URL as New Tab: the clipboard's web link as a tab at the folder's top,
+    /// opened and shown, as ⌥⌘V opens one at the top of Today.
+    fn paste_url_into(&mut self, folder: u64, cx: &mut Context<Self>) {
+        let Some(urls) = self.pasted_urls(cx) else {
+            return;
+        };
+        self.browser.set_folder_open(folder, true, cx);
+        self.browser.open_at(&urls, true, folder, 0, cx);
     }
 
     /// A pinned tab's menu (ours: Arc's isn't recorded).
@@ -957,7 +1016,9 @@ mod tests {
     use gpui::{Entity, TestAppContext, point, px};
 
     use super::{MenuEntry, sentence_case, space_menu_head, space_menu_label};
-    use crate::shell::{Folders, Page, Shell, drag::detents::shell_with, recorder::Recorder};
+    use crate::shell::{
+        Command, Folders, Page, Shell, drag::detents::shell_with, recorder::Recorder,
+    };
 
     /// Off the Mac, ilo's items are in sentence case, keeping its nouns Space and Library and
     /// acronyms capitalized.
@@ -1137,6 +1198,68 @@ mod tests {
         host.take();
         cx.update(|cx| host.choose("Share…", cx));
         assert_eq!(host.take(), [format!("share sheet 10 https://example.com/ {title}")]);
+    }
+
+    /// A folder's menu copies the links of every tab in it, nested folders' too, each on a line or
+    /// as Markdown, and pastes the clipboard's link as a tab at its top, as Arc's does.
+    #[gpui::test]
+    fn a_folders_menu_copies_its_links_and_pastes_one_in(cx: &mut TestAppContext) {
+        let folders = Folders {
+            folders: [(20, ("Docs".into(), true)), (22, ("Old".into(), false))].into(),
+            parents: [(21, 20), (22, 20), (23, 22)].into(),
+        };
+        let (shell, host) = shell_with(cx, &[20, 21, 22, 23], &[24], folders);
+        shell.update(cx, |shell, cx| {
+            shell.set_page(21, page("https://a.example/?utm_source=x", false, false), cx);
+            shell.set_page(23, page("https://b.example/", false, false), cx);
+            shell.set_page(24, page("https://c.example/", false, false), cx);
+            shell.set_title(21, "A [1]".into(), cx);
+        });
+        let menu = tab_menu(&shell, &host, cx, 20);
+        let at = menu.iter().position(|title| title == "Copy All Links");
+        let at = at.unwrap_or_else(|| panic!("{menu:?}"));
+        let items = ["Copy All Links", "Copy All Links as Markdown", "Paste URL as New Tab"];
+        assert_eq!(menu[at..at + 3], items);
+        host.take();
+        cx.update(|cx| host.choose("Copy All Links", cx));
+        assert!(host.take().contains(&"copy https://a.example/\nhttps://b.example/".to_string()));
+        tab_menu(&shell, &host, cx, 20);
+        host.take();
+        cx.update(|cx| host.choose("Copy All Links as Markdown", cx));
+        let title = shell.read_with(cx, |shell, _| shell.title(23));
+        let (a, b) = ("[A \\[1\\]](https://a.example/)", "https://b.example/");
+        let markdown = format!("copy {a}\n[{title}]({b})");
+        assert!(host.take().contains(&markdown), "{markdown}");
+
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://d.example/".into()));
+        tab_menu(&shell, &host, cx, 22);
+        host.take();
+        cx.update(|cx| host.choose("Paste URL as New Tab", cx));
+        let calls = host.take();
+        assert!(calls.contains(&"folder open 22 true".to_string()), "{calls:?}");
+        assert!(calls.contains(&"open https://d.example/ true 22 0".to_string()), "{calls:?}");
+    }
+
+    /// File › Share… and the command bar's Share… open the same sheet for the page shown, and
+    /// aren't offered where the system has none, as on Linux, or for a page with no link.
+    #[gpui::test]
+    fn the_share_command_opens_the_sheet_for_the_page_shown(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11], Folders::default());
+        shell.update(cx, |shell, cx| {
+            shell.set_page(10, page("https://example.com/?utm_source=x", false, false), cx);
+            shell.set_selected(10, cx);
+        });
+        let offered =
+            |cx: &mut TestAppContext| shell.read_with(cx, |shell, _| shell.offers(Command::Share));
+        assert!(!offered(cx), "offered with no share sheet");
+        host.share_sheet.set(true);
+        assert!(offered(cx));
+        let title = shell.read_with(cx, |shell, _| shell.title(10));
+        host.take();
+        shell.update(cx, |shell, cx| shell.run(Command::Share, "ui", cx));
+        assert_eq!(host.take(), [format!("share sheet 10 https://example.com/ {title}")]);
+        shell.update(cx, |shell, cx| shell.set_page(10, page("", false, false), cx));
+        assert!(!offered(cx), "offered for a page with no link");
     }
 
     /// Where the system has neither, as Linux, the menu has no Share at all.
