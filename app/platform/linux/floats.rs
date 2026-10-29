@@ -6,12 +6,15 @@
 //! The tooltip and the link target fade in and out as the UI asks, as the Mac's do, drawn by GPUI
 //! (motion.rs).
 //!
-//! shortcut: the link target doesn't hear the pointer over the page, which is Chromium's on Linux,
-//! so it doesn't move out of the pointer's way.
+//! The link target hears the pointer over the page while it shows, which Chromium's windows have
+//! on Linux, through GPUI (`gpui_linux::watch_pointer_over`), so it moves out of the pointer's way.
 
-use std::{cell::RefCell, ffi::c_void};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::c_void,
+};
 
-use gpui::{Bounds, Pixels, point, px, size};
+use gpui::{Bounds, Pixels, Point, point, px, size};
 
 use crate::motion::{self, EASE_OUT, Motion, Track};
 
@@ -60,6 +63,8 @@ thread_local! {
     /// window.
     static TOOLTIP: RefCell<(f64, Option<extern "C" fn()>)> = const { RefCell::new((0., None)) };
     static LINK_MARGIN: RefCell<f64> = const { RefCell::new(0.) };
+    /// Where the link target tells the UI the pointer is, over the window it shows over.
+    static LINK_POINTER: Cell<Option<extern "C" fn(f64, f64)>> = const { Cell::new(None) };
 }
 
 fn add(kind: Kind, view: *mut c_void) {
@@ -141,6 +146,9 @@ fn hide(kind: Kind) -> bool {
     };
     if over.is_null() && fading.is_null() {
         return false;
+    }
+    if kind == Kind::LinkTarget {
+        gpui_linux::watch_pointer_over(std::ptr::null_mut(), None);
     }
     gpui_linux::hide_overlay(view, || {});
     !over.is_null()
@@ -359,19 +367,36 @@ pub extern "C" fn host_hide_tooltip(fade: f64) {
 pub extern "C" fn host_add_link_target(
     link_view: *mut c_void,
     margin: f64,
-    _pointer: extern "C" fn(x: f64, y: f64),
+    pointer: extern "C" fn(x: f64, y: f64),
 ) {
     LINK_MARGIN.set(margin);
+    LINK_POINTER.set(Some(pointer));
     add(Kind::LinkTarget, link_view);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn host_show_link_target(ui_view: *mut c_void, left: f64, top: f64, fade: f64) {
     find(Kind::LinkTarget, |float| (float.left, float.top) = (left, top));
+    // check.sh reads this line: which side it's on, out of the pointer's way.
+    eprintln!("browser: link target window at {left} {top}");
     fade_in(Kind::LinkTarget, ui_view, fade, "browser: link target window shown");
+    // Only while it shows, so an idle browser is never woken by the pointer.
+    gpui_linux::watch_pointer_over(ui_view, Some(link_pointer));
+}
+
+/// The pointer moved over the window the link target shows over: the UI hears it after the event.
+fn link_pointer(at: Point<Pixels>) {
+    let Some(pointer) = LINK_POINTER.get() else {
+        return;
+    };
+    let (x, y) = (f64::from(f32::from(at.x)), f64::from(f32::from(at.y)));
+    if let Some(cx) = crate::CX.with_borrow(Clone::clone) {
+        cx.foreground_executor().spawn(async move { pointer(x, y) }).detach();
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn host_hide_link_target(fade: f64) {
+    gpui_linux::watch_pointer_over(std::ptr::null_mut(), None);
     fade_out(Kind::LinkTarget, fade);
 }
