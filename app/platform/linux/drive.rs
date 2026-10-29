@@ -209,7 +209,16 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
     X.with_borrow_mut(|x| {
         if x.is_none() {
             let (connection, screen) = x11rb::connect(None).ok()?;
-            let root = connection.setup().roots[screen].root;
+            let screen = &connection.setup().roots[screen];
+            let root = screen.root;
+            // The server's own pointer goes to the screen's far corner, out of the window. Under
+            // the window, a page that maps as a tab shows would take it, and the server would tell
+            // GPUI the pointer left, ending the hover the driver's events gave it and starting a
+            // held row's drag.
+            let (right, bottom) = (screen.width_in_pixels - 1, screen.height_in_pixels - 1);
+            connection
+                .warp_pointer(x11rb::NONE, root, 0, 0, 0, 0, right as i16, bottom as i16)
+                .ok()?;
             *x = Some(Rc::new((connection, root)));
         }
         x.clone()
@@ -532,30 +541,9 @@ fn hover(to: Target, state: u16) -> Option<()> {
     Some(())
 }
 
-/// Whether `state` holds a button.
-fn holds(state: u16) -> bool {
-    (1..=5).any(|button| state & button_mask(button) != 0)
-}
-
-/// Puts the X server's own pointer at `at`, where the events say it is, before a press or a move
-/// with nothing held. Left elsewhere, it's under a page that maps as a tab shows, and the X server
-/// tells GPUI the pointer left its window, which ends its hover and starts a held row's drag. A
-/// held drag isn't warped, as the server's move would hold no button.
-fn warp(at: Target) -> Option<()> {
-    let x = server()?;
-    let (connection, root) = &*x;
-    connection
-        .warp_pointer(x11rb::NONE, *root, 0, 0, 0, 0, at.root_x, at.root_y)
-        .ok()?;
-    Some(())
-}
-
 /// Sends a press of `button`, 1 the left, 2 the middle, 3 the right and 4 to 7 the wheel's, or its
 /// release, at `at`, with `state` the modifiers and the buttons held before it.
 fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
-    if press && !holds(state) {
-        warp(at)?;
-    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
@@ -584,9 +572,6 @@ fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
 }
 
 fn motion(at: Target, state: u16) -> Option<()> {
-    if !holds(state) {
-        warp(at)?;
-    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
@@ -611,11 +596,14 @@ fn motion(at: Target, state: u16) -> Option<()> {
     connection.flush().ok()
 }
 
-/// A click of `which` (1 the left, 3 the right, 4 to 7 the wheel's) at `at`, the second of a
-/// double click with `again`. A first click waits until GPUI wouldn't count it with the last
-/// one, as the driver clicks faster than a hand does.
-fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
-    if which <= 3 && !again {
+/// Before a press of `which` at `at`, waits until GPUI wouldn't count it with the last press
+/// there, as the driver presses faster than a hand does, unless it's the second of a double click
+/// (`again`). A drag's press counts too, so a click where a drag began isn't a double click.
+fn space_press(at: Target, which: u8, again: bool) {
+    if which > 3 {
+        return;
+    }
+    if !again {
         let last = LAST_CLICKS.with_borrow(|clicks| clicks.get(&at.window).copied());
         if let Some((then, last, last_which)) = last
             && last_which == which
@@ -628,10 +616,14 @@ fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
             );
         }
     }
-    if which <= 3 {
-        let now = std::time::Instant::now();
-        LAST_CLICKS.with_borrow_mut(|clicks| clicks.insert(at.window, (now, at, which)));
-    }
+    let now = std::time::Instant::now();
+    LAST_CLICKS.with_borrow_mut(|clicks| clicks.insert(at.window, (now, at, which)));
+}
+
+/// A click of `which` (1 the left, 2 the middle, 3 the right, 4 to 7 the wheel's) at `at`, the
+/// second of a double click with `again`.
+fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
+    space_press(at, which, again);
     button(at, which, true, state)?;
     button(
         at,
@@ -1120,6 +1112,7 @@ fn run_command(line: &str) -> Option<()> {
                 ..target_in(driven()?.window, x2, y2)?
             };
             let to = relative_to(to, at.window)?;
+            space_press(at, 1, false);
             button(at, 1, true, none)?;
             motion(to, button_mask(1))?;
             button(to, 1, false, button_mask(1))
@@ -1134,6 +1127,7 @@ fn run_command(line: &str) -> Option<()> {
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
+                space_press(at, which, false);
                 return button(at, which, true, none);
             }
             let to = target_in(driven()?.window, x, y)?;
