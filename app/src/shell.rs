@@ -66,6 +66,7 @@ mod menu_bar;
 mod menus;
 mod naming;
 mod new_space;
+mod onboarding;
 mod page_menu;
 mod page_dialog;
 mod page_motion;
@@ -103,12 +104,12 @@ pub use extensions::{
 };
 pub use keys::{
     Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable, recorded,
-    reserved, user_keys, web_keystroke, written_as,
+    reserved, user_keys, view_binding, web_keystroke, written_as,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
-pub use page_menu::PageMenuItem;
+pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
 pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
@@ -620,6 +621,8 @@ enum Naming {
 struct Renaming {
     naming: Naming,
     name: Entity<TextInput>,
+    /// Whether the field is in the Space's card in the Library rather than in the sidebar.
+    in_library: bool,
     /// Keeps the name once the field loses GPUI's focus, as Finder does.
     _blur: Option<Subscription>,
 }
@@ -939,6 +942,9 @@ pub struct Shell {
     beside_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
     button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
+    /// The icon slots the Library's Space cards were last drawn with, by Space, for their
+    /// tooltips to hang from.
+    slot_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
     /// went past or back, from how far in it was then.
     scrolled: bool,
@@ -965,6 +971,14 @@ pub struct Shell {
     empty_settled: bool,
     /// The first run's welcome takes the empty card until a page shows (set_welcome).
     welcome: bool,
+    /// A new profile's first launch, or Help › Welcome to ilo, over the window while it shows.
+    onboarding: Option<onboarding::Onboarding>,
+    /// The first launch's import, made at its first step and kept for the window's life, so an
+    /// import under way goes on while the steps after it show and once the flow has ended.
+    importing: Option<onboarding::Importing>,
+    /// The onboarding has just ended, so the empty card says what the command bar over it is,
+    /// until a page shows.
+    in_hint: bool,
     /// The press under way was on a target that opens the command bar while it was open, so the
     /// click that follows only closes it.
     press_closed_bar: bool,
@@ -1231,6 +1245,7 @@ impl Shell {
             #[cfg(test)]
             beside_frames: Rc::default(),
             button_frames: Rc::default(),
+            slot_frames: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
             tools_on: false,
@@ -1244,6 +1259,9 @@ impl Shell {
             empty_since: None,
             empty_settled: false,
             welcome: false,
+            onboarding: None,
+            importing: None,
+            in_hint: false,
             press_closed_bar: false,
             drag: None,
             dragged: false,
@@ -1994,6 +2012,11 @@ impl Shell {
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
+        // With no page, AppKit offers the window's ⌘ shortcuts to the UI's view. On Linux the keys
+        // go to the window, where nothing takes them, unless the UI has them.
+        if tab == 0 && cfg!(target_os = "linux") {
+            self.browser.focus_ui(cx);
+        }
         self.set_new_tab(false, cx);
         self.selection_moved(before);
         self.adding_pane = None;
@@ -2229,12 +2252,21 @@ impl Shell {
     }
 
     /// The window's bounds changed, as they do when it's maximized or restored: the third button
-    /// shows which it would do next.
+    /// shows which it would do next. They change as it goes full screen or comes back too, which
+    /// on Linux nothing else says.
     pub fn bounds_changed(&mut self, cx: &mut Context<Self>) {
         let maximized = self.browser.window_maximized();
         if maximized != std::mem::replace(&mut self.maximized, maximized) {
             // The check waits for this line.
             log!("browser: window maximized {maximized}");
+            cx.notify();
+        }
+        let full_screen = self.browser.window_full_screen();
+        if full_screen != self.full_screen {
+            // check.sh waits for this line, which the Mac's driver writes.
+            let way = if full_screen { "entered" } else { "left" };
+            log!("browser: window {way} full screen");
+            self.set_full_screen(full_screen, cx);
             cx.notify();
         }
     }
@@ -2639,6 +2671,10 @@ impl Render for Shell {
             Naming::Folder(folder) => self.is_folder(folder),
             _ => true,
         });
+        // A name being typed in a card is kept as the Library closes over it, however it closes.
+        if !self.library_open && self.renaming.as_ref().is_some_and(|renaming| renaming.in_library) {
+            self.keep_name(window, cx);
+        }
         if drawn
             && std::mem::take(&mut self.focus_renaming)
             && let Some(renaming) = &mut self.renaming
@@ -2792,8 +2828,7 @@ impl Render for Shell {
             && self.sidebar_motion.is_none()
             && self.library.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
-        let own_buttons = (DRAWS_WINDOW_BUTTONS && self.window_buttons && !self.full_screen)
-            .then(|| self.window_buttons(cx));
+        let own_buttons = self.draws_own_window_buttons().then(|| self.window_buttons(cx));
         self.breath.arm(cx);
         div()
             .key_context(KEY_CONTEXT)
@@ -2853,6 +2888,7 @@ impl Render for Shell {
             .children(own_buttons)
             .child(self.scroll_listener(true, cx))
             .child(self.navigate_listener(cx))
+            .children(self.onboarding_layer(window, cx))
     }
 }
 
@@ -3260,6 +3296,11 @@ impl Shell {
         panel
     }
 
+    /// Whether the UI draws the window's own buttons, where nothing else does, at `WINDOW_BUTTONS`.
+    pub fn draws_own_window_buttons(&self) -> bool {
+        DRAWS_WINDOW_BUTTONS && self.window_buttons && !self.full_screen
+    }
+
     /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
     fn window_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let zoom = if self.maximized { "icons/window-restore.svg" } else { ZOOM_GLYPH };
@@ -3437,6 +3478,15 @@ fn name_box(palette: &Palette, icon: bool) -> gpui::Div {
 /// The dashed square that holds the icon's place before a Space's name, in the name row `name_box`
 /// makes, while the icon picker shows for a Space with no icon.
 fn icon_placeholder() -> impl IntoElement {
+    dashed_square(rgba(ICON_PLACEHOLDER_COLOR).into())
+        .absolute()
+        .left(px(FAVICON_X + FAVICON_SIZE / 2. - ICON_PLACEHOLDER / 2.))
+        .top(px((NAME_HEIGHT - ICON_PLACEHOLDER) / 2.))
+        .size(px(ICON_PLACEHOLDER))
+}
+
+/// A square of Arc's dashes in `color`, as big as it's laid out.
+pub(super) fn dashed_square(color: Hsla) -> gpui::Canvas<()> {
     let line = ICON_PLACEHOLDER_LINE;
     canvas(
         |_, _, _| {},
@@ -3451,29 +3501,31 @@ fn icon_placeholder() -> impl IntoElement {
             let mut path = PathBuilder::stroke(px(line)).dash_array(&[px(dash), px(gap)]);
             split_targets::rounded_rect(&mut path, inner, px(ICON_PLACEHOLDER_RADIUS) - inset);
             if let Ok(path) = path.build() {
-                window.paint_path(path, rgba(ICON_PLACEHOLDER_COLOR));
+                window.paint_path(path, color);
             }
         },
     )
-    .absolute()
-    .left(px(FAVICON_X + FAVICON_SIZE / 2. - ICON_PLACEHOLDER / 2.))
-    .top(px((NAME_HEIGHT - ICON_PLACEHOLDER) / 2.))
-    .size(px(ICON_PLACEHOLDER))
 }
 
 /// A Space's icon before its name, in the name row `name_box` makes, if it has one: its emoji, or
 /// its glyph in the name's colour.
 pub(super) fn space_icon(palette: &Palette, icon: &str) -> Option<gpui::Div> {
-    let drawn = match SpaceIcon::parse(icon) {
-        SpaceIcon::Dot => return None,
-        SpaceIcon::Emoji(emoji) => SharedString::from(emoji.to_string()).into_any_element(),
-        SpaceIcon::Glyph(index) => svg()
-            .path(GLYPHS[index].1)
-            .size(px(SPACE_GLYPH))
-            .text_color(palette.text(SPACE_NAME))
-            .into_any_element(),
-    };
-    Some(icon_slot(drawn))
+    space_icon_drawn(palette, icon).map(icon_slot)
+}
+
+/// A Space's emoji, or its glyph in the name's colour, if it has an icon.
+pub(super) fn space_icon_drawn(palette: &Palette, icon: &str) -> Option<gpui::AnyElement> {
+    match SpaceIcon::parse(icon) {
+        SpaceIcon::Dot => None,
+        SpaceIcon::Emoji(emoji) => Some(SharedString::from(emoji.to_string()).into_any_element()),
+        SpaceIcon::Glyph(index) => Some(
+            svg()
+                .path(GLYPHS[index].1)
+                .size(px(SPACE_GLYPH))
+                .text_color(palette.text(SPACE_NAME))
+                .into_any_element(),
+        ),
+    }
 }
 
 /// The place before a Space's name that its icon takes, with `drawn` in it.

@@ -70,10 +70,10 @@ expect "^browser: profiled space $second $default\$" \
 expect "^browser: settled space $second\$" "the new Space's page didn't settle"
 # The form's Profile and Choose a Theme rows, under its name field.
 post click 100 255
-expect '^browser: menu shown Default (checked), New Profile$' \
+expect "^browser: menu shown $(cased 'Default (checked), New Profile')\$" \
   "the form's Profile row didn't show the profiles"
 ../tools/window-screenshot.sh "$pid" "$out/profile-popup.png" || fail "no window to capture"
-send choose New Profile
+send choose "$(cased 'New Profile')"
 expect '^browser: create profile [0-9]* Profile 2$' "New Profile didn't make a profile"
 work=$(sed -n 's/^browser: create profile \([0-9]*\) .*/\1/p' "$log" | tail -1)
 expect "^browser: added profile $work Profile 2\$" "the new profile wasn't listed"
@@ -98,16 +98,16 @@ expect '^browser: space form gone$' "the form didn't leave after return"
 name_point="100 112"
 tiled_name="100 159"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, Profile › Default, \
-Profile › Profile 2 (checked), Profile › New Profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, Profile › Default, \
+Profile › Profile 2 (checked), Profile › New Profile, Delete Space")\$" \
   "the empty Space's menu didn't offer its profiles"
 ../tools/window-screenshot.sh "$pid" "$out/profile-menu.png" || fail "no window to capture"
 send choose Default
 expect "^browser: profiled space $second $default\$" "Default didn't take the Space back"
 expect "^browser: favorites $a\$" "the first profile's favorite didn't show in its Space again"
 post rightclick $tiled_name
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, Profile › Default (checked), \
-Profile › Profile 2, Profile › New Profile, Profile › Delete “Profile 2”, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, Profile › Default (checked), \
+Profile › Profile 2, Profile › New Profile, Profile › Delete “Profile 2”, Delete Space")\$" \
   "the menu didn't offer the unused profile back"
 send choose Profile 2
 expect "^browser: profiled space $second $work\$" "Profile 2 didn't take the Space again"
@@ -132,8 +132,8 @@ none_since '^browser: space [0-9]' || fail "a swipe let go short of halfway show
 expect "^browser: settled space $second\$" "the Space's page didn't settle back"
 # Its menu, with a tab, can't change its profile.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, Profile › Default (disabled), \
-Profile › Profile 2 (checked), Profile › New Profile (disabled), Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, Profile › Default (disabled), \
+Profile › Profile 2 (checked), Profile › New Profile (disabled), Delete Space")\$" \
   "the menu of a Space with a tab offered another profile"
 send choose Profile 2
 none_since '^browser: profiled space' || fail "choosing its own profile changed the Space's"
@@ -226,9 +226,9 @@ tile="114 110"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show Settings on its General tab"
 post clickkey 500 250
-expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked), In Each Space\$" \
+expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces (checked), In Each Space")\$" \
   "a click on Favorites didn't show the choices"
-send choose In Every Space
+send choose "$(cased 'In Every Space')"
 expect "^browser: favorites scope In Every Space\$" "choosing In Every Space in Settings didn't set it"
 expect '^browser: favorites [0-9][0-9]*$' "the favorite has no twin in the other profile's Space"
 twin=$(grep '^browser: favorites' "$log" | tail -1 | cut -d' ' -f3)
@@ -244,17 +244,17 @@ go_from_bar "$away_page"
 expect "^browser: title $a away\$" "the favorite didn't go to another page"
 expect "^browser: page $a away 1\$" "the favorite away from its URL didn't say so"
 post rightclick $tile
-expect '^browser: menu shown Back to Favorite URL, Duplicate Tab, Remove from Favorites, ' \
+expect "^browser: menu shown $(cased 'Back to Favorite URL, Duplicate Tab, Remove from Favorites, ')" \
   "the favorite's menu didn't offer Remove from Favorites"
-send choose Remove from Favorites
+send choose "$(cased 'Remove from Favorites')"
 expect '^browser: favorites $' "Remove from Favorites left the tile"
 send key z cmd
 expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo Remove from Favorites"
 expect "^browser: favorites $a\$" "⌘Z didn't put the favorite back"
 # Back to Favorite URL takes each twin to the URL the favorite had, in its own profile.
 post rightclick $tile
-expect '^browser: menu shown Back to Favorite URL, ' "⌘Z put the favorite back without its URL"
-send choose Back to Favorite URL
+expect "^browser: menu shown $(cased 'Back to Favorite URL, ')" "⌘Z put the favorite back without its URL"
+send choose "$(cased 'Back to Favorite URL')"
 expect "^browser: title $a cookie p\$" "Back to Favorite URL didn't load the favorite's URL"
 send key 2 ctrl
 expect "^browser: space $second in " "⌃2 didn't show the second Space"
@@ -268,8 +268,8 @@ expect "^browser: selected $twin\( in .*\)\{0,1\}\$" "a click on the twin's tile
 go_from_bar "$elsewhere_page"
 expect "^browser: title $twin elsewhere\$" "the twin didn't go to another page"
 post rightclick $tile
-expect '^browser: menu shown Back to Favorite URL, ' "the twin away from its URL didn't offer it back"
-send choose Back to Favorite URL
+expect "^browser: menu shown $(cased 'Back to Favorite URL, ')" "the twin away from its URL didn't offer it back"
+send choose "$(cased 'Back to Favorite URL')"
 expect "^browser: title $twin cookie none\$" \
   "the twin's Back to Favorite URL didn't load the favorite's URL in its own profile"
 # Back to In Each Profile's Spaces, each profile keeps the site as its own favorite. Removed and
@@ -277,9 +277,9 @@ expect "^browser: title $twin cookie none\$" \
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 post clickkey 500 250
-expect "^browser: menu shown In Every Space (checked), In Each Profile's Spaces, In Each Space\$" \
+expect "^browser: menu shown $(cased "In Every Space (checked), In Each Profile's Spaces, In Each Space")\$" \
   "a click on Favorites didn't show In Every Space chosen"
-send choose "In Each Profile's Spaces"
+send choose "$(cased "In Each Profile's Spaces")"
 expect "^browser: favorites scope In Each Profile's Spaces\$" \
   "choosing In Each Profile's Spaces in Settings didn't set it"
 send key w cmd
@@ -287,9 +287,9 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 [ "$(grep '^browser: favorites' "$log" | tail -1)" = "browser: favorites $twin" ] ||
   fail "the second profile didn't keep the twin as its own favorite: $(grep '^browser: favorites' "$log" | tail -1)"
 post rightclick $tile
-expect '^browser: menu shown Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, ' \
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, ')" \
   "the second profile's favorite's menu didn't offer Remove from Favorites"
-send choose Remove from Favorites
+send choose "$(cased 'Remove from Favorites')"
 expect '^browser: favorites $' "Remove from Favorites left the second profile's tile"
 expect "^browser: today $twin $d\$" "the removed favorite isn't at the top of Today: Today is \"$(today)\""
 send click $page_point
@@ -355,9 +355,9 @@ expect "^browser: spaces $first\$" "Delete didn't delete the second Space"
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "deleting the second Space didn't show the first"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post rightclick $tiled_name
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, Profile › Default (checked), \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, Profile › Default (checked), \
 Profile › personal, Profile › New Profile, Profile › Delete “personal”, \
-Delete Space (disabled)\$" \
+Delete Space (disabled)")\$" \
   "the menu didn't offer to delete the unused profile by the name Settings gave it"
 post choose Delete “personal”
 expect '^browser: dialog shown Delete “personal”?$' "Delete didn't ask before deleting the profile"

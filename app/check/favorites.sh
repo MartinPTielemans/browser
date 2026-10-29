@@ -53,7 +53,7 @@ expect_tabs "$b $a" "$b" "after opening a tab"
 # Below. Dragged onto the Space's name, the row takes the tab out of Today into a tile, and its
 # press shows the tab, as Arc's does.
 post rightclick $(row 1)
-expect "^browser: menu shown Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)\$" \
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" \
   "a right-click on the bottom Today row didn't show Arc's tab menu"
 send dismiss
 send press $(row 1)
@@ -157,9 +157,9 @@ switch "1 cmd" "$a"
 expect "^browser: loaded $a $site\$" "the unloaded favorite didn't load once shown"
 # The tile's menu. Duplicate Tab opens a copy at the top of Today and shows it.
 post rightclick $tile
-expect '^browser: menu shown Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab$' \
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab')\$" \
   "a right-click on the tile didn't show the favorite's menu"
-send choose Duplicate Tab
+send choose "$(cased 'Duplicate Tab')"
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
 expect "^browser: today [0-9][0-9]* $b\$" \
   "Duplicate Tab didn't open a copy at the top of Today: Today is \"$(today)\""
@@ -212,9 +212,9 @@ expect '^browser: menu shown 12 hours (default) (checked), 24 hours, 7 days, 30 
 send choose 24 hours
 expect '^browser: archive tabs after 24 hours$' "choosing 24 hours in Settings didn't set it"
 post clickkey 500 250
-expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked), In Each Space\$" \
+expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces (checked), In Each Space")\$" \
   "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
-send choose In Each Space
+send choose "$(cased 'In Each Space')"
 expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
 send clickkey 491 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
@@ -254,9 +254,9 @@ if [ "$active" != 1 ]; then
   exit 0
 fi
 post rightclick $tile
-expect '^browser: menu shown Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab$' \
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab')\$" \
   "a right-click on the restored tile didn't show the favorite's menu"
-send choose Remove from Favorites
+send choose "$(cased 'Remove from Favorites')"
 expect '^browser: command remove-from-favorites via tab menu$' "Remove from Favorites didn't run"
 expect '^browser: favorites $' "Remove from Favorites left the tile"
 expect "^browser: today $a $left\$" \
@@ -453,9 +453,9 @@ expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 
 send choose "12 hours (default)"
 expect '^browser: archive tabs after 12 hours (default)$' "choosing 12 hours didn't set it"
 post clickkey 500 250
-expect "^browser: menu shown In Every Space, In Each Profile's Spaces, In Each Space (checked)\$" \
+expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces, In Each Space (checked)")\$" \
   "Settings didn't keep Each Space across the quit"
-send choose "In Each Profile's Spaces"
+send choose "$(cased "In Each Profile's Spaces")"
 expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
 send clickkey 491 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"

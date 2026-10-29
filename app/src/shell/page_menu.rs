@@ -26,9 +26,94 @@ fn entries(items: &[PageMenuItem]) -> Vec<MenuEntry> {
         .map(|(at, item)| MenuEntry {
             parent: item.parent.filter(|&parent| parent < at),
             checked: item.checked,
-            ..MenuEntry::new(item.title.clone(), item.enabled && !item.title.is_empty())
+            ..MenuEntry::named(item.title.clone(), item.enabled && !item.title.is_empty())
         })
         .collect()
+}
+
+/// A made-up page menu of `kind` (link, image, text or field), as Chromium 156 builds it once the
+/// core has taken out what Arc's leaves out, for the preview to show without the engine. On the
+/// Mac it's in title case, with the Mac's Look Up, Speech and Writing Direction; elsewhere it's in
+/// Chromium's sentence case, and a misspelt word's Language settings is in Spell check instead.
+pub fn made_up(kind: &str, mac: bool) -> Vec<PageMenuItem> {
+    let row = |command: i32, title: &str| PageMenuItem {
+        command,
+        title: title.to_string().into(),
+        parent: None,
+        enabled: true,
+        checked: false,
+    };
+    let os = |on_mac: &str, elsewhere: &str| if mac { on_mac } else { elsewhere }.to_string();
+    let line = || row(0, "");
+    let under = |parent: usize, item: PageMenuItem| PageMenuItem { parent: Some(parent), ..item };
+    let off = |item: PageMenuItem| PageMenuItem { enabled: false, ..item };
+    let mut items = match kind {
+        "image" => vec![
+            row(50120, &os("Open Image in New Tab", "Open image in new tab")),
+            row(50121, &os("Save Image As…", "Save image as…")),
+            row(50122, &os("Copy Image", "Copy image")),
+            row(50123, &os("Copy Image Address", "Copy image address")),
+        ],
+        "text" => {
+            let mut items = vec![
+                row(50150, "Copy"),
+                row(50151, "Search DuckDuckGo for “ilo”"),
+                row(35003, "Print…"),
+            ];
+            if mac {
+                items.splice(0..0, [row(50160, "Look Up “ilo”"), line()]);
+                items.extend([
+                    line(),
+                    row(50170, "Speech"),
+                    under(6, row(50171, "Start Speaking")),
+                    under(6, off(row(50172, "Stop Speaking"))),
+                ]);
+            }
+            items
+        }
+        "field" => {
+            let mut items = vec![
+                row(41000, "receive"),
+                row(41001, "relieve"),
+                row(41100, &os("Add to Dictionary", "Add to dictionary")),
+            ];
+            if mac {
+                items.push(row(41101, "Language Settings"));
+            }
+            items.extend([
+                line(),
+                off(row(50151, "Cut")),
+                off(row(50150, "Copy")),
+                row(50152, "Paste"),
+                row(50153, &os("Paste and Match Style", "Paste as plain text")),
+                row(50154, &os("Select All", "Select all")),
+            ]);
+            if mac {
+                items.extend([
+                    row(50180, "Writing Direction"),
+                    under(10, PageMenuItem { checked: true, ..row(50181, "Default") }),
+                    under(10, row(50182, "Left to Right")),
+                    under(10, row(50183, "Right to Left")),
+                    line(),
+                    row(50170, "Speech"),
+                    under(15, row(50171, "Start Speaking")),
+                    under(15, off(row(50172, "Stop Speaking"))),
+                ]);
+            }
+            items
+        }
+        _ => vec![
+            row(50100, &os("Open Link in New Tab", "Open link in new tab")),
+            row(50101, &os("Open Link in New Window", "Open link in new window")),
+            row(50105, &os("Open Link in Split View", "Open link in split view")),
+            row(50102, &os("Open Link in Incognito Window", "Open link in incognito window")),
+            line(),
+            row(50103, &os("Save Link As…", "Save link as…")),
+            row(50104, &os("Copy Link Address", "Copy link address")),
+        ],
+    };
+    items.extend([line(), row(26500, "Inspect")]);
+    items
 }
 
 impl Shell {
@@ -135,6 +220,66 @@ mod tests {
         assert!(!entries[3].enabled, "Cut is off with nothing selected");
         assert!(!entries[2].enabled, "a line isn't chosen");
         assert!(entries.iter().all(|entry| entry.shortcut.is_none() && !entry.destructive));
+    }
+
+    fn titles(items: &[PageMenuItem]) -> Vec<&str> {
+        items.iter().map(|item| item.title.as_ref()).collect()
+    }
+
+    /// The made-up link menu's items read as Chromium's do on each system, as check/split.sh
+    /// chooses them there.
+    #[test]
+    fn the_made_up_link_menu_is_in_each_systems_case() {
+        assert_eq!(
+            titles(&made_up("link", true)),
+            [
+                "Open Link in New Tab",
+                "Open Link in New Window",
+                "Open Link in Split View",
+                "Open Link in Incognito Window",
+                "",
+                "Save Link As…",
+                "Copy Link Address",
+                "",
+                "Inspect",
+            ]
+        );
+        assert_eq!(
+            titles(&made_up("link", false)),
+            [
+                "Open link in new tab",
+                "Open link in new window",
+                "Open link in split view",
+                "Open link in incognito window",
+                "",
+                "Save link as…",
+                "Copy link address",
+                "",
+                "Inspect",
+            ]
+        );
+    }
+
+    /// Look Up, Speech and Writing Direction are the Mac's, and off it Language settings moves to
+    /// Spell check, which a misspelt word's menu leaves out. Each submenu row is under its own.
+    #[test]
+    fn the_macs_own_items_are_only_on_the_mac() {
+        let macs = ["Look Up “ilo”", "Speech", "Writing Direction", "Language Settings"];
+        for kind in ["link", "image", "text", "field"] {
+            for mac in [true, false] {
+                let items = made_up(kind, mac);
+                for item in &items {
+                    let parent = item.parent.map(|parent| items[parent].title.as_ref());
+                    assert!(matches!(parent, None | Some("Speech" | "Writing Direction")));
+                }
+                if !mac {
+                    assert!(titles(&items).iter().all(|title| !macs.contains(title)), "{kind}");
+                }
+            }
+        }
+        let field = made_up("field", false);
+        assert!(titles(&field).contains(&"Paste as plain text"));
+        assert!(titles(&made_up("field", true)).contains(&"Paste and Match Style"));
     }
 
     #[test]

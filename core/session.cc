@@ -38,6 +38,7 @@
 #include "components/sessions/content/content_serialized_navigation_builder.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/session_constants.h"
+#include "components/sync/protocol/unique_position.pb.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -83,13 +84,30 @@ std::vector<bc_id>& RestoredSpaces() {
 // A navigation's page state is left out past this, as in Chrome's sessions.
 constexpr int kMaxNavigationSize = 63 * 1024;
 
-// How many folders |id| is in.
-int DepthOf(const Space& space, bc_id id) {
-  int depth = 0;
-  for (bc_id folder = space.FolderOf(id); folder; folder = space.FolderOf(folder)) {
-    ++depth;
+// Puts |node|'s id and place in |dict|, if it has them.
+void WriteNode(const Space::Node& node, base::DictValue& dict) {
+  if (!node.id.is_valid() || !node.position.IsValid()) {
+    return;
   }
-  return depth;
+  std::string position;
+  node.position.SerializeToString(&position);
+  dict.Set("id", node.id.AsLowercaseString());
+  dict.Set("position", base::Base64Encode(position));
+}
+
+// The node WriteNode put in |dict|, without what's missing or can't be read.
+Space::Node ReadNode(const base::DictValue& dict) {
+  Space::Node node;
+  if (const std::string* id = dict.FindString("id")) {
+    node.id = base::Uuid::ParseLowercase(*id);
+  }
+  std::string bytes;
+  sync_pb::UniquePosition position;
+  if (const std::string* base64 = dict.FindString("position");
+      base64 && base::Base64Decode(*base64, &bytes) && position.ParseFromString(bytes)) {
+    node.position = syncer::UniquePosition::FromProto(position);
+  }
+  return node;
 }
 
 // The favorite |id| as the session keeps it, else empty history if it has no page to keep.
@@ -187,12 +205,23 @@ SavedTab SaveTab(content::WebContents& contents) {
 SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today) {
   SavedSpace to;
   to.name = space.name();
+  to.node = space.node();
   to.color = space.color();
   to.icon = space.icon();
   to.theme = space.theme();
   to.profile = space.profile();
   to.agent = space.agent();
   int index = 0;
+  // Each folder saved, to where it is among them.
+  std::map<bc_id, int> folders;
+  const auto folder_of = [&](bc_id id) {
+    auto it = folders.find(space.FolderOf(id));
+    return it == folders.end() ? -1 : it->second;
+  };
+  const auto node_of = [&](bc_id id) {
+    const Space::Node* node = space.NodeOf(id);
+    return node ? *node : Space::Node();
+  };
   for (auto [ids, tabs] : {std::pair(&space.pinned_rows(), &to.pinned),
                            std::pair(&space.today(), &to.today)}) {
     bc_id above = 0;
@@ -200,8 +229,10 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
       if (space.IsFolder(id)) {
         to.folders.push_back({.name = space.FolderName(id),
                               .open = space.IsOpen(id),
-                              .depth = DepthOf(space, id),
-                              .at = to.pinned.size()});
+                              .folder = folder_of(id),
+                              .at = to.pinned.size(),
+                              .node = node_of(id)});
+        folders[id] = static_cast<int>(to.folders.size()) - 1;
         continue;
       }
       const Tab* saving = Tab::Get(id);
@@ -221,7 +252,10 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
       tab.expanded = space.Expanded(id) == id;
       above = id;
       tab.pinned_url = space.PinnedUrl(id);
-      tab.depth = DepthOf(space, id);
+      if (tabs == &to.pinned) {
+        tab.folder = folder_of(id);
+        tab.node = node_of(id);
+      }
       if (tabs == &to.today) {
         tab.last_seen = Window::Showing(id) ? base::Time::Now() : saving->last_seen();
         if (today) {
@@ -297,7 +331,16 @@ Saved Collect() {
 
 // The file holds JSON, with each navigation in Chrome's own pickle, as its sessions write it.
 std::optional<std::string> ToJson(const Saved& saved) {
-  const auto to_list = [](const std::vector<SavedTab>& tabs) {
+  // The folder |folder| of |folders| is, by its id, in |dict|, if it's in one.
+  const auto write_folder = [](const std::vector<SavedFolder>& folders, int folder,
+                               base::DictValue& dict) {
+    if (folder >= 0 && folders[folder].node.id.is_valid()) {
+      dict.Set("parent", folders[folder].node.id.AsLowercaseString());
+    }
+  };
+  // |tabs|, pinned in |folders| if they're a Space's pinned tabs.
+  const auto to_list = [&](const std::vector<SavedTab>& tabs,
+                           const std::vector<SavedFolder>* folders = nullptr) {
     base::ListValue list;
     for (const SavedTab& tab : tabs) {
       base::ListValue history;
@@ -333,8 +376,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       if (tab.expanded) {
         dict.Set("expanded", true);
       }
-      if (tab.depth) {
-        dict.Set("depth", tab.depth);
+      if (folders) {
+        write_folder(*folders, tab.folder, dict);
+        WriteNode(tab.node, dict);
       }
       if (!tab.profile.empty()) {
         dict.Set("profile", tab.profile);
@@ -349,18 +393,19 @@ std::optional<std::string> ToJson(const Saved& saved) {
   base::ListValue spaces;
   for (const SavedSpace& space : saved.spaces) {
     // Each folder in the pinned list, above what's in it.
-    base::ListValue pinned = to_list(space.pinned);
+    base::ListValue pinned = to_list(space.pinned, &space.folders);
     for (auto folder = space.folders.rbegin(); folder != space.folders.rend(); ++folder) {
-      pinned.Insert(pinned.begin() + folder->at, base::Value(base::DictValue()
-                                                                 .Set("folder", folder->name)
-                                                                 .Set("open", folder->open)
-                                                                 .Set("depth", folder->depth)));
+      base::DictValue row = base::DictValue().Set("folder", folder->name).Set("open", folder->open);
+      write_folder(space.folders, folder->folder, row);
+      WriteNode(folder->node, row);
+      pinned.Insert(pinned.begin() + folder->at, base::Value(std::move(row)));
     }
     base::DictValue dict = base::DictValue()
                                .Set("name", space.name)
                                .Set("pinned", std::move(pinned))
                                .Set("today", to_list(space.today))
                                .Set("shown", space.shown);
+    WriteNode(space.node, dict);
     if (space.shown_favorite >= 0) {
       dict.Set("shown_favorite", space.shown_favorite);
     }
@@ -428,7 +473,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("ad_blocking", saved.settings.ad_blocking)
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
-                           .Set("crash_report_offered", saved.settings.crash_report_offered));
+                           .Set("crash_report_offered", saved.settings.crash_report_offered)
+                           .Set("widevine", saved.settings.widevine));
   return base::WriteJson(root);
 }
 
@@ -472,7 +518,6 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   tab.stacked = tab.split && dict->FindBool("stacked").value_or(false);
   tab.share = dict->FindDouble("share").value_or(0);
   tab.expanded = dict->FindBool("expanded").value_or(false);
-  tab.depth = std::max(dict->FindInt("depth").value_or(0), 0);
   if (const std::string* profile = dict->FindString("profile")) {
     tab.profile = *profile;
   }
@@ -512,6 +557,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     }
     SavedSpace& to = saved.spaces.emplace_back();
     to.name = *name;
+    to.node = ReadNode(*space);
     if (std::optional<int> color = space->FindInt("color")) {
       to.color = static_cast<uint32_t>(*color) & 0xffffff;
     }
@@ -556,21 +602,48 @@ std::optional<Saved> Read(const base::FilePath& path) {
     const base::ListValue* pinned = space->FindList("pinned");
     int index = 0;
     int kept = 0;
+    // Each folder read, by its id, to where it is among them.
+    std::map<std::string, int> folder_ids;
+    // The folders holding the row being read, outermost first, for a Space saved before folders
+    // had ids, whose rows say only how many folders they're in.
+    std::vector<int> holders;
+    // The folder the pinned row |dict| is in, among those read, else -1.
+    const auto folder_of = [&](const base::DictValue& dict) {
+      if (const std::string* parent = dict.FindString("parent")) {
+        auto it = folder_ids.find(*parent);
+        return it == folder_ids.end() ? -1 : it->second;
+      }
+      const size_t depth = std::max(dict.FindInt("depth").value_or(0), 0);
+      holders.resize(std::min(depth, holders.size()));
+      return holders.empty() ? -1 : holders.back();
+    };
     for (auto [list, tabs] : {std::pair(pinned ? pinned : &no_pinned, &to.pinned),
                               std::pair(today, &to.today)}) {
       for (const base::Value& row : *list) {
         const base::DictValue* dict = row.GetIfDict();
         const std::string* folder = dict ? dict->FindString("folder") : nullptr;
         if (folder && tabs == &to.pinned) {
-          to.folders.push_back({.name = *folder,
-                                .open = dict->FindBool("open").value_or(true),
-                                .depth = std::max(dict->FindInt("depth").value_or(0), 0),
-                                .at = to.pinned.size()});
+          SavedFolder& read = to.folders.emplace_back(SavedFolder{
+              .name = *folder,
+              .open = dict->FindBool("open").value_or(true),
+              .folder = folder_of(*dict),
+              .at = to.pinned.size(),
+              .node = ReadNode(*dict),
+          });
+          const int at = static_cast<int>(to.folders.size()) - 1;
+          holders.push_back(at);
+          if (read.node.id.is_valid()) {
+            folder_ids[read.node.id.AsLowercaseString()] = at;
+          }
           continue;
         }
         std::optional<SavedTab> tab = ReadTab(row);
         if (index++ == shown && tab) {
           to.shown = kept;
+        }
+        if (tab && tabs == &to.pinned) {
+          tab->folder = folder_of(*dict);
+          tab->node = ReadNode(*dict);
         }
         if (tab) {
           tabs->push_back(std::move(*tab));
@@ -641,6 +714,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
     saved.settings.crash_report_offered =
         settings->FindDouble("crash_report_offered").value_or(0);
+    saved.settings.widevine = settings->FindBool("widevine").value_or(false);
   }
   return saved;
 }
@@ -829,21 +903,23 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   const int pinned = static_cast<int>(saved_space.pinned.size());
   std::vector<bc_id> pinned_ids(saved_space.pinned.size());
   std::vector<bc_id> today_ids(saved_space.today.size());
-  // The folders holding the row being put back, outermost first.
-  std::vector<bc_id> holders;
-  const auto holder = [&](int depth) {
-    holders.resize(std::min(static_cast<size_t>(depth), holders.size()));
-    return holders.empty() ? 0 : holders.back();
+  // Each folder put back, by where it is among those saved, each in the one saved before it that
+  // holds it.
+  std::vector<bc_id> folder_ids;
+  const auto in = [&](int folder) {
+    return folder >= 0 && folder < static_cast<int>(folder_ids.size()) ? folder_ids[folder] : 0;
   };
-  size_t folders = 0;
+  std::map<bc_id, Space::Node> nodes;
   const auto restore_folders = [&](size_t above) {
-    for (; folders < saved_space.folders.size() && saved_space.folders[folders].at <= above;
-         ++folders) {
-      const SavedFolder& saved_folder = saved_space.folders[folders];
-      const bc_id folder = space->AddFolder(saved_folder.name, holder(saved_folder.depth),
+    while (folder_ids.size() < saved_space.folders.size() &&
+           saved_space.folders[folder_ids.size()].at <= above) {
+      const SavedFolder& saved_folder = saved_space.folders[folder_ids.size()];
+      // At the end of the folder holding it, as the rows come back top to bottom.
+      const bc_id folder = space->AddFolder(saved_folder.name, in(saved_folder.folder),
                                             space->pinned_rows().size());
       space->SetOpen(folder, saved_folder.open);
-      holders.push_back(folder);
+      nodes[folder] = saved_folder.node;
+      folder_ids.push_back(folder);
     }
   };
   for (int j = 0; j < pinned; ++j) {
@@ -851,13 +927,15 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
     const SavedTab& saved_tab = saved_space.pinned[j];
     if (bc_id tab = pinned_ids[j] = restore(saved_tab, j)) {
       // Saved before pinned tabs kept their pinned URL, it's pinned where it is.
-      space->AddPinned(tab, holder(saved_tab.depth), space->pinned_rows().size(),
+      nodes[tab] = saved_tab.node;
+      space->AddPinned(tab, in(saved_tab.folder), space->pinned_rows().size(),
                        saved_tab.pinned_url.is_valid()
                            ? saved_tab.pinned_url
                            : saved_tab.history[saved_tab.current].virtual_url());
     }
   }
   restore_folders(saved_space.pinned.size());
+  space->RestoreNodes(saved_space.node, nodes);
   // Under Each Space, its favorites, in its profile.
   for (size_t j = 0; j < saved_space.favorites.size(); ++j) {
     const SavedTab& saved_tab = saved_space.favorites[j];

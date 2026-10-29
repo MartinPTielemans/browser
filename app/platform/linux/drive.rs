@@ -20,12 +20,15 @@
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
 //! commits its text to a field of the UI's, not a page's. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
-//! no alerts yet. The others, such as ime, swipe, drags from other apps, full screen
-//! and displays, the driver can't do yet, and says so as drive.mm does.
+//! no alerts yet. fullscreen toggles the window's full screen through the core. ime on types as
+//! drive.mm's scripted input method does, in the UI's fields alone, as a page's input method is
+//! Chromium's. The others, such as swipe, drags from other apps and displays, the driver can't do
+//! yet, and says so as drive.mm does.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
-//! active <0|1>, marked none" once Chromium and GPUI have handled its events. The window and view
+//! active <0|1>, marked <none|start,length>" once Chromium and GPUI have handled its events, with
+//! what the UI's field with the keys has marked. The window and view
 //! are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is
 //! BrowserCoreNSWindow for a browser window and GPUIPanel for an overlay, and focus
 //! RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the UI and GPUIView for an
@@ -119,8 +122,10 @@ fn settle(n: u64) {
         gpui_linux::sync_display();
         drawn(Box::new(move || {
             let (key, focus, active) = keyboard();
+            let marked = input_focus().and_then(gpui_linux::marked_range);
+            let marked = marked.map_or("none".into(), |at| format!("{},{}", at.start, at.len()));
             log!(
-                "browser: drive {n} done, key {key}, focus {focus}, active {}, marked none",
+                "browser: drive {n} done, key {key}, focus {focus}, active {}, marked {marked}",
                 active as u8
             );
         }));
@@ -183,11 +188,16 @@ thread_local! {
     static FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The modifiers the last key went with.
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
+    /// Whether the X server's keyboard has Control locked, for `hold_control`.
+    static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
     /// The last click in each window: its time, place and button.
     static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
         RefCell::default();
     /// The keysyms on each key, from the server's first keycode, and how many each key has.
     static KEYMAP: RefCell<Option<(u8, usize, Vec<u32>)>> = const { RefCell::new(None) };
+    /// Whether the scripted input method types (`ime_key`), and what it composes, if anything.
+    static IME_ON: Cell<bool> = const { Cell::new(false) };
+    static COMPOSITION: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
@@ -409,9 +419,16 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
         .ok()?
         .reply()
         .ok()?;
+    let child = (connection.translate_coordinates(browser.window, browser.window, at.x, at.y))
+        .ok()?
+        .reply()
+        .ok()?
+        .child;
+    // An overlay is a child of the root, and a panel, such as the find bar, one of the browser
+    // window's, over its page.
     if let Some(view) = overlay_views()
         .into_iter()
-        .find(|&view| view as usize as u32 == top.child)
+        .find(|&view| [top.child, child].contains(&(view as usize as u32)))
     {
         let view = view as usize as u32;
         let inside = connection
@@ -426,11 +443,6 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
             ..at
         });
     }
-    let child = (connection.translate_coordinates(browser.window, browser.window, at.x, at.y))
-        .ok()?
-        .reply()
-        .ok()?
-        .child;
     Some(match child == browser.ui {
         true => Target {
             window: browser.gpui,
@@ -690,7 +702,57 @@ fn keycode(keysym: u32) -> Option<(u8, bool)> {
 /// Presses and releases `key` with the modifiers `state` in the window with the keyboard, which is
 /// the driven browser window's unless the input focus is in one of the app's.
 fn key(key: &str, state: u16) -> Option<()> {
+    if ime_key(key, state) {
+        return Some(());
+    }
     key_events(key, state, &[xproto::KEY_PRESS_EVENT, xproto::KEY_RELEASE_EVENT])
+}
+
+/// The window with the input focus.
+fn input_focus() -> Option<xproto::Window> {
+    let x = server()?;
+    Some(x.0.get_input_focus().ok()?.reply().ok()?.focus)
+}
+
+/// Handles `key` as drive.mm's scripted input method does, with the calls a Japanese one makes in
+/// the UI's field with the keys: letters compose, space converts them all, return commits and
+/// escape cancels. Returns false for a key it leaves to the window, as one with a shortcut's
+/// modifiers, or one in a page, whose input method is Chromium's.
+fn ime_key(key: &str, state: u16) -> bool {
+    let shortcut = u16::from(KeyButMask::CONTROL | KeyButMask::MOD1);
+    let letter = key.len() == 1 && key.bytes().all(|b| b.is_ascii_lowercase());
+    let composing = COMPOSITION.with_borrow(Option::is_some);
+    if !IME_ON.get() || (state | FLAGS.get()) & shortcut != 0 || !(composing || letter) {
+        return false;
+    }
+    let Some(focus) = input_focus() else {
+        return false;
+    };
+    let composition = COMPOSITION.take();
+    let mark = |text: &str, selected: std::ops::Range<usize>| {
+        let handled = gpui_linux::drive_compose(focus, text, Some(selected));
+        COMPOSITION.set(Some(text.to_string()));
+        handled
+    };
+    let handled = match key {
+        "return" => gpui_linux::drive_commit(focus, composition.as_deref().unwrap_or_default()),
+        "escape" => gpui_linux::drive_compose(focus, "", None),
+        // As a real one does, the conversion is selected whole.
+        "space" => mark("日本語", 0..3),
+        _ if letter => {
+            let text = composition.clone().unwrap_or_default() + key;
+            let end = text.len();
+            mark(&text, end..end)
+        }
+        _ => {
+            COMPOSITION.set(composition.clone());
+            true
+        }
+    };
+    if !handled {
+        COMPOSITION.set(composition);
+    }
+    handled
 }
 
 /// Sends `key`'s events of `kinds` as `key` does. A held key's repeats are presses without
@@ -700,10 +762,43 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     state |= FLAGS.get();
     let modifiers = KeyButMask::CONTROL | KeyButMask::MOD1 | KeyButMask::SHIFT;
     KEY_FLAGS.set(state & u16::from(modifiers));
+    hold_control();
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
     code_events(code, state, kinds)
+}
+
+/// Has the X server's keyboard hold Control while the driver does, after `flags` or a key with it,
+/// as a real Control key would: the app's ⌃Tab walk lasts while the server says Control is held
+/// (gpui_linux::watch_control), and the events the driver sends change none of its state.
+fn hold_control() -> Option<()> {
+    use x11rb::protocol::xkb::{self, ConnectionExt as _};
+    let held = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL) != 0;
+    if held == CONTROL_LOCKED.get() {
+        return Some(());
+    }
+    let x = server()?;
+    let (connection, _) = &*x;
+    // The server takes no other XKB request from a client before this one.
+    connection.xkb_use_extension(1, 0).ok()?.reply().ok()?;
+    let control = xproto::ModMask::CONTROL;
+    let locks = if held { control } else { xproto::ModMask::from(0u16) };
+    let none = xproto::ModMask::from(0u16);
+    (connection.xkb_latch_lock_state(
+        xkb::ID::USE_CORE_KBD.into(),
+        control,
+        locks,
+        false,
+        xkb::Group::M1,
+        none,
+        false,
+        0,
+    ))
+    .ok()?;
+    connection.flush().ok()?;
+    CONTROL_LOCKED.set(held);
+    Some(())
 }
 
 /// Sends the key `code`'s events of `kinds`, with the modifiers `state`, as `key_events` does.
@@ -784,22 +879,57 @@ fn stacked() -> Option<Vec<Browser>> {
 }
 
 /// The pages of browser window `id`, as drive.mm lists their views: from the bottom-left corner of
-/// content `height` high.
-/// shortcut: where the shell lays them out, which the core follows, with no radius. They're Aura's
-/// windows in Chromium's one X window, and no core call says where they are.
-fn pages(id: bc::bc_id, height: f64) -> Option<String> {
+/// content `width` by `height`, with the radius of their corners if they're round.
+/// shortcut: where the shell lays them out and the radius it gives their corners, which the core
+/// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
+/// are or how round.
+fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
     let cx = CX.with_borrow(Clone::clone)?;
-    let pages = cx.update(|cx| Some(shell.upgrade()?.read(cx).shown_pages()))?;
+    let viewport = gpui::size(gpui::px(width as f32), gpui::px(height as f32));
+    let (pages, (_, radius)) = cx.update(|cx| {
+        let shell = shell.upgrade()?;
+        let shell = shell.read(cx);
+        Some((shell.shown_pages(), shell.page_frame(viewport)))
+    })?;
     let views = pages.into_iter().map(|(_, page)| {
         let [x, bottom, width, high] =
             [page.left(), page.bottom(), page.size.width, page.size.height].map(f32::from);
         let y = height - f64::from(bottom);
-        format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}")
+        let round = match radius > 0. {
+            true => format!(" radius {radius:.0}"),
+            false => String::new(),
+        };
+        format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}{round}")
     });
     Some(views.collect())
+}
+
+/// The ring the core draws inside a split view's focused page, over the pages, as the Mac's driver
+/// lists its view: from the content's bottom-left corner, as the pages are.
+fn ring(id: bc::bc_id, height: f64) -> Option<String> {
+    let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+    unsafe { bc::bc_window_focus_ring(id, &mut frame) }.then_some(())?;
+    let bc::bc_rect { x, y, width, height: high } = frame;
+    let y = height - (y + high);
+    Some(format!(", BrowserCoreFocusRing {x:.0},{y:.0} {width:.0}x{high:.0}"))
+}
+
+/// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
+/// the Mac's driver gives AppKit's, or "hidden" for each.
+fn buttons(id: bc::bc_id) -> Option<String> {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
+    })?;
+    let cx = CX.with_borrow(Clone::clone)?;
+    let drawn = cx.update(|cx| Some(shell.upgrade()?.read(cx).draws_own_window_buttons()))?;
+    let each = browser::shell::WINDOW_BUTTONS.map(|(x, _)| match drawn {
+        true => format!("{x:.1},{:.1}", browser::tokens::shell::WINDOW_BUTTON_Y),
+        false => "hidden".to_string(),
+    });
+    Some(each.join(" "))
 }
 
 /// `window`'s frame in points, from the root's top-left corner: x, y, width and height.
@@ -1059,6 +1189,7 @@ fn run_command(line: &str) -> Option<()> {
                 code_events(keycode(keysym)?.0, held, &[kind])?;
                 FLAGS.set(held ^ mask);
             }
+            hold_control();
             Some(())
         }
         // Repeats are presses like the first, so repeat changes nothing here.
@@ -1066,6 +1197,21 @@ fn run_command(line: &str) -> Option<()> {
         "keyup" => key_events(words.next()?, none, &[xproto::KEY_RELEASE_EVENT]),
         "type" => rest.chars().try_for_each(|c| key(&c.to_string(), none)),
         "insert" => insert(rest),
+        "ime" => {
+            IME_ON.set(match words.next()? {
+                "on" => true,
+                "off" => false,
+                _ => return None,
+            });
+            COMPOSITION.set(None);
+            Some(())
+        }
+        // As the window manager's full-screen key, through the core, as the Mac's goes through the
+        // green button.
+        "fullscreen" => {
+            unsafe { bc::bc_window_toggle_full_screen(driven()?.id) };
+            Some(())
+        }
         "resize" | "place" => {
             let browser = driven()?;
             let scale = scale();
@@ -1122,11 +1268,12 @@ fn run_command(line: &str) -> Option<()> {
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
-            let pages = pages(browser.id, height).unwrap_or_default();
+            let pages = pages(browser.id, width, height).unwrap_or_default();
+            let ring = ring(browser.id, height).unwrap_or_default();
             log!(
-                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}"
+                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}{ring}"
             );
-            log!("browser: layout buttons hidden hidden hidden");
+            log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
             let [left, top, ..] = frame(browser.window)?;
             for view in overlay_views() {
                 let [x, y, width, height] = frame(view as usize as u32)?;

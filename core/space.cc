@@ -1,6 +1,7 @@
 #include "browser_core/space.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -27,6 +28,57 @@ std::map<bc_id, std::unique_ptr<Space>>& Spaces() {
   return *spaces;
 }
 
+// Gives each of |nodes|, siblings in their order, a place after the one before it: the most that
+// already are in order keep theirs, and each other goes between its neighbours, so a move changes
+// only the place of what moved. Each without an id gets one.
+void Order(const std::vector<Space::Node*>& nodes) {
+  constexpr size_t kNone = SIZE_MAX;
+  // The longest run of places already in order, found as patience sorting does: |ends[k]| is the
+  // node that ends lowest a run of k + 1, and |before| each node's in its run.
+  std::vector<size_t> ends;
+  std::vector<size_t> before(nodes.size(), kNone);
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    const syncer::UniquePosition& position = nodes[i]->position;
+    if (!position.IsValid()) {
+      continue;
+    }
+    auto end = std::ranges::partition_point(
+        ends, [&](size_t last) { return nodes[last]->position.LessThan(position); });
+    if (end != ends.begin()) {
+      before[i] = *(end - 1);
+    }
+    if (end == ends.end()) {
+      ends.push_back(i);
+    } else {
+      *end = i;
+    }
+  }
+  std::vector<bool> kept(nodes.size());
+  for (size_t i = ends.empty() ? kNone : ends.back(); i != kNone; i = before[i]) {
+    kept[i] = true;
+  }
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    Space::Node& node = *nodes[i];
+    if (!node.id.is_valid()) {
+      node.id = base::Uuid::GenerateRandomV4();
+    }
+    if (kept[i]) {
+      continue;
+    }
+    size_t next = i + 1;
+    while (next < nodes.size() && !kept[next]) {
+      ++next;
+    }
+    const syncer::UniquePosition::Suffix suffix = syncer::UniquePosition::RandomSuffix();
+    const syncer::UniquePosition* above = i ? &nodes[i - 1]->position : nullptr;
+    const syncer::UniquePosition* below = next < nodes.size() ? &nodes[next]->position : nullptr;
+    node.position = above && below ? syncer::UniquePosition::Between(*above, *below, suffix)
+                    : above        ? syncer::UniquePosition::After(*above, suffix)
+                    : below        ? syncer::UniquePosition::Before(*below, suffix)
+                                   : syncer::UniquePosition::InitialPosition(suffix);
+  }
+}
+
 // Posted, like a Space's changes.
 void ReportSpacesChanged() {
   SessionChanged();
@@ -47,6 +99,7 @@ Space* Space::Create(std::string name, bc_id id, std::optional<Agent> agent) {
   }
   Space* space = new Space(id, std::move(name), std::move(agent));
   Spaces()[id] = base::WrapUnique(space);
+  PlaceSpaces();
   ReportSpacesChanged();
   return space;
 }
@@ -134,6 +187,24 @@ std::vector<bc_id> Space::pinned() const {
 
 bool Space::IsPinned(bc_id tab) const {
   return !IsFolder(tab) && std::ranges::contains(pinned_, tab);
+}
+
+const Space::Node* Space::NodeOf(bc_id id) const {
+  auto it = nodes_.find(id);
+  return it == nodes_.end() ? nullptr : &it->second;
+}
+
+void Space::RestoreNodes(const Node& space, const std::map<bc_id, Node>& rows) {
+  if (space.id.is_valid()) {
+    node_ = space;
+    PlaceSpaces();
+  }
+  for (const auto& [id, node] : rows) {
+    if (node.id.is_valid() && nodes_.contains(id)) {
+      nodes_[id] = node;
+    }
+  }
+  ReportChanged();
 }
 
 bc_id Space::FolderOf(bc_id id) const {
@@ -666,7 +737,31 @@ void Space::ForgetOpener(bc_id tab) {
   std::erase_if(openers_, [](const auto& entry) { return entry.second == 0; });
 }
 
+void Space::PlaceRows() {
+  std::set<bc_id> rows(pinned_.begin(), pinned_.end());
+  std::erase_if(nodes_, [&](const auto& node) { return !rows.contains(node.first); });
+  // By the folder they're in, or 0.
+  std::map<bc_id, std::vector<Node*>> siblings;
+  for (bc_id row : pinned_) {
+    siblings[FolderOf(row)].push_back(&nodes_[row]);
+  }
+  for (const auto& [folder, nodes] : siblings) {
+    Order(nodes);
+  }
+}
+
+// static
+void Space::PlaceSpaces() {
+  std::vector<Node*> nodes;
+  for (Space* space : All()) {
+    nodes.push_back(&space->node_);
+  }
+  Order(nodes);
+}
+
 void Space::ReportChanged() {
+  // Every change to the Space comes here, so none leaves a row without its node or out of order.
+  PlaceRows();
   SessionChanged();
   ScheduleAutoArchive();
   // Posted: the app often changed the Space itself, and hears of it once its call has returned.

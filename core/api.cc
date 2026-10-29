@@ -44,6 +44,7 @@
 #include "browser_core/space.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/widevine.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
@@ -74,6 +75,10 @@
 #if BUILDFLAG(IS_LINUX)
 #include "browser_core/platform/linux/wayland.h"
 #include "ui/views/widget/widget.h"
+#endif
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+#include "browser_core/platform/focus_ring_aura.h"
 #endif
 
 namespace {
@@ -167,6 +172,10 @@ void bc_quit(void) {
   browser_core::Quit();
 }
 
+void bc_restart(void) {
+  browser_core::Restart();
+}
+
 bool bc_quitting(void) {
   return browser_shutdown::IsTryingToQuit();
 }
@@ -211,6 +220,22 @@ void bc_window_ui_takes_keyboard(bc_id id) {
 bool bc_window_keyboard_is_ui(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
   return browser_core::platform::KeyboardIsUI(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
+bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> ring =
+      widget ? browser_core::platform::FocusRingFrame(widget) : std::nullopt;
+  if (!ring) {
+    return false;
+  }
+  *frame = {static_cast<double>(ring->x()), static_cast<double>(ring->y()),
+            static_cast<double>(ring->width()), static_cast<double>(ring->height())};
+  return true;
 #else
   return false;
 #endif
@@ -1095,6 +1120,18 @@ void bc_tab_close_media_note(bc_id id) {
   }
 }
 
+int bc_widevine(void) {
+  return browser_core::widevine::State();
+}
+
+void bc_widevine_download(void) {
+  browser_core::widevine::Download();
+}
+
+void bc_widevine_remove(void) {
+  browser_core::widevine::Remove();
+}
+
 void bc_tab_stop(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::Tab::FromWebContents(contents)->Stop();
@@ -1498,5 +1535,22 @@ bool bc_window_is_maximized(bc_id id) {
   return widget && widget->IsMaximized();
 #else
   return false;
+#endif
+}
+
+bool bc_window_is_full_screen(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  return widget && widget->IsFullscreen();
+#else
+  return false;
+#endif
+}
+
+void bc_window_toggle_full_screen(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  if (views::Widget* widget = OpenWidget(id)) {
+    widget->SetFullscreen(!widget->IsFullscreen());
+  }
 #endif
 }

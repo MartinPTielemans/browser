@@ -99,7 +99,7 @@ impl Shell {
     /// The picker made `theme` for `space`: the window shows it at once, and once the user is
     /// `done` the core keeps it, with its main colour as the Space's colour, as one step for ⌘Z:
     /// a drag is one, however many frames it took.
-    fn theme_changed(&mut self, space: u64, theme: Theme, done: bool, cx: &mut Context<Self>) {
+    pub(super) fn theme_changed(&mut self, space: u64, theme: Theme, done: bool, cx: &mut Context<Self>) {
         self.theme_preview = Some((space, theme));
         if done {
             let color = Value::Color { color: Some(theme.main_color()), theme: theme.to_text() };

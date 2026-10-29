@@ -207,9 +207,9 @@ expect "${controls}.*; passwords never localhost:$port\$" \
 expect '^browser: site controls settled$' "the Site Controls didn't open"
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-never.png" || fail "no window to capture"
 post click 207 305
-expect '^browser: menu shown Offer to Save Passwords, All Passwords…$' \
+expect "^browser: menu shown $(cased 'Offer to Save Passwords, All Passwords…')\$" \
   "the Passwords row didn't offer to take localhost off Never"
-send choose 'Offer to Save Passwords'
+send choose "$(cased 'Offer to Save Passwords')"
 expect "^browser: site controls allow saving localhost:$port\$" "Offer to Save Passwords didn't run"
 expect "^browser: remove login [0-9]* never localhost:$port\$" \
   "Offer to Save Passwords didn't take localhost off Never"
@@ -231,9 +231,9 @@ expect '^browser: site controls settled$' "the Site Controls didn't open on the 
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-passwords.png" ||
   fail "no window to capture"
 post click 207 305
-expect '^browser: menu shown Remove “check@example.test”…, All Passwords…$' \
+expect "^browser: menu shown $(cased 'Remove “check@example.test”…, All Passwords…')\$" \
   "the Passwords row didn't offer to remove the saved login"
-send choose 'All Passwords…'
+send choose "$(cased 'All Passwords…')"
 expect '^browser: site controls run passwords$' "All Passwords… didn't run"
 expect '^browser: settings tab Passwords$' "All Passwords… didn't show Settings' Passwords tab"
 expect "^browser: passwords [0-9]*: 127.0.0.1:$port check@example.test\$" \
@@ -254,7 +254,7 @@ send click $page_point
 bar_command site-controls "Site Controls" "site controls"
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
 post click 207 305
-expect '^browser: menu shown Remove “check@example.test”…, All Passwords…$' \
+expect "^browser: menu shown $(cased 'Remove “check@example.test”…, All Passwords…')\$" \
   "the Passwords row didn't offer to remove the saved login again"
 send choose 'Remove “check@example.test”…'
 expect '^browser: site controls run remove-login$' "Remove didn't run"

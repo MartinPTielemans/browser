@@ -156,9 +156,9 @@ expect '^browser: extension popup none$' "escape didn't close the extension's po
 # A right-click on an action shows its menu: Manage Extension opens its details, and Unpin
 # unpins it. Check Clicked has no options.
 post rightclick $second_place
-expect '^browser: menu shown Unpin, Remove, Manage Extension$' \
+expect "^browser: menu shown $(cased 'Unpin, Remove, Manage Extension')\$" \
   "a right-click on Check Clicked's action didn't show its menu"
-send choose Manage Extension
+send choose "$(cased 'Manage Extension')"
 expect "^browser: loaded [0-9]* chrome://extensions/?id=$clicked\$" \
   "Manage Extension didn't open Check Clicked's details"
 # A third doesn't fit the field, so the second place is the overflow button's, whose menu runs the
@@ -183,14 +183,14 @@ expect "^browser: unpin extension $clicked\$" "Pin to URL Field › Check Clicke
 expect "^browser: extension actions $popup:1 $third\$" \
   "unpinning Check Clicked didn't give Check Third its place"
 post rightclick $second_place
-expect '^browser: menu shown Unpin, Options, Remove, Manage Extension$' \
+expect "^browser: menu shown $(cased 'Unpin, Options, Remove, Manage Extension')\$" \
   "a right-click on Check Third's action didn't show its menu"
 # Chrome shows options that don't ask for a tab in a dialog on its extensions page.
 send choose Options
 expect "^browser: loaded [0-9]* chrome://extensions/?options=$third\$" \
   "Options didn't open Check Third's options"
 post rightclick $second_place
-expect '^browser: menu shown Unpin, Options, Remove, Manage Extension$' \
+expect "^browser: menu shown $(cased 'Unpin, Options, Remove, Manage Extension')\$" \
   "a right-click on Check Third's action didn't show its menu again"
 send choose Unpin
 expect "^browser: unpin extension $third\$" "Unpin didn't reach the UI"
@@ -261,7 +261,7 @@ none_since "^browser: extension command $third " ||
 send menu "Pin to URL Field › Check Third"
 expect "^browser: extension actions $third\$" "the pinned Check Third didn't show again"
 post rightclick $second_place
-expect '^browser: menu shown Unpin, Options, Remove, Manage Extension$' \
+expect "^browser: menu shown $(cased 'Unpin, Options, Remove, Manage Extension')\$" \
   "a right-click on Check Third's action didn't show its menu to remove it"
 send choose Remove
 expect '^browser: dialog shown Remove “Check Third”?$' "Remove didn't ask first"
@@ -368,9 +368,9 @@ expect "^browser: side panel $panel the tab panel\$" "the tab's side panel didn'
 expect "^browser: side panel at [0-9]* $py $to $ph\$" "the side panel didn't keep its width"
 # The header's ⋯ is left of its ✕, and its menu closes the panel too.
 post click $((px + pw - 51)) $((py + 18))
-expect '^browser: menu shown Manage Extension, Close Side Panel$' \
+expect "^browser: menu shown $(cased 'Manage Extension, Close Side Panel')\$" \
   "a click on the side panel's ⋯ didn't show its menu"
-send choose Close Side Panel
+send choose "$(cased 'Close Side Panel')"
 expect '^browser: side panel none$' "Close Side Panel didn't close the side panel"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
@@ -439,10 +439,11 @@ grep -qxF "browser: native host dev.browser.check from $host_dir" "$log" ||
 await "^browser: loaded [0-9]* chrome-extension://$native/answered.html\$" ||
   fail "Check Native didn't hear the host's answer: $(grep -o 'chrome-extension://[^ ]*' "$log" |
     sort -u | tr '\n' ' ')"
+../tools/window-screenshot.sh "$pid" "$out/native-host.png" || fail "no window to capture"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: an extension reaches a native messaging host that only Chrome Beta's folder has, and hears its answer."
+echo "ok: an extension reaches a native messaging host that only Chrome Beta's folder has, and hears its answer. Window: $out/native-host.png"
 
 # An extension's .crx from the served page, which Chrome installs from off the Web Store with
 # ungoogled-chromium's flag, asking first. It's added in a profile of the launch's own, which the

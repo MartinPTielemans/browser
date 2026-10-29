@@ -77,6 +77,9 @@ apply_series "$src"
 args=$(mktemp -d)
 trap 'rm -rf "$args"' EXIT
 _out_dir=$args write_gn_args >/dev/null
+# Google's Widevine module downloads at the user's yes (core/widevine.cc), with Chromium's Widevine
+# support, which ungoogled-chromium's flags.gn turns on. Only a Chrome-branded build bundles it.
+grep -qx 'enable_widevine=true' "$args/args.gn" || fail "ungoogled-chromium's GN args no longer turn Widevine on"
 cmp -s "$args/args.gn" "$src/out/Default/args.gn" || cp "$args/args.gn" "$src/out/Default/args.gn"
 
 # The toolchain as setup_toolchain gives it to gn's bootstrap, in the tree it's now in.

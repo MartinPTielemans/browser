@@ -236,6 +236,8 @@ struct Fake {
     spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
+    /// The onboarding's two switches, both offered and off to begin with.
+    opt_ins: Cell<(bool, bool)>,
 }
 
 impl Fake {
@@ -910,6 +912,10 @@ impl Browser for Fake {
         false
     }
 
+    fn window_full_screen(&self) -> bool {
+        false
+    }
+
     // The reveal's window is the app's, over the page, which the preview has neither of.
     fn show_reveal(&self, _: f32, _: &mut App) {}
 
@@ -1015,6 +1021,27 @@ impl Browser for Fake {
 
     // The preview has one window.
     fn new_window(&self, _: &mut App) {}
+
+    // So the onboarding shows its step for it.
+    fn is_default_browser(&self) -> bool {
+        false
+    }
+
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        Some(self.opt_ins.get().0)
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        self.opt_ins.set((on, self.opt_ins.get().1));
+    }
+
+    fn agents(&self, _: &App) -> Option<bool> {
+        Some(self.opt_ins.get().1)
+    }
+
+    fn set_agents(&self, on: bool, _: &mut App) {
+        self.opt_ins.set((self.opt_ins.get().0, on));
+    }
 
     fn new_private_window(&self, _: &mut App) {}
 
@@ -1267,13 +1294,17 @@ fn main() {
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
+                    opt_ins: Cell::new((false, false)),
                 });
                 browser.report_archive(cx);
                 browser.report_downloads(cx);
                 // PREVIEW_EMPTY=1 shows no page, as a fresh ⌘N window does; =reading does so in the
                 // second Space, for its colour, and =private in a private window with no tabs.
-                // PREVIEW_WELCOME=1 shows no page with the first run's welcome.
-                let welcome = std::env::var_os("PREVIEW_WELCOME").is_some();
+                // PREVIEW_WELCOME=1 shows no page with the first run's welcome, and
+                // PREVIEW_ONBOARDING=1, =light or =dark the onboarding over it first.
+                let onboarding = std::env::var("PREVIEW_ONBOARDING").ok();
+                let welcome =
+                    std::env::var_os("PREVIEW_WELCOME").is_some() || onboarding.is_some();
                 let empty = std::env::var("PREVIEW_EMPTY").ok().or(welcome.then(|| "1".into()));
                 let mut shell = match empty.as_deref() {
                     Some("private") => {
@@ -1375,6 +1406,9 @@ fn main() {
                 if welcome {
                     shell.set_welcome(cx);
                 }
+                if let Some(appearance) = &onboarding {
+                    shell.start_onboarding(Some(appearance), cx);
+                }
                 shell
             });
             window.focus(&shell.focus_handle(cx), cx);
@@ -1383,13 +1417,19 @@ fn main() {
         let shell_window = window.as_ref().ok().copied();
         match window {
             // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads or =spaces opens
-            // it there.
+            // it there; =rename opens its Spaces with the first card's name in its field.
             Ok(window) if std::env::var_os("PREVIEW_LIBRARY").is_some() => {
                 window
-                    .update(cx, |shell, _, cx| match std::env::var("PREVIEW_LIBRARY").as_deref() {
-                        Ok("downloads") => shell.run(Command::ViewDownloads, "preview", cx),
-                        Ok("spaces") => shell.show_spaces(cx),
-                        _ => shell.run(Command::ViewLibrary, "preview", cx),
+                    .update(cx, |shell, window, cx| {
+                        match std::env::var("PREVIEW_LIBRARY").as_deref() {
+                            Ok("downloads") => shell.run(Command::ViewDownloads, "preview", cx),
+                            Ok("spaces") => shell.show_spaces(cx),
+                            Ok("rename") => {
+                                shell.show_spaces(cx);
+                                shell.preview_rename_card(window, cx);
+                            }
+                            _ => shell.run(Command::ViewLibrary, "preview", cx),
+                        }
                     })
                     .ok();
             }
@@ -1497,72 +1537,6 @@ async fn press_keys(window: gpui::AnyWindowHandle, keys: Vec<String>, cx: &mut g
     }
 }
 
-/// A made-up page menu of `kind`, as Chrome builds it on the Mac once the core has taken out what
-/// Arc's leaves out.
-fn page_menu(kind: &str) -> Vec<shell::PageMenuItem> {
-    let row = |command: i32, title: &str| shell::PageMenuItem {
-        command,
-        title: title.to_string().into(),
-        parent: None,
-        enabled: true,
-        checked: false,
-    };
-    let line = || row(0, "");
-    let under =
-        |parent: usize, item: shell::PageMenuItem| shell::PageMenuItem { parent: Some(parent), ..item };
-    let inspect = [line(), row(26500, "Inspect")];
-    let mut items = match kind {
-        "image" => vec![
-            row(50120, "Open Image in New Tab"),
-            row(50121, "Save Image As…"),
-            row(50122, "Copy Image"),
-            row(50123, "Copy Image Address"),
-        ],
-        "text" => vec![
-            row(50160, "Look Up “ilo”"),
-            line(),
-            row(50150, "Copy"),
-            row(50151, "Search DuckDuckGo for “ilo”"),
-            row(35003, "Print…"),
-            line(),
-            row(50170, "Speech"),
-            under(6, row(50171, "Start Speaking")),
-            under(6, shell::PageMenuItem { enabled: false, ..row(50172, "Stop Speaking") }),
-        ],
-        "field" => vec![
-            row(41000, "receive"),
-            row(41001, "relieve"),
-            row(41100, "Add to Dictionary"),
-            row(41101, "Language Settings"),
-            line(),
-            shell::PageMenuItem { enabled: false, ..row(50151, "Cut") },
-            shell::PageMenuItem { enabled: false, ..row(50150, "Copy") },
-            row(50152, "Paste"),
-            row(50153, "Paste and Match Style"),
-            row(50154, "Select All"),
-            row(50180, "Writing Direction"),
-            under(10, shell::PageMenuItem { checked: true, ..row(50181, "Default") }),
-            under(10, row(50182, "Left to Right")),
-            under(10, row(50183, "Right to Left")),
-            line(),
-            row(50170, "Speech"),
-            under(15, row(50171, "Start Speaking")),
-            under(15, shell::PageMenuItem { enabled: false, ..row(50172, "Stop Speaking") }),
-        ],
-        _ => vec![
-            row(50100, "Open Link in New Tab"),
-            row(50101, "Open Link in New Window"),
-            row(50105, "Open Link in Split View"),
-            row(50102, "Open Link in Incognito Window"),
-            line(),
-            row(50103, "Save Link As…"),
-            row(50104, "Copy Link Address"),
-        ],
-    };
-    items.extend(inspect);
-    items
-}
-
 fn preview_page_menu(
     shell: gpui::WindowHandle<Shell>,
     bounds: Bounds<Pixels>,
@@ -1579,7 +1553,9 @@ fn preview_page_menu(
     cx.spawn(async move |cx| {
         cx.background_executor().timer(Duration::from_millis(500)).await;
         let at = point(px(x), px(y));
-        shell.update(cx, |shell, _, cx| shell.show_page_menu(1, page_menu(&kind), at, cx)).ok();
+        // In this system's case, as its Chromium writes the menu.
+        let items = shell::made_up_page_menu(&kind, cfg!(target_os = "macos"));
+        shell.update(cx, |shell, _, cx| shell.show_page_menu(1, items, at, cx)).ok();
         press_keys(window, keys, cx).await;
     })
     .detach();

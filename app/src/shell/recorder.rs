@@ -57,6 +57,15 @@ pub(super) struct Recorder {
     pub(super) detents: Cell<usize>,
     /// How many tabs and folders it was asked to move.
     pub(super) moves: Cell<usize>,
+    /// Whether the system opens links with it, as `is_default_browser` answers.
+    pub(super) default_browser: Cell<bool>,
+    /// The system it says it runs on, the Mac unless a test says.
+    pub(super) os: Cell<Option<crate::default_browser::Os>>,
+    /// The import finds no browser on the machine.
+    pub(super) no_browsers: Cell<bool>,
+    /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
+    pub(super) crash_reports: Cell<Option<bool>>,
+    pub(super) agents: Cell<Option<bool>>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -112,6 +121,8 @@ pub(super) struct Recorder {
     /// The platform has Apple's engine for a tab's page.
     /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
+    /// Where it says Google's Widevine module is.
+    pub(super) widevine: Cell<crate::widevine::Widevine>,
     /// The shell it answers each picture asked of it for with this picture, at once, inside the
     /// call that asked, as a core that answers inline would.
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
@@ -419,6 +430,18 @@ impl Browser for Recorder {
         self.record(format!("system engine {tab}"))
     }
 
+    fn widevine(&self) -> crate::widevine::Widevine {
+        self.widevine.get()
+    }
+
+    fn download_widevine(&self, _: &mut App) {
+        self.record("download widevine".into())
+    }
+
+    fn restart(&self, _: &mut App) {
+        self.record("restart".into())
+    }
+
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, _: &mut App) {
         match shown {
             Some((tab, dialog, _)) => self.record(format!("page dialog {tab} {}", dialog.id)),
@@ -563,9 +586,13 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    // The import's made-up Arc, so the first launch has a browser to import from, unless a test
+    // says there's none.
     fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
-        let nowhere = std::path::Path::new("/nonexistent");
-        let roots = crate::import::sources::Roots::under(nowhere, crate::import::sources::Os::Mac);
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/src/import/fixture");
+        let home = if self.no_browsers.get() { "/nonexistent" } else { fixture };
+        let os = crate::import::sources::Os::Mac;
+        let roots = crate::import::sources::Roots::under(std::path::Path::new(home), os);
         std::rc::Rc::new(crate::import::Detached(roots))
     }
 
@@ -595,7 +622,9 @@ impl Browser for Recorder {
     ) {
     }
 
-    fn focus_ui(&self, _: &mut App) {}
+    fn focus_ui(&self, _: &mut App) {
+        self.record("focus ui".into())
+    }
 
     fn focus_page(&self, _: &mut App) {
         self.record("focus page".into())
@@ -626,6 +655,10 @@ impl Browser for Recorder {
     fn start_window_move(&self, _: &mut App) {}
 
     fn window_maximized(&self) -> bool {
+        false
+    }
+
+    fn window_full_screen(&self) -> bool {
         false
     }
 
@@ -796,6 +829,40 @@ impl Browser for Recorder {
 
     fn new_window(&self, _: &mut App) {
         self.record("new window".into())
+    }
+
+    fn welcome_window(&self, _: &mut App) {
+        self.record("welcome window".into())
+    }
+
+    fn is_default_browser(&self) -> bool {
+        self.default_browser.get()
+    }
+
+    fn make_default_browser(&self, _: &mut App) {
+        self.record("make default browser".into())
+    }
+
+    fn os(&self) -> crate::default_browser::Os {
+        self.os.get().unwrap_or(crate::default_browser::Os::Mac)
+    }
+
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        self.crash_reports.get()
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        self.crash_reports.set(Some(on));
+        self.record(format!("crash reports {on}"))
+    }
+
+    fn agents(&self, _: &App) -> Option<bool> {
+        self.agents.get()
+    }
+
+    fn set_agents(&self, on: bool, _: &mut App) {
+        self.agents.set(Some(on));
+        self.record(format!("agents {on}"))
     }
 
     fn close_window(&self, _: &mut App) {

@@ -175,16 +175,21 @@ send key w cmd
 expect_tabs "$first" "$first" "after closing the tab of the page that hasn't come"
 send click $page_point
 
-# 300 trackpad events of 10 points, 8 ms apart.
-send scroll $page_point 10 300
+# 300 trackpad events of 10 points, 8 ms apart. X11's events carry no distance, so the Linux driver
+# turns the wheel, which Chromium scrolls 120 points a notch there: 25 notches.
+scroll="10 300"
+[ "$(uname)" = Linux ] && scroll="1 25"
+send scroll $page_point $scroll
 expect '^browser: title [0-9]* frames' "scrolling didn't move the page"
 timing=$(grep -m1 '^browser: title [0-9]* frames' "$log" | sed 's/^browser: title [0-9]* //')
 echo "$timing" | grep -q ' scrolled 3000$' || fail "the page didn't scroll by exactly 3000 points: $timing"
 frames=$(echo "$timing" | sed 's/^frames \([0-9]*\) .*/\1/')
 slow=$(echo "$timing" | sed 's/.* slow \([0-9]*\) .*/\1/')
 # A VM's display runs at 60 Hz and its frames come when the host gives it time, so only a Mac's own
-# screen can judge the scroll, and a VM reports it.
-if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
+# screen can judge the scroll, and a VM reports it, as Linux's headless session does.
+if [ "$(uname)" = Linux ]; then
+  timing="$timing, in a headless session, not judged"
+elif [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   timing="$timing, in a VM, not judged"
 elif [ $((slow * 100)) -gt "$frames" ]; then
   fail "more than 1% of frames took longer than 1/60 s: $timing"
@@ -193,6 +198,23 @@ fi
 send resize 1000 700
 check_layout "after a resize"
 check_buttons "after a resize"
+# The window's resize border, about 3 outside its edge (Dia), is AppKit's to track, as for any
+# resizable window. Whether AppKit takes a drag the driver posts there only a Mac's run tells: a
+# drag from 2 outside the right edge either widens the window by 100 or leaves it, and the run
+# says which.
+send drag 1002 350 1102 350
+check_layout "after a drag at the window's edge"
+case "$width" in
+  1100)
+    edge="a drag 2 outside the window's right edge widened it by 100"
+    check_buttons "after a drag at the window's edge"
+    ../tools/window-screenshot.sh "$pid" "$out/edge-resized.png" || fail "no window to capture"
+    send resize 1000 700
+    check_layout "after the edge's resize"
+    ;;
+  1000) edge="the window didn't take a posted drag 2 outside its right edge, so no run can drag it" ;;
+  *) fail "a drag at the window's edge left it $width wide, neither 1000 nor 1100" ;;
+esac
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
 # Once there, it says how to leave, at the card's top right, as Arc's does.
@@ -209,7 +231,7 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 # The footer is at the screen's bottom in full screen, so the +'s menu flips up over the pointer.
 post click 204 $((height - 25))
-expect '^browser: menu shown New Space…, New Folder…$' "the footer's + in full screen showed no menu"
+expect "^browser: menu shown $(cased 'New Space…, New Folder…')\$" "the footer's + in full screen showed no menu"
 expect '^browser: menu window at ' "the +'s menu in full screen didn't open its window"
 top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d, -f2)
 [ "$top" -lt $((height - 65)) ] ||
@@ -629,7 +651,7 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   # faint and known: stops at 0.06, from black at the top to 0.25 · 255 at the bottom.
   post rightclick 100 112
   expect '^browser: menu shown Rename Space' "a right-click on the Space's name showed no menu"
-  send choose Edit Theme Color…
+  send choose "$(cased 'Edit Theme Color…')"
   expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
   expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
   send clickkey 191.5 178.5
@@ -678,4 +700,5 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
+echo "edge: $edge"
 echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"

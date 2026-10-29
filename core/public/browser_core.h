@@ -627,6 +627,8 @@ typedef struct bc_host {
   // connection's protection (HDCP) isn't enough for it: once a tab and site, with the empty one as
   // the tab goes to another site or back to Chromium. Closing that note is the app's alone.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
+  // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
+  void (*widevine_changed)(void* context, int state);
   // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
   // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
   // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
@@ -736,8 +738,9 @@ typedef struct bc_host {
 // Windows and Linux, where the sandbox needs Chromium's own executable to start every process
 // (chrome.exe, and chrome through its zygote): there the app is BC_APP_LIBRARY, beside it, and the
 // core calls its BC_APP_ENTRY in the browser process, as Chromium starts, for what the app would
-// pass bc_main. It returns the callbacks, which it keeps for as long as the process runs, and sets
-// |argc| and |argv|.
+// pass bc_main. |argc| and |argv| come in as the arguments the process was given, which there the
+// app can't read itself once Chromium has written its process title over them, and the entry sets
+// them to the switches. It returns the callbacks, which it keeps for as long as the process runs.
 BC_EXPORT int bc_main(int argc, const char** argv, const bc_host* host);
 
 #if defined(_WIN32)
@@ -750,6 +753,10 @@ typedef const bc_host* (*bc_app_entry)(int* argc, const char*** argv);
 
 // Asks Chromium to quit. Pages get their unload handlers first, then bc_main returns.
 BC_EXPORT void bc_quit(void);
+
+// Quits as bc_quit does, then starts the browser again with the switches it was given, and the app
+// brings back its windows and Spaces as after any quit.
+BC_EXPORT void bc_restart(void);
 
 // Whether Chromium is quitting: after bc_quit, the Dock's Quit or logging out. The windows it
 // closes then still call window_closed.
@@ -785,6 +792,11 @@ BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
 
 // On Linux, whether the keys in |window| are the app's UI's rather than a page's.
 BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
+
+// On Linux and Windows, where the core draws a split view's ring around the focused page: whether
+// it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
+// For the test driver, which sees the Mac's ring as a view.
+BC_EXPORT bool bc_window_focus_ring(bc_id window, bc_rect* frame);
 
 // On Linux, while an overlay of the app's over |window|, such as the command bar, has the keyboard:
 // neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
@@ -1490,6 +1502,42 @@ BC_EXPORT bool bc_tab_set_system_engine(bc_id tab, bool on);
 // (bc_site_controls). Does nothing for a page that isn't http(s). The user's: agents get none.
 BC_EXPORT void bc_tab_close_media_note(bc_id tab);
 
+// Google's Widevine module, which Netflix, Spotify and Disney+ play their video with in Chromium
+// (#236). It's Google's proprietary file, and its licence forbids bundling it, so ilo never ships
+// it. On Linux the user can have the browser download it from Google's component service, from the
+// protected-media note, and remove it in Settings. Elsewhere it's never offered: the Mac plays these
+// sites in its system engine, and Windows with its own PlayReady. Until the user says yes, the
+// component updater leaves it out of its checks, and once they have, it keeps it up to date with
+// the security components (engine/README.md, What reaches Google).
+// - BC_WIDEVINE_NONE: not offered on this platform.
+// - BC_WIDEVINE_ABSENT: offered, not downloaded, or removed.
+// - BC_WIDEVINE_DOWNLOADING: downloading, after the user's yes.
+// - BC_WIDEVINE_FAILED: the download failed, for want of a network or of a module for this
+//   platform. bc_widevine_download tries again.
+// - BC_WIDEVINE_RESTART: downloaded. Pages play with it once the browser restarts (bc_restart), as
+//   Linux loads it at launch, before the sandbox closes.
+// - BC_WIDEVINE_READY: loaded. Pages that ask for Widevine play, and tab_media_unsupported never
+//   names it.
+#define BC_WIDEVINE_NONE 0
+#define BC_WIDEVINE_ABSENT 1
+#define BC_WIDEVINE_DOWNLOADING 2
+#define BC_WIDEVINE_FAILED 3
+#define BC_WIDEVINE_RESTART 4
+#define BC_WIDEVINE_READY 5
+
+// Where Google's Widevine module is: a BC_WIDEVINE_ value. Then widevine_changed with each change.
+BC_EXPORT int bc_widevine(void);
+
+// The user said yes to Google's Widevine module: the browser downloads it from Google's component
+// service, then keeps it up to date. Does nothing unless it's BC_WIDEVINE_ABSENT or
+// BC_WIDEVINE_FAILED. Then widevine_changed. The user's alone: agents get no way to it.
+BC_EXPORT void bc_widevine_download(void);
+
+// Removes Google's Widevine module: deletes it, and the component updater stops asking for it. A
+// module the browser loaded plays until it restarts. Then widevine_changed with
+// BC_WIDEVINE_ABSENT. The user's: agents get none.
+BC_EXPORT void bc_widevine_remove(void);
+
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as
 // in Chrome, unless the user has changed the text since the bar opened. Highlights the matches
@@ -1845,6 +1893,14 @@ BC_EXPORT void bc_window_start_move(bc_id window);
 // button shows, as restore rather than maximize. The UI asks as the window's bounds change, as
 // maximizing and restoring change them.
 BC_EXPORT bool bc_window_is_maximized(bc_id window);
+
+// On Linux, as bc_window_is_maximized: whether |window| is full screen, as the window manager's
+// own full-screen key or a page can put it. The UI asks as the window's bounds change.
+BC_EXPORT bool bc_window_is_full_screen(bc_id window);
+
+// On Linux: puts |window| full screen, or takes it out, as the window manager's own full-screen key
+// does, for the test driver. bc_window_toggle_maximized takes it out as Escape asks.
+BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 
 #ifdef __cplusplus
 }
