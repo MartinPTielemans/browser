@@ -1274,6 +1274,123 @@ void host_centered(double width, double height, double* x, double* y) {
   *y = NSHeight(main.frame) - NSMidY(visible) - height / 2;
 }
 
+void host_little_frame(double width, double height, double* x, double* y) {
+  NSScreen* main = NSScreen.screens.firstObject;
+  NSScreen* screen = WindowScreen();
+  // The pointer's screen, unless a check keeps it off the owner's.
+  if (strcmp(getenv("BROWSER_DISPLAY") ?: "", "builtin") != 0) {
+    for (NSScreen* each in NSScreen.screens) {
+      if (NSMouseInRect(NSEvent.mouseLocation, each.frame, NO)) {
+        screen = each;
+        break;
+      }
+    }
+  }
+  NSRect visible = screen.visibleFrame;
+  *x = NSMidX(visible) - width / 2;
+  // A little above the middle: four tenths of the room over the window, not half.
+  const double room = std::max(0.0, NSHeight(visible) - height);
+  *y = NSHeight(main.frame) - NSMaxY(visible) + room * 0.4;
+}
+
+void host_set_little(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  NSWindow* window = browser ? browser->window : nil;
+  if (!window) {
+    return;
+  }
+  // Over a full-screen window of ours on this desktop it joins that desktop as an auxiliary
+  // window, which AppKit allows only of a window that can't go full screen itself.
+  bool over_full_screen = false;
+  for (const auto& other : g_browsers) {
+    NSWindow* shown = other->window;
+    if (shown && shown != window && shown.onActiveSpace &&
+        (shown.styleMask & NSWindowStyleMaskFullScreen)) {
+      over_full_screen = true;
+    }
+  }
+  NSWindowCollectionBehavior behavior = window.collectionBehavior;
+  behavior &= ~(NSWindowCollectionBehaviorFullScreenPrimary |
+                NSWindowCollectionBehaviorFullScreenAuxiliary);
+  behavior |= NSWindowCollectionBehaviorMoveToActiveSpace;
+  behavior |= over_full_screen ? NSWindowCollectionBehaviorFullScreenAuxiliary
+                               : NSWindowCollectionBehaviorFullScreenPrimary;
+  window.collectionBehavior = behavior;
+}
+
+void host_set_window_hidden(void* ui_view, bool hidden) {
+  Browser* browser = BrowserWithView(ui_view);
+  NSWindow* window = browser ? browser->window : nil;
+  if (hidden) {
+    [window orderOut:nil];
+  } else {
+    [window orderFront:nil];
+  }
+}
+
+// The menu bar button's click, which makes the app active first, as a click on the Dock icon does.
+@interface LittleButtonTarget : NSObject
+@property(nonatomic) void (*clicked)(void);
+@end
+
+@implementation LittleButtonTarget
+- (void)click:(id)sender {
+  [NSApp activateIgnoringOtherApps:YES];
+  if (self.clicked) {
+    self.clicked();
+  }
+}
+@end
+
+namespace {
+NSStatusItem* g_little_button;
+LittleButtonTarget* g_little_target;
+}  // namespace
+
+// The button's glyph, ours: a small window with a bar across its top, drawn as a template so the
+// menu bar tints it.
+NSImage* LittleButtonImage() {
+  NSImage* image = [NSImage imageWithSize:NSMakeSize(18, 18)
+                                  flipped:NO
+                           drawingHandler:^BOOL(NSRect) {
+                             NSBezierPath* frame =
+                                 [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(2.5, 3.5, 13, 11)
+                                                                 xRadius:2.5
+                                                                 yRadius:2.5];
+                             frame.lineWidth = 1.5;
+                             [NSColor.blackColor setStroke];
+                             [frame stroke];
+                             NSBezierPath* bar = [NSBezierPath bezierPath];
+                             [bar moveToPoint:NSMakePoint(2.5, 11)];
+                             [bar lineToPoint:NSMakePoint(15.5, 11)];
+                             bar.lineWidth = 1.5;
+                             [bar stroke];
+                             return YES;
+                           }];
+  image.template = YES;
+  return image;
+}
+
+void host_set_little_button(bool shown, void (*clicked)(void)) {
+  if (!shown) {
+    if (g_little_button) {
+      [NSStatusBar.systemStatusBar removeStatusItem:g_little_button];
+      g_little_button = nil;
+    }
+    return;
+  }
+  if (g_little_button) {
+    return;
+  }
+  g_little_target = g_little_target ?: [[LittleButtonTarget alloc] init];
+  g_little_target.clicked = clicked;
+  g_little_button = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
+  g_little_button.button.image = LittleButtonImage();
+  g_little_button.button.toolTip = @"New Mini Window";
+  g_little_button.button.target = g_little_target;
+  g_little_button.button.action = @selector(click:);
+}
+
 void* host_ui_view(void) {
   auto browser = std::make_unique<Browser>();
   browser->ui_view = [[HostUIView alloc] initWithFrame:NSZeroRect];

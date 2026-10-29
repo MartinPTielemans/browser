@@ -43,6 +43,8 @@ mod full_screen;
 mod access;
 #[cfg(test)]
 mod undo_tests;
+#[cfg(test)]
+mod little_tests;
 mod assets;
 mod browser;
 mod clean_link;
@@ -62,6 +64,7 @@ mod library;
 mod link;
 #[cfg(test)]
 mod link_target;
+mod little;
 mod menu_bar;
 mod menus;
 mod naming;
@@ -1219,6 +1222,8 @@ pub struct Shell {
     icon_placeholder: Option<(u64, Subscription)>,
     /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
     private: bool,
+    /// A Mini Window's (Arc's Little Arc): its first Space is its own, holding its one page.
+    little: Option<little::Little>,
 }
 
 impl Shell {
@@ -1400,6 +1405,7 @@ impl Shell {
             palette: Palette::default(),
             palettes: RefCell::default(),
             private: false,
+            little: None,
         }
     }
 
@@ -1675,6 +1681,9 @@ impl Shell {
         if self.private {
             return;
         }
+        if self.little.is_some() {
+            return self.set_little_spaces(spaces, cx);
+        }
         // check.sh reads these lines.
         let ids: Vec<String> = spaces.iter().map(|(id, ..)| id.to_string()).collect();
         log!("browser: spaces {}", ids.join(" "));
@@ -1929,7 +1938,7 @@ impl Shell {
     /// Every favorite, left to right, each with its holder: the Space it belongs to under Each
     /// Space (the core's `bc_favorite_space`), else its profile.
     pub fn set_favorites(&mut self, favorites: Vec<(u64, u64)>, cx: &mut Context<Self>) {
-        if self.private {
+        if self.private || self.little.is_some() {
             return;
         }
         let tiles = self.drawn();
@@ -2922,6 +2931,7 @@ impl Render for Shell {
             .child(self.window_background())
             // The page views go over the cards, as native views.
             .children(self.cards())
+            .children(self.little_bar(cx))
             .children(self.picture_element(cx))
             .children(self.empty_card(cx))
             .children(self.crash_cards(cx))

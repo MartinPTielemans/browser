@@ -1,6 +1,7 @@
 # Add Split View, from the menu, ⌃+ from the page and ⌥-click on "+ New Tab", narrows the page at
-# once for a pane on its right, with the command bar over it, which escape takes back. ⌥⇧- and
-# ⌥⌘-click on a link, and the link menu's Open Link in Split View, open it in a pane on the right.
+# once for a pane on its right, with the command bar over it, which escape takes back. ⌥⇧-click on
+# a link, and the link menu's Open Link in Split View, open it in a pane on the right; ⌥⌘-click
+# opens it in a Mini Window instead, as Arc's does (decided by the owner, 2026-10-29).
 # The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in
 # a window as ⌘N's and in a private one as ⇧⌘N's. A URL typed in the command bar opens in the pane,
 # focused. The panes share the card 10 apart, the
@@ -95,21 +96,32 @@ read_pages
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 send click $page_point
-# ⌥⇧-click on a link opens it in a pane on the right, focused, as Dia's does, and so does ⌥⌘-click,
-# as Chrome's does.
-for modifiers in "alt shift" "alt cmd"; do
-  send click $((x + 20)) $((y + 20)) $modifiers
-  expect "^browser: splits $a+[0-9][0-9]*\$" \
-    "a click on a link with $modifiers didn't open it beside the page: \"$(splits)\""
-  n=$(splits | cut -d+ -f2)
-  expect "^browser: selected $n\( in .*\)\{0,1\}\$" "the link's pane isn't focused"
-  expect "^browser: panes $a $n\$" "the window doesn't show the link beside the page"
-  expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in its pane"
-  send key w cmd
-  expect "^browser: tab $n closed\$" "⌘W didn't close the link's pane"
-  expect "^browser: panes $a\$" "⌘W on the link's pane didn't leave the page alone"
-  send click $page_point
-done
+# ⌥⇧-click on a link opens it in a pane on the right, focused, as Dia's does.
+send click $((x + 20)) $((y + 20)) alt shift
+expect "^browser: splits $a+[0-9][0-9]*\$" \
+  "a click on a link with ⌥⇧ didn't open it beside the page: \"$(splits)\""
+n=$(splits | cut -d+ -f2)
+expect "^browser: selected $n\( in .*\)\{0,1\}\$" "the link's pane isn't focused"
+expect "^browser: panes $a $n\$" "the window doesn't show the link beside the page"
+expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in its pane"
+send key w cmd
+expect "^browser: tab $n closed\$" "⌘W didn't close the link's pane"
+expect "^browser: panes $a\$" "⌘W on the link's pane didn't leave the page alone"
+send click $page_point
+# ⌥⌘-click opens it in a Mini Window, not beside the page, and ⌘W there closes that window.
+main=$(grep -m1 '^browser: window opened ' "$log" | cut -d' ' -f4)
+send click $((x + 20)) $((y + 20)) alt cmd
+expect "^browser: link ${site}notes.txt in little window [0-9]* from window $main\$" \
+  "⌥⌘-click on a link didn't open it in a Mini Window"
+little=$(grep "^browser: link ${site}notes.txt in little window " "$log" | tail -1 | cut -d' ' -f7)
+expect "^browser: key window $little\$" "the Mini Window didn't come to the front"
+expect "^browser: loaded [0-9]* ${site}notes.txt\$" "the link didn't load in the Mini Window"
+send window 2
+send key w cmd
+expect "^browser: window closed $little\$" "⌘W didn't close the Mini Window"
+expect "^browser: key window $main\$" "the main window didn't come back to the front"
+send window 1
+send click $page_point
 # The link menu is Arc's: Open Link in New Tab, in New Window, in Split View and in Incognito
 # Window, then Save Link As… and Copy Link Address, before the menu's other items. Off the Mac
 # they're in sentence case, as Chrome's are there.

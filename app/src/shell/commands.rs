@@ -14,6 +14,7 @@ use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
+    little::little_runs,
     panes::pane_frames,
     swap::{CHECK, LINK},
     user_keys,
@@ -29,6 +30,10 @@ pub enum Command {
     NewWindow,
     /// Opens a private window, in the profile's off-the-record session.
     NewPrivateWindow,
+    /// Opens a Mini Window, Arc's Little Arc, for the user's Space shown.
+    NewLittleWindow,
+    /// A Mini Window's ⌘O: its page goes to the main window, live.
+    OpenInMainWindow,
     /// Closes the window, its tabs going to the window in front of the others.
     CloseWindow,
     EditUrl,
@@ -184,6 +189,8 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-w", Command::CloseTab, true),
     ("cmd-n", Command::NewWindow, true),
     ("shift-cmd-n", Command::NewPrivateWindow, true),
+    ("alt-cmd-n", Command::NewLittleWindow, true),
+    ("cmd-o", Command::OpenInMainWindow, false),
     ("shift-cmd-w", Command::CloseWindow, true),
     ("shift-cmd-t", Command::ReopenClosedTab, true),
     ("cmd-q", Command::Quit, true),
@@ -296,6 +303,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("New Window", Command::NewWindow, &["duplicate", "copy"]),
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
+    ("New Mini Window", Command::NewLittleWindow, &["little", "small window"]),
+    ("Open in Main Window", Command::OpenInMainWindow, &["little", "move"]),
     ("Close Window", Command::CloseWindow, &[]),
     ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
     ("Find…", Command::Find, &[]),
@@ -563,6 +572,8 @@ impl Command {
             Command::SearchTabs => "search-tabs",
             Command::NewWindow => "new-window",
             Command::NewPrivateWindow => "new-private-window",
+            Command::NewLittleWindow => "new-little-window",
+            Command::OpenInMainWindow => "open-in-main-window",
             Command::CloseWindow => "close-window",
             Command::EditUrl => "edit-url",
             Command::CloseTab => "close-tab",
@@ -725,6 +736,9 @@ impl Shell {
         if self.private && !private_runs(command) {
             return;
         }
+        if self.little.is_some() && !little_runs(command) {
+            return;
+        }
         let rows = self.sidebar_rows();
         let position = rows.iter().position(|&row| row == self.row_of(self.selected));
         let count = rows.len();
@@ -754,9 +768,21 @@ impl Shell {
             Command::EditUrl => {
                 self.set_new_tab(false, cx);
                 let editing = (self.selected != 0).then(|| (self.selected, self.url(self.selected)));
-                // A click on the URL field opens the bar over the field, and ⌘L centred (Arc).
-                let field = if from == "sidebar" { self.url_field_bounds() } else { None };
+                // A click on the URL field opens the bar over the field, and ⌘L centred (Arc). A
+                // Mini Window's opens compact over its bar's title either way.
+                let field = match self.little_field_bounds() {
+                    Some(title) => Some(title),
+                    None if from == "sidebar" => self.url_field_bounds(),
+                    None => None,
+                };
                 return self.browser.command_bar(editing, self.bar_tabs(), field, cx);
+            }
+            // A Mini Window's one page closes with it (Arc).
+            Command::CloseTab if self.little.is_some() => {
+                if !self.browser.close_other_window(cx) {
+                    self.browser.close_window(cx);
+                }
+                return;
             }
             Command::CloseTab => {
                 // From a window of Chrome's, such as its Task Manager, ⌘W closes that window, as in
@@ -773,6 +799,11 @@ impl Shell {
             }
             Command::NewWindow => return self.browser.new_window(cx),
             Command::NewPrivateWindow => return self.browser.new_private_window(cx),
+            Command::NewLittleWindow => {
+                let home = self.little().unwrap_or(self.space);
+                return self.browser.new_little_window(home, cx);
+            }
+            Command::OpenInMainWindow => return self.open_in_main_window(cx),
             Command::CloseWindow => {
                 // As ⌘W does, from a window of Chrome's it closes that one.
                 if !self.browser.close_other_window(cx) {
@@ -1140,6 +1171,9 @@ impl Shell {
         if self.private && !private_runs(command) {
             return false;
         }
+        if self.little.is_some() && !little_runs(command) {
+            return false;
+        }
         let page = self.page(self.selected);
         let space = self.spaces.iter().position(|space| space.id == self.space);
         match command {
@@ -1175,11 +1209,13 @@ impl Shell {
             Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
+            Command::OpenInMainWindow => self.little.is_some() && self.selected != 0,
             Command::NewFolder
             | Command::SearchTabs
             | Command::ReopenClosedTab
             | Command::NewWindow
             | Command::NewPrivateWindow
+            | Command::NewLittleWindow
             | Command::CloseWindow
             | Command::ToggleSidebar
             | Command::NewSpace
@@ -1243,6 +1279,7 @@ fn private_runs(command: Command) -> bool {
     !matches!(
         command,
         Command::ReopenClosedTab
+            | Command::NewLittleWindow
             | Command::TogglePin
             | Command::FavoriteTab
             | Command::NewFolder

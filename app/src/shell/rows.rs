@@ -735,6 +735,16 @@ impl Shell {
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
                     shell.browser.hover_card(crate::hover_card::Hover::Close, cx);
+                    // ⌥⌘-click opens a Today tab in a Mini Window of its own, as Arc's opens one in
+                    // Little Arc. A pinned tab keeps its place.
+                    if event.modifiers.alt && event.modifiers.secondary(cx) {
+                        if shell.today().contains(&tab) && !shell.private {
+                            // check.sh reads this line.
+                            log!("browser: command open-in-little via sidebar");
+                            shell.browser.open_in_little(tab, cx);
+                        }
+                        return;
+                    }
                     // The first press selected the tab (Dia).
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);

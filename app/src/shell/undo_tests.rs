@@ -619,6 +619,7 @@ fn archived(id: u64) -> Archived {
         url: "https://a.example/".into(),
         title: "A".into(),
         archived: 0.,
+        little: false,
     }
 }
 

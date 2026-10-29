@@ -12,7 +12,8 @@ serve
 log="$out/links.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
+# As tabs, whatever Settings says; check/little.sh takes them in Mini Windows, as Arc does.
+BROWSER_LINKS_IN_TABS=1 BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load

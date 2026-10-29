@@ -251,6 +251,7 @@ impl Fake {
                 url: url.into(),
                 title: title.into(),
                 archived,
+                little: false,
             })
             .collect();
         self.later(cx, move |shell, cx| shell.set_archive(archive, cx));
@@ -1080,6 +1081,14 @@ impl Browser for Fake {
     }
 
     fn new_private_window(&self, _: &mut App) {}
+
+    fn new_little_window(&self, _: u64, _: &mut App) {}
+
+    fn open_in_little(&self, _: u64, _: &mut App) {}
+
+    fn open_in_main_window(&self, _: u64, _: u64, _: &mut App) {}
+
+    fn pick_little_space(&self, _: &str, _: u64, _: &mut App) {}
 
     fn close_window(&self, cx: &mut App) {
         cx.quit();

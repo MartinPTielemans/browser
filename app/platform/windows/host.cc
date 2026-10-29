@@ -1094,6 +1094,22 @@ void host_centered(double width, double height, double* x, double* y) {
   *y = (work.top + work.bottom) / 2.0 / scale - height / 2;
 }
 
+void host_little_frame(double width, double height, double* x, double* y) {
+  POINT pointer;
+  GetCursorPos(&pointer);
+  MONITORINFO monitor = {sizeof(MONITORINFO)};
+  GetMonitorInfoW(MonitorFromPoint(pointer, MONITOR_DEFAULTTOPRIMARY), &monitor);
+  const RECT& work = monitor.rcWork;
+  const double scale = GetDpiForSystem() / 96.0;
+  *x = (work.left + work.right) / 2.0 / scale - width / 2;
+  // A little above the middle: four tenths of the room over the window, not half.
+  const double room = std::max(0.0, (work.bottom - work.top) / scale - height);
+  *y = work.top / scale + room * 0.4;
+}
+
+// A new window opens on the virtual desktop in use already.
+void host_set_little(void*) {}
+
 // shortcut: no launch window on Windows yet: the browser window shows once the UI has drawn. Port
 // the Mac's picture of the last sidebar when launch is measured on Windows.
 void host_show_launch_window(const char*, double, double, double, double) {}

@@ -957,4 +957,20 @@ impl Browser for Recorder {
     }
 
     fn new_private_window(&self, _: &mut App) {}
+
+    fn new_little_window(&self, home: u64, _: &mut App) {
+        self.record(format!("new little window {home}"))
+    }
+
+    fn open_in_little(&self, tab: u64, _: &mut App) {
+        self.record(format!("open in little {tab}"))
+    }
+
+    fn open_in_main_window(&self, tab: u64, home: u64, _: &mut App) {
+        self.record(format!("open in main window {tab} {home}"))
+    }
+
+    fn pick_little_space(&self, url: &str, space: u64, _: &mut App) {
+        self.record(format!("pick little space {url} {space}"))
+    }
 }

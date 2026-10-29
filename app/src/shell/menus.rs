@@ -100,7 +100,7 @@ impl MenuEntry {
         MenuEntry { destructive: true, ..self }
     }
 
-    fn swatch(self, swatch: Swatch) -> Self {
+    pub(super) fn swatch(self, swatch: Swatch) -> Self {
         MenuEntry { swatch: Some(swatch), ..self }
     }
 

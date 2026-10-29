@@ -85,6 +85,24 @@ void host_show_window_behind(void* ui_view, void* above_ui_view);
 // big, down and to the right as AppKit cascades windows, kept on its screen.
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height);
 
+// Where a Little Arc window of |width| by |height| goes, in host_centered's terms: centred a little
+// above the middle of the screen the pointer is on, or the Mac's own with BROWSER_DISPLAY=builtin.
+void host_little_frame(double width, double height, double* x, double* y);
+
+// Makes the browser window of |ui_view| a Little Arc window, before it's on screen: it opens on the
+// macOS desktop the user is on, over a full-screen window of ours there, as Arc's does. Nothing
+// elsewhere, whose windows open on the desktop in use already.
+void host_set_little(void* ui_view);
+
+// Hides the browser window of |ui_view|, out of the Dock and the window list too, or shows it
+// again, for the Dock menu's Hide and Show All Mini Windows. The Mac's alone.
+void host_set_window_hidden(void* ui_view, bool hidden);
+
+// Puts the button that opens Little Arc in the menu bar, calling |clicked| when it's clicked with
+// the app made the active one, or takes it out. The Mac's alone. It has no timer or animation, so
+// the idle browser stays asleep with it there.
+void host_set_little_button(bool shown, void (*clicked)(void));
+
 // Names the browser window of |ui_view| in the Window menu's list of windows and in Mission
 // Control. The window doesn't draw it.
 void host_set_window_title(void* ui_view, const char* title);

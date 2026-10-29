@@ -102,6 +102,15 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
     ("30 days", 30. * 24. * 3600.),
 ];
 
+/// What Arc offers for how long a Mini Window waits in the background before it's archived, in
+/// seconds.
+const LITTLE_ARCHIVE_AFTER: [(&str, f64); 4] = [
+    ("1 hour", 3600.),
+    ("6 hours (default)", 6. * 3600.),
+    ("12 hours", 12. * 3600.),
+    ("1 day", 24. * 3600.),
+];
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     General,
@@ -178,6 +187,10 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Tab", Keys::Of(Command::NewTab)),
             ("New Window", Keys::Of(Command::NewWindow)),
             ("New Incognito Window", Keys::Of(Command::NewPrivateWindow)),
+            ("New Mini Window", Keys::Of(Command::NewLittleWindow)),
+            ("Open in Main Window", Keys::Of(Command::OpenInMainWindow)),
+            ("Open Link in Mini Window", Keys::Text("⌥⌘-click")),
+            ("Open Link in Split View", Keys::Text("⌥⇧-click")),
             ("Open Command Bar", Keys::Of(Command::EditUrl)),
             ("Search Tabs", Keys::Of(Command::SearchTabs)),
             ("Archive Tab", Keys::Of(Command::CloseTab)),
@@ -284,6 +297,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
 enum Popup {
     ArchiveAfter,
     Favorites,
+    LittleArchiveAfter,
     PasswordsProfile,
 }
 
@@ -833,6 +847,28 @@ impl Settings {
         let unload = self.toggle("unload idle tabs", unload, set_unload_idle_tabs, accent, cx);
         let ad_blocking = unsafe { bc::bc_ad_blocking() };
         let ad_blocking = self.toggle("ad blocking", ad_blocking, set_ad_blocking, accent, cx);
+        let in_little = unsafe { bc::bc_links_in_little() };
+        let in_little = self.toggle("links in mini windows", in_little, set_links_in_little, accent, cx);
+        let after = unsafe { bc::bc_little_archive_after() };
+        let chosen = LITTLE_ARCHIVE_AFTER.iter().position(|&(_, seconds)| seconds == after);
+        let label: SharedString = match chosen {
+            Some(index) => LITTLE_ARCHIVE_AFTER[index].0.into(),
+            None => format!("{:.0} hours", after / 3600.).into(),
+        };
+        let little_archive = self.popup(
+            Popup::LittleArchiveAfter,
+            label,
+            POPUP_WIDTH,
+            cx.listener(move |settings, _, window, cx| {
+                settings.choose_little_archive_after(chosen, window, cx)
+            }),
+        );
+        // The menu bar button is the Mac's status item; other systems have no menu bar for it.
+        let menu_bar = cfg!(target_os = "macos").then(|| {
+            let shown = unsafe { bc::bc_little_in_menu_bar() };
+            let shown = self.toggle("mini window button", shown, set_little_in_menu_bar, accent, cx);
+            row(None, "Show a New Mini Window button in the menu bar", shown)
+        });
         div()
             .flex()
             .flex_col()
@@ -846,6 +882,11 @@ impl Settings {
                 // Last, so popup_text finds the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
             ]))
+            // Under the first box, so popup_text finds the archive's pop-up whatever comes below.
+            .child(group(&RowLook::settings(), [
+                row(None, "Open links from other apps in a Mini Window", in_little),
+                row(None, "Archive Mini Windows after", little_archive.into_any_element()),
+            ].into_iter().chain(menu_bar)))
             .children(self.off_sites(off_sites, cx))
             .child(group(&RowLook::settings(), [self.default_browser_row(cx)]))
             .into_any_element()
@@ -1014,6 +1055,31 @@ impl Settings {
             settings.update(cx, |settings, cx| settings.chose(cx)).ok();
         });
         self.pop_up(Popup::ArchiveAfter, items, picked, window, cx);
+    }
+
+    /// Opens the Mini Windows' archive pop-up menu over its button, as the tabs' archive's.
+    fn choose_little_archive_after(
+        &mut self,
+        chosen: Option<usize>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (LITTLE_ARCHIVE_AFTER.iter().enumerate())
+            .map(|(index, &(title, _))| {
+                let on = Some(index) == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(title, true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some((title, seconds)) = picked.map(|index| LITTLE_ARCHIVE_AFTER[index]) {
+                // check.sh waits for this line.
+                log!("browser: archive mini windows after {title}");
+                unsafe { bc::bc_set_little_archive_after(seconds) };
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::LittleArchiveAfter, items, picked, window, cx);
     }
 
     /// Opens the favorites' pop-up menu over its button, as the archive's, and sets the scope
@@ -1823,6 +1889,11 @@ fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
         Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
         // Under Unload's switch.
         Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
+        // The second box's second row: the first box's rows from the archive's, the gap and its
+        // border, and the links' switch.
+        Popup::LittleArchiveAfter => {
+            (POPUP_WIDTH, 3. * switch_row + 2. * popup_row + BOX_GAP + 1.)
+        }
         // The Passwords tab's first row.
         Popup::PasswordsProfile => (POPUP_WIDTH, 0.),
     };
@@ -1845,6 +1916,15 @@ const _: () = {
 
 fn set_warn_before_quitting(warn: bool, _: &mut App) {
     unsafe { bc::bc_set_warn_before_quitting(warn) };
+}
+
+fn set_links_in_little(little: bool, _: &mut App) {
+    unsafe { bc::bc_set_links_in_little(little) };
+}
+
+fn set_little_in_menu_bar(shown: bool, cx: &mut App) {
+    unsafe { bc::bc_set_little_in_menu_bar(shown) };
+    crate::show_little_button(cx);
 }
 
 fn set_unload_idle_tabs(unload: bool, _: &mut App) {

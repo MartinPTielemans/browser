@@ -108,6 +108,7 @@ pub mod settings_rows;
 pub mod settling;
 pub mod shell;
 pub mod site_controls;
+pub mod site_spaces;
 pub mod space_icon;
 pub mod text_input;
 pub mod theme;

@@ -113,6 +113,7 @@ use crate::tokens::shell::library::SEARCH_TOP;
 use crate::tokens::shell::library::SEARCH_WIDTH;
 use crate::tokens::shell::library::SEARCH_HEIGHT;
 use crate::tokens::shell::library::SEARCH_RADIUS;
+use crate::tokens::shell::library::{FILTER_GAP, FILTER_GLYPH, FILTER_WIDTH, FILTER_X};
 use crate::tokens::shell::library::SEARCH_GLYPH;
 use crate::tokens::shell::library::SEARCH_GLYPH_X;
 use crate::tokens::shell::library::SEARCH_TEXT_X;
@@ -155,6 +156,8 @@ pub struct Archived {
     pub title: SharedString,
     /// When it was archived, in milliseconds since the Unix epoch.
     pub archived: f64,
+    /// Whether a Mini Window archived it, for the archive's filter.
+    pub little: bool,
 }
 
 /// Where a download is.
@@ -324,6 +327,8 @@ pub(super) struct Library {
     query: String,
     items: Vec<Item>,
     list: ListState,
+    /// The archive's filter keeps to the tabs Mini Windows archived.
+    little_only: bool,
     _search: Subscription,
 }
 
@@ -611,6 +616,7 @@ impl Shell {
             query: String::new(),
             items: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(ARCHIVE_OVERDRAW)),
+            little_only: false,
             _search: observe,
         });
         // check.sh waits for these lines.
@@ -688,10 +694,12 @@ impl Shell {
             return;
         }
         let found = |text: &SharedString| text.to_lowercase().contains(&query);
+        let little_only = library.little_only;
         // Each with the time it's listed by, newest first.
         let found: Vec<(Item, f64)> = match self.section {
             Section::Spaces => Vec::new(),
             Section::Archive => (self.archive.iter().enumerate())
+                .filter(|(_, tab)| !little_only || tab.little)
                 .filter(|(_, tab)| query.is_empty() || found(&tab.title) || found(&tab.url))
                 .map(|(index, tab)| (Item::Tab(index), tab.archived))
                 .collect(),
@@ -727,6 +735,41 @@ impl Shell {
         log!("browser: restore archived {id}");
         self.browser.restore_archived(id, cx);
         self.set_library(false, cx);
+    }
+
+    /// The Filter button's menu: every archived tab, or only those Mini Windows archived (Arc's
+    /// Little Arc filter).
+    fn archive_filter_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let little_only = self.library.as_ref().is_some_and(|library| library.little_only);
+        let entries = vec![
+            MenuEntry { checked: !little_only, ..MenuEntry::new("All Archived Tabs", true) },
+            MenuEntry { checked: little_only, ..MenuEntry::new("Mini Windows", true) },
+        ];
+        let shell = cx.weak_entity();
+        self.browser.context_menu(
+            entries,
+            position,
+            false,
+            Look { light: false, ..self.menu_look() },
+            Box::new(move |chosen, cx| {
+                let Some(chosen) = chosen else {
+                    return;
+                };
+                shell
+                    .update(cx, |shell, cx| {
+                        let Some(library) = &mut shell.library else {
+                            return;
+                        };
+                        library.little_only = chosen == 1;
+                        // check.sh waits for this line.
+                        log!("browser: archive filter mini windows {}", library.little_only);
+                        shell.filter(true, cx);
+                        cx.notify();
+                    })
+                    .ok();
+            }),
+            cx,
+        );
     }
 
     /// The menu a right-click on an archived tab's row shows: reopen it, copy its URL, or take it
@@ -859,12 +902,17 @@ impl Shell {
             .w(px(1.))
             .bg(self.palette.faint(COLUMN_EDGE));
         let search = library.search.clone();
+        let filtering = self.section == Section::Archive;
+        let field_width = match filtering {
+            true => FILTER_X - FILTER_GAP - SEARCH_X,
+            false => SEARCH_WIDTH,
+        };
         let field = div()
             .id("library-search")
             .absolute()
             .left(px(SEARCH_X))
             .top(px(SEARCH_TOP))
-            .w(px(SEARCH_WIDTH))
+            .w(px(field_width))
             .h(px(SEARCH_HEIGHT))
             .flex()
             .items_center()
@@ -893,10 +941,48 @@ impl Shell {
                     .text_color(self.palette.text(SEARCH_PLACEHOLDER)),
             )
             .child(library.search.clone());
+        let filter = filtering.then(|| {
+            let glyph: Hsla = match library.little_only {
+                true => self.palette.accent.into(),
+                false => self.palette.text(SEARCH_PLACEHOLDER).into(),
+            };
+            div()
+                .id("library-filter")
+                .absolute()
+                .left(px(FILTER_X))
+                .top(px(SEARCH_TOP))
+                .w(px(FILTER_WIDTH))
+                .h(px(SEARCH_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(6.))
+                .text_size(px(text::BODY))
+                .text_color(glyph)
+                .rounded(px(SEARCH_RADIUS))
+                .bg(self.palette.plate(LIBRARY_PLATE))
+                .block_mouse_except_scroll()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|shell, event: &MouseDownEvent, _, cx| {
+                        shell.archive_filter_menu(event.position, cx)
+                    }),
+                )
+                .child(
+                    svg()
+                        .path("icons/sliders-horizontal.svg")
+                        .size(px(FILTER_GLYPH))
+                        .text_color(glyph),
+                )
+                .child("Filter")
+        });
         let spaces = self.section == Section::Spaces;
         let archive = if library.items.is_empty() {
             let empty = match (self.section, library.query.is_empty()) {
                 (Section::Spaces, _) => "",
+                (Section::Archive, true) if library.little_only => {
+                    "Tabs you close in a Mini Window are kept here for 30 days."
+                }
                 (Section::Archive, true) => "Today tabs you close are kept here for 30 days.",
                 (Section::Archive, false) => "No archived tabs match.",
                 (Section::Downloads, true) => "Files you download show here.",
@@ -931,6 +1017,7 @@ impl Shell {
         }
         panel
             .child(field)
+            .children(filter)
             .child(
                 div()
                     .absolute()
@@ -1772,7 +1859,7 @@ mod tests {
     };
     use std::rc::Rc;
 
-    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
+    use gpui::{AppContext, Modifiers, MouseButton, TestAppContext, point, px};
 
     use crate::shell::recorder::Recorder;
     use crate::shell::sidebar::window_buttons_at;
@@ -2096,5 +2183,41 @@ mod tests {
             bar_drawn(&[Download { received, total: gigabyte, held: true, ..running(0, 0) }])
         };
         assert_eq!(held(0), held(gigabyte / 4));
+    }
+
+    /// Arc's Filter button keeps the archive to what Little Arc archived, and back.
+    #[gpui::test]
+    fn the_archive_s_filter_keeps_to_what_mini_windows_archived(cx: &mut TestAppContext) {
+        use super::{Archived, Item};
+
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        let tab = |id: u64, little| Archived {
+            id,
+            url: format!("https://{id}.example/").into(),
+            title: format!("Tab {id}").into(),
+            archived: 0.,
+            little,
+        };
+        let listed = |shell: &Shell| -> Vec<u64> {
+            let library = shell.library.as_ref().expect("the Library");
+            (library.items.iter())
+                .filter_map(|item| match item {
+                    Item::Tab(index) => Some(shell.archive[*index].id),
+                    _ => None,
+                })
+                .collect()
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_archive(vec![tab(1, false), tab(2, true), tab(3, false)], cx);
+            shell.show_section(Section::Archive, cx);
+            assert_eq!(listed(shell), [1, 2, 3]);
+            shell.archive_filter_menu(point(px(0.), px(0.)), cx);
+        });
+        cx.update(|cx| host.choose("Mini Windows", cx));
+        shell.read_with(cx, |shell, _| assert_eq!(listed(shell), [2]));
+        shell.update(cx, |shell, cx| shell.archive_filter_menu(point(px(0.), px(0.)), cx));
+        cx.update(|cx| host.choose("All Archived Tabs", cx));
+        shell.read_with(cx, |shell, _| assert_eq!(listed(shell), [1, 2, 3]));
     }
 }

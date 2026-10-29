@@ -235,6 +235,14 @@ void host_centered(double width, double height, double* x, double* y) {
   *y = 0;
 }
 
+// Wayland gives no client a say in where a window goes, as for host_centered.
+void host_little_frame(double width, double height, double* x, double* y) {
+  host_centered(width, height, x, y);
+}
+
+// A new window opens on the workspace the user is on already.
+void host_set_little(void* ui_view) {}
+
 // No launch window. It shows the last sidebar where the first browser window opens, which Wayland
 // gives no client a say in (host_centered), and a tiling compositor such as Hyprland would lay the
 // screen out twice, for it and then for the browser window. Chromium's window goes on screen as the
