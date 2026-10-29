@@ -99,7 +99,7 @@ exited() {
     sleep 0.5
   done
   # It exits once no process is left to send it a crash.
-  pgrep -f "$app/Contents/.*/chrome_crashpad_handler" > /dev/null &&
+  pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null &&
     fail "Crashpad's handler outlived the app"
   pgrep -f "$procs" > /dev/null && fail "Chromium helper processes were left running"
   return 0
