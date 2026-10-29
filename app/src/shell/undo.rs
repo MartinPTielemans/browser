@@ -607,7 +607,7 @@ impl Shell {
     }
 
     /// The tab shown, if it's one of `tabs`.
-    fn shown_among(&self, tabs: &[u64]) -> Option<u64> {
+    pub(super) fn shown_among(&self, tabs: &[u64]) -> Option<u64> {
         tabs.contains(&self.selected).then_some(self.selected)
     }
 
