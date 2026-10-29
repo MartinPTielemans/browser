@@ -95,6 +95,8 @@ pub(super) struct Recorder {
     pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
     pub(super) bar_open: Cell<bool>,
+    /// How many times Site Search Settings opened.
+    pub(super) site_search_settings: Cell<usize>,
     /// The tabs the command bar was given to list each time the window showed another Space.
     pub(super) followed_tabs: RefCell<Vec<Vec<u64>>>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
@@ -528,6 +530,10 @@ impl Browser for Recorder {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+
+    fn site_search_settings(&self, _: &mut App) {
+        self.site_search_settings.set(self.site_search_settings.get() + 1);
+    }
 
     fn close_other_window(&self, _: &mut App) -> bool {
         Default::default()

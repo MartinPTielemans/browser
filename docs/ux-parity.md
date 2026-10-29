@@ -171,6 +171,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Inline eligibility | MVP | typed ≥ 1 host / ≥ 2 deeper | Chrome O |
 | [x] | Well-known sites | MVP | built in; fill the rows left under the profile's own, never row 0 | ours |
 | [x] | Site search | MVP | Tab when hinted, Space after the keyword; ⌫ at the start, ⇧Tab or Esc leaves and restores; Arc's look: measure | Chrome O |
+| [ ] | Site Search Settings | MVP | a command opens Chromium's search engines page, where a site's name, keyword and %s URL are added and edited; none in a private window. Built, and checked by `cargo test`: the bar finds it, its glyph, a private window doesn't offer or run it. To tick: a driven run that opens it and adds a keyword the bar then hints, on the Mac, not written yet; Arc's toast that turns one on in every profile: not built | Arc's help centre |
 | [x] | Keys | MVP | ↩, ⌘↩ behind with the bar open, ⌥↩ beside, ⇧⌘↩, ⌃↩, ↑↓ and Tab ⇧Tab wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Arc 1.170.0 cap, Chrome, Dia O |
 | [x] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows: where ↩ / ⌃↩ go, in a new window made as ⌘N makes one (from a private window, a private one), showing the page; a command or sum as ↩, over a new pane as ↩ *interim*; whether Arc opens a window, Little Arc or Peek: measure | Chrome |
 | [x] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms), with every key typed and a composition, from the page or the UI; a page that keeps the shortcut gets them after. The checks type, never paste | Ardia P§7 |

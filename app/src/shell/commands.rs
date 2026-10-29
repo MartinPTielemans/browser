@@ -155,6 +155,9 @@ pub enum Command {
     PreviousPane,
     /// Opens Chrome's history page in a new tab.
     ViewHistory,
+    /// Opens Chromium's search engines page in a new tab, where the profile's site searches are
+    /// added and edited: each a name, a keyword and a URL with %s for the query.
+    SiteSearchSettings,
     /// Opens the Settings window, or brings it to the front.
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
@@ -331,6 +334,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("View Archive…", Command::ViewArchive, &[]),
     ("View Downloads…", Command::ViewDownloads, &[]),
     ("View History", Command::ViewHistory, &[]),
+    ("Site Search Settings", Command::SiteSearchSettings, &["search engines", "keywords"]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
@@ -623,6 +627,7 @@ impl Command {
             Command::NextPane => "next-pane",
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
+            Command::SiteSearchSettings => "site-search-settings",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::Passwords => "passwords",
@@ -823,6 +828,7 @@ impl Shell {
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
+            Command::SiteSearchSettings => return self.browser.site_search_settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
@@ -1158,6 +1164,7 @@ impl Shell {
             | Command::ManageExtensions
             | Command::AddExtension
             | Command::ViewHistory
+            | Command::SiteSearchSettings
             | Command::KeyboardShortcuts
             | Command::Passwords
             | Command::Welcome
@@ -1211,6 +1218,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ClearArchive
             | Command::ViewDownloads
             | Command::ViewHistory
+            | Command::SiteSearchSettings
             | Command::ManageExtensions
             | Command::AddExtension
     )
@@ -1361,5 +1369,44 @@ mod tests {
         });
         assert!(host.followed_tabs.take().is_empty());
         assert!(!shell.read_with(cx, |shell, _| shell.new_tab));
+    }
+
+    /// The bar finds Site Search Settings by its name or by Chrome's, and it opens the search
+    /// engines page. A private window keeps no site searches of its own, so it offers none.
+    #[gpui::test]
+    fn site_search_settings_open_from_the_bar_but_not_in_a_private_window(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui::AppContext as _;
+
+        use crate::shell::{Browser, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser: Rc<dyn Browser> = host.clone();
+        let regular = cx.new(|cx| Shell::new(browser.clone(), cx));
+        let private =
+            cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
+        let found = |shell: &gpui::Entity<Shell>, typed: &str, cx: &mut gpui::TestAppContext| {
+            shell.read_with(cx, |shell, _| {
+                find_commands(typed, &UserKeys::default(), |name, command| {
+                    shell.bar_name(name, command)
+                })
+                .into_iter()
+                .map(|row| row.name.to_string())
+                .collect::<Vec<_>>()
+            })
+        };
+        for typed in ["site search", "search engines", "keywords"] {
+            let name = "Site Search Settings".to_string();
+            assert_eq!(found(&regular, typed, cx).first(), Some(&name), "{typed}");
+            assert!(!found(&private, typed, cx).contains(&name), "{typed}");
+        }
+
+        regular.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
+        assert_eq!(host.site_search_settings.get(), 1);
+        private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
+        assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
     }
 }
