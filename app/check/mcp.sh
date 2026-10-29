@@ -419,7 +419,11 @@ fi
 # The client closing its end ends its session, which ends its session with the tab.
 exec 4>&-
 for _ in $(seq 100); do kill -0 "$bridge_pid" 2>/dev/null || break; sleep 0.1; done
-kill -0 "$bridge_pid" 2>/dev/null && fail "the bridge didn't stop once the client closed its end"
+if kill -0 "$bridge_pid" 2>/dev/null; then
+  # Who still holds the client's end open, if the bridge didn't hear it close.
+  lsof "$out/mcp-in" >&2 || true
+  fail "the bridge didn't stop once the client closed its end"
+fi
 exec 5<&-
 if [ "$driven" = 1 ]; then
   await_log "^browser: agent session ended mcp-client $agent_tab disconnected\$" \

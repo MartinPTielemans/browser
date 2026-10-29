@@ -52,6 +52,8 @@ pub fn run(
     // The client's messages, on a thread of their own, until it closes its end.
     std::thread::spawn(move || {
         _ = io::copy(&mut BufReader::new(input), &mut writer);
+        // For the client's log, which has the bridge's stderr: the session ends from here.
+        eprintln!("{NAME}: the client closed its end");
         _ = writer.shutdown(std::net::Shutdown::Write);
     });
     // The browser's answers, a line at a time, as the client reads them.
