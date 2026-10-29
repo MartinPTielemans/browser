@@ -1,13 +1,14 @@
 # A tab in a call says so on its row, as Chrome's tab strip does: the camera while its page uses
 # the camera, the microphone alone, or the screen while it shares a screen, a window or a tab, and
 # the tab it shares shows the screen too. While it shares a tab, another tab's menu has Share This
-# Tab Instead, which moves the share there. The marks go once the call ends. A tab playing music
-# out of sight has a player at the sidebar's foot, whose button pauses it, whose click shows the
-# tab, and whose × puts it away. View › Cast… and the page menu's Cast… open the tab's Cast card,
-# and × closes it. Chromium's fake camera and microphone stand in for real ones, and the share
-# takes the tab titled Shared without its picker; the question for the camera is answered with
-# Allow, as the user would, since the fake question Chromium can put in its place never tells the
-# browser what's captured.
+# Tab Instead, which moves the share there. The marks go once the call ends. A call floats in
+# Picture in Picture while its tab is hidden, and comes back with it. A tab playing music out of
+# sight has a player at the sidebar's foot, whose button pauses it, whose click shows the tab, and
+# whose × puts it away. View › Cast… and the page menu's Cast… open the tab's Cast card, and ×
+# closes it. Chromium's fake camera and microphone stand in for real ones, and the share takes the
+# tab titled Shared without its picker; the question for the camera is answered with Allow, as the
+# user would, since the fake question Chromium can put in its place never tells the browser what's
+# captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
@@ -138,6 +139,52 @@ expect "^browser: page $a camera 0 microphone 0 sharing 0 shared 0\$" \
 expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
   "the tab shared kept its mark once the share ended"
 
+# A call floats once its tab is hidden, as Arc's does: Chrome's automatic Picture in Picture for a
+# page using the camera that asks for it with its media session, on https or a file alone. So a
+# file's page, from the command bar, whose "c" calls and which says when its window floats and
+# lands. Showing its tab again brings the call back.
+printf '%s' '<title>loading</title><body style="background:#333">
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+navigator.mediaSession.setActionHandler("enterpictureinpicture", async () => {
+  const floating = await documentPictureInPicture.requestWindow({width: 320, height: 180});
+  document.title = "floating";
+  floating.addEventListener("pagehide", () => document.title = "landed");
+});
+onkeydown = async e => {
+  if (e.key == "c") {
+    window.call = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+    document.title = "in a call";
+  } else if (e.key == "e") {
+    call.getTracks().forEach(track => track.stop());
+    document.title = "ended";
+  }
+};
+</script>' > "$out/site/float.html"
+send key t cmd
+expect '^browser: command bar shown$' "the command bar didn't open for the floating call"
+send type "file://$(cd "$out/site" && pwd)/float.html"
+send key return
+expect "^browser: loaded [0-9]* file:///.*/float.html\$" "the floating call's page didn't load"
+f=$(grep '^browser: loaded [0-9]* file:///.*/float.html$' "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: title $f ready\$" "the floating call's page didn't draw"
+send click $page_point
+send key c
+expect "^browser: question $f takes input\$" "the floating call didn't ask for the camera"
+send layout
+read -r qx qy qw qh <<EOF
+$(grep "^browser: question $f at " "$log" | tail -1 | cut -d' ' -f5-)
+EOF
+send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
+expect "^browser: title $f in a call\$" "Allow didn't give the floating call the camera"
+shown "$b"
+expect "^browser: title $f floating\$" "the call didn't float with its tab hidden"
+shown_again "$f"
+expect "^browser: title $f landed\$" "the floating call didn't come back with its tab"
+send key e
+expect "^browser: title $f ended\$" "e didn't end the floating call"
+shown_again "$a"
+
 # Music in the call's tab, then another tab shown: the tab playing out of sight has a player.
 send key m
 expect "^browser: title $a playing\$" "m in the page didn't play its silence"
@@ -192,4 +239,4 @@ fi
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×."
