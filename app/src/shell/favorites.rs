@@ -448,6 +448,7 @@ impl Shell {
                 }),
             )
             .on_click(cx.listener(move |shell, _, _, cx| shell.clicked_tile(tab, cx)))
+            .children(self.drawn_for_picker(tab))
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))

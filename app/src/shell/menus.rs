@@ -555,7 +555,11 @@ impl Shell {
                 Box::new(move |shell, cx| shell.move_tab_to(tab, false, 0, 0, cx)),
             ),
         ];
-        // An icon the tab had as a pinned tab.
+        items.push((
+            MenuEntry::new("Change Icon…", true),
+            "change-icon",
+            Box::new(move |shell, cx| shell.change_icon(tab, cx)),
+        ));
         if has_icon(&page.icon) {
             items.push(remove_icon(tab));
         }
@@ -1185,6 +1189,7 @@ mod tests {
         });
         let menu = tab_menu(&shell, &host, cx, 20);
         assert_eq!(menu[..2], ["Back to Favorite URL", "Replace Favorite URL with Current"]);
+        assert!(menu.contains(&"Change Icon…".to_string()), "{menu:?}");
         cx.update(|cx| host.choose("Replace Favorite URL with Current", cx));
         assert_eq!(host.take_edits(), ["pinned url 20 https://away.test/"]);
     }

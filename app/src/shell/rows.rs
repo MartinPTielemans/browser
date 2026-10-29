@@ -542,6 +542,20 @@ impl Shell {
             )
     }
 
+    /// Where `tab`'s row or tile is, for the icon picker to hang under while it waits for it to
+    /// settle.
+    pub(super) fn drawn_for_picker(&self, tab: u64) -> Option<impl IntoElement + use<>> {
+        let pending = Some(Pending::Icon(Subject::Tab(tab)));
+        (self.picker_pending.map(|(picker, _)| picker) == pending).then(|| {
+            let drawn = self.tab_row_drawn.clone();
+            canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+        })
+    }
+
     /// A split view's row, for its first tab: a segment per tab, left to right. A press on one
     /// shows the split with its page focused, and the close button closes them all.
     fn split_row(
@@ -712,17 +726,7 @@ impl Shell {
                 }))
             })
             .child(icon);
-        // Where the row is, for the icon picker to hang under while it waits for the row to settle.
-        let pending = Some(Pending::Icon(Subject::Tab(tab)));
-        let bounds = (self.picker_pending.map(|(picker, _)| picker) == pending)
-            .then(|| {
-                let drawn = self.tab_row_drawn.clone();
-                canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-            });
+        let bounds = self.drawn_for_picker(tab);
         // The field of a rename takes the row's clicks while it's up.
         let plate = plate(icon.into_any_element(), label).child(self.framed(tab, 0.));
         let row = self.row(Row::Tab(tab), plate, ghost, cx);
@@ -1185,6 +1189,36 @@ mod tests {
         cx.run_until_parked();
         let first = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get()).unwrap();
         assert_eq!(f32::from(row.center().y - first.center().y).abs(), ROW_PITCH);
+    }
+
+    /// A favorite's Change Icon… has its tile say where it is, for the picker to hang under its
+    /// middle.
+    #[gpui::test]
+    fn change_icon_on_a_favorite_has_its_tile_say_where_it_is(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            shell.set_favorites(vec![(20, 1), (21, 1)], cx);
+        });
+        report(&shell, cx, vec![2], 2);
+        shell.update(cx, |shell, cx| shell.change_icon(21, cx));
+        cx.run_until_parked();
+        let tile = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get());
+        let tile = tile.expect("the favorite's tile didn't say where it is");
+        // Inside the tile's hairline.
+        let height = f32::from(tile.size.height);
+        assert!((height - crate::tokens::shell::TILE_HEIGHT).abs() <= 1., "{height} tall");
+        // The first tile is a tile's pitch left of it.
+        shell.update(cx, |shell, cx| shell.change_icon(20, cx));
+        cx.run_until_parked();
+        let first = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get()).unwrap();
+        let places = shell.read_with(cx, |shell, _| shell.tile_places(2));
+        let pitch = f32::from(tile.center().x - first.center().x);
+        assert!((pitch - (places[1][0] - places[0][0])).abs() < 0.5, "{pitch} apart");
     }
 
     /// An icon picker's window that shows nowhere.
