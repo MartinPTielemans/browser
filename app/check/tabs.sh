@@ -23,8 +23,9 @@
 # its way there without taking it, picks what a press-drag-release ends on and closes on a click
 # outside. A tab unseen for 2 hours lets go of its page as another is shown, unless it plays sound,
 # its page asks before it's left or a split shows it, and loads it back with its history once shown,
-# and Settings' Unload switch turns that off and on. Back held lists the pages back with their
-# favicons, and a row picked goes there, and ⌘-clicked opens the page back in a tab behind.
+# and Settings' Unload switch turns that off and on. Back right-clicked or held lists the pages
+# back, nearest first, with their favicons, a row picked goes there, and ⌘-clicked it opens the page
+# back in a tab behind.
 # Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
@@ -556,14 +557,23 @@ grep -q "^browser: loaded $waiting " "$log" && fail "⌘↩'s tab loaded before 
 switch "1 cmd" "$waiting"
 expect "^browser: loaded $waiting https\{0,1\}://example.org/\$" "⌘↩'s tab didn't load once shown"
 
-# Back held, as Arc's, lists the pages back, each with its favicon, and a row picked goes there;
-# ⌘-clicked, it opens the page back in a tab under, behind, which loads once shown. From a page
-# whose link, over all of it, goes on in the same tab. Back's center is in the sidebar's header.
+# Back's history, as Arc's. A right-click on back lists the pages back, nearest first, each with its
+# favicon, and a row picked goes there; held for 0.5 s it lists them too, and letting go doesn't go
+# back; ⌘-clicked it opens the page back in a tab under, behind, which loads once shown, and the tab
+# shown stays. On Linux the driver sends cmd as Ctrl, so that's the Ctrl-click. From two pages, each
+# with its own favicon, whose links, over all of them, go on in the same tab: back to next, and next
+# to a text file. Each page's title is its name once it has drawn, and the name its row shows.
 serve
 back_button='138 23.5'
-printf '%s' '<title>back</title><link rel="icon" href="icon.png">
-<a href="notes.txt" style="position:fixed;inset:0">back</a>
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>' > "$out/site/back.html"
+printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR42mNgcPhPGhrVMKph+GoAAJiZPxAbf0wNAAAAAElFTkSuQmCC |
+  base64 -d > "$out/site/next.png"
+for page in back:next.html:icon.png next:notes.txt:next.png; do
+  name=${page%%:*} rest_of=${page#*:}
+  printf '%s' "<title>loading</title><link rel=\"icon\" href=\"${rest_of#*:}\">
+<a href=\"${rest_of%%:*}\" style=\"position:fixed;inset:0\">$name</a>
+<script>requestAnimationFrame(() => setTimeout(() => document.title = \"$name\"));</script>" \
+    > "$out/site/$name.html"
+done
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 rest=$(today)
@@ -571,39 +581,58 @@ send type "${site#http://}back.html"
 send key return
 expect "^browser: today [0-9][0-9]* $rest\$" "the back page's tab didn't open at the top of Today"
 h=$(today | cut -d' ' -f1)
-expect "^browser: title $h ready\$" "the back page didn't draw"
-# The favicon goes into the profile's favicons as the tab gets it.
-expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its favicon"
-# Goes on from the back page to the text file, in the same tab.
+# A page has drawn, so takes clicks, once its title is its name, and its favicon is in the profile's
+# favicons once the tab has it.
+drawn() {
+  expect "^browser: title $h $1\$" "the $1 page didn't draw"
+  expect "^browser: favicon $h [0-9]* bytes\$" "the $1 page's tab didn't get its favicon"
+}
+# A click on the page's link, which goes on to $1 in the same tab.
 go_on() {
   send click $page_point
-  expect "^browser: page $h back 1 forward [01] loading 0 ${site}notes.txt\$" \
-    "a click on the back page's link didn't go on in its tab"
+  expect "^browser: page $h back 1 forward 0 loading 0 ${site}$1\$" \
+    "a click on the page's link didn't go on to $1 in its tab"
 }
-go_on
+drawn back
+go_on next.html
+drawn next
+go_on notes.txt
+post rightclick $back_button
+expect "^browser: history $h back 2\$" "a right-click on back didn't ask for the pages back"
+expect '^browser: menu drawn next (favicon), back (favicon)$' \
+  "a right-click on back didn't draw the two pages back, nearest first, with their favicons: $(grep '^browser: menu ' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/back-menu.png" || fail "no window to capture"
+send choose back
+expect '^browser: command history -2 via sidebar$' "choosing the back page's row didn't reach the UI"
+expect "^browser: loaded $h ${site}back.html\$" "choosing the back page's row didn't go there"
+drawn back
+go_on next.html
+drawn next
 send press $back_button
 expect "^browser: history $h back 1\$" "holding back didn't ask for the pages back"
 expect '^browser: menu drawn back (favicon)$' \
-  "holding back didn't draw the back page's row with its favicon: $(grep '^browser: menu ' "$log" | tail -1)"
-../tools/window-screenshot.sh "$pid" "$out/back-held.png" || fail "no window to capture"
+  "holding back didn't draw the back page's row: $(grep '^browser: menu ' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/back-menu.png, $out/back-held.png, $out/back-behind.png" || fail "no window to capture"
 send release $back_button
 none_since '^browser: command back via sidebar$' || fail "letting go of back held went back too"
 send choose back
-expect '^browser: command history -1 via sidebar$' "choosing the back page's row didn't reach the UI"
-expect "^browser: loaded $h ${site}back.html\$" "choosing the back page's row didn't go back there"
-expect "^browser: title $h ready\$" "the back page didn't draw again"
-go_on
+expect '^browser: command history -1 via sidebar$' "choosing the held menu's row didn't reach the UI"
+expect "^browser: loaded $h ${site}back.html\$" "choosing the held menu's row didn't go back"
+drawn back
+go_on next.html
+drawn next
 send click $back_button cmd
 expect '^browser: command back in the background via sidebar$' "⌘-click on back didn't reach the UI"
-expect "^browser: today $h [0-9][0-9]* $rest\$" "⌘-click on back didn't open a tab under the tab"
+expect "^browser: today $h [0-9][0-9]* $rest\$" "⌘-click on back didn't add a row under the tab"
 behind=$(today | cut -d' ' -f2)
 expect "^browser: page $behind unloaded 1\$" "⌘-click on back's tab didn't wait to load"
 grep '^browser: selected' "$log" | tail -1 | grep -q "^browser: selected $h\( in .*\)\{0,1\}\$" ||
   fail "⌘-click on back showed another tab"
-grep "^browser: page $h " "$log" | tail -1 | grep -q " ${site}notes.txt\$" ||
+grep "^browser: page $h " "$log" | tail -1 | grep -q " ${site}next.html\$" ||
   fail "⌘-click on back went back in the tab shown"
+../tools/window-screenshot.sh "$pid" "$out/back-behind.png" || fail "no window to capture"
 send click $(row 1)
-expect "^browser: selected $behind in " "a click on ⌘-click on back's tab didn't show it"
+expect "^browser: selected $behind in " "a click on ⌘-click on back's row didn't show its tab"
 expect "^browser: loaded $behind ${site}back.html\$" "⌘-click on back's tab didn't load the page back once shown"
 send key w cmd
 expect_tabs "$h $rest" "$h" "closing ⌘-click on back's tab didn't go back to its opener"
@@ -726,6 +755,6 @@ chrome_ms=$(echo "$spans" | grep -v incomplete | summary)
 [ -n "$chrome_ms" ] || fail "the trace has no finished tab switches"
 # grep -c finds none in a run where no switch was cut off, and exits 1 then.
 chrome_ms="$chrome_ms, $(echo "$spans" | grep -c incomplete || true) incomplete, not counted"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, ⇧⌘A lists the open tabs alone, typing filters them and ↩ switches, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on, back held lists the pages back with their favicons and a row picked goes there, and ⌘-clicked opens the page back in a tab behind."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, ⇧⌘A lists the open tabs alone, typing filters them and ↩ switches, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on, back right-clicked or held lists the pages back, nearest first, with their favicons, and a row picked goes there, and ⌘-clicked opens the page back in a tab behind."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/search-tabs.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png, $out/back-held.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/search-tabs.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png, $out/back-menu.png, $out/back-held.png, $out/back-behind.png"
