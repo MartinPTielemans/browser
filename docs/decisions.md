@@ -109,6 +109,6 @@ Consequences now:
 
 ## 9. Crash reports: opt-in, to Sentry (EU region)
 
-No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. Its stacks can hold a URL or page text. Official builds send them to ilo's project in [Sentry](https://sentry.io)'s EU region, which takes Chromium's minidumps and keeps them in the EU, so no crash server of ours needs running. The client posts a bare minidump to Sentry's minidump endpoint, which self-hosted collectors take too. The collector is a default service URL: a fork names its own, hosted or self-hosted, or none.
+No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. Its stacks can hold a URL or page text. Official builds send them to ilo's project in Sentry's EU region, which takes Chromium's bare minidumps, as self-hosted collectors do. The collector is a default service URL: a fork names its own or none.
 
-Revisit if Sentry stops taking minidumps or keeping them in the EU, or its terms stop fitting an open-source browser.
+Revisit if Sentry stops taking minidumps or keeping them in the EU.
