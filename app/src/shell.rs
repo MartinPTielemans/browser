@@ -627,7 +627,7 @@ struct Renaming {
     _blur: Option<Subscription>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Row {
     NewTab,
     Tab(u64),
@@ -2423,6 +2423,7 @@ impl Shell {
     /// The pointer entered `row` or left it. A row fills at once and empties at once, but the
     /// selected row's fill eases back from its hover.
     fn hover(&mut self, row: Row, hovered: bool, cx: &mut Context<Self>) {
+        log!("browser: diag row hover {row:?} {hovered} keyed {}", self.page_keyed);
         let left = if hovered {
             self.unhovered.retain(|&(old, _)| old != row);
             self.hovered.replace(row).filter(|&old| old != row)

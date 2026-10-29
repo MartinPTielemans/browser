@@ -535,6 +535,9 @@ fn hover(to: Target, state: u16) -> Option<()> {
 /// Sends a press of `button`, 1 the left, 2 the middle, 3 the right and 4 to 7 the wheel's, or its
 /// release, at `at`, with `state` the modifiers and the buttons held before it.
 fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
+    if press && HOVERED.get().map(|from| from.window) != Some(at.window) {
+        motion(at, state)?;
+    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
