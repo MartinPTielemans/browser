@@ -85,10 +85,10 @@ index e4da54b52b..fcc7fdd28a 100644
  
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..40c264dd56
+index 0000000000..a5e9ecce5a
 --- /dev/null
 +++ b/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,848 @@
+@@ -0,0 +1,853 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -211,6 +211,11 @@ index 0000000000..40c264dd56
 +#[allow(dead_code)]
 +pub(crate) fn shown_menu() -> Option<usize> {
 +    MENUS.with_borrow(|all| all.iter().copied().find(|&view| is_shown(view)))
++}
++
++/// Whether `view` is a menu (`set_overlay_menu`).
++pub(crate) fn is_menu(view: usize) -> bool {
++    MENUS.with_borrow(|all| all.contains(&view))
 +}
 +
 +/// Whether `view` is a panel that shows.
@@ -2874,7 +2879,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git a/crates/gpui_linux/src/linux/x11/client.rs b/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..15ed7579ad 100644
+index e21f019c64..1ecd563b4a 100644
 --- a/crates/gpui_linux/src/linux/x11/client.rs
 +++ b/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -3209,7 +3214,7 @@ index e21f019c64..15ed7579ad 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2302,437 @@ impl X11ClientState {
+@@ -2087,6 +2302,450 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -3314,6 +3319,19 @@ index e21f019c64..15ed7579ad 100644
 +                view,
 +                &xproto::ChangeWindowAttributesAux::new().override_redirect(1),
 +            )?;
++            // A pop-up, as GPUI's own are, so that a compositor that runs X's clients, as sway's
++            // and Hyprland's Xwayland do, doesn't give it its keyboard focus: it would take that
++            // back to the browser window as the overlay hides, from whichever overlay has the input
++            // focus by then. A menu says it's one (`overlay_is_menu`).
++            if !crate::linux::overlay::is_menu(view as usize) {
++                xcb.change_property32(
++                    xproto::PropMode::REPLACE,
++                    view,
++                    self.atoms._NET_WM_WINDOW_TYPE,
++                    xproto::AtomEnum::ATOM,
++                    &[self.atoms._NET_WM_WINDOW_TYPE_NOTIFICATION],
++                )?;
++            }
 +            // The embedder's, whose moves and raises GPUI hears of; not one of GPUI's, whose events
 +            // it already has.
 +            let top = self.top_level(parent)?;
@@ -3647,7 +3665,7 @@ index e21f019c64..15ed7579ad 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2246,10 +2892,31 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
+@@ -2246,10 +2905,31 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
      window.set_visibility(visibility);
  }
  
@@ -3679,7 +3697,7 @@ index e21f019c64..15ed7579ad 100644
  fn detect_compositor_gpu(
      xcb_connection: &XCBConnection,
      screen: &xproto::Screen,
-@@ -2620,6 +3287,11 @@ fn get_scale_factor(
+@@ -2620,6 +3300,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -3691,7 +3709,7 @@ index e21f019c64..15ed7579ad 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3570,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3583,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -3735,7 +3753,7 @@ index e21f019c64..15ed7579ad 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3922,101 @@ mod tests {
+@@ -3213,3 +3935,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
