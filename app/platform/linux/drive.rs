@@ -903,8 +903,9 @@ fn run_command(line: &str) -> Option<()> {
             let (x, y) = point(&mut words)?;
             let dx: f64 = words.next()?.parse().ok()?;
             let at = target_at(x, y)?;
+            // Lines right are the Mac's wheel's positive x, which GPUI reads from button 6 here.
             for _ in 0..(dx.abs().round() as usize).max(1) {
-                click(at, if dx > 0. { 7 } else { 6 }, none, false)?;
+                click(at, if dx > 0. { 6 } else { 7 }, none, false)?;
             }
             Some(())
         }
