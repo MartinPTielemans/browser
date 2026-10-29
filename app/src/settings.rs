@@ -1226,16 +1226,8 @@ impl Settings {
         });
         let policy = button(&RowLook::settings(), "privacy-policy", "Privacy Policy")
             .on_click(|_, _, cx| open_notice(build_info::PRIVACY_POLICY, cx));
-        let leaves = detailed_row(
-            "What leaves this device",
-            concat!(
-                "The pages you open, crash reports you send, and checks for updates and ad block \
-                 lists. ",
-                env!("APP_NAME"),
-                " collects no usage data."
-            ),
-            Some(policy.into_any_element()),
-        );
+        let detail = leaves_device(!collector.is_empty(), crate::updates_available());
+        let leaves = detailed_row("What leaves this device", detail, Some(policy.into_any_element()));
         let rows = crash_reports.into_iter().chain([leaves]);
         div().child(group(&RowLook::settings(), rows)).into_any_element()
     }
@@ -1874,6 +1866,30 @@ fn set_haptics(haptics: bool, _: &mut App) {
 
 pub(crate) fn set_send_crash_reports(send: bool, _: &mut App) {
     unsafe { bc::bc_set_send_crash_reports(send) };
+}
+
+/// Everything this build sends, as Settings › Privacy lists it and the privacy policy names it: the
+/// pages, the Web Store and Google's security updates (engine/README.md › What reaches Google),
+/// uBlock Origin's lists, and the update check and crash reports in a build that has them. Search
+/// suggestions are off in ungoogled-chromium, so nothing typed in the command bar is sent.
+fn leaves_device(crash_reports: bool, updates: bool) -> String {
+    let mut sent = vec![
+        "The pages you open or preview, and your search engine when you search.",
+        "The Chrome Web Store, when you visit it and to update the extensions you got there.",
+        "Google's security updates, for revoked certificates and trusted roots, every 5 hours.",
+    ];
+    if cfg!(target_os = "linux") {
+        sent.push("Google's Widevine module, once you allow protected video.");
+    }
+    sent.push("The ad block lists, about weekly, from uBlock Origin's and the lists' hosts.");
+    if updates {
+        sent.push(concat!(env!("APP_NAME"), "'s check for updates."));
+    }
+    if crash_reports {
+        sent.push("Crash reports you send.");
+    }
+    sent.push("Nothing else: no usage data, and what you type in the command bar stays here.");
+    sent.join(" ")
 }
 
 /// The host crash reports go to, or nothing in a build that names none.
