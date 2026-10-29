@@ -5,6 +5,8 @@
 
 #include "base/base64url.h"
 #include "base/hash/sha1.h"
+#include "build/build_config.h"
+#include "components/sync/protocol/device_info_specifics.pb.h"
 #include "components/sync/protocol/entity_data.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/password_specifics.pb.h"
@@ -111,6 +113,61 @@ TEST(SyncGuardTest, NamesNothing) {
   info.mutable_device_info()->set_client_name("laptop");
   device.push_back(Change("laptop", info));
   EXPECT_TRUE(SyncCommitIsCiphertext(syncer::DEVICE_INFO, device));
+}
+
+// The server keeps DEVICE_INFO as it comes, so it gets no name of the device's own, which is often
+// its owner's, nor anything else the account's other devices don't read.
+TEST(SyncGuardTest, TrimsDeviceInfo) {
+  sync_pb::EntitySpecifics specifics;
+  sync_pb::DeviceInfoSpecifics& info = *specifics.mutable_device_info();
+  info.set_cache_guid("guid");
+  info.set_client_name("alices-thinkpad");
+  info.set_os_type(sync_pb::SyncEnums::OS_TYPE_LINUX);
+  info.set_device_form_factor(sync_pb::SyncEnums::DEVICE_FORM_FACTOR_DESKTOP);
+  info.set_last_updated_timestamp(1234);
+  info.set_pulse_interval_in_minutes(30);
+  info.set_model("ThinkPad X1");
+  info.set_manufacturer("LENOVO");
+  info.set_sync_user_agent("Chrome LINUX 156.0.8078.47");
+  info.set_signin_scoped_device_id("device");
+  info.mutable_sharing_fields()->set_sender_id_fcm_token_v2("token");
+  info.mutable_paask_fields()->set_secret("secret");
+  info.mutable_invalidation_fields()->add_interested_data_type_ids(32904);
+  syncer::CommitRequestDataList commit;
+  commit.push_back(Change("alices-thinkpad", specifics));
+  commit.push_back(Change("", sync_pb::EntitySpecifics()));
+
+  TrimSyncCommit(syncer::DEVICE_INFO, commit);
+  const std::string label = SyncDeviceLabel("ThinkPad X1");
+  EXPECT_EQ(label.find("alice"), std::string::npos);
+  EXPECT_EQ(commit[0]->entity->name, label);
+  sync_pb::DeviceInfoSpecifics expected;
+  expected.set_cache_guid("guid");
+  expected.set_client_name(label);
+  expected.set_device_type(info.device_type());
+  expected.set_os_type(sync_pb::SyncEnums::OS_TYPE_LINUX);
+  expected.set_device_form_factor(sync_pb::SyncEnums::DEVICE_FORM_FACTOR_DESKTOP);
+  expected.set_last_updated_timestamp(1234);
+  expected.set_pulse_interval_in_minutes(30);
+  EXPECT_EQ(commit[0]->entity->specifics.device_info().SerializeAsString(),
+            expected.SerializeAsString());
+  EXPECT_TRUE(commit[1]->entity->is_deleted());
+
+  // Other types go as they are.
+  syncer::CommitRequestDataList bookmarks;
+  bookmarks.push_back(Change("encrypted", Encrypted()));
+  TrimSyncCommit(syncer::BOOKMARKS, bookmarks);
+  EXPECT_EQ(bookmarks[0]->entity->specifics.SerializeAsString(), Encrypted().SerializeAsString());
+}
+
+TEST(SyncGuardTest, LabelsTheDevice) {
+#if BUILDFLAG(IS_MAC)
+  EXPECT_EQ(SyncDeviceLabel(""), "ilo on Mac");
+  EXPECT_EQ(SyncDeviceLabel("MacBookPro18,3"), "ilo on Mac (MacBookPro18,3)");
+#elif BUILDFLAG(IS_LINUX)
+  EXPECT_EQ(SyncDeviceLabel(""), "ilo on Linux");
+  EXPECT_EQ(SyncDeviceLabel("ThinkPad X1"), "ilo on Linux (ThinkPad X1)");
+#endif
 }
 
 // browser#640: a password's client tag, which the server sees, tells it neither the site nor the

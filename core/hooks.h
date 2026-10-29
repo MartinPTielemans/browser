@@ -209,12 +209,12 @@ extern GURL (*g_browser_core_sync_url)();
 
 // components/sync/engine/data_type_worker.cc: whether |type|'s changes wait to commit, given
 // whether the type is encrypted and with which passphrase, and a last look at each commit before
-// it goes to the server. Both run on sync's own sequence.
+// it goes to the server, which may trim it. Both run on sync's own sequence.
 extern bool (*g_browser_core_sync_hold_commit)(syncer::DataType type,
                                                bool encrypted,
                                                syncer::PassphraseType passphrase);
-extern void (*g_browser_core_sync_check_commit)(syncer::DataType type,
-                                                const syncer::CommitRequestDataList& commit);
+extern void (*g_browser_core_sync_commit)(syncer::DataType type,
+                                          syncer::CommitRequestDataList& commit);
 
 // components/password_manager/core/browser/sync/password_proto_utils.cc: a password's client tag,
 // from Chromium's, on the password store's sequence.

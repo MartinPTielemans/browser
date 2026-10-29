@@ -30,6 +30,7 @@
 #include "base/strings/escape.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/system/sys_info.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
@@ -70,7 +71,6 @@
 #include "components/sync/service/sync_service.h"
 #include "components/sync/service/sync_service_observer.h"
 #include "components/sync/service/sync_user_settings.h"
-#include "components/sync_device_info/local_device_info_util.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -458,14 +458,11 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   // Calls.
 
   void Start() {
-    device_name_ = kOs;
-    base::ThreadPool::PostTaskAndReplyWithResult(
-        FROM_HERE, {base::MayBlock()}, base::BindOnce(&syncer::GetPersonalizableDeviceNameBlocking),
-        base::BindOnce([](std::string name) {
-          if (!name.empty()) {
-            Get().device_name_ = name;
-          }
-        }));
+    // Never the device's own name, which is often its owner's: the server keeps this one.
+    device_name_ = SyncDeviceLabel(std::string());
+    base::SysInfo::GetHardwareInfo(base::BindOnce([](base::SysInfo::HardwareInfo info) {
+      Get().device_name_ = SyncDeviceLabel(info.model);
+    }));
     g_browser_process->os_crypt_async()->GetInstance(
         base::BindOnce(&Account::GotEncryptor, weak_factory_.GetWeakPtr()));
   }
@@ -1599,8 +1596,8 @@ void Install() {
   };
   g_browser_core_sync_url = [] { return Account::Get().SyncUrl(); };
   g_browser_core_sync_hold_commit = &HoldSyncCommit;
-  g_browser_core_sync_check_commit = [](syncer::DataType type,
-                                        const syncer::CommitRequestDataList& commit) {
+  g_browser_core_sync_commit = [](syncer::DataType type, syncer::CommitRequestDataList& commit) {
+    TrimSyncCommit(type, commit);
     // The hold keeps a type from committing until the passphrase encrypts it, so a commit that
     // isn't ciphertext is a bug that would give the server what it mustn't read. Stopping here
     // sends nothing; dropping the commit instead would leave its changes in flight for good.
