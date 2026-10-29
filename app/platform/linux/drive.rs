@@ -784,20 +784,30 @@ fn stacked() -> Option<Vec<Browser>> {
 }
 
 /// The pages of browser window `id`, as drive.mm lists their views: from the bottom-left corner of
-/// content `height` high.
-/// shortcut: where the shell lays them out, which the core follows, with no radius. They're Aura's
-/// windows in Chromium's one X window, and no core call says where they are.
-fn pages(id: bc::bc_id, height: f64) -> Option<String> {
+/// content `width` by `height`, with the radius of their corners if they're round.
+/// shortcut: where the shell lays them out and the radius it gives their corners, which the core
+/// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
+/// are or how round.
+fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
     let cx = CX.with_borrow(Clone::clone)?;
-    let pages = cx.update(|cx| Some(shell.upgrade()?.read(cx).shown_pages()))?;
+    let viewport = gpui::size(gpui::px(width as f32), gpui::px(height as f32));
+    let (pages, (_, radius)) = cx.update(|cx| {
+        let shell = shell.upgrade()?;
+        let shell = shell.read(cx);
+        Some((shell.shown_pages(), shell.page_frame(viewport)))
+    })?;
     let views = pages.into_iter().map(|(_, page)| {
         let [x, bottom, width, high] =
             [page.left(), page.bottom(), page.size.width, page.size.height].map(f32::from);
         let y = height - f64::from(bottom);
-        format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}")
+        let round = match radius > 0. {
+            true => format!(" radius {radius:.0}"),
+            false => String::new(),
+        };
+        format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}{round}")
     });
     Some(views.collect())
 }
@@ -1132,7 +1142,7 @@ fn run_command(line: &str) -> Option<()> {
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
-            let pages = pages(browser.id, height).unwrap_or_default();
+            let pages = pages(browser.id, width, height).unwrap_or_default();
             let ring = ring(browser.id, height).unwrap_or_default();
             log!(
                 "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}{ring}"
