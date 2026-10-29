@@ -3760,6 +3760,22 @@ fn file_name(url: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// The `file:` URL of the file at `path`, with what a URL can't hold escaped, and a Windows path's
+/// drive and backslashes as Chromium reads them.
+pub fn file_url(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let mut url = String::from(if path.starts_with('/') { "file://" } else { "file:///" });
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                url.push(char::from(byte))
+            }
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
@@ -3768,7 +3784,7 @@ mod tests {
 
     use gpui::{Image, ImageFormat};
 
-    use super::{Curve, Folders, Page, Shape, Space, Tab, fade_at, file_name, tab_drawn};
+    use super::{Curve, Folders, Page, Shape, Space, Tab, fade_at, file_name, file_url, tab_drawn};
 
     /// A fade reversed partway starts from the opacity it had, so nothing jumps, and ends at the
     /// other end.
@@ -3791,6 +3807,19 @@ mod tests {
         assert_eq!(file_name("file:///tmp/100%.txt").unwrap(), "100%.txt");
         assert_eq!(file_name("file:///Users/someone/"), None);
         assert_eq!(file_name("https://example.com/notes.txt"), None);
+    }
+
+    /// The licences the app carries open in a tab from wherever it's installed, and come back to
+    /// the same name.
+    #[test]
+    fn a_path_becomes_a_file_url() {
+        let licence = "/Applications/My Apps/ilo.app/Contents/Resources/LICENSE";
+        let url = file_url(licence);
+        assert_eq!(url, "file:///Applications/My%20Apps/ilo.app/Contents/Resources/LICENSE");
+        assert_eq!(file_name(&url).unwrap(), "LICENSE");
+        assert_eq!(file_name(&file_url("/tmp/日記#1.txt")).unwrap(), "日記#1.txt");
+        let windows = r"C:\Program Files\ilo\THIRD-PARTY.txt";
+        assert_eq!(file_url(windows), "file:///C:/Program%20Files/ilo/THIRD-PARTY.txt");
     }
 
     fn png(bytes: &[u8]) -> Option<Arc<Image>> {

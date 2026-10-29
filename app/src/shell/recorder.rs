@@ -824,6 +824,10 @@ impl Browser for Recorder {
 
     fn shortcuts(&self, _: &mut App) {}
 
+    fn about(&self, _: &mut App) {}
+
+    fn import(&self, _: &mut App) {}
+
     fn passwords(&self, space: u64, _: &mut App) {
         self.record(format!("passwords {space}"));
     }

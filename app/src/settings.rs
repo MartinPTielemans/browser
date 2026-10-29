@@ -7,6 +7,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use browser::default_browser::{self, DefaultBrowser, Os};
@@ -107,10 +108,11 @@ enum Tab {
     Shortcuts,
     Privacy,
     Advanced,
+    About,
 }
 
 impl Tab {
-    const ALL: [Tab; 7] = [
+    const ALL: [Tab; 8] = [
         Tab::General,
         Tab::Profiles,
         Tab::Passwords,
@@ -118,6 +120,7 @@ impl Tab {
         Tab::Shortcuts,
         Tab::Privacy,
         Tab::Advanced,
+        Tab::About,
     ];
 
     /// The tabs this build has: Privacy only holds crash reports, which a build without a collector
@@ -136,6 +139,7 @@ impl Tab {
             Tab::Shortcuts => "Shortcuts",
             Tab::Privacy => "Privacy",
             Tab::Advanced => "Advanced",
+            Tab::About => "About",
         }
     }
 
@@ -148,6 +152,7 @@ impl Tab {
             Tab::Shortcuts => "icons/keyboard.svg",
             Tab::Privacy => "icons/lock.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
+            Tab::About => "icons/info.svg",
         }
     }
 }
@@ -425,10 +430,24 @@ impl Global for SettingsWindow {}
 
 /// Shows the Settings window on its Shortcuts tab.
 pub fn show_shortcuts(cx: &mut App) {
+    show_on(Tab::Shortcuts, cx);
+}
+
+/// Shows the Settings window on its About tab.
+pub fn show_about(cx: &mut App) {
+    show_on(Tab::About, cx);
+}
+
+/// Shows the Settings window on its Import tab.
+pub fn show_import(cx: &mut App) {
+    show_on(Tab::Import, cx);
+}
+
+fn show_on(tab: Tab, cx: &mut App) {
     show(cx);
     if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
         let show = |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
-            settings.show_tab(Tab::Shortcuts, window, cx)
+            settings.show_tab(tab, window, cx)
         };
         window.update(cx, show).ok();
     }
@@ -1593,6 +1612,89 @@ fn set_link_previews(previews: bool) {
     unsafe { bc::bc_set_link_previews(previews) };
 }
 
+/// The app's version and its engine's, the licence it's under, and the notices of what it's built
+/// from, each of which opens in a tab.
+fn about() -> AnyElement {
+    let mut version = match option_env!("APP_BUILD") {
+        Some(build) => format!("Version {} ({build})", env!("CARGO_PKG_VERSION")),
+        None => format!("Version {}", env!("CARGO_PKG_VERSION")),
+    };
+    if let Some(engine) = ENGINE_VERSION.as_deref() {
+        version = format!("{version}, on Chromium {engine}");
+    }
+    let open = |id: &'static str, url: Option<String>| {
+        url.map(|url| {
+            let open = button(&RowLook::settings(), id, "Open");
+            open.on_click(move |_, _, cx| open_notice(&url, cx)).into_any_element()
+        })
+    };
+    let notices = [
+        detailed_row(
+            "Licence",
+            concat!(
+                env!("APP_NAME"),
+                " is free software: you may use, study, share and change it under the GNU General \
+                 Public License, version 3."
+            ),
+            open("licence", carried("LICENSE")),
+        ),
+        detailed_row(
+            "Notices",
+            "The projects it adapts code, icons and words from.",
+            open("notices", carried("NOTICE")),
+        ),
+        detailed_row(
+            "Libraries",
+            "The Rust libraries built into the app, and their licences.",
+            open("libraries", carried("THIRD-PARTY.txt")),
+        ),
+        detailed_row(
+            "Chromium",
+            "The engine's credits, and the licences of what it's built from.",
+            open("chromium", Some("chrome://credits".into())),
+        ),
+    ];
+    div()
+        .child(group(&RowLook::settings(), [detailed_row(env!("APP_NAME"), version, None)]))
+        .child(group(&RowLook::settings(), notices).mt(px(BOX_GAP)))
+        .into_any_element()
+}
+
+/// The engine's version: on the Mac, the name of the folder its framework's current version is in,
+/// as Chromium names it.
+static ENGINE_VERSION: LazyLock<Option<String>> = LazyLock::new(|| {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let frameworks = std::env::current_exe().ok()?.parent()?.parent()?.join("Frameworks");
+    std::fs::read_dir(frameworks).ok()?.flatten().find_map(|entry| {
+        let name = entry.file_name();
+        if !name.to_str()?.ends_with(" Framework.framework") {
+            return None;
+        }
+        let current = std::fs::read_link(entry.path().join("Versions/Current")).ok()?;
+        Some(current.to_str()?.to_owned())
+    })
+});
+
+/// The URL of `name`, one of the licence files the app carries (tools/licences.sh): in the bundle's
+/// Resources on the Mac, beside the binary elsewhere. None where the build left it out, as `cargo
+/// run` does.
+fn carried(name: &str) -> Option<String> {
+    let mut folder = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    if cfg!(target_os = "macos") {
+        folder = folder.parent()?.join("Resources");
+    }
+    let path = folder.join(name);
+    path.is_file().then(|| shell::file_url(&path.to_string_lossy()))
+}
+
+/// Opens one of About's notices in a new tab and goes to it, as More Settings… does.
+fn open_notice(url: &str, cx: &mut App) {
+    crate::open_tab(crate::front().0, url);
+    hide(cx);
+}
+
 /// Opens Chromium's settings in a new tab, for what this window doesn't offer yet, and goes to it.
 fn more_settings(cx: &mut App) {
     // check.sh waits for this line.
@@ -1715,6 +1817,7 @@ impl Render for Settings {
                 None => div().into_any_element(),
             },
             Tab::Advanced => self.advanced(accent, cx),
+            Tab::About => about(),
         };
         div()
             // While a command's key is recorded, every key is the recording's, ⌘W too.

@@ -2489,6 +2489,14 @@ impl Browser for Engine {
         settings::show_shortcuts(cx);
     }
 
+    fn about(&self, cx: &mut App) {
+        settings::show_about(cx);
+    }
+
+    fn import(&self, cx: &mut App) {
+        settings::show_import(cx);
+    }
+
     fn passwords(&self, space: u64, cx: &mut App) {
         let profile = unsafe { bc::bc_space_profile(space) };
         settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
@@ -3693,13 +3701,15 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
+    let about = item(concat!("About ", env!("APP_NAME")), Command::About);
+    let mut app = vec![about, MenuItem::separator()];
     // Only a release build that carries Sparkle has updates to check for.
-    let mut app = Vec::new();
     if updates_available() {
         app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
     }
     app.extend([
         item("Settings…", Command::Settings),
+        item("Import from Other Browsers…", Command::Import),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),

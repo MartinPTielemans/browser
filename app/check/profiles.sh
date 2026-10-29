@@ -301,7 +301,7 @@ expect "^browser: selected $d\( in .*\)\{0,1\}\$" "⌘W didn't show the second S
 # one.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 246 60
+send clickkey 218 60
 expect '^browser: settings tab Profiles$' "a click on Profiles didn't show its tab"
 send doubleclickkey 130 170
 expect "^browser: rename profile $work\$" "a double-click on Profile 2 didn't put it in a field"
