@@ -58,13 +58,17 @@ if [ "${1:-}" = prod ]; then
   fi
   id=$(cat branding/id)
   features="--features prod"
-  # A release build updates itself with Sparkle, which setup.sh fetches, when it's given the key
-  # the updates are signed with: the public half of the owner's (tools/appcast.sh).
+  # A release build updates itself with Sparkle, which setup.sh fetches, when it has the key the
+  # updates are signed with: the public half of the owner's (tools/appcast.sh), in the branding a
+  # fork replaces. A fork that empties branding/update-key builds a copy with no updater.
+  if [ -z "${UPDATE_PUBLIC_KEY:-}" ] && [ -f branding/update-key ]; then
+    UPDATE_PUBLIC_KEY=$(tr -d '[:space:]' < branding/update-key)
+  fi
   if [ -n "${UPDATE_PUBLIC_KEY:-}" ]; then
     [ -d .deps/Sparkle/Sparkle.framework ] || { echo "No .deps/Sparkle. Run ./setup.sh again." >&2; exit 1; }
     python3 -I -c 'import base64, sys; sys.exit(len(base64.b64decode(sys.argv[1], validate=True)) != 32)' \
       "$UPDATE_PUBLIC_KEY" 2>/dev/null || {
-      echo "UPDATE_PUBLIC_KEY isn't an EdDSA public key: generate_keys -p prints one." >&2
+      echo "The update key isn't an EdDSA public key: generate_keys -p prints one." >&2
       exit 1
     }
   fi
