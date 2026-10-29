@@ -312,6 +312,8 @@ pub struct CommandBar {
     selected: usize,
     /// The row under the pointer, which keeps its plate as the keys move the selection (Arc).
     hovered: Option<usize>,
+    /// The row whose ✕ was last drawn, and its page, for check.sh's line as it draws.
+    remove_drawn: Option<(usize, String)>,
     /// Whether an assistive app reads the bar's window, so its rows say what they are.
     a11y: bool,
     /// Whether it shows over the URL field, from a click on it, rather than centred.
@@ -428,6 +430,7 @@ pub fn open_at(
                 suggested: String::new(),
                 selected: 0,
                 hovered: None,
+                remove_drawn: None,
                 a11y: false,
                 over_field: false,
                 page: String::new(),
@@ -695,7 +698,8 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                         "" => String::new(),
                         keyword => format!(" site {keyword}"),
                     };
-                    format!("{}{tab}{site}", row.url)
+                    let removable = if row.removable { " removable" } else { "" };
+                    format!("{}{tab}{site}{removable}", row.url)
                 })
                 .collect();
             log!(
@@ -1804,6 +1808,16 @@ impl Render for CommandBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // check.sh reads these lines.
         log!("browser: command bar drew \"{}\"", self.input.read(cx).text());
+        let remove = self.hovered.and_then(|index| {
+            let row = self.rows.get(index).filter(|row| row.removable)?;
+            Some((index, row.url.clone()))
+        });
+        if remove != self.remove_drawn {
+            if let Some((index, url)) = &remove {
+                log!("browser: command bar drew remove on row {index} {url}");
+            }
+            self.remove_drawn = remove;
+        }
         self.a11y = window.is_a11y_active();
         let rows: Vec<_> = self
             .rows
