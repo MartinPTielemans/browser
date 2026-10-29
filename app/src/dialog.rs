@@ -8,6 +8,8 @@
 //! its tab's card alone, which come and go with the tab (docs/ux-spec.md › Page dialogs).
 
 use std::{
+    cell::RefCell,
+    collections::HashMap,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -15,9 +17,9 @@ use std::{
 
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, Div, Entity, FocusHandle, Focusable, FontWeight,
-    Global, Hsla, Image, KeyBinding, MouseButton, Pixels, SharedString, Stateful, Task,
+    Global, Hsla, Image, KeyBinding, MouseButton, Pixels, Point, SharedString, Stateful, Task,
     TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
-    WindowOptions, actions, div, img, point, prelude::*, px, rgb, rgba, size, svg,
+    WindowOptions, actions, canvas, div, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{
@@ -238,6 +240,11 @@ struct Asked {
     /// Once the user has answered, or Chrome took it back: when, and where the motion was.
     answered_at: Option<(Instant, Pose)>,
     _leave: Option<Task<()>>,
+    /// The button under the pointer, and the one the last frame drew so.
+    hovered: Option<&'static str>,
+    drawn_hover: Option<&'static str>,
+    /// Where each button was said to be drawn, in the browser window.
+    buttons_drawn: Rc<RefCell<HashMap<&'static str, Point<Pixels>>>>,
 }
 
 impl Asked {
@@ -557,8 +564,24 @@ impl Dialog {
             settling: Settling::default(),
             answered_at: None,
             _leave: None,
+            hovered: None,
+            drawn_hover: None,
+            buttons_drawn: Rc::default(),
         });
         self.host.show(over.map(|(over, _)| over));
+        cx.notify();
+    }
+
+    /// The pointer came onto the button `name`, or left it.
+    fn hover(&mut self, name: &'static str, hovered: bool, cx: &mut Context<Self>) {
+        let Some(asked) = &mut self.asked else {
+            return;
+        };
+        if hovered {
+            asked.hovered = Some(name);
+        } else if asked.hovered == Some(name) {
+            asked.hovered = None;
+        }
         cx.notify();
     }
 
@@ -714,6 +737,25 @@ fn button(id: &'static str, label: SharedString, chip: impl IntoElement) -> Stat
         .child(chip)
 }
 
+/// Says where the button `name` is drawn in the browser window once the card has settled, and
+/// again if it moves, for check.sh to point at.
+fn button_frame(name: &'static str, asked: &Asked) -> impl IntoElement + use<> {
+    let (drawn, settled) = (asked.buttons_drawn.clone(), asked.settled);
+    let origin = asked.over.map_or(Point::default(), |(over, _)| over.origin);
+    canvas(
+        move |bounds, _, _| {
+            let at = origin + bounds.center();
+            if settled && drawn.borrow_mut().insert(name, at) != Some(at) {
+                // check.sh reads this line.
+                log!("browser: dialog {name} at {:.0} {:.0}", f32::from(at.x), f32::from(at.y));
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full()
+}
+
 /// A key's chip on a button.
 fn chip() -> Div {
     div().h(px(CHIP_HEIGHT)).flex().items_center().justify_center().rounded(px(CHIP_RADIUS))
@@ -756,6 +798,12 @@ impl Render for Dialog {
             // check.sh reads this line.
             log!("browser: dialog settled");
         }
+        // check.sh reads this line. It comes as the button under the pointer is drawn so, as the
+        // sidebar's hover line does, so a capture that follows shows it.
+        if asked.hovered != asked.drawn_hover {
+            asked.drawn_hover = asked.hovered;
+            log!("browser: dialog hover {}", asked.hovered.unwrap_or("none"));
+        }
         let question = &asked.question;
         let palette = palette::current(cx);
         let page = asked.source == Source::Page;
@@ -780,6 +828,9 @@ impl Render for Dialog {
             .hover(move |style| style.bg(palette.plate(CANCEL_HOVERED)))
             .active(move |style| style.bg(palette.state(CANCEL_FILL, STATE_PRESSED)))
             .text_color(palette.on_overlay(CANCEL_TEXT))
+            .relative()
+            .child(button_frame("cancel", asked))
+            .on_hover(cx.listener(|dialog, hovered, _, cx| dialog.hover("cancel", *hovered, cx)))
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Cancel, cx))));
         // A text-only button in Cancel's look, its label as far in from each side.
         let also = asked.also.clone().map(|label| {
@@ -798,6 +849,9 @@ impl Render for Dialog {
                 .active(move |style| style.bg(palette.state(CANCEL_FILL, STATE_PRESSED)))
                 .text_color(palette.on_overlay(CANCEL_TEXT))
                 .child(label)
+                .relative()
+                .child(button_frame("also", asked))
+                .on_hover(cx.listener(|dialog, hovered, _, cx| dialog.hover("also", *hovered, cx)))
                 .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Also, cx)))
         });
         let (fill, hovered, pressed, ledge, label): (Hsla, Hsla, Hsla, Hsla, Hsla) =
@@ -839,6 +893,9 @@ impl Render for Dialog {
             .active(move |style| style.bg(pressed))
             .shadow(vec![shadow(ledge, 2., 0., 0.)])
             .text_color(label)
+            .relative()
+            .child(button_frame("confirm", asked))
+            .on_hover(cx.listener(|dialog, hovered, _, cx| dialog.hover("confirm", *hovered, cx)))
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
         });
         let list = question.list.iter().map(|(line, sublines)| {
