@@ -102,9 +102,17 @@ for modifiers in "alt shift" "alt cmd"; do
   send click $page_point
 done
 # The link menu is Arc's: Open Link in New Tab, in New Window, in Split View and in Incognito
-# Window, then Save Link As… and Copy Link Address, before the menu's other items.
-link_items='Open Link in New Tab, Open Link in New Window, Open Link in Split View, '
-link_items="${link_items}Open Link in Incognito Window, Save Link As…, Copy Link Address"
+# Window, then Save Link As… and Copy Link Address, before the menu's other items. Off the Mac
+# they're in sentence case, as Chrome's are there.
+if windows || [ "$(uname)" = Linux ]; then
+  in_window='Open link in new window' in_private='Open link in incognito window'
+  in_split='Open link in split view'
+  link_items="Open link in new tab, $in_window, $in_split, $in_private, Save link as…, Copy link address"
+else
+  in_window='Open Link in New Window' in_private='Open Link in Incognito Window'
+  in_split='Open Link in Split View'
+  link_items="Open Link in New Tab, $in_window, $in_split, $in_private, Save Link As…, Copy Link Address"
+fi
 link_menu() {
   post rightclick $((x + 20)) $((y + 20))
   expect "^browser: menu shown $link_items\(, .*\)\{0,1\}\$" \
@@ -117,7 +125,7 @@ link_tab() {
 }
 # Open Link in New Window opens it in a window as ⌘N's, showing it.
 link_menu
-send choose Open Link in New Window
+send choose $in_window
 expect '^browser: window opened [0-9]' "Open Link in New Window didn't open a window"
 link_window=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: loaded [0-9]* ${site}notes.txt\$" "the link didn't load in its window"
@@ -132,7 +140,7 @@ send window 1
 send click $page_point
 # Open Link in Incognito Window opens it in a private window as ⇧⌘N's, whose session ends with it.
 link_menu
-send choose Open Link in Incognito Window
+send choose $in_private
 expect '^browser: private window opened [0-9]* profile [0-9]*$' \
   "Open Link in Incognito Window didn't open a private window"
 link_window=$(grep '^browser: private window opened ' "$log" | tail -1 | cut -d' ' -f5)
@@ -148,7 +156,7 @@ send window 1
 send click $page_point
 # Open Link in Split View opens it beside the page, as ⌥⇧-click does.
 link_menu
-send choose Open Link in Split View
+send choose $in_split
 expect "^browser: splits $a+[0-9][0-9]*\$" \
   "Open Link in Split View didn't open the link beside the page: \"$(splits)\""
 n=$(splits | cut -d+ -f2)
