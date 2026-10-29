@@ -8,8 +8,9 @@
 # Once, on the owner's Mac, before the first release, with Sparkle from app/setup.sh:
 #   app/.deps/Sparkle/bin/generate_keys --account ilo                      # the key, in the Keychain
 #   app/.deps/Sparkle/bin/generate_keys --account ilo -x ~/ilo-update-key  # its backup, kept offline
-# Then, for each release:
-#   UPDATE_PUBLIC_KEY=$(app/.deps/Sparkle/bin/generate_keys --account ilo -p) app/build.sh prod
+#   app/.deps/Sparkle/bin/generate_keys --account ilo -p > app/branding/update-key  # committed
+# Every prod build carries the key in app/branding/update-key. Then, for each release:
+#   app/build.sh prod
 #   SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh
 #   tools/appcast.sh notes.md && tools/appcast.sh notes.md --publish
 # Usage: tools/appcast.sh notes.md [--publish]

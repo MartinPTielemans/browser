@@ -25,7 +25,7 @@ if [ "$(plutil -extract CFBundleIdentifier raw "$built/Contents/Info.plist")" !=
 fi
 # A copy without Sparkle's key could never be updated, so only a try at the signing may lack it.
 if [ "$identity" != - ] && ! plutil -extract SUPublicEDKey raw "$built/Contents/Info.plist" > /dev/null 2>&1; then
-  echo "$built has no updater. Build it with UPDATE_PUBLIC_KEY (tools/appcast.sh says how)." >&2
+  echo "$built has no updater. Build it with the key in app/branding/update-key (tools/appcast.sh)." >&2
   exit 1
 fi
 rm -rf "$out"
