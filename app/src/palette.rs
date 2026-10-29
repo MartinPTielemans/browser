@@ -245,12 +245,10 @@ impl Palette {
         Rgba { r: r * ACCENT_HOVERED, g: g * ACCENT_HOVERED, b: b * ACCENT_HOVERED, a }.into()
     }
 
-    /// The accent pressed: moved away from its label in OKLab lightness, darker under Paper and
-    /// lighter under Ink, so the label reads more, never less.
+    /// The accent pressed, a step darker than under the pointer, whatever its label (the owner).
     pub fn accent_pressed(&self) -> Hsla {
-        let [l, a, b] = theme::oklab(self.accent);
-        let away = if self.accent_label == rgb(INK) { ACCENT_PRESSED } else { -ACCENT_PRESSED };
-        in_gamut((l + away).clamp(0., 1.), a, b).into()
+        let Rgba { r, g, b, a } = self.accent;
+        Rgba { r: r * ACCENT_PRESSED, g: g * ACCENT_PRESSED, b: b * ACCENT_PRESSED, a }.into()
     }
 
     /// Behind selected text in a field: the accent, faint.

@@ -512,10 +512,10 @@ intensity-span = 0.55
 # A Space swatch's ring, a hairline.
 ring = 1.0
 # The accent under the pointer, each channel at this, darker as every filled button goes (the
-# owner, 2026-10-26); pressed (#319), this much OKLab lightness further from its label, so the
-# label reads more on it; and a text selection, the accent at this.
+# owner, 2026-10-26); pressed, each channel at this, a step darker again, whatever the label (the
+# owner, #707); and a text selection, the accent at this.
 accent-hovered = 0.9
-accent-pressed = 0.08
+accent-pressed = 0.8
 selection = 0.28
 # One ladder of states for every control whose states Arc wasn't recorded with, but the accent's
 # (#318): pressed, under the pointer, selected, and selected under the pointer. They're the
@@ -608,6 +608,10 @@ link-previews-tile = 0x30b0c7
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
 password-tile = 0x8e8e93
+# Ours, for the Agents tab: the switch on ilo's green, as agents are the browser's own, and each
+# client on the profiles' grey, as none is ours.
+agents-tile = 0x289054
+client-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14

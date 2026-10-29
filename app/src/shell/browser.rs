@@ -90,6 +90,8 @@ pub trait Browser {
     fn pinned_url(&self, tab: u64) -> String;
     /// Gives a pinned tab or a favorite the URL it goes back to, which unpinning forgets.
     fn set_pinned_url(&self, tab: u64, url: &str, cx: &mut App);
+    /// The URL the address bar goes to for `text` typed in it, or None if it names nothing.
+    fn typed_url(&self, text: &str) -> Option<String>;
     /// The name the user gave the tab, or empty while it shows its page's title.
     fn tab_name(&self, tab: u64) -> String;
     /// Puts back what the archive removal `removal` took out, and returns how many tabs, 0 if it
@@ -131,6 +133,8 @@ pub trait Browser {
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
+    /// Answers what an agent asks (Shell::set_agent_question), if it still asks.
+    fn answer_agent(&self, question: u64, answer: crate::agents::Answer, cx: &mut App);
     /// Asks the dialog a tab's page asks over the tab's card, with the corners of its radius, or
     /// takes back the one it asks (None).
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, cx: &mut App);
@@ -320,6 +324,10 @@ pub trait Browser {
     fn download_widevine(&self, _cx: &mut App) {}
     /// Quits and starts again, bringing back the windows and their Spaces.
     fn restart(&self, _cx: &mut App) {}
+    /// What PlayReady, which Windows plays protected video with, needs that the PC may lack.
+    fn playready_needs(&self) -> super::PlayReady {
+        super::PlayReady::None
+    }
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;
@@ -445,8 +453,31 @@ pub trait Browser {
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.
     fn shortcuts(&self, cx: &mut App);
+    /// Opens the Settings window on its About tab.
+    fn about(&self, cx: &mut App);
+    /// Opens the Settings window on its Import tab.
+    fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
     fn passwords(&self, space: u64, cx: &mut App);
+    /// Opens the Settings window on its Agents tab, which lists what each agent did.
+    fn agent_activity(&self, cx: &mut App);
+    /// What the user let the agent whose Space is `space` do, for its Space's menu to take back.
+    fn agent_permissions(&self, space: u64, cx: &App) -> AgentGrants;
+    /// Forgets the user's answer for good to the agent whose Space is `space` on `site`, or on
+    /// every site with None.
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, cx: &mut App);
+    /// Disconnects the agent whose Space is `space`, whose token then stops working.
+    fn disconnect_agent(&self, space: u64, cx: &mut App);
+    /// The user takes back each tab of the agent's Space `space` they don't hold, as Take Over
+    /// takes one.
+    fn take_back_agent_tabs(&self, space: u64, cx: &mut App);
+    /// The user takes over `tab`, where the agent with the id `agent` is at work: it may not act
+    /// there until they hand it back.
+    fn take_over(&self, agent: SharedString, tab: u64, cx: &mut App);
+    /// The user hands `tab` back to its agent.
+    fn hand_back(&self, tab: u64, cx: &mut App);
+    /// The user stops the agent with the id `agent`: what it's doing and asking ends.
+    fn stop_agent(&self, agent: SharedString, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.
@@ -534,6 +565,17 @@ pub enum Trouble {
 
 /// A split view: its tabs in their order, which sit together in their list as one row, shown side
 /// by side, else stacked top to bottom.
+/// What an agent's Space's menu lists, to take back (agent_permissions).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AgentGrants {
+    /// The sites where the user answered the agent for good, by name: Always Allow (true) or
+    /// Never (false).
+    pub sites: Vec<(SharedString, bool)>,
+    pub connected: bool,
+    /// Whether the Space has a tab the user doesn't hold.
+    pub tabs: bool,
+}
+
 #[derive(Clone, Default)]
 pub struct Split {
     pub tabs: Vec<u64>,

@@ -546,6 +546,8 @@ grep -q "browser: tab $l has its page\$" "$log" && fail "the tab not shown got i
 switch "2 cmd" "$l"
 expect "browser: tab $l has its page\$" "the tab put back didn't get its page once shown"
 expect "^browser: title $l scrolled [1-9][0-9]*\$" "the tab put back loaded its page at the top"
+# The page takes its scroll back before it has loaded, and a click while it loads misses it.
+expect "^browser: page $l back [0-9]* forward [0-9]* loading 0 " "the tab put back didn't finish loading"
 ../tools/window-screenshot.sh "$pid" "$out/unloaded-scrolled.png" || fail "no window to capture"
 # A quit while a page is full screen, as a video is, keeps the window windowed: the page took it
 # full screen, and it would come back so with no video in it (#383).
