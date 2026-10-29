@@ -305,6 +305,10 @@ void ShowPages(views::Widget* widget,
 
 void HoldPagesForResize(views::Widget*) {}
 
+bool PagesHeldForResize(views::Widget*) {
+  return false;
+}
+
 void HidePages(views::Widget* widget) {
   BrowserCoreWindowView* view = WindowView(widget);
   for (BrowserCorePane* pane in view.panes) {
