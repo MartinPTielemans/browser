@@ -9,7 +9,8 @@ use gpui::{
 };
 
 use super::commands::{
-    BAR_COMMANDS, KEY_CONTEXT, Run, SHORTCUTS, ShellHandle, keystroke_keys, keystroke_label,
+    BAR_COMMANDS, KEY_CONTEXT, KEYLESS, Run, SHORTCUTS, ShellHandle, keystroke_keys,
+    keystroke_label,
 };
 use super::Command;
 
@@ -147,7 +148,8 @@ fn defaults(command: Command) -> Vec<String> {
 /// The rebindable command `name` names, as Command::name writes it.
 fn named(name: &str) -> Option<Command> {
     let commands = SHORTCUTS.iter().map(|&(_, command, _)| command);
-    (commands.chain(BAR_COMMANDS.iter().map(|&(_, command, _)| command)))
+    let commands = commands.chain(BAR_COMMANDS.iter().map(|&(_, command, _)| command));
+    (commands.chain(KEYLESS.iter().copied()))
         .find(|&command| command.name() == name && rebindable(command))
 }
 
@@ -1007,6 +1009,19 @@ mod tests {
         user.reset_all();
         assert_eq!(user.escape_priority(), Priority::Both);
         assert_eq!(user.priority(Command::Find), Priority::Websites);
+    }
+
+    /// A command no key runs until the user gives it one keeps that key across a launch, and Ninth
+    /// Tab takes ⌘9 from Last Tab.
+    #[test]
+    fn a_keyless_commands_keys_read_back() {
+        let mut user = UserKeys::default();
+        let losers = user.set(Command::SelectNinthTab, keys(&["cmd-9"])).unwrap();
+        assert_eq!(losers, [Command::SelectLastTab]);
+        user.set(Command::ResetSpaceTabs, keys(&["ctrl-alt-cmd-r"])).unwrap();
+        assert_eq!(UserKeys::parse(&user.to_text()), user);
+        user.reset(Command::SelectLastTab).unwrap();
+        assert_eq!(user.command_for("cmd-9", false), Some(Command::SelectLastTab));
     }
 
     /// A shortcut left to websites reaches the browser after the page, one given to the browser

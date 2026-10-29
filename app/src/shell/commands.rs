@@ -51,6 +51,9 @@ pub enum Command {
     /// The tab at this index in sidebar order.
     SelectTab(usize),
     SelectLastTab,
+    /// The ninth tab in sidebar order, which no key runs until the user gives it ⌘9, taking it from
+    /// the last tab, Arc's choice in its Settings › Shortcuts.
+    SelectNinthTab,
     /// Pins the selected tab, or unpins it.
     TogglePin,
     /// Makes the selected tab a favorite, as its menu's Add to Favorites does.
@@ -283,6 +286,13 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
 /// The name of the sidebar's second row in the command bar, which it lists only while there's a
 /// sidebar to hide.
 const HIDE_SIDEBAR: &str = "Hide Sidebar";
+
+/// The commands no key runs until the user gives them one in Settings › Shortcuts that the
+/// command bar doesn't find either, so they're known by name there.
+pub(super) const KEYLESS: &[Command] = &[Command::ResetSpaceTabs, Command::SelectNinthTab];
+
+/// The ninth tab's index in sidebar order.
+const NINTH: usize = 8;
 
 /// The commands the command bar finds, with the words besides their names' that find them, in
 /// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
@@ -591,6 +601,7 @@ impl Command {
             Command::RecentTabBack => "recent-tab-back",
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
+            Command::SelectNinthTab => "select-ninth-tab",
             Command::TogglePin => "toggle-pin",
             Command::FavoriteTab => "add-to-favorites",
             Command::DuplicateTab => "duplicate-tab",
@@ -966,6 +977,7 @@ impl Shell {
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
             Command::SelectTab(index) => (index < count).then_some(index),
             Command::SelectLastTab => count.checked_sub(1),
+            Command::SelectNinthTab => (NINTH < count).then_some(NINTH),
         };
         if let Some(index) = target {
             self.select(self.row_tab(rows[index]), cx);
@@ -1475,6 +1487,45 @@ mod tests {
         cx.simulate_keystrokes("shift-cmd-a");
         assert_eq!(host.searched_tabs.take(), [vec![12, 10, 21, 20]]);
         assert!(host.command_bars.take().is_empty(), "it opened the bar for a new tab too");
+    }
+
+    /// ⌘9 shows the last tab until the user gives it to Ninth Tab in Settings › Shortcuts, which
+    /// then shows the ninth, and with fewer tabs than nine, none.
+    #[gpui::test]
+    fn cmd_9_goes_to_the_ninth_tab_once_given_it(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::VisualTestContext;
+
+        use crate::shell::{Folders, change_keys, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(bind_keys);
+        let (shell, cx): (gpui::Entity<Shell>, &mut VisualTestContext) =
+            cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        let tabs: Vec<u64> = (10..20).collect();
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str| (id, name.into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space(1, "One"), space(2, "Two")], cx);
+            shell.set_tabs(1, Vec::new(), tabs.clone(), Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+            shell.set_space(1, cx);
+        });
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        let press = |cx: &mut VisualTestContext| {
+            host.take();
+            cx.simulate_keystrokes("cmd-9");
+            host.take().into_iter().filter(|call| call.starts_with("select")).collect::<Vec<_>>()
+        };
+        assert_eq!(press(cx), [format!("select {}", tabs[9])]);
+        cx.update(|_, cx| {
+            change_keys(cx, |keys| keys.set(Command::SelectNinthTab, vec!["cmd-9".into()]))
+        })
+        .unwrap();
+        assert_eq!(press(cx), [format!("select {}", tabs[8])]);
+        shell.update(cx, |shell, cx| shell.set_space(2, cx));
+        assert!(press(cx).is_empty(), "two tabs had a ninth");
     }
 
     /// Reset all tabs in this Space takes back the pinned tabs away from their pinned URL, in a

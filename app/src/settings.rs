@@ -193,6 +193,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
             ("Tabs 1 to 8", Keys::Text("⌘1 – ⌘8")),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
+            ("Ninth Tab", Keys::Of(Command::SelectNinthTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
             ("Clear Today", Keys::Of(Command::Clear)),
