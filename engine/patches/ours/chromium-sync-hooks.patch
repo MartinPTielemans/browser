@@ -1,0 +1,171 @@
+Hooks for syncing with the browser's own account and relay, in place of Google's sign-in and FCM
+(//browser_core/hooks.h, set in //browser_core/sync.cc).
+
+SyncAuthManager takes the account to sync and its access tokens from the core when it sets
+g_browser_core_sync_account and g_browser_core_sync_token: the account, already marked as not
+managed, since Google's managed-status finder would wait for an account it doesn't know, and each
+token, answered later through the same AccessTokenFetched a Google token takes, so expiry and the
+server's 401 ask the core again. g_browser_core_sync_account_watch gives the core the call that
+IdentityManager's events would make, for when the user signs in or out.
+SyncInvalidationsServiceFactory takes the core's service, which hears from the relay, when it sets
+g_browser_core_sync_invalidations.
+
+--- a/components/sync/service/sync_auth_manager.h
++++ b/components/sync/service/sync_auth_manager.h
+@@ -257,6 +257,8 @@
+   // Pending request for an access token. Non-null iff there is a request
+   // ongoing.
+   std::unique_ptr<signin::AccessTokenFetcher> ongoing_access_token_fetch_;
++  // browser_core: the core has yet to answer a request for a token.
++  bool browser_core_token_pending_ = false;
+ 
+   // If RequestAccessToken fails with transient error then retry requesting
+   // access token with exponential backoff.
+@@ -277,6 +279,9 @@
+   std::vector<base::OnceCallback<void(signin::AccessTokenInfo)>>
+       access_token_callbacks_;
+ 
++  // browser_core: for the core's account callback, which outlives each token
++  // request that weak_ptr_factory_ invalidates.
++  base::WeakPtrFactory<SyncAuthManager> browser_core_weak_factory_{this};
+   base::WeakPtrFactory<SyncAuthManager> weak_ptr_factory_{this};
+ };
+ 
+--- a/components/sync/service/sync_auth_manager.cc
++++ b/components/sync/service/sync_auth_manager.cc
+@@ -20,6 +20,21 @@
+ #include "google_apis/gaia/gaia_constants.h"
+ #include "google_apis/gaia/google_service_auth_error.h"
+ 
++// browser_core: the account to sync and its access tokens, from the browser's
++// own account service in place of Google's sign-in. Set by the core; null
++// leaves Chrome's. Defined here so Chrome's other targets link without it.
++syncer::SyncAccountInfo (*g_browser_core_sync_account)(
++    const signin::IdentityManager* identity_manager) = nullptr;
++void (*g_browser_core_sync_token)(
++    const signin::IdentityManager* identity_manager,
++    base::OnceCallback<void(GoogleServiceAuthError, signin::AccessTokenInfo)>
++        done) = nullptr;
++// Gives the core a way to say the account changed, which IdentityManager would
++// otherwise tell: a callback that holds no reference once the manager is gone.
++void (*g_browser_core_sync_account_watch)(
++    const signin::IdentityManager* identity_manager,
++    base::RepeatingClosure changed) = nullptr;
++
+ namespace syncer {
+ 
+ namespace {
+@@ -55,6 +70,9 @@
+ 
+ SyncAccountInfo DetermineAccountToUse(
+     const signin::IdentityManager* identity_manager) {
++  if (g_browser_core_sync_account) {
++    return g_browser_core_sync_account(identity_manager);
++  }
+   // TODO(crbug.com/40246339): During signout, it can happen that the primary
+   // account temporarily doesn't have a refresh token (before the account
+   // itself gets removed). As a workaround for crbug.com/1383912 /
+@@ -101,6 +119,12 @@
+     managed_status_finder_.reset();
+     return;
+   }
++  // browser_core: the core's account says itself whether it's managed, and
++  // Google's sign-in can't tell.
++  if (g_browser_core_sync_account) {
++    managed_status_finder_.reset();
++    return;
++  }
+   // If there wasn't an account previously, or the account has changed,
+   // recreate the managed-status finder.
+   if (!managed_status_finder_ ||
+@@ -166,6 +190,13 @@
+ 
+   identity_manager_observation_.Observe(identity_manager_);
+   registered_for_auth_notifications_ = true;
++  if (g_browser_core_sync_account_watch) {
++    g_browser_core_sync_account_watch(
++        identity_manager_,
++        base::BindRepeating(
++            base::IgnoreResult(&SyncAuthManager::UpdateSyncAccountIfNecessary),
++            browser_core_weak_factory_.GetWeakPtr()));
++  }
+ 
+   // Initialize the sync account, without (immediately) notifying the delegate
+   // aka the SyncService. (If the account's managed-ness isn't known yet and
+@@ -303,7 +334,7 @@
+       // error until GAIA succeeds at sending a new token, and we won't request
+       // a new token unless sync reports a token failure. But to be safe, don't
+       // schedule request if this happens.
+-      if (ongoing_access_token_fetch_) {
++      if (ongoing_access_token_fetch_ || browser_core_token_pending_) {
+         // A request is already in flight; nothing further needs to be done at
+         // this point.
+         DCHECK(access_token_info_.token.empty());
+@@ -359,6 +390,7 @@
+   access_token_info_ = signin::AccessTokenInfo();
+   request_access_token_retry_timer_.Stop();
+   ongoing_access_token_fetch_.reset();
++  browser_core_token_pending_ = false;
+   weak_ptr_factory_.InvalidateWeakPtrs();
+   NotifyAccessTokenCallbacks(signin::AccessTokenInfo());
+ }
+@@ -556,7 +588,7 @@
+   DCHECK(connection_open_);
+ 
+   // Only one active request at a time.
+-  if (ongoing_access_token_fetch_) {
++  if (ongoing_access_token_fetch_ || browser_core_token_pending_) {
+     DCHECK(access_token_info_.token.empty());
+     DCHECK(!request_access_token_retry_timer_.IsRunning());
+     return;
+@@ -575,6 +607,14 @@
+   // Finally, kick off a new access token fetch.
+   partial_token_status_.token_request_time = base::Time::Now();
+   partial_token_status_.token_response_time = base::Time();
++  if (g_browser_core_sync_token) {
++    browser_core_token_pending_ = true;
++    g_browser_core_sync_token(
++        identity_manager_,
++        base::BindOnce(&SyncAuthManager::AccessTokenFetched,
++                       weak_ptr_factory_.GetWeakPtr()));
++    return;
++  }
+   ongoing_access_token_fetch_ =
+       identity_manager_->CreateAccessTokenFetcherForAccount(
+           sync_account_.Get().account_info.account_id,
+@@ -589,8 +629,9 @@
+     signin::AccessTokenInfo access_token_info) {
+   DCHECK(registered_for_auth_notifications_);
+ 
+-  DCHECK(ongoing_access_token_fetch_);
++  DCHECK(ongoing_access_token_fetch_ || browser_core_token_pending_);
+   ongoing_access_token_fetch_.reset();
++  browser_core_token_pending_ = false;
+   DCHECK(!request_access_token_retry_timer_.IsRunning());
+ 
+   // Retry without backoff when the request is canceled for the first time. For
+--- a/chrome/browser/sync/sync_invalidations_service_factory.cc
++++ b/chrome/browser/sync/sync_invalidations_service_factory.cc
+@@ -12,6 +12,11 @@
+ #include "components/gcm_driver/instance_id/instance_id_profile_service.h"
+ #include "components/sync/invalidations/sync_invalidations_service_impl.h"
+ 
++// browser_core: the core's own change notifications, from the browser's relay,
++// in place of FCM (//browser_core/hooks.h).
++std::unique_ptr<syncer::SyncInvalidationsService> (
++    *g_browser_core_sync_invalidations)(Profile* profile) = nullptr;
++
+ syncer::SyncInvalidationsService*
+ SyncInvalidationsServiceFactory::GetForProfile(Profile* profile) {
+   return static_cast<syncer::SyncInvalidationsService*>(
+@@ -43,6 +48,10 @@
+     content::BrowserContext* context) const {
+   Profile* profile = Profile::FromBrowserContext(context);
+ 
++  if (g_browser_core_sync_invalidations) {
++    return g_browser_core_sync_invalidations(profile);
++  }
++
+   gcm::GCMDriver* gcm_driver =
+       gcm::GCMProfileServiceFactory::GetForProfile(profile)->driver();
+   instance_id::InstanceIDDriver* instance_id_driver =

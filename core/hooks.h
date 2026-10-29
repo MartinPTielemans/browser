@@ -23,6 +23,7 @@
 extern bool g_browser_core_supplies_windows;
 
 class BrowserWindowInterface;
+class GoogleServiceAuthError;
 class ExtensionInstallPromptShowParams;
 class RenderViewContextMenuBase;
 class GURL;
@@ -51,6 +52,18 @@ class AuthChallengeInfo;
 
 namespace policy {
 class ConfigurationPolicyProvider;
+}
+
+namespace signin {
+struct AccessTokenInfo;
+class IdentityManager;
+}
+
+namespace syncer {
+class DataTypeController;
+struct SyncAccountInfo;
+class SyncInvalidationsService;
+class SyncService;
 }
 
 namespace ui {
@@ -169,5 +182,28 @@ extern void (*g_browser_core_load_bundled_extensions)(Profile* profile);
 // under the platform's and the command line's, as for the extensions the browser comes with.
 // The core keeps it for as long as the browser runs.
 extern policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)();
+
+// components/sync/service/sync_auth_manager.cc: the account to sync and its access tokens, from the
+// browser's own account in place of Google's sign-in, for the profile |identity_manager| is
+// |profile|'s. |done| runs after the call returns. |changed| is the call to make when the account
+// changes, as IdentityManager's events would, and does nothing once that profile's sync is gone.
+extern syncer::SyncAccountInfo (*g_browser_core_sync_account)(
+    const signin::IdentityManager* identity_manager);
+extern void (*g_browser_core_sync_token)(
+    const signin::IdentityManager* identity_manager,
+    base::OnceCallback<void(GoogleServiceAuthError, signin::AccessTokenInfo)> done);
+extern void (*g_browser_core_sync_account_watch)(const signin::IdentityManager* identity_manager,
+                                                 base::RepeatingClosure changed);
+
+// chrome/browser/sync/sync_invalidations_service_factory.cc: |profile|'s sync change
+// notifications, from the browser's relay in place of FCM.
+extern std::unique_ptr<syncer::SyncInvalidationsService> (*g_browser_core_sync_invalidations)(
+    Profile* profile);
+
+// chrome/browser/sync/sync_service_factory.cc: the controllers of the core's own data types for
+// |profile|'s sync, such as ILO_SPACE's, after Chrome's.
+extern std::vector<std::unique_ptr<syncer::DataTypeController>> (*g_browser_core_sync_controllers)(
+    Profile* profile,
+    syncer::SyncService* sync_service);
 
 #endif  // BROWSER_CORE_HOOKS_H_
