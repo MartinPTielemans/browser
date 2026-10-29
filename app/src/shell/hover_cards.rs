@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use gpui::{App, Bounds, Context, px, size};
+use gpui::{App, Bounds, Context, Pixels, Point, px, size};
 
 use crate::dock_dot::QUIET;
 use crate::folder_preview::{self, Ask, Item};
@@ -47,10 +47,16 @@ impl Shell {
         self.browser.hover_card(Hover::Rest(Rest { card, anchor, events }), cx);
     }
 
-    /// The pointer came onto `row` or left it: a closed folder's row rests for its preview of the
-    /// tabs in it, and leaving it lets the preview go. None shows while a row is dragged, has its
-    /// menu up or is being named.
-    pub(super) fn folder_preview(&self, row: Row, hovered: bool, cx: &mut Context<Self>) {
+    /// The pointer came onto `row` or left it, last seen `at`: a closed folder's row rests for its
+    /// preview of the tabs in it, and leaving it lets the preview go. None shows while a row is
+    /// dragged, has its menu up or is being named.
+    pub(super) fn folder_preview(
+        &mut self,
+        row: Row,
+        hovered: bool,
+        at: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         let Row::Tab(folder) = row else {
             return;
         };
@@ -58,8 +64,16 @@ impl Shell {
             return;
         }
         if !hovered {
+            // The hover lost with the pointer still on the row isn't the pointer leaving: AppKit
+            // says it left the window as the preview takes the keyboard, with no move. A move off
+            // the row tells the preview instead.
+            if self.on_row(folder, at) {
+                self.preview_row = Some(folder);
+                return;
+            }
             return self.browser.folder_preview(Ask::Left(folder), cx);
         }
+        self.preview_row = None;
         let busy = self.dragging().is_some() || self.menu_row.is_some() || self.renaming.is_some();
         let items = self.previewed(folder);
         if busy || items.is_empty() {
@@ -84,6 +98,19 @@ impl Shell {
             chosen,
         };
         self.browser.folder_preview(Ask::Rest(rest), cx);
+    }
+
+    /// The pointer moved to `at`: off the row whose preview hasn't heard it left, it now hears.
+    pub(super) fn off_preview_row(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        if let Some(folder) = self.preview_row.filter(|&folder| !self.on_row(folder, at)) {
+            self.preview_row = None;
+            self.browser.folder_preview(Ask::Left(folder), cx);
+        }
+    }
+
+    /// Whether `at` is on the row of `folder`, as last drawn.
+    fn on_row(&self, folder: u64, at: Point<Pixels>) -> bool {
+        self.tip_frames.borrow().get(&folder).is_some_and(|row| row.contains(&at))
     }
 
     /// What a closed `folder`'s preview lists: the tabs in it and in the folders in it, as their

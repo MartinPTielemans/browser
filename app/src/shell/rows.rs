@@ -133,11 +133,11 @@ impl Shell {
             // A dragged row stays in its place, and its ghost is drawn over the list, from `list`.
             .top(px(if dragging == Some(slot) { 0. } else { self.slide(slot) }))
             .block_mouse_except_scroll()
-            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
+            .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
                 shell.hover(row, *hovered, cx);
                 shell.hover_tooltip(row, *hovered, cx);
                 shell.hover_card(row, *hovered, cx);
-                shell.folder_preview(row, *hovered, cx)
+                shell.folder_preview(row, *hovered, window.mouse_position(), cx)
             }))
             // The ghost is a picture of a row that stays in the list.
             .when(self.a11y && !ghost, |element| self.row_access(element, row, selected))
