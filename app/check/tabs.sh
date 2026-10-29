@@ -615,6 +615,10 @@ quit 30
 
 app_ms=$(sed -n 's/^browser: selected [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
 [ -s "$trace" ] || fail "the app didn't write its trace"
+# Without the format switch, as when Linux's process title garbled the app's switches (#605),
+# Chrome writes Perfetto's proto, its default.
+head -c 1 "$trace" | grep -q '[[{]' ||
+  fail "the trace isn't JSON, so Chrome didn't get --enable-tracing-format=json"
 spans=$(python3 -I - "$trace" << 'PY'
 import json, sys
 # Chrome's tab switch spans, begin and end events paired by id, in microseconds. A switch to a tab
