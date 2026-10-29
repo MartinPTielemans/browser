@@ -154,7 +154,11 @@ with open(sys.argv[1], "w") as f:
 trap cleanup EXIT
 # The runs send the app's driver its commands through it.
 mkfifo "$out/drive"
+# A run with a profile of its own, such as adblock's, sets profile_dir to it, and the runs after
+# start with the check's again, or what they reset would be that profile's (#731).
+check_profile_dir=$profile_dir
 for run in ${*:-$runs}; do
+  profile_dir=$check_profile_dir
   only_default
   . "check/$run.sh"
 done
