@@ -2,7 +2,10 @@
 //! favorites, to another Space, and over the page for a split view. And links and files
 //! dragged onto the list from the page or another app, which open there.
 
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     Context, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
@@ -18,6 +21,10 @@ use super::{
 /// The tab that links or files dragged in stand for until they're dropped: none, as the core
 /// counts.
 const INCOMING: u64 = 0;
+/// A tab held this close to the sidebar's left or right edge for EDGE_WAIT pages to the Space on
+/// that side, and on again after as long (ours: Arc's isn't measured).
+const EDGE: f32 = 24.;
+pub(super) const EDGE_WAIT: Duration = Duration::from_millis(500);
 
 impl Shell {
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
@@ -255,6 +262,8 @@ impl Shell {
             over_page: None,
             shape: Shape::new(matches!(from, Place::Favorite(_))),
             held: false,
+            space: self.space,
+            edge: None,
         });
     }
 
@@ -294,10 +303,13 @@ impl Shell {
         let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
         let favorites = self.favorites.iter().filter(|&&other| other != tab).count();
         let folder = self.is_folder(tab);
+        let away = drag.space != self.space;
+        self.watch_edge(pointer.x, cx);
         // A favorite stays one in an agent's Space, which it can't move into.
         let kept = self.favorites.contains(&tab) && self.agents_space_shown();
         // Past the most, a row stays one.
         let over_favorites = !incoming
+            && !away
             && !folder
             && self.panes(tab).len() == 1
             && self.has_room_for(tab)
@@ -317,9 +329,13 @@ impl Shell {
             depth = kept_depth;
             (Place::Favorite(index.unwrap_or(0)), span, None)
         } else {
-            let fits = |&gap: &usize| self.gap_depths(&pinned, gap, tab).is_some();
+            // In another Space it goes where Move to puts it: under its pinned tabs, or at the top
+            // of its Today.
+            let fits = |&gap: &usize| {
+                (!away || gap == pinned.len()) && self.gap_depths(&pinned, gap, tab).is_some()
+            };
             let places = (0..=pinned.len()).filter(fits).map(|index| (true, index));
-            let today_places = (0..=today.len()).filter(|_| !folder);
+            let today_places = (0..=today.len()).filter(|&index| !folder && (!away || index == 0));
             let places = places.chain(today_places.map(|index| (false, index)));
             let layouts: Vec<_> = places
                 .map(|(in_pinned, index)| {
@@ -343,7 +359,7 @@ impl Shell {
             }
             let place = Place::List(in_pinned, index);
             let line = self.line_at(&pinned, &today, place);
-            let stays = place == from && depth == from_depth;
+            let stays = place == from && depth == from_depth && !away;
             (place, span, line.filter(|_| !stays))
         };
         if let Some(drag) = &mut self.drag {
@@ -379,6 +395,71 @@ impl Shell {
             self.move_tiles(tiles, Curve::Room);
         }
         cx.notify();
+    }
+
+    /// Whether a dragged tab at `x` across the sidebar is held at its left or right edge, where it
+    /// pages to the user's Space on that side once it has waited there, as Arc's does. Only a tab
+    /// Move to takes: not a favorite, a folder, a split view or links dragged in.
+    fn watch_edge(&mut self, x: f32, cx: &mut Context<Self>) {
+        let width = self.width();
+        let side = (x < EDGE).then_some(false).or((x > width - EDGE).then_some(true));
+        let Some(drag) = &self.drag else {
+            return;
+        };
+        let tab = drag.tab;
+        let movable = !drag.incoming
+            && !self.favorites.contains(&tab)
+            && !self.is_folder(tab)
+            && self.panes(tab).len() == 1
+            && !self.private;
+        let side = side.filter(|_| movable && self.edge_space(side == Some(true)).is_some());
+        if drag.edge.map(|(right, _)| right) == side {
+            return;
+        }
+        let edge = side.map(|right| (right, Instant::now()));
+        if let Some(drag) = &mut self.drag {
+            drag.edge = edge;
+        }
+        if let Some((_, since)) = edge {
+            self.page_drag_after(since, cx);
+        }
+    }
+
+    /// The user's Space beside the one shown, right or left.
+    fn edge_space(&self, right: bool) -> Option<u64> {
+        let index = self.spaces.iter().position(|space| space.id == self.space)?;
+        let index = if right { index + 1 } else { index.checked_sub(1)? };
+        self.spaces.get(index).filter(|space| space.agent.is_empty()).map(|space| space.id)
+    }
+
+    /// Pages to the Space on the edge's side once the tab has been held there since `since`, and
+    /// waits again for the next.
+    fn page_drag_after(&self, since: Instant, cx: &mut Context<Self>) {
+        cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(EDGE_WAIT).await;
+            shell
+                .update(cx, |shell, cx| {
+                    let held = shell.drag.as_ref().filter(|drag| drag.moving);
+                    let edge = held.and_then(|drag| drag.edge);
+                    let Some((right, _)) = edge.filter(|&(_, at)| at == since) else {
+                        return;
+                    };
+                    let Some(space) = shell.edge_space(right) else {
+                        return;
+                    };
+                    let now = Instant::now();
+                    if let Some(drag) = &mut shell.drag {
+                        drag.edge = Some((right, now));
+                    }
+                    // check.sh waits for this line.
+                    log!("browser: drag paged to space {space}");
+                    shell.drag_detent(cx);
+                    shell.show_space(space, cx);
+                    shell.page_drag_after(now, cx);
+                })
+                .ok();
+        })
+        .detach();
     }
 
     /// Where the drop line for `place` in the list goes, down from the list's top: halfway
@@ -429,6 +510,19 @@ impl Shell {
             return;
         }
         let (tab, to, drag_depth) = (drag.tab, drag.to, drag.depth);
+        if drag.space != self.space {
+            let space = self.space;
+            self.drag = None;
+            self.retip = true;
+            if let Place::List(pin, _) = to {
+                // check.sh waits for this line.
+                let list = if pin { "pinned" } else { "today" };
+                log!("browser: dragged {tab} to space {space} {list}");
+                self.move_to_space(tab, space, pin, cx);
+            }
+            cx.notify();
+            return;
+        }
         let favorite = matches!(to, Place::Favorite(_));
         if drag.to == drag.from && (favorite || drag.depth == drag.from_depth) {
             self.settle_drag();
@@ -626,6 +720,10 @@ impl Shell {
         let Some(drag) = &self.drag else {
             return false;
         };
+        // One paged to another Space is held over lists it isn't in.
+        if !drag.dropped && drag.space != self.space {
+            return false;
+        }
         let tab = drag.tab;
         let in_favorites = self.favorites.contains(&tab);
         let in_space = self
@@ -726,6 +824,9 @@ pub(in crate::shell) mod detents;
 
 #[cfg(test)]
 mod drop_line;
+
+#[cfg(test)]
+mod to_space;
 
 #[cfg(test)]
 mod tests {
