@@ -604,7 +604,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.pin_tab(tab, false, cx)),
             ),
             (
-                MenuEntry::new("Add to Favorites", true),
+                MenuEntry::new("Add to Favorites", self.has_room_for(tab)),
                 "add-to-favorites",
                 Box::new(move |shell, cx| shell.favorite_tab(tab, usize::MAX, cx)),
             ),
