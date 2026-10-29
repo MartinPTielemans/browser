@@ -106,7 +106,7 @@ pub use extensions::{
     pin_menu_item as extension_pin_menu_item,
 };
 pub use keys::{
-    Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable,
+    EscapePriority, Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable,
     recorded, reserved, shortcut_found, user_keys, view_binding, written_as,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
@@ -1234,8 +1234,13 @@ pub struct Shell {
     /// The Space with no icon the icon picker shows for, whose name row holds the icon's place
     /// with a placeholder until the picker closes, and the watch on the picker that tells it so.
     icon_placeholder: Option<(u64, Subscription)>,
-    /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
+    /// A private or Blank Window's: its one Space is its own, unsaved, in an off-the-record
+    /// session for a private window.
     private: bool,
+    /// A Blank Window's: its Space is in the profile itself, and its tabs can move out to the
+    /// user's Spaces, which `others` lists.
+    blank: bool,
+    others: Vec<Space>,
 }
 
 impl Shell {
@@ -1425,6 +1430,8 @@ impl Shell {
             window_watches: Vec::new(),
             window_light: None,
             private: false,
+            blank: false,
+            others: Vec::new(),
         }
     }
 
@@ -1458,9 +1465,36 @@ impl Shell {
         shell
     }
 
+    /// A Blank Window's shell (docs/ux-spec.md › Window › Blank Window): a private window's, but
+    /// in `profile` itself, untinted, and its tabs move out to the user's Spaces, which it starts
+    /// out knowing from `from`, a regular window's shell, and hears of after.
+    pub fn blank_window(
+        browser: Rc<dyn Browser>,
+        space: u64,
+        profile: u64,
+        from: Option<&Entity<Shell>>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut shell = Self::private_window(browser, space, "Blank Window".into(), profile, cx);
+        shell.blank = true;
+        if let Some(from) = from {
+            let from = from.read(cx);
+            shell.others = from.spaces.clone();
+            shell.profiles = from.profiles.clone();
+            shell.extensions = from.extensions.clone();
+            shell.keys = from.keys.clone();
+        }
+        shell
+    }
+
     /// Whether this is a private window's shell.
     pub fn private(&self) -> bool {
         self.private
+    }
+
+    /// `space` as this window knows it: one it shows, or for a Blank Window, one of the user's.
+    fn space_entry(&self, space: u64) -> Option<&Space> {
+        self.spaces.iter().chain(&self.others).find(|each| each.id == space)
     }
 
     /// A shell for another window, which starts out knowing what `from` heard from the core about
@@ -1698,6 +1732,25 @@ impl Shell {
     /// empty for the user's own, in the switcher's order.
     pub fn set_spaces(&mut self, spaces: Vec<SpaceEntry>, cx: &mut Context<Self>) {
         if self.private {
+            // A Blank Window keeps them only for Move to.
+            if self.blank {
+                self.others = (spaces.into_iter())
+                    .map(|(id, name, color, profile, icon, agent, theme)| Space {
+                        id,
+                        name,
+                        color,
+                        theme: Theme::parse(&theme),
+                        icon,
+                        profile,
+                        agent,
+                        pinned: Vec::new(),
+                        today: Vec::new(),
+                        splits: Vec::new(),
+                        folders: Folders::default(),
+                        shown: 0,
+                    })
+                    .collect();
+            }
             return;
         }
         // check.sh reads these lines.

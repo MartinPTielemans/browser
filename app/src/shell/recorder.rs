@@ -979,4 +979,8 @@ impl Browser for Recorder {
     }
 
     fn new_private_window(&self, _: &mut App) {}
+
+    fn new_blank_window(&self, _: &mut App) {
+        self.record("new blank window".into())
+    }
 }

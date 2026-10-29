@@ -276,7 +276,7 @@ impl Shell {
             PlayReady::Windows11 => PLAYREADY_WINDOWS_11,
             PlayReady::X64 => PLAYREADY_X64,
             // A private window keeps no licence, so it's the one place a capable PC can't play.
-            PlayReady::Hardware if self.private => PLAYREADY_PRIVATE,
+            PlayReady::Hardware if self.private && !self.blank => PLAYREADY_PRIVATE,
             PlayReady::Hardware => PLAYREADY_HARDWARE,
         }
     }
@@ -320,7 +320,7 @@ impl Shell {
             )
         } else {
             let open = self.browser.can_open_in_safari().then(|| {
-                let label = if self.private { OPEN_PRIVATE } else { OPEN };
+                let label = if self.private && !self.blank { OPEN_PRIVATE } else { OPEN };
                 card_button(&self.palette, "drm-note-safari", label)
                     .on_click(cx.listener(|shell, _, _, cx| shell.open_in_safari(cx)))
             });
