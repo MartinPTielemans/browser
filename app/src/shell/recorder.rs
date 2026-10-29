@@ -285,7 +285,9 @@ impl Browser for Recorder {
 
     fn move_in_split(&self, _: u64, _: usize, _: &mut App) {}
 
-    fn set_split_stacked(&self, _: u64, _: bool, _: &mut App) {}
+    fn set_split_stacked(&self, tab: u64, stacked: bool, _: &mut App) {
+        self.record(format!("split stacked {tab} {stacked}"))
+    }
 
     fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, _: &mut App) {
         self.page_events.borrow_mut().push("shares");
