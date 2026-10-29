@@ -1040,6 +1040,35 @@ thread_local! {
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
 }
 
+/// A link is dragged over `tab`'s page: the window showing it shows the split view's targets, and
+/// takes the drag while it's on one, opening the link there when it's let go.
+unsafe extern "C" fn tab_link_dragged(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    phase: c_int,
+    url: *const c_char,
+    x: f64,
+    y: f64,
+) -> bool {
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
+        return false;
+    };
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    let point = point(px(x as f32), px(y as f32));
+    let Some(window) = cx.update(|cx| tab_window(tab, cx)) else {
+        return false;
+    };
+    let answer = update_window(window.id, |shell, cx| match phase as u32 {
+        bc::BC_LINK_DRAG_OVER => shell.link_over_page(tab, point, &url, cx),
+        bc::BC_LINK_DRAG_DROP => shell.link_dropped(tab, point, cx),
+        _ => {
+            shell.link_left_page(cx);
+            false
+        }
+    });
+    answer.unwrap_or(false)
+}
+
 /// A link clicked in `tab`'s page leads to another site. A pinned tab's or a favorite's opens in
 /// the link preview, over the window showing the tab, unless the user turned previews off.
 unsafe extern "C" fn tab_link_to_site(
@@ -1734,6 +1763,24 @@ impl Browser for Engine {
             bc::bc_tab_split_with(tab, with, left);
             bc::bc_window_select(self.window, tab);
         }
+    }
+
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
+        let (window, url) = (self.window, url.to_string());
+        // After the drop that asked, which Chromium is still handling.
+        update_app_later(move |_| {
+            let tab = open_tab_behind(window, &url, false);
+            if tab == 0 {
+                return;
+            }
+            unsafe {
+                bc::bc_tab_split_with(tab, with, left);
+                if stacked {
+                    bc::bc_tab_set_split_stacked(with, true);
+                }
+                bc::bc_window_select(window, tab);
+            }
+        });
     }
 
     fn show_drop_targets(&self, shown: bool, cx: &mut App) {
@@ -5297,6 +5344,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
         tab_link_to_site: Some(tab_link_to_site),
+        tab_link_dragged: Some(tab_link_dragged),
         crash_report_offered: Some(crash_report_offered),
         #[cfg(target_os = "linux")]
         ui_composed: Some(ui_composed),

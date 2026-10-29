@@ -1,0 +1,201 @@
+Lets the core take a link dragged over a page while it's over the targets of the app's split
+view, so a link let go there opens in a pane beside the page (issue #694). Blink won't take a link
+dropped on its own page, and WebDragDestDelegate is told of a drag with no point and can't take
+it. The drag destinations, the Mac's and Aura's, ask content::HandlePageLinkDrag at each update,
+as the drag leaves and at the drop. Over the targets, the drag is the core's: the page is left and
+sees no drop, and once the drag is off them again the next update enters the page again. A hook
+only: the core decides where, through content::SetPageLinkDragHandler.
+
+--- a/content/browser/web_contents/web_contents_view_aura.cc
++++ b/content/browser/web_contents/web_contents_view_aura.cc
+@@ -1668,6 +1668,21 @@
+   std::unique_ptr<DropData> drop_data = std::make_unique<DropData>();
+   // Calling this here as event.data might become invalid inside the callback.
+   PrepareDropData(drop_data.get(), event.data());
++
++  // browser_core: a link over the targets of the app's split view is the
++  // core's, and the page doesn't see it there. Moved off them, the next update
++  // enters the page again.
++  if (HandlePageLinkDrag(web_contents_, PageLinkDrag::kOver, *drop_data,
++                         event.location_f())) {
++    if (current_rwh_for_drag_) {
++      current_rwh_for_drag_->DragTargetDragLeave(gfx::PointF(), gfx::PointF());
++      current_rwh_for_drag_.reset();
++    }
++    drag_info.drag_operation =
++        static_cast<int>(ui::mojom::DragOperation::kCopy);
++    return drag_info;
++  }
++
+   DropMetadata drop_metadata(event);
+   web_contents_->GetRenderWidgetHostAtPointAsynchronously(
+       web_contents_->GetRenderViewHost()->GetWidget()->GetView(),
+@@ -1684,4 +1699,8 @@
+ 
+ void WebContentsViewAura::OnDragExited() {
++  // browser_core: the core's targets go with the drag.
++  HandlePageLinkDrag(web_contents_, PageLinkDrag::kLeft, DropData(),
++                     gfx::PointF());
++
+   if (web_contents_->ShouldIgnoreInputEvents()) {
+     // Don't compute the results of exiting, but clean up the flag to avoid
+@@ -1926,6 +1945,18 @@
+     std::unique_ptr<ui::OSExchangeData> data,
+     ui::mojom::DragOperation& output_drag_op,
+     std::unique_ptr<ui::LayerTreeOwner> drag_image_layer_owner) {
++  // browser_core: a link let go on the targets of the app's split view opens
++  // there, and the page doesn't see the drop. |exit_drag| leaves the page.
++  if (data) {
++    DropData drop_data;
++    PrepareDropData(&drop_data, *data);
++    if (HandlePageLinkDrag(web_contents_, PageLinkDrag::kDrop, drop_data,
++                           drop_metadata.localized_location)) {
++      output_drag_op = ui::mojom::DragOperation::kCopy;
++      return;
++    }
++  }
++
+   // Set output_drag_op before calling on `web_contents_` below because it
+   // is possible for the drop to end and the member `current_drag_data_` to be
+   // reset.
+--- a/content/browser/web_contents/web_drag_dest_mac.mm
++++ b/content/browser/web_contents/web_drag_dest_mac.mm
+@@ -363,6 +363,10 @@
+ }
+ 
+ - (void)draggingExited {
++  // browser_core: the core's targets go with the drag.
++  content::HandlePageLinkDrag(_webContents, content::PageLinkDrag::kLeft,
++                              content::DropData(), gfx::PointF());
++
+   if (_webContents->ShouldIgnoreInputEvents()) {
+     return;
+   }
+@@ -423,6 +427,22 @@
+                                       info->location_in_view);
+   }
+ 
++  // browser_core: a link over the targets of the app's split view is the
++  // core's, and the page doesn't see it there. Moved off them, the next update
++  // enters the page again.
++  if (_dropDataUnfiltered &&
++      content::HandlePageLinkDrag(_webContents, content::PageLinkDrag::kOver,
++                                  *_dropDataUnfiltered,
++                                  info->location_in_view)) {
++    ++_dragUpdatedSequenceNumber;
++    _pendingDragUpdatedInfo.reset();
++    if (_currentRWHForDrag) {
++      _currentRWHForDrag->DragTargetDragLeave(gfx::PointF(), gfx::PointF());
++      _currentRWHForDrag.reset();
++    }
++    return NSDragOperationCopy;
++  }
++
+   if (!_dropDataFiltered || !_dropDataUnfiltered) {
+     return NSDragOperationNone;
+   }
+@@ -559,6 +579,29 @@
+     return NO;
+   }
+ 
++  // browser_core: a link let go on the targets of the app's split view opens
++  // there, and the page doesn't see the drop.
++  if (_dropDataUnfiltered &&
++      content::HandlePageLinkDrag(_webContents, content::PageLinkDrag::kDrop,
++                                  *_dropDataUnfiltered,
++                                  info->location_in_view)) {
++    ++_dragEnteredSequenceNumber;
++    ++_dragUpdatedSequenceNumber;
++    _pendingDragEnteredInfo.reset();
++    _pendingDragUpdatedInfo.reset();
++    if (_currentRWHForDrag) {
++      _currentRWHForDrag->DragTargetDragLeave(gfx::PointF(), gfx::PointF());
++      _currentRWHForDrag.reset();
++    }
++    if (_delegate) {
++      _delegate->OnDragLeave();
++    }
++    _dropDataUnfiltered.reset();
++    _dropDataFiltered.reset();
++    _currentRVH = nullptr;
++    return YES;
++  }
++
+   // Store drop info and delegate for async callback.
+   _pendingDropInfo = std::make_unique<DraggingInfo>(*info);
+   _pendingDropDelegate = webContentsViewDelegate;
+--- a/content/public/browser/web_contents_view_delegate.cc
++++ b/content/public/browser/web_contents_view_delegate.cc
+@@ -11,10 +11,29 @@
+ #include "base/check.h"
+ #include "base/functional/callback.h"
+ #include "content/public/common/drop_data.h"
++#include "ui/gfx/geometry/point_f.h"
+ #include "ui/gfx/native_ui_types.h"
+ 
+ namespace content {
+ 
++namespace {
++
++PageLinkDragHandler g_page_link_drag_handler = nullptr;
++
++}  // namespace
++
++void SetPageLinkDragHandler(PageLinkDragHandler handler) {
++  g_page_link_drag_handler = handler;
++}
++
++bool HandlePageLinkDrag(WebContents* contents,
++                        PageLinkDrag phase,
++                        const DropData& data,
++                        const gfx::PointF& point) {
++  return g_page_link_drag_handler &&
++         g_page_link_drag_handler(contents, phase, data, point);
++}
++
+ WebContentsViewDelegate::~WebContentsViewDelegate() {
+ }
+ 
+--- a/content/public/browser/web_contents_view_delegate.h
++++ b/content/public/browser/web_contents_view_delegate.h
+@@ -25,10 +25,15 @@
+ #endif
+ #endif
+ 
++namespace gfx {
++class PointF;
++}
++
+ namespace content {
+ class NavigationHandle;
+ class RenderFrameHost;
+ class RenderWidgetHost;
++class WebContents;
+ class WebDragDestDelegate;
+ struct ContextMenuParams;
+ struct DropData;
+@@ -114,6 +119,24 @@
+ #endif
+ };
+ 
++// browser_core: a link dragged over a page, which the core can take from the
++// page while it's over the targets of the app's split view
++// (//browser_core/tab.cc). |point| is in the page's view, from its top-left
++// corner. Over: returns whether the core takes the drag there, where the page
++// doesn't see it. Drop: whether the core took the drop. Left: the drag left
++// the page or ended without a drop, and the return is ignored.
++enum class PageLinkDrag { kOver, kLeft, kDrop };
++using PageLinkDragHandler = bool (*)(WebContents* contents,
++                                     PageLinkDrag phase,
++                                     const DropData& data,
++                                     const gfx::PointF& point);
++CONTENT_EXPORT void SetPageLinkDragHandler(PageLinkDragHandler handler);
++// What the drag destinations ask: false while no handler is set.
++CONTENT_EXPORT bool HandlePageLinkDrag(WebContents* contents,
++                                       PageLinkDrag phase,
++                                       const DropData& data,
++                                       const gfx::PointF& point);
++
+ }  // namespace content
+ 
+ #endif  // CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_VIEW_DELEGATE_H_
