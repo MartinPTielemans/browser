@@ -955,8 +955,9 @@ badge-text-color = 0xffffff
 site-controls-end = -1.0
 tool-pitch = 28.0
 # The URL field's words with no page shown: the command bar's placeholder, which a click opens
-# over them, at white 0.32, which is to the host's 0.60 as the bar's placeholder is to its text.
-url-placeholder = 0xffff_ff52
+# over them, at the ink's 0.32, which is to the host's 0.60 as the bar's placeholder is to its
+# text, raised as all text is to read on the window.
+url-placeholder = 0.32
 # The password manager's key after the host (ours, for Chrome's key icon), drawn as the engine's
 # compass is, 12 pt and 5 after the host, and taking clicks 4 around it.
 key-gap = 5.0
