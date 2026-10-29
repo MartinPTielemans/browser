@@ -65,8 +65,8 @@ pub fn user_keys(cx: &App) -> &UserKeys {
 
 /// Whether the user can give `command` other keys. Not Quit, whose ⌘Q is the way out of every Mac
 /// app; not Undo and Redo, whose ⌘Z and ⇧⌘Z fall back to the Edit menu's for the page; not the
-/// ⌃Tab walk, which lasts while ⌃ is held; and not the numbered tabs and Spaces, nine keys in one
-/// row.
+/// ⌃Tab walk, which lasts while ⌃ is held; not the numbered tabs and Spaces, nine keys in one
+/// row; and not the rows only the command bar lists, which Settings › Shortcuts doesn't.
 pub fn rebindable(command: Command) -> bool {
     !matches!(
         command,
@@ -80,6 +80,7 @@ pub fn rebindable(command: Command) -> bool {
             | Command::MoveToSpace(_)
             | Command::PinToSpace(_)
             | Command::OpenFolder(_)
+            | Command::EditTheme
     )
 }
 

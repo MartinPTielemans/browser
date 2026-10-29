@@ -1500,6 +1500,12 @@ impl theme_picker::Host for ThemeHost {
     fn hide(&self) {
         unsafe { platform::host_hide_overlay(THEME_PICKER) };
     }
+
+    fn detent(&self) {
+        if unsafe { bc::bc_haptics() } {
+            unsafe { platform::host_detent() };
+        }
+    }
 }
 
 /// The user left the theme picker, such as with a click outside it.

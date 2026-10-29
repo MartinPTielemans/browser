@@ -121,6 +121,8 @@ pub enum Command {
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
+    /// Opens the theme picker for the Space shown, as its menu's Edit Theme Color… does.
+    EditTheme,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
@@ -339,6 +341,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
+    // Arc's bar's name, where its Space menu says Edit Theme Color….
+    ("Edit Theme…", Command::EditTheme, &["color", "colour"]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
     ("Previous Space", Command::PreviousSpace, &[]),
@@ -655,6 +659,7 @@ impl Command {
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
+            Command::EditTheme => "edit-theme",
             Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
             Command::MoveToSpace(_) => "move-to-space",
@@ -955,6 +960,7 @@ impl Shell {
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
+            Command::EditTheme => return self.edit_space_theme(self.space, cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::MoveToSpace(space) | Command::PinToSpace(space) => {
@@ -1234,6 +1240,7 @@ impl Shell {
             | Command::ToggleSidebar
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
@@ -1337,6 +1344,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
             | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
             | Command::MoveToSpace(_)
