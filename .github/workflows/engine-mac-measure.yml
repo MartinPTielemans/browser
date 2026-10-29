@@ -1,0 +1,151 @@
+# What GitHub's free arm64 macOS runners give the Mac engine's build (engine-mac.yml): the free
+# disk once the image's extras go, the memory build.sh's job count is set from, how the build's
+# tools install, and how long the tree takes to save to artifacts and restore on a fresh runner,
+# with the image's spare Xcodes as a tree of the same kind of files. Each job's summary has the
+# numbers. On pushes to its own branch that change it, and by hand.
+name: Engine on the Mac, measured
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/mac-engine-hosted]
+    paths:
+      - .github/workflows/engine-mac-measure.yml
+      - .github/actions/engine-mac-tree/**
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  save:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The runner
+        run: |
+          {
+            echo "### ${{ matrix.os }}"
+            echo '```'
+            sw_vers
+            sysctl -n machdep.cpu.brand_string
+            echo "cores $(sysctl -n hw.ncpu), memory $(($(sysctl -n hw.memsize) >> 20)) MB, $(sysctl -n vm.swapusage)"
+            echo "build.sh's jobs, a job per 3 GB: $(($(sysctl -n hw.memsize) / (3 << 30)))"
+            df -h / /System/Volumes/Data
+            echo "Xcode: $(xcode-select -p)"
+            for x in /Applications/Xcode*.app; do
+              [ -L "$x" ] || echo "$x: $(ls "$x/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs" | tr '\n' ' ')"
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # What setup.sh needs and the image lacks, as a run would install it each time.
+      - name: Tools
+        run: |
+          start=$SECONDS
+          brew install -q go esbuild typescript coreutils uv
+          brew_s=$((SECONDS - start))
+          start=$SECONDS
+          xcodebuild -downloadComponent MetalToolchain > /dev/null && metal="$(xcrun metal --version | head -1)" || metal="no Metal toolchain"
+          echo "brew install: $brew_s s; Metal toolchain: $((SECONDS - start)) s, $metal" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # What a build never uses, in the order a run would remove it, with the disk free after each.
+      - name: Free disk
+        run: |
+          free() { df -g /System/Volumes/Data | awk 'NR == 2 { print $4 }'; }
+          start=$SECONDS
+          echo "free at first: $(free) GB" | tee -a "$GITHUB_STEP_SUMMARY"
+          sudo mdutil -a -i off > /dev/null
+          sudo rm -rf "$ANDROID_HOME" ~/Library/Android
+          echo "without Android's SDK: $(free) GB" | tee -a "$GITHUB_STEP_SUMMARY"
+          xcrun simctl runtime delete all > /dev/null 2>&1 || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator /Library/Developer/CoreSimulator/Images
+          echo "without the simulators: $(free) GB" | tee -a "$GITHUB_STEP_SUMMARY"
+          sudo rm -rf "$RUNNER_TOOL_CACHE" /usr/local/share/{dotnet,powershell} ~/.dotnet ~/.ghcup
+          echo "without the tool cache and .NET: $(free) GB, in $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Memory past the 7 GB, as a link that outgrows it would use it: pages written and read
+      # back, timed. macOS swaps to the disk as it needs.
+      - name: Memory
+        run: |
+          for gb in 5 10 14; do
+            start=$SECONDS
+            node --max-old-space-size=32768 -e '
+              const bufs = [];
+              for (let i = 0; i < Number(process.argv[1]); i++) { const b = Buffer.alloc(1 << 30, i); bufs.push(b); }
+              let sum = 0; for (const b of bufs) for (let j = 0; j < b.length; j += 4096) sum += b[j];
+              console.log(sum);' "$gb" > /dev/null && result=ok || result="failed ($?)"
+            echo "$gb GB written and read back: $result in $((SECONDS - start)) s, then $(sysctl -n vm.swapusage)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Set up the tree's script
+        working-directory: .github/actions/engine-mac-tree
+        run: npm install -s --no-audit --no-fund
+
+      # The spare Xcodes stand in for the tree: hundreds of thousands of files, binaries and text.
+      - name: Save
+        env:
+          TREE_NAME: tree-${{ matrix.os }}
+          TREE_RETENTION_DAYS: 1
+        run: |
+          default=$(cd "$(xcode-select -p)/../.." && pwd -P)
+          spare=()
+          for x in /Applications/Xcode_*.app; do
+            [ -L "$x" ] || [ "$(cd "$x" && pwd -P)" = "$default" ] || spare+=("$(basename "$x")")
+          done
+          sudo chown -R "$(id -un)" "${spare[@]/#//Applications/}"
+          kb=$(du -sk "${spare[@]/#//Applications/}" | awk '{ s += $1 } END { print s }')
+          files=$(find "${spare[@]/#//Applications/}" | wc -l | tr -d ' ')
+          echo "the stand-in: ${#spare[@]} Xcodes, $((kb >> 20)) GB on disk, $files files" | tee -a "$GITHUB_STEP_SUMMARY"
+          start=$SECONDS
+          node .github/actions/engine-mac-tree/tree.mjs save /Applications "${spare[@]}" 2>&1 | tee "$RUNNER_TEMP/save.log"
+          echo "saved: $(tail -1 "$RUNNER_TEMP/save.log"), $((SECONDS - start)) s in all" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  restore:
+    needs: save
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the tree's script
+        working-directory: .github/actions/engine-mac-tree
+        run: |
+          brew install -q coreutils
+          npm install -s --no-audit --no-fund
+
+      # As a run would, before it restores: the image's extras and the spare Xcodes go.
+      - name: Free disk
+        run: |
+          free() { df -g /System/Volumes/Data | awk 'NR == 2 { print $4 }'; }
+          sudo mdutil -a -i off > /dev/null
+          sudo rm -rf "$ANDROID_HOME" ~/Library/Android "$RUNNER_TOOL_CACHE" /usr/local/share/{dotnet,powershell} ~/.dotnet ~/.ghcup
+          xcrun simctl runtime delete all > /dev/null 2>&1 || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator /Library/Developer/CoreSimulator/Images
+          default=$(cd "$(xcode-select -p)/../.." && pwd -P)
+          for x in /Applications/Xcode_*.app; do
+            [ -L "$x" ] || [ "$(cd "$x" && pwd -P)" = "$default" ] || sudo rm -rf "$x"
+          done
+          echo "### ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "free before the restore, with one Xcode: $(free) GB" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore
+        env:
+          TREE_NAME: tree-${{ matrix.os }}
+        run: |
+          start=$SECONDS
+          node .github/actions/engine-mac-tree/tree.mjs restore "$HOME/tree" "$GITHUB_RUN_ID" 2>&1 | tee "$RUNNER_TEMP/restore.log"
+          kb=$(du -sk "$HOME/tree" | cut -f1)
+          files=$(find "$HOME/tree" | wc -l | tr -d ' ')
+          free=$(df -g /System/Volumes/Data | awk 'NR == 2 { print $4 }')
+          echo "restored: $(tail -1 "$RUNNER_TEMP/restore.log"), $((SECONDS - start)) s in all; $((kb >> 20)) GB, $files files; $free GB free after" | tee -a "$GITHUB_STEP_SUMMARY"
