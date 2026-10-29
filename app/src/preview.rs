@@ -491,6 +491,10 @@ impl Browser for Fake {
 
     fn set_pinned_url(&self, _: u64, _: &str, _: &mut App) {}
 
+    fn typed_url(&self, _: &str) -> Option<String> {
+        None
+    }
+
     fn tab_name(&self, _: u64) -> String {
         String::new()
     }

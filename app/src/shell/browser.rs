@@ -89,6 +89,8 @@ pub trait Browser {
     fn pinned_url(&self, tab: u64) -> String;
     /// Gives a pinned tab or a favorite the URL it goes back to, which unpinning forgets.
     fn set_pinned_url(&self, tab: u64, url: &str, cx: &mut App);
+    /// The URL the address bar goes to for `text` typed in it, or None if it names nothing.
+    fn typed_url(&self, text: &str) -> Option<String>;
     /// The name the user gave the tab, or empty while it shows its page's title.
     fn tab_name(&self, tab: u64) -> String;
     /// Puts back what the archive removal `removal` took out, and returns how many tabs, 0 if it

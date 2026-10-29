@@ -49,6 +49,7 @@ impl What {
     pub const RENAME_FOLDER: What = What::quiet("Rename Folder");
     pub const RENAME_SPACE: What = What::quiet("Rename Space");
     pub const CHANGE_ICON: What = What::quiet("Change Icon");
+    pub const CHANGE_PINNED_URL: What = What::quiet("Change Pinned URL");
     pub const CHANGE_THEME: What = What::quiet("Change Theme Color");
     pub const REMOVE_THEME: What = What::quiet("Remove Theme Color");
     pub const CLEAR: What = What::quiet("Clear");
@@ -99,6 +100,8 @@ pub(super) struct Folder {
 pub(super) enum Prop {
     TabName(u64),
     TabIcon(u64),
+    /// The URL a pinned tab or a favorite goes back to.
+    PinnedUrl(u64),
     FolderName(u64),
     SpaceName(u64),
     SpaceIcon(u64),
@@ -221,7 +224,10 @@ impl Edit {
             }
             Edit::Separate(tab) => id(tab),
             Edit::Set(prop, _) => match prop {
-                Prop::TabName(each) | Prop::TabIcon(each) | Prop::FolderName(each) => id(each),
+                Prop::TabName(each)
+                | Prop::TabIcon(each)
+                | Prop::PinnedUrl(each)
+                | Prop::FolderName(each) => id(each),
                 Prop::SpaceName(_) | Prop::SpaceIcon(_) | Prop::SpaceColor(_) => {}
             },
             Edit::UndoClear { .. }
@@ -568,6 +574,7 @@ impl Shell {
             Prop::FolderName(_) => What::RENAME_FOLDER,
             Prop::SpaceName(_) => What::RENAME_SPACE,
             Prop::TabIcon(_) | Prop::SpaceIcon(_) => What::CHANGE_ICON,
+            Prop::PinnedUrl(_) => What::CHANGE_PINNED_URL,
             Prop::SpaceColor(_) => match value {
                 Value::Color { color: None, .. } => What::REMOVE_THEME,
                 _ => What::CHANGE_THEME,
@@ -737,6 +744,10 @@ impl Shell {
                         .map_or_else(String::new, |tab| tab.page.icon.to_string()),
                 )
             }
+            Prop::PinnedUrl(tab) => {
+                self.has_tab(tab).then_some(())?;
+                Value::Text(self.browser.pinned_url(tab))
+            }
             Prop::FolderName(folder) => {
                 let space = self.spaces.iter().find(|space| space.is_folder(folder))?;
                 Value::Text(space.folders.folders.get(&folder)?.0.to_string())
@@ -756,6 +767,7 @@ impl Shell {
         match (prop, value) {
             (Prop::TabName(tab), Value::Text(name)) => browser.rename_tab(tab, name, cx),
             (Prop::TabIcon(tab), Value::Text(icon)) => browser.set_icon(tab, icon, cx),
+            (Prop::PinnedUrl(tab), Value::Text(url)) => browser.set_pinned_url(tab, url, cx),
             (Prop::FolderName(folder), Value::Text(name)) => {
                 browser.rename_folder(folder, name, cx)
             }
