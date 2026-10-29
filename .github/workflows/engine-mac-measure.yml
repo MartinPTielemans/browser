@@ -71,7 +71,8 @@ jobs:
           sudo rm -rf "$ANDROID_HOME" ~/Library/Android
           echo "without Android's SDK: $(free) GB" | tee -a "$GITHUB_STEP_SUMMARY"
           xcrun simctl runtime delete all > /dev/null 2>&1 || true
-          sudo rm -rf ~/Library/Developer/CoreSimulator /Library/Developer/CoreSimulator/Images
+          # The simulator service may still be writing its devices, which only costs what it keeps.
+          sudo rm -rf ~/Library/Developer/CoreSimulator /Library/Developer/CoreSimulator/Images || true
           echo "without the simulators: $(free) GB" | tee -a "$GITHUB_STEP_SUMMARY"
           sudo rm -rf "$RUNNER_TOOL_CACHE" /usr/local/share/{dotnet,powershell} ~/.dotnet ~/.ghcup
           echo "without the tool cache and .NET: $(free) GB, in $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -143,7 +144,8 @@ jobs:
           sudo mdutil -a -i off > /dev/null
           sudo rm -rf "$ANDROID_HOME" ~/Library/Android "$RUNNER_TOOL_CACHE" /usr/local/share/{dotnet,powershell} ~/.dotnet ~/.ghcup
           xcrun simctl runtime delete all > /dev/null 2>&1 || true
-          sudo rm -rf ~/Library/Developer/CoreSimulator /Library/Developer/CoreSimulator/Images
+          # The simulator service may still be writing its devices, which only costs what it keeps.
+          sudo rm -rf ~/Library/Developer/CoreSimulator /Library/Developer/CoreSimulator/Images || true
           default=$(cd "$(xcode-select -p)/../.." && pwd -P)
           for x in /Applications/Xcode_*.app; do
             [ -L "$x" ] || [ "$(cd "$x" && pwd -P)" = "$default" ] || sudo rm -rf "$x"
