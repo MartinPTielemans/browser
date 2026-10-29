@@ -85,10 +85,10 @@ index e4da54b52b..64085e48a7 100644
  
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..059d6ed5fc
+index 0000000000..2f994c555d
 --- /dev/null
 +++ b/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,809 @@
+@@ -0,0 +1,811 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -828,12 +828,14 @@ index 0000000000..059d6ed5fc
 +                        all.push((view, parent as u32));
 +                    });
 +                    let panel = is_panel(view);
++                    // Before it maps: mapped under the pointer with no input shape yet, it would
++                    // take the pointer from the window under it, whose hover, and tooltip, then go.
++                    x11.overlay_pointer(view as _, pointer_areas(view).as_deref()).log_err();
 +                    let from =
 +                        x11.show_overlay(view as _, parent as _, bounds, &outline, keyboard, panel);
 +                    if let Some(from) = from.log_err() {
 +                        focus_from(view, from);
 +                    }
-+                    x11.overlay_pointer(view as _, pointer_areas(view).as_deref()).log_err();
 +                }
 +                Op::Pointer(view) => {
 +                    x11.overlay_pointer(view as _, pointer_areas(view).as_deref()).log_err();
