@@ -413,8 +413,9 @@ impl Browser for Recorder {
         self.record("list captures".into())
     }
 
-    fn trash(&self, _: &str, _: &mut App) -> bool {
-        Default::default()
+    fn trash(&self, path: &str, _: &mut App) -> bool {
+        self.record(format!("trash {path}"));
+        true
     }
 
     fn drag_file(&self, _: &str, _: &mut App) -> bool {

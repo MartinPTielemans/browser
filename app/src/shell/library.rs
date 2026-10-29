@@ -1406,7 +1406,8 @@ impl Shell {
     }
 
     /// A row of Media's tiles: each a picture of its file, filling its square, or the file's icon,
-    /// with a video's glyph in its corner. A click opens the file in a tab.
+    /// with a video's glyph in its corner. A click opens the file in a tab, and a right-click shows
+    /// a capture's menu, or a download's as its row in Downloads does.
     fn media_row(
         &mut self,
         row: [Option<Medium>; MEDIA_COLUMNS],
@@ -1470,7 +1471,17 @@ impl Shell {
             .rounded(px(MEDIA_RADIUS))
             .bg(self.palette.plate(LIBRARY_PLATE))
             .block_mouse_except_scroll()
-            .on_click(cx.listener(move |shell, _, _, cx| shell.open_media(&path, cx)))
+            .on_click({
+                let path = path.clone();
+                cx.listener(move |shell, _, _, cx| shell.open_media(&path, cx))
+            })
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| match id & CAPTURE_BIT {
+                    0 => shell.download_menu(id, event.position, cx),
+                    _ => shell.capture_menu(path.clone(), event.position, cx),
+                }),
+            )
             .child(picture)
             // Over the picture, which would hide a plate under it.
             .child(
@@ -1500,6 +1511,51 @@ impl Shell {
         log!("browser: open media {path}");
         self.browser.open_at(&[file_url(path)], false, 0, 0, cx);
         self.set_library(false, cx);
+    }
+
+    /// The menu a right-click on a capture's tile shows: open it, or delete it from the Library, as
+    /// Arc deletes a capture, to the system's Trash, from where it can come back.
+    fn capture_menu(
+        &mut self,
+        path: SharedString,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let entries = vec![
+            MenuEntry::new("Open", true),
+            MenuEntry::line(),
+            MenuEntry::new("Delete", true).destructive(),
+        ];
+        let shell = cx.weak_entity();
+        self.browser.context_menu(
+            entries,
+            position,
+            false,
+            Look { light: false, ..self.menu_look() },
+            Box::new(move |chosen, cx| {
+                shell
+                    .update(cx, |shell, cx| match chosen {
+                        Some(0) => shell.open_media(&path, cx),
+                        Some(2) => shell.delete_capture(&path, cx),
+                        _ => {}
+                    })
+                    .ok();
+            }),
+            cx,
+        );
+    }
+
+    /// Moves a capture to the system's Trash and takes it out of every window's Media, or leaves
+    /// it if it can't go.
+    fn delete_capture(&mut self, path: &str, cx: &mut Context<Self>) {
+        // check.sh waits for this line.
+        log!("browser: delete capture {path}");
+        if !self.browser.trash(path, cx) {
+            return;
+        }
+        self.captures.retain(|each| each.path.as_ref() != path);
+        self.filter(true, cx);
+        self.browser.list_captures(cx);
     }
 
     /// A section's button in the column, which shows the section.
@@ -2009,8 +2065,8 @@ mod tests {
     use super::{
         ARCHIVE_TOP, ARCHIVED_LEFT, Archived, CARD_WIDTH, COLUMN_WIDTH, Captured, Download,
         DownloadAction, DownloadChoice, DownloadState, HEADING_BOTTOM, HEADING_HEIGHT, HEADING_TOP,
-        Item, LIBRARY_BAND, Line, MEDIA_TILE, Medium, SECTION_WIDTH, SECTION_X, Space, bar_drawn,
-        card_x, download_menu_items, downloads_progress, library_band, panel_at_rest, past_end,
+        Item, LIBRARY_BAND, Line, MEDIA_GAP, MEDIA_TILE, Medium, SECTION_WIDTH, SECTION_X, Space,
+        bar_drawn, card_x, download_menu_items, downloads_progress, library_band, panel_at_rest, past_end,
         plus_x, receded_opacity, spaces_width,
     };
     use std::rc::Rc;
@@ -2198,6 +2254,56 @@ mod tests {
         cx.run_until_parked();
         assert!(host.take().contains(&"open file:///tmp/my%20photo.jpg".to_string()));
         assert!(!shell.read_with(cx, |shell, _| shell.library_open), "the Library stayed open");
+    }
+
+    /// A right-click on a capture's tile offers Open and Delete, which moves it to the Trash and
+    /// out of Media; one on a downloaded picture's shows the download's menu.
+    #[gpui::test]
+    fn a_right_click_deletes_a_capture_from_media(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        let photo = Download {
+            id: 2,
+            name: "photo.jpg".into(),
+            path: "/tmp/photo.jpg".into(),
+            started: 1.,
+            ..download(DownloadState::Done, false)
+        };
+        let (path, name) = ("/media/Capture.png".into(), "Capture.png".into());
+        let capture = Captured { path, name, saved: 2. };
+        shell.update(cx, |shell, cx| {
+            shell.set_downloads(vec![photo], cx);
+            shell.set_captures(vec![capture], cx);
+            shell.section = Section::Media;
+            shell.set_library(true, cx);
+            shell.library_motion = None;
+            shell.sidebar_fade = None;
+        });
+        cx.run_until_parked();
+        let top = ARCHIVE_TOP + HEADING_TOP + HEADING_HEIGHT + HEADING_BOTTOM + MEDIA_TILE / 2.;
+        let left = COLUMN_WIDTH + ARCHIVED_LEFT + MEDIA_TILE / 2.;
+        let menu = |x: f32, cx: &mut gpui::VisualTestContext| {
+            let at = point(px(x), px(top));
+            cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+            cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
+            cx.run_until_parked();
+            host.menus.borrow().last().cloned().unwrap_or_default()
+        };
+        // The capture is newer, so first; the picture next to it.
+        let titles = |menu: Vec<(gpui::SharedString, bool)>| {
+            menu.into_iter().map(|(title, _)| title.to_string()).collect::<Vec<_>>()
+        };
+        assert!(titles(menu(left + MEDIA_TILE + MEDIA_GAP, cx)).contains(&"Move to Trash".into()));
+        cx.update(|_, cx| host.dismiss(cx));
+        assert_eq!(titles(menu(left, cx)), ["Open", "", "Delete"]);
+        host.take();
+        cx.update(|_, cx| host.choose("Delete", cx));
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["trash /media/Capture.png", "list captures"]);
+        let items = shell.read_with(cx, |shell, _| shell.library.as_ref().unwrap().items.clone());
+        let left = Item::Media([Some(Medium::Download(0)), None, None]);
+        assert!(items == [Item::Heading("Today"), left]);
     }
 
     /// Past its end, the Library gives about as far as the Space pages do past theirs on a short

@@ -2,9 +2,9 @@
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
 # that box to a pasteboard of the run's own and shows the toast with Save and Share. Save to
 # Library, the menu's first row, saves it into the profile's Media and says so, and the Library's
-# Media shows it first and opens it in a tab. Escape and a second ⇧⌘2 leave capture mode and give
-# the page the keyboard back. File › Capture Full Page copies a picture of the whole long page,
-# past its view.
+# Media shows it first, opens it in a tab and deletes it from its menu. Escape and a second ⇧⌘2
+# leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
+# picture of the whole long page, past its view.
 
 # A page longer than any view, with a box at a known place in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
@@ -109,7 +109,21 @@ expect '^browser: library shown$' "the Library didn't settle open on Media"
 send click $((112 + 8 + 47)) $((56 + 27 + 47))
 expect "^browser: open media $library\$" "a click on the capture's tile didn't open it"
 expect '^browser: library hidden$' "opening the capture didn't close the Library"
-rm -f "$library"
+
+# A right-click on the tile offers Open and Delete, which moves the capture to the Trash, as the
+# downloads' Move to Trash does, and out of Media.
+send menu "$(cased 'View Media…')"
+expect '^browser: library shown$' "View Media… didn't open the Library again"
+post rightclick $((112 + 8 + 47)) $((56 + 27 + 47))
+expect "^browser: menu shown $(cased 'Open, Delete')\$" \
+  "a right-click on the capture's tile didn't show its menu"
+../tools/window-screenshot.sh "$pid" "$out/media-menu.png" || fail "no window to capture"
+send choose Delete
+expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
+expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
+[ ! -e "$library" ] || fail "Delete left $library where it was"
+send menu "$(cased 'View Media…')"
+expect '^browser: library hidden$' "View Media… didn't close the Library"
 
 # Escape leaves, and so does ⇧⌘2 again, from capture mode's own window.
 capture_mode page
@@ -144,4 +158,4 @@ exec 3>&-
 quit
 echo "ok: capture. The box's picture is $size, the full page's $full." \
   "Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png," \
-  "$out/library-media.png"
+  "$out/library-media.png, $out/media-menu.png"
