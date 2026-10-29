@@ -1379,8 +1379,15 @@ void Window::ShowNothing() {
 void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
   page_frame_ = frame;
   page_corner_radius_ = corner_radius;
-  if (shown_) {
-    Show(shown_.get(), frame);
+  if (!shown_) {
+    return;
+  }
+  // The app's frame at the window's size, so pages held for its resize are laid out here, which
+  // lets them go, though a tab switch's Show leaves them waiting for it.
+  const bool held = platform::PagesHeldForResize(widget_.get());
+  Show(shown_.get(), frame);
+  if (held) {
+    LayOutPage();
   }
 }
 
