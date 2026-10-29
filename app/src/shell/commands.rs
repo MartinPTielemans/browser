@@ -772,8 +772,9 @@ impl Shell {
         let space = self.spaces.iter().position(|space| space.id == self.space);
         // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
         // in Arc.
-        // Escape puts back a dragged row before it stops the page (docs/ux-spec.md › Tab list).
-        if matches!(command, Command::Stop) && self.cancel_drag(cx) {
+        // Escape puts back a dragged row, or lets chosen rows go, before it stops the page
+        // (docs/ux-spec.md › Tab list).
+        if matches!(command, Command::Stop) && (self.cancel_drag(cx) || self.unchoose(cx)) {
             return;
         }
         // The command bar opens over the page, and the reveal's panel makes way for it.
@@ -804,7 +805,9 @@ impl Shell {
                 // Chrome, and leaves the tab alone. With no tab selected there is no page to
                 // close, so it closes the window, as ⇧⌘W does.
                 if !self.browser.close_other_window(cx) {
-                    if self.selected != 0 {
+                    if !self.chosen.is_empty() {
+                        self.close_chosen(cx);
+                    } else if self.selected != 0 {
                         self.close_tab(self.selected, false, cx);
                     } else {
                         self.browser.close_window(cx);
@@ -858,6 +861,7 @@ impl Shell {
                 self.redo(cx);
                 return;
             }
+            Command::CopyUrl if !self.chosen.is_empty() => return self.copy_chosen(cx),
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
             Command::PasteUrlAsTab => return self.paste_url_as_tab(cx),

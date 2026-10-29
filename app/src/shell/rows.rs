@@ -17,7 +17,7 @@ use super::{
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
-    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
+    CHOSEN, ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
@@ -96,9 +96,11 @@ impl Shell {
             (Row::Tab(tab), _) => self.depth(tab),
             (Row::NewTab, _) => 0,
         };
+        let chosen = matches!(row, Row::Tab(tab) if self.chosen.contains(&tab)) && !selected;
         let plate = content
             .when(selected, |plate| selected_plate(&self.palette, plate, plate_in, hover.unwrap_or(0.)))
             .id("plate")
+            .when(chosen, |plate| plate.bg(self.palette.plate(CHOSEN)))
             .when_some(hover.filter(|_| !selected), |plate, hover| {
                 plate.bg(self.palette.plate(HOVERED).opacity(hover))
             })
@@ -439,6 +441,7 @@ impl Shell {
                 self.rename_folder(tab, cx)
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
+            MouseButton::Left if !self.is_folder(tab) && self.choose_by_press(tab, event, cx) => {}
             MouseButton::Left => {
                 self.end_hovers(cx);
                 if self.is_folder(tab) {
@@ -528,6 +531,9 @@ impl Shell {
                     if event.click_count == 2 {
                         cx.stop_propagation();
                         return shell.rename_tab(tab, cx);
+                    }
+                    if shell.choose_by_press(tab, event, cx) {
+                        return cx.stop_propagation();
                     }
                     shell.show_row(tab, cx)
                 }),
@@ -738,6 +744,9 @@ impl Shell {
                     // The first press selected the tab (Dia).
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
+                    }
+                    if shell.choose_by_press(tab, event, cx) {
+                        return;
                     }
                     // On the way back to the pinned URL, the favicon's click shows the tab.
                     if !back {
@@ -1886,5 +1895,59 @@ mod tests {
             cx.simulate_click(at, Modifiers::none());
             assert!(host.take().contains(&"select 3".into()), "page {page}, drawn {drawn}");
         }
+    }
+
+    /// ⌘-click chooses rows along with the one shown and ⇧-click the rows through one, drawn with
+    /// the secondary fill without showing them. ⇧⌘C copies their links, ⌘W closes them as one
+    /// step, and a plain click or Esc lets them go, as Arc's do.
+    #[gpui::test]
+    fn command_and_shift_clicks_choose_rows_to_close_or_copy_together(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3, 4, 5, 6], 3);
+        shell.update(cx, |shell, cx| {
+            for tab in 2..=6 {
+                let url = format!("https://{tab}.example/").into();
+                shell.set_page(tab, Page { url, ..shell.page(tab) }, cx);
+            }
+        });
+        let at = |cx: &mut VisualTestContext, tab| {
+            let (x, y) = close_button(&shell, cx, tab);
+            point(px(x - 100.), px(y))
+        };
+        let chosen =
+            |cx: &mut VisualTestContext| shell.read_with(cx, |shell, _| shell.chosen_in_order());
+        let command = cx.update(|_, cx| Modifiers::secondary_key(cx));
+        host.take();
+        let five = at(cx, 5);
+        cx.simulate_click(five, command);
+        assert_eq!(chosen(cx), [3, 5]);
+        let six = at(cx, 6);
+        cx.simulate_click(six, Modifiers::shift());
+        assert_eq!(chosen(cx), [3, 5, 6]);
+        assert!(!host.take().iter().any(|call| call.starts_with("select")));
+
+        shell.update(cx, |shell, cx| shell.run(Command::CopyUrl, "keys", cx));
+        let links = "copy https://3.example/\nhttps://5.example/\nhttps://6.example/";
+        assert!(host.take().contains(&links.to_string()));
+        shell.update(cx, |shell, cx| shell.run(Command::Stop, "keys", cx));
+        assert!(chosen(cx).is_empty());
+
+        cx.simulate_click(five, command);
+        cx.simulate_click(six, command);
+        let two = at(cx, 2);
+        cx.simulate_click(two, Modifiers::shift());
+        assert_eq!(chosen(cx), [2, 3, 4, 5, 6]);
+        cx.simulate_click(two, command);
+        host.take_edits();
+        shell.update(cx, |shell, cx| shell.run(Command::CloseTab, "keys", cx));
+        assert_eq!(host.take_edits(), ["close 6", "close 5", "close 4", "close 3"]);
+        assert!(chosen(cx).is_empty());
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let reopened = host.take_edits();
+        assert!(reopened.len() == 4 && reopened.iter().all(|edit| edit.starts_with("reopen")));
+
+        cx.simulate_click(five, command);
+        assert_eq!(chosen(cx), [3, 5]);
+        cx.simulate_click(six, Modifiers::none());
+        assert!(chosen(cx).is_empty());
     }
 }

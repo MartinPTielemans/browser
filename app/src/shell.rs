@@ -45,6 +45,7 @@ mod access;
 mod undo_tests;
 mod assets;
 mod browser;
+mod chosen;
 mod clean_link;
 mod commands;
 mod drag;
@@ -378,6 +379,7 @@ use crate::tokens::shell::CANCEL_HEIGHT;
 use crate::tokens::shell::PRIVATE_SHADE;
 use crate::tokens::shell::TITLE;
 use crate::tokens::shell::UNSELECTED_TITLE;
+use crate::tokens::shell::CHOSEN;
 use crate::tokens::shell::HOVERED;
 use crate::tokens::shell::PRESSED;
 use crate::tokens::shell::SECONDARY;
@@ -920,6 +922,10 @@ pub struct Shell {
     retip: bool,
     /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
     menu_row: Option<u64>,
+    /// The rows ⌘- and ⇧-click chose, by their first tabs (chosen.rs), and the row the next
+    /// ⇧-click chooses from, or 0 for the one shown.
+    chosen: Vec<u64>,
+    chosen_from: u64,
     /// ilo's own menu is up, which keeps the reveal's panel out while the pointer is on it.
     menu_open: bool,
     /// Rows the pointer left, whose hover fill is fading, and since when.
@@ -1266,6 +1272,8 @@ impl Shell {
             page_keyed: false,
             retip: false,
             menu_row: None,
+            chosen: Vec::new(),
+            chosen_from: 0,
             menu_open: false,
             unhovered: Vec::new(),
             held_row: None,
@@ -1825,6 +1833,9 @@ impl Shell {
         self.end_hovers(cx);
         let before = std::mem::replace(&mut self.space, space);
         self.bar_follows |= before != space;
+        if before != space {
+            self.unchoose(cx);
+        }
         // Arc says again how to leave full screen in each Space it shows there.
         if before != space && self.full_screen && !self.page_fullscreen {
             self.browser.full_screen_note(true, cx);
@@ -1937,6 +1948,9 @@ impl Shell {
             && let Some(tab) = self.revealing.take()
         {
             self.scroll_to_row(tab);
+        }
+        if space == self.space {
+            self.keep_chosen(cx);
         }
         // Pinning or unpinning the tab shown renames Tabs › Pin Tab.
         self.update_menus(cx);

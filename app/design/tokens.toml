@@ -828,6 +828,9 @@ unselected-title = 0.78
 selected = 0.2
 # The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
 selected-hovered = 0.36
+# A row chosen with ⌘- or ⇧-click besides the tab shown: Arc's secondary selection, P3 #FAFBFF
+# 0.10 over dark and black 0.10 over light (docs/ux-spec.md › Tokens).
+chosen = 0.1
 hovered = 0.12
 pressed = 0.065
 secondary = 0.62
