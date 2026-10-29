@@ -13,6 +13,7 @@ use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
 use browser::import::ImportView;
+use browser::link_rules::LinkRulesView;
 use browser::log;
 use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
@@ -28,7 +29,9 @@ use gpui::{
 use crate::{bc, ns_view, platform, show_menu};
 use browser::menu::Look;
 use browser::palette::{Palette, STATE_HOVERED, STATE_PRESSED, state_alpha};
-use browser::settings_rows::{Look as RowLook, SLIDE, button, group, row, switch, tile};
+use browser::settings_rows::{
+    Look as RowLook, SLIDE, button, group, popup, row, switch, tile,
+};
 
 actions!(settings, [CloseSettings]);
 
@@ -53,11 +56,9 @@ use browser::tokens::settings::RADIUS;
 use browser::tokens::settings::SWITCH_HEIGHT;
 use browser::tokens::settings::CONTROL_HEIGHT;
 use browser::tokens::settings::CONTROL_PADDING;
-use browser::tokens::settings::CONTROL_RADIUS;
 use browser::tokens::settings::POPUP_WIDTH;
 use browser::tokens::settings::FAVORITES_POPUP_WIDTH;
 use browser::tokens::settings::POPUP_END;
-use browser::tokens::settings::CHEVRONS;
 use browser::tokens::settings::BUTTONS_TOP;
 use browser::tokens::settings::HEADER_GAP;
 use browser::tokens::settings::SECTION_GAP;
@@ -76,8 +77,6 @@ use browser::tokens::settings::PLATE_EDGE;
 use browser::tokens::settings::TITLE;
 use browser::tokens::settings::TAB_TEXT;
 use browser::tokens::settings::TEXT;
-use browser::tokens::settings::CONTROL;
-use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
@@ -101,6 +100,7 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     General,
+    Links,
     Profiles,
     Passwords,
     Import,
@@ -110,8 +110,9 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 7] = [
+    const ALL: [Tab; 8] = [
         Tab::General,
+        Tab::Links,
         Tab::Profiles,
         Tab::Passwords,
         Tab::Import,
@@ -130,6 +131,7 @@ impl Tab {
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
+            Tab::Links => "Links",
             Tab::Profiles => "Profiles",
             Tab::Passwords => "Passwords",
             Tab::Import => "Import",
@@ -142,6 +144,7 @@ impl Tab {
     fn icon(self) -> &'static str {
         match self {
             Tab::General => "icons/settings.svg",
+            Tab::Links => "icons/link.svg",
             Tab::Profiles => "icons/user.svg",
             Tab::Passwords => "icons/key-round.svg",
             Tab::Import => "icons/arrow-down-to-line.svg",
@@ -303,6 +306,8 @@ pub struct Settings {
     /// Made when the tab first shows, so the other browsers' files are read only once the user
     /// asks.
     import: Option<Entity<ImportView>>,
+    /// The Links tab's view, made again each time the tab shows.
+    links: Option<Entity<LinkRulesView>>,
     /// Where it asks before deleting a profile, over all of it, as the browser window's dialog
     /// can't go over it on Linux.
     #[cfg(target_os = "linux")]
@@ -588,6 +593,7 @@ fn open(cx: &mut App) {
                 logins: HashMap::new(),
                 asked: HashSet::new(),
                 import: None,
+                links: None,
             }
         })
     });
@@ -656,6 +662,10 @@ impl Settings {
         if tab == Tab::Import {
             self.show_import(cx);
         }
+        self.links = (tab == Tab::Links).then(|| {
+            let host = Rc::new(crate::link_rules_host::CoreLinkRules);
+            cx.new(|cx| LinkRulesView::new(host, cx))
+        });
         window.set_window_title(tab.name());
         SHOWN_TAB.set(tab.name());
         cx.notify();
@@ -869,23 +879,9 @@ impl Settings {
         width: f32,
         press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> gpui::Div {
-        div()
-            .flex_none()
-            .w(px(width))
+        popup(&RowLook::settings(), label, width, self.choosing == Some(which))
             .mr(px(POPUP_END))
-            .h(px(CONTROL_HEIGHT))
-            .pl(px(CONTROL_PADDING))
-            .pr(px(PADDING - (CHEVRONS - 8.) / 2.))
-            .flex()
-            .items_center()
-            .justify_between()
-            .rounded(px(CONTROL_RADIUS))
-            .bg(rgb(if self.choosing == Some(which) { CONTROL_PRESSED } else { CONTROL }))
             .on_mouse_down(MouseButton::Left, press)
-            .child(label)
-            .child(
-                svg().path("icons/chevrons-up-down.svg").size(px(CHEVRONS)).text_color(rgb(TEXT)),
-            )
     }
 
     /// The switch `name`, `on` now, that calls `set` with the other way when clicked.
@@ -1714,6 +1710,10 @@ impl Render for Settings {
             Tab::Passwords => self.passwords(&profiles(), cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
             Tab::Privacy => self.privacy(accent, cx),
+            Tab::Links => match &self.links {
+                Some(links) => links.clone().into_any_element(),
+                None => div().into_any_element(),
+            },
             Tab::Import => match &self.import {
                 Some(import) => import.clone().into_any_element(),
                 None => div().into_any_element(),
