@@ -738,8 +738,10 @@ void AgentPage::AgentHostClosed(content::DevToolsAgentHost* agent_host) {
 }
 
 void AgentPage::DidStopLoading() {
-  wait_.Stop();
+  // Only a wait for the load ends here. A load that stops while an action settles, as a page from
+  // the cache can within the settle's time, leaves the settle to snapshot the page it loaded.
   if (loaded_) {
+    wait_.Stop();
     std::move(loaded_).Run();
   }
 }
