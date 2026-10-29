@@ -182,6 +182,31 @@ impl Shell {
         }
     }
 
+    /// ⌥-click on `tab`'s row or segment in the sidebar, as Arc's: a split's tab leaves it, the
+    /// page shown alone splits with a copy of itself, and another tab joins the page shown.
+    /// Returns false where none applies, so the press shows the tab as a plain one does.
+    pub(super) fn alt_press_row(&mut self, tab: u64, cx: &mut Context<Self>) -> bool {
+        let shown = self.panes(self.selected);
+        if self.is_folder(tab) || self.selected == 0 {
+            return false;
+        }
+        log!("browser: command split via sidebar");
+        if self.panes(tab).len() > 1 {
+            self.separate_tab(tab, cx);
+        } else if tab == self.selected {
+            let copy = self.browser.duplicate(tab, cx);
+            if copy != 0 {
+                self.browser.split_with(copy, tab, false, cx);
+            }
+        } else if shown.len() < MAX_PANES {
+            self.browser.split_with(tab, self.selected, false, cx);
+        } else {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
     /// Expand Current Split: the focused page takes the card and each other page keeps 220 pt, in
     /// the same frame (Arc). The core holds it as a flag on the page and works the widths out at
     /// every layout, so a resized window keeps the 220. Dragging a gap, evening the pages or a

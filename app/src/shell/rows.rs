@@ -443,6 +443,7 @@ impl Shell {
                 self.rename_folder(tab, cx)
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
+            MouseButton::Left if event.modifiers.alt && self.alt_press_row(tab, cx) => {}
             MouseButton::Left => {
                 self.end_hovers(cx);
                 if self.is_folder(tab) {
@@ -532,6 +533,9 @@ impl Shell {
                     if event.click_count == 2 {
                         cx.stop_propagation();
                         return shell.rename_tab(tab, cx);
+                    }
+                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                        return cx.stop_propagation();
                     }
                     shell.show_row(tab, cx)
                 }),
@@ -742,6 +746,9 @@ impl Shell {
                     // The first press selected the tab (Dia).
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
+                    }
+                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                        return;
                     }
                     // On the way back to the pinned URL, the favicon's click shows the tab.
                     if !back {
@@ -1589,6 +1596,40 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(host.moves.get(), 1, "a rest doesn't reorder");
         assert_eq!(host.take_edits(), ["split 4 2 false"]);
+    }
+
+    /// ⌥-click in the sidebar splits as Arc's does: another tab joins the page shown, the page
+    /// shown splits with a copy of itself, and a split's tab leaves it.
+    #[gpui::test]
+    fn an_option_click_on_a_row_splits_duplicates_or_separates(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, Vec::new(), vec![2, 3, 4], 2);
+        let option = Modifiers { alt: true, ..Default::default() };
+        let option_click = |cx: &mut VisualTestContext, tab: u64, inset: f32| {
+            let (x, y) = close_button(&shell, cx, tab);
+            let at = point(px(x - inset), px(y));
+            host.take();
+            host.take_edits();
+            cx.simulate_mouse_down(at, MouseButton::Left, option);
+            cx.simulate_mouse_up(at, MouseButton::Left, option);
+            cx.run_until_parked();
+            (host.take(), host.take_edits())
+        };
+
+        let (_, edits) = option_click(cx, 3, 100.);
+        assert_eq!(edits, ["split 3 2 false"]);
+
+        let (calls, edits) = option_click(cx, 2, 100.);
+        assert!(calls.contains(&"duplicate 2".to_string()), "{calls:?}");
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        assert!(edits[0].starts_with("split ") && edits[0].ends_with(" 2 false"), "{edits:?}");
+
+        shell.update(cx, |shell, cx| {
+            let split = crate::shell::Split { tabs: vec![2, 3], ..Default::default() };
+            shell.set_tabs(1, Vec::new(), vec![2, 3, 4], vec![split], Folders::default(), cx)
+        });
+        cx.run_until_parked();
+        let (_, edits) = option_click(cx, 2, 40.);
+        assert_eq!(edits, ["separate 3"], "the press on the second segment takes its tab out");
     }
 
     /// A row dragged onto a page shown alone finds a target at each of the card's edges, and let go
