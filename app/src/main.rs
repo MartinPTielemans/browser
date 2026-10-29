@@ -157,6 +157,7 @@ mod platform {
             height: *mut f64,
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
+        pub fn host_set_window_light(ui_view: *mut c_void, light: bool);
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
@@ -2262,6 +2263,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_set_page_color(self.window, color) };
     }
 
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        unsafe { platform::host_set_window_light(self.ui_view, light) };
+    }
+
     fn page_moving(&self, moving: bool, _: &mut App) {
         unsafe { bc::bc_window_page_moving(self.window, moving) };
     }
@@ -2369,6 +2374,10 @@ impl Browser for Engine {
         // As Quit does: once the shell that asked is done, and before Chromium's posted quit.
         cx.defer(save_launch_picture);
         unsafe { bc::bc_restart() };
+    }
+
+    fn playready_needs(&self) -> shell::PlayReady {
+        shell::PlayReady::from_core(unsafe { bc::bc_playready_needs() })
     }
 
     fn share_services(&self, url: &str) -> Vec<SharedString> {
@@ -2550,6 +2559,8 @@ impl Browser for Engine {
 
     fn card_picture(&self, tab: u64, cx: &mut App) {
         let request = hover_card::asking(tab, cx);
+        // check.sh reads this line: a hidden page draws for its picture from here.
+        log!("browser: tab {tab} picturing {request}");
         let (width, height) = hover_card::PICTURE_PIXELS;
         unsafe { bc::bc_tab_picture(tab, request, width, height) };
     }

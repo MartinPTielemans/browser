@@ -17,6 +17,7 @@
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "browser_core/host.h"
+#include "browser_core/platform/window_views.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
@@ -152,17 +153,22 @@ void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_
   const gfx::Size fitted = Fitted(whole, at_most);
   // A hidden page's view gives up its compositor on the Mac, so nothing draws it and a copy waits
   // for a frame that never comes. Held as captured, still hidden to the page, as Chrome holds a
-  // background tab for its preview, it draws once unseen, until the copy answers.
+  // background tab for its preview, it draws once unseen, until the copy answers. Off the Mac a
+  // page no window shows is out of every window, with no compositor at all, so it's held hidden in
+  // its tab's window too.
+  base::ScopedClosureRunner held;
   base::ScopedClosureRunner drawing;
   if (!view->IsShowing()) {
+    Window* window = Window::Holding(tab);
+    held = platform::DrawUnseen(window ? window->widget() : nullptr, contents->GetNativeView());
     drawing = contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/true,
                                                /*stay_awake=*/false, /*is_activity=*/false);
   }
   view->CopyFromSurface(
       gfx::Rect(), fitted == whole ? gfx::Size() : fitted, base::TimeDelta(),
       base::BindOnce(
-          [](bc_id tab, uint64_t request, base::ScopedClosureRunner drawing,
-             const content::CopyFromSurfaceResult& result) {
+          [](bc_id tab, uint64_t request, base::ScopedClosureRunner held,
+             base::ScopedClosureRunner drawing, const content::CopyFromSurfaceResult& result) {
             LogHandover("picture copied", "tab " + base::NumberToString(tab));
             if (!result.has_value() || result->bitmap.drawsNothing()) {
               NoPicture(tab, request);
@@ -170,7 +176,7 @@ void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_
             }
             PictureOnWorker(tab, request, base::BindOnce(&ToPixels, result->bitmap));
           },
-          tab, request, std::move(drawing)));
+          tab, request, std::move(held), std::move(drawing)));
 }
 
 PageCapture::PageCapture(content::WebContents* contents)

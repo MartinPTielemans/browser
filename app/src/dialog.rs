@@ -243,6 +243,9 @@ struct Asked {
     /// The button under the pointer, and the one the last frame drew so.
     hovered: Option<&'static str>,
     drawn_hover: Option<&'static str>,
+    /// The button held down, and the one the last frame drew so.
+    pressed: Option<&'static str>,
+    drawn_press: Option<&'static str>,
     /// Where each button was said to be drawn, in the browser window.
     buttons_drawn: Rc<RefCell<HashMap<&'static str, Point<Pixels>>>>,
 }
@@ -571,6 +574,8 @@ impl Dialog {
             _leave: None,
             hovered: None,
             drawn_hover: None,
+            pressed: None,
+            drawn_press: None,
             buttons_drawn: Rc::default(),
         });
         self.host.show(over.map(|(over, _)| over));
@@ -587,6 +592,15 @@ impl Dialog {
         } else if asked.hovered == Some(name) {
             asked.hovered = None;
         }
+        cx.notify();
+    }
+
+    /// The button `name` was pressed, or let go of anywhere.
+    fn press(&mut self, name: &'static str, pressed: bool, cx: &mut Context<Self>) {
+        let Some(asked) = &mut self.asked else {
+            return;
+        };
+        asked.pressed = pressed.then_some(name);
         cx.notify();
     }
 
@@ -809,6 +823,11 @@ impl Render for Dialog {
             asked.drawn_hover = asked.hovered;
             log!("browser: dialog hover {}", asked.hovered.unwrap_or("none"));
         }
+        // As the hover line, for a capture of the button held down.
+        if asked.pressed != asked.drawn_press {
+            asked.drawn_press = asked.pressed;
+            log!("browser: dialog pressed {}", asked.pressed.unwrap_or("none"));
+        }
         let question = &asked.question;
         let palette = palette::current(cx);
         let page = asked.source == Source::Page;
@@ -901,6 +920,18 @@ impl Render for Dialog {
             .relative()
             .child(button_frame("confirm", asked))
             .on_hover(cx.listener(|dialog, hovered, _, cx| dialog.hover("confirm", *hovered, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", true, cx)),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", false, cx)),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", false, cx)),
+            )
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
         });
         let list = question.list.iter().map(|(line, sublines)| {

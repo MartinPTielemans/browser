@@ -497,6 +497,21 @@ neutral = 0.1
 # dialog.
 overlay-dark = 0x1f1d17
 dialog-dark = 0x2a2720
+# The light window, Dia's light layers: material 13 under white at `light-tint`, read before the
+# gradient as Dia's composite gives it over a black and a white backdrop, 0.8·255 + 0.2·(137, 243)
+# (interim, until the window run measures ours). A theme's colours lie over it at 0.75 of the
+# gradient's 0.36, and a neutral one's of its 0.12. The stand-in is Dia's light composite over
+# grey 20 (ours, as the dark one).
+light-tint = 0.8
+light-ground-over-black = 0xe7e7e7
+light-ground-over-white = 0xfdfdfd
+light-stand-in = 0xe9e9e9
+light-gradient-alpha = 0.27
+light-neutral-gradient-alpha = 0.09
+# What floats over a light window: Paper, the light menu's fill, and a dialog a step lighter, as
+# the dark dialog is a step lighter than the dark overlay (ours).
+overlay-light = 0xf3f0e8
+dialog-light = 0xfbf9f4
 # The accent of a Space without a theme starts from ilo green (#0B8045), lighter, so Ink reads on
 # it at 4.6:1 where Paper on #0B8045 is 4.4:1. On the measured window over a white backdrop it's
 # 2.7:1, so the palette takes it lighter still at its hue, to #57B97A, as it does a theme's colour.
@@ -512,10 +527,10 @@ intensity-span = 0.55
 # A Space swatch's ring, a hairline.
 ring = 1.0
 # The accent under the pointer, each channel at this, darker as every filled button goes (the
-# owner, 2026-10-26); pressed (#319), this much OKLab lightness further from its label, so the
-# label reads more on it; and a text selection, the accent at this.
+# owner, 2026-10-26); pressed, each channel at this, a step darker again, whatever the label (the
+# owner, #707); and a text selection, the accent at this.
 accent-hovered = 0.9
-accent-pressed = 0.08
+accent-pressed = 0.8
 selection = 0.28
 # One ladder of states for every control whose states Arc wasn't recorded with, but the accent's
 # (#318): pressed, under the pointer, selected, and selected under the pointer. They're the
@@ -526,6 +541,14 @@ state-pressed = 0.065
 state-hovered = 0.12
 state-selected = 0.2
 state-selected-hovered = 0.36
+# On a light window the tab shown lies on white 0.85 over a black 0.20 shadow rather than on a plate
+# of Ink (Arc's light `TabCellBackgroundCurrent`). Ours, as Arc's light rows aren't recorded: the
+# shadow 1 down and blurred 2, and the plate white 1 under the pointer.
+light-selected = 0.85
+light-selected-hovered = 1.0
+light-selected-shadow = 0.2
+light-selected-shadow-y = 1.0
+light-selected-shadow-blur = 2.0
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
@@ -781,8 +804,10 @@ cancel-height = 15.0
 # black, darker than any Space and without its colour (ours: Arc's and Dia's private look isn't
 # recorded).
 private-shade = 0.35
-# Dia's card, #121212 at 0.5: what shows before a page first paints.
+# Dia's card, #121212 at 0.5 on a dark window and white at 0.7 on a light one: what shows before
+# a page first paints.
 card = 0x1212_1280
+light-card = 0xffff_ffb3
 # Everything below is an alpha of the palette's ink, Ink or Paper (palette.rs): text and glyphs
 # through its floors, plates in Paper's terms. Arc's row tokens (docs/ux-spec.md › Tab rows): the
 # tab shown is 0.2, a row under the pointer 0.12 and a pressed one 0.065, with no line or shadow.
@@ -814,10 +839,12 @@ sleeping-favicon = 0.5
 # A favorite's tile: 0.10 at rest (Dia), with the resting level's rim, and under the pointer the
 # ladder's hover over that (palette's `state-hovered`; Dia's isn't measured). The one shown is
 # themed by its icon (tile_theme.rs), and black with Dia's default selection ring, white 0.45,
-# where the icon gives no theme.
+# where the icon gives no theme. A light window's is white (Dia), unthemed whatever its icon until
+# the light theme is built (ours).
 tile = 0.1
 tile-ring = 0.45
 tile-unthemed = 0x0000_00ff
+tile-unthemed-light = 0xffff_ffff
 # The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
 # with nowhere to go, over a hover plate of 0.077.
 nav = 0.6

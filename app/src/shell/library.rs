@@ -23,7 +23,6 @@ use super::{
     display_face::{cap_top, display_text},
 };
 use crate::{
-    menu::Look,
     palette::Palette,
     text_input::TextInput,
     tooltip::{Anchor, Tip},
@@ -747,7 +746,7 @@ impl Shell {
             entries,
             position,
             false,
-            Look { light: false, ..self.menu_look() },
+            self.menu_look(),
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| match chosen {

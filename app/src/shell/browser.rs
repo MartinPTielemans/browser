@@ -265,6 +265,8 @@ pub trait Browser {
     fn set_focus_color(&self, color: u32, cx: &mut App);
     /// What the window's pages show until their first frame, 0xRRGGBB.
     fn set_page_color(&self, color: u32, cx: &mut App);
+    /// Draws the window's material light, or dark, under the UI's tint.
+    fn set_window_light(&self, light: bool, cx: &mut App);
     /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
     /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
     /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.
@@ -328,6 +330,10 @@ pub trait Browser {
     fn download_widevine(&self, _cx: &mut App) {}
     /// Quits and starts again, bringing back the windows and their Spaces.
     fn restart(&self, _cx: &mut App) {}
+    /// What PlayReady, which Windows plays protected video with, needs that the PC may lack.
+    fn playready_needs(&self) -> super::PlayReady {
+        super::PlayReady::None
+    }
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;
