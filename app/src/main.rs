@@ -2505,6 +2505,10 @@ impl Browser for Engine {
         }
     }
 
+    fn selection(&self, tab: u64) -> String {
+        name(bc::bc_tab_selection, tab).to_string()
+    }
+
     fn settings(&self, cx: &mut App) {
         settings::show(cx);
     }
@@ -3766,6 +3770,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 MenuItem::os_action("Copy", Copy, OsAction::Copy),
                 item("Copy URL", Command::CopyUrl),
                 item("Copy URL as Markdown", Command::CopyMarkdownLink),
+                item("Copy URL as Quote", Command::CopyUrlAsQuote),
                 MenuItem::os_action("Paste", Paste, OsAction::Paste),
                 MenuItem::os_action(
                     "Paste and Match Style",

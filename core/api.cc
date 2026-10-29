@@ -59,6 +59,7 @@
 #include "components/zoom/zoom_controller.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/page_zoom.h"
 #include "ui/display/display.h"
@@ -1268,6 +1269,20 @@ void bc_tab_jump_to_selection(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     contents->CenterSelection();
   }
+}
+
+size_t bc_tab_selection(bc_id id, char* text, size_t capacity) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (!contents) {
+    return 0;
+  }
+  // The selection lives in its frame's widget, which for a frame of another site is its own.
+  content::RenderFrameHost* frame = contents->GetFocusedFrame();
+  content::RenderWidgetHostView* view = frame ? frame->GetView() : nullptr;
+  if (!view) {
+    view = contents->GetRenderWidgetHostView();
+  }
+  return view ? CopyString(base::UTF16ToUTF8(view->GetSelectedText()), text, capacity) : 0;
 }
 
 void bc_tab_set_pinned(bc_id id, bool pinned) {

@@ -162,7 +162,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::TogglePin => "icons/pin.svg",
         Command::ToggleMute => "icons/volume-2.svg",
         Command::ReopenClosedTab => "icons/undo-2.svg",
-        Command::CopyUrl | Command::CopyMarkdownLink => "icons/link.svg",
+        Command::CopyUrl | Command::CopyMarkdownLink | Command::CopyUrlAsQuote => "icons/link.svg",
         Command::Find => "icons/text-search.svg",
         Command::SiteControls => "icons/sliders-horizontal.svg",
         Command::Back => "icons/arrow-left.svg",

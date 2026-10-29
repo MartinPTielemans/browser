@@ -442,6 +442,8 @@ pub trait Browser {
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.
     fn jump_to_selection(&self, tab: u64, cx: &mut App);
+    /// The text selected in the tab's page, or none.
+    fn selection(&self, tab: u64) -> String;
     fn quit(&self, cx: &mut App);
     /// Opens another window on the same Spaces, after this one's draw.
     fn new_window(&self, cx: &mut App);

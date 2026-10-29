@@ -199,6 +199,14 @@ read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $left" ] ||
   fail "the ring didn't go to the left pane: $pages"
 ../tools/window-screenshot.sh "$pid" "$out/split-left.png" || fail "no window to capture"
+# ⌃⇧2 focuses the second pane from the page, and ⌃⇧1 the first from the UI, as Arc's do.
+send key @ ctrl shift
+expect '^browser: command focus-pane via page$' "⌃⇧2 with the page focused didn't reach the UI"
+expect "^browser: selected $b\( in .*\)\{0,1\}\$" "⌃⇧2 didn't focus the right pane"
+send click $sidebar_point
+send key ! ctrl shift
+expect '^browser: command focus-pane via ui$' "⌃⇧1 with the UI focused didn't reach the UI"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "⌃⇧1 didn't focus the left pane"
 # In the sidebar the split is one row, which ⌘2 shows under a tab opened above it, with the pane
 # focused last, and a click on its right segment shows that pane focused.
 open_from_bar example.net

@@ -820,3 +820,19 @@ fn command_z_and_the_edit_menu_undo_and_redo_with_the_ui_focused(cx: &mut TestAp
     cx.dispatch_action(crate::text_input::Redo);
     assert_eq!(host.take_edits(), ["move 10 true 0 0"]);
 }
+
+/// ⌃⇧1 to ⌃⇧4 focus the split view's pages left to right, as Dia's ⌃⇧] walks them; a number past
+/// its pages does nothing.
+#[gpui::test]
+fn ctrl_shift_and_a_number_focus_that_pane(cx: &mut TestAppContext) {
+    let split = Split { tabs: vec![10, 11, 12], ..Default::default() };
+    let today = vec![10, 11, 12, 13];
+    let (shell, host) = window(cx, Vec::new(), today, Folders::default(), vec![split]);
+    shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::FocusPane(2), "ui", cx));
+    assert!(host.take().contains(&"select 12".to_string()));
+    shell.update(cx, |shell, cx| shell.set_selected(12, cx));
+    shell.update(cx, |shell, cx| shell.run(Command::FocusPane(3), "ui", cx));
+    assert!(!host.take().iter().any(|call| call.starts_with("select ")));
+}

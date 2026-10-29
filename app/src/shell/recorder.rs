@@ -128,6 +128,9 @@ pub(super) struct Recorder {
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
     /// The answers to page dialogs it was given, with what was typed.
     pub(super) replies: RefCell<Vec<PageReply>>,
+    /// The text selected in every page, and what it was asked to copy.
+    pub(super) selection: RefCell<String>,
+    pub(super) copied: RefCell<Vec<String>>,
 }
 
 impl Recorder {
@@ -678,7 +681,9 @@ impl Browser for Recorder {
 
     fn watch_control(&self, _: &mut App) {}
 
-    fn copy(&self, _: &str, _: &mut App) {}
+    fn copy(&self, text: &str, _: &mut App) {
+        self.copied.borrow_mut().push(text.into());
+    }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         self.share_services.borrow().clone()
@@ -829,6 +834,10 @@ impl Browser for Recorder {
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}
+
+    fn selection(&self, _: u64) -> String {
+        self.selection.borrow().clone()
+    }
 
     fn quit(&self, _: &mut App) {}
 

@@ -136,6 +136,14 @@ send key c cmd shift alt
 expect '^browser: command copy-markdown-link via ui$' "⌥⇧⌘C with the UI focused didn't run"
 expect '^browser: copied \[Example Domain](https://example.org/)$' \
   "⌥⇧⌘C didn't copy a Markdown link to the tab"
+# ⌃⇧⌘C quotes what's selected in the page, each line after "> ", over that link, as Arc's Copy URL
+# as Quote does.
+send click $page_point
+send key a cmd
+send key c ctrl shift cmd
+expect '^browser: command copy-url-as-quote via page$' "⌃⇧⌘C with the page focused didn't reach the UI"
+expect '^browser: copied > Example Domain$' "⌃⇧⌘C didn't quote the page's selection"
+expect '^browser: toast shown Copied URL as Quote$' "⌃⇧⌘C's toast didn't say it copied a quote"
 
 # Clear and the URL field's button fade in while the pointer is over the sidebar, and out when it
 # leaves. The button copies the URL, and doesn't open the command bar as the rest of the field does.

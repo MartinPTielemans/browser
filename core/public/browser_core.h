@@ -1703,6 +1703,10 @@ BC_EXPORT bool bc_profile_import_passwords(bc_id profile, const char* path);
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.
 BC_EXPORT void bc_tab_jump_to_selection(bc_id tab);
 
+// Copies the text selected in the tab's focused frame, or its main frame's, into |text|, which
+// holds |capacity| bytes, as UTF-8, and returns its length, which may be more: 0 while none is.
+BC_EXPORT size_t bc_tab_selection(bc_id tab, char* text, size_t capacity);
+
 // Pins the tab in its Space at the page it's at, at the bottom of the pinned tabs, or unpins it to
 // the top of the Today tabs, with the rest of its split view. Then space_changed and
 // tab_state_changed.

@@ -70,6 +70,8 @@ pub enum Command {
     CopyUrl,
     /// Copies a Markdown link to the selected tab: its title, then its URL.
     CopyMarkdownLink,
+    /// Copies the page's selection as a Markdown quote, with the link to the page under it.
+    CopyUrlAsQuote,
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
@@ -151,6 +153,8 @@ pub enum Command {
     /// Focuses the split view's page right of the focused one, or left of it.
     NextPane,
     PreviousPane,
+    /// Focuses the split view's page at this index, left to right.
+    FocusPane(usize),
     /// Opens Chrome's history page in a new tab.
     ViewHistory,
     /// Opens the Settings window, or brings it to the front.
@@ -178,6 +182,14 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-,", Command::Settings, false),
     ("alt-cmd-down", Command::NextTab, true),
     ("alt-cmd-up", Command::PreviousTab, true),
+    // Arc's second keys for them, ⌘} and ⌘{, which GPUI names by the character and a page by the
+    // key with ⇧, as ⇧⌘2's.
+    ("cmd-}", Command::NextTab, true),
+    ("shift-cmd-]", Command::NextTab, true),
+    ("shift-cmd-}", Command::NextTab, true),
+    ("cmd-{", Command::PreviousTab, true),
+    ("shift-cmd-[", Command::PreviousTab, true),
+    ("shift-cmd-{", Command::PreviousTab, true),
     ("ctrl-tab", Command::RecentTab, true),
     ("ctrl-shift-tab", Command::RecentTabBack, true),
     ("alt-cmd-right", Command::NextSpace, true),
@@ -190,6 +202,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-z", Command::Redo, false),
     ("shift-cmd-c", Command::CopyUrl, false),
     ("alt-shift-cmd-c", Command::CopyMarkdownLink, false),
+    ("ctrl-shift-cmd-c", Command::CopyUrlAsQuote, false),
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
@@ -224,6 +237,8 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-+", Command::ZoomIn, false),
     ("cmd--", Command::ZoomOut, false),
     ("alt-cmd-u", Command::ViewSource, false),
+    // Arc's Open Extensions (Settings › Shortcuts); ours have no list of their own to open.
+    ("cmd-e", Command::ManageExtensions, false),
     ("shift-cmd-s", Command::SavePage, false),
     ("cmd-p", Command::Print, false),
     ("alt-cmd-i", Command::DevTools, false),
@@ -244,6 +259,19 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("ctrl-shift-}", Command::NextPane, false),
     ("ctrl-shift-[", Command::PreviousPane, false),
     ("ctrl-shift-{", Command::PreviousPane, false),
+    // ⇧1 is ! on US layouts, named either way, as ⇧⌘2 is.
+    ("ctrl-shift-1", Command::FocusPane(0), false),
+    ("ctrl-!", Command::FocusPane(0), false),
+    ("ctrl-shift-!", Command::FocusPane(0), false),
+    ("ctrl-shift-2", Command::FocusPane(1), false),
+    ("ctrl-@", Command::FocusPane(1), false),
+    ("ctrl-shift-@", Command::FocusPane(1), false),
+    ("ctrl-shift-3", Command::FocusPane(2), false),
+    ("ctrl-#", Command::FocusPane(2), false),
+    ("ctrl-shift-#", Command::FocusPane(2), false),
+    ("ctrl-shift-4", Command::FocusPane(3), false),
+    ("ctrl-$", Command::FocusPane(3), false),
+    ("ctrl-shift-$", Command::FocusPane(3), false),
     ("escape", Command::Stop, false),
     ("ctrl-1", Command::SelectSpace(0), false),
     ("ctrl-2", Command::SelectSpace(1), false),
@@ -281,6 +309,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
     ("Copy URL", Command::CopyUrl, &["link"]),
     ("Copy URL as Markdown", Command::CopyMarkdownLink, &["link"]),
+    ("Copy URL as Quote", Command::CopyUrlAsQuote, &["link", "selection"]),
     ("New Window", Command::NewWindow, &["duplicate", "copy"]),
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
@@ -560,6 +589,7 @@ impl Command {
             Command::Redo => "redo",
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
+            Command::CopyUrlAsQuote => "copy-url-as-quote",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
             Command::CapturePortion => "capture",
@@ -608,6 +638,7 @@ impl Command {
             Command::MovePaneRight => "move-pane-right",
             Command::NextPane => "next-pane",
             Command::PreviousPane => "previous-pane",
+            Command::FocusPane(_) => "focus-pane",
             Command::ViewHistory => "view-history",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
@@ -770,6 +801,7 @@ impl Shell {
             }
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
+            Command::CopyUrlAsQuote => return self.copy_quote(cx),
             Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
@@ -855,6 +887,12 @@ impl Shell {
             }
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
+            Command::FocusPane(index) => {
+                if let Some(&tab) = self.panes(self.selected).get(index) {
+                    self.select(tab, cx);
+                }
+                return;
+            }
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
@@ -991,6 +1029,23 @@ impl Shell {
         Some((text, toast))
     }
 
+    /// Copies the page's selection as a Markdown quote, a line of it a line of the quote, with the
+    /// Markdown link to the page under it, or the link alone with nothing selected.
+    fn copy_quote(&mut self, cx: &mut Context<Self>) {
+        let Some((link, toast)) = self.url_to_copy(true) else {
+            return;
+        };
+        let selection = self.browser.selection(self.selected);
+        match selection.trim() {
+            "" => self.copy(&link, toast, cx),
+            quoted => {
+                let lines = quoted.lines().map(|line| format!("> {line}").trim_end().to_string());
+                let quote = lines.collect::<Vec<_>>().join("\n");
+                self.copy(&format!("{quote}\n\n{link}"), "Copied URL as Quote", cx);
+            }
+        }
+    }
+
     /// A click on the URL field's Copy URL button: copies with the toast, as Arc's does, and
     /// shows a checkmark in the glyph's place for `COPIED_TIME`.
     pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
@@ -1100,6 +1155,7 @@ impl Shell {
             | Command::FlipSplit
             | Command::ChangeOrientation
             | Command::ExpandSplit => self.panes(self.selected).len() > 1,
+            Command::FocusPane(index) => self.panes(self.selected).len() > index.max(1),
             Command::MovePaneLeft => self.panes(self.selected).first() != Some(&self.selected),
             Command::MovePaneRight => self.panes(self.selected).last() != Some(&self.selected),
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {

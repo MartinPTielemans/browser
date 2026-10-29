@@ -180,6 +180,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Clear Today", Keys::Of(Command::Clear)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
+            ("Copy URL as Quote", Keys::Of(Command::CopyUrlAsQuote)),
             ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
             ("New Folder", Keys::Of(Command::NewFolder)),
             ("Collapse All Folders", Keys::Of(Command::CollapseFolders)),
@@ -230,6 +231,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Close this Split Pane", Keys::Of(Command::CloseSplitPane)),
             ("Next Pane", Keys::Of(Command::NextPane)),
             ("Previous Pane", Keys::Of(Command::PreviousPane)),
+            ("Panes 1 to 4", Keys::Text("⌃⇧1 – ⌃⇧4")),
             ("Separate Page from Split View", Keys::Of(Command::SeparatePane)),
             ("Expand Current Split", Keys::Of(Command::ExpandSplit)),
             ("Separate All Pages", Keys::Of(Command::SeparateSplit)),
@@ -1659,6 +1661,7 @@ fn command_name(command: Command) -> &'static str {
     named.chain(match command {
         Command::SelectTab(_) => Some("Tabs 1 to 8"),
         Command::SelectSpace(_) => Some("Spaces 1 to 9"),
+        Command::FocusPane(_) => Some("Panes 1 to 4"),
         Command::RecentTabBack => Some("Last Used Tab"),
         Command::Undo => Some("Undo"),
         Command::Redo => Some("Redo"),

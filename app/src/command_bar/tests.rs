@@ -1086,13 +1086,16 @@ fn type_and_suggest(bar: &mut Bar, text: &str, rows: Vec<Suggestion>) {
 }
 
 /// One letter is enough to find a command, as "q" lists Quit in Arc's bar, with its key at the
-/// row's end. Under three letters, commands come after the suggestions.
+/// row's end. Under three letters, commands come after the suggestions, the one a name starts
+/// with before the one a later word does.
 #[gpui::test]
 fn one_letter_lists_quit_after_the_suggestions(cx: &mut TestAppContext) {
     let mut bar = Bar::with_commands(cx);
     type_and_suggest(&mut bar, "q", suggestions("q", &["quora.com"]));
     let quit = concat!("Quit ", env!("APP_NAME"), " ⌘Q");
-    assert_eq!(bar.listed(), [search("q"), "https://quora.com/".into(), quit.into()]);
+    let expected =
+        [search("q"), "https://quora.com/".into(), quit.into(), "Copy URL as Quote ⌃⇧⌘C".into()];
+    assert_eq!(bar.listed(), expected);
 }
 
 /// Arc's "copy": the best command above the search row, and the others a name or a hidden word
@@ -1105,6 +1108,7 @@ fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
         "Copy URL ⇧⌘C".to_string(),
         search("copy"),
         "Copy URL as Markdown ⌥⇧⌘C".into(),
+        "Copy URL as Quote ⌃⇧⌘C".into(),
         "New Window ⌘N".into(),
         "Duplicate Current Tab".into(),
         "https://copy.com/".into(),

@@ -65,7 +65,7 @@ pub fn user_keys(cx: &App) -> &UserKeys {
 
 /// Whether the user can give `command` other keys. Not Quit, whose ⌘Q is the way out of every Mac
 /// app; not Undo and Redo, whose ⌘Z and ⇧⌘Z fall back to the Edit menu's for the page; not the
-/// ⌃Tab walk, which lasts while ⌃ is held; and not the numbered tabs and Spaces, nine keys in one
+/// ⌃Tab walk, which lasts while ⌃ is held; and not the numbered tabs, Spaces and panes, keys in one
 /// row.
 pub fn rebindable(command: Command) -> bool {
     !matches!(
@@ -77,6 +77,7 @@ pub fn rebindable(command: Command) -> bool {
             | Command::RecentTabBack
             | Command::SelectTab(_)
             | Command::SelectSpace(_)
+            | Command::FocusPane(_)
     )
 }
 
@@ -151,6 +152,10 @@ fn pressed_off_the_mac(key: &str) -> Vec<String> {
     let pressed = match (ctrl, alt) {
         _ if ctrl && !cmd && rest == "tab" => key.to_string(),
         (true, true) => return Vec::new(),
+        // Ctrl+Alt is ⌥⌘ too, which keeps it, as ⌥⇧⌘C keeps Ctrl+Alt+Shift+C from ⌃⇧⌘C.
+        (true, false) if cmd && shortcut(&written([false, true, shift, true], rest)) => {
+            return Vec::new();
+        }
         _ => written([cmd, ctrl || alt, shift, false], rest),
     };
     if CHROME_ALT_KEYS.iter().any(|&(chrome, _)| chrome == pressed) {
@@ -235,16 +240,20 @@ fn written_off_the_mac(keystroke: &str) -> String {
     if ctrl && !alt && rest == "tab" {
         return keystroke.to_string();
     }
-    // Alt alone is ⌃, since ⌥ alone is no shortcut. With Ctrl it's ⌥, unless ⌃⌘ makes a key ours.
+    // Alt alone is ⌃, since ⌥ alone is no shortcut. With Ctrl it's ⌥, unless only ⌃⌘ makes a key
+    // ours.
     let as_control = written([alt, false, shift, ctrl], rest);
-    let known = |key: &str| {
-        let keys = SHORTCUTS.iter().map(|&(key, ..)| key);
-        keys.chain(SYSTEM_KEYS.iter().map(|&(key, _)| key)).any(|each| each == key)
-    };
-    match alt && (!ctrl || known(&as_control)) {
+    let as_option = written([false, alt, shift, ctrl], rest);
+    match alt && (!ctrl || (shortcut(&as_control) && !shortcut(&as_option))) {
         true => as_control,
-        false => written([false, alt, shift, ctrl], rest),
+        false => as_option,
     }
+}
+
+/// Whether `key`, as SHORTCUTS writes it, is a default key of a command's or one of SYSTEM_KEYS.
+fn shortcut(key: &str) -> bool {
+    let keys = SHORTCUTS.iter().map(|&(key, ..)| key);
+    keys.chain(SYSTEM_KEYS.iter().map(|&(key, _)| key)).any(|each| each == key)
 }
 
 /// The modifiers `key` holds, ctrl, alt, shift and cmd, in the order SHORTCUTS writes them, and
@@ -654,12 +663,16 @@ mod tests {
     }
 
     /// Every default key has a way to press it off the Mac that reads back as it, and no two
-    /// commands share one.
+    /// commands share one, but ⌃⇧⌘C, whose Ctrl+Alt+Shift+C is ⌥⇧⌘C's.
     #[test]
     fn the_shortcuts_keep_their_keys_off_the_mac() {
         let mut taken: Vec<(String, Command)> = Vec::new();
         for &(key, command, _) in SHORTCUTS {
             let pressed = pressed_off_the_mac(key);
+            if command == Command::CopyUrlAsQuote {
+                assert!(pressed.is_empty());
+                continue;
+            }
             assert_eq!(pressed.first().map(|first| written_off_the_mac(first)).as_deref(), Some(key));
             for each in pressed {
                 match taken.iter().find(|(other, _)| *other == each) {
@@ -668,6 +681,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Arc's ⌘} and ⌘{, ⌃⇧1 to ⌃⇧4, ⌃⇧⌘C and ⌘E run their commands from the page, which names
+    /// ⇧'s characters with ⇧, and off the Mac on their keys there. ⌘} and ⌘{ reach the browser
+    /// first, as ⌥⌘↓ and ⌥⌘↑ do.
+    #[test]
+    fn arcs_other_keys_run_from_the_page() {
+        use crate::bc::{BC_MODIFIER_CONTROL, BC_MODIFIER_META, BC_MODIFIER_SHIFT};
+        let shifted = BC_MODIFIER_META | BC_MODIFIER_SHIFT;
+        let ran = |key, latin, modifiers, reserved| {
+            DEFAULTS.command_for(&page_keystroke(key, latin, modifiers), reserved)
+        };
+        assert_eq!(ran("}", "}", shifted, true), Some(Command::NextTab));
+        assert_eq!(ran("}", "]", shifted, true), Some(Command::NextTab));
+        assert_eq!(ran("{", "{", shifted, true), Some(Command::PreviousTab));
+        let pane = BC_MODIFIER_CONTROL | BC_MODIFIER_SHIFT;
+        assert_eq!(ran("!", "", pane, false), Some(Command::FocusPane(0)));
+        assert_eq!(ran("$", "", pane, false), Some(Command::FocusPane(3)));
+        assert_eq!(ran("e", "e", BC_MODIFIER_META, false), Some(Command::ManageExtensions));
+        let quote = BC_MODIFIER_CONTROL | shifted;
+        assert_eq!(ran("C", "C", quote, false), Some(Command::CopyUrlAsQuote));
+        // Off the Mac: Ctrl+} and Alt+Shift+1, and ⌥⇧⌘C keeps Ctrl+Alt+Shift+C.
+        assert_eq!(pressed_off_the_mac("cmd-}"), ["ctrl-}"]);
+        assert_eq!(pressed_off_the_mac("ctrl-shift-1"), ["alt-shift-1"]);
+        assert_eq!(written_off_the_mac("ctrl-alt-shift-c"), "alt-shift-cmd-c");
+        assert!(pressed_off_the_mac("ctrl-shift-cmd-c").is_empty());
+        assert_eq!(written_off_the_mac("ctrl-alt-f"), "ctrl-cmd-f");
     }
 
     #[test]

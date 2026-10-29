@@ -301,6 +301,14 @@ send click $(row 1)
 expect "^browser: selected $b in " "a click on the second row didn't show its tab"
 switch "tab ctrl shift" "$c"
 send flags
+# ⇧⌘] and ⇧⌘[, which a keyboard reports as ⌘} and ⌘{, show the next tab and the previous, as Arc's
+# and Chrome's do.
+send click $page_point
+switch "} cmd shift" "$b"
+expect '^browser: command next-tab via page$' "⇧⌘] with the page focused didn't reach the UI"
+send click $sidebar_point
+switch "{ cmd shift" "$c"
+expect '^browser: command previous-tab via ui$' "⇧⌘[ with the UI focused didn't reach the UI"
 send click 100 154
 expect '^browser: command new-tab via sidebar$' "a click on \"+ New Tab\" didn't run New Tab"
 expect '^browser: command bar shown$' "a click on \"+ New Tab\" didn't open the command bar"

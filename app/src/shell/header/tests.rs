@@ -323,3 +323,27 @@ fn the_key_brings_the_offer_back_or_opens_the_site_controls(cx: &mut TestAppCont
     assert!(host.site_controls.take().is_empty(), "a press where the key was opened them");
     assert!(!host.take().iter().any(|call| call.starts_with("show offer")));
 }
+
+/// ⌃⇧⌘C copies the page's selection as a Markdown quote, a line a line, with the link to the page
+/// under it, and with nothing selected the link alone.
+#[gpui::test]
+fn copy_url_as_quote_quotes_the_selection(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![1], Vec::new(), Folders::default(), cx);
+        shell.set_selected(1, cx);
+        let page = Page { url: "https://example.org/a?utm_source=x".into(), ..Page::default() };
+        shell.set_page(1, page, cx);
+        shell.set_title(1, "A [page]".into(), cx);
+    });
+    *host.selection.borrow_mut() = " First line\n\nsecond line \n".into();
+    shell.update(cx, |shell, cx| shell.run(Command::CopyUrlAsQuote, "ui", cx));
+    let link = r"[A \[page\]](https://example.org/a)";
+    let quote = format!("> First line\n>\n> second line\n\n{link}");
+    assert_eq!(host.copied.take(), [quote]);
+    assert_eq!(host.toasts.take(), ["Copied URL as Quote"]);
+    host.selection.borrow_mut().clear();
+    shell.update(cx, |shell, cx| shell.run(Command::CopyUrlAsQuote, "ui", cx));
+    assert_eq!(host.copied.take(), [link]);
+    assert_eq!(host.toasts.take(), ["Copied URL as Markdown"]);
+}

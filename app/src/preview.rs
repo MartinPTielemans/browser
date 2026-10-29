@@ -737,6 +737,10 @@ impl Browser for Fake {
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}
 
+    fn selection(&self, _: u64) -> String {
+        String::new()
+    }
+
     // The preview has no Settings window.
     fn settings(&self, _: &mut App) {}
 

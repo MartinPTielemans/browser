@@ -243,6 +243,12 @@ expect '^browser: command manage-extensions via ui$' "Manage Extensions… didn'
 expect '^browser: loaded [0-9]* chrome://extensions/$' \
   "Manage Extensions… didn't open Chrome's extensions page"
 ../tools/window-screenshot.sh "$pid" "$out/extensions.png" || fail "no window to capture"
+# ⌘E opens it too, as Arc's Open Extensions does.
+send key w cmd
+send click 100 700
+send key e cmd
+expect '^browser: command manage-extensions via ui$' "⌘E didn't reach the UI"
+expect '^browser: loaded [0-9]* chrome://extensions/$' "⌘E didn't open Chrome's extensions page"
 # A suggested key that's one of the browser's stays the browser's, with the UI focused and the
 # page. The sidebar below the rows, as a click on a row gives the page the keyboard.
 send click 100 700
