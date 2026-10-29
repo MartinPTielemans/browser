@@ -22,8 +22,8 @@
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
 //! no alerts yet. fullscreen toggles the window's full screen through the core. ime on types as
 //! drive.mm's scripted input method does, in the UI's fields alone, as a page's input method is
-//! Chromium's. The others, such as swipe, drags from other apps and displays, the driver can't do
-//! yet, and says so as drive.mm does.
+//! Chromium's, and it can't compose in a page. The others, such as swipe, drags from other apps
+//! and displays, the driver can't do yet, and says so as drive.mm does.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -199,9 +199,9 @@ thread_local! {
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
     /// Whether the X server's keyboard has Control locked, for `hold_control`.
     static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
-    /// The last press in each window, a click's or a drag's: its time, place and button.
-    static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
-        RefCell::default();
+    /// The last press, a click's or a drag's, in any of the app's windows: its time, place and
+    /// button.
+    static LAST_CLICK: Cell<Option<(std::time::Instant, Target, u8)>> = const { Cell::new(None) };
     /// The keysyms on each key, from the server's first keycode, and how many each key has.
     static KEYMAP: RefCell<Option<(u8, usize, Vec<u32>)>> = const { RefCell::new(None) };
     /// Whether the scripted input method types (`ime_key`), and what it composes, if anything.
@@ -610,25 +610,23 @@ fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
 }
 
 /// Before a press of `which` at `at`: unless it's `again`, the second of a double click, waits
-/// until GPUI wouldn't count it with the last press there, as the driver presses faster than a
-/// hand does. A drag's press counts too, as GPUI counts it.
+/// until neither GPUI nor Chromium would count it with the last press, as the driver presses
+/// faster than a hand does. A drag's press counts too, as GPUI counts it.
 fn first_press(at: Target, which: u8, again: bool) {
-    if which <= 3 && !again {
-        let last = LAST_CLICKS.with_borrow(|clicks| clicks.get(&at.window).copied());
-        if let Some((then, last, last_which)) = last
-            && last_which == which
-            && (last.x - at.x).abs() <= 5 * scale().ceil() as i16
-            && (last.y - at.y).abs() <= 5 * scale().ceil() as i16
-        {
-            // GPUI's DOUBLE_CLICK_INTERVAL, with a margin.
-            std::thread::sleep(
-                std::time::Duration::from_millis(450).saturating_sub(then.elapsed()),
-            );
-        }
+    if which <= 3
+        && !again
+        && let Some((then, last, last_which)) = LAST_CLICK.get()
+        && last_which == which
+        && (last.x - at.x).abs() <= 5 * scale().ceil() as i16
+        && (last.y - at.y).abs() <= 5 * scale().ceil() as i16
+    {
+        // Chromium's kDoubleClickTimeMs, 500, with a margin; GPUI's interval is shorter. Chromium
+        // counts clicks across its windows, by their places in each, so a click in the page at
+        // the place of one in another window just before is its second, and selects a word.
+        std::thread::sleep(std::time::Duration::from_millis(550).saturating_sub(then.elapsed()));
     }
     if which <= 3 {
-        let now = std::time::Instant::now();
-        LAST_CLICKS.with_borrow_mut(|clicks| clicks.insert(at.window, (now, at, which)));
+        LAST_CLICK.set(Some((std::time::Instant::now(), at, which)));
     }
 }
 
@@ -718,7 +716,7 @@ fn keycode(keysym: u32) -> Option<(u8, bool)> {
 /// Presses and releases `key` with the modifiers `state` in the window with the keyboard, which is
 /// the driven browser window's unless the input focus is in one of the app's.
 fn key(key: &str, state: u16) -> Option<()> {
-    if ime_key(key, state) {
+    if ime_key(key, state)? {
         return Some(());
     }
     key_events(key, state, &[xproto::KEY_PRESS_EVENT, xproto::KEY_RELEASE_EVENT])
@@ -733,17 +731,16 @@ fn input_focus() -> Option<xproto::Window> {
 /// Handles `key` as drive.mm's scripted input method does, with the calls a Japanese one makes in
 /// the UI's field with the keys: letters compose, space converts them all, return commits and
 /// escape cancels. Returns false for a key it leaves to the window, as one with a shortcut's
-/// modifiers, or one in a page, whose input method is Chromium's.
-fn ime_key(key: &str, state: u16) -> bool {
+/// modifiers, and None for one it would compose in a page, whose input method is Chromium's,
+/// which the driver can't type through: as plain keys it would pass for a composition.
+fn ime_key(key: &str, state: u16) -> Option<bool> {
     let shortcut = u16::from(KeyButMask::CONTROL | KeyButMask::MOD1);
     let letter = key.len() == 1 && key.bytes().all(|b| b.is_ascii_lowercase());
     let composing = COMPOSITION.with_borrow(Option::is_some);
     if !IME_ON.get() || (state | FLAGS.get()) & shortcut != 0 || !(composing || letter) {
-        return false;
+        return Some(false);
     }
-    let Some(focus) = input_focus() else {
-        return false;
-    };
+    let focus = input_focus()?;
     let composition = COMPOSITION.take();
     let mark = |text: &str, selected: std::ops::Range<usize>| {
         let handled = gpui_linux::drive_compose(focus, text, Some(selected));
@@ -767,8 +764,9 @@ fn ime_key(key: &str, state: u16) -> bool {
     };
     if !handled {
         COMPOSITION.set(composition);
+        return None;
     }
-    handled
+    Some(true)
 }
 
 /// Sends `key`'s events of `kinds` as `key` does. A held key's repeats are presses without
