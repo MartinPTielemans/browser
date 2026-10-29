@@ -189,6 +189,24 @@ page_shortcut() {
 # What the sidebar last logged of $1, "sidebar hovered" or "sidebar tools": 1 or shown, 0 or hidden,
 # or nothing before its first change.
 last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
+# Records the window to $out/$1.mp4 for $2 seconds, for the parity rows whose target moves: it
+# returns once frames are being written, so the motion driven next is in it, and recorded waits
+# for the file.
+record() {
+  recording="$out/$1.mp4"
+  ../tools/window-record.sh "$pid" "$2" "$recording" > "$out/$1-record.log" 2>&1 &
+  recorder=$!
+  for _ in $(seq 300); do
+    grep -q '^recording$' "$out/$1-record.log" && return 0
+    kill -0 "$recorder" 2> /dev/null ||
+      fail "the window's recording didn't start: $(tail -1 "$out/$1-record.log")"
+    sleep 0.1
+  done
+  fail "the window's recording didn't start in 30 s"
+}
+recorded() {
+  wait "$recorder" || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
+}
 # The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
 # where the sidebar last saw the pointer depends on the steps before. This moves it to the page and
 # waits until the sidebar has seen it go and its tools have faded out, whether or not this move was
