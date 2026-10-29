@@ -116,7 +116,7 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 8] = [
+    const ALL: [Tab; 9] = [
         Tab::General,
         Tab::Profiles,
         Tab::Passwords,
