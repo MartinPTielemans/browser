@@ -1,11 +1,22 @@
 Spike (#589): builds the sync service again. ungoogled-chromium's
 remove-unused-preferences-fields.patch cuts BuildSyncService down to `return nullptr`, so no
-profile ever has a SyncService and chrome://sync-internals says it doesn't exist. This puts
-Chromium's body back as it is at the pin, the local sync backend's path included.
+profile ever has a SyncService and chrome://sync-internals says it doesn't exist. It also stops
+giving the controller builder a SecurityEventRecorder, whose absence fails a CHECK in
+ChromeSyncControllerBuilder::Build once the service is built again. This puts Chromium's file
+back as it is at the pin.
 
 --- a/chrome/browser/sync/sync_service_factory.cc
 +++ b/chrome/browser/sync/sync_service_factory.cc
-@@ -406,7 +406,114 @@
+@@ -314,6 +314,8 @@
+ 
+   builder.SetDataTypeStoreService(
+       DataTypeStoreServiceFactory::GetForProfile(profile));
++  builder.SetSecurityEventRecorder(
++      SecurityEventRecorderFactory::GetForProfile(profile));
+ 
+ #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+   builder.SetExtensionSyncService(ExtensionSyncService::Get(profile));
+@@ -406,7 +408,114 @@
      std::optional<syncer::CreateHttpPostProviderFactory>
          create_http_post_provider_factory_for_test,
      content::BrowserContext* context) {
@@ -120,3 +131,11 @@ Chromium's body back as it is at the pin, the local sync backend's path included
  }
  
  }  // namespace
+@@ -475,6 +584,7 @@
+   DependsOn(PasswordSenderServiceFactory::GetInstance());
+   DependsOn(ProfilePasswordStoreFactory::GetInstance());
+ 
++  DependsOn(SecurityEventRecorderFactory::GetInstance());
+   DependsOn(SendTabToSelfSyncServiceFactory::GetInstance());
+   DependsOn(SharingMessageBridgeFactory::GetInstance());
+ #if !BUILDFLAG(IS_ANDROID)
