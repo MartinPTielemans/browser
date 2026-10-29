@@ -796,7 +796,7 @@ impl Shell {
             }
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
-            Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
+            Command::ReopenClosedTab => return self.reopen_closed(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
             Command::Reload => return self.browser.reload(self.selected, false, cx),
