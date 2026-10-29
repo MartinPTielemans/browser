@@ -59,17 +59,17 @@ jobs:
 
       # bindgen reads the core's header with libclang; GPUI links xcb and xkbcommon, and draws with
       # Vulkan, which the GPU-less runner has in Mesa's software driver, lavapipe. check.sh runs
-      # the app under Xvfb and openbox (BROWSER_XVFB), captures it with ImageMagick's import and
-      # reads pixels with ImageMagick, whose `magick` Ubuntu's 6.9 calls `convert`. Ubuntu's
-      # AppArmor denies Chromium's sandbox the user namespaces it needs, so the runner allows them,
-      # and the sandbox stays on.
+      # the app under Xvfb and openbox (BROWSER_XVFB), captures it with ImageMagick's import, films
+      # it with ffmpeg and reads pixels with ImageMagick, whose `magick` Ubuntu's 6.9 calls
+      # `convert`. Ubuntu's AppArmor denies Chromium's sandbox the user namespaces it needs, so the
+      # runner allows them, and the sandbox stays on.
       - if: ${{ steps.engine.outputs.found == 'true' }}
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get update -q
           sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
             libx11-xcb-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers libegl1 \
-            libgl1-mesa-dri xvfb xauth openbox imagemagick
+            libgl1-mesa-dri xvfb xauth openbox imagemagick ffmpeg
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
           printf '#!/bin/sh\nexec convert "$@"\n' > "$RUNNER_TEMP/bin/magick"
