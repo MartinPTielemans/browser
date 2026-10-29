@@ -215,9 +215,9 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
 | [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
-| [ ] | ⌥-click a sidebar row | MVP | another tab joins the page shown, the page shown alone splits with a copy, a split's tab leaves it. Built, and checked by `cargo test`; to tick: a step in `./check.sh split`, run on the Mac | Arc help |
+| [ ] | ⌥-click a sidebar row | MVP | another tab joins the page shown, the page shown alone splits with a copy, a split's tab leaves it. Built, and checked by `cargo test`; to tick: `./check.sh split`'s ⌥-click steps, `command split via sidebar`, run on the Mac | Arc help |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
-| [ ] | A split's menu | MVP | Mute under each tab's name; Duplicate copies the whole split. Built, and checked by `cargo test`; to tick: a capture of a split row's menu | Arc help |
+| [ ] | A split's menu | MVP | Mute under each tab's name; Duplicate copies the whole split. Built, and checked by `cargo test`; to tick: `./check.sh split`'s right-click on a split's row, its `menu shown` line and the two splits after Duplicate, run on the Mac | Arc help |
 | [ ] | Split controls | MVP | a handle over each pane, whose menu changes orientation, separates or closes that pane; its look and place ours *interim*. Built, and checked by `cargo test`'s `each_pages_split_controls_act_on_that_page`; to tick: `./check.sh split`'s step with `via split controls`, run on the Mac | Arc help |
 | [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh pinned`'s ⌥⇧-click on the pinned tab's link, its `browser: pinned` line holding both and `pinned-split.png` | Arc release notes |
 | [x] | Kept across a quit | MVP | yes | ours |
@@ -225,7 +225,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
 | [x] | Target under the card | MVP | 362 × 600, leaning 43 % toward the pointer, accent ≈ 0.15, dashes 7/7 ≈ 2 pt | Dia rec |
 | [x] | Target timing | MVP | slide ≈ 110 ms, grow ≈ 120 ms, no overshoot | Dia rec |
-| [ ] | A tab dropped on a tab's row | MVP | joins it on its right; the row is the target once the pointer rests 0.4 s on its middle half, with its hover fill and no drop line *interim*; Arc's: measure. Built, and checked by `cargo test` | Arc help |
+| [ ] | A tab dropped on a tab's row | MVP | joins it on its right; the row is the target once the pointer rests 0.4 s on its middle half, with its hover fill and no drop line *interim*; Arc's: measure. Built, and checked by `cargo test`; to tick: `./check.sh split`'s `drop onto` and `dragged … onto` step, run on the Mac | Arc help |
 | [ ] | Top and bottom targets | MVP | a tab dragged to the card's top or bottom centre stacks it with the page; a page alone has all four targets, a split those along its orientation; sizes the side ones' turned, fitting between them *interim*; Arc's: measure. Built; to tick: `./check.sh split`'s `split-targets-top.png` | Arc help |
 | [x] | Drag picture | MVP | tab for 1–2 frames, then 209 × 109.5 window card; ours shows the favicon and title, not the page's image | Dia rec |
 | [x] || Pane motion | MVP | a dropped tab's pane coming in on its side, the divider dragged, a pane closing: built with a drop showing the split at once, the divider following the pointer and a closed pane's page taking the card at once *interim*. Ticked on `./check.sh split`'s `split-left.png`, `split-resized.png` and `split-separated.png`. Arc's: measure | Arc |
