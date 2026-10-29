@@ -77,6 +77,13 @@ fn bounds(view: *mut c_void) -> Option<Bounds<gpui::Pixels>> {
     ))
 }
 
+/// The browser window the panel of `view` shows over, by its UI's view, and where in its content,
+/// if it shows, for ilo's menu over it (overlays::placed).
+pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<gpui::Pixels>)> {
+    let ui_view = with_panel(|p| p.view == view && p.shown, |p| p.ui_view)?;
+    Some((ui_view, bounds(view)?))
+}
+
 /// 8 points under `ui_view`'s find bar while it shows, from the page's top.
 pub(crate) fn below_find_bar(ui_view: *mut c_void) -> Option<f64> {
     let (view, top) = with_panel(
