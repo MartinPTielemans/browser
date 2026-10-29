@@ -1,4 +1,4 @@
-# A crash collector for the crash run, as GlitchTip's minidump endpoint takes reports: a multipart
+# A crash collector for the crash run, as Sentry's minidump endpoint takes reports: a multipart
 # POST whose upload_file_minidump part is the minidump. It listens on a free port of 127.0.0.1,
 # which it writes to the file it's given, and logs each request on stdout: "report <bytes> <path>"
 # for one it takes, "refused <why>" for one it doesn't, and refuses everything under /refuse, as a

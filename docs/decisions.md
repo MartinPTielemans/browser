@@ -107,8 +107,8 @@ Consequences now:
 - "Agent Space" is a kind of Space in the data model from the start.
 - The main risk is prompt injection from page content. Permissions and confirmations limit the damage but don't solve it, so confirmation UI and the activity log ship with the MCP server, never after it.
 
-## 9. Crash reports: opt-in, to a self-hostable GlitchTip
+## 9. Crash reports: opt-in, to Sentry (EU region)
 
-No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. Its stacks can hold a URL or page text. They go to [GlitchTip](https://glitchtip.com) (MIT), which takes Chromium's minidumps and self-hosts. Sentry's FSL would bar a fork from running it on the browser's terms. The collector is a default service URL: a fork names its own or none.
+No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. Its stacks can hold a URL or page text. Official builds send them to ilo's project in [Sentry](https://sentry.io)'s EU region, which takes Chromium's minidumps and keeps them in the EU, so no crash server of ours needs running. The client posts a bare minidump to Sentry's minidump endpoint, which self-hosted collectors take too. The collector is a default service URL: a fork names its own, hosted or self-hosted, or none.
 
-Revisit if GlitchTip stops taking minidumps or being open source.
+Revisit if Sentry stops taking minidumps or keeping them in the EU, or its terms stop fitting an open-source browser.
