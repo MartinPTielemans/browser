@@ -877,7 +877,9 @@ std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
   // compositor don't see.
   for (views::Widget* dialog : views::Widget::GetAllOwnedWidgets(widget->GetNativeView())) {
     if (dialog->IsVisible()) {
-      gfx::Rect frame = dialog->GetWindowBoundsInScreen();
+      // Inside its border and shadow, which its window's bounds take in: what Chromium puts at the
+      // page's top (UpdateWidgetModalDialogPosition), as a Mac's sheet's frame is.
+      gfx::Rect frame = dialog->GetClientAreaBoundsInScreen();
       frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
       return frame;
     }
