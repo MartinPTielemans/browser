@@ -137,6 +137,9 @@ done
 expect '^browser: front driven, main driven, key driven, ax focused driven, ax main driven$' \
   "with the first window in full screen, other apps take the wrong window: $(grep '^browser: front ' "$log" | tail -1)"
 send window 1
+# Its Space slides in after the command's done. Taken out of full screen before then, the window
+# never reaches it, and the desktop's Space has nothing to come back from.
+expect '^browser: full-screen space changed$' "the first window's full-screen Space didn't slide in"
 send fullscreen
 expect '^browser: window left full screen$' "the first window didn't leave full screen"
 # AppKit says so before the desktop's Space has slid back, and until it has, the first window still
