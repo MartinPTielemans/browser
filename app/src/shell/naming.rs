@@ -124,6 +124,28 @@ impl Shell {
         cx.notify();
     }
 
+    /// Shows the pinned tab's pinned URL in a field in its row, all selected, to type another over,
+    /// as Rename Tab shows its title.
+    pub(super) fn edit_pinned_url(&mut self, tab: u64, cx: &mut Context<Self>) {
+        log!("browser: edit pinned url {tab}");
+        let url = self.browser.pinned_url(tab);
+        let field = cx.new(|cx| {
+            TextInput::new("Pinned URL", cx)
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
+                .with_text(url.into())
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::PinnedUrl(tab),
+            name: field,
+            in_library: false,
+            _blur: None,
+        });
+        self.dock(cx);
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
     /// Shows the icon picker under the tab's favicon, once its row has stopped moving, with the
     /// sidebar docked.
     pub(super) fn change_icon(&mut self, tab: u64, cx: &mut Context<Self>) {
@@ -339,6 +361,12 @@ impl Shell {
             // Left as it was, the title stays the page's, which changes with it.
             Naming::Tab(tab) if *name == *self.title(tab) => {}
             Naming::Tab(tab) => self.change(Prop::TabName(tab), Value::Text(name), cx),
+            // Kept empty, it stays where it went back to.
+            Naming::PinnedUrl(tab) => {
+                if let Some(url) = self.browser.typed_url(&name).filter(|_| !name.is_empty()) {
+                    self.change(Prop::PinnedUrl(tab), Value::Text(url), cx)
+                }
+            }
             Naming::Folder(folder) if !name.is_empty() => {
                 self.change(Prop::FolderName(folder), Value::Text(name), cx)
             }
@@ -429,5 +457,34 @@ mod tests {
         cx.run_until_parked();
         assert!(shell.read_with(cx, |shell, _| shell.renaming.is_none()), "the field stayed");
         assert_eq!(host.take_edits(), ["rename space 1 Work"]);
+    }
+
+    /// Edit… puts the pinned URL in the row's field: ↩ makes what's typed the address it goes back
+    /// to, as the address bar reads it, and ⌘Z gives the old one back. Kept empty, nothing changes.
+    #[gpui::test]
+    fn an_edited_pinned_url_is_kept_and_undone(cx: &mut TestAppContext) {
+        use crate::shell::{Command, Folders};
+
+        let (shell, cx, host) = renaming(cx);
+        cx.simulate_keystrokes("escape");
+        host.pinned_urls.borrow_mut().insert(2, "https://old.test/".into());
+        let edit = |cx: &mut VisualTestContext| {
+            shell.update(cx, |shell, cx| shell.edit_pinned_url(2, cx));
+            cx.run_until_parked();
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, vec![2], vec![3], Vec::new(), Folders::default(), cx);
+            shell.set_selected(3, cx);
+        });
+        edit(cx);
+        cx.simulate_input("new.test");
+        cx.simulate_keystrokes("enter");
+        assert!(shell.read_with(cx, |shell, _| shell.renaming.is_none()), "the field stayed");
+        assert_eq!(host.take_edits(), ["pinned url 2 https://new.test/"]);
+        shell.update(cx, |shell, cx| shell.run(Command::Undo, "ui", cx));
+        assert_eq!(host.take_edits(), ["pinned url 2 https://old.test/"]);
+        edit(cx);
+        cx.simulate_keystrokes("backspace enter");
+        assert!(host.take_edits().is_empty(), "an empty field changed the pinned URL");
     }
 }

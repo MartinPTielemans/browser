@@ -557,13 +557,11 @@ impl Shell {
         let pinned = self.pinned().contains(&first);
         let closable = panes.iter().any(|&tab| !(self.page(tab).unloaded && pinned));
         let renaming = self.renaming.as_ref().filter(|renaming| {
-            matches!(renaming.naming, Naming::Tab(tab) if panes.contains(&tab))
+            renaming.naming.tab().is_some_and(|tab| panes.contains(&tab))
         });
         let content = match renaming {
             Some(renaming) => {
-                let Naming::Tab(tab) = renaming.naming else {
-                    unreachable!()
-                };
+                let Some(tab) = renaming.naming.tab() else { unreachable!() };
                 plate(self.tab_icon(tab), self.naming_field(renaming, cx))
             }
             None => {
@@ -652,7 +650,7 @@ impl Shell {
         // The close button shows under the pointer, and the title truncates before it.
         let close = self.close_button(vec![tab], cx);
         let renaming =
-            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Tab(tab));
+            self.renaming.as_ref().filter(|renaming| renaming.naming.tab() == Some(tab));
         let label = match renaming {
             Some(renaming) => self.naming_field(renaming, cx),
             None => div()
@@ -696,11 +694,17 @@ impl Shell {
                 cx.notify();
             }))
             // It shows the tab after going back, which the row's press leaves to it, so the old
-            // page never loads.
+            // page never loads. With ⌘ the page goes on in a copy at the top of Today, shown, as
+            // Arc's does.
             .when(away, |icon| {
-                icon.on_click(cx.listener(move |shell, _, _, cx| {
+                icon.on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
                     if shell.dragged {
                         return;
+                    }
+                    if event.modifiers().secondary(cx) {
+                        log!("browser: command back-to-pinned-url-keeping-page via sidebar");
+                        shell.browser.duplicate(tab, cx);
+                        return shell.browser.back_to_pinned_url(tab, cx);
                     }
                     log!("browser: command back-to-pinned-url via sidebar");
                     shell.browser.back_to_pinned_url(tab, cx);
@@ -1601,6 +1605,27 @@ mod tests {
         cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
         assert_eq!(host.take(), ["back to pinned url 2", "select 2", "focus page"]);
+    }
+
+    /// ⌘-click on an away pinned tab's favicon keeps its page in a copy, which the core shows, and
+    /// takes the tab back without showing it.
+    #[gpui::test]
+    fn a_command_click_on_the_way_back_keeps_the_page_in_a_new_tab(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3], 3);
+        shell.update(cx, |shell, cx| {
+            let page = Page { away_from_pinned_url: true, ..shell.page(2) };
+            shell.set_page(2, page, cx)
+        });
+        let (_, y) = close_button(&shell, cx, 2);
+        let favicon = (FAVICON_X + FAVICON_SIZE / 2., y);
+        move_to(cx, favicon);
+        host.take();
+        let at = point(px(favicon.0), px(favicon.1));
+        let command = cx.update(|_, cx| Modifiers::secondary_key(cx));
+        cx.simulate_mouse_down(at, MouseButton::Left, command);
+        cx.simulate_mouse_up(at, MouseButton::Left, command);
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["card close", "duplicate 2", "back to pinned url 2"]);
     }
 
     /// How the user goes back to the tab they came from.

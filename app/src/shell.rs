@@ -616,7 +616,19 @@ struct SpaceForm {
 enum Naming {
     Space(u64),
     Tab(u64),
+    /// A pinned tab's pinned URL, in its row in place of its title.
+    PinnedUrl(u64),
     Folder(u64),
+}
+
+impl Naming {
+    /// The tab whose row the field is in, if it's a tab's.
+    fn tab(self) -> Option<u64> {
+        match self {
+            Naming::Tab(tab) | Naming::PinnedUrl(tab) => Some(tab),
+            Naming::Space(_) | Naming::Folder(_) => None,
+        }
+    }
 }
 
 /// The field a Space's name, a tab's title or a folder's name turns into for renaming it.
@@ -1977,7 +1989,7 @@ impl Shell {
         });
         self.crash_cards.retain(|tab, _| open(tab));
         self.recent.retain(open);
-        if let Some(Naming::Tab(tab)) = self.renaming.as_ref().map(|renaming| renaming.naming)
+        if let Some(tab) = self.renaming.as_ref().and_then(|renaming| renaming.naming.tab())
             && !open(&tab)
         {
             self.renaming = None;

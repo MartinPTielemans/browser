@@ -216,7 +216,9 @@ impl Browser for Recorder {
         self.edit(format!("close below {tab}"));
     }
 
-    fn duplicate(&self, _: u64, _: &mut App) {}
+    fn duplicate(&self, tab: u64, _: &mut App) {
+        self.record(format!("duplicate {tab}"))
+    }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
         self.edit(format!("space {tab} {space}"));
@@ -347,6 +349,16 @@ impl Browser for Recorder {
 
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
         self.edit(format!("pinned url {tab} {url}"));
+        self.pinned_urls.borrow_mut().insert(tab, url.to_string());
+    }
+
+    /// An address as it's typed, else a test search.
+    fn typed_url(&self, text: &str) -> Option<String> {
+        Some(match text.contains('.') {
+            true if text.contains("://") => text.to_string(),
+            true => format!("https://{text}/"),
+            false => format!("https://search.test/?q={text}"),
+        })
     }
 
     fn tab_name(&self, tab: u64) -> String {
