@@ -583,13 +583,13 @@ class WindowViews : public views::WidgetObserver,
   }
 
   // Sends the keys typed before the overlay with the keyboard had the input focus to the window
-  // that has it, unless that's still in this one, which would get them again.
+  // that has it, unless that's still this one or the UI's. A bar is a child of this one.
   void SendEarlyKeys() {
     if (early_keys_.empty()) {
       return;
     }
     const x11::Window focus = InputFocus();
-    if (focus == x11::Window::None || IsWithin(focus, window())) {
+    if (focus == x11::Window::None || focus == window() || IsWithin(focus, ui_)) {
       return;
     }
     x11::Connection* connection = x11::Connection::Get();
