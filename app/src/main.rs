@@ -436,6 +436,9 @@ thread_local! {
     static MENUS: RefCell<Menus> = RefCell::default();
     // Whether a menu bar built from MENUS waits for the menu open to close.
     static MENUS_HELD: Cell<bool> = const { Cell::new(false) };
+    // The window under a tab dragged out of another's list, whose list may mark where it would
+    // drop, else 0.
+    static DRAG_OVER: Cell<bc::bc_id> = const { Cell::new(0) };
 }
 
 /// What the menu bar lists besides what never changes: what the key window's shell says of it, and
@@ -1765,6 +1768,57 @@ impl Browser for Engine {
         }
     }
 
+    fn drag_tab_out(&self, tab: u64, position: Option<Point<Pixels>>, cx: &mut App) {
+        let under = position.and_then(|position| window_under(self.window, self.ui_view, position));
+        let window = under.map_or(0, |(window, _)| window);
+        let before = DRAG_OVER.replace(window);
+        if before != window && let Some(shell) = shell_of(before) {
+            shell.update(cx, |shell, cx| shell.drag_away(cx)).ok();
+        }
+        if let Some((window, at)) = under && let Some(shell) = shell_of(window) {
+            shell.update(cx, |shell, cx| shell.drag_tab_in(tab, at, cx)).ok();
+        }
+    }
+
+    fn drop_tab_out(&self, tab: u64, position: Point<Pixels>, cx: &mut App) {
+        let under = window_under(self.window, self.ui_view, position);
+        let before = DRAG_OVER.replace(0);
+        if under.is_none_or(|(window, _)| window != before) && let Some(shell) = shell_of(before) {
+            shell.update(cx, |shell, cx| shell.drag_away(cx)).ok();
+        }
+        let space = unsafe { bc::bc_window_space(self.window) };
+        let Some((window, at)) = under else {
+            return;
+        };
+        let Some(shell) = shell_of(window) else {
+            return;
+        };
+        let place = shell.update(cx, |shell, cx| shell.drop_tab_in(tab, at, cx)).ok().flatten();
+        let Some((pinned, folder, index)) = place else {
+            return;
+        };
+        let Some(ui_view) = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|open| open.id == window).map(|open| open.ui_view)
+        }) else {
+            return;
+        };
+        // check.sh waits for this line.
+        log!("browser: tab {tab} dropped in window {window}");
+        // Outside any update: the window reports that it's key at once, to its shell.
+        cx.spawn(async move |_| unsafe {
+            let to = bc::bc_window_space(window);
+            // Shown there first, so a move to that window's Space takes that window along with it
+            // and leaves this one on its own.
+            bc::bc_window_select(window, tab);
+            if to != space {
+                bc::bc_tab_move_to_space(tab, to);
+            }
+            bc::bc_tab_move(tab, pinned, folder, index);
+            platform::host_activate(ui_view);
+        })
+        .detach();
+    }
+
     fn show_drop_targets(&self, shown: bool, cx: &mut App) {
         let ui_view = self.ui_view;
         // After the shell's draw, which asks for it.
@@ -2965,6 +3019,54 @@ fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -
     }
     open_links_in(window, &links);
     restored
+}
+
+/// The frame of the browser window of `ui_view`, in host_centered's terms, unless it's full screen
+/// or the platform can't say, as Linux's can't.
+fn window_frame(ui_view: *mut c_void) -> Option<bc::bc_rect> {
+    let (mut x, mut y, mut width, mut height) = (0., 0., 0., 0.);
+    let known =
+        unsafe { platform::host_window_frame(ui_view, &mut x, &mut y, &mut width, &mut height) };
+    known.then_some(bc::bc_rect { x, y, width, height })
+}
+
+/// The window whose list would take a tab dragged out of window `from`, with `ui_view`, at
+/// `position` there, and where it is in that window: the front one of the others under it, if it's
+/// the user's, not private, full screen or showing an agent's Space, and shows a Space of the tab's
+/// profile, which the tab can move to keeping its page.
+fn window_under(
+    from: bc::bc_id,
+    ui_view: *mut c_void,
+    position: Point<Pixels>,
+) -> Option<(bc::bc_id, Point<Pixels>)> {
+    let frame = window_frame(ui_view)?;
+    let (x, y) = (frame.x + f64::from(position.x), frame.y + f64::from(position.y));
+    let (window, private, under) = WINDOWS.with_borrow(|windows| {
+        if windows.iter().any(|window| window.id == from && window.private) {
+            return None;
+        }
+        windows.iter().filter(|window| window.id != from).find_map(|window| {
+            let f = window_frame(window.ui_view)?;
+            let inside = x >= f.x && x < f.x + f.width && y >= f.y && y < f.y + f.height;
+            inside.then_some((window.id, window.private, f))
+        })
+    })?;
+    let space = unsafe { bc::bc_window_space(window) };
+    let profile = |space: bc::bc_id| unsafe { bc::bc_space_profile(space) };
+    let tabs_profile = profile(unsafe { bc::bc_window_space(from) });
+    let takes = !private
+        && space != 0
+        && name(bc::bc_space_agent, space).is_empty()
+        && profile(space) == tabs_profile;
+    let at = point(px((x - under.x) as f32), px((y - under.y) as f32));
+    takes.then_some((window, at))
+}
+
+/// The shell of the window `id`, if it's open.
+fn shell_of(id: bc::bc_id) -> Option<WeakEntity<Shell>> {
+    WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|window| window.id == id).map(|window| window.shell.clone())
+    })
 }
 
 /// Logs where the window is, for check.sh.
