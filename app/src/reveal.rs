@@ -22,25 +22,30 @@ impl Render for Reveal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let panel = self.shell.update(cx, |shell, cx| shell.render_reveal(window, cx));
         // On Linux the page is Chromium's, whose pointer the host doesn't hear, so this window
-        // says where the pointer is over it, and as it leaves, that it's past the panel.
+        // says where the pointer is over it, and as it leaves, that it's past the panel. It hears
+        // each move before the panel's rows, which would keep it from a listener of its own.
         #[cfg(target_os = "linux")]
         let panel = {
-            let (moved, left) = (self.shell.clone(), self.shell.clone());
-            gpui::div()
-                .id("reveal")
-                .size_full()
-                .on_mouse_move(move |event, _, cx| {
-                    let x = event.position.x.into();
-                    moved.update(cx, |shell, cx| shell.pointer_at(x, cx));
-                })
-                .on_hover(move |hovered, _, cx| {
-                    log!("browser: diag reveal hovered {hovered}");
-                    if !*hovered {
-                        left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx));
-                    }
-                })
-                .child(panel)
-                .into_any_element()
+            let shell = self.shell.clone();
+            let moves = gpui::canvas(
+                |_, _, _| {},
+                move |_, _, window, _| {
+                    let shell = shell.clone();
+                    window.on_mouse_event(move |event: &gpui::MouseMoveEvent, phase, window, cx| {
+                        if phase != gpui::DispatchPhase::Capture {
+                            return;
+                        }
+                        // GPUI hears the pointer leave as a move to (-1, -1).
+                        let inside = Bounds::new(point(px(0.), px(0.)), window.viewport_size())
+                            .contains(&event.position);
+                        let x = if inside { event.position.x.into() } else { f32::MAX };
+                        shell.update(cx, |shell, cx| shell.pointer_at(x, cx));
+                    });
+                },
+            )
+            .absolute()
+            .size_0();
+            gpui::div().size_full().child(panel).child(moves).into_any_element()
         };
         panel
     }
