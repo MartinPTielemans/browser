@@ -104,7 +104,8 @@ fn arcs_sidebar_reads_as_its_spaces_and_favorites() {
 }
 
 /// A gradient's first colour is the main one, its colours as many as ours go, with Arc's
-/// intensity, grain and appearance; a colour outside sRGB is brought in.
+/// intensity, grain and appearance; a colour outside sRGB is brought in. A Space with a light and
+/// a dark look that follows the system keeps both.
 #[test]
 fn arcs_theme_becomes_the_spaces_theme() {
     let sidebar = sidebar();
@@ -115,11 +116,47 @@ fn arcs_theme_becomes_the_spaces_theme() {
         Theme::of_color(0x3366cc).main_color()
     );
     assert_eq!((personal.intensity, personal.grain), (0.6, 0.3));
-    assert_eq!(personal.appearance, Appearance::Dark);
+    assert_eq!((personal.appearance, personal.dark), (Appearance::Dark, None));
     let work = sidebar.spaces[1].theme.unwrap();
     assert_eq!(work.count, 1);
     assert_eq!(work.main_color(), Theme::of_color(0xe699b3).main_color());
-    assert_eq!(work.appearance, Appearance::Light);
+    assert_eq!(work.appearance, Appearance::Automatic);
+    let dark = work.shown(true);
+    assert_eq!(dark.main_color(), Theme::of_color(0x1a1a33).main_color());
+    assert_eq!((dark.count, dark.grain), (1, 0.), "a basic colour has no grain");
+    assert_eq!(work.shown(false).main_color(), work.main_color());
+}
+
+/// Arc's appearance: `windowAppearance` forces light or dark, a dark theme taking its dark look;
+/// without it one look follows its `translucencyStyle`, else the system. A gradient's second
+/// overlay colour is its third.
+#[test]
+fn arcs_appearance_comes_from_its_window_appearance_else_its_look() {
+    let pink = r#"{"blendedSingleColor": {"_0": {"color": {"red": 0.9, "green": 0.6, "blue": 0.7}, "translucencyStyle": "light"}}}"#;
+    let navy = r#"{"basicColor": {"_0": {"color": {"red": 0.1, "green": 0.1, "blue": 0.2}}}}"#;
+    let three = r#"{"blendedGradient": {"_0": {"baseColors": [{"red": 1, "green": 0, "blue": 0}, {"red": 0, "green": 0, "blue": 1}], "overlayColors": [{"red": 0, "green": 0, "blue": 0, "alpha": 0}, {"red": 0, "green": 1, "blue": 0}], "translucencyStyle": "auto"}}}"#;
+    let look = |color: &str| format!(r#"{{"style": {{"color": {{"_0": {color}}}}}}}"#);
+    let theme_of = |window_theme: String| {
+        let json = format!(
+            r#"{{"sidebar": {{"containers": [{{"global": {{}}}}, {{"spaces": ["S", {{"id": "S", "title": "S", "customInfo": {{"windowTheme": {window_theme}}}}}], "items": []}}]}}}}"#
+        );
+        arc::parse(&json).unwrap().spaces[0].theme.unwrap()
+    };
+    let one = |color: &str, forced: &str| {
+        theme_of(format!(r#"{{{forced} "background": {{"single": {{"_0": {}}}}}}}"#, look(color)))
+    };
+    assert_eq!(one(pink, "").appearance, Appearance::Light, "its translucency style");
+    assert_eq!(one(three, "").appearance, Appearance::Automatic);
+    assert_eq!(one(three, "").count, 3);
+    let forced = r#""windowAppearance": {"single": {"_0": "dark"}},"#;
+    assert_eq!(one(pink, forced).appearance, Appearance::Dark);
+    let both = format!(r#""background": {{"appearanceBased": {{"light": {}, "dark": {}}}}}"#, look(pink), look(navy));
+    let dark = theme_of(format!(r#"{{{forced} {both}}}"#));
+    assert_eq!((dark.appearance, dark.dark), (Appearance::Dark, None));
+    assert_eq!(dark.main_color(), Theme::of_color(0x1a1a33).main_color(), "a dark theme takes its dark look");
+    let auto = theme_of(format!("{{{both}}}"));
+    assert_eq!(auto.appearance, Appearance::Automatic);
+    assert!(auto.dark.is_some());
 }
 
 #[test]
