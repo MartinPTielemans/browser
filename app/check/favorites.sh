@@ -499,6 +499,7 @@ expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
 # More Settings… sits under Advanced's two switch rows, the haptics' and the link previews'.
+../tools/window-screenshot.sh "$pid" "$out/advanced.png" || fail "no window to capture"
 send clickkey 120 211
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
