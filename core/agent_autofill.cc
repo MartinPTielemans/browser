@@ -12,6 +12,7 @@
 #include "browser_core/tab.h"
 #include "components/autofill/content/browser/content_autofill_driver.h"
 #include "components/autofill/core/browser/form_structure.h"
+#include "components/autofill/core/browser/foundations/autofill_driver.h"
 #include "components/autofill/core/browser/foundations/autofill_manager.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
@@ -45,7 +46,9 @@ class Refill : public content::WebContentsUserData<Refill>,
   void Start() {
     Stop();
     content::RenderFrameHost* frame = web_contents()->GetPrimaryMainFrame();
-    auto* driver = autofill::ContentAutofillDriver::GetForRenderFrameHost(frame);
+    // As the base class, where the calls below are public; ContentAutofillDriver hides them.
+    autofill::AutofillDriver* driver =
+        autofill::ContentAutofillDriver::GetForRenderFrameHost(frame);
     if (!driver) {
       return;
     }
