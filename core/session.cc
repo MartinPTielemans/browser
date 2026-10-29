@@ -284,9 +284,9 @@ namespace {
 
 Saved Collect() {
   Saved saved;
-  // The regular windows, as nothing of a private one is saved.
+  // The regular windows, as nothing of a window of its own is saved.
   std::vector<Window*> windows = Window::All();
-  std::erase_if(windows, [](const Window* each) { return each->off_the_record(); });
+  std::erase_if(windows, [](const Window* each) { return each->own_space(); });
   saved.settings = UserSettings();
   // Each Space saved, by its place among them.
   std::map<bc_id, int> spaces;
@@ -460,7 +460,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
     archive.Append(base::DictValue()
                        .Set("url", tab.url.spec())
                        .Set("title", tab.title)
-                       .Set("archived", tab.archived.InMillisecondsFSinceUnixEpochIgnoringNull()));
+                       .Set("archived", tab.archived.InMillisecondsFSinceUnixEpochIgnoringNull())
+                       .Set("little", tab.little));
   }
   root.Set("archive", std::move(archive));
   root.Set("settings", base::DictValue()
@@ -690,7 +691,8 @@ std::optional<Saved> Read(const base::FilePath& path) {
         saved.archive.push_back(
             {.url = GURL(*url),
              .title = *title,
-             .archived = base::Time::FromMillisecondsSinceUnixEpoch(*archived)});
+             .archived = base::Time::FromMillisecondsSinceUnixEpoch(*archived),
+             .little = tab->FindBool("little").value_or(false)});
       }
     }
   }

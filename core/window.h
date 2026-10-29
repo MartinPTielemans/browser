@@ -15,6 +15,7 @@
 #include "base/scoped_observation.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/session.h"
+#include "browser_core/space.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/gfx/geometry/rect.h"
@@ -65,9 +66,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Returns null once Chromium is quitting. With |behind|, it opens behind the windows open and
   // isn't key, as the windows a relaunch brings back after the first do.
   static Window* Open(const gfx::Rect& bounds, void* ui_view, bool behind = false);
-  // A private window for |profile|'s off-the-record profile, showing a Space of its own
-  // (Space::CreateOffTheRecord). See bc_window_open_private. Null once Chromium is quitting.
-  static Window* OpenPrivate(const gfx::Rect& bounds, void* ui_view, Profile* profile);
+  // A window showing a Space of its own for |profile| (Space::CreateOwn): a private window's, in
+  // its off-the-record profile, or a Little Arc window's. See bc_window_open_private and
+  // bc_window_open_little. Null once Chromium is quitting.
+  static Window* OpenOwn(const gfx::Rect& bounds, void* ui_view, Profile* profile, Space::Own own);
   static Window* FromId(bc_id id);
   // Every window, the most recently active first.
   static std::vector<Window*> All();
@@ -161,7 +163,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id space() const { return space_; }
   // The tab the window shows, or 0. In a split view, the one focused.
   bc_id selected() const { return selected_; }
-  // Whether it's a private window, which shows its own Space alone and is never saved.
+  // Whether it shows a Space of its own alone, and is never saved: a private or Little Arc window.
+  bool own_space() const { return own_space_; }
+  // Whether it's a private window.
   bool off_the_record() const { return off_the_record_; }
   // Whether its Browsers stay with no tabs left: a private window's does while the window is
   // open, as it holds the private session, which ends once the profile's last Browser has gone.
@@ -429,6 +433,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
+  bool own_space_ = false;
   bool off_the_record_ = false;
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;

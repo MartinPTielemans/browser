@@ -140,6 +140,8 @@ typedef struct bc_archived_tab {
   const char* title;
   // When it closed, in milliseconds since the Unix epoch.
   double archived;
+  // Whether it closed in a Little Arc window, for the Library's filter.
+  bool little;
 } bc_archived_tab;
 
 // One of an extension's keyboard commands that has a key, as Chrome's Keyboard Shortcuts page
@@ -592,6 +594,11 @@ typedef struct bc_host {
                            const char* url,
                            bc_id profile,
                            bool private_window);
+  // The user ⌥⌘-clicked a link to |url| in a page of a regular window or Little Arc window,
+  // |window|: open it in a new Little Arc window for |profile| (bc_window_open_little), as Arc
+  // does. A private window's link opens beside its page instead, as ⌥⇧-click's does. The user's
+  // alone: an agent's clicks don't hold keys.
+  void (*window_open_little)(void* context, bc_id window, const char* url, bc_id profile);
   // The page of |tab|, the tab |window| has selected, went to another window, which shows it live,
   // and |window| shows no page; or |tab| is 0, and |window| shows a page again, or has selected
   // another tab. Once for each change. window_selected doesn't say it: the tab stays selected.
@@ -1957,6 +1964,19 @@ BC_EXPORT void bc_window_show_space_empty(bc_id window, bc_id space);
 // tabs never move to a regular window, nor regular tabs to it. Closing it closes its tabs. Returns
 // 0 if |profile| isn't loaded or Chromium is quitting. The user's alone: agents get none.
 BC_EXPORT bc_id bc_window_open_private(bc_rect bounds, void* ui_view, bc_id profile);
+
+// Little Arc windows: a small window with one page, from a link the user opens from another app,
+// by ⌥⌘-click or by ⌥⌘N, as Arc's. Each shows a Space of its own, in |profile| itself, which no
+// other window shows, holds Today tabs alone and is never saved. bc_tab_move_to_space moves its
+// tab to one of the user's Spaces, and a Today tab into its Space, and bc_window_select then
+// shows it live where it went. Closing the window closes its tabs into the archive, marked
+// little, and none comes back with ⇧⌘T. The user's alone, as a private window is: bc_windows
+// leaves them out, and their tabs are in no agent's Space.
+
+// Opens a Little Arc window at |bounds|, as bc_window_open does, showing a Space of its own for
+// |profile| with no page until one opens. Returns 0 if |profile| isn't loaded or Chromium is
+// quitting.
+BC_EXPORT bc_id bc_window_open_little(bc_rect bounds, void* ui_view, bc_id profile);
 
 // Extensions' side panels. Each profile's tabs have their own, as each Chrome window does: one for
 // every tab, or one for a tab that its extension gave it, which shows only while that tab does. An
