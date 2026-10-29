@@ -1383,6 +1383,14 @@ BC_EXPORT void bc_set_haptics(bool haptics);
 // Spaces.
 BC_EXPORT bool bc_warn_before_quitting(void);
 BC_EXPORT void bc_set_warn_before_quitting(bool warn);
+// Whether a launch brings back the windows open when the browser last quit, each Space's Today
+// tabs and the tab each showed, as the user chose. Else it opens one window where the front one
+// was, out of full screen, showing the Space it showed with no tab, as a new window does, and the
+// Today tabs go in the archive. The Spaces, their folders and pinned tabs and the favorites come
+// back either way. The core keeps it with the Spaces, and reads it before bc_saved_window_frames
+// and bc_window_restore.
+BC_EXPORT bool bc_restore_windows(void);
+BC_EXPORT void bc_set_restore_windows(bool restore);
 // Whether a link to another site clicked in a pinned tab or a favorite opens in a link preview
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);
