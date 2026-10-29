@@ -475,8 +475,8 @@ send key return
 expect "^browser: folder preview chose $c\$" "↓ and ↩ in the folder's preview didn't choose its tab"
 expect '^browser: folder preview hidden$' "choosing a tab left the folder's preview up"
 expect "^browser: selected $c in " "the tab chosen in the folder's preview didn't show"
-expect "^browser: outline $f-\\[$c\\]\$" \
-  "showing a tab from the preview opened the folder: $(outline)"
+# The folder staying closed logs no new outline, so the last one is the folder's state.
+[ "$(outline)" = "$f-[$c]" ] || fail "showing a tab from the preview opened the folder: $(outline)"
 send move $page_point
 switch "9 cmd" "$a"
 quit_by_key
