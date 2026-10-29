@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/base64.h"
 #include "base/base64url.h"
 #include "base/command_line.h"
@@ -1170,9 +1171,12 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   // one on the account's first device, else the one it has.
   void UseSecret() {
     const std::optional<bool> passphrase = HasPassphrase();
-    if (!secret_ || !passphrase) {
+    // Sync's settings tell its observers as each one changes, which calls this again, before
+    // first-time setup is marked complete.
+    if (!secret_ || !passphrase || using_secret_) {
       return;
     }
+    base::AutoReset<bool> using_secret(&using_secret_, true);
     syncer::SyncUserSettings* settings = Service()->GetUserSettings();
     const std::string words = SyncWordsOf(*secret_);
     if (*passphrase) {
@@ -1563,6 +1567,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   std::unique_ptr<syncer::SyncSetupInProgressHandle> setup_;
   // SetEncryptionPassphrase was called, and its answer is yet to come back as the type.
   bool encrypting_ = false;
+  bool using_secret_ = false;
   // The server cleared the account's data for bc_sync_start_over, and the engine is yet to see.
   bool starting_over_ = false;
   base::ScopedObservation<syncer::SyncService, syncer::SyncServiceObserver> sync_observation_{
