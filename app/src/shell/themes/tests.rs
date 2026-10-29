@@ -171,6 +171,50 @@ fn the_menu_takes_the_windows_look(cx: &mut TestAppContext) {
     assert!(delete.destructive && line.parent.is_none());
 }
 
+/// View › Appearance stands in for the system's: light or dark turns a Space with no theme, or an
+/// automatic one, that way, a theme that forces its own keeps it, and automatic gives back the
+/// system's. The host keeps the choice, the menu bar checks it, and the command bar offers the
+/// other two.
+#[gpui::test]
+fn the_apps_appearance_stands_in_for_the_systems(cx: &mut TestAppContext) {
+    use crate::shell::commands::{Command, ShellHandle, bar_commands};
+    use crate::theme::Appearance;
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(None, None)], cx);
+        shell.set_space(1, cx);
+    });
+    cx.update(|_, cx| cx.set_global(ShellHandle(shell.downgrade())));
+    let tone = |cx: &mut VisualTestContext| {
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| shell.palette.tone)
+    };
+    let system = tone(cx);
+    for (appearance, shown) in
+        [(Appearance::Dark, Tone::Dark), (Appearance::Light, Tone::Light), (Appearance::Automatic, system)]
+    {
+        shell.update(cx, |shell, cx| shell.run(Command::Appearance(appearance), "ui", cx));
+        assert_eq!(tone(cx), shown, "{appearance:?} drew the window {:?}", tone(cx));
+        assert_eq!(host.appearance.get(), Some(appearance));
+        assert_eq!(host.menu_bar.borrow().appearance, appearance);
+        let offered = cx.update(|_, cx| bar_commands("appearance", cx));
+        let offered: Vec<Command> = offered.iter().map(|row| row.command).collect();
+        let others: Vec<Command> = (Appearance::ALL.into_iter())
+            .filter(|&each| each != appearance)
+            .map(Command::Appearance)
+            .collect();
+        assert_eq!(offered, others);
+    }
+    let light = Theme { appearance: Appearance::Light, ..Theme::at(0.5, 0.) };
+    shell.update(cx, |shell, cx| {
+        shell.run(Command::Appearance(Appearance::Dark), "ui", cx);
+        shell.set_spaces(vec![entry(Some(light.main_color()), Some(light))], cx);
+    });
+    assert_eq!(tone(cx), Tone::Light, "a theme's own appearance gave way to the app's");
+}
+
 /// The shell with Space 1 as `entry` has it, on a host that records what it asks of the core.
 fn recorded(
     color: Option<u32>,

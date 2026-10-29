@@ -340,6 +340,9 @@ void host_set_window_title(void* ui_view, const char* title) {
 // The window has no material under the UI, whose tint is the window's look.
 void host_set_window_light(void* ui_view, bool light) {}
 
+// The UI takes the choice itself; GTK and the pages keep the desktop's.
+void host_set_app_appearance(int appearance) {}
+
 // Through the core, as host_set_window_title. Under Wayland the compositor decides whether the
 // window comes forward or only asks for attention, as Hyprland's focus_on_activate setting does.
 void host_activate(void* ui_view) {

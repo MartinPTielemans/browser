@@ -6,6 +6,8 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
+use crate::theme::Appearance;
+
 use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog};
 
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
@@ -260,6 +262,9 @@ pub trait Browser {
     fn set_page_color(&self, color: u32, cx: &mut App);
     /// Draws the window's material light, or dark, under the UI's tint.
     fn set_window_light(&self, light: bool, cx: &mut App);
+    /// Keeps View › Appearance's choice for the next launch, and gives it the app's native parts
+    /// and its pages, which follow it as they follow the system's.
+    fn set_appearance(&self, appearance: Appearance, cx: &mut App);
     /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
     /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
     /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.
