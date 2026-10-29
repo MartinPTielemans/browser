@@ -3879,26 +3879,19 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 ),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
-                // Chrome's AutoFill, as Arc's and Dia's Edit menus have it: the dropdown at the
-                // field the page has focused, else the settings.
-                MenuItem::submenu(menu(
-                    "AutoFill",
-                    vec![
-                        item("Contact…", Command::AutoFill(shell::AutoFill::Contact)),
-                        item("Passwords…", Command::AutoFill(shell::AutoFill::Passwords)),
-                        item("Credit Card…", Command::AutoFill(shell::AutoFill::Card)),
-                    ],
-                )),
-                MenuItem::submenu(menu(
-                    "Find",
-                    vec![
-                        item("Find…", Command::Find),
-                        item("Find Next", Command::FindNext),
-                        item("Find Previous", Command::FindPrevious),
-                        item("Jump to Selection", Command::JumpToSelection),
-                    ],
-                )),
-            ],
+            ]
+            .into_iter()
+            .chain(shell::autofill_menu(browser::default_browser::Os::current()))
+            .chain([MenuItem::submenu(menu(
+                "Find",
+                vec![
+                    item("Find…", Command::Find),
+                    item("Find Next", Command::FindNext),
+                    item("Find Previous", Command::FindPrevious),
+                    item("Jump to Selection", Command::JumpToSelection),
+                ],
+            ))])
+            .collect(),
         ),
         menu(
             "View",

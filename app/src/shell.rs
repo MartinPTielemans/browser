@@ -96,8 +96,8 @@ pub use favorites::FavoritesScope;
 pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
 pub use commands::{
     AutoFill, BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace,
-    KEY_CONTEXT, KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands,
-    keystroke_label, Run, menu_item, pane_added, run_from_bar, shown_tab,
+    KEY_CONTEXT, KeepName, Match, autofill_menu, bar_commands, bind_keys, copy_from_bar,
+    find_commands, keystroke_label, Run, menu_item, pane_added, run_from_bar, shown_tab,
 };
 pub use drag::dropped_urls;
 pub use drm_note::PlayReady;

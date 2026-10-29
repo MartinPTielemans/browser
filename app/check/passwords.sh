@@ -4,14 +4,15 @@
 # does. Japanese input composes in its username field, where return commits it without saving;
 # return saves the username as left in the field, and the login page fills the saved password in
 # after, with a key that opens the Site Controls. Chrome's dropdown under the username field fills
-# the login in again once the password is cleared, and Edit › AutoFill › Passwords… opens it there;
-# the Edit menu lists one AutoFill, ours. A changed password brings the offer to update it, and
-# escape there declines. On another site, Never answers, and that site's Site Controls list it
-# in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
-# All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
-# browser window's dialog and removes it, which Settings hears. On a page with no field, Edit ›
-# AutoFill › Passwords… opens Settings' Passwords instead. Each run has a profile of its own, which
-# no other run or the owner's copy reaches.
+# the login in again once the password is cleared. The Edit menu lists one AutoFill: the system's
+# on the Mac, enabled in the field, and elsewhere ours, whose Passwords… opens the dropdown there.
+# A changed password brings the offer to update it, and escape there declines. On another site,
+# Never answers, and that site's Site Controls list it in a Passwords row whose menu takes it off
+# Never. On the first site, the row names the login, All Passwords… lists it in Settings, whose
+# Remove asks first, and the row's Remove asks in the browser window's dialog and removes it,
+# which Settings hears. Off the Mac, on a page with no field, Edit › AutoFill › Passwords… opens
+# Settings' Passwords instead. Each run has a profile of its own, which no other run or the
+# owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty.
 serve
@@ -175,9 +176,11 @@ expect "^browser: title $tab filled\$" "down didn't preview the saved login"
 sleep 0.6
 send key return
 expect "^browser: title $tab chosen\$" "Chrome's dropdown didn't fill the saved login in"
-# The Edit menu lists one AutoFill, ours, though macOS adds one of its own to it while a text field
-# has the keyboard. Its Passwords… opens Chrome's dropdown at the field the page has focused, a
-# child window more, which escape closes.
+# The Edit menu lists one AutoFill. On the Mac it's the system's, which macOS adds to it, and
+# its items are enabled with the page's field focused; choosing one would open macOS's own
+# Passwords or Contacts, with the Mac's real data, so the check doesn't. Elsewhere it's ours, and
+# its Passwords… opens Chrome's dropdown at the field the page has focused, a child window more,
+# which escape closes.
 post openmenu Edit
 expect '^browser: menu tracked Undo' "the Edit menu didn't open"
 edit=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: menu tracked ')
@@ -197,14 +200,23 @@ children_are() {
   done
   return 1
 }
-shown=$(children)
-send menu 'AutoFill › Passwords…'
-expect '^browser: command autofill-passwords via ' "Edit › AutoFill › Passwords… didn't run"
-children_are $((shown + 1)) || fail "Passwords… opened no dropdown at the username field"
-../tools/window-screenshot.sh "$pid" "$out/autofill-passwords.png" all ||
-  fail "no window to capture"
-send key escape
-children_are "$shown" || fail "escape didn't close the dropdown Passwords… opened"
+if [ "$(uname)" = Darwin ]; then
+  send menubar Edit
+  items=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: menu bar Edit: ')
+  case "$items" in
+    *"AutoFill › Passwords…,"* | *"AutoFill › Passwords…") ;;
+    *) fail "the system's AutoFill › Passwords… wasn't enabled in the page's field: $items" ;;
+  esac
+else
+  shown=$(children)
+  send menu 'AutoFill › Passwords…'
+  expect '^browser: command autofill-passwords via ' "Edit › AutoFill › Passwords… didn't run"
+  children_are $((shown + 1)) || fail "Passwords… opened no dropdown at the username field"
+  ../tools/window-screenshot.sh "$pid" "$out/autofill-passwords.png" all ||
+    fail "no window to capture"
+  send key escape
+  children_are "$shown" || fail "escape didn't close the dropdown Passwords… opened"
+fi
 send click 600 60
 send key tab
 send key a cmd
@@ -299,16 +311,18 @@ expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
   "return didn't remove the login"
 expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
 
-# On a page with no field, Edit › AutoFill › Passwords… opens Settings' Passwords instead.
-go_from_bar "${site#http://}welcome.html"
-expect "^browser: title $tab welcome\$" "the welcome page didn't load"
-send click $page_point
-send menu 'AutoFill › Passwords…'
-expect '^browser: command autofill-passwords via ' "Passwords… didn't run on the welcome page"
-expect '^browser: settings drew Passwords$' \
-  "Passwords… with no field focused didn't show Settings' Passwords tab"
-send key w cmd
-expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+# Off the Mac, on a page with no field, Edit › AutoFill › Passwords… opens Settings' Passwords.
+if [ "$(uname)" != Darwin ]; then
+  go_from_bar "${site#http://}welcome.html"
+  expect "^browser: title $tab welcome\$" "the welcome page didn't load"
+  send click $page_point
+  send menu 'AutoFill › Passwords…'
+  expect '^browser: command autofill-passwords via ' "Passwords… didn't run on the welcome page"
+  expect '^browser: settings drew Passwords$' \
+    "Passwords… with no field focused didn't show Settings' Passwords tab"
+  send key w cmd
+  expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+fi
 exec 3>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again, which Edit › AutoFill › Passwords…, the Edit menu's one AutoFill, opens at the field; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; and on a page with no field, Passwords… opens Settings' Passwords. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/autofill-menu.png, $out/autofill-passwords.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again, and the Edit menu has one AutoFill, the system's on the Mac, enabled in the field, and ours elsewhere, whose Passwords… opens the dropdown at the field; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; and off the Mac, on a page with no field, Passwords… opens Settings' Passwords. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/autofill-menu.png, $out/autofill-passwords.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"

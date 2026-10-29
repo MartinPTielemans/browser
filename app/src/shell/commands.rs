@@ -742,6 +742,22 @@ pub fn menu_item(name: impl Into<SharedString>, command: Command) -> MenuItem {
     MenuItem::action(name, Run(command))
 }
 
+/// Edit's AutoFill submenu, which the Mac goes without, since macOS 14 and later put their own
+/// in every app's Edit menu and document no switch that takes it out.
+pub fn autofill_menu(os: crate::default_browser::Os) -> Option<MenuItem> {
+    (os != crate::default_browser::Os::Mac).then(|| {
+        MenuItem::submenu(gpui::Menu {
+            name: "AutoFill".into(),
+            items: vec![
+                menu_item("Contact…", Command::AutoFill(AutoFill::Contact)),
+                menu_item("Passwords…", Command::AutoFill(AutoFill::Passwords)),
+                menu_item("Credit Card…", Command::AutoFill(AutoFill::Card)),
+            ],
+            disabled: false,
+        })
+    })
+}
+
 impl Shell {
     /// Runs a browser command and logs it. `from` says which side had the key: GPUI's bindings
     /// ("ui"), the browser handing it back ("page"), or the sidebar.
@@ -1568,5 +1584,28 @@ mod tests {
         let settings = ["autofill settings Contact", "passwords 0", "autofill settings Card"];
         assert_eq!(choose_each(&regular, cx), settings);
         assert_eq!(choose_each(&private, cx), ["passwords 7"]);
+    }
+
+    /// The Edit menu has one AutoFill on every OS: the system's on the Mac, which adds its own
+    /// to it, and ours, with Chrome's three items, everywhere else.
+    #[test]
+    fn the_edit_menu_has_one_autofill() {
+        use crate::default_browser::Os;
+
+        for (os, systems) in [(Os::Mac, 1), (Os::Windows, 0), (Os::Linux, 0), (Os::Flatpak, 0)] {
+            let ours = autofill_menu(os);
+            assert_eq!(usize::from(ours.is_some()) + systems, 1, "{os:?} has more than one");
+            let Some(MenuItem::Submenu(menu)) = ours else { continue };
+            let items: Vec<_> = menu
+                .items
+                .iter()
+                .map(|item| match item {
+                    MenuItem::Action { name, .. } => name.to_string(),
+                    _ => "?".into(),
+                })
+                .collect();
+            assert_eq!(menu.name, "AutoFill");
+            assert_eq!(items, ["Contact…", "Passwords…", "Credit Card…"], "{os:?}");
+        }
     }
 }
