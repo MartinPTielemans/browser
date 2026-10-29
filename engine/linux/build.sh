@@ -1,7 +1,7 @@
 #!/bin/bash
-# Builds the Linux engine in the tree prepare.sh made: chrome, with the core in it, and what it
-# runs with. The first build takes hours; after that a change recompiles what it touches and
-# relinks chrome.
+# Builds the Linux engine in the tree prepare.sh made: chrome, with the core in it, what it runs
+# with, and the core's unit tests. The first build takes hours; after that a change recompiles what
+# it touches and relinks chrome.
 set -euo pipefail
 [ $# -eq 1 ] || { echo "usage: build.sh <work directory>" >&2 && exit 2; }
 out=$1/src/out/Default
@@ -16,4 +16,4 @@ ninja -C "$out" build.ninja >/dev/null
 # jobs, as on the Mac (engine/build.sh says why).
 export PYTHON_CPU_COUNT=2
 jobs=${BUILD_JOBS:-$(($(awk '/^MemTotal:/ { print $2 }' /proc/meminfo) / (3 << 20)))}
-exec ninja -C "$out" -j "$jobs" chrome chrome_crashpad_handler
+exec ninja -C "$out" -j "$jobs" chrome chrome_crashpad_handler browser_core_unittests

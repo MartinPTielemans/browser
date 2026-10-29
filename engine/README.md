@@ -42,7 +42,7 @@ It also needs the macOS SDK of Chromium's official builds (`mac_sdk_official_ver
 
 ## Linux
 
-`linux/prepare.sh <work>` prepares the tree in `<work>/src` with ungoogled-chromium-portablelinux's scripts at the tag `pins.ini` names, links the core and applies `series`. A new tag is unpacked and patched in `<work>/next` first, then copied over the tree with `rsync --checksum`, so a point release leaves unchanged files as they were and the next build recompiles only what it changed. `linux/build.sh <work>` builds `chrome`, with the core linked in, and `linux/package.sh` packs it with what it runs with into `Chromium-linux-x64.tar.xz`.
+`linux/prepare.sh <work>` prepares the tree in `<work>/src` with ungoogled-chromium-portablelinux's scripts at the tag `pins.ini` names, links the core and applies `series`. A new tag is unpacked and patched in `<work>/next` first, then copied over the tree with `rsync --checksum`, so a point release leaves unchanged files as they were and the next build recompiles only what it changed. `linux/build.sh <work>` builds `chrome`, with the core linked in, and the core's unit tests, `browser_core_unittests`, which the Linux engine's run runs, and `linux/package.sh` packs it with what it runs with into `Chromium-linux-x64.tar.xz`.
 
 `check-linux.sh` prepares the same tree and compiles only the core's own objects; the `browser_core` target would compile most of Chrome, and nothing links. CI (`.github/workflows/core-linux.yml`) runs it on pushes that change the core or the engine, in about half an hour and 40 GB of disk.
 
