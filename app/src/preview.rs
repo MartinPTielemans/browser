@@ -1186,8 +1186,9 @@ fn main() {
         browser::face::register(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
-        // PREVIEW_ACCOUNT=signed-out, words, waiting or signed-in shows Settings › Account in that
-        // state, alone; =approve shows another device's request over the browser window.
+        // PREVIEW_ACCOUNT=signed-out, no-server, words, waiting or signed-in shows Settings ›
+        // Account in that state, alone, no-server's for a build that names no sync server; =approve
+        // shows another device's request over the browser window.
         let account = std::env::var("PREVIEW_ACCOUNT").ok();
         if let Some(state) = account.as_deref().filter(|state| *state != "approve") {
             preview_account(state, cx);
@@ -1725,11 +1726,12 @@ fn preview_account(state: &str, cx: &mut App) {
         "signed-in" => Status::On,
         _ => Status::SignedOut,
     };
+    let no_server = state == "no-server";
     let state = State {
         status,
         problem: None,
-        server: "https://sync.ilo.app".into(),
-        default_server: true,
+        server: if no_server { "".into() } else { "https://sync.ilo.app".into() },
+        default_server: !no_server,
         email: "sam@example.com".into(),
         code: if status == Status::Pairing { "312568".into() } else { "".into() },
     };

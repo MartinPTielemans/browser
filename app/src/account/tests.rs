@@ -243,6 +243,38 @@ fn change_takes_the_servers_address(cx: &mut TestAppContext) {
     assert!(tab.account.read_with(tab.cx, |account, _| account.server.is_none()));
 }
 
+/// A build that names no server, before the user has named one, asks for the address in place of
+/// a server it can't reach: the field is open, Sign In signs in to what's typed there, and the
+/// field stays until the core has the server, as nothing else could name one.
+#[gpui::test]
+fn with_no_server_sign_in_asks_for_its_address(cx: &mut TestAppContext) {
+    let none = State { server: "".into(), default_server: false, ..state(Status::SignedOut) };
+    let mut tab = shown(none.clone(), cx);
+    let field = |tab: &mut Shown| {
+        tab.account.read_with(tab.cx, |account, _| account.server.as_ref().map(|f| f.refused))
+    };
+    assert_eq!(field(&mut tab), Some(false), "it asks for the address");
+    assert!(tab.drawn("sign-in") && !tab.drawn("change-server"));
+
+    tab.click("sign-in");
+    assert!(tab.host.take().is_empty(), "nothing to sign in to");
+    assert_eq!(field(&mut tab), Some(true));
+    tab.keys("escape");
+    assert!(field(&mut tab).is_some(), "the field stays");
+
+    // The core's answer to a sign-in with no server says only to name one.
+    tab.set(State { problem: Some(Problem::Server), ..none.clone() });
+    assert!(field(&mut tab).is_some());
+    tab.click("field");
+    tab.type_text("https://sync.example.net");
+    tab.click("sign-in");
+    assert_eq!(tab.host.take(), ["server https://sync.example.net", "sign in"]);
+    assert!(field(&mut tab).is_some(), "until the core has it");
+    tab.set(State { server: "https://sync.example.net".into(), ..none });
+    assert_eq!(field(&mut tab), None);
+    assert!(tab.drawn("change-server"));
+}
+
 /// The account's first device shows its words once, made as the tab shows them, with Copy and
 /// Done, and then it's signed in, listing its devices.
 #[gpui::test]

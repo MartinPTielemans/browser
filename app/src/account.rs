@@ -244,8 +244,23 @@ impl Account {
         if let Some(entering) = &mut self.entering {
             entering.refused = false;
         }
+        let had_server = !self.state.server.is_empty();
         self.state = state;
+        // A build that names no server, and a user who hasn't named one, sign in to the one typed
+        // here, so the field stays until the core has a server.
+        let signed_out = self.state.status == Status::SignedOut;
+        match self.no_server() {
+            true if signed_out && self.server.is_none() => self.change_server(cx),
+            false if !had_server => self.server = None,
+            _ => {}
+        }
         cx.notify();
+    }
+
+    /// The account has no server to sign in to yet: the build names none (branding/sync-server)
+    /// and the user hasn't typed one.
+    fn no_server(&self) -> bool {
+        self.state.server.is_empty()
     }
 
     /// The account's devices, as the core listed them.
@@ -300,8 +315,12 @@ impl Account {
         }
     }
 
-    fn sign_in(&mut self, cx: &mut Context<Self>) {
-        self.server = None;
+    fn sign_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.no_server() {
+            true if !self.keep_server(window, cx) => return,
+            true => {}
+            false => self.server = None,
+        }
         self.host.sign_in();
         cx.notify();
     }
@@ -318,18 +337,24 @@ impl Account {
         cx.notify();
     }
 
-    fn keep_server(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Keeps the address typed, unless the core won't take it, and returns whether it did.
+    fn keep_server(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let no_server = self.no_server();
         let Some(field) = &mut self.server else {
-            return;
+            return false;
         };
         let server = field.input.read(cx).text().trim().to_owned();
-        if server == self.state.server.as_ref() || self.host.set_server(&server) {
+        let kept = !server.is_empty()
+            && (server == self.state.server.as_ref() || self.host.set_server(&server));
+        field.refused = !kept;
+        if kept && !no_server {
             self.server = None;
+        }
+        if kept {
             window.focus(&self.focus, cx);
-        } else {
-            field.refused = true;
         }
         cx.notify();
+        kept
     }
 
     fn enter_words(&mut self, cx: &mut Context<Self>) {
@@ -353,7 +378,9 @@ impl Account {
     }
 
     fn leave_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.server.take().is_none() {
+        // With no server, the field is the only way to name one, so it stays.
+        let stays = self.no_server() && self.server.is_some();
+        if !stays && self.server.take().is_none() {
             self.entering = None;
         }
         window.focus(&self.focus, cx);
@@ -496,10 +523,16 @@ impl Account {
                 account.host.cancel();
                 cx.notify();
             }),
-            false => self.button("sign-in", "Sign In", cx, |account, _, cx| account.sign_in(cx)),
+            false => {
+                self.button("sign-in", "Sign In", cx, |account, window, cx| {
+                    account.sign_in(window, cx)
+                })
+            }
         };
         let detail = match (signing_in, self.state.problem) {
             (true, _) => Some("Finish in the window that opened."),
+            // The address it needs, not a server it couldn't reach, which the user can't act on.
+            (false, _) if self.no_server() => Some("Enter your sync server's address to sign in."),
             (false, Some(problem)) => Some(problem_text(problem)),
             (false, None) => None,
         };
@@ -534,18 +567,20 @@ impl Account {
         div()
             .child(
                 group(&Look::settings(), [div()
+                    .relative()
                     .px(px(PADDING))
                     .py(px(PADDING))
                     .key_context("AccountField")
                     .on_action(cx.listener(|account, _: &Keep, window, cx| {
                         match account.server.is_some() {
-                            true => account.keep_server(window, cx),
+                            true => _ = account.keep_server(window, cx),
                             false => account.keep_words(cx),
                         }
                     }))
                     .on_action(cx.listener(|account, _: &Leave, window, cx| {
                         account.leave_field(window, cx)
                     }))
+                    .child(self.place("field".into()))
                     .child(field.input.clone())]),
             )
             .when(field.refused, |below| {

@@ -4976,6 +4976,14 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     if !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
+    // The sync server the account signs in to until the user names another, a default service URL
+    // a fork or a self-hosted server names in branding/sync-server (build.rs). Without one the
+    // build has none, and Settings › Account asks for the address. A --sync-url given to the app
+    // comes after and wins, in a dev build as in a check.
+    let sync_server = env!("SYNC_SERVER");
+    if !sync_server.is_empty() {
+        args.push(format!("--sync-url={sync_server}"));
+    }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
     args.extend(std::env::args().skip(1).filter(|arg| {

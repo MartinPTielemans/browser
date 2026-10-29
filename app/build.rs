@@ -129,6 +129,12 @@ fn main() {
     let name_text = std::fs::read_to_string(&name).expect("no branding/name");
     println!("cargo:rustc-env=APP_NAME={}", name_text.trim());
     println!("cargo:rerun-if-changed={}", name.display());
+    // The sync server the build signs in to unless the user names another (main.rs), which a fork
+    // or a self-hosted server names in branding/sync-server. With no file the build has none. The
+    // folder is watched, as a file that isn't there would have this run on every build.
+    let sync_server = std::fs::read_to_string(root.join("branding/sync-server"));
+    println!("cargo:rustc-env=SYNC_SERVER={}", sync_server.unwrap_or_default().trim());
+    println!("cargo:rerun-if-changed={}", root.join("branding").display());
     println!("cargo:rerun-if-changed=platform");
     println!("cargo:rerun-if-changed={}", header.display());
 
