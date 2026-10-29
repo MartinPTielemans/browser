@@ -246,21 +246,25 @@ std::vector<bc_id> Space::Panes(bc_id tab) const {
 }
 
 void Space::SetName(std::string name) {
+  touched_ |= name != name_;
   name_ = std::move(name);
   ReportSpacesChanged();
 }
 
 void Space::SetColor(std::optional<uint32_t> color) {
+  touched_ |= color != color_;
   color_ = color;
   ReportSpacesChanged();
 }
 
 void Space::SetIcon(std::string icon) {
+  touched_ |= icon != icon_;
   icon_ = std::move(icon);
   ReportSpacesChanged();
 }
 
 void Space::SetTheme(std::string theme) {
+  touched_ |= theme != theme_;
   theme_ = std::move(theme);
   ReportSpacesChanged();
 }

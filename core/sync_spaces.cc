@@ -1,5 +1,6 @@
 #include "browser_core/sync_spaces.h"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <optional>
@@ -16,6 +17,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/uuid.h"
+#include "browser_core/favorites.h"
 #include "browser_core/hooks.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
@@ -90,6 +92,21 @@ std::unique_ptr<syncer::EntityData> DataOf(const Entity& entity) {
 // The Spaces sync keeps, the user's: an agent's goes with its agent.
 bool Synced(const Space* space) {
   return !space->agent() && space->node().id.is_valid();
+}
+
+// The device's own first Space, made because a browser needs one, while the user hasn't touched it:
+// its only one, never given another name, colour, icon or theme, with no pinned tabs or folders,
+// and no favorites shown in it. Else null.
+Space* UntouchedDefault() {
+  std::vector<Space*> own = Space::All();
+  std::erase_if(own, [](Space* space) { return !Synced(space); });
+  if (own.size() != 1) {
+    return nullptr;
+  }
+  Space* space = own.front();
+  return !space->touched() && space->pinned_rows().empty() && Favorites::In(*space).empty()
+             ? space
+             : nullptr;
 }
 
 // Every Space, pinned tab and folder as sync knows them now, by id.
@@ -190,11 +207,28 @@ class Bridge : public syncer::DataTypeSyncBridge, public ProfileObserver {
 
   // The first sync of this device's Spaces with the account's: each side keeps its own and gets the
   // other's, as a first sync of bookmarks does, since neither knows which the user meant to keep.
+  // But where the account has Spaces, the device's own first one goes if the user never touched it,
+  // as Arc's does on a new device, rather than adding an empty Space to every device; its Today
+  // tabs move to the account's first Space, so nothing the user had open goes.
   std::optional<syncer::ModelError> MergeFullSyncData(
       std::unique_ptr<syncer::MetadataChangeList> metadata_changes,
       syncer::EntityChangeList changes) override {
     restoring_ = false;
-    return ApplyIncrementalSyncChanges(std::move(metadata_changes), std::move(changes));
+    Space* untouched = UntouchedDefault();
+    const bool account_has_spaces =
+        std::ranges::any_of(changes, [](const std::unique_ptr<syncer::EntityChange>& change) {
+          if (change->type() == syncer::EntityChange::ACTION_DELETE) {
+            return false;
+          }
+          const std::optional<Entity> entity = Parse(change->data());
+          return entity && entity->kind() == Entity::SPACE;
+        });
+    std::optional<syncer::ModelError> error =
+        ApplyIncrementalSyncChanges(std::move(metadata_changes), std::move(changes));
+    if (!error && untouched && account_has_spaces) {
+      Drop(untouched->id());
+    }
+    return error;
   }
 
   std::optional<syncer::ModelError> ApplyIncrementalSyncChanges(
@@ -432,6 +466,23 @@ class Bridge : public syncer::DataTypeSyncBridge, public ProfileObserver {
         waiting_.insert(entity.id());
       }
     }
+  }
+
+  // Deletes |space|, which sync never had, once its Today tabs are in the first of the Spaces sync
+  // has, in their order.
+  void Drop(bc_id space) {
+    Space* dropped = Space::FromId(space);
+    std::vector<Space*> others = Space::All();
+    std::erase_if(others, [&](Space* each) { return each == dropped || !Synced(each); });
+    if (!dropped || others.empty()) {
+      return;
+    }
+    // Each goes to the top of the Today tabs there, so the bottom one goes first.
+    const std::vector<bc_id> today = dropped->today();
+    for (auto it = today.rbegin(); it != today.rend(); ++it) {
+      Window::MoveToSpace(*it, others.front()->id());
+    }
+    Window::DeleteSpace(space);
   }
 
   void Remove(const Local& local) {

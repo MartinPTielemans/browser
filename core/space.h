@@ -86,6 +86,12 @@ class Space {
   // The emoji the user gave it to show in place of its dot and before its name, or empty.
   const std::string& icon() const { return icon_; }
   const std::string& theme() const { return theme_; }
+  // Whether it was ever given a name, colour, icon or theme other than those it was made with.
+  // Sync's first look at the account's Spaces drops a device's only Space while it's untouched
+  // (sync_spaces.cc).
+  bool touched() const { return touched_; }
+  // Puts back what the session saved of touched().
+  void SetTouched(bool touched) { touched_ = touched; }
   // The directory of the profile its tabs open in, which its favorites are in (decision 5).
   const std::string& profile() const { return profile_; }
   // The agent it belongs to, or none for the user's own.
@@ -258,6 +264,7 @@ class Space {
   std::string icon_;
   std::string theme_;
   std::string profile_;
+  bool touched_ = false;
   bool off_the_record_ = false;
   Node node_;
   // Pinned tabs and folders.

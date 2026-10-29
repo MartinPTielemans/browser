@@ -210,6 +210,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   to.color = space.color();
   to.icon = space.icon();
   to.theme = space.theme();
+  to.touched = space.touched();
   to.profile = space.profile();
   to.agent = space.agent();
   int index = 0;
@@ -425,6 +426,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     if (!space.theme.empty()) {
       dict.Set("theme", space.theme);
     }
+    if (!space.touched) {
+      dict.Set("untouched", true);
+    }
     if (!space.profile.empty()) {
       dict.Set("profile", space.profile);
     }
@@ -567,6 +571,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     if (const std::string* theme = space->FindString("theme")) {
       to.theme = *theme;
     }
+    to.touched = !space->FindBool("untouched").value_or(false);
     if (const std::string* profile = space->FindString("profile")) {
       to.profile = *profile;
     }
@@ -891,6 +896,7 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);
+  space->SetTouched(saved_space.touched);
   space->SetProfile(DirOf(profile));
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
     // Without its page until it's first shown, which saves launch making a page for each tab.
