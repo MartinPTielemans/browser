@@ -216,7 +216,7 @@ expect '^browser: scroll edge shown$' "the list scrolled to a row didn't show it
 switch "2 cmd" "$c"
 none_since '^browser: list scrolled' || fail "showing a tab in view scrolled the list"
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at $(echo "$size" | tr " " x)\$" "the window didn't draw back at its size"
 # ⌘, from the page opens Settings on General. Its switch turns the warning before quitting off, the
 # menu of its pop-up button sets how long Today tabs wait for the archive, the switch on its
 # Advanced tab turns the haptics off, and ⌘W hides it.
@@ -462,7 +462,7 @@ if [ -n "$cards" ]; then
     echo "note: the window didn't narrow to 320, so the card in a narrow window wasn't checked."
   fi
   send resize $size
-  expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+  expect "^browser: drawn at $(echo "$size" | tr " " x)\$" "the window didn't draw back at its size"
 fi
 # Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,
 # its close button hides it, and More Settings… opens Chromium's settings in a tab.
