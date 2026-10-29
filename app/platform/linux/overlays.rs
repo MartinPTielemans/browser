@@ -244,14 +244,16 @@ pub extern "C" fn host_dismiss_overlay(overlay: c_int) {
     }
 }
 
-/// The views of the overlays that show, for the test driver (drive.rs).
+/// The views of the overlays that show, the dialog's among them, for the test driver (drive.rs).
 pub(crate) fn shown() -> Vec<*mut c_void> {
-    OVERLAYS.with_borrow(|overlays| {
+    let mut views: Vec<_> = OVERLAYS.with_borrow(|overlays| {
         (overlays.iter().flatten())
             .filter(|o| o.shown.is_some())
             .map(|o| o.view)
             .collect()
-    })
+    });
+    views.extend(DIALOG.with_borrow(|dialog| dialog.over.map(|_| dialog.view)));
+    views
 }
 
 /// The browser window the overlay, dialog or panel of `view` shows over, by its UI's view, and
