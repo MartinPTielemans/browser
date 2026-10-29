@@ -947,8 +947,8 @@ void PutBackSidebar(Window& window, const std::string& dir, const Saved& saved) 
   // Under Every Space, the profile gets a tab for each site its Spaces came back without.
   Favorites::Complete();
   window.ShowSpace(show);
-  // Once the backup's are in, as the last Space isn't deleted. As the user deletes them, so each
-  // can come back with ⌘Z too.
+  // Once the backup's are in, as the last Space isn't deleted. The sidebar they made up is the
+  // newest backup, which brings them back.
   for (bc_id space : old) {
     Window::DeleteSpace(space);
   }
