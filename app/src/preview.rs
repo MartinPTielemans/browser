@@ -603,6 +603,26 @@ impl Browser for Fake {
         });
     }
 
+    fn cast(&self, tab: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let device = shell::CastDevice {
+                id: "cast:preview".into(),
+                name: "Living Room TV".into(),
+                state: shell::CastState::Available,
+                status: "".into(),
+            };
+            let cast = shell::Cast { header: "Cast tab".into(), devices: vec![device] };
+            shell.set_cast(tab, Some(cast), cx);
+        });
+    }
+
+    fn cast_close(&self, _: &mut App) {}
+
+    // Casting starting closes the dialog, as the core's does.
+    fn cast_to(&self, tab: u64, _: SharedString, cx: &mut App) {
+        self.later(cx, move |shell, cx| shell.set_cast(tab, None, cx));
+    }
+
     fn can_use_system_engine(&self) -> bool {
         true
     }

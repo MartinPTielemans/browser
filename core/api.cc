@@ -20,6 +20,7 @@
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/capture.h"
+#include "browser_core/cast_dialog.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/downloads.h"
@@ -1355,6 +1356,18 @@ void bc_tab_site_controls(bc_id id) {
 
 void bc_site_controls_close(void) {
   browser_core::SiteControls::Close();
+}
+
+void bc_tab_cast(bc_id id) {
+  browser_core::CastDialog::Open(id);
+}
+
+void bc_cast_close(void) {
+  browser_core::CastDialog::Close();
+}
+
+void bc_tab_cast_to(bc_id id, const char* device) {
+  browser_core::CastDialog::To(id, device);
 }
 
 void bc_tab_set_site_permission(bc_id id, int type, int value) {

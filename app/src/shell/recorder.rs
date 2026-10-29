@@ -310,6 +310,18 @@ impl Browser for Recorder {
         self.record(format!("media {tab} {action:?}"));
     }
 
+    fn cast(&self, tab: u64, _: &mut App) {
+        self.record(format!("cast {tab}"));
+    }
+
+    fn cast_close(&self, _: &mut App) {
+        self.record("cast close".to_owned());
+    }
+
+    fn cast_to(&self, tab: u64, id: SharedString, _: &mut App) {
+        self.record(format!("cast to {tab} {id}"));
+    }
+
     fn clear(&self, _: &mut App) -> u64 {
         let id = self.core.ticket();
         self.edit(format!("clear as {id}"));

@@ -354,6 +354,25 @@ typedef struct bc_site_controls {
   int ad_blocking;
 } bc_site_controls;
 
+// What a device to cast to is doing, as Chrome's Cast dialog shows it.
+#define BC_CAST_AVAILABLE 0
+#define BC_CAST_CONNECTING 1
+#define BC_CAST_CONNECTED 2
+#define BC_CAST_DISCONNECTING 3
+#define BC_CAST_UNAVAILABLE 4
+
+// A device Chrome's media router found on the network, as its Cast dialog lists it.
+typedef struct bc_cast_device {
+  // Chrome's, for bc_tab_cast_to.
+  const char* id;
+  // The device's own name, such as "Living Room TV".
+  const char* name;
+  // A BC_CAST_ value.
+  int state;
+  // Chrome's words for what it's doing or what went wrong, such as "Casting tab", or "".
+  const char* status;
+} bc_cast_device;
+
 
 // An agent's call the core checked, for the activity log (bc_agent_may_act).
 typedef struct bc_agent_activity {
@@ -588,6 +607,15 @@ typedef struct bc_host {
   // changes, until bc_site_controls_close: a permission changed or was used, the tab went to
   // another page, or a video started or stopped.
   void (*tab_site_controls)(void* context, bc_id tab, const bc_site_controls* controls);
+  // The tab's Cast dialog, in place of Chrome's: after bc_tab_cast, the page menu's Cast… or the
+  // page asking to cast, and again as the devices found change, with Chrome's header, such as
+  // "Cast tab", and the devices, |count| of them. Once it closes, with |header| null: on
+  // bc_cast_close, another tab's, the tab going, or casting starting, as Chrome's closes then.
+  void (*tab_cast)(void* context,
+                   bc_id tab,
+                   const char* header,
+                   const bc_cast_device* devices,
+                   size_t count);
   // The box of the element at (|x|, |y|) bc_tab_element_at asked for, its border's in points from
   // the top-left of the page's view, or a box 0 wide if there's none or the page went.
   void (*tab_element_box)(void* context, bc_id tab, double x, double y, bc_rect box);
@@ -1719,6 +1747,20 @@ BC_EXPORT void bc_tab_site_controls(bc_id tab);
 // Stops watching the site bc_tab_site_controls read. Then window_extension_actions, with the
 // pinned actions alone.
 BC_EXPORT void bc_site_controls_close(void);
+
+// Opens the tab's Cast dialog, as Chrome's View › Cast… does, which looks for devices on the
+// network with DIAL (ungoogled-chromium builds without mDNS). Then tab_cast. The last tab's closes
+// first: one shows at a time. Does nothing for a profile Chrome's media router doesn't serve. The
+// user's: agents get none, as casting shows the page to a screen others can see.
+BC_EXPORT void bc_tab_cast(bc_id tab);
+
+// Closes the Cast dialog. Then tab_cast with a null header.
+BC_EXPORT void bc_cast_close(void);
+
+// A click on the device |id| in the tab's Cast dialog, as on Chrome's: one with a problem clears
+// it, one casting stops, and one available casts the tab, or the page's presentation where it
+// has one. Then tab_cast as it changes.
+BC_EXPORT void bc_tab_cast_to(bc_id tab, const char* id);
 
 // Gives the site of the tab's page |value|, a BC_SITE_ value, for the permission of |type|, as
 // Chrome's page info does, if it's one of the permission's choices and bc_tab_site_controls is

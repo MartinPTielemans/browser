@@ -73,6 +73,7 @@ mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
+mod cast;
 mod agent_bar;
 mod agent_question;
 mod picture;
@@ -117,6 +118,7 @@ pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
+pub use cast::{Cast, CastDevice, CastState};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use picture::{PagePicture, picture_answered};
 pub(crate) use picture::next_request;
@@ -1169,6 +1171,9 @@ pub struct Shell {
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab whose question's card shows, and its moment on screen before Block and Allow work.
     question_settling: RefCell<Option<(u64, crate::settling::Settling)>>,
+    /// The Cast dialog the core reports for the tab it's for (cast.rs).
+    cast: Option<(u64, Cast)>,
+    cast_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// What an agent asks the user first, in every window (agent_question.rs).
     agent_question: Option<crate::agents::Question>,
     agent_question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -1380,6 +1385,8 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            cast: None,
+            cast_drawn: Rc::default(),
             question_settling: RefCell::default(),
             agent_question: None,
             agent_question_drawn: Rc::default(),
@@ -2052,6 +2059,7 @@ impl Shell {
         }
         self.selected_for_picture(tab, cx);
         self.hid_for_cards(hidden, cx);
+        self.cast_for_shown(cx);
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
@@ -3051,6 +3059,7 @@ impl Shell {
                     .children(self.dragged_tile(cx))
                     .children(self.turning_drag())
                     .children(self.question_card(cx))
+                    .children(self.cast_card(cx))
                     .children(self.agent_question_card(cx))
                     .children(self.media_player_cards(cx))
                     .children(self.agent_bar_card(cx))

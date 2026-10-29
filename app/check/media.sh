@@ -3,10 +3,11 @@
 # the tab it shares shows the screen too. While it shares a tab, another tab's menu has Share This
 # Tab Instead, which moves the share there. The marks go once the call ends. A tab playing music
 # out of sight has a player at the sidebar's foot, whose button pauses it, whose click shows the
-# tab, and whose × puts it away. Chromium's fake camera and microphone stand in for real ones, and
-# the share takes the tab titled Shared without its picker; the question for the camera is
-# answered with Allow, as the user would, since the fake question Chromium can put in its place
-# never tells the browser what's captured.
+# tab, and whose × puts it away. View › Cast… and the page menu's Cast… open the tab's Cast card,
+# and × closes it. Chromium's fake camera and microphone stand in for real ones, and the share
+# takes the tab titled Shared without its picker; the question for the camera is answered with
+# Allow, as the user would, since the fake question Chromium can put in its place never tells the
+# browser what's captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
@@ -163,7 +164,32 @@ expect "^browser: media players $a\$" "the paused tab out of sight had no player
 send click "$(button_x 0)" $((my + mh / 2))
 expect '^browser: command media-dismiss via player$' "the player's × didn't take the click"
 expect '^browser: media players $' "× didn't put the player away"
+
+# The Cast card, from View › Cast… and from the page menu, with whatever devices the network has,
+# none clicked. Linux alone: the Mac asks for the local network on the screen as Chrome looks with
+# DIAL, and Windows' firewall may.
+if [ "$(uname)" = Linux ]; then
+  send menu "Cast…"
+  expect "^browser: cast $b .* devices [0-9]*\$" "View › Cast… didn't open the tab's Cast dialog"
+  expect "^browser: cast $b at " "the Cast card wasn't drawn"
+  read -r kx ky kw kh <<EOF
+$(grep "^browser: cast $b at " "$log" | tail -1 | cut -d' ' -f5-)
+EOF
+  ../tools/window-screenshot.sh "$pid" "$out/media-cast.png" || fail "no window to capture"
+  # Its ×, 7 inside its top right corner and 22 square.
+  send click $((kx + kw - 18)) $((ky + 18))
+  expect '^browser: command cast-close via card$' "the Cast card's × didn't take the click"
+  expect "^browser: cast $b closed\$" "× didn't close the Cast dialog"
+  post rightclick $page_point
+  expect '^browser: menu shown .*Cast…' "the page's menu had no Cast…"
+  send choose "Cast…"
+  expect "^browser: cast $b .* devices [0-9]*\$" "the page menu's Cast… didn't open the Cast dialog"
+  send menu "Cast…"
+  expect "^browser: cast $b closed\$" "View › Cast… again didn't close the Cast dialog"
+else
+  echo "skip: the Cast card on $(uname). Chrome looking for devices would ask for the network."
+fi
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; music playing out of sight has a player that pauses it, shows its tab and goes on ×."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×."

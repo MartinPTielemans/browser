@@ -76,6 +76,12 @@ pub trait Browser {
     fn share_instead(&self, tab: u64, cx: &mut App);
     /// Plays, pauses or skips `tab`'s media.
     fn media(&self, tab: u64, action: MediaAction, cx: &mut App);
+    /// Opens `tab`'s Cast dialog, which the core reports with `Shell::set_cast`.
+    fn cast(&self, tab: u64, cx: &mut App);
+    /// Closes the Cast dialog.
+    fn cast_close(&self, cx: &mut App);
+    /// A click on the device `id` in `tab`'s Cast dialog: casts to it, or stops it casting.
+    fn cast_to(&self, tab: u64, id: SharedString, cx: &mut App);
     /// Closes the Today tabs of the Space shown, but the one shown, unless it shows them all, and
     /// returns the id of the clear, or 0 if it closed none.
     fn clear(&self, cx: &mut App) -> u64;

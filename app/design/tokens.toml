@@ -1161,6 +1161,15 @@ close = 22.0
 close-inset = 7.0
 close-glyph = 12.0
 
+[shell.cast]
+# Ours, as Chrome's dialog has Chrome's look: the Cast card is the question's, and each device a
+# row in it, its glyph before its name over what it's doing.
+row = 40.0
+row-gap = 2.0
+glyph = 16.0
+name = 13.0
+status = 11.0
+
 [shell.picture]
 # Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.
 rest = 0.8
