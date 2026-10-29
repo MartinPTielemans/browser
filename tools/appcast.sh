@@ -19,13 +19,39 @@
 #   tools/appcast.sh notes.md --windows ilo-setup.exe --publish
 # In CI (release.yml) the key is UPDATE_PRIVATE_KEY, the backup's contents, which the tools read on
 # their standard input, and the Keychain is never read.
+# With --local, it makes the updates run's appcast instead (app/check/updates.sh), in DIR, which is
+# served at URL: one update past APP, its notes notes.md, signed with the run's own key in KEYFILE,
+# or informational, which Sparkle shows and never downloads. It never reads the owner's key or feed.
 # Usage: tools/appcast.sh notes.md [--windows installer.exe] [--publish]
+#        tools/appcast.sh notes.md --local APP DIR URL KEYFILE [--informational]
 set -euo pipefail
 tools="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$tools/../app" && pwd)"
-usage="usage: tools/appcast.sh notes.md [--windows installer.exe] [--publish]"
+usage="usage: tools/appcast.sh notes.md [--windows installer.exe] [--publish]
+       tools/appcast.sh notes.md --local APP DIR URL KEYFILE [--informational]"
 notes=${1:?$usage}
 shift
+if [ "${1:-}" = --local ]; then
+  { [ $# -eq 5 ] || [ $# -eq 6 ]; } && [ "${6:---informational}" = --informational ] ||
+    { echo "$usage" >&2; exit 2; }
+  plist=$2/Contents/Info.plist
+  version=$(plutil -extract CFBundleShortVersionString raw "$plist")
+  build=$(($(plutil -extract CFBundleVersion raw "$plist") + 1))
+  mkdir -p "$3"
+  if [ -n "${6:-}" ]; then
+    python3 -I "$tools/appcast.py" local "$3/appcast.xml" "$version" "$build" "$notes"
+  else
+    # Sparkle downloads it only for Install, which the run never chooses.
+    archive=$3/update-$build.zip
+    ditto -c -k "$notes" "$archive"
+    signature=$("$root/.deps/Sparkle/bin/sign_update" --ed-key-file "$5" -p "$archive")
+    python3 -I "$tools/appcast.py" local "$3/appcast.xml" "$version" "$build" "$notes" \
+      "$4$(basename "$archive")" "$(wc -c < "$archive" | tr -d ' ')" "$signature"
+    python3 -I "$tools/appcast.py" signed "$3/appcast.xml" "$build"
+  fi
+  echo "$3/appcast.xml"
+  exit 0
+fi
 windows=
 publish=
 while [ $# -gt 0 ]; do

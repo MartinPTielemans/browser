@@ -353,7 +353,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 - A click shows it. ⌘1–⌘9, next and previous tab and ⌃Tab count the favorites first. A Space remembers the favorite it showed, across a quit too, and forgets one it stops showing when the choice of scope or its profile changes.
 - The tile's menu: Back to Favorite URL (⌘↩, away from it), Duplicate Tab (a copy at the top of Today, shown), Remove from Favorites, then Close Tab (⌘W). Closing unloads it and keeps the tile, as for a pinned tab, and shows the Space's top Today tab, else its lowest pinned tab still loaded. No Rename or Move to Space yet.
 - Links a favorite opens go at the top of Today in the Space shown.
-- Later: the hover card, themes for emoji icons, and Arc's measured turn between a dragged row and its tile.
+- Later: themes for emoji icons, and Arc's measured turn between a dragged row and its tile.
 
 **Pinned tabs** (Arc: per Space. Dia 1.52 has the same section.)
 

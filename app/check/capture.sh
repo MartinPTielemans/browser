@@ -48,8 +48,10 @@ capture_mode page
 send move $(in_page 400 250)
 expect '^browser: capture element at [0-9.]* [0-9.]*: 300 200 200 100$' \
   "the pointer over the box didn't light it: $(grep '^browser: capture element' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/capture-element.png" || fail "no window to capture"
 send click $(in_page 400 250)
 expect '^browser: capture chose 300 200 200 100$' "a click on the box didn't take it"
+../tools/window-screenshot.sh "$pid" "$out/capture-chosen.png" || fail "no window to capture"
 # The menu is 10 in from the ring's left, level with its top; Copy is its first row, 50 to 90
 # down.
 send click $(in_page 442 266)
@@ -102,4 +104,4 @@ expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
 
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full."
+echo "ok: capture. The box's picture is $size, the full page's $full. Windows: $out/capture-element.png, $out/capture-chosen.png"
