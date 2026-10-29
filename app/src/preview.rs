@@ -481,6 +481,18 @@ impl Browser for Fake {
 
     fn reopen_closed_tab(&self, _: &mut App) {}
 
+    fn reopen_preview(
+        &self,
+        _: &browser::link_preview::Closed,
+        _: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+    }
+
+    fn close_preview(&self, _: u64, _: &mut App) -> bool {
+        false
+    }
+
     fn reopen_tab(&self, _: u64, _: &mut App) -> u64 {
         0
     }

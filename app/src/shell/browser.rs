@@ -82,6 +82,16 @@ pub trait Browser {
     fn undo_delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
+    /// Opens the link preview the user closed again, at its page, over its tab, whose window's
+    /// page is at `page` with corners of that radius, growing from its link.
+    fn reopen_preview(
+        &self,
+        closed: &crate::link_preview::Closed,
+        page: (Bounds<Pixels>, f32),
+        cx: &mut App,
+    );
+    /// Closes the link preview over `over`, if one shows, as Redo does. Returns whether it did.
+    fn close_preview(&self, over: u64, cx: &mut App) -> bool;
     /// Reopens the Today tab that had the id `closed` when it closed, at its place, and returns its
     /// new id, or 0 if it isn't among the closed tabs.
     fn reopen_tab(&self, closed: u64, cx: &mut App) -> u64;
