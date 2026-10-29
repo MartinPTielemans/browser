@@ -417,8 +417,8 @@ fn target_in(window: xproto::Window, x: f64, y: f64) -> Option<Target> {
 }
 
 /// The window of the app's that the pointer at (`x`, `y`) in the driven browser window is over, as
-/// the X server picks it: an overlay over the window, then GPUI's window, but where its shape
-/// leaves holes for the pages, which are Chromium's window's.
+/// the X server picks it: an overlay over the window, or a panel in it, then GPUI's window, but
+/// where its shape leaves holes for the pages, which are Chromium's window's.
 fn target_at(x: f64, y: f64) -> Option<Target> {
     let browser = driven()?;
     let at = target_in(browser.window, x, y)?;
@@ -434,8 +434,8 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
         .reply()
         .ok()?
         .child;
-    // An overlay is a child of the root, and a panel, such as the find bar, one of the browser
-    // window's, over its page.
+    // An overlay is a child of the root, and a panel, such as the find bar or the offer to save a
+    // password, one of the browser window's, over its page.
     if let Some(view) = overlay_views()
         .into_iter()
         .find(|&view| [top.child, child].contains(&(view as usize as u32)))
