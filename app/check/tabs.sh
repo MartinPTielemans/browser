@@ -23,7 +23,9 @@
 # its way there without taking it, picks what a press-drag-release ends on and closes on a click
 # outside. A tab unseen for 2 hours lets go of its page as another is shown, unless it plays sound,
 # its page asks before it's left or a split shows it, and loads it back with its history once shown,
-# and Settings' Unload switch turns that off and on. Reports how long switches take.
+# and Settings' Unload switch turns that off and on. Tabs › Reset all tabs in this Space takes the
+# loaded pinned tabs away from their pinned URLs back there, and leaves an unloaded one. Reports how
+# long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, p in it plays a quiet tone until x, and u has it ask before it's left, or stop asking. The
@@ -630,6 +632,37 @@ expect_tabs "$y $x $before" "$y" "the pinned tab's second link didn't open its t
 send key w cmd
 expect_tabs "$x $before" "$o" \
   "closing the pinned tab's newest link didn't go back to the pinned tab"
+# Tabs › Reset all tabs in this Space takes the Space's pinned tabs away from their pinned URLs back
+# there, as Arc's does, but only those loaded: one unloaded stays as it is until it's shown. Edit…
+# gives two pinned tabs a pinned URL their pages aren't at, and ⌘W unloads the second.
+printf '<title>reset</title>' > "$out/site/reset.html"
+# Pinned URL › Edit… on pinned row $1, tab $2, takes $3 typed over its pinned URL.
+edit_pinned_url() {
+  post rightclick $(pinned_row "$1")
+  expect "^browser: menu shown $(cased 'Unpin Tab, ')" "a right-click on pinned row $1 didn't show its menu"
+  send choose "$(cased 'Pinned URL › Edit…')"
+  expect "^browser: edit pinned url $2\$" "Edit… didn't show tab $2's pinned URL in a field"
+  send type "$3"
+  send key return
+  expect "^browser: page $2 away 1\$" "the pinned URL typed didn't take tab $2 away from it"
+}
+set -- $(row 0)
+send click $1 $(($2 + 41))
+expect "^browser: selected $x in " "a click on Today's top row didn't show its tab"
+send key d cmd
+expect_lists "$o $x" "$before" "after ⌘D on the link's tab"
+expect '^browser: rows settled$' "the rows didn't settle after ⌘D"
+edit_pinned_url 0 "$o" "${site}reset.html"
+edit_pinned_url 1 "$x" "${site}reset.html"
+send click $page_point
+send key w cmd
+expect "^browser: page $x unloaded 1\$" "⌘W didn't unload the second pinned tab"
+send menu Reset all tabs in this Space
+expect '^browser: command reset-space-tabs via ui$' "Tabs › Reset all tabs in this Space didn't run"
+expect "^browser: loaded $o ${site}reset.html\$" "Reset all tabs didn't take the loaded pinned tab back to its pinned URL"
+expect "^browser: page $o away 0\$" "the pinned tab Reset took back still read as away"
+none_since "^browser: loaded $x " || fail "Reset all tabs loaded the unloaded pinned tab"
+none_since "^browser: page $x \(away 0\|unloaded 0\)\$" || fail "Reset all tabs took the unloaded pinned tab back"
 exec 3>&-
 # Chrome writes the trace before it quits, once every process has started tracing or 10 s have
 # passed, so a renderer that closed early can hold the quit that long.
@@ -669,6 +702,6 @@ chrome_ms=$(echo "$spans" | grep -v incomplete | summary)
 [ -n "$chrome_ms" ] || fail "the trace has no finished tab switches"
 # grep -c finds none in a run where no switch was cut off, and exits 1 then.
 chrome_ms="$chrome_ms, $(echo "$spans" | grep -c incomplete || true) incomplete, not counted"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, ⇧⌘A lists the open tabs alone, typing filters them and ↩ switches, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, ⇧⌘A lists the open tabs alone, typing filters them and ↩ switches, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on. Reset all tabs in this Space takes the loaded pinned tabs back to their pinned URLs and leaves the unloaded one."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/search-tabs.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"
