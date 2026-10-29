@@ -2194,9 +2194,15 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
+        // shell hears of Chromium's as it resizes.
+        let full_screen = match cfg!(target_os = "linux") {
+            true => self.full_screen,
+            false => window.is_fullscreen(),
+        };
         let window_resizes = match fullscreen {
-            true => !window.is_fullscreen(),
-            false => self.window_for_page && window.is_fullscreen(),
+            true => !full_screen,
+            false => self.window_for_page && full_screen,
         };
         self.window_for_page = fullscreen && window_resizes;
         self.page_held = window_resizes.then(|| window.viewport_size());
