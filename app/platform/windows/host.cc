@@ -1984,6 +1984,10 @@ void host_dock_dot(bool colored, uint32_t color) {
   }
 }
 
+// interim: a jump list's tasks start a second process, whose command line reaches Chrome's startup
+// and not the app (#669).
+void host_set_dock_menu(const char* const* titles, size_t count) {}
+
 void host_watch_control(void (*released)(void)) {
   if ((GetKeyState(VK_CONTROL) & 0x8000) == 0) {
     Later([released] { released(); });
