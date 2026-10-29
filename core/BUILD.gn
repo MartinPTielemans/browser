@@ -4,6 +4,7 @@
 
 import("//build/config/sanitizers/sanitizers.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
+import("//testing/test.gni")
 
 # What a page tells the core about the key system it asks for. Blink's encrypted media module calls
 # it (engine/patches/ours/chromium-drm-request.patch), so it has a Blink variant.
@@ -46,6 +47,35 @@ config("app_calls") {
     cflags = [ "-fsanitize-ignorelist=" + rebase_path("cfi_ignores.txt", root_build_dir) ]
     inputs = [ "cfi_ignores.txt" ]
   }
+}
+
+# The account secret's words and pairing's cryptography and rules, which need no browser, so
+# browser_core_unittests tests them alone.
+source_set("sync_keys") {
+  sources = [
+    "sync_pairing.cc",
+    "sync_pairing.h",
+    "sync_words.cc",
+    "sync_words.h",
+    "sync_words_list.cc",
+  ]
+  deps = [
+    "//base",
+    "//crypto",
+    "//third_party/boringssl",
+  ]
+}
+
+# The core's logic that needs no browser. engine/linux/build.sh builds it and the engine's
+# workflow runs it.
+test("browser_core_unittests") {
+  sources = [ "sync_pairing_unittest.cc" ]
+  deps = [
+    ":sync_keys",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//testing/gtest",
+  ]
 }
 
 source_set("browser_core") {
@@ -136,13 +166,8 @@ source_set("browser_core") {
     "suggest.h",
     "sync.cc",
     "sync.h",
-    "sync_pairing.cc",
-    "sync_pairing.h",
     "sync_relay.cc",
     "sync_relay.h",
-    "sync_words.cc",
-    "sync_words.h",
-    "sync_words_list.cc",
     "system_engine.cc",
     "system_engine.h",
     "tab.cc",
@@ -153,6 +178,7 @@ source_set("browser_core") {
 
   deps = [
     ":drm_request",
+    ":sync_keys",
     "//base",
     "//chrome/app:command_ids",
     "//chrome/app:generated_resources",
