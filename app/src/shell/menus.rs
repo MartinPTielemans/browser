@@ -209,9 +209,10 @@ impl Shell {
         ];
         let several = grants.len() > 1;
         for (site, may) in grants {
-            let title = format!("{} on {site}", if may { "Always Allow" } else { "Never" });
+            let title = MenuEntry::label(if may { "Always Allow" } else { "Never" });
+            let title = format!("{title} on {site}");
             items.push((
-                MenuEntry::new(title, true).under(1),
+                MenuEntry::named(title, true).under(1),
                 Box::new(move |shell, cx| shell.browser.revoke_agent(space, Some(site), cx)),
             ));
         }
@@ -227,7 +228,7 @@ impl Shell {
             Box::new(move |shell, cx| shell.browser.take_back_agent_tabs(space, cx)),
         ));
         items.push((
-            MenuEntry::new(format!("Disconnect {name}"), connected),
+            MenuEntry::named(format!("Disconnect {name}"), connected),
             Box::new(move |shell, cx| shell.browser.disconnect_agent(space, cx)),
         ));
         items.push((MenuEntry::line(), Box::new(|_, _| {})));
@@ -513,13 +514,13 @@ impl Shell {
         };
         let name = &space.agent;
         let state = match why.is_empty() {
-            true => format!("Taken Back from {name}"),
-            false => format!("Handed to You by {name}"),
+            true => MenuEntry::label("Taken Back from"),
+            false => MenuEntry::label("Handed to You by"),
         };
         vec![
-            (MenuEntry::new(state, false), "", Box::new(|_, _| {})),
+            (MenuEntry::named(format!("{state} {name}"), false), "", Box::new(|_, _| {})),
             (
-                MenuEntry::new(format!("Hand Back to {name}"), true),
+                MenuEntry::named(format!("{} {name}", MenuEntry::label("Hand Back to")), true),
                 "hand-back",
                 Box::new(move |shell, cx| shell.browser.hand_back(tab, cx)),
             ),
