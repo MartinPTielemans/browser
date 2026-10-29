@@ -1621,6 +1621,7 @@ impl site_controls::Host for PreviewSiteControls {
     fn allow_saving(&self, _: u64, _: &browser::passwords::Login) {}
 
     fn set_ad_blocking(&self, _: u64, _: bool) {}
+    fn set_developer_mode(&self, _: u64, _: bool) {}
 
     fn run(&self, _: site_controls::Run, _: u64, _: &mut App) {}
 
@@ -1667,5 +1668,6 @@ fn preview_site() -> Site {
         system_engine: None,
         logins: Vec::new(),
         ad_blocking: Some(true),
+        developer_mode: Some(false),
     }
 }

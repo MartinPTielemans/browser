@@ -2173,6 +2173,9 @@ impl Shell {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
             log!("browser: page {tab} icon {icon}");
         }
+        if page.developer_mode != entry.page.developer_mode {
+            log!("browser: page {tab} developer mode {}", flag(page.developer_mode));
+        }
         self.swaps.page_changed(tab, self.selected, &entry.page, &page, Instant::now());
         let trouble = (page.trouble != entry.page.trouble).then_some(page.trouble);
         let changed = entry.keep_page(page);

@@ -18,6 +18,7 @@
 # its ×, Block and Allow answer it. The URL field's Site Controls button and the command bar's Site
 # Controls, from the page, open a panel under the field that lists the site's permissions as
 # Chrome's page info does. A value changed there sticks, and its Reset permissions sets them back.
+# Their Developer Mode row lists localhost on by itself, and turns it off and on for the tab.
 # Escape, a click outside and the button close it. A page that asks for Widevine brings a note under
 # the field, which ClearKey doesn't. From macOS 14 its button shows the page in Safari's engine, in
 # the tab, and the profile keeps the site for it: the site's cookies, HttpOnly too, and its
@@ -572,6 +573,22 @@ send choose Block
 expect '^browser: site controls set Window management Block$' "Block in the menu didn't run"
 expect "${controls}[^;]*; .*Window management Block" \
   "the Site Controls didn't show Window management as blocked"
+# Developer Mode is on by itself for localhost, and its row turns it off and on for the site, which
+# the tab draws each time.
+listed | grep -qx 'Developer Mode On' ||
+  fail "the Site Controls didn't list localhost in Developer Mode"
+grep -q "^browser: page $r developer mode 1\$" "$log" ||
+  fail "the localhost tab wasn't in Developer Mode"
+i=$(listed | grep -n '^Developer Mode ' | cut -d: -f1)
+send click 207 $(row_y $((i - 1)))
+expect '^browser: site controls set developer mode off$' \
+  "a click on Developer Mode didn't turn it off"
+expect "${controls}[^;]*; .*Developer Mode Off" "the Site Controls didn't show Developer Mode off"
+expect "^browser: page $r developer mode 0\$" "the tab didn't leave Developer Mode"
+send click 207 $(row_y $((i - 1)))
+expect '^browser: site controls set developer mode on$' \
+  "a second click on Developer Mode didn't turn it on"
+expect "^browser: page $r developer mode 1\$" "the tab didn't go back to Developer Mode"
 # http has no certificate to show, so the lock doesn't take the click.
 send click 120 $(footer_y)
 none_since '^browser: site controls run certificate' || fail "the lock ran without a certificate"
