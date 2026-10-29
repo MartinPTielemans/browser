@@ -403,6 +403,16 @@ fn pin_to_space_pins_the_tab_before_it_moves_and_one_undo_puts_it_back_in_today(
     assert_eq!(host.take_edits(), ["space 11 2"]);
 }
 
+/// New Space… makes the Space right after the one shown, as Arc's does, not after the others.
+#[gpui::test]
+fn a_new_space_goes_right_after_the_space_shown(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10]);
+    shell.update(cx, |shell, cx| shell.set_space(2, cx));
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::NewSpace, "ui", cx));
+    assert!(host.take().contains(&"create space Space 4 after 2".to_string()));
+}
+
 /// The command bar finds each other Space by its name, to focus it, pin the tab in it or move the
 /// tab to it, Focus first as in Arc's, and the Space shown's closed folders, to open one with the
 /// folders it's in.

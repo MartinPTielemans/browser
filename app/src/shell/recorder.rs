@@ -569,7 +569,8 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn create_space(&self, _: &str, _: u64, _: &mut App) -> u64 {
+    fn create_space(&self, name: &str, _: u64, after: u64, _: &mut App) -> u64 {
+        self.record(format!("create space {name} after {after}"));
         Default::default()
     }
 

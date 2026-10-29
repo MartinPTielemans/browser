@@ -361,8 +361,11 @@ void bc_window_activate(bc_id id) {
   widget->Activate();
 }
 
-bc_id bc_space_create(const char* name) {
-  browser_core::Space* space = browser_core::Space::Create(name ? name : "");
+bc_id bc_space_create(const char* name, bc_id after) {
+  const std::vector<browser_core::Space*> all = browser_core::Space::All();
+  auto it = std::ranges::find(all, after, &browser_core::Space::id);
+  const size_t at = it == all.end() ? SIZE_MAX : static_cast<size_t>(it - all.begin()) + 1;
+  browser_core::Space* space = browser_core::Space::Create(name ? name : "", 0, std::nullopt, at);
   space->SetProfile(browser_core::DirOf(browser_core::StartProfile()));
   return space->id();
 }

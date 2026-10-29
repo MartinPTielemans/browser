@@ -516,6 +516,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 **Creating** (Arc 1.170 rec at 2×, one Space named and made)
 
 - New Space, from the menu or a pull past the last Space, shows the Create a Space form in the sidebar. Arc's has an illustration, a title and a subtitle, the name field, Profile and Choose a Theme rows, and at the bottom Create Space and Cancel. Ours has the title "New Space", the field and the two rows, as the illustration and the copy are Arc's.
+- The Space goes right after the Space shown, in the switcher, the Spaces menu, ⌃1–⌃9 and the Library, as Arc's does (#688), not after the others; from an agent's Space it goes after the others. Cancel takes it out again, and ⌘Z on a deleted Space puts it back at its place in the order. The order is the core's, saved with the Spaces.
 - Create Space is Arc's blue, #2129FB, 36 tall with a radius of 8 and a white label, semibold 13. Until the field has a name, all of the button is at 0.4. Cancel is white 0.6, semibold 12. Create Space doesn't change under the pointer or while pressed. Ours, as Arc's aren't recorded: Cancel brightens to white under the pointer, and the Profile and Choose a Theme rows take the rows' hover fill, white 0.12.
 - Create, or ↩ with a name, sends the form away from the bottom up (Space form leave): the buttons fade, then the rows, the field and the title fade as they sink. Arc then plays its illustration for about 2 s and shows the Space's rows within a frame. Ours shows them once the form is gone, 0.28 s after Create.
 

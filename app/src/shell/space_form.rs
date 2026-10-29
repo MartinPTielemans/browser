@@ -39,9 +39,12 @@ impl Shell {
             None => {
                 // Arc's name for a Space the user doesn't name.
                 let name = format!("Space {}", self.spaces.len() + 1);
-                // In the profile of the Space it's made from (Arc).
-                let profile = self.shown_space().map_or(0, |space| space.profile);
-                let space = self.browser.create_space(&name, profile, cx);
+                // In the profile of the Space it's made from, and right after it (Arc), but
+                // after the others from an agent's.
+                let shown = self.shown_space();
+                let profile = shown.map_or(0, |space| space.profile);
+                let after = shown.filter(|space| space.agent.is_empty()).map_or(0, |space| space.id);
+                let space = self.browser.create_space(&name, profile, after, cx);
                 let name = cx.new(|cx| {
                     TextInput::new("Space name", cx).placeholder_color(self.palette.text(FORM_PLACEHOLDER))
                 });

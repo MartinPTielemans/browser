@@ -23,6 +23,7 @@
 # can't be deleted. The Spaces menu lists the Spaces, and its names show them. A page out of sight,
 # behind another tab, in a Space not shown, in a minimized window or a hidden app, is hidden and
 # runs no animation frames, and it's visible once it's back.
+# A Space made from the first of two goes right after it, as Arc's does.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last. The page puts
 # "hidden" in its title as it hides, and "visible <n>" as it shows again, with the n animation
@@ -447,13 +448,14 @@ expect_tabs "$b" "$b" "after Cancel"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle after Cancel"
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+# Made from the first of two, the Space goes right after it, as Arc's does, not after the others.
 # Fingers going on past the form rubber-band it, ready no new Space and leave its field the
-# keyboard. Going back, they page to the Space it was made from, here the first, not the Space
-# before it, and its Space goes once its page is out.
+# keyboard. Going back, they page to the Space it was made from, the first, and its Space goes
+# once its page is out.
 send menu New Space…
 expect '^browser: command new-space via ui$' "New Space in the menu didn't run new-space"
-expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
-third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
+expect "^browser: spaces $first [0-9]* $second\$" "New Space didn't make a Space after the first"
+third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: settled space $third\$" "the form's page didn't settle"
 if [ -z "$x11" ]; then
 send swipe $swipe_point -40 0 10
