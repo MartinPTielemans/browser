@@ -294,8 +294,9 @@ enum Popup {
     ArchiveAfter,
     Favorites,
     PasswordsProfile,
-    /// Shortcuts' Exit Full Screen, which scrolls and so is where it was drawn.
-    EscapePriority,
+    /// Who has a Shortcuts row's keys, a command's or ⎋'s with none, which scrolls and so is where
+    /// it was drawn.
+    Priority(Option<Command>),
 }
 
 pub struct Settings {
@@ -322,8 +323,8 @@ pub struct Settings {
     off_sites_logged: Option<String>,
     /// Where each Turn On has been logged, so it logs only where it moves to.
     turn_on_logged: Rc<RefCell<Vec<String>>>,
-    /// Where Exit Full Screen's pop-up button was drawn, for its menu to open over it.
-    escape_popup: Rc<Cell<Option<Bounds<gpui::Pixels>>>>,
+    /// Where each Shortcuts row's priority pop-up button was drawn, for its menu to open over it.
+    priority_popups: Rc<RefCell<Vec<(Option<Command>, Bounds<gpui::Pixels>)>>>,
     /// The profile whose logins the Passwords tab lists, once the user has picked one.
     passwords_profile: Option<u64>,
     /// Each profile's logins, as the core last told them.
@@ -671,7 +672,7 @@ fn open(cx: &mut App) {
                 search,
                 off_sites_logged: None,
                 turn_on_logged: Rc::default(),
-                escape_popup: Rc::default(),
+                priority_popups: Rc::default(),
                 passwords_profile: None,
                 logins: HashMap::new(),
                 asked: HashSet::new(),
@@ -1069,11 +1070,16 @@ impl Settings {
     ) {
         self.choosing = Some(which);
         cx.notify();
-        let at = match (which, self.escape_popup.get()) {
-            (Popup::EscapePriority, Some(drawn)) => {
-                drawn.origin + point(px(CONTROL_PADDING), px(0.))
+        let drawn = match which {
+            Popup::Priority(row) => {
+                let drawn = self.priority_popups.borrow();
+                drawn.iter().find(|&&(each, _)| each == row).map(|&(_, bounds)| bounds)
             }
-            _ => popup_text(which),
+            _ => None,
+        };
+        let at = match drawn {
+            Some(drawn) => drawn.origin + point(px(CONTROL_PADDING), px(0.)),
+            None => popup_text(which),
         };
         show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
@@ -1768,43 +1774,58 @@ impl Settings {
             .children(refused)
             .children(restore)
             .child(chip)
+            .when(shell::prioritized(command), |row| row.child(self.priority(Some(command), cx)))
             .into_any_element()
     }
 
-    /// Exit Full Screen's ⎋, which can't be changed, and who has it: Arc's pop-up, its own Use Both
-    /// by default.
+    /// Exit Full Screen's ⎋, which can't be changed, and who has it, Use Both by default.
     fn escape_priority(&self, cx: &mut Context<Self>) -> AnyElement {
-        let chosen = shell::user_keys(cx).escape_priority();
-        let drawn = self.escape_popup.clone();
-        let at = canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
-            .absolute()
-            .inset_0();
-        let popup = self.popup(
-            Popup::EscapePriority,
-            chosen.title().into(),
-            POPUP_WIDTH,
-            cx.listener(move |settings, _, window, cx| {
-                settings.choose_escape_priority(chosen, window, cx)
-            }),
-        );
         div()
             .flex()
             .items_center()
             .gap(px(CHIP_GAP))
             .child(chip("⎋".into(), rgb(DETAIL)))
-            .child(popup.relative().child(at))
+            .child(self.priority(None, cx))
             .into_any_element()
     }
 
-    /// Opens Exit Full Screen's pop-up menu over its button, and keeps who has ⎋ first with the
+    /// Arc's pop-up for who has `row`'s keys while a page is focused: a command's, or ⎋'s with
+    /// none.
+    fn priority(&self, row: Option<Command>, cx: &mut Context<Self>) -> gpui::Div {
+        let user = shell::user_keys(cx);
+        let chosen = row.map_or(user.escape_priority(), |command| user.priority(command));
+        let drawn = self.priority_popups.clone();
+        let at = canvas(
+            move |bounds, _, _| {
+                let mut drawn = drawn.borrow_mut();
+                drawn.retain(|&(each, _)| each != row);
+                drawn.push((row, bounds));
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0();
+        let popup = self.popup(
+            Popup::Priority(row),
+            chosen.title().into(),
+            POPUP_WIDTH,
+            cx.listener(move |settings, _, window, cx| {
+                settings.choose_priority(row, chosen, window, cx)
+            }),
+        );
+        popup.relative().child(at)
+    }
+
+    /// Opens `row`'s priority pop-up menu over its button, and keeps who has its keys with the
     /// shortcuts.
-    fn choose_escape_priority(
+    fn choose_priority(
         &mut self,
-        chosen: shell::EscapePriority,
+        row: Option<Command>,
+        chosen: shell::Priority,
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let items: Vec<MenuEntry> = (shell::EscapePriority::ALL.iter())
+        let items: Vec<MenuEntry> = (shell::Priority::ALL.iter())
             .map(|&each| {
                 let on = each == chosen;
                 MenuEntry { checked: on, over: on, ..MenuEntry::new(each.title(), true) }
@@ -1812,15 +1833,19 @@ impl Settings {
             .collect();
         let settings = cx.weak_entity();
         let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
-            if let Some(priority) = picked.map(|index| shell::EscapePriority::ALL[index]) {
-                shell::change_keys(cx, |keys| keys.set_escape_priority(priority));
+            if let Some(priority) = picked.map(|index| shell::Priority::ALL[index]) {
+                shell::change_keys(cx, |keys| match row {
+                    Some(command) => keys.set_priority(command, priority),
+                    None => keys.set_escape_priority(priority),
+                });
                 // check.sh waits for this line.
-                log!("browser: escape priority {}", priority.title());
+                let name = row.map_or("escape", Command::name);
+                log!("browser: {name} priority {}", priority.title());
                 save_shortcuts(cx);
             }
             settings.update(cx, |settings, cx| settings.chose(cx)).ok();
         });
-        self.pop_up(Popup::EscapePriority, items, picked, window, cx);
+        self.pop_up(Popup::Priority(row), items, picked, window, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.
@@ -1897,7 +1922,7 @@ fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
         // Under Unload's switch.
         Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
         // The Passwords tab's first row, and Exit Full Screen's, before it's drawn.
-        Popup::PasswordsProfile | Popup::EscapePriority => (POPUP_WIDTH, 0.),
+        Popup::PasswordsProfile | Popup::Priority(_) => (POPUP_WIDTH, 0.),
     };
     point(
         px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),

@@ -13,7 +13,7 @@ use gpui::{
 use crate::theme::Appearance;
 
 use super::{
-    COPIED_TIME, ESCAPE_AGAIN, Edit, EscapePriority, Section, Shell, Space, Swapped, UserKeys, What,
+    COPIED_TIME, ESCAPE_AGAIN, Edit, Priority, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
@@ -861,8 +861,8 @@ impl Shell {
                     return self.browser.stop(self.selected, cx);
                 }
                 let priority = user_keys(cx).escape_priority();
-                let first = priority != EscapePriority::Both;
-                if (from == "page" && priority == EscapePriority::Websites)
+                let first = priority != Priority::Both;
+                if (from == "page" && priority == Priority::Websites)
                     || (from != "page" && (first || self.escape_again()))
                 {
                     return self.browser.press_window_button(WindowButton::Zoom, cx);
@@ -1041,8 +1041,8 @@ impl Shell {
             return false;
         }
         match user_keys(cx).escape_priority() {
-            EscapePriority::Websites => return false,
-            EscapePriority::Both if !self.escape_again() => return false,
+            Priority::Websites => return false,
+            Priority::Both if !self.escape_again() => return false,
             _ => {}
         }
         log!("browser: command stop via page");
@@ -1072,7 +1072,20 @@ impl Shell {
         again
     }
 
+    /// A shortcut left to both in Settings › Shortcuts is going down in the page, which has the
+    /// first press, as in Arc: a second soon after one the page kept runs the browser's instead.
+    /// Returns whether it did, and the page doesn't get the key.
+    pub fn shortcut_before_page(&mut self, command: Command, cx: &mut Context<Self>) -> bool {
+        let now = Instant::now();
+        let again = (self.kept)
+            .is_some_and(|(kept, then)| kept == command && now - then < ESCAPE_AGAIN);
+        self.kept = (!again).then_some((command, now));
+        again && self.run_for_page(command, cx)
+    }
+
     pub fn run_for_page(&mut self, command: Command, cx: &mut Context<Self>) -> bool {
+        // The page didn't keep it, or it never had it.
+        self.kept = None;
         self.hide_hover(cx);
         let done = match command {
             Command::Undo => self.undo(cx),

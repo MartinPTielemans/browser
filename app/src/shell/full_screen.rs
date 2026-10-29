@@ -9,7 +9,7 @@ use gpui::{
 };
 
 use crate::shell::{
-    Command, ESCAPE_AGAIN, EscapePriority, Folders, Shell, change_keys, recorder::Recorder,
+    Command, ESCAPE_AGAIN, Priority, Folders, Shell, change_keys, recorder::Recorder,
 };
 
 /// Spaces 1 and 2, with tabs 10 and 20, Space 1 shown.
@@ -109,10 +109,10 @@ fn the_browser_can_have_the_first_escape(cx: &mut TestAppContext) {
         cx.update(|cx| change_keys(cx, |keys| keys.set_escape_priority(priority)));
         shell.update(cx, |shell, cx| shell.escape_before_page(cx))
     };
-    assert!(press(EscapePriority::Browser, cx), "the page had the browser's ⎋");
+    assert!(press(Priority::Browser, cx), "the page had the browser's ⎋");
     assert_eq!(host.take(), [ZOOM]);
     for _ in 0..2 {
-        assert!(!press(EscapePriority::Websites, cx), "the browser took the website's ⎋");
+        assert!(!press(Priority::Websites, cx), "the browser took the website's ⎋");
     }
     assert!(!host.take().contains(&ZOOM.to_string()), "the website's ⎋ left full screen");
     // One the page didn't keep comes back and leaves, as from the UI.
@@ -121,7 +121,7 @@ fn the_browser_can_have_the_first_escape(cx: &mut TestAppContext) {
     shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
     assert_eq!(host.take(), [ZOOM]);
 
-    cx.update(|cx| change_keys(cx, |keys| keys.set_escape_priority(EscapePriority::Browser)));
+    cx.update(|cx| change_keys(cx, |keys| keys.set_escape_priority(Priority::Browser)));
     shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
     assert_eq!(host.take(), [ZOOM]);
 
@@ -129,6 +129,34 @@ fn the_browser_can_have_the_first_escape(cx: &mut TestAppContext) {
     host.take();
     assert!(!shell.update(cx, |shell, cx| shell.escape_before_page(cx)));
     assert!(host.take().is_empty());
+}
+
+/// A shortcut left to both, as ⎋ is in full screen, has its first press in the page, and a second
+/// soon after one the page kept is the browser's, before the page has it. One the page didn't
+/// keep came to the browser already, so the next is a first press again.
+#[gpui::test]
+fn a_second_press_the_page_kept_is_the_browsers(cx: &mut TestAppContext) {
+    let (shell, host) = two_spaces(cx);
+    host.take();
+    let press = |cx: &mut TestAppContext| {
+        shell.update(cx, |shell, cx| shell.shortcut_before_page(Command::Reload, cx))
+    };
+    let reloads = || host.take().iter().filter(|call| call.starts_with("reload")).count();
+    assert!(!press(cx), "the browser took the page's first press");
+    assert!(press(cx), "the page had the second press");
+    assert_eq!(reloads(), 1);
+
+    assert!(!press(cx));
+    shell.update(cx, |shell, cx| shell.run_for_page(Command::Reload, cx));
+    assert_eq!(reloads(), 1);
+    assert!(!press(cx), "a press after one the page didn't keep ran twice");
+    assert_eq!(reloads(), 0);
+
+    shell.update(cx, |shell, _| {
+        shell.kept = shell.kept.map(|(kept, then)| (kept, then - ESCAPE_AGAIN));
+    });
+    assert!(!press(cx), "a slow second press was the browser's");
+    assert_eq!(reloads(), 0);
 }
 
 const WINDOWED: Size<Pixels> = size(px(1000.), px(700.));
