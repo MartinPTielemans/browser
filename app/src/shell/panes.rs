@@ -6,7 +6,11 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, Pixels, Point, Size, canvas, div, point, prelude::*, px, size,
 };
 
-use super::{CARD_INSET, EXPANDED_OTHER, MAX_PANES, PANE_LEAST, PANE_SNAP, SPLIT_GAP, Shell};
+use super::{
+    CARD_INSET, EXPANDED_OTHER, MAX_PANES, MenuAction, MenuEntry, PANE_LEAST, PANE_SNAP, SPLIT_GAP,
+    Shell, access::Accessible,
+};
+use crate::tokens::shell::split_controls::{DOT, DOT_GAP, DOTS, DOTS_HOVERED, INSET, WIDTH};
 
 impl Shell {
     /// The gaps between the pages of the split view shown, which drag the pages' shares of the
@@ -71,6 +75,96 @@ impl Shell {
         );
         gaps.push(listener.absolute().size_0().into_any_element());
         gaps
+    }
+
+    /// Each page's split controls: a handle in the strip over it, the window's margin over the card
+    /// or the gap under the page above it stacked, whose menu changes the split's orientation, takes
+    /// the page out of it or closes it. Its look and place are ours, as Arc's aren't measured.
+    pub(super) fn pane_handles(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let panes = self.panes(self.selected);
+        if panes.len() < 2 || self.adding_pane.is_some() || self.page_fullscreen {
+            return Vec::new();
+        }
+        let (frame, _) = self.page_frame(self.viewport);
+        let stacked = self.stacked(self.selected);
+        let frames = pane_frames(frame, panes.len(), stacked, &self.shares(self.selected));
+        let (rest, hovered) = (self.palette.faint(DOTS), self.palette.faint(DOTS_HOVERED));
+        let plate = self.palette.plate(crate::palette::HOVERED_PLATE);
+        let mut handles = Vec::new();
+        for (index, (tab, pane)) in panes.into_iter().zip(frames).enumerate() {
+            let strip = if stacked && index > 0 { SPLIT_GAP } else { f32::from(frame.top()) };
+            let dots = (0..3).map(|_| div().size(px(DOT)).rounded_full().bg(rest));
+            let handle = div()
+                .id(("split-controls", index))
+                .group("split-controls")
+                .when(self.a11y, |handle| {
+                    handle.button_named("Split Controls").pressed_by_mouse_down(true, false)
+                })
+                .absolute()
+                .left(pane.center().x - px(WIDTH / 2.))
+                .top(pane.top() - px(strip))
+                .w(px(WIDTH))
+                .h(px(strip))
+                .flex()
+                .items_center()
+                .justify_center()
+                .block_mouse_except_scroll()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
+                        shell.split_controls(tab, point(pane.center().x, pane.top()), cx)
+                    }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(DOT_GAP))
+                        .w_full()
+                        .h(px(strip - 2. * INSET))
+                        .rounded(px((strip - 2. * INSET) / 2.))
+                        .group_hover("split-controls", |style| style.bg(plate))
+                        .children(dots.map(move |dot| {
+                            dot.group_hover("split-controls", move |style| style.bg(hovered))
+                        })),
+                );
+            handles.push(handle.into_any_element());
+        }
+        handles
+    }
+
+    /// The menu of `tab`'s split controls, under its handle at `position`: Change Orientation for
+    /// the split, and Separate Page from Split View and Close this Split Pane for `tab`, as the View
+    /// menu's commands do for the focused page.
+    pub(super) fn split_controls(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let items: Vec<(MenuEntry, MenuAction)> = vec![
+            (
+                MenuEntry::new("Change Orientation", true),
+                Box::new(move |shell, cx| {
+                    // check.sh waits for this line.
+                    log!("browser: command change-orientation via split controls");
+                    let stacked = shell.stacked(tab);
+                    shell.browser.set_split_stacked(tab, !stacked, cx)
+                }),
+            ),
+            (
+                MenuEntry::new("Separate Page from Split View", true),
+                Box::new(move |shell, cx| {
+                    log!("browser: command separate-pane via split controls");
+                    shell.separate_tab(tab, cx)
+                }),
+            ),
+            (
+                MenuEntry::new("Close this Split Pane", true),
+                Box::new(move |shell, cx| {
+                    log!("browser: command close-split-pane via split controls");
+                    shell.close_tab(tab, false, cx)
+                }),
+            ),
+        ];
+        // Over the card, never in the hidden sidebar's reveal.
+        self.show_menu_in(items, position, None, false, cx);
     }
 
     /// Where the pages of the split view shown start, and one after them would.
@@ -549,6 +643,33 @@ mod tests {
         let beside = point(frames[0].left() - px(20.), frames[0].center().y);
         assert!(!swipe(beside, true, cx), "the sidebar has no history");
         assert!(host.take().is_empty());
+    }
+
+    /// Each page of a split has its controls, whose menu changes the split's orientation, and
+    /// separates or closes that page, focused or not, and a page full screen has none.
+    #[gpui::test]
+    fn each_pages_split_controls_act_on_that_page(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10, 11, 12], 10, 0, 1200., cx);
+        let handles = |cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| shell.pane_handles(cx).len())
+        };
+        assert_eq!(handles(cx), 3);
+        host.take();
+        for (title, call) in [
+            ("Change Orientation", "split stacked 11 true"),
+            ("Separate Page from Split View", "separate 11"),
+            ("Close this Split Pane", "close 11"),
+        ] {
+            shell.update(cx, |shell, cx| shell.split_controls(11, point(px(600.), px(10.)), cx));
+            cx.update(|cx| host.choose(title, cx));
+            let mut calls = host.take();
+            calls.extend(host.take_edits());
+            assert!(calls.iter().any(|each| each == call), "{title}: {calls:?}");
+        }
+        shell.update(cx, |shell, _| shell.page_fullscreen = true);
+        assert_eq!(handles(cx), 0, "a page full screen has the whole window");
+        let (alone, _) = split_of(&[10], 10, 0, 1200., cx);
+        assert_eq!(alone.update(cx, |shell, cx| shell.pane_handles(cx).len()), 0);
     }
 
     #[gpui::test]

@@ -2941,6 +2941,7 @@ impl Render for Shell {
             .children(self.empty_card(cx))
             .children(self.crash_cards(cx))
             .children(self.pane_gaps(cx))
+            .children(self.pane_handles(cx))
             .children(self.side_panel(cx))
             .children(under)
             .children(sidebar)
