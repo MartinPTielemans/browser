@@ -1035,6 +1035,15 @@ impl link_preview::Host for LinkPreviewHost {
     fn keep(&self, window: u64, tab: u64) {
         unsafe { bc::bc_window_keep_preview(window, tab) };
     }
+
+    fn closed(&self, window: u64, closed: link_preview::Closed, undone: bool, cx: &mut App) {
+        let shell = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|each| each.id == window).map(|each| each.shell.clone())
+        });
+        if let Some(shell) = shell {
+            shell.update(cx, |shell, cx| shell.preview_closed(closed, undone, cx)).ok();
+        }
+    }
 }
 
 extern "C" fn link_preview_dismissed() {
@@ -1072,6 +1081,13 @@ unsafe extern "C" fn tab_link_to_site(
         return false;
     };
     let url = unsafe { CStr::from_ptr(url) }.to_owned();
+    // A call's link opens as a tab of the Space shown, the one used last, as it outlasts a look.
+    if link_preview::is_meeting(&url.to_string_lossy()) {
+        // check.sh waits for this line.
+        log!("browser: meeting link from {tab} opens as a tab");
+        update_app_later(move |_| open_tab(window, &url.to_string_lossy()));
+        return true;
+    }
     // Outside the navigation that asked, which the core cancels once this returns.
     update_app_later(move |cx| {
         let preview = unsafe { bc::bc_tab_open_preview(tab, url.as_ptr()) };
@@ -1081,7 +1097,7 @@ unsafe extern "C" fn tab_link_to_site(
         }
         let link = page.0.origin + point(px(x as f32), px(y as f32));
         let url = url.to_string_lossy().into_owned().into();
-        link_preview::show(window, preview, url, page, link, cx);
+        link_preview::show(window, preview, tab, url, page, link, cx);
     });
     true
 }
@@ -1868,6 +1884,31 @@ impl Browser for Engine {
 
     fn reopen_tab(&self, closed: u64, _: &mut App) -> u64 {
         unsafe { bc::bc_window_reopen_tab(self.window, closed) }
+    }
+
+    fn reopen_preview(
+        &self,
+        closed: &link_preview::Closed,
+        page: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+        let (window, closed) = (self.window, closed.clone());
+        // Outside the shell's update, as the core tells the shell of the tab it opens.
+        update_app_later(move |cx| {
+            let Ok(url) = CString::new(closed.url.as_ref()) else {
+                return;
+            };
+            let preview = unsafe { bc::bc_tab_open_preview(closed.over, url.as_ptr()) };
+            if preview == 0 {
+                log!("browser: link preview over {} not reopened", closed.over);
+                return;
+            }
+            link_preview::show(window, preview, closed.over, closed.url, page, closed.link, cx);
+        });
+    }
+
+    fn close_preview(&self, over: u64, cx: &mut App) -> bool {
+        link_preview::close_over(self.window, over, cx)
     }
 
     fn pinned_url(&self, tab: u64) -> String {
