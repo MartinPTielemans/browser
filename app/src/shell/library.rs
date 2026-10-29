@@ -190,7 +190,7 @@ pub(super) fn capture_id(path: &str) -> u64 {
 
 /// Whether a file is an image, a video, or neither, by its name, as the Library's Media lists the
 /// first two.
-fn is_video(name: &str) -> Option<bool> {
+pub(super) fn is_video(name: &str) -> Option<bool> {
     let extension = name.rsplit_once('.')?.1.to_ascii_lowercase();
     match extension.as_str() {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "heic" | "heif" | "bmp" | "tif"
@@ -440,6 +440,7 @@ impl Shell {
         if self.section == Section::Media {
             self.filter(true, cx);
         }
+        self.recent_downloads_changed(cx);
     }
 
     /// The icon `Browser::download_icon` asked for.
@@ -1500,7 +1501,7 @@ impl Shell {
 
     /// Opens a file of the Library's Media in a tab at the top of the Today tabs, where the page
     /// shows a picture or plays a video, and closes the Library.
-    fn open_media(&mut self, path: &str, cx: &mut Context<Self>) {
+    pub(super) fn open_media(&mut self, path: &str, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: open media {path}");
         self.browser.open_at(&[file_url(path)], false, 0, 0, cx);
@@ -1509,7 +1510,7 @@ impl Shell {
 
     /// The menu a right-click on a capture's tile shows: open it, or delete it from the Library, as
     /// Arc deletes a capture, to the system's Trash, from where it can come back.
-    fn capture_menu(
+    pub(super) fn capture_menu(
         &mut self,
         path: SharedString,
         position: Point<Pixels>,
@@ -1520,20 +1521,24 @@ impl Shell {
             MenuEntry::line(),
             MenuEntry::new("Delete", true).destructive(),
         ];
+        let chosen = move |chosen, shell: &mut Shell, cx: &mut Context<Shell>| match chosen {
+            Some(0) => shell.open_media(&path, cx),
+            Some(2) => shell.delete_capture(&path, cx),
+            _ => {}
+        };
+        if self.library.is_none() {
+            // From the recent downloads' rows, in the reveal's panel while the sidebar is hidden.
+            let in_reveal = self.sidebar_hidden;
+            return self.context_menu_in(entries, position, in_reveal, Box::new(chosen), cx);
+        }
         let shell = cx.weak_entity();
         self.browser.context_menu(
             entries,
             position,
             false,
             Look { light: false, ..self.menu_look() },
-            Box::new(move |chosen, cx| {
-                shell
-                    .update(cx, |shell, cx| match chosen {
-                        Some(0) => shell.open_media(&path, cx),
-                        Some(2) => shell.delete_capture(&path, cx),
-                        _ => {}
-                    })
-                    .ok();
+            Box::new(move |at, cx| {
+                shell.update(cx, |shell, cx| chosen(at, shell, cx)).ok();
             }),
             cx,
         );
@@ -1918,6 +1923,12 @@ impl Shell {
                 shell.hover_recent_downloads(false, *hovered, window, cx)
             }))
             .on_click(cx.listener(move |shell, _, _, cx| shell.run(command, "sidebar", cx)))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|shell, event: &MouseDownEvent, _, cx| {
+                    shell.hover_kinds_menu(event.position, cx)
+                }),
+            )
             .child(svg().path("icons/archive.svg").size(px(16.)).text_color(self.palette.glyph(NAV)))
             .when_some(progress, |button, done| {
                 button.child(

@@ -556,6 +556,12 @@ impl Browser for Fake {
     // Nor captures.
     fn list_captures(&self, _: &mut App) {}
 
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        browser::shell::HOVER_ALL
+    }
+
+    fn set_hover_kinds(&self, _: u32, _: &mut App) {}
+
     // The made-up downloads have no files, so each is gone already and none drags.
     fn trash(&self, _: &str, _: &mut App) -> bool {
         true
