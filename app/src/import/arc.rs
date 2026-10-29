@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::found::{Found, FromProfile, Node, Space, Tab, opens_here};
-use crate::theme::{Appearance, MAX_COLORS, Texture, Theme};
+use crate::theme::{Appearance, MAX_COLORS, Place, Texture, Theme, place_of};
 
 /// The sidebar `json` holds, or why it can't be read.
 pub fn parse(json: &str) -> Result<Found, String> {
@@ -269,9 +269,9 @@ fn window_appearance(value: Option<&Value>) -> Option<Appearance> {
 /// One of Arc's looks: its first colour as our main one, as many colours as it has up to ours,
 /// counting a gradient's third, overlaid one, its intensity, its grain and our texture for its;
 /// and the appearance its `translucencyStyle` names, else automatic. Arc places its colours
-/// freely, where ours keep set angles from the main one, so the second takes its place from the
-/// main one and the third comes exactly, as it lies over the other two. A basic colour is one
-/// colour with no grain.
+/// freely, as ours can be, so each of the others is placed in the field at its own hue and
+/// lightness, at the main one's saturation, which is the theme's, and the third also comes
+/// exactly, as it lies over the other two. A basic colour is one colour with no grain.
 fn look(background: &Value) -> Option<(Theme, Appearance)> {
     let style = background.pointer("/style/color/_0")?;
     let (colors, config) = if let Some(gradient) = style.pointer("/blendedGradient/_0") {
@@ -312,9 +312,23 @@ fn look(background: &Value) -> Option<(Theme, Appearance)> {
         grain: if basic { 0. } else { factor("noiseFactor").unwrap_or(0.) },
         texture: overlay.and_then(Value::as_str).map_or(Texture::Noise, texture),
         third: colors.get(2).copied().filter(|_| theme.count == MAX_COLORS),
+        places: places(&theme, &colors),
         ..theme
     };
     Some((theme, appearance))
+}
+
+/// Where `colors` after the main one go round `theme`'s main one, each at its own place in the
+/// field; none for a theme of one colour.
+fn places(theme: &Theme, colors: &[u32]) -> Option<[Place; 2]> {
+    let place = |index: usize| match colors.get(index) {
+        Some(&color) => {
+            let at = Theme::of_color(color);
+            place_of(theme.x, theme.y, at.x, at.y)
+        }
+        None => theme.place(index),
+    };
+    (theme.count > 1).then(|| [place(1), place(2)])
 }
 
 /// Ours for Arc's texture `name`; its grain, or one it doesn't have yet, as noise.

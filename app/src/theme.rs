@@ -7,9 +7,10 @@
 //! The field is a disc of HSL colours about its centre (Arc 1.170 rec at 2×, twelve handles): the
 //! hue is the angle clockwise from the right, saturation is 1, and lightness is the distance from
 //! the centre in half the field's width, black at the centre and white at the edge. A second colour
-//! is the main one's complement; with a third the two sit 150° and 210° round from it. Dragging
-//! moves them together. A swatch places the main colour at its hue and lightness and keeps its
-//! saturation, the others' too, until a handle is dragged.
+//! is the main one's complement; with a third the two sit 150° and 210° round from it, until one
+//! is dragged to a place of its own. Dragging the main one moves them all with it. A swatch places
+//! the main colour at its hue and lightness and keeps its saturation, the others' too, until a
+//! handle is dragged.
 
 use std::{cell::OnceCell, sync::Arc};
 
@@ -105,13 +106,24 @@ pub struct Theme {
     /// 0 to 1: how much grain lies over them, and in what.
     pub grain: f32,
     pub texture: Texture,
-    /// The third colour exactly, 0xRRGGBB, as Arc places it freely, in place of the one 210° from
-    /// the main one; the picker's own themes place it.
+    /// The third colour exactly, 0xRRGGBB, as Arc's is, standing in for the field's colour at its
+    /// handle until the picker places or counts the colours again.
     pub third: Option<u32>,
     pub appearance: Appearance,
+    /// Where the second and third colours are from the main one, once either has a place of its
+    /// own, as Arc's do; none while they sit at the set angles round it.
+    pub places: Option<[Place; 2]>,
     /// The look a dark window draws instead, where the theme has two, as Arc's can; the picker
     /// makes themes of one.
     pub dark: Option<Look>,
+}
+
+/// Where a colour other than the main one is, from the main one: `turn` degrees further round the
+/// field's centre clockwise, and `lift` further out from it, in half the field's width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Place {
+    pub turn: f32,
+    pub lift: f32,
 }
 
 /// A theme's colours, intensity, grain and texture, without its appearance.
@@ -125,6 +137,7 @@ pub struct Look {
     pub grain: f32,
     pub texture: Texture,
     pub third: Option<u32>,
+    pub places: Option<[Place; 2]>,
 }
 
 impl Theme {
@@ -141,22 +154,23 @@ impl Theme {
             texture: Texture::Noise,
             third: None,
             appearance: Appearance::Automatic,
+            places: None,
             dark: None,
         }
     }
 
     /// The theme's own look, the one a light window draws.
     pub fn look(&self) -> Look {
-        let Theme { x, y, saturation, count, intensity, grain, texture, third, .. } = *self;
-        Look { x, y, saturation, count, intensity, grain, texture, third }
+        let Theme { x, y, saturation, count, intensity, grain, texture, third, places, .. } = *self;
+        Look { x, y, saturation, count, intensity, grain, texture, third, places }
     }
 
     /// The theme as a window draws it, `dark` or light: its dark look on a dark window where it
     /// has one, as a theme of one look.
     pub fn shown(self, dark: bool) -> Theme {
         let look = self.dark.filter(|_| dark).unwrap_or(self.look());
-        let Look { x, y, saturation, count, intensity, grain, texture, third } = look;
-        Theme { x, y, saturation, count, intensity, grain, texture, third, dark: None, ..self }
+        let Look { x, y, saturation, count, intensity, grain, texture, third, places } = look;
+        Theme { x, y, saturation, count, intensity, grain, texture, third, places, dark: None, ..self }
     }
 
     /// A theme of `color`, 0xRRGGBB, alone: in the field at its hue and HSL lightness, and at its
@@ -178,10 +192,21 @@ impl Theme {
         }
     }
 
+    /// Where colour `index` other than the main one is from it: its own place, else its set angle
+    /// at the main one's distance.
+    pub fn place(&self, index: usize) -> Place {
+        match self.places {
+            Some(places) if (1..MAX_COLORS).contains(&index) => places[index - 1],
+            _ => Place { turn: Self::offsets(self.count).get(index).copied().unwrap_or(0.), lift: 0. },
+        }
+    }
+
     /// Where colour `index` is in the field, as `x` and `y` are.
     pub fn handle(&self, index: usize) -> (f32, f32) {
-        let offset = Self::offsets(self.count).get(index).copied().unwrap_or(0.);
-        rotated(self.x, self.y, offset)
+        if index == 0 {
+            return (self.x, self.y);
+        }
+        placed(self.x, self.y, self.place(index))
     }
 
     /// The colours, the main one first, 0xRRGGBB.
@@ -207,27 +232,32 @@ impl Theme {
         color_at(self.x, self.y, self.saturation)
     }
 
-    /// The theme with colour `index` dragged to (x, y): the others keep their places round it,
-    /// and all take the field's colours there, a third from Arc too.
+    /// The theme with colour `index` dragged to (x, y): the main one takes the others with it,
+    /// keeping their places round it, and another goes there alone. All take the field's colours
+    /// there, a third from Arc too.
     pub fn moved(self, index: usize, x: f32, y: f32) -> Theme {
-        let offset = Self::offsets(self.count).get(index).copied().unwrap_or(0.);
-        let (x, y) = rotated(x, y, -offset);
         let (x, y) = in_disc(x, y);
-        if (x, y) == (self.x, self.y) {
+        if (x, y) == self.handle(index) {
             return self;
         }
-        Theme { x, y, saturation: 1., third: None, ..self }
+        if index == 0 {
+            return Theme { x, y, saturation: 1., third: None, ..self };
+        }
+        let mut places = [self.place(1), self.place(2)];
+        places[index.min(MAX_COLORS - 1) - 1] = place_of(self.x, self.y, x, y);
+        Theme { places: Some(places), saturation: 1., third: None, ..self }
     }
 
-    /// The theme with `count` colours, from 1 to MAX_COLORS, each in its place in the field.
+    /// The theme with `count` colours, from 1 to MAX_COLORS, back at the set angles round the main
+    /// one, each in its place in the field.
     pub fn with_count(self, count: usize) -> Theme {
-        Theme { count: count.clamp(1, MAX_COLORS), third: None, ..self }
+        Theme { count: count.clamp(1, MAX_COLORS), third: None, places: None, ..self }
     }
 
     /// The text the core keeps; the saturation only once a swatch has set it, so a theme from the
-    /// field reads as it did before swatches kept theirs; the texture and third colour only where
-    /// a theme has them; and a dark look as its place, count, intensity, grain and saturation, then
-    /// its texture and third colour where it has either.
+    /// field reads as it did before swatches kept theirs; the texture, third colour and places
+    /// only where a theme has them; and a dark look as its place, count, intensity, grain and
+    /// saturation, then its texture, third colour and places where it has them.
     pub fn to_text(&self) -> String {
         let text = format!(
             "x={:.4} y={:.4} colors={} intensity={:.3} grain={:.3} appearance={}",
@@ -248,13 +278,21 @@ impl Theme {
         if let Some(third) = self.third {
             text += &format!(" third={third:06x}");
         }
-        if let Some(Look { x, y, saturation, count, intensity, grain, texture, third }) = self.dark {
+        if let Some(places) = self.places {
+            text += &format!(" places={}", places_text(places, ","));
+        }
+        if let Some(Look { x, y, saturation, count, intensity, grain, texture, third, places }) =
+            self.dark
+        {
             text += &format!(" dark={x:.4},{y:.4},{count},{intensity:.3},{grain:.3},{saturation:.4}");
             if texture != Texture::Noise || third.is_some() {
                 text += &format!(",{}", texture.name());
             }
             if let Some(third) = third {
                 text += &format!(",{third:06x}");
+            }
+            if let Some(places) = places {
+                text += &format!(",places:{}", places_text(places, ":"));
             }
         }
         text
@@ -290,6 +328,7 @@ impl Theme {
                 }
                 "texture" => theme.texture = Texture::named(value).unwrap_or(theme.texture),
                 "third" => theme.third = hex(value),
+                "places" => theme.places = parse_places(value, ','),
                 "dark" => theme.dark = parse_look(value),
                 _ => {}
             }
@@ -300,7 +339,7 @@ impl Theme {
 }
 
 /// A dark look as `to_text` writes it: x, y, count, intensity, grain and saturation, then its
-/// texture and third colour where it has them.
+/// texture, third colour and places where it has them, each known by its form.
 fn parse_look(text: &str) -> Option<Look> {
     let mut items = text.split(',');
     let numbers: Vec<f32> = (items.by_ref().take(6))
@@ -312,9 +351,37 @@ fn parse_look(text: &str) -> Option<Look> {
     let (x, y) = in_disc(x, y);
     let count = (count as usize).clamp(1, MAX_COLORS);
     let [intensity, grain, saturation] = [intensity, grain, saturation].map(|n| n.clamp(0., 1.));
-    let texture = items.next().and_then(Texture::named).unwrap_or_default();
-    let third = items.next().and_then(hex);
-    Some(Look { x, y, saturation, count, intensity, grain, texture, third })
+    let (mut texture, mut third, mut places) = (Texture::Noise, None, None);
+    for item in items {
+        if let Some(named) = Texture::named(item) {
+            texture = named;
+        } else if let Some(color) = hex(item) {
+            third = Some(color);
+        } else if let Some(text) = item.strip_prefix("places:") {
+            places = parse_places(text, ':');
+        }
+    }
+    Some(Look { x, y, saturation, count, intensity, grain, texture, third, places })
+}
+
+/// The second colour's turn and lift, then the third's, between `between`.
+fn places_text([second, third]: [Place; 2], between: &str) -> String {
+    format!(
+        "{:.2}{between}{:.4}{between}{:.2}{between}{:.4}",
+        second.turn, second.lift, third.turn, third.lift
+    )
+}
+
+/// Places as `places_text` writes them.
+fn parse_places(text: &str, between: char) -> Option<[Place; 2]> {
+    let numbers: Vec<f32> = (text.split(between))
+        .map(|n| n.parse::<f32>().ok().filter(|n| n.is_finite()))
+        .collect::<Option<_>>()?;
+    let [turn, lift, third_turn, third_lift] = numbers[..] else {
+        return None;
+    };
+    let place = |turn: f32, lift: f32| Place { turn: turn.rem_euclid(360.), lift: lift.clamp(-1., 1.) };
+    Some([place(turn, lift), place(third_turn, third_lift)])
 }
 
 /// 0xRRGGBB of six hex digits.
@@ -322,10 +389,18 @@ fn hex(text: &str) -> Option<u32> {
     (text.len() == 6).then(|| u32::from_str_radix(text, 16).ok()).flatten()
 }
 
-/// (x, y) turned `degrees` clockwise about the field's centre.
-fn rotated(x: f32, y: f32, degrees: f32) -> (f32, f32) {
-    let (sin, cos) = degrees.to_radians().sin_cos();
-    (x * cos - y * sin, x * sin + y * cos)
+/// Where `place` is from a main colour at (x, y): turned round the field's centre, and moved out
+/// or in, staying in the field.
+pub fn placed(x: f32, y: f32, place: Place) -> (f32, f32) {
+    let distance = (x.hypot(y) + place.lift).clamp(0., 1.);
+    let angle = y.atan2(x) + place.turn.to_radians();
+    (distance * angle.cos(), distance * angle.sin())
+}
+
+/// The place of (x, y) from a main colour at (main_x, main_y).
+pub fn place_of(main_x: f32, main_y: f32, x: f32, y: f32) -> Place {
+    let turn = (y.atan2(x) - main_y.atan2(main_x)).to_degrees().rem_euclid(360.);
+    Place { turn, lift: x.hypot(y) - main_x.hypot(main_y) }
 }
 
 /// (x, y), brought in to the field's disc.
