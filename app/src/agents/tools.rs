@@ -42,7 +42,10 @@ pub fn list() -> Value {
             "name": "list_tabs",
             "title": "List tabs",
             "description": "List the tabs in your Space: each one's id, title and URL. * marks the tab you used last.",
-            "inputSchema": { "type": "object", "properties": {} },
+            "inputSchema": {
+                "type": "object",
+                "properties": { "space": { "type": "integer", "description": "A Space's id. Only your own Space's tabs are listed: without it, yours." } },
+            },
             "annotations": { "readOnlyHint": true, "openWorldHint": false },
         },
         {
@@ -265,6 +268,17 @@ pub fn tab_argument(arguments: &Value) -> Result<Option<u64>, String> {
 
 fn not_a_tab() -> String {
     "tab is a tab's id, a number from list_tabs.".into()
+}
+
+/// list_tabs' `space` argument, as a number or a string of one.
+pub fn space_argument(arguments: &Value) -> Result<Option<u64>, String> {
+    let not_a_space = || "space is a Space's id, a number.".to_string();
+    match arguments.get("space") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => number.as_u64().map(Some).ok_or_else(not_a_space),
+        Some(Value::String(text)) => text.trim().parse().map(Some).map_err(|_| not_a_space()),
+        Some(_) => Err(not_a_space()),
+    }
 }
 
 /// What an action an agent took is, for the activity log, by the name the core's entry gives it.

@@ -60,6 +60,19 @@ impl Browser for Core {
         pinned.chain(tabs(bc::bc_space_today, space)).collect()
     }
 
+    fn agent_tabs(&self, agent: &str, space: u64, cx: &App) -> Vec<TabInfo> {
+        let Ok(agent) = CString::new(agent) else {
+            return Vec::new();
+        };
+        let list = |tabs: *mut bc::bc_id, capacity| unsafe {
+            bc::bc_agent_list_tabs(agent.as_ptr(), space, tabs, capacity)
+        };
+        let mut tabs = vec![0; list(std::ptr::null_mut(), 0)];
+        let count = list(tabs.as_mut_ptr(), tabs.len());
+        tabs.truncate(count);
+        (tabs.into_iter()).map(|tab| self.tab(tab, cx)).collect()
+    }
+
     fn tab(&self, tab: u64, cx: &App) -> TabInfo {
         // Every window's shell has every Space's tabs.
         let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));

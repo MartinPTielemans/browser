@@ -880,11 +880,11 @@ BC_EXPORT bc_id bc_space_create(const char* name);
 // A Space is the user's or an agent's, from when it's made for as long as it lives, and saved with
 // it (decision 8). An agent is an AI client, such as Claude Code, driving the browser through the
 // core. The rules its calls keep, once there are any:
-// - It works only in its own Space: bc_agent_may_act answers which tabs are its to act on. The
-//   user's tabs and favorites never are, and no tab moves into an agent's Space, by
-//   bc_tab_move_to_space or bc_tab_move, until the user can give an agent a tab, with its
-//   activity-log entry. A tab the user opens in one, while a window shows it, is the agent's like
-//   the rest.
+// - It works only in its own Space: bc_agent_may_act answers which tabs are its to act on, and
+//   bc_agent_list_tabs lists that Space's tabs alone. The user's tabs and favorites never are, and
+//   no tab moves into an agent's Space, by bc_tab_move_to_space or bc_tab_move, until the user can
+//   give an agent a tab, with its activity-log entry. A tab the user opens in one, while a window
+//   shows it, is the agent's like the rest.
 // - Its actions never move the user's focus: no window shows another Space or tab, and no page
 //   takes the keyboard, because of one.
 // - The user can watch it, as an agent's Space shows in the windows like the others, take over in
@@ -945,6 +945,13 @@ BC_EXPORT bc_id bc_agent_open_tab(const char* agent, const char* url);
 // Loads the http(s) |url| in |tab|, if it's in the Space of the agent with the id |agent|, and
 // returns whether it does: never another URL. Agent code calls it after bc_agent_may_act.
 BC_EXPORT bool bc_agent_navigate(const char* agent, bc_id tab, const char* url);
+
+// Copies up to |capacity| of the tabs of |space| into |tabs|, its pinned tabs top to bottom without
+// their folders, then its Today tabs, and returns how many it has, if |space| is the Space of the
+// agent with the id |agent|. Of any other Space, the user's or another agent's, it copies none and
+// returns 0. Agent code calls it for an agent's list of tabs, never bc_space_pinned or
+// bc_space_today.
+BC_EXPORT size_t bc_agent_list_tabs(const char* agent, bc_id space, bc_id* tabs, size_t capacity);
 
 // What bc_agent_page does in a tab. Each but SCREENSHOT then answers with the page's accessibility
 // tree, once the page has settled, as an action can start a navigation.
