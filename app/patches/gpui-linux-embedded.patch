@@ -1307,7 +1307,7 @@ index cbc962bcff..4c439cadad 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git a/crates/gpui_linux/src/linux/wayland/client.rs b/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..0eca70cbbe 100644
+index 2d40cf7fa9..62f9026cdd 100644
 --- a/crates/gpui_linux/src/linux/wayland/client.rs
 +++ b/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -1961,7 +1961,7 @@ index 2d40cf7fa9..0eca70cbbe 100644
  impl Dispatch<zwp_pointer_gesture_pinch_v1::ZwpPointerGesturePinchV1, ()>
      for WaylandClientStatePtr
  {
-@@ -3479,3 +3737,315 @@ mod tests {
+@@ -3479,3 +3737,322 @@ mod tests {
          );
      }
  }
@@ -2138,9 +2138,13 @@ index 2d40cf7fa9..0eca70cbbe 100644
 +        .find(|window| window.embedded_parent() == Some(parent))
 +}
 +
-+/// The size of GPUI's window in the embedder's `parent` surface.
++/// The size of GPUI's window in the embedder's `parent` surface, or of GPUI's own window of that
++/// surface, one the embedder showed (`show_window`).
 +pub(crate) fn embedded_size(parent: *mut std::ffi::c_void) -> Option<Size<Pixels>> {
-+    Some(embedded_window_with_parent(parent)?.bounds_size())
++    match embedded_window_with_parent(parent) {
++        Some(window) => Some(window.bounds_size()),
++        None => Some(overlay_window(parent)?.bounds_size()),
++    }
 +}
 +
 +/// The size of the overlay window of the `view` surface.
@@ -2194,8 +2198,9 @@ index 2d40cf7fa9..0eca70cbbe 100644
 +    connection.flush().ok();
 +}
 +
-+/// Shows the overlay window of the `view` surface over the embedder's `parent` surface
-+/// (`crate::linux::show_overlay`), with the keys if `keyboard`.
++/// Shows the overlay window of the `view` surface over the embedder's `parent` surface, or over
++/// GPUI's own window of that surface, one the embedder showed (`show_window`), as a menu over an
++/// app's settings (`crate::linux::show_overlay`), with the keys if `keyboard`.
 +pub(crate) fn show_overlay(
 +    view: *mut std::ffi::c_void,
 +    parent: *mut std::ffi::c_void,
@@ -2203,9 +2208,11 @@ index 2d40cf7fa9..0eca70cbbe 100644
 +    keyboard: bool,
 +) -> anyhow::Result<()> {
 +    let window = overlay_window(view).context("no window has the overlay's surface")?;
-+    let parent = (embedded_window_with_parent(parent))
-+        .and_then(|embedded| embedded.embedded_parent_surface())
-+        .context("GPUI has no window in the overlay's parent")?;
++    let parent = match embedded_window_with_parent(parent) {
++        Some(embedded) => embedded.embedded_parent_surface(),
++        None => overlay_window(parent).map(|own| own.surface()),
++    }
++    .context("GPUI has no window in or of the overlay's parent")?;
 +    window.show_over(&parent, bounds)?;
 +    if keyboard {
 +        window.set_focused(true);
