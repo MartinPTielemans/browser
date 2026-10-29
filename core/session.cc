@@ -467,6 +467,7 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("archive_after", saved.settings.archive_after.InSecondsF())
                            .Set("haptics", saved.settings.haptics)
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
+                           .Set("archive_noted", saved.settings.archive_noted)
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
                            .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
                            .Set("unload_idle_tabs", saved.settings.unload_idle_tabs)
@@ -702,6 +703,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.haptics = settings->FindBool("haptics").value_or(true);
     saved.settings.warn_before_quitting =
         settings->FindBool("warn_before_quitting").value_or(true);
+    saved.settings.archive_noted = settings->FindBool("archive_noted").value_or(false);
     saved.settings.warn_moving_profiles =
         settings->FindBool("warn_moving_profiles").value_or(true);
     if (const std::string* scope = settings->FindString("favorites_scope")) {

@@ -98,6 +98,15 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
     ("30 days", 30. * 24. * 3600.),
 ];
 
+/// How long a Today tab waits unseen before it's archived, in words: "12 hours".
+pub(crate) fn archive_after_words() -> String {
+    let after = unsafe { bc::bc_archive_after() };
+    match ARCHIVE_AFTER.iter().find(|&&(_, seconds)| seconds == after) {
+        Some((label, _)) => label.trim_end_matches(" (default)").to_owned(),
+        None => format!("{:.0} hours", after / 3600.),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     General,

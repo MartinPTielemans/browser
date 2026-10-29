@@ -3353,6 +3353,8 @@ fn finish_opening(
     {
         toast_host.view.set(view);
         unsafe { platform::host_add_toast(view) };
+        // Auto-archive at launch can come before there's a toast to show its note in.
+        show_archive_note(cx);
     }
     if let Some(capture) = capture::open(Rc::new(CaptureHost { toast: toast_host }), cx)
         && let Ok(view) = capture.update(cx, |_, window, _| ns_view(window))
@@ -4134,6 +4136,41 @@ unsafe extern "C" fn crash_report_offered(_: *mut c_void) {
     update_app(move |cx| {
         with_overlays(move |cx| toast::show_until_answered(text, buttons, cx), cx)
     });
+}
+
+unsafe extern "C" fn archive_note_changed(_: *mut c_void) {
+    // Before the toast's window is made, as at launch, making it shows the note.
+    update_app_later(show_archive_note);
+}
+
+/// The note on the first tabs auto-archive took, as Arc's banner explains its own, while it's still
+/// to be answered: a toast that stays until one of its buttons is pressed, as the crash report's
+/// offer does, so it's never missed. Both buttons dismiss it for good.
+fn show_archive_note(cx: &mut App) {
+    if !unsafe { bc::bc_archive_note() } {
+        return;
+    }
+    let view = toast::Button {
+        label: toast::Label::Text("View Archive".into()),
+        name: "view archive",
+        run: Rc::new(|_, cx| {
+            unsafe { bc::bc_dismiss_archive_note() };
+            let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));
+            if let Some(shell) = shell {
+                let view = |shell: &mut Shell, cx: &mut Context<Shell>| {
+                    shell.run(Command::ViewArchive, "archive note", cx)
+                };
+                shell.update(cx, view).ok();
+            }
+        }),
+    };
+    let dismiss = toast::Button {
+        label: toast::Label::Glyph("icons/x.svg"),
+        name: "dismiss",
+        run: Rc::new(|_, _| unsafe { bc::bc_dismiss_archive_note() }),
+    };
+    let text = format!("Tabs unseen for {} went to the archive.", settings::archive_after_words());
+    toast::show_until_answered(&text, vec![view, dismiss], cx);
 }
 
 unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
@@ -5158,6 +5195,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
+        archive_note_changed: Some(archive_note_changed),
         ..Default::default()
     };
     (args, host)
