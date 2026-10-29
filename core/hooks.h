@@ -107,6 +107,9 @@ extern void (*g_browser_core_populate_frame_binders)(
 // login's password, in place of Chrome's bubble, which hangs from a toolbar the core's windows
 // don't have.
 extern void (*g_browser_core_password_prompt)(content::WebContents* contents, bool show);
+// components/password_manager/core/browser/password_generation_frame_helper.cc: Chrome generates
+// passwords on new-password fields with no Google account to sync them to.
+extern bool g_browser_core_generates_passwords;
 // chrome/browser/app_controller_mac.mm: opens the links another app sent, such as a link clicked in
 // Mail or an .html file from Finder, in place of Chrome's tabs for them. Those that launched the
 // browser come once it has finished launching, before the app has started.

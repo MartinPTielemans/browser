@@ -115,6 +115,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
     widevine::Start();
+    PasswordOffer::AllowGeneration();
   }
 
   void PreBrowserStart() override {

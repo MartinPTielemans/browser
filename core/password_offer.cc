@@ -15,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
 #include "chrome/browser/ui/actions/chrome_action_id.h"
@@ -32,6 +33,7 @@
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace browser_core {
 
@@ -163,6 +165,16 @@ void PasswordOffer::WatchKey(content::WebContents* contents) {
   if (!key->Watching()) {
     key->Watch(*actions);
   }
+}
+
+void PasswordOffer::AllowGeneration() {
+  g_browser_core_generates_passwords = true;
+  // Chrome's popup says the password is saved to Google Password Manager for the account's email,
+  // empty with no account. Chrome's words for a password saved on this device take its place. The
+  // popup still gives it the email, which takes the empty $2 at the end.
+  ui::ResourceBundle::GetSharedInstance().OverrideLocaleStringResource(
+      IDS_PASSWORD_GENERATION_PROMPT_GOOGLE_PASSWORD_MANAGER,
+      l10n_util::GetStringFUTF16(IDS_PASSWORD_BUBBLES_FOOTER_SAVING_ON_DEVICE, u"$1") + u"$2");
 }
 
 void PasswordOffer::ShowAgain(bc_id tab) {
