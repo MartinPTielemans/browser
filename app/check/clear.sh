@@ -606,7 +606,12 @@ send move $site_controls_point
 expect '^browser: sidebar tools shown$' "the URL field's buttons didn't show under the pointer again"
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open after Share"
-# The button again closes them.
+# The button again closes them. On Linux the sidebar hears the pointer leave as they show, and its
+# buttons fade under it, so the pointer comes back over the button first.
+if [ "$(uname)" = Linux ]; then
+  send move $site_controls_point
+  expect '^browser: sidebar tools shown$' "the URL field's buttons didn't show under the pointer again"
+fi
 send click $site_controls_point
 expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave"
