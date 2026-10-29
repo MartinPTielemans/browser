@@ -132,6 +132,9 @@ pub trait Browser {
     /// Deletes the cookies, or else the cache, the profile keeps for the site of the tab's page,
     /// then reloads it.
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
+    /// Turns Developer Mode on or off for the site of the tab's page, in its profile. The user's
+    /// view: agents get none.
+    fn set_developer_mode(&self, tab: u64, on: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
     /// Answers what an agent asks (Shell::set_agent_question), if it still asks.
