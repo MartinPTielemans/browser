@@ -1,11 +1,12 @@
 //! Several sidebar rows chosen at once, as Arc's ⌘-click and ⇧-click choose them, for what's
-//! done to them together: ⌘W closes them and ⇧⌘C copies their links. The tab shown stays the
-//! one shown; the others are drawn with the secondary fill. A plain click, Esc or another Space
-//! lets them go.
+//! done to them together: ⌘W closes them, ⇧⌘C copies their links, and ⌘D, New Folder and their
+//! menu pin, folder or move them, each as one step to undo. The tab shown stays the one shown;
+//! the others are drawn with the secondary fill. A plain click, Esc or another Space lets them
+//! go.
 
-use gpui::{Context, MouseDownEvent};
+use gpui::{Context, MouseDownEvent, SharedString};
 
-use super::{Edit, Shell, What, clean_link};
+use super::{Edit, NEW_FOLDER, Shell, What, clean_link};
 
 impl Shell {
     /// The rows that can be chosen, in the sidebar's order: the shown Space's pinned tabs, outside
@@ -154,5 +155,68 @@ impl Shell {
         if !links.is_empty() {
             self.copy(&links.join("\n"), "Copied URLs", cx);
         }
+    }
+
+    /// Whether ⌘D and the chosen rows' menu pin them: if any is a Today tab. Otherwise they unpin.
+    pub(super) fn chosen_pin(&self) -> bool {
+        let today = self.today();
+        self.chosen.iter().any(|row| today.contains(row))
+    }
+
+    /// Pins the chosen Today tabs, or unpins the chosen rows if all are pinned, in their order.
+    pub(super) fn pin_chosen(&mut self, cx: &mut Context<Self>) {
+        let pin = self.chosen_pin();
+        let today = self.today();
+        let mut rows: Vec<u64> = (self.chosen_in_order().into_iter())
+            .filter(|row| today.contains(row) == pin)
+            .collect();
+        // Pinning puts a tab at the bottom of the pinned tabs and unpinning at the top of Today.
+        if !pin {
+            rows.reverse();
+        }
+        let mut edits = Vec::new();
+        for row in rows {
+            edits.extend(self.put_back(row));
+            self.browser.set_pinned(row, pin, cx);
+        }
+        let what = if pin { What::PIN_TABS } else { What::UNPIN_TABS };
+        self.keep(what, (!edits.is_empty()).then_some(Edit::Many(edits)), cx);
+    }
+
+    /// Moves the chosen rows to `space`, a Space of the same profile, in their order, and lets
+    /// them go.
+    pub(super) fn move_chosen_to_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        let today = self.today();
+        let (today_rows, pinned): (Vec<u64>, Vec<u64>) =
+            self.chosen_in_order().into_iter().partition(|row| today.contains(row));
+        let mut edits = Vec::new();
+        // A pinned tab goes to the bottom of the Space's pinned tabs and a Today tab to the top
+        // of its Today.
+        for row in pinned.into_iter().chain(today_rows.into_iter().rev()) {
+            edits.extend(self.put_back(row));
+            self.browser.move_to_space(row, space, cx);
+        }
+        self.unchoose(cx);
+        self.keep(What::MOVE_TABS_TO_SPACE, (!edits.is_empty()).then_some(Edit::Many(edits)), cx);
+    }
+
+    /// New Folder with rows chosen pins them into a new folder at the bottom of the pinned tabs,
+    /// in their order, as Arc's does, and names it as New Folder does.
+    pub(super) fn folder_chosen(&mut self, cx: &mut Context<Self>) {
+        let name = SharedString::from(NEW_FOLDER);
+        let folder = self.browser.create_folder(self.space, &name, 0, usize::MAX, cx);
+        if folder == 0 {
+            return;
+        }
+        let mut edits = vec![Edit::Delete(folder)];
+        let mut index = 0;
+        for row in self.chosen_in_order() {
+            edits.extend(self.put_back(row));
+            self.browser.move_tab(row, true, folder, index, cx);
+            index += self.panes(row).len();
+        }
+        self.unchoose(cx);
+        self.keep(What::NEW_FOLDER, Some(Edit::Many(edits)), cx);
+        self.name_folder(folder, name, cx);
     }
 }

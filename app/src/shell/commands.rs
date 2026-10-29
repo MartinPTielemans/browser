@@ -809,6 +809,7 @@ impl Shell {
                 }
                 return;
             }
+            Command::TogglePin if !self.chosen.is_empty() => return self.pin_chosen(cx),
             Command::TogglePin => {
                 if self.selected != 0 {
                     let pinned = self.pinned().contains(&self.selected);
@@ -821,6 +822,7 @@ impl Shell {
             }
             Command::DuplicateTab => return self.browser.duplicate(self.selected, cx),
             Command::RenameTab => return self.rename_tab(self.selected, cx),
+            Command::NewFolder if !self.chosen.is_empty() => return self.folder_chosen(cx),
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.fold_folders(false, cx),
             Command::ExpandFolders => return self.fold_folders(true, cx),
