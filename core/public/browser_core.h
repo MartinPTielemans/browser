@@ -447,6 +447,11 @@ typedef struct bc_page_menu_item {
   bool checked;
 } bc_page_menu_item;
 
+// Where a link dragged over a page is (bc_host's tab_link_dragged).
+#define BC_LINK_DRAG_OVER 0
+#define BC_LINK_DRAG_LEFT 1
+#define BC_LINK_DRAG_DROP 2
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -749,6 +754,14 @@ typedef struct bc_host {
   // over |window|, and answer with bc_window_answer_downloads. A window asks one at a time. The Mac
   // asks in Chrome's own alert as the app quits. The user's: agents get none, as they can't quit.
   void (*window_downloads_question)(void* context, bc_id window, int count, bool last_private);
+  // The user drags a link to |url|, an http or https address, over the page of |tab|, at (|x|,
+  // |y|) in points from the top-left of its view: BC_LINK_DRAG_OVER as it moves there, and
+  // BC_LINK_DRAG_DROP as it's let go there. BC_LINK_DRAG_LEFT, with |url| "", as a drag leaves the
+  // page or ends without a drop on it. Over, return true to take the drag there from the page,
+  // which then doesn't see it, as over a split view's targets; let go, return whether the app
+  // took the drop, opening the link itself. The user's alone: agents don't drag.
+  bool (*tab_link_dragged)(void* context, bc_id tab, int phase, const char* url, double x,
+                           double y);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

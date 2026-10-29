@@ -1,7 +1,8 @@
 //! Add Split View's targets (Dia, docs/ux-spec.md › Split view › Drag targets): a tab dragged out
 //! of the sidebar over the page becomes a picture of a window, and a target slides in at each of
 //! the card's sides, and at its top and bottom as Arc's stacks them. Let go over one, the tab joins
-//! the page shown in a split view on that side.
+//! the page shown in a split view on that side. A link dragged over the page brings the same
+//! targets, and let go on one it opens in a pane there.
 //! GPUI can't draw over the page's native view, so the app draws them in a window of its own over
 //! the browser window, which the mouse goes through (`Browser::show_drop_targets`).
 
@@ -101,10 +102,46 @@ pub(super) struct OverPage {
 }
 
 impl OverPage {
+    fn new(with: u64, edges: Vec<Edge>, pointer: Point<Pixels>) -> Self {
+        log!("browser: drop targets for {with}");
+        let since = Instant::now();
+        let targets = edges.into_iter().map(|edge| (edge, false, since, 0.)).collect();
+        OverPage { with, since, pointer, targets }
+    }
+
     /// The target the tab is over.
     fn edge(&self) -> Option<Edge> {
         self.targets.iter().find(|(_, under, ..)| *under).map(|(edge, ..)| *edge)
     }
+
+    /// The pointer is at `position` over `card`: a target it's in grows toward it, and the one it
+    /// was under shrinks once it leaves it.
+    fn point(&mut self, card: Bounds<Pixels>, position: Point<Pixels>) {
+        let (edge, now) = (self.edge(), Instant::now());
+        self.pointer = position;
+        for target in &mut self.targets {
+            let (at, under, since, from) = *target;
+            // Under once the pointer is in the grown target, until it leaves the one under it.
+            let bounds = match under {
+                true => under_bounds(card, at, position),
+                false => target_bounds(card, at, grown_at(at)),
+            };
+            if bounds.contains(&position) != under {
+                *target = (at, !under, now, grown(under, since, from));
+            }
+        }
+        if self.edge() != edge {
+            // check.sh reads this line.
+            log!("browser: drop target {}", self.edge().map_or("none", Edge::name));
+        }
+    }
+}
+
+/// A link dragged over the page, from it or from another app, with the targets where it can open
+/// in a pane beside the page shown.
+pub(super) struct LinkOver {
+    url: String,
+    over: OverPage,
 }
 
 impl Shell {
@@ -153,43 +190,97 @@ impl Shell {
             }
             return false;
         };
-        let now = Instant::now();
-        let edges = match (self.panes(with).len() > 1, self.stacked(with)) {
-            (false, _) => vec![Edge::Left, Edge::Right, Edge::Top, Edge::Bottom],
-            (true, false) => vec![Edge::Left, Edge::Right],
-            (true, true) => vec![Edge::Top, Edge::Bottom],
-        };
+        let edges = self.edges_for(with);
         let Some(drag) = &mut self.drag else {
             return false;
         };
         drag.moving = true;
-        let over = drag.over_page.get_or_insert_with(|| {
-            log!("browser: drop targets for {with}");
-            OverPage {
-                with,
-                since: now,
-                pointer: position,
-                targets: edges.into_iter().map(|edge| (edge, false, now, 0.)).collect(),
-            }
-        });
-        over.pointer = position;
-        let edge = over.edge();
-        for target in &mut over.targets {
-            let (at, under, since, from) = *target;
-            // Under once the pointer is in the grown target, until it leaves the one under it.
-            let bounds = match under {
-                true => under_bounds(card, at, position),
-                false => target_bounds(card, at, grown_at(at)),
-            };
-            if bounds.contains(&position) != under {
-                *target = (at, !under, now, grown(under, since, from));
-            }
-        }
-        if over.edge() != edge {
-            // check.sh reads this line.
-            log!("browser: drop target {}", over.edge().map_or("none", Edge::name));
-        }
+        let over = drag.over_page.get_or_insert_with(|| OverPage::new(with, edges, position));
+        over.point(card, position);
         cx.notify();
+        true
+    }
+
+    /// The targets a tab or a link can join `with` at: all four for a page alone, else the two
+    /// along its split's orientation.
+    fn edges_for(&self, with: u64) -> Vec<Edge> {
+        match (self.panes(with).len() > 1, self.stacked(with)) {
+            (false, _) => vec![Edge::Left, Edge::Right, Edge::Top, Edge::Bottom],
+            (true, false) => vec![Edge::Left, Edge::Right],
+            (true, true) => vec![Edge::Top, Edge::Bottom],
+        }
+    }
+
+    /// Where `tab`'s page is in the window, if it's one of the pages shown.
+    fn shown_pane(&self, tab: u64) -> Option<Bounds<Pixels>> {
+        let panes = self.panes(self.selected);
+        let (frame, _) = self.page_frame(self.viewport);
+        let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
+        let frames = super::pane_frames(frame, panes.len(), stacked, &shares);
+        panes.iter().position(|&pane| pane == tab).map(|at| frames[at])
+    }
+
+    /// A link to `url` is dragged over `tab`'s page, at `point` in it. Over a page shown that has
+    /// room for another, the targets slide in as for a tab, and the one under the pointer grows.
+    /// Returns whether the pointer is on one, where the drag is the app's and the page doesn't see
+    /// it.
+    pub fn link_over_page(
+        &mut self,
+        tab: u64,
+        point: Point<Pixels>,
+        url: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let room = self.selected != 0 && self.panes(self.selected).len() < super::MAX_PANES;
+        let busy = self.drag.is_some() || self.adding_pane.is_some() || self.page_fullscreen;
+        let Some(page) = self.shown_pane(tab).filter(|_| room && !busy) else {
+            self.link_left_page(cx);
+            return false;
+        };
+        let position = page.origin + point;
+        let card = self.page_frame(self.viewport).0;
+        let with = self.selected;
+        if self.link_over.as_ref().is_none_or(|link| link.over.with != with) {
+            let over = OverPage::new(with, self.edges_for(with), position);
+            self.link_over = Some(LinkOver { url: url.to_string(), over });
+        }
+        let Some(link) = &mut self.link_over else {
+            return false;
+        };
+        link.url = url.to_string();
+        link.over.point(card, position);
+        cx.notify();
+        link.over.edge().is_some()
+    }
+
+    /// The link dragged over the page left it, or the drag ended: the targets go.
+    pub fn link_left_page(&mut self, cx: &mut Context<Self>) {
+        if self.link_over.take().is_some() {
+            // check.sh reads this line.
+            log!("browser: drop targets gone");
+            cx.notify();
+        }
+    }
+
+    /// The link was let go at `point` in `tab`'s page. On a target, it opens in a new tab joining
+    /// the page shown on that side. Returns whether it opened, else the page has the drop.
+    pub fn link_dropped(&mut self, tab: u64, point: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        let url = self.link_over.as_ref().map(|link| link.url.clone()).unwrap_or_default();
+        let taken = self.link_over_page(tab, point, &url, cx);
+        let Some(link) = self.link_over.take() else {
+            return false;
+        };
+        cx.notify();
+        let Some(edge) = link.over.edge().filter(|_| taken) else {
+            log!("browser: drop targets gone");
+            return false;
+        };
+        // check.sh waits for this line.
+        log!("browser: link dropped {}", edge.name());
+        let alone = self.panes(link.over.with).len() == 1;
+        // A page alone has every target, and the top and bottom ones stack its new split.
+        let stacked = alone && edge.stacked();
+        self.browser.open_split_at(&link.url, link.over.with, edge.first(), stacked, cx);
         true
     }
 
@@ -222,10 +313,11 @@ impl Shell {
     /// What the window over the page draws while a dragged tab is over it: the targets, clipped to
     /// the card, and the tab as a picture of a window under the pointer.
     pub fn drop_targets(&self, window: &mut Window) -> AnyElement {
-        let Some(over) = self.drag.as_ref().and_then(|drag| drag.over_page.as_ref()) else {
-            return div().into_any_element();
-        };
-        let Some(tab) = self.drag.as_ref().map(|drag| drag.tab) else {
+        // A tab's, or a link's, whose picture the system draws under the pointer.
+        let dragged = (self.drag.as_ref())
+            .and_then(|drag| Some((drag.over_page.as_ref()?, drag.tab)));
+        let link = self.link_over.as_ref().map(|link| (&link.over, 0));
+        let Some((over, tab)) = dragged.or(link) else {
             return div().into_any_element();
         };
         let card = self.page_frame(self.viewport).0;
@@ -258,14 +350,16 @@ impl Shell {
             .rounded(px(super::CARD_RADIUS))
             .overflow_hidden()
             .children(targets);
-        let title = self.tabs.get(&tab).map(|tab| tab.title.clone()).unwrap_or_default();
-        let icon = self.tab_icon(tab);
+        let picture = (tab != 0).then(|| {
+            let title = self.tabs.get(&tab).map(|tab| tab.title.clone()).unwrap_or_default();
+            picture(over.pointer, self.window_fill(), self.palette, self.tab_icon(tab), title)
+        });
         div()
             .size_full()
             .relative()
             .font_family(crate::face::UI)
             .child(page)
-            .child(picture(over.pointer, self.window_fill(), self.palette, icon, title))
+            .children(picture)
             .into_any_element()
     }
 }
@@ -501,4 +595,77 @@ fn picture(
         .shadow(Level::Popover.shadow())
         .child(div().absolute().left(px(8.)).top(px(6.)).flex().gap(px(4.)).children(lights))
         .child(page)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{Bounds, Entity, Pixels, Point, TestAppContext, point, px, size};
+
+    use super::{Edge, grown_at, target_bounds};
+    use crate::shell::{Folders, Shell, Split, drag::detents::shell_with, recorder::Recorder};
+
+    /// A Space whose Today holds 10, 11 and 12, with 10 shown alone in a window 1200 by 800.
+    fn shown_alone(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>, Bounds<Pixels>) {
+        let (shell, host) = shell_with(cx, &[], &[10, 11, 12], Folders::default());
+        let card = shell.update(cx, |shell, cx| {
+            shell.set_selected(10, cx);
+            shell.viewport = size(px(1200.), px(800.));
+            shell.page_frame(shell.viewport).0
+        });
+        host.take();
+        (shell, host, card)
+    }
+
+    /// `at` in the window, as a point in the page's view.
+    fn in_page(card: Bounds<Pixels>, at: Point<Pixels>) -> Point<Pixels> {
+        at - card.origin
+    }
+
+    /// A link dragged over a page alone finds a target at each of the card's edges, which take the
+    /// drag from the page, and let go on one it opens in a pane on that side, the top and bottom
+    /// ones stacking the split, as a tab let go there does.
+    #[gpui::test]
+    fn a_link_let_go_on_a_target_opens_in_a_pane_there(cx: &mut TestAppContext) {
+        let url = "https://example.org/";
+        for (edge, left, stacked) in
+            [(Edge::Left, true, false), (Edge::Top, true, true), (Edge::Bottom, false, true)]
+        {
+            let (shell, host, card) = shown_alone(cx);
+            let point = in_page(card, target_bounds(card, edge, grown_at(edge)).center());
+            let edge = edge.name();
+            let taken = shell.update(cx, |shell, cx| shell.link_over_page(10, point, url, cx));
+            assert!(taken, "the {edge} target didn't take the link");
+            assert!(shell.update(cx, |shell, cx| shell.link_dropped(10, point, cx)), "{edge}");
+            assert_eq!(host.take(), [format!("open split {url} 10 {left} {stacked}")], "{edge}");
+            assert!(shell.read_with(cx, |shell, _| shell.link_over.is_none()));
+        }
+    }
+
+    /// Off the targets, the page keeps the drag and the drop, and the targets go as the link leaves
+    /// the page. A split with no room for another page shows none.
+    #[gpui::test]
+    fn a_link_off_the_targets_is_the_pages(cx: &mut TestAppContext) {
+        let (shell, host, card) = shown_alone(cx);
+        let middle = in_page(card, card.center());
+        let url = "https://example.org/";
+        assert!(!shell.update(cx, |shell, cx| shell.link_over_page(10, middle, url, cx)));
+        assert!(shell.read_with(cx, |shell, _| shell.link_over.is_some()), "no targets shown");
+        assert!(!shell.update(cx, |shell, cx| shell.link_dropped(10, middle, cx)));
+        assert!(host.take().is_empty());
+        shell.update(cx, |shell, cx| {
+            shell.link_over_page(10, middle, url, cx);
+            shell.link_left_page(cx);
+        });
+        assert!(shell.read_with(cx, |shell, _| shell.link_over.is_none()));
+
+        shell.update(cx, |shell, cx| {
+            let split = Split { tabs: vec![10, 11, 12], ..Default::default() };
+            shell.set_tabs(1, Vec::new(), vec![10, 11, 12], vec![split], Folders::default(), cx);
+        });
+        let left = point(px(30.), middle.y);
+        assert!(!shell.update(cx, |shell, cx| shell.link_over_page(10, left, url, cx)));
+        assert!(shell.read_with(cx, |shell, _| shell.link_over.is_none()), "a full split has none");
+    }
 }

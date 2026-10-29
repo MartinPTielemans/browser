@@ -943,6 +943,7 @@ impl Browser for Fake {
     }
 
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
+    fn open_split_at(&self, _: &str, _: u64, _: bool, _: bool, _: &mut App) {}
 
     // The targets' window is the app's, over the page, which the preview has neither of.
     fn show_drop_targets(&self, _: bool, _: &mut App) {}

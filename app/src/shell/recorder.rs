@@ -307,6 +307,10 @@ impl Browser for Recorder {
         self.edit(format!("split {tab} {with} {left}"));
     }
 
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
+        self.record(format!("open split {url} {with} {left} {stacked}"))
+    }
+
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
 
     fn back_to_pinned_url(&self, tab: u64, _: &mut App) {

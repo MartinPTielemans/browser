@@ -1110,6 +1110,8 @@ pub struct Shell {
     page_color: Option<u32>,
     /// The window over the page that draws the drop targets shows.
     drop_targets_shown: bool,
+    /// A link dragged over the page, and its targets.
+    link_over: Option<split_targets::LinkOver>,
     /// How far in from the page frame's top right corner the focused page's is, as last given.
     pane_corner: (f32, f32),
     /// Every Space's archived tabs, newest first, and the favicons asked for their URLs.
@@ -1357,6 +1359,7 @@ impl Shell {
             focus_color: None,
             page_color: None,
             drop_targets_shown: false,
+            link_over: None,
             pane_corner: (0., 0.),
             archive: Vec::new(),
             page_favicons: HashMap::new(),
@@ -2805,7 +2808,8 @@ impl Render for Shell {
         self.step_tools(window);
         self.step_empty(window);
         self.step_crash_cards(window);
-        let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
+        let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some())
+            || self.link_over.is_some();
         if drop_targets || self.drop_targets_shown {
             self.drop_targets_shown = drop_targets;
             self.browser.show_drop_targets(drop_targets, cx);
