@@ -855,6 +855,10 @@ impl Browser for Fake {
         false
     }
 
+    fn command_bar_follows(&self, _: Vec<BarTab>, _: Vec<BarTab>, _: &mut App) -> bool {
+        false
+    }
+
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
 
     fn separate(&self, _: u64, _: &mut App) {}

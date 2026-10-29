@@ -529,11 +529,7 @@ fn reset(
             // Favicons change over time, and a long session shouldn't keep every one it saw. The
             // tabs' are the ones their rows show.
             bar.favicons.clear();
-            for tab in &tabs {
-                if let Some(favicon) = &tab.favicon {
-                    bar.favicons.insert(tab.url.to_string(), Some(favicon.clone()));
-                }
-            }
+            bar.keep_favicons(&tabs);
             bar.tabs = tabs;
             bar.open.set(true);
             bar.page = text.to_string();
@@ -561,6 +557,65 @@ fn reset(
             bar.host.clone()
         })
         .ok()
+}
+
+/// The window the bar shows over shows another Space: the bar lists `tabs` from it, or for Search
+/// Tabs `open_tabs`, and asks again for what's typed, which the core answers from that Space's
+/// profile (decision 5), as Arc's bar does. So a pick never goes to the Space before or its
+/// profile: the rows from there go at once, the URL ⌘L opened it on with them, and the tab it
+/// edited isn't shown now, so ↩ opens a new tab. A new pane's bar goes, as its split view stays
+/// behind. Returns whether its pick opens a new tab.
+pub fn space_shown(tabs: Vec<shell::BarTab>, open_tabs: Vec<shell::BarTab>, cx: &mut App) -> bool {
+    let Some(bar_window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
+        return false;
+    };
+    bar_window
+        .update(cx, |bar, window, cx| {
+            if !bar.open.get() {
+                return false;
+            }
+            if let Target::Beside(_) = bar.target {
+                // The shell is in an update, which its dismissal would update again.
+                let host = bar.host.clone();
+                cx.defer(move |_| host.dismiss());
+                return false;
+            }
+            // check.sh reads this line.
+            log!("browser: command bar follows the Space");
+            let tabs = if matches!(bar.target, Target::Tabs) { open_tabs } else { tabs };
+            bar.favicons.clear();
+            bar.keep_favicons(&tabs);
+            bar.tabs = tabs;
+            // The site search's engine is the profile's, which this one may not have.
+            bar.leave_site(window, cx);
+            let mut text = bar.input.read(cx).text().to_string();
+            if let Target::Tab(_) = bar.target {
+                bar.target = Target::NewTab;
+                if text == bar.page {
+                    text.clear();
+                }
+                bar.page.clear();
+            }
+            if bar.commands.is_some() {
+                // Which commands do something now is the shell's to say, once out of its update.
+                cx.defer(move |cx| {
+                    bar_window.update(cx, |bar, window, cx| bar.list_commands(text, window, cx)).ok();
+                });
+            } else if matches!(bar.target, Target::Tabs) {
+                bar.name_tabs(text, window, cx);
+            } else {
+                // A completion from the profile before goes with its rows.
+                let typed = bar.typed(cx);
+                let text = if bar.completion.is_empty() { text } else { typed };
+                let caret = text.len();
+                let shown = text.clone().into();
+                bar.input.update(cx, |input, cx| input.set_text(shown, caret, window, cx));
+                bar.ask_for(text, window, cx);
+            }
+            cx.notify();
+            matches!(bar.target, Target::NewTab)
+        })
+        .unwrap_or(false)
 }
 
 /// The user left the bar with a click outside it, or Esc.
@@ -803,6 +858,15 @@ impl CommandBar {
         log!("browser: command bar finds tabs \"{typed}\": {}", ids.join(" "));
         self.asked = text.clone();
         self.set_rows(text, rows, window, cx);
+    }
+
+    /// Keeps the favicons `tabs` have, for their rows.
+    fn keep_favicons(&mut self, tabs: &[shell::BarTab]) {
+        for tab in tabs {
+            if let Some(favicon) = &tab.favicon {
+                self.favicons.insert(tab.url.to_string(), Some(favicon.clone()));
+            }
+        }
     }
 
     /// Whether the bar lists commands: not over a new pane or for Search Tabs.

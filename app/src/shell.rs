@@ -982,6 +982,9 @@ pub struct Shell {
     /// The press under way was on a target that opens the command bar while it was open, so the
     /// click that follows only closes it.
     press_closed_bar: bool,
+    /// The window shows another Space, whose tab the core says next, for the command bar to follow
+    /// once it has.
+    bar_follows: bool,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -1263,6 +1266,7 @@ impl Shell {
             importing: None,
             in_hint: false,
             press_closed_bar: false,
+            bar_follows: false,
             drag: None,
             dragged: false,
             putting_back: false,
@@ -1774,6 +1778,7 @@ impl Shell {
         }
         self.end_hovers(cx);
         let before = std::mem::replace(&mut self.space, space);
+        self.bar_follows |= before != space;
         // Arc says again how to leave full screen in each Space it shows there.
         if before != space && self.full_screen && !self.page_fullscreen {
             self.browser.full_screen_note(true, cx);
@@ -2017,7 +2022,12 @@ impl Shell {
         if tab == 0 && cfg!(target_os = "linux") {
             self.browser.focus_ui(cx);
         }
-        self.set_new_tab(false, cx);
+        // The command bar open over the Space before lists this one's tabs and suggestions now, so
+        // a pick never goes to the other or its profile (Arc).
+        let follows = std::mem::take(&mut self.bar_follows) && self.browser.command_bar_open(cx);
+        let new_tab =
+            follows && self.browser.command_bar_follows(self.bar_tabs(), self.open_tabs(), cx);
+        self.set_new_tab(new_tab, cx);
         self.selection_moved(before);
         self.adding_pane = None;
         self.link_tab_changed(cx);
