@@ -605,7 +605,8 @@ expect '^browser: menu drawn next (favicon), back (favicon)$' \
 send choose back
 expect '^browser: command history -2 via sidebar$' "choosing the back page's row didn't reach the UI"
 expect "^browser: page $h back 0 forward 1 loading 0 ${site}back.html\$" "choosing the back page's row didn't go there"
-drawn back
+# The page comes back from the back-forward cache, which logs no title or load again.
+expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its favicon"
 go_on next.html
 drawn next
 send press $back_button
@@ -617,8 +618,8 @@ send release $back_button
 none_since '^browser: command back via sidebar$' || fail "letting go of back held went back too"
 send choose back
 expect '^browser: command history -1 via sidebar$' "choosing the held menu's row didn't reach the UI"
-expect "^browser: loaded $h ${site}back.html\$" "choosing the held menu's row didn't go back"
-drawn back
+expect "^browser: page $h back 0 forward 1 loading 0 ${site}back.html\$" "choosing the held menu's row didn't go back"
+expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its favicon"
 go_on next.html
 drawn next
 send click $back_button cmd
