@@ -50,6 +50,7 @@
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
+#include "ui/views/window/non_client_view.h"
 
 // As in Chrome, each page shown goes in an aura window in the browser window, over its views, so
 // the keys reach a page through the window's own focus, after the browser's shortcuts. Aura draws
@@ -904,8 +905,11 @@ std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
     if (dialog->IsVisible()) {
       // Inside its border and shadow, which its window's bounds take in: what Chromium puts at the
       // page's top (UpdateWidgetModalDialogPosition), as a Mac's sheet's frame is.
-      gfx::Rect frame = dialog->GetClientAreaBoundsInScreen();
+      gfx::Rect frame = dialog->GetWindowBoundsInScreen();
       frame.Offset(-widget->GetClientAreaBoundsInScreen().OffsetFromOrigin());
+      if (dialog->non_client_view() && dialog->non_client_view()->frame_view()) {
+        frame.Inset(dialog->non_client_view()->frame_view()->GetInsets());
+      }
       return frame;
     }
   }
