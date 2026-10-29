@@ -111,8 +111,10 @@ impl Shell {
                 .block_mouse_except_scroll()
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
-                        shell.split_controls(tab, point(pane.center().x, pane.top()), cx)
+                    // At the press, which the menu takes for the click that opened it, so the
+                    // click's release leaves it open.
+                    cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                        shell.split_controls(tab, event.position, cx)
                     }),
                 )
                 .child(
@@ -446,7 +448,8 @@ mod tests {
     use super::{edge_shares, expanded_shares, pane_edges, pane_frames};
     use crate::shell::{Command, Folders, Shell, Split, recorder::Recorder};
     use gpui::{
-        AppContext, Bounds, Entity, MouseButton, MouseDownEvent, TestAppContext, point, px, size,
+        AppContext, Bounds, Entity, Modifiers, MouseButton, MouseDownEvent, TestAppContext, point,
+        px, size,
     };
 
     /// A dragged gap's shares put the pages back where it was dragged to, as the core lays them
@@ -670,6 +673,35 @@ mod tests {
         assert_eq!(handles(cx), 0, "a page full screen has the whole window");
         let (alone, _) = split_of(&[10], 10, 0, 1200., cx);
         assert_eq!(alone.update(cx, |shell, cx| shell.pane_handles(cx).len()), 0);
+    }
+
+    /// A click on a page's split controls opens their menu where it pressed, which the menu takes
+    /// for the click that opened it, so the click's release, anywhere on the controls, leaves the
+    /// menu open: from the pane's top edge, it would close as a drag let go outside.
+    #[gpui::test]
+    fn a_click_on_split_controls_opens_their_menu_at_the_press(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+            shell.set_selected(10, cx);
+        });
+        reported(&shell, &[10, 11], &[], 0, cx);
+        cx.run_until_parked();
+        let left = shell.read_with(cx, |shell, _| {
+            let (frame, _) = shell.page_frame(shell.viewport);
+            pane_frames(frame, 2, false, &shell.shares(shell.selected))[0]
+        });
+        // Off the handle's middle, and above the pane's top, as a click on it lands.
+        let at = point(left.center().x + px(10.), left.top() - px(5.));
+        cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        let titles = host.menus.borrow().last().cloned().unwrap_or_default();
+        assert_eq!(titles.first().map(|(title, _)| title.as_ref()), Some("Change Orientation"));
+        assert_eq!(host.menu_at.get(), Some(at));
     }
 
     #[gpui::test]

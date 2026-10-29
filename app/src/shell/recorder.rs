@@ -70,6 +70,8 @@ pub(super) struct Recorder {
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
     pub(super) menus: RefCell<Vec<Vec<(SharedString, bool)>>>,
+    /// Where the last menu was asked to show, in the window.
+    pub(super) menu_at: Cell<Option<Point<Pixels>>>,
     /// The last menus it was asked to show, item by item.
     pub(super) entries: RefCell<Vec<MenuEntry>>,
     /// The look of each of ilo's own menus it was asked to show, as `menus` has them.
@@ -159,12 +161,13 @@ impl Recorder {
     fn menu(
         &self,
         entries: Vec<MenuEntry>,
-        _: Point<Pixels>,
+        position: Point<Pixels>,
         _: Option<usize>,
         _: bool,
         answer: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
     ) {
+        self.menu_at.set(Some(position));
         let items = entries.iter().map(|entry| (entry.title.clone(), entry.enabled)).collect();
         self.menus.borrow_mut().push(items);
         *self.entries.borrow_mut() = entries;
