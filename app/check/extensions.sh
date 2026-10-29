@@ -439,10 +439,11 @@ grep -qxF "browser: native host dev.browser.check from $host_dir" "$log" ||
 await "^browser: loaded [0-9]* chrome-extension://$native/answered.html\$" ||
   fail "Check Native didn't hear the host's answer: $(grep -o 'chrome-extension://[^ ]*' "$log" |
     sort -u | tr '\n' ' ')"
+../tools/window-screenshot.sh "$pid" "$out/native-host.png" || fail "no window to capture"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: an extension reaches a native messaging host that only Chrome Beta's folder has, and hears its answer."
+echo "ok: an extension reaches a native messaging host that only Chrome Beta's folder has, and hears its answer. Window: $out/native-host.png"
 
 # An extension's .crx from the served page, which Chrome installs from off the Web Store with
 # ungoogled-chromium's flag, asking first. It's added in a profile of the launch's own, which the
