@@ -6,6 +6,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -23,7 +24,7 @@ use browser::text_input::{self, TextInput};
 use browser::widevine::{self, Widevine, WidevineRow};
 use gpui::{
     AnyElement, App, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
-    Global, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
+    Global, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, PathPromptOptions, Rgba, SharedString, Subscription,
     TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -240,6 +241,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
             ("View Downloads", Keys::Of(Command::ViewDownloads)),
             ("View History", Keys::Of(Command::ViewHistory)),
+            ("Clear Browsing Data", Keys::Of(Command::ClearBrowsingData)),
         ],
     ),
     (
@@ -397,6 +399,8 @@ struct Profile {
     spaces: usize,
     /// As the core has it: not the one it started with, nor one a Space or a favorite is in.
     deletable: bool,
+    /// Whether one of the user's Spaces is in it, for Clear Browsing Data's tab.
+    users_space: bool,
 }
 
 /// A site the user turned ad blocking off on, as General lists it.
@@ -431,6 +435,10 @@ fn off_sites() -> Vec<OffSite> {
 fn profiles() -> Vec<Profile> {
     let in_space = |space| unsafe { bc::bc_space_profile(space) };
     let spaces: Vec<u64> = crate::ids(bc::bc_spaces).into_iter().map(in_space).collect();
+    let users = crate::ids(bc::bc_spaces).into_iter().filter(|&space| {
+        crate::name(bc::bc_space_agent, space).is_empty()
+    });
+    let users: Vec<u64> = users.map(in_space).collect();
     let of_tab = |tab| unsafe { bc::bc_tab_profile(tab) };
     let favorites: Vec<u64> = crate::ids(bc::bc_favorites).into_iter().map(of_tab).collect();
     (crate::ids(bc::bc_profiles).into_iter().enumerate())
@@ -441,9 +449,25 @@ fn profiles() -> Vec<Profile> {
                 name: crate::name(bc::bc_profile_name, id),
                 spaces: count,
                 deletable: index > 0 && count == 0 && !favorites.contains(&id),
+                users_space: users.contains(&id),
             }
         })
         .collect()
+}
+
+/// Where `profile`'s downloads go, with ~ for the home folder, or None while it loads.
+fn download_folder(profile: u64) -> Option<SharedString> {
+    let folder = crate::name(bc::bc_profile_download_folder, profile);
+    if folder.is_empty() {
+        return None;
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    Some(match folder.strip_prefix(home.as_str()) {
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            format!("~{rest}").into()
+        }
+        _ => folder,
+    })
 }
 
 struct SettingsWindow(WindowHandle<Settings>);
@@ -1113,7 +1137,7 @@ impl Settings {
                     }),
                 )
             });
-            div()
+            let head = div()
                 .h(px(PROFILE_ROW))
                 .px(px(PADDING))
                 .flex()
@@ -1121,13 +1145,33 @@ impl Settings {
                 .child(tile("icons/user.svg", PROFILE_TILE))
                 .child(label)
                 .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(spaces))
-                .children(delete.map(|delete| delete.ml(px(PADDING))))
+                .children(delete.map(|delete| delete.ml(px(PADDING))));
+            // Its own settings under it, as Arc's Settings › Profiles keeps them: none to show
+            // until the core has loaded it.
+            let folder = download_folder(id).map(|folder| {
+                let change = button(&RowLook::settings(), ("download-folder", id), "Change…")
+                    .on_click(cx.listener(move |_, _, _, cx| choose_download_folder(id, cx)));
+                detailed_row("Download folder", folder, Some(change.into_any_element()))
+            });
+            let clear = profile.users_space.then(|| {
+                let clear = button(&RowLook::settings(), ("clear-browsing-data", id), "Clear…")
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        if crate::clear_browsing_data(id) {
+                            hide(cx);
+                        }
+                    }));
+                row(None, "Browsing data", clear.into_any_element())
+            });
+            group(&RowLook::settings(), [Some(head), folder, clear].into_iter().flatten())
         });
         let new = button(&RowLook::settings(), "new-profile", "New Profile")
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
         div()
-            .child(group(&RowLook::settings(), rows))
-            .child(div().mt(px(BUTTONS_TOP)).flex().child(new))
+            .flex()
+            .flex_col()
+            .gap(px(BOX_GAP))
+            .children(rows)
+            .child(div().mt(px(BUTTONS_TOP - BOX_GAP)).flex().child(new))
             .into_any_element()
     }
 
@@ -1242,12 +1286,21 @@ impl Settings {
 
     /// The profile's logins: the saved ones in a box, each with its username under its site, and
     /// the sites set to Never in another, each removable. A pop-up picks the profile, if there are
-    /// more than one, as each keeps its own.
-    fn passwords(&mut self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+    /// more than one, as each keeps its own, over the switch for whether it offers to save them.
+    fn passwords(
+        &mut self,
+        profiles: &[Profile],
+        accent: Rgba,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(profile) = self.passwords_profile(profiles) else {
             return div().into_any_element();
         };
-        if self.asked.insert(profile) {
+        // None until the core has loaded the profile, which has no logins to read before then.
+        let mut offers = false;
+        let read = unsafe { bc::bc_profile_offers_passwords(profile, &mut offers) };
+        let offers = read.then_some(offers);
+        if offers.is_some() && self.asked.insert(profile) {
             unsafe { bc::bc_profile_read_logins(profile) };
         }
         let logins = self.logins.get(&profile).cloned().unwrap_or_default();
@@ -1322,11 +1375,19 @@ impl Settings {
                 view.update(cx, choose).ok();
             });
             let icon = Some(("icons/user.svg", PROFILE_TILE));
-            group(&RowLook::settings(), [row(icon, "Profile", popup.into_any_element())])
+            row(icon, "Profile", popup.into_any_element())
         });
-        let first = chooser.is_none();
+        let offer = offers.map(|offers| {
+            let set = move |offer, _: &mut App| unsafe {
+                bc::bc_profile_set_offers_passwords(profile, offer);
+            };
+            let offer = self.toggle("offer to save passwords", offers, set, accent, cx);
+            row(None, "Offer to save passwords", offer)
+        });
+        let settings = [chooser, offer].into_iter().flatten().collect::<Vec<_>>();
+        let first = settings.is_empty();
         div()
-            .children(chooser)
+            .when(!first, |tab| tab.child(group(&RowLook::settings(), settings)))
             .child(header("Saved", first))
             .child(group(&RowLook::settings(), saved))
             .when(!never.is_empty(), |tab| {
@@ -1982,6 +2043,39 @@ fn open_notice(url: &str, cx: &mut App) {
     hide(cx);
 }
 
+/// Asks for the folder `profile`'s downloads go to, in the system's panel, and sends them there.
+fn choose_download_folder(profile: u64, cx: &mut App) {
+    let chosen = move |folder: Option<PathBuf>, cx: &mut App| {
+        let Some(folder) = folder else {
+            return;
+        };
+        let Ok(path) = CString::new(folder.to_string_lossy().as_bytes()) else {
+            return;
+        };
+        let set = unsafe { bc::bc_profile_set_download_folder(profile, path.as_ptr()) };
+        let done = if set { "set" } else { "refused" };
+        // check.sh waits for this line.
+        log!("browser: download folder of profile {profile} {} {done}", folder.display());
+        refresh(cx);
+    };
+    // A check run names its made-up folder, as it can't drive the system's panel.
+    if let Some(folder) = std::env::var_os("BROWSER_DOWNLOAD_FOLDER") {
+        return chosen(Some(folder.into()), cx);
+    }
+    let asked = cx.prompt_for_paths(PathPromptOptions {
+        files: false,
+        directories: true,
+        multiple: false,
+        prompt: Some("Choose".into()),
+    });
+    cx.spawn(async move |cx| {
+        let folder = asked.await.ok().and_then(Result::ok).flatten();
+        let folder = folder.and_then(|folders| folders.into_iter().next());
+        cx.update(|cx| chosen(folder, cx));
+    })
+    .detach();
+}
+
 /// Opens Chromium's settings in a new tab, for what this window doesn't offer yet, and goes to it.
 fn more_settings(cx: &mut App) {
     // check.sh waits for this line.
@@ -2167,7 +2261,7 @@ impl Render for Settings {
                 self.focus_field(&profiles, window, cx);
                 self.profiles(&profiles, cx)
             }
-            Tab::Passwords => self.passwords(&profiles(), cx),
+            Tab::Passwords => self.passwords(&profiles(), accent, cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
             Tab::Privacy => self.privacy(accent, cx),
             Tab::Import => match &self.import {
