@@ -28,8 +28,14 @@ pub extern "C" fn host_show_settings() {
     };
     gpui_linux::show_window(view, over);
     SHOWN.set(true);
-    // check.sh waits for this line.
-    eprintln!("browser: settings shown");
+    // check.sh waits for this line. The window's title is its tab's name, as on the Mac.
+    eprintln!("browser: settings shown {}", crate::settings::title());
+}
+
+/// Settings' view while it shows, for the driver.
+pub(crate) fn shown() -> Option<*mut c_void> {
+    let view = SETTINGS.get();
+    (SHOWN.get() && !view.is_null()).then_some(view)
 }
 
 #[unsafe(no_mangle)]
