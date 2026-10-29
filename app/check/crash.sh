@@ -115,7 +115,7 @@ send click $page_point
 if [ "$active" = 1 ]; then
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings"
-  send clickkey 397 60
+  send clickkey 431 60
   expect '^browser: settings tab Privacy$' "a click on Privacy didn't show its tab"
   ../tools/window-screenshot.sh "$pid" "$out/privacy.png" || fail "no window to capture"
   send clickkey 592 133
