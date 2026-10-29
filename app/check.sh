@@ -22,8 +22,8 @@
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
 # windows and input then never reach the owner's session. Of the runs, load and history pass
-# there so far; the others stop where they need what Linux hasn't yet, such as the held escape's
-# rule (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
+# there so far; the others stop where they need what Linux hasn't yet, such as Japanese input in a
+# page (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
 # the driver says it can't do. Captures are the session's whole output.
 # BROWSER_XVFB=1 runs it under Xvfb and openbox instead, which CI has.
 set -e
