@@ -75,9 +75,24 @@ updates_check() {
     ../tools/window-screenshot.sh "$pid" "$out/updates-menu.png" all || fail "no window to capture"
     send dismiss
     send menu Check for Updates…
-    # Found, or Sparkle's reason it isn't: none, with the feed's newest build, or failed.
-    expect "^browser: update \($next found\|none:\|failed:\)" \
-      "Check for Updates… didn't end: no update found, none or failed"
+    # Found, or Sparkle's reason it isn't: none, with the feed's newest build, or failed. A check
+    # that ends in none of them says how far it got, and Sparkle's log, the app's main thread and
+    # the window say where it stopped.
+    outcome="^browser: update \($next found\|none:\|failed:\)"
+    for _ in $(seq 300); do
+      grep -q "$outcome" "$log" && break
+      sleep 0.1
+    done
+    if ! grep -q "$outcome" "$log"; then
+      /usr/bin/log show --last 5m --style compact \
+        --predicate 'subsystem == "org.sparkle-project.Sparkle"' > "$out/updates-sparkle.txt" 2>&1
+      sample "$pid" 3 -file "$out/updates-sample.txt" > /dev/null 2>&1
+      ../tools/window-screenshot.sh "$pid" "$out/updates-stalled.png" all
+      got=$(grep '^browser: update \(feed loaded\|cycle ended\|alert shows\)' "$log" | tr '\n' ';')
+      fail "Check for Updates… didn't end in 30 s: no update found, none or failed. Sparkle got to: \
+${got:-nothing logged}. Sparkle's log: $out/updates-sparkle.txt, the app's threads: \
+$out/updates-sample.txt, the window: $out/updates-stalled.png"
+    fi
     if ! grep -q "^browser: update $next found\$" "$log"; then
       # Sparkle's own log, which says more, such as an item it couldn't parse.
       /usr/bin/log show --last 5m --style compact \
