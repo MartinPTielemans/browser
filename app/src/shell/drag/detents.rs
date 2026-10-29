@@ -25,15 +25,15 @@ pub(in crate::shell) fn shell_with(
 }
 
 /// Where in the window `tab`'s row is, down its middle.
-pub(super) fn row_y(shell: &Shell, tab: u64) -> f32 {
+pub(in crate::shell) fn row_y(shell: &Shell, tab: u64) -> f32 {
     shell.drawn_list_top() + shell.layout()[&Slot::Tab(tab)] + ROW_HEIGHT / 2.
 }
 
-pub(super) fn at(x: f32, y: f32) -> Point<Pixels> {
+pub(in crate::shell) fn at(x: f32, y: f32) -> Point<Pixels> {
     point(px(x), px(y))
 }
 
-pub(super) const X: f32 = 80.;
+pub(in crate::shell) const X: f32 = 80.;
 
 /// Presses `tab`'s row, in the middle.
 pub(super) fn press(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, tab: u64) -> f32 {

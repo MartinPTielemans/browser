@@ -90,7 +90,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Close tab motion | MVP | the row fades as the rows below slide up over it; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |
 | [x] | Undo motion | MVP | the tabs Undo brings back fade in in place; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |
 | [x] | Reorder | MVP | the rows stay put during the drag, a ghost follows the pointer, and a 2 pt white 0.9 line with an 8 pt ring marks the gap; on drop the rows glide on Row motion (41 pt in ≈ 115 ms) | Arc 1.170 rec |
-| [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer. Not started: multi-window step 7 | Dia P§1 |
+| [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer. Built: onto another window's list, whose line marks the gap, moving the page there live (ux-spec › Dragging out of the list), for check/windows.sh to confirm on the Mac; the desktop's window not yet | Dia P§1 |
 | [x] | Drops on the list | MVP | files and http(s) open at the gap, which the drop line marks as for a dragged row *interim*; never javascript:, data:, file: from text; Arc's: measure | Dia, Ardia |
 | [ ] | Hover card show | MVP | delay 0.5 s; opacity 100 ms + scale spring 0.92 → 1 (0.25 s, ζ 0.75). Not started: the spec leaves the hover card undecided (Arc has none recorded) | Dia bin |
 | [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses. Not started, as above | Dia bin |

@@ -48,6 +48,7 @@ mod browser;
 mod clean_link;
 mod commands;
 mod drag;
+mod drag_out;
 mod display_face;
 mod drm_note;
 mod empty;
@@ -744,6 +745,9 @@ struct Drag {
     dropped: bool,
     /// Over the page, where it can join the page shown in a split view.
     over_page: Option<split_targets::OverPage>,
+    /// Out of the window, where the pointer is, from the window's corner, for another window's
+    /// list or one of its own.
+    out: Option<Point<Pixels>>,
     /// Its turn between its row and its tile, and whether the pointer let go mid-turn, which
     /// holds the drop until it has turned.
     shape: Shape,

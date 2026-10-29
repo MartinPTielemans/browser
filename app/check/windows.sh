@@ -464,10 +464,75 @@ send key w cmd shift
 expect "^browser: window closed $fourth\$" "⇧⌘W didn't close the window the pages moved to"
 send window 1
 
+# A row dragged out of the first window onto another's list marks the gap there, and let go there,
+# the tab goes to that gap, its page moves there live, with no second load, and that window comes
+# to the front, while the first draws a picture of the page. Escape out there, with the page
+# focused, puts the row back and drops nothing (docs/ux-spec.md › Dragging out of the list).
+send key n cmd
+expect '^browser: window opened [0-9]' "⌘N didn't open a window to drag a tab to"
+fifth=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+driven_fifth=$(grep -c '^browser: window opened ' "$log")
+# Side by side, the new one 20 right of the first.
+send window 1
+send order
+x1=$(grep '^browser: frame window 1 ' "$log" | tail -1 | cut -d' ' -f5)
+y1=$(grep '^browser: frame window 1 ' "$log" | tail -1 | cut -d' ' -f6)
+send place "$x1" "$y1" 700 700
+send window "$driven_fifth"
+send place $((x1 + 720)) "$y1" 700 700
+send window 1
+# The point of the Today row of tab $1 in the new window, in the first's terms.
+there() {
+  row_of "$1" | awk '{ print $1 + 720, $2 }'
+}
+dragged=$(grep "^browser: window $first shows [1-9]" "$log" | tail -1 | cut -d' ' -f5)
+last=$(today | awk '{ print $NF }')
+loads=$(grep -c "^browser: loaded $dragged " "$log" || true)
+send press $(row_of "$dragged")
+send dragto 100 $(($(row_of "$dragged" | cut -d' ' -f2) + 20))
+send dragto -40 300
+expect "^browser: dragged $dragged out\$" "a row dragged past the window's edge didn't come out"
+send dragto $(there "$last")
+expect '^browser: drop line in today [0-9]*$' "the other window's list marked no gap for the tab"
+../tools/window-screenshot.sh "$pid" "$out/windows-drag-out.png" all || fail "no window to capture"
+send release $(there "$last")
+expect "^browser: dropped tab $dragged in today [0-9]*\$" \
+  "the tab let go over the other window's list didn't drop there"
+index=$(grep "^browser: dropped tab $dragged in today " "$log" | tail -1 | cut -d' ' -f7)
+expect "^browser: tab $dragged dropped in window $fifth\$" "the browser didn't move the tab to the other window"
+expect "^browser: window $fifth shows $dragged\$" "the tab dropped in the other window didn't show there"
+expect "^browser: window $first page elsewhere $dragged\$" "the first window wasn't told its page went"
+expect "^browser: key window $fifth\$" "the window the tab dropped in didn't come to the front"
+expect "^browser: today\( [0-9][0-9]*\)\{$index\} $dragged\( \|\$\)" \
+  "the tab didn't go to the gap the line marked, $index: $(today)"
+[ "$(grep -c "^browser: loaded $dragged " "$log" || true)" = "$loads" ] ||
+  fail "the page dropped in the other window loaded again"
+../tools/window-screenshot.sh "$pid" "$out/windows-dropped-in.png" all || fail "no window to capture"
+send window 1
+other=$(today | awk -v dragged="$dragged" '{ for (i = 1; i <= NF; i++) if ($i != dragged) { print $i; exit } }')
+send click $(row_of "$other")
+expect "^browser: window $first shows $other\$" "a click on a row didn't show its tab"
+send click $page_point
+send press $(row_of "$other")
+send dragto 100 $(($(row_of "$other" | cut -d' ' -f2) + 20))
+send dragto $(there "$last")
+expect "^browser: dragged $other out\$" "a row dragged onto the other window didn't come out"
+before=$(today)
+send key escape
+expect '^browser: command stop via ' "escape didn't reach the UI with the page focused"
+send release $(there "$last")
+none_since '^browser: dropped tab ' || fail "the tab put back with escape dropped in the other window"
+none_since "^browser: window $fifth shows $other\$" || fail "the tab put back with escape moved its page"
+[ "$(today)" = "$before" ] || fail "the tab put back with escape moved, to \"$(today)\""
+send window "$driven_fifth"
+send key w cmd shift
+expect "^browser: window closed $fifth\$" "⇧⌘W didn't close the window the tab was dropped in"
+send window 1
+
 # ⇧⌘W in the last window quits. It's the driver's last command: the app doesn't report it done.
 post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
 forget_engine_sites
-echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab${webkit_moved:-}. Each stage of a page's move between windows: $out/handover-summary.txt. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png${webkit_moved:+, $out/windows-webkit-pictured.png}"
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab${webkit_moved:-}, and a row dragged out onto another window's list moves its tab to the gap marked there and its page there live, unless escape puts it back. Each stage of a page's move between windows: $out/handover-summary.txt. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png, $out/windows-drag-out.png, $out/windows-dropped-in.png${webkit_moved:+, $out/windows-webkit-pictured.png}"
