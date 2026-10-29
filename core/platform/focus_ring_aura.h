@@ -7,6 +7,7 @@
 #define BROWSER_CORE_PLATFORM_FOCUS_RING_AURA_H_
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 
 #include "third_party/skia/include/core/SkColor.h"
@@ -45,7 +46,7 @@ class FocusRing : public ui::LayerDelegate {
   void OnPaintLayer(const ui::PaintContext& context) override;
   void OnDeviceScaleFactorChanged(float old_scale, float new_scale) override {}
 
-  ui::Layer layer_{ui::LAYER_TEXTURED};
+  std::unique_ptr<ui::Layer> layer_ = ui::Layer::Create(ui::LAYER_TEXTURED);
   SkColor color_ = SK_ColorTRANSPARENT;
   float radius_ = 0;
 };
