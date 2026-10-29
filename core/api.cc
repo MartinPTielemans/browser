@@ -94,23 +94,6 @@ views::Widget* OpenWidget(bc_id id) {
   return widget && !widget->IsClosed() ? widget : nullptr;
 }
 
-#if BUILDFLAG(IS_LINUX)
-// Takes window |id|'s |widget| out of full screen. Linux reports no change Chromium asks for
-// itself, so a page full screen leaves with it here, as the Mac's does as AppKit says it's leaving.
-void LeaveFullScreen(bc_id id, views::Widget* widget) {
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  // The app lays the page leaving out once, at the window's new size.
-  if (window && window->FullScreenForPage()) {
-    browser_core::platform::HoldPagesForResize(widget);
-  }
-  widget->SetFullscreen(false);
-  // Found again: the window's resize runs the app, which may close it.
-  if (browser_core::Window* still = browser_core::Window::FromId(id)) {
-    still->LeavingFullScreen();
-  }
-}
-#endif
-
 // Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
 size_t CopyString(const std::string& text, char* to, size_t capacity) {
   if (capacity > 0) {
@@ -281,7 +264,7 @@ void bc_window_toggle_maximized(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else if (widget->IsMaximized()) {
     widget->Restore();
   } else {
@@ -1561,7 +1544,7 @@ void bc_window_toggle_full_screen(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else {
     widget->SetFullscreen(true);
   }

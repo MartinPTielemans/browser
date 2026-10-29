@@ -73,6 +73,9 @@ void ShowPages(views::Widget* widget,
 // it, and on Windows so far, it does nothing.
 void HoldPagesForResize(views::Widget* widget);
 
+// Whether |widget|'s pages are held for a resize (HoldPagesForResize) that ShowPages hasn't ended.
+bool PagesHeldForResize(views::Widget* widget);
+
 // Hides the pages shown, their DevTools and the side panel, in place, for a window out of sight, so
 // Chromium counts them hidden. ShowPages shows them again.
 void HidePages(views::Widget* widget);
