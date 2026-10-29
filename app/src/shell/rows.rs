@@ -8,8 +8,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, Radians, Role,
-    SharedString, Transformation, canvas, div, prelude::*, px, rgb, svg,
+    AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, Radians, Role, SharedString,
+    Transformation, canvas, div, prelude::*, px, rgb, svg,
 };
 
 use super::{
@@ -18,7 +18,7 @@ use super::{
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PINNED_CARET,
-    PINNED_CARET_GAP, PINNED_CARET_PLATE, PLATE_HEIGHT, PLATE_INSET, SPACE_NAME,
+    PINNED_CARET_GAP, PINNED_CARET_PLATE, PLATE_HEIGHT, PLATE_INSET, SPACE_NAME, SPACE_NAME_SHUT,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
@@ -872,12 +872,12 @@ impl Shell {
             .left_0()
             .size_full();
         let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
-        // Bold, as Arc's, while the pinned rows are collapsed.
+        // Lit while the pinned rows are collapsed, where Arc's turns bold.
         let shut = self.shown_space().is_some_and(|space| space.folders.pinned_shut);
         // A heading VoiceOver can jump to, whose menu is the Space's.
         let row = name_box(&self.palette, icon.is_some() || placeholder.is_some())
             .id("space-name")
-            .when(shut, |row| row.font_weight(FontWeight::BOLD))
+            .when(shut, |row| row.text_color(self.palette.text(SPACE_NAME_SHUT)))
             .when(self.a11y, |row| {
                 row.role(Role::Heading)
                     .accessibility_id("space-name")

@@ -832,6 +832,9 @@ nav-hovered = 0.077
 # and 0.35 for the others, 0.5 under the pointer (ours: Arc's isn't measured). The Space shown's
 # glyph is its accent instead, or the ink without a colour (#469); an emoji dims by these ratios.
 space-name = 0.62
+# Lit a step, to Clear's under the pointer, while its pinned tabs are collapsed: Arc turns its name
+# bold, and ours is at the scale's heaviest already.
+space-name-shut = 0.81
 space-shown = 0.6
 space-other = 0.35
 space-hovered = 0.5

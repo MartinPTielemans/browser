@@ -400,6 +400,7 @@ use crate::tokens::shell::NAV;
 use crate::tokens::shell::NAV_DISABLED;
 use crate::tokens::shell::NAV_HOVERED;
 use crate::tokens::shell::SPACE_NAME;
+use crate::tokens::shell::SPACE_NAME_SHUT;
 use crate::tokens::shell::SPACE_SHOWN;
 use crate::tokens::shell::SPACE_OTHER;
 use crate::tokens::shell::SPACE_HOVERED;
