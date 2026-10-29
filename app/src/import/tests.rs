@@ -18,7 +18,7 @@ use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
 use super::{Host, ImportEvent, ImportView, Look, Passwords};
 use super::{firefox, safari};
-use crate::theme::{Appearance, Theme};
+use crate::theme::{Appearance, Texture, Theme};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/import/fixture")
@@ -103,23 +103,69 @@ fn arcs_sidebar_reads_as_its_spaces_and_favorites() {
     assert_eq!(urls(theirs), ["https://linear.app/"]);
 }
 
-/// A gradient's first colour is the main one, its colours as many as ours go, with Arc's
-/// intensity, grain and appearance; a colour outside sRGB is brought in.
+/// A gradient's first colour is the main one, its colours as many as ours go, each other one at
+/// its own place in the field and its third overlaid one exactly, with Arc's intensity, grain,
+/// texture and appearance; a colour outside sRGB is brought in. A Space with a light and a dark
+/// look that follows the system keeps both.
 #[test]
 fn arcs_theme_becomes_the_spaces_theme() {
     let sidebar = sidebar();
     let personal = sidebar.spaces[0].theme.unwrap();
-    assert_eq!(personal.count, 2);
+    assert_eq!(personal.count, 3);
+    assert_eq!((personal.colors()[2], personal.texture), (0x33cc99, Texture::Dust));
     assert_eq!(
         personal.main_color(),
         Theme::of_color(0x3366cc).main_color()
     );
+    // Arc's second, (1.1, 0.5, -0.05), is orange's hue and lightness, not the main one's opposite.
+    let ((x, y), orange) = (personal.handle(1), Theme::of_color(0xff8000));
+    assert!((x - orange.x).abs() < 1e-3 && (y - orange.y).abs() < 1e-3, "at {x}, {y}");
+    // The third's handle is where its teal is, the window taking the teal itself.
+    let ((x, y), teal) = (personal.handle(2), Theme::of_color(0x33cc99));
+    assert!((x - teal.x).abs() < 1e-3 && (y - teal.y).abs() < 1e-3, "at {x}, {y}");
     assert_eq!((personal.intensity, personal.grain), (0.6, 0.3));
-    assert_eq!(personal.appearance, Appearance::Dark);
+    assert_eq!((personal.appearance, personal.dark), (Appearance::Dark, None));
     let work = sidebar.spaces[1].theme.unwrap();
     assert_eq!(work.count, 1);
     assert_eq!(work.main_color(), Theme::of_color(0xe699b3).main_color());
-    assert_eq!(work.appearance, Appearance::Light);
+    assert_eq!(work.appearance, Appearance::Automatic);
+    let dark = work.shown(true);
+    assert_eq!(dark.main_color(), Theme::of_color(0x1a1a33).main_color());
+    assert_eq!((dark.count, dark.grain), (1, 0.), "a basic colour has no grain");
+    assert_eq!((work.texture, work.third), (Texture::Noise, None), "Arc's base as our noise");
+    assert_eq!(work.shown(false).main_color(), work.main_color());
+}
+
+/// Arc's appearance: `windowAppearance` forces light or dark, a dark theme taking its dark look;
+/// without it one look follows its `translucencyStyle`, else the system. A gradient's second
+/// overlay colour is its third.
+#[test]
+fn arcs_appearance_comes_from_its_window_appearance_else_its_look() {
+    let pink = r#"{"blendedSingleColor": {"_0": {"color": {"red": 0.9, "green": 0.6, "blue": 0.7}, "translucencyStyle": "light"}}}"#;
+    let navy = r#"{"basicColor": {"_0": {"color": {"red": 0.1, "green": 0.1, "blue": 0.2}}}}"#;
+    let three = r#"{"blendedGradient": {"_0": {"baseColors": [{"red": 1, "green": 0, "blue": 0}, {"red": 0, "green": 0, "blue": 1}], "overlayColors": [{"red": 0, "green": 0, "blue": 0, "alpha": 0}, {"red": 0, "green": 1, "blue": 0}], "translucencyStyle": "auto"}}}"#;
+    let look = |color: &str| format!(r#"{{"style": {{"color": {{"_0": {color}}}}}}}"#);
+    let theme_of = |window_theme: String| {
+        let json = format!(
+            r#"{{"sidebar": {{"containers": [{{"global": {{}}}}, {{"spaces": ["S", {{"id": "S", "title": "S", "customInfo": {{"windowTheme": {window_theme}}}}}], "items": []}}]}}}}"#
+        );
+        arc::parse(&json).unwrap().spaces[0].theme.unwrap()
+    };
+    let one = |color: &str, forced: &str| {
+        theme_of(format!(r#"{{{forced} "background": {{"single": {{"_0": {}}}}}}}"#, look(color)))
+    };
+    assert_eq!(one(pink, "").appearance, Appearance::Light, "its translucency style");
+    assert_eq!(one(three, "").appearance, Appearance::Automatic);
+    assert_eq!(one(three, "").count, 3);
+    let forced = r#""windowAppearance": {"single": {"_0": "dark"}},"#;
+    assert_eq!(one(pink, forced).appearance, Appearance::Dark);
+    let both = format!(r#""background": {{"appearanceBased": {{"light": {}, "dark": {}}}}}"#, look(pink), look(navy));
+    let dark = theme_of(format!(r#"{{{forced} {both}}}"#));
+    assert_eq!((dark.appearance, dark.dark), (Appearance::Dark, None));
+    assert_eq!(dark.main_color(), Theme::of_color(0x1a1a33).main_color(), "a dark theme takes its dark look");
+    let auto = theme_of(format!("{{{both}}}"));
+    assert_eq!(auto.appearance, Appearance::Automatic);
+    assert!(auto.dark.is_some());
 }
 
 #[test]
@@ -750,7 +796,7 @@ fn an_import_brings_in_spaces_folders_and_favorites(cx: &mut TestAppContext) {
     );
     let personal = &state.spaces[1];
     assert_eq!((personal.profile, personal.icon.as_str()), (1, "🏠"));
-    assert_eq!(personal.theme.unwrap().count, 2);
+    assert_eq!(personal.theme.unwrap().count, 3);
     assert_eq!(
         shape(&personal.rows),
         "HN=https://news.ycombinator.com/, Reading[https://example.com/a, https://example.com/b, \

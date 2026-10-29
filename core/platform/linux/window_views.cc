@@ -11,6 +11,7 @@
 
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
@@ -234,6 +235,37 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // Holds |page|, which no window shows, hidden in the window under its slots until the runner
+  // returned runs, so it has the window's compositor: a page out of every window has none, and a
+  // copy of it waits for a frame until it's shown again (#745). Hidden, it costs no frames unless
+  // it's captured.
+  base::ScopedClosureRunner DrawUnseen(aura::Window* page) {
+    page->Hide();
+    content()->AddChild(page);
+    content()->StackChildAtBottom(page);
+    unseen_.Add(page);
+    auto tracked = std::make_unique<aura::WindowTracker>();
+    tracked->Add(page);
+    return base::ScopedClosureRunner(base::BindOnce(
+        [](base::WeakPtr<WindowViews> views, std::unique_ptr<aura::WindowTracker> tracked) {
+          if (views && !tracked->windows().empty()) {
+            views->Unsee(tracked->windows().front());
+          }
+        },
+        weak_factory_.GetWeakPtr(), std::move(tracked)));
+  }
+
+  // Takes |page| out of the window, unless a slot has shown it since DrawUnseen held it.
+  void Unsee(aura::Window* page) {
+    if (!unseen_.Contains(page)) {
+      return;
+    }
+    unseen_.Remove(page);
+    if (page->parent() == content()) {
+      content()->RemoveChild(page);
+    }
+  }
+
   // Holds |page| and |devtools| in |slot|. A slot forgets one destroyed before the window is, as
   // each tab's page is on quit, or emptying it would reach into the freed page.
   void Keep(Slot& slot, aura::Window* page, aura::Window* devtools) {
@@ -454,6 +486,9 @@ class WindowViews : public views::WidgetObserver,
       Empty(slot);
     }
     Empty(side_panel_);
+    while (!unseen_.windows().empty()) {
+      Unsee(unseen_.windows().front());
+    }
     panes_.clear();
     side_panel_ = Slot();
     kept_.RemoveAllObservations();
@@ -551,9 +586,11 @@ class WindowViews : public views::WidgetObserver,
       return;
     }
     // A child X window the core didn't put in the browser window, mapped there, is Chromium's
-    // output for the window, opaque and over the UI until it's sent under it.
+    // output for the window, opaque and over the UI until it's sent under it. The window's own map
+    // comes with the same |event|, and sending it under would put a new window under the others
+    // once the window manager has raised it (#712).
     auto* map = event.As<x11::MapNotifyEvent>();
-    if (map && map->event == window() && map->window != ui_) {
+    if (map && map->event == window() && map->window != window() && map->window != ui_) {
       x11::Connection::Get()->ConfigureWindow(
           {.window = map->window, .stack_mode = x11::StackMode::Below});
     }
@@ -609,6 +646,8 @@ class WindowViews : public views::WidgetObserver,
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
+  // The pages DrawUnseen holds.
+  aura::WindowTracker unseen_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
   base::ScopedMultiSourceObservation<aura::Window, aura::WindowObserver> kept_{this};
   base::ScopedObservation<aura::client::FocusClient, aura::client::FocusChangeObserver>
@@ -785,6 +824,14 @@ void HidePages(views::Widget* widget) {
     views->side_panel().holder->Hide();
   }
   views->ShowThrough();
+}
+
+base::ScopedClosureRunner DrawUnseen(views::Widget* widget, gfx::NativeView page) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || !page || page->GetRootWindow()) {
+    return base::ScopedClosureRunner();
+  }
+  return views->DrawUnseen(page);
 }
 
 // The app's host has no view for a link preview's page here yet, so nothing calls it with one.

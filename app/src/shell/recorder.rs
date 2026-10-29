@@ -10,6 +10,8 @@ use std::{
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
 
+use crate::theme::Appearance;
+
 use super::{
     Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
     browser::WindowButton,
@@ -79,6 +81,10 @@ pub(super) struct Recorder {
     /// What the menu bar was last asked to show, and the window's title.
     pub(super) menu_bar: RefCell<MenuBar>,
     pub(super) window_title: RefCell<String>,
+    /// Whether it was last asked to draw the window's material light.
+    pub(super) window_light: Cell<Option<bool>>,
+    /// The appearance View › Appearance last chose.
+    pub(super) appearance: Cell<Option<Appearance>>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
     /// The system has a share sheet of its own.
@@ -130,11 +136,15 @@ pub(super) struct Recorder {
     pub(super) system_engine: Cell<bool>,
     /// Where it says Google's Widevine module is.
     pub(super) widevine: Cell<crate::widevine::Widevine>,
+    /// What it says PlayReady needs.
+    pub(super) playready: Cell<super::PlayReady>,
     /// The shell it answers each picture asked of it for with this picture, at once, inside the
     /// call that asked, as a core that answers inline would.
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
     /// The answers to page dialogs it was given, with what was typed.
     pub(super) replies: RefCell<Vec<PageReply>>,
+    /// What it says every agent's Space's menu lists.
+    pub(super) agent_permissions: RefCell<super::AgentGrants>,
 }
 
 impl Recorder {
@@ -215,7 +225,9 @@ impl Browser for Recorder {
         self.edit(format!("close below {tab}"));
     }
 
-    fn duplicate(&self, _: u64, _: &mut App) {}
+    fn duplicate(&self, tab: u64, _: &mut App) {
+        self.record(format!("duplicate {tab}"))
+    }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
         self.edit(format!("space {tab} {space}"));
@@ -346,6 +358,16 @@ impl Browser for Recorder {
 
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
         self.edit(format!("pinned url {tab} {url}"));
+        self.pinned_urls.borrow_mut().insert(tab, url.to_string());
+    }
+
+    /// An address as it's typed, else a test search.
+    fn typed_url(&self, text: &str) -> Option<String> {
+        Some(match text.contains('.') {
+            true if text.contains("://") => text.to_string(),
+            true => format!("https://{text}/"),
+            false => format!("https://search.test/?q={text}"),
+        })
     }
 
     fn tab_name(&self, tab: u64) -> String {
@@ -417,6 +439,10 @@ impl Browser for Recorder {
         self.record(format!("answer {tab} {answer:?}"))
     }
 
+    fn answer_agent(&self, question: u64, answer: crate::agents::Answer, _: &mut App) {
+        self.record(format!("answer agent {question} {answer:?}"))
+    }
+
     fn can_open_in_safari(&self) -> bool {
         true
     }
@@ -427,6 +453,10 @@ impl Browser for Recorder {
 
     fn can_use_system_engine(&self) -> bool {
         self.system_engine.get()
+    }
+
+    fn playready_needs(&self) -> super::PlayReady {
+        self.playready.get()
     }
 
     fn close_media_note(&self, tab: u64, _: &mut App) {
@@ -506,7 +536,9 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn set_extension_pinned(&self, _: u64, _: &str, _: bool, _: &mut App) {}
+    fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, _: &mut App) {
+        self.record(format!("pin {profile} {id} {pinned}"));
+    }
 
     fn remove_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
         Default::default()
@@ -652,6 +684,14 @@ impl Browser for Recorder {
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
+
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        self.window_light.set(Some(light));
+    }
+
+    fn set_appearance(&self, appearance: Appearance, _: &mut App) {
+        self.appearance.set(Some(appearance));
+    }
 
     fn page_moving(&self, moving: bool, _: &mut App) {
         self.page_events.borrow_mut().push(if moving { "moving" } else { "still" });
@@ -846,8 +886,45 @@ impl Browser for Recorder {
 
     fn shortcuts(&self, _: &mut App) {}
 
+    fn about(&self, _: &mut App) {}
+
+    fn import(&self, _: &mut App) {}
+
     fn passwords(&self, space: u64, _: &mut App) {
         self.record(format!("passwords {space}"));
+    }
+
+    fn agent_activity(&self, _: &mut App) {
+        self.record("agent activity".into());
+    }
+
+    fn agent_permissions(&self, _: u64, _: &App) -> super::AgentGrants {
+        self.agent_permissions.borrow().clone()
+    }
+
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, _: &mut App) {
+        let site = site.map_or("all".into(), |site| site.to_string());
+        self.record(format!("revoke agent {space} {site}"));
+    }
+
+    fn disconnect_agent(&self, space: u64, _: &mut App) {
+        self.record(format!("disconnect agent {space}"));
+    }
+
+    fn take_back_agent_tabs(&self, space: u64, _: &mut App) {
+        self.record(format!("take back agent {space}"));
+    }
+
+    fn take_over(&self, agent: SharedString, tab: u64, _: &mut App) {
+        self.record(format!("take over {agent} {tab}"));
+    }
+
+    fn hand_back(&self, tab: u64, _: &mut App) {
+        self.record(format!("hand back {tab}"));
+    }
+
+    fn stop_agent(&self, agent: SharedString, _: &mut App) {
+        self.record(format!("stop agent {agent}"));
     }
 
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}

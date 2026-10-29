@@ -554,4 +554,10 @@ void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Windows; the page shows its last frame unscaled until it redraws.
 }
 
+// shortcut: a page out of every window has no compositor here either, as on Linux, so its picture
+// waits until it's shown; hold it as Linux's does once the Windows engine runs the cards check.
+base::ScopedClosureRunner DrawUnseen(views::Widget*, gfx::NativeView) {
+  return base::ScopedClosureRunner();
+}
+
 }  // namespace browser_core::platform

@@ -10,6 +10,8 @@ use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
 };
 
+use crate::theme::Appearance;
+
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
@@ -60,6 +62,9 @@ pub enum Command {
     RevealTab,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
+    /// Loads the pinned URL of each pinned tab of the Space shown that's away from it, as Arc's
+    /// Reset all tabs in this Space does.
+    ResetSpaceTabs,
     /// Mutes the selected tab, or unmutes it.
     ToggleMute,
     /// Closes the Today tabs of the Space shown, but the one shown.
@@ -165,10 +170,17 @@ pub enum Command {
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
     KeyboardShortcuts,
+    /// Opens the Settings window on its About tab: the version, the engine's and the credits.
+    About,
+    /// Opens the Settings window on its Import tab.
+    Import,
     /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
     Passwords,
     /// Plays a new profile's first launch again.
     Welcome,
+    /// Gives every window this appearance where its Space's theme doesn't choose one, in place of
+    /// the system's (View › Appearance).
+    Appearance(Appearance),
     Quit,
 }
 
@@ -316,6 +328,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
+    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
+    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
+    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
@@ -342,6 +357,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Clear Browsing Data…", Command::ClearBrowsingData, &["history", "cookies", "cache"]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
+    (concat!("About ", env!("APP_NAME")), Command::About, &["version", "credits", "licence"]),
+    ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
@@ -577,6 +594,7 @@ impl Command {
             Command::CollapseFolders => "collapse-folders",
             Command::RevealTab => "reveal-tab",
             Command::BackToPinnedUrl => "back-to-pinned-url",
+            Command::ResetSpaceTabs => "reset-space-tabs",
             Command::ToggleMute => "toggle-mute",
             Command::Clear => "clear",
             Command::Undo => "undo",
@@ -634,8 +652,13 @@ impl Command {
             Command::ViewHistory => "view-history",
             Command::SiteSearchSettings => "site-search-settings",
             Command::ClearBrowsingData => "clear-browsing-data",
+            Command::Appearance(Appearance::Automatic) => "appearance-automatic",
+            Command::Appearance(Appearance::Light) => "appearance-light",
+            Command::Appearance(Appearance::Dark) => "appearance-dark",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
+            Command::About => "about",
+            Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
             Command::Quit => "quit",
@@ -789,7 +812,17 @@ impl Shell {
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
             Command::RevealTab => return self.reveal_tab(cx),
+            // In an agent's Space ⌘↩ is the bar's Take Over or Hand Back.
+            Command::BackToPinnedUrl if self.agent_bar().is_some() => {
+                return self.agent_bar_primary(cx);
+            }
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
+            Command::ResetSpaceTabs => {
+                for tab in self.tabs_to_reset() {
+                    self.browser.back_to_pinned_url(tab, cx);
+                }
+                return;
+            }
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
             Command::Clear => return self.clear(cx),
             Command::Undo => {
@@ -837,6 +870,8 @@ impl Shell {
             Command::SiteSearchSettings => return self.browser.site_search_settings(cx),
             Command::ClearBrowsingData => return self.browser.clear_browsing_data(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
+            Command::About => return self.browser.about(cx),
+            Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
             Command::ViewHistory => {
@@ -890,6 +925,7 @@ impl Shell {
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::Appearance(appearance) => return self.set_app_appearance(appearance, cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
@@ -1133,7 +1169,7 @@ impl Shell {
             Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
-            Command::BackToPinnedUrl => page.away_from_pinned_url,
+            Command::BackToPinnedUrl => page.away_from_pinned_url || self.agent_bar().is_some(),
             Command::CloseSplitPane
             | Command::SeparatePane
             | Command::SeparateSplit
@@ -1146,7 +1182,10 @@ impl Shell {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
             Command::Clear => !self.today().is_empty(),
-            Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),
+            Command::FavoriteTab => {
+                let tab = self.selected;
+                tab != 0 && !self.favorites.contains(&tab) && self.has_room_for(tab)
+            }
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
             Command::RenameTab => {
                 let favorite = self.favorites.contains(&self.selected);
@@ -1174,11 +1213,26 @@ impl Shell {
             | Command::SiteSearchSettings
             | Command::ClearBrowsingData
             | Command::KeyboardShortcuts
+            | Command::About
+            | Command::Import
             | Command::Passwords
             | Command::Welcome
+            | Command::Appearance(_)
             | Command::Settings => true,
             _ => self.selected != 0,
         }
+    }
+
+    /// The pinned tabs of the Space shown that Reset all tabs in this Space takes back, those away
+    /// from their pinned URL. An unloaded one waits until it's shown, as loading it unseen would
+    /// cost what showing it does.
+    fn tabs_to_reset(&self) -> Vec<u64> {
+        let Some(space) = self.shown_space() else { return Vec::new() };
+        let away = |tab: &u64| {
+            let page = self.page(*tab);
+            page.away_from_pinned_url && !page.unloaded
+        };
+        space.pinned.iter().copied().filter(|&row| !space.is_folder(row)).filter(away).collect()
     }
 
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
@@ -1189,6 +1243,8 @@ impl Shell {
         }
         match command {
             Command::TogglePin if self.pinned().contains(&self.selected) => Some("Unpin Tab"),
+            // The appearance chosen already would do nothing.
+            Command::Appearance(appearance) => (appearance != self.app_appearance).then_some(name),
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
@@ -1215,6 +1271,7 @@ fn private_runs(command: Command) -> bool {
             | Command::NewFolder
             | Command::CollapseFolders
             | Command::BackToPinnedUrl
+            | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
             | Command::ChangeProfile(_)
@@ -1336,6 +1393,41 @@ mod tests {
         cx.simulate_keystrokes("shift-cmd-a");
         assert_eq!(host.searched_tabs.take(), [vec![12, 10, 21, 20]]);
         assert!(host.command_bars.take().is_empty(), "it opened the bar for a new tab too");
+    }
+
+    /// Reset all tabs in this Space takes back the pinned tabs away from their pinned URL, in a
+    /// folder too, but neither an unloaded one, which waits to be shown, nor a Today tab.
+    #[gpui::test]
+    fn reset_all_tabs_takes_back_the_loaded_pinned_tabs(cx: &mut gpui::TestAppContext) {
+        use std::{collections::HashMap, rc::Rc};
+
+        use gpui::VisualTestContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx): (gpui::Entity<Shell>, &mut VisualTestContext) =
+            cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "One".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            let folders = Folders {
+                folders: HashMap::from([(5, ("Folder".into(), false))]),
+                parents: HashMap::from([(4, 5)]),
+            };
+            shell.set_tabs(1, vec![2, 3, 5, 4, 6], vec![7], Vec::new(), folders, cx);
+            for tab in [2, 3, 4, 7] {
+                let unloaded = tab == 3;
+                let page = Page { away_from_pinned_url: true, unloaded, ..Page::default() };
+                shell.set_page(tab, page, cx);
+            }
+            shell.set_space(1, cx);
+            shell.set_selected(6, cx);
+            host.take();
+            shell.run(Command::ResetSpaceTabs, "ui", cx);
+        });
+        assert_eq!(host.take(), ["back to pinned url 2", "back to pinned url 4"]);
     }
 
     /// Another Space shown while the command bar is open gives the bar that Space's tabs once its

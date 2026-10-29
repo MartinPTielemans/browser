@@ -8,7 +8,10 @@ started. A crash of the browser itself before the handler is up isn't caught.
 
 The handler, spawned once the port is set, would inherit a send right to its own port, and it
 exits only when its port has no senders left, so it would outlive the browser. It resets its
-crash port to the system's before it runs, as a restarted one does.
+crash port to the system's before it runs, as a restarted one does. The child forked to spawn it
+reads the macOS version into a function-local static, so the browser reads it before the thread
+starts: setting the browser's own port reads it too, and a fork while that filled the static in
+left the child waiting on its guard forever, a copy of the browser running after quit (#761).
 
 --- a/components/crash/core/app/crashpad_mac.mm
 +++ b/components/crash/core/app/crashpad_mac.mm
@@ -36,7 +39,7 @@ crash port to the system's before it runs, as a restarted one does.
        const std::vector<base::FilePath>& attachments,
        const std::set<FileHandle>& preserve_file_handles) {
      base::apple::ScopedMachReceiveRight receive_right(
-@@ -174,6 +175,32 @@
+@@ -174,6 +175,37 @@
        }
      }
  
@@ -50,6 +53,11 @@ crash port to the system's before it runs, as a restarted one does.
 +          restarts ? handler_restarter.release() : new HandlerStarter());
 +      starter->first_start_ = std::move(receive_right);
 +      starter->restarts_ = restarts;
++      // The thread forks, and the child reads the macOS version into a static.
++      // It's read here first: StartHandler reads it next, setting the port,
++      // and a fork while that fills the static in would leave the child
++      // waiting on its guard for good.
++      MacOSVersionNumber();
 +      if (starter->StartRestartThread(handler,
 +                                      database,
 +                                      metrics_dir,
@@ -69,7 +77,7 @@ crash port to the system's before it runs, as a restarted one does.
      if (!CommonStart(handler,
                       database,
                       metrics_dir,
-@@ -183,6 +210,7 @@
+@@ -183,6 +215,7 @@
                       std::move(receive_right),
                       handler_restarter.get(),
                       false,
@@ -77,7 +85,7 @@ crash port to the system's before it runs, as a restarted one does.
                       attachments,
                       preserve_file_handles)) {
        return base::apple::ScopedMachSendRight();
-@@ -234,6 +262,7 @@
+@@ -234,6 +267,7 @@
                  base::apple::ScopedMachReceiveRight(rights),
                  this,
                  true,
@@ -85,7 +93,7 @@ crash port to the system's before it runs, as a restarted one does.
                  attachments_,
                  preserve_file_handles_);
  
-@@ -267,6 +296,8 @@
+@@ -267,6 +301,8 @@
    //!     restartable set to `true` and CommonStart() is being called to restart
    //!     a previously-started handler, this is `true`. Otherwise, this is
    //!     `false`.
@@ -94,7 +102,7 @@ crash port to the system's before it runs, as a restarted one does.
    //!
    //! \return `true` on success, `false` on failure, with a message logged.
    //!     Failures include failure to start the handler process and failure to
-@@ -280,6 +311,7 @@
+@@ -280,6 +316,7 @@
                            base::apple::ScopedMachReceiveRight receive_right,
                            HandlerStarter* handler_restarter,
                            bool restart,
@@ -102,7 +110,7 @@ crash port to the system's before it runs, as a restarted one does.
                            const std::vector<base::FilePath>& attachments,
                            const std::set<FileHandle>& preserve_file_handles) {
      DCHECK(!restart || handler_restarter);
-@@ -371,13 +403,16 @@
+@@ -371,13 +408,16 @@
      // the crash exception port in the handler will have been inherited from
      // this parent process, which was probably using the exception server now
      // being restarted. The handler can’t monitor itself for its own crashes via
@@ -126,7 +134,7 @@ crash port to the system's before it runs, as a restarted one does.
        return false;
      }
  
-@@ -439,6 +474,27 @@
+@@ -439,6 +479,27 @@
    static void* RestartThreadMain(void* argument) {
      HandlerStarter* self = reinterpret_cast<HandlerStarter*>(argument);
  
@@ -154,7 +162,7 @@ crash port to the system's before it runs, as a restarted one does.
      NotifyServer notify_server(self);
      mach_msg_return_t mr;
      do {
-@@ -467,6 +523,10 @@
+@@ -467,6 +528,10 @@
    std::set<FileHandle> preserve_file_handles_;
    base::apple::ScopedMachReceiveRight notify_port_;
    uint64_t last_start_time_;
@@ -165,7 +173,7 @@ crash port to the system's before it runs, as a restarted one does.
  };
  
  }  // namespace
-@@ -498,6 +558,7 @@
+@@ -498,6 +563,7 @@
        arguments,
        restartable && (__MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_10 ||
                        MacOSVersionNumber() >= 10'10'00),

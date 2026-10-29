@@ -196,6 +196,8 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ClearBrowsingData => "icons/brush-cleaning.svg",
         Command::Settings | Command::SiteSearchSettings => "icons/settings.svg",
         Command::KeyboardShortcuts => "icons/keyboard.svg",
+        Command::About => "icons/info.svg",
+        Command::Import => "icons/arrow-down-to-line.svg",
         Command::Passwords => "icons/key-round.svg",
         _ => COMMAND_GLYPH,
     }
