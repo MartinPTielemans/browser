@@ -103,6 +103,10 @@ pub(super) struct Recorder {
     pub(super) bar_open: Cell<bool>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
+    /// The pages `open_page` opened, in order.
+    pub(super) opened_pages: RefCell<Vec<String>>,
+    /// The text `copy` put on the clipboard, in order.
+    pub(super) copied: RefCell<Vec<String>>,
     /// The tabs the command bar was given to list each time the window showed another Space.
     pub(super) followed_tabs: RefCell<Vec<Vec<u64>>>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
@@ -563,6 +567,10 @@ impl Browser for Recorder {
 
     fn view_history(&self, _: &mut App) {}
 
+    fn open_page(&self, url: &str, _: &mut App) {
+        self.opened_pages.borrow_mut().push(url.to_owned());
+    }
+
     fn site_search_settings(&self, _: &mut App) {
         self.site_search_settings.set(self.site_search_settings.get() + 1);
     }
@@ -728,7 +736,9 @@ impl Browser for Recorder {
 
     fn watch_control(&self, _: &mut App) {}
 
-    fn copy(&self, _: &str, _: &mut App) {}
+    fn copy(&self, text: &str, _: &mut App) {
+        self.copied.borrow_mut().push(text.to_owned());
+    }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         self.share_services.borrow().clone()

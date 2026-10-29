@@ -2142,6 +2142,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://history");
     }
 
+    fn open_page(&self, url: &str, _: &mut App) {
+        open_tab(self.window, url);
+    }
+
     fn site_search_settings(&self, _: &mut App) {
         open_tab(self.window, "chrome://settings/searchEngines");
     }
@@ -3988,11 +3992,17 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "Help",
             vec![
                 item(concat!("Welcome to ", env!("APP_NAME")), Command::Welcome),
+                item("Help Center", Command::HelpCenter),
+                item("What's New", Command::WhatsNew),
                 item("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
                 MenuItem::separator(),
+                item("Report a Problem…", Command::ReportProblem),
                 MenuItem::submenu(menu(
                     "Troubleshooting",
-                    vec![item("Open Task Manager", Command::TaskManager)],
+                    vec![
+                        item("Copy Build Info", Command::CopyBuildInfo),
+                        item("Open Task Manager", Command::TaskManager),
+                    ],
                 )),
             ],
         ),
