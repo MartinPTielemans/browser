@@ -21,6 +21,11 @@ impl Shell {
         if self.agent_question == question {
             return;
         }
+        let asked = |old: &&Question| question.as_ref().map(|new| new.id) != Some(old.id);
+        if let Some(gone) = self.agent_question.as_ref().filter(asked) {
+            // check.sh reads this line, as the agent's client goes with its question unanswered.
+            log!("browser: agent question {} gone", gone.id);
+        }
         self.agent_question = question;
         // The question needs the sidebar, so a hidden one comes out with it.
         if self.agent_question.is_some() && self.can_reveal() {

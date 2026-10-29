@@ -427,12 +427,15 @@ CARD
 
   # The Space's menu lists the permission, and revoking it asks again.
   post rightclick $(row 9)
-  expect '^browser: menu shown .*Revoke Permission › Always Allow on bank\.localhost' \
+  expect "^browser: menu shown .*$(cased 'Revoke Permission › Always Allow') on bank\\.localhost" \
     "the agent's Space's menu didn't list its permission on the bank's site"
-  send choose Revoke Permission › Always Allow on bank.localhost
+  send choose "$(cased 'Revoke Permission › Always Allow') on bank.localhost"
   await_log '^browser: agent mcp-client revoked bank\.localhost$' "Revoke didn't revoke the permission"
   request open_tab "$bank" >&4
   await_more "$asks" "$before" || fail "a revoked permission didn't ask again"
+  # Left unanswered, for the client to go with.
+  pending=$(grep '^browser: agent mcp-client asks' "$log" | tail -1 | cut -d' ' -f5 | tr -d :)
+  await_log "^browser: agent question $pending at " "the agent's question wasn't drawn"
 fi
 # The client closing its end ends its session, which ends its session with the tab.
 exec 4>&-
@@ -446,7 +449,10 @@ exec 5<&-
 if [ "$driven" = 1 ]; then
   await_log "^browser: agent session ended mcp-client $agent_tab disconnected\$" \
     "ending the client's session didn't end its session with the tab"
-  await_log "^browser: agent mcp-client done in $agent_tab\$" "the tab still shows a gone agent at work"
+  # The agent is at work in the tab it last acted in, the bank's it opened.
+  at=$(grep '^browser: agent mcp-client at work in ' "$log" | tail -1 | awk '{print $NF}')
+  await_log "^browser: agent mcp-client done in $at\$" "the tab still shows a gone agent at work"
+  await_log "^browser: agent question $pending gone\$" "a gone agent's question stayed open"
 
   # Off in Settings › Agents takes the socket away and drops a client connected.
   rm -f "$out/mcp-in" "$out/mcp-out"
