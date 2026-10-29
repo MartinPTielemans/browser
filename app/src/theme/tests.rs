@@ -50,14 +50,23 @@ fn more_colours_go_round_the_main_one() {
     assert_eq!(three.with_count(0).count, 1);
 }
 
-/// Dragging any colour carries the others with it, and the one dragged lands where it's let go.
+/// The main colour carries the others with it, round the field and out or in; another colour
+/// goes alone where it's let go, and keeps that place round the main one as it moves. A count
+/// puts them back at the set angles.
 #[test]
-fn a_drag_moves_them_together() {
+fn the_main_colour_moves_them_together_and_another_moves_alone() {
+    let near = |(x, y): (f32, f32), (ex, ey): (f32, f32)| (x - ex).abs() < 1e-4 && (y - ey).abs() < 1e-4;
     let theme = Theme::at(0.5, 0.).with_count(3);
-    let moved = theme.moved(1, 0., -0.6);
-    let (x, y) = moved.handle(1);
-    assert!(x.abs() < 1e-4 && (y + 0.6).abs() < 1e-4);
-    assert!((moved.x.hypot(moved.y) - 0.6).abs() < 1e-4);
+    let alone = theme.moved(2, 0., -0.3);
+    assert!(near(alone.handle(2), (0., -0.3)), "at {:?}", alone.handle(2));
+    assert!(near(alone.handle(0), theme.handle(0)) && near(alone.handle(1), theme.handle(1)));
+    assert_eq!(alone.colors()[2], color_at(0., -0.3, 1.), "the window takes it from its place");
+    // A quarter turn and 0.2 further out: the third turned and lifted with it.
+    let carried = alone.moved(0, 0., 0.7);
+    assert!(near(carried.handle(2), (0.5, 0.)), "at {:?}", carried.handle(2));
+    assert!(near(carried.handle(1), placed(0., 0.7, theme.place(1))));
+    assert_eq!(carried.with_count(3).places, None);
+    assert_eq!(carried.with_count(3).handle(2), Theme::at(0., 0.7).with_count(3).handle(2));
     // Past the edge, the colour stays on it, white.
     let out = theme.moved(0, 3., 4.);
     assert!((out.x - 0.6).abs() < 1e-4 && (out.y - 0.8).abs() < 1e-4);
@@ -85,6 +94,7 @@ fn a_theme_survives_its_text() {
         texture: Texture::Weave,
         third: Some(0x33cc99),
         appearance: Appearance::Dark,
+        places: Some([Place { turn: 95.5, lift: -0.25 }, Place { turn: 300., lift: 0.125 }]),
         dark: None,
     };
     let back = Theme::parse(&theme.to_text()).unwrap();
@@ -93,10 +103,12 @@ fn a_theme_survives_its_text() {
     assert!((back.intensity - 0.4).abs() < 1e-3 && (back.grain - 0.7).abs() < 1e-3);
     assert!((back.saturation - 0.6).abs() < 1e-3);
     assert_eq!((back.texture, back.third), (Texture::Weave, Some(0x33cc99)));
-    // The field's own saturation goes unsaid, as before swatches kept theirs, and so do noise and
-    // a placed third colour, as before textures and Arc's thirds came in.
-    let plain = Theme::at(0.5, 0.).to_text();
-    assert!(!plain.contains("saturation") && !plain.contains("texture") && !plain.contains("third"));
+    assert_eq!(back.places, theme.places);
+    // The field's own saturation goes unsaid, as before swatches kept theirs, and so do noise, an
+    // exact third colour and the set angles, as before textures, Arc's thirds and placed colours.
+    let plain = Theme::at(0.5, 0.).with_count(3).to_text();
+    assert!(["saturation", "texture", "third", "places"].iter().all(|key| !plain.contains(key)));
+    assert_eq!(Theme::parse("x=0.5 y=0 places=1,2").unwrap().places, None);
     assert_eq!(Theme::parse("x=0.5 y=0").unwrap().saturation, 1.);
     assert_eq!(Theme::parse(""), None);
     // A dark look comes back with it, and a theme of one look says none.
@@ -109,6 +121,7 @@ fn a_theme_survives_its_text() {
         grain: 0.9,
         texture: Texture::Noise,
         third: None,
+        places: None,
     };
     let back = Theme::parse(&Theme { dark: Some(dark), ..theme }.to_text()).unwrap();
     let got = back.dark.unwrap();
@@ -121,6 +134,10 @@ fn a_theme_survives_its_text() {
     let dark = Look { third: None, ..dark };
     let got = Theme::parse(&Theme { dark: Some(dark), ..theme }.to_text()).unwrap().dark.unwrap();
     assert_eq!((got.texture, got.third), (Texture::Fleck, None));
+    let places = Some([Place { turn: 170., lift: 0.1 }, Place { turn: 200., lift: -0.05 }]);
+    let dark = Look { places, ..dark };
+    let got = Theme::parse(&Theme { dark: Some(dark), ..theme }.to_text()).unwrap().dark.unwrap();
+    assert_eq!((got.texture, got.places), (Texture::Fleck, places));
     assert!(!theme.to_text().contains("dark="));
     assert_eq!(Theme::parse("colors=2"), None);
     let partial = Theme::parse("x=0.1 y=0.2 colors=7 grain=bad").unwrap();

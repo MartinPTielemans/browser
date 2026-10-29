@@ -22,6 +22,7 @@ use browser::menu;
 use browser::palette::{self, Palette, Tone};
 use browser::site_controls::{self, Connection, Permission, Site, Value};
 use browser::theme::{Appearance, Theme};
+use browser::theme_picker;
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -1556,6 +1557,19 @@ fn main() {
                 icon_picker::show(subject, icon.into(), point(0., 0.), picked, cx);
             }
         }
+        // PREVIEW_THEME_PICKER=1 shows the theme picker for the first Space, with PREVIEW_THEME's
+        // theme.
+        if std::env::var_os("PREVIEW_THEME_PICKER").is_some() {
+            let bounds = Bounds::new(
+                point(px(x as f32 + 230.), px(y as f32 + 100.)),
+                size(px(theme_picker::WIDTH), px(theme_picker::HEIGHT)),
+            );
+            if theme_picker::open_at(Rc::new(PreviewPicker), bounds, true, cx).is_some() {
+                let changed: theme_picker::Changed = Rc::new(|_, _, _| {});
+                let anchor = point(0., theme_picker::HEIGHT / 2. + 8.);
+                theme_picker::show(1, preview_theme(), anchor, f32::MAX, changed, cx);
+            }
+        }
         // PREVIEW_SITE_CONTROLS=1 opens the Site Controls of the tab shown, once the shell has
         // drawn the URL field they hang from.
         let site_controls = std::env::var_os("PREVIEW_SITE_CONTROLS").is_some();
@@ -1672,6 +1686,12 @@ impl icon_picker::Host for PreviewPicker {
     fn hide(&self) {}
 
     fn keep_recents(&self, _: &str) {}
+}
+
+impl theme_picker::Host for PreviewPicker {
+    fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
+
+    fn hide(&self) {}
 }
 
 /// The dialog over the preview's window, which it covers, for its host can't move it.
