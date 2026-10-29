@@ -1498,6 +1498,14 @@ fn main() {
                 if let Some((tab, trouble)) = trouble {
                     shell.set_page(tab, Page { trouble, ..shell.page(tab) }, cx);
                 }
+                // PREVIEW_DEVELOPER_MODE=1 has the tab shown, the third tab and the GitHub
+                // favorite in Developer Mode, so its outline and contrast show.
+                if std::env::var_os("PREVIEW_DEVELOPER_MODE").is_some() {
+                    for tab in [shell.selected(), 3, favorites[2]] {
+                        let page = Page { developer_mode: true, ..shell.page(tab) };
+                        shell.set_page(tab, page, cx);
+                    }
+                }
                 if welcome {
                     shell.set_welcome(cx);
                 }
