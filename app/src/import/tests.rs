@@ -13,6 +13,7 @@ use gpui::{App, AppContext, TestAppContext};
 use super::arc;
 use super::chromium;
 use super::extensions::{self, Extension};
+use super::session;
 use super::suggested;
 use super::found::{Found, FromProfile, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
@@ -489,6 +490,8 @@ struct Space {
     icon: String,
     theme: Option<Theme>,
     rows: Vec<FakeRow>,
+    /// Its Today tabs, top first.
+    today: Vec<Tab>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -542,6 +545,7 @@ impl Browser {
                 icon: String::new(),
                 theme: None,
                 rows: Vec::new(),
+                today: Vec::new(),
             });
             state.next = 2;
         }
@@ -554,7 +558,7 @@ impl Browser {
         state.unloaded.clear();
         for (space, profile) in std::mem::take(&mut state.loading) {
             let space = state.space(space);
-            if space.rows.is_empty() {
+            if space.rows.is_empty() && space.today.is_empty() {
                 space.profile = profile;
             }
         }
@@ -587,16 +591,9 @@ impl Browser {
             then(added, cx);
         }
     }
-}
 
-impl Host for Browser {
-    fn roots(&self) -> Roots {
-        self.roots
-            .clone()
-            .unwrap_or_else(|| Roots::under(&fixture(), Os::Mac))
-    }
-
-    fn existing(&self) -> Existing {
+    /// What the browser has, as existing() says it.
+    fn here(&self) -> Existing {
         fn rows(of: &[FakeRow]) -> Vec<Row> {
             of.iter()
                 .map(|row| match row {
@@ -618,6 +615,7 @@ impl Host for Browser {
                     name: space.name.clone(),
                     profile: space.profile,
                     pinned: rows(&space.rows),
+                    today: space.today.iter().map(|tab| tab.url.clone()).collect(),
                 })
                 .collect(),
             favorites: state
@@ -626,6 +624,18 @@ impl Host for Browser {
                 .map(|(profile, tab)| (*profile, tab.url.clone()))
                 .collect(),
         }
+    }
+}
+
+impl Host for Browser {
+    fn roots(&self) -> Roots {
+        self.roots
+            .clone()
+            .unwrap_or_else(|| Roots::under(&fixture(), Os::Mac))
+    }
+
+    fn existing(&self, _: &App) -> Existing {
+        self.here()
     }
 
     fn create_profile(&self, name: &str) -> u64 {
@@ -646,6 +656,7 @@ impl Host for Browser {
             icon: icon.into(),
             theme: theme.copied(),
             rows: Vec::new(),
+            today: Vec::new(),
         };
         state.spaces.push(space);
         id
@@ -678,6 +689,10 @@ impl Host for Browser {
         let mut state = self.state.borrow_mut();
         let profile = state.space(space).profile;
         state.favorites.push((profile, tab.clone()));
+    }
+
+    fn add_today(&self, space: u64, tab: &Tab) {
+        self.state.borrow_mut().space(space).today.insert(0, tab.clone());
     }
 
     fn profile_loaded(&self, profile: u64) -> bool {
@@ -782,11 +797,11 @@ fn profile_names() -> Vec<(String, String)> {
 
 /// Runs a whole import of `found` into `browser`, its profiles loading at once.
 fn import(browser: &Browser, found: &Found, cx: &mut App) {
-    let plan = plan::plan(found, &profile_names(), &browser.existing());
+    let plan = plan::plan(found, &profile_names(), &browser.here());
     let job = super::Job::start(plan, browser);
     browser.load(cx);
     assert!(job.ready(browser));
-    job.finish(browser);
+    job.finish(browser, cx);
 }
 
 /// Arc's default profile is the one the browser started with, and its other profile a new one
@@ -833,7 +848,7 @@ fn an_import_brings_in_spaces_folders_and_favorites(cx: &mut TestAppContext) {
 fn running_it_again_adds_nothing(cx: &mut TestAppContext) {
     let browser = Browser::new(None);
     cx.update(|cx| import(&browser, &sidebar(), cx));
-    let plan = plan::plan(&sidebar(), &profile_names(), &browser.existing());
+    let plan = plan::plan(&sidebar(), &profile_names(), &browser.here());
     assert!(plan.is_empty(), "{plan:?}");
 }
 
@@ -863,7 +878,7 @@ fn a_space_already_here_gets_only_what_it_lacks(cx: &mut TestAppContext) {
         state.next = 9;
     }
     let found = picked(true, false);
-    let plan = plan::plan(&found, &profile_names(), &browser.existing());
+    let plan = plan::plan(&found, &profile_names(), &browser.here());
     let counts = Counts {
         spaces: 1,
         pinned: 4,
@@ -1118,8 +1133,8 @@ fn history_is_the_last_90_days_of_pages() {
     fs::remove_dir_all(home).unwrap();
 }
 
-/// Chrome on Linux, as the tests make it: `profiles` by folder and name, each with a short bar and
-/// two pages of history.
+/// Chrome on Linux, as the tests make it: `profiles` by folder and name, each with a short bar, two
+/// tabs open, one of them a bookmark's, and two pages of history.
 fn chrome(name: &str, profiles: &[(&str, &str)], now: SystemTime) -> PathBuf {
     let home = home(name);
     let chrome = home.join(".config/google-chrome");
@@ -1141,6 +1156,19 @@ fn chrome(name: &str, profiles: &[(&str, &str)], now: SystemTime) -> PathBuf {
             bookmark("", "https://example.com/"),
         ];
         write(profile.join("Bookmarks"), &bookmarks_file(&bar.join(",")));
+        let tabs = [
+            (SET_WINDOW_TYPE, ints(&[1, 0])),
+            (SET_TAB_WINDOW, ints(&[1, 2])),
+            (SET_TAB_INDEX_IN_WINDOW, ints(&[2, 0])),
+            (NAVIGATION, navigation(2, 0, "https://open.example.com/")),
+            (SET_TAB_WINDOW, ints(&[1, 3])),
+            (SET_TAB_INDEX_IN_WINDOW, ints(&[3, 1])),
+            (NAVIGATION, navigation(3, 0, "https://mail.example.com/")),
+            (MARKER, Vec::new()),
+        ];
+        let session = profile.join("Sessions/Session_13400000000000000");
+        fs::create_dir_all(session.parent().unwrap()).unwrap();
+        fs::write(session, session_file(3, &tabs)).unwrap();
         history_file(
             &profile.join("History"),
             now,
@@ -1151,6 +1179,148 @@ fn chrome(name: &str, profiles: &[(&str, &str)], now: SystemTime) -> PathBuf {
         );
     }
     home
+}
+
+const SET_TAB_WINDOW: u8 = 0;
+const SET_TAB_INDEX_IN_WINDOW: u8 = 2;
+const NAVIGATION: u8 = 6;
+const SET_SELECTED_NAVIGATION_INDEX: u8 = 7;
+const SET_WINDOW_TYPE: u8 = 9;
+const TAB_CLOSED: u8 = 16;
+const PRUNED: u8 = 24;
+const MARKER: u8 = 255;
+
+/// A session file as Chromium writes one: "SNSS" and its version, then each command's size, id
+/// and what it says.
+fn session_file(version: i32, commands: &[(u8, Vec<u8>)]) -> Vec<u8> {
+    let mut file = b"SNSS".to_vec();
+    file.extend(version.to_le_bytes());
+    for (id, body) in commands {
+        file.extend((body.len() as u16 + 1).to_le_bytes());
+        file.push(*id);
+        file.extend(body);
+    }
+    file
+}
+
+fn ints(values: &[i32]) -> Vec<u8> {
+    values.iter().flat_map(|value| value.to_le_bytes()).collect()
+}
+
+/// An UpdateTabNavigation's pickle: the tab, the page's index, its URL and title, and the start of
+/// what follows them, padded as base::Pickle pads.
+fn navigation(tab: i32, index: i32, url: &str) -> Vec<u8> {
+    let pad = |bytes: &mut Vec<u8>| bytes.resize(bytes.len().next_multiple_of(4), 0);
+    let mut payload = ints(&[tab, index, url.len() as i32]);
+    payload.extend(url.as_bytes());
+    pad(&mut payload);
+    let title: Vec<u8> = "Title".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    payload.extend(ints(&[5]));
+    payload.extend(title);
+    pad(&mut payload);
+    payload.extend(ints(&[0, 1, 0]));
+    let mut pickle = ints(&[payload.len() as i32]);
+    pickle.extend(payload);
+    pickle
+}
+
+/// A session's open tabs come window by window in their order, each at the page it showed, as
+/// Chromium would restore them: not a popup's, a closed tab's or one Chromium's own page shows. A
+/// page updated again is the later one, and a tab whose page was pruned shows the one before.
+#[test]
+fn a_session_reads_as_the_tabs_it_had_open() {
+    let tab = |window, tab, index| {
+        [
+            (SET_TAB_WINDOW, ints(&[window, tab])),
+            (SET_TAB_INDEX_IN_WINDOW, ints(&[tab, index])),
+        ]
+    };
+    let mut commands = vec![
+        (SET_WINDOW_TYPE, ints(&[3, 0])),
+        (SET_WINDOW_TYPE, ints(&[1, 0])),
+        (SET_WINDOW_TYPE, ints(&[2, 1])),
+    ];
+    commands.extend(tab(1, 10, 1));
+    commands.extend([
+        (NAVIGATION, navigation(10, 0, "https://a.example.com/")),
+        (NAVIGATION, navigation(10, 1, "https://b.example.com/")),
+        (SET_SELECTED_NAVIGATION_INDEX, ints(&[10, 0])),
+    ]);
+    commands.extend(tab(1, 11, 0));
+    commands.push((NAVIGATION, navigation(11, 0, "https://first.example.com/")));
+    commands.extend(tab(2, 12, 0));
+    commands.push((NAVIGATION, navigation(12, 0, "https://popup.example.com/")));
+    commands.extend(tab(1, 13, 2));
+    commands.push((NAVIGATION, navigation(13, 0, "chrome://settings/")));
+    commands.push((MARKER, Vec::new()));
+    commands.extend(tab(1, 14, 3));
+    commands.push((NAVIGATION, navigation(14, 0, "https://closed.example.com/")));
+    commands.push((TAB_CLOSED, ints(&[14, 0, 0, 0])));
+    commands.extend(tab(3, 15, 0));
+    commands.extend([
+        (NAVIGATION, navigation(15, 0, "https://kept.example.com/")),
+        (NAVIGATION, navigation(15, 1, "https://pruned.example.com/")),
+        (NAVIGATION, navigation(15, 2, "https://pruned-too.example.com/")),
+        (SET_SELECTED_NAVIGATION_INDEX, ints(&[15, 2])),
+        (PRUNED, ints(&[15, 1, 2])),
+    ]);
+    commands.extend(tab(3, 16, 1));
+    commands.extend([
+        (NAVIGATION, navigation(16, 0, "https://before.example.com/")),
+        (NAVIGATION, navigation(16, 0, "https://after.example.com/")),
+    ]);
+    let tabs = session::parse(&session_file(3, &commands)).unwrap();
+    let urls: Vec<&str> = tabs.iter().map(|tab| tab.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        [
+            "https://first.example.com/",
+            "https://a.example.com/",
+            "https://kept.example.com/",
+            "https://after.example.com/"
+        ]
+    );
+    assert!(tabs.iter().all(|tab| tab.name.is_empty()));
+    // A last command a crash cut short is left out, and the rest still come.
+    let mut cut = session_file(3, &commands);
+    cut.extend([40, 0, NAVIGATION, 1, 2]);
+    assert_eq!(session::parse(&cut).unwrap(), tabs);
+}
+
+/// The newest session Chromium would restore is the one read: an encrypted one, which import never
+/// decrypts, and one left before its first state was written are passed over, as are the
+/// recently closed tabs in Tabs_ and a file that isn't a session.
+#[test]
+fn a_session_chromium_wouldnt_restore_is_passed_over() {
+    let profile = home("sessions");
+    assert_eq!(session::open_tabs(&profile).unwrap(), []);
+    let open = |url| {
+        vec![
+            (SET_WINDOW_TYPE, ints(&[1, 0])),
+            (SET_TAB_WINDOW, ints(&[1, 2])),
+            (NAVIGATION, navigation(2, 0, url)),
+            (MARKER, Vec::new()),
+        ]
+    };
+    let sessions = profile.join("Sessions");
+    fs::create_dir_all(&sessions).unwrap();
+    let mut unfinished = open("https://unfinished.example.com/");
+    unfinished.pop();
+    let files = [
+        ("Tabs_500", session_file(3, &open("https://closed.example.com/"))),
+        ("Session_400", b"not a session".to_vec()),
+        ("Session_300", session_file(5, &open("https://encrypted.example.com/"))),
+        ("Session_200", session_file(3, &unfinished)),
+        ("Session_100", session_file(3, &open("https://older.example.com/"))),
+        ("Session_99", session_file(3, &open("https://oldest.example.com/"))),
+    ];
+    for (name, bytes) in files {
+        fs::write(sessions.join(name), bytes).unwrap();
+    }
+    let tabs = session::open_tabs(&profile).unwrap();
+    let urls: Vec<&str> = tabs.iter().map(|tab| tab.url.as_str()).collect();
+    assert_eq!(urls, ["https://older.example.com/"]);
+    fs::remove_dir_all(profile).unwrap();
 }
 
 /// A browser with more than one profile gets a Space for each, named after the browser and the
@@ -1164,7 +1334,10 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
         now,
     );
     let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
-    assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History, Kind::Extensions]);
+    assert_eq!(
+        read::kinds(source),
+        [Kind::Bookmarks, Kind::OpenTabs, Kind::History, Kind::Extensions]
+    );
     let found = read::read(source, &[Kind::Bookmarks], now).unwrap();
     let spaces: Vec<_> = (found.spaces.iter())
         .map(|space| (space.name.as_str(), &space.profile))
@@ -1213,7 +1386,7 @@ fn chromes_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
     cx.update(|cx| browser.added(cx));
     assert_eq!(
         said(cx),
-        "1 Space, 3 pinned tabs and 2 pages of history came in from Chrome."
+        "1 Space, 3 pinned tabs, 1 open tab and 2 pages of history came in from Chrome."
     );
     let chrome = &browser.spaces()[1];
     assert_eq!((chrome.name.as_str(), chrome.profile), ("Chrome", 1));
@@ -1222,6 +1395,9 @@ fn chromes_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
         "Mail=https://mail.example.com/, https://example.com/, \
          Other bookmarks[Docs=https://docs.example.com/]"
     );
+    // The open tab that's a bookmark is pinned already.
+    let today: Vec<&str> = chrome.today.iter().map(|tab| tab.url.as_str()).collect();
+    assert_eq!(today, ["https://open.example.com/"]);
     import(cx);
     cx.update(|cx| browser.added(cx));
     assert_eq!(said(cx), "Everything from Chrome is here already.");

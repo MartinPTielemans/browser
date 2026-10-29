@@ -1,7 +1,8 @@
 //! What an import adds, worked out against what the browser has, so that running it again adds
 //! nothing: a Space joins the Space here with its name and profile, a folder the one with its name
-//! in the same place, and a tab or favorite whose URL is already there is skipped. History is
-//! added whole, and the core skips the pages it has (bc_profile_add_history).
+//! in the same place, and a tab or favorite whose URL is already there is skipped, as is an open
+//! tab whose URL the Space has among its pinned or Today tabs. History is added whole, and the
+//! core skips the pages it has (bc_profile_add_history).
 
 use super::found::{Found, FromProfile, Node, Page, Tab};
 use crate::theme::Theme;
@@ -23,6 +24,8 @@ pub struct ExistingSpace {
     pub name: String,
     pub profile: u64,
     pub pinned: Vec<Row>,
+    /// Its Today tabs' URLs.
+    pub today: Vec<String>,
 }
 
 /// A pinned row: a tab by the URL it's pinned at, or a folder with what's in it.
@@ -60,6 +63,8 @@ pub struct Counts {
     /// Spaces it makes.
     pub spaces: usize,
     pub pinned: usize,
+    /// Tabs it opens among the Today tabs.
+    pub today: usize,
     pub favorites: usize,
     /// Pages of history, which may be here already.
     pub pages: usize,
@@ -70,6 +75,8 @@ pub struct SpacePlan {
     pub into: Target,
     /// What to add to its pinned tabs, at their ends.
     pub pinned: Vec<Add>,
+    /// What to open at the top of its Today tabs, in this order.
+    pub today: Vec<Tab>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,6 +126,7 @@ impl Plan {
         Counts {
             spaces: made.count(),
             pinned,
+            today: self.spaces.iter().map(|space| space.today.len()).sum(),
             favorites: self.favorites.len(),
             pages: self.history.iter().map(|(_, pages)| pages.len()).sum(),
         }
@@ -170,9 +178,26 @@ pub fn plan(found: &Found, names: &[(String, String)], existing: &Existing) -> P
         let rows = here.map_or(&[][..], |here| &here.pinned[..]);
         let mut adds = Vec::new();
         add(&space.pinned, rows, &mut adds);
+        let mut today: Vec<Tab> = Vec::new();
+        for tab in &space.today {
+            let url = tab.url.as_str();
+            let here = here.is_some_and(|here| here.today.iter().any(|each| each == url))
+                || has(rows, url);
+            let planned = planned.is_some_and(|at| {
+                let planned = &plan.spaces[at];
+                planned.today.iter().any(|each| each.url == url) || planning(&planned.pinned, url)
+            });
+            let twice = planning(&adds, url) || today.iter().any(|each| each.url == url);
+            if !here && !planned && !twice {
+                today.push(tab.clone());
+            }
+        }
         match planned {
-            Some(at) => merge(&mut plan.spaces[at].pinned, adds),
-            None if here.is_some() && adds.is_empty() => {}
+            Some(at) => {
+                merge(&mut plan.spaces[at].pinned, adds);
+                plan.spaces[at].today.extend(today);
+            }
+            None if here.is_some() && adds.is_empty() && today.is_empty() => {}
             None => plan.spaces.push(SpacePlan {
                 into: match here {
                     Some(here) => Target::Existing(here.id),
@@ -184,6 +209,7 @@ pub fn plan(found: &Found, names: &[(String, String)], existing: &Existing) -> P
                     },
                 },
                 pinned: adds,
+                today,
             }),
         }
     }
@@ -255,6 +281,22 @@ fn add(nodes: &[Node], rows: &[Row], adds: &mut Vec<Add>) {
             }
         }
     }
+}
+
+/// Whether a tab at `url` is among `rows`, in a folder or not.
+fn has(rows: &[Row], url: &str) -> bool {
+    rows.iter().any(|row| match row {
+        Row::Tab(each) => each == url,
+        Row::Folder { rows, .. } => has(rows, url),
+    })
+}
+
+/// Whether a tab at `url` is among `adds`, in a folder or not.
+fn planning(adds: &[Add], url: &str) -> bool {
+    adds.iter().any(|add| match add {
+        Add::Tab(tab) => tab.url == url,
+        Add::Folder { adds, .. } => planning(adds, url),
+    })
 }
 
 /// Puts `more` into `adds`, skipping what's there already.

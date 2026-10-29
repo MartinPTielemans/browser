@@ -144,7 +144,10 @@ impl browser::import::Host for CoreImport {
         }
     }
 
-    fn existing(&self) -> Existing {
+    fn existing(&self, cx: &App) -> Existing {
+        // Every window's shell has every tab's page, as the core tells them all.
+        let shell = crate::shell_with_view(front().1).upgrade();
+        let url = |tab: u64| shell.as_ref().map(|shell| shell.read(cx).page(tab).url.to_string());
         let profiles = ids(bc::bc_profiles)
             .into_iter()
             .map(|profile| (profile, name(bc::bc_profile_name, profile).to_string()))
@@ -163,6 +166,10 @@ impl browser::import::Host for CoreImport {
                     name: name(bc::bc_space_name, space).to_string(),
                     profile: unsafe { bc::bc_space_profile(space) },
                     pinned: rows(&pinned, 0),
+                    today: of_space(bc::bc_space_today, space)
+                        .into_iter()
+                        .filter_map(&url)
+                        .collect(),
                 }
             })
             .collect();
@@ -228,6 +235,10 @@ impl browser::import::Host for CoreImport {
             unsafe { bc::bc_tab_move_to_favorites(id, usize::MAX) };
             keep(id, tab);
         }
+    }
+
+    fn add_today(&self, space: u64, tab: &Tab) {
+        open_in(space, &tab.url);
     }
 
     fn profile_loaded(&self, profile: u64) -> bool {
