@@ -14,10 +14,10 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, BoxShadow, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Global,
-    Hsla, Image, KeyBinding, MouseButton, Pixels, SharedString, Stateful, Task, TitlebarOptions,
-    Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
-    actions, div, img, point, prelude::*, px, rgb, rgba, size, svg,
+    AnyElement, App, Bounds, BoxShadow, Context, Div, Entity, FocusHandle, Focusable, FontWeight,
+    Global, Hsla, Image, KeyBinding, MouseButton, Pixels, SharedString, Stateful, Task,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions, actions, div, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{
@@ -282,11 +282,7 @@ pub fn open_at(
     show: bool,
     cx: &mut App,
 ) -> Option<WindowHandle<Dialog>> {
-    cx.bind_keys([
-        KeyBinding::new("enter", Confirm, Some("Dialog")),
-        KeyBinding::new("escape", Cancel, Some("Dialog")),
-        KeyBinding::new("tab", NextField, Some("Dialog")),
-    ]);
+    bind_keys(cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
@@ -304,15 +300,7 @@ pub fn open_at(
         window_background: WindowBackgroundAppearance::Transparent,
         ..Default::default()
     };
-    let window = cx.open_window(options, |_, cx| {
-        cx.new(|cx| Dialog {
-            host,
-            focus: cx.focus_handle(),
-            asked: None,
-            next: None,
-            next_page: None,
-        })
-    });
+    let window = cx.open_window(options, |_, cx| cx.new(|cx| Dialog::new(host, cx)));
     match window {
         Ok(window) => {
             cx.set_global(DialogWindow(window));
@@ -323,6 +311,54 @@ pub fn open_at(
             None
         }
     }
+}
+
+fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("enter", Confirm, Some("Dialog")),
+        KeyBinding::new("escape", Cancel, Some("Dialog")),
+        KeyBinding::new("tab", NextField, Some("Dialog")),
+    ]);
+}
+
+/// A dialog of a window's own, for a window the browser window's dialog can't go over, as
+/// Settings is on Linux. Its view draws it over all of its content (`cover`), and draws again as
+/// it changes.
+pub fn in_window<V: 'static>(host: Rc<dyn Host>, cx: &mut Context<V>) -> Entity<Dialog> {
+    bind_keys(cx);
+    let dialog = cx.new(|cx| Dialog::new(host, cx));
+    cx.observe(&dialog, |_, _, cx| cx.notify()).detach();
+    dialog
+}
+
+/// Asks as `ask` does, in `dialog`, a window's own (`in_window`), which has the keyboard.
+pub fn ask_in(
+    dialog: &Entity<Dialog>,
+    message: String,
+    detail: String,
+    action: &'static str,
+    confirmed: Box<dyn FnOnce(&mut App)>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let question = destructive(message, detail, action);
+    dialog.update(cx, |dialog, cx| dialog.pose(question, confirmed, window, cx));
+}
+
+/// What a window draws over all of its content while its own `dialog` asks: the dialog, which
+/// takes every click, as the window waits for the answer.
+pub fn cover(dialog: &Entity<Dialog>, cx: &App) -> Option<AnyElement> {
+    dialog.read(cx).asked.is_some().then(|| {
+        div()
+            .id("dialog-cover")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .occlude()
+            .child(dialog.clone())
+            .into_any_element()
+    })
 }
 
 /// Whether the dialog is asking, or leaving after the answer.
@@ -342,7 +378,12 @@ pub fn ask(
     confirmed: Box<dyn FnOnce(&mut App)>,
     cx: &mut App,
 ) {
-    let question = Question {
+    pose(destructive(message, detail, action), confirmed, cx);
+}
+
+/// Whether to do `action`, in red, or cancel.
+fn destructive(message: String, detail: String, action: &'static str) -> Question {
+    Question {
         icon: None,
         message: message.into(),
         detail: detail.into(),
@@ -354,30 +395,16 @@ pub fn ask(
         fields: Vec::new(),
         check: None,
         return_cancels: false,
-    };
-    pose(question, confirmed, cx);
+    }
 }
 
 /// Asks `question`, and calls `confirmed` if the user chooses its action, once the dialog has
 /// gone. Nothing while another dialog shows.
 pub fn pose(question: Question, confirmed: Box<dyn FnOnce(&mut App)>, cx: &mut App) {
-    let answered = Box::new(move |reply: Reply, cx: &mut App| {
-        if reply.accept {
-            confirmed(cx);
-        }
-    });
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
     };
-    window
-        .update(cx, |dialog, window, cx| {
-            if dialog.asked.is_none() {
-                let request =
-                    Request { question, source: Source::User, over: None, page: None, answered };
-                dialog.show(request, window, cx);
-            }
-        })
-        .ok();
+    window.update(cx, |dialog, window, cx| dialog.pose(question, confirmed, window, cx)).ok();
 }
 
 /// Asks Chrome's `question` once the dialog that shows has gone, in place of any of Chrome's
@@ -468,6 +495,29 @@ pub fn withdraw_page(cx: &mut App) {
 }
 
 impl Dialog {
+    fn new(host: Rc<dyn Host>, cx: &mut Context<Self>) -> Self {
+        Dialog { host, focus: cx.focus_handle(), asked: None, next: None, next_page: None }
+    }
+
+    fn pose(
+        &mut self,
+        question: Question,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.asked.is_some() {
+            return;
+        }
+        let answered = Box::new(move |reply: Reply, cx: &mut App| {
+            if reply.accept {
+                confirmed(cx);
+            }
+        });
+        let request = Request { question, source: Source::User, over: None, page: None, answered };
+        self.show(request, window, cx);
+    }
+
     fn show(&mut self, request: Request, window: &mut Window, cx: &mut Context<Self>) {
         let Request { mut question, source, over, page, answered } = request;
         // check.sh reads this line.
