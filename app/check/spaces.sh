@@ -214,6 +214,22 @@ expect "^browser: title $a hidden\$" "the tab in the Space not shown isn't hidde
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 expect "^browser: title $a visible " "the tab in the Space shown again isn't visible"
 ran_hidden "the tab in the Space shown again ran frames while hidden, other than its picture's"
+# A Space shows its last-used tab again: with two in Today and the lower one shown, a switch away
+# and back shows the lower one, not the top one.
+open_from_bar example.org
+c=$tab
+send click "$(row 1)"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the lower row didn't show tab $a"
+show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
+send click 97 $dots_y
+expect '^browser: command select-space via sidebar$' "the first Space's dot didn't run select-space"
+expect "^browser: space $first in " "the first Space's dot didn't show it"
+expect_tabs "$c $a" "$a" "back in the first Space, its last-used tab"
+../tools/window-screenshot.sh "$pid" "$out/space-last-used.png" || fail "no window to capture"
+send click "$(row 0)"
+expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on the top row didn't show tab $c"
+send key w cmd
+expect_tabs "$a" "$a" "after closing the last-used check's tab"
 
 # Two fingers across the sidebar page between Spaces. A flick goes on to the next Space, a drag let
 # go still goes to the Space nearest its place, and past the last Space the pages come back. Fingers
@@ -765,7 +781,7 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # The page shown is hidden while its window is minimized, and while the app is hidden, as Chrome's
 # is, and visible once they're back. Last, as the app may not be active after it's been hidden.
 # Today is the tab ⇧⌘T reopened over the page's.
-send click $(row 1)
+send click "$(row 1)"
 last_title=$(grep "^browser: title $a " "$log" | tail -1 | cut -d' ' -f4-)
 [ "${last_title%% *}" = visible ] ||
   expect "^browser: title $a visible " "a click on the page's row didn't show it"
