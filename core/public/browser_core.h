@@ -92,6 +92,9 @@ typedef struct bc_tab_state {
   // The system's engine shows the page, WebKit on the Mac, in place of Chromium
   // (bc_tab_set_system_engine).
   bool system_engine;
+  // The tab shows its page in Developer Mode (bc_tab_set_developer_mode): the user turned it on for
+  // the page's site, or it's localhost, as Chrome counts it, and they didn't turn it off there.
+  bool developer_mode;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -303,6 +306,12 @@ typedef struct bc_login {
 #define BC_AD_BLOCKING_ON 1
 #define BC_AD_BLOCKING_OFF 2
 
+// Whether a site's tabs show in Developer Mode, for its Site Controls: none where the user can't
+// turn it on or off, as for a page that isn't http(s) or in a private window, else on or off.
+#define BC_DEVELOPER_MODE_NONE 0
+#define BC_DEVELOPER_MODE_ON 1
+#define BC_DEVELOPER_MODE_OFF 2
+
 // The site of a tab's page, for its Site Controls.
 typedef struct bc_site_controls {
   // The site as the user should see it, such as "example.com".
@@ -335,6 +344,8 @@ typedef struct bc_site_controls {
   size_t login_count;
   // A BC_AD_BLOCKING_ value, which bc_tab_set_ad_blocking changes.
   int ad_blocking;
+  // A BC_DEVELOPER_MODE_ value, which bc_tab_set_developer_mode changes.
+  int developer_mode;
 } bc_site_controls;
 
 
@@ -1745,6 +1756,13 @@ BC_EXPORT size_t bc_ad_blocking_off_sites(bc_id profile, char* sites, size_t cap
 // Lets the ad blocker run on |site|, one of bc_ad_blocking_off_sites, in the profile again. A page
 // open there keeps what it loaded until it reloads. The user's, as bc_set_ad_blocking is.
 BC_EXPORT void bc_ad_blocking_turn_on_site(bc_id profile, const char* site);
+
+// Turns Developer Mode on or off for the site of the tab's page, its registrable domain or host, in
+// its profile, which keeps it, if the page is http(s) and the tab isn't in a private window. Then
+// tab_state_changed for each of the profile's tabs at the site, and tab_site_controls if
+// bc_tab_site_controls is watching one. The user's: agents get none, as
+// it's how the user sees their tabs.
+BC_EXPORT void bc_tab_set_developer_mode(bc_id tab, bool on);
 
 // Takes the tab's playing video into Picture in Picture, or brings it back, as
 // bc_site_controls' picture_in_picture says it can. Then tab_site_controls.

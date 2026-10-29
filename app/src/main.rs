@@ -859,6 +859,10 @@ impl site_controls::Host for SiteControlsHost {
         remove_login(unsafe { bc::bc_tab_profile(tab) }, login);
     }
 
+    fn set_developer_mode(&self, tab: u64, on: bool) {
+        unsafe { bc::bc_tab_set_developer_mode(tab, on) };
+    }
+
     fn set_ad_blocking(&self, tab: u64, on: bool) {
         unsafe { bc::bc_tab_set_ad_blocking(tab, on) };
         // Settings lists the sites it's off on.
@@ -4460,6 +4464,7 @@ unsafe extern "C" fn tab_state_changed(
             _ => Trouble::Fine,
         },
         system_engine: state.system_engine,
+        developer_mode: state.developer_mode,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
         update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));
@@ -4838,6 +4843,11 @@ unsafe extern "C" fn tab_site_controls(
         ad_blocking: match controls.ad_blocking as u32 {
             bc::BC_AD_BLOCKING_ON => Some(true),
             bc::BC_AD_BLOCKING_OFF => Some(false),
+            _ => None,
+        },
+        developer_mode: match controls.developer_mode as u32 {
+            bc::BC_DEVELOPER_MODE_ON => Some(true),
+            bc::BC_DEVELOPER_MODE_OFF => Some(false),
             _ => None,
         },
         logins: logins(controls.logins, controls.login_count),

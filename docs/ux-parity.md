@@ -358,6 +358,13 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Task Manager | MVP | Chrome's, from Help › Troubleshooting › Open Task Manager as Arc's; ⌘W closes it | Arc 1.170.0 menus, Chrome |
 | [x] | No agent DevTools or debugging port | MVP | none. Holds: no agent call opens DevTools or a port; `--remote-debugging-port` and `--remote-debugging-pipe` open one for whoever launches the browser, as the trouble run does. Built: the list of agents' actions refuses `devtools` with why, which `./check.sh agents` asserts in its activity-log line, ticking from it; on the Mac, the run logs `devtools refused: Agents get no DevTools or debugging port.` Not built: a check that a plain launch leaves no DevToolsActivePort | decision 8 |
 
+## Developer Mode
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [x] | Per site, on for localhost | MVP | a flag the profile keeps by site; localhost, its subdomains, 127.0.0.1 and [::1] on by themselves; http(s) only; a private window follows the profile and can't change it; every tab at the site follows a change. `./check.sh clear` reads it On for a localhost page in Site Controls, turns it off and on, and logs the tab's `page <tab> developer mode 0` and `1` as each draws | Arc help centre |
+| [x] | Site Controls row | MVP | after Block ads and trackers: Lucide's code, "Developer Mode", On or Off, a switch on a click; none outside http(s) or in a private window. Ours, as Arc's isn't recorded | Arc help centre, ours |
+
 ## Capture
 
 | Done | Item | Phase | Target | Source |

@@ -18,6 +18,7 @@
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
@@ -114,6 +115,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   // Before Chrome stops taking factories, as the first profile is made.
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
+    developer_mode::RegisterProfilePrefs();
     widevine::Start();
   }
 
