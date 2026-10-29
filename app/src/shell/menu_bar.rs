@@ -3,7 +3,7 @@
 
 use gpui::{Context, SharedString};
 
-use super::{Extension, Shell, menus::space_menu_label};
+use super::{Command, Extension, Shell, menus::space_menu_label};
 
 /// What the key window's menu bar shows that changes with it.
 #[derive(Clone, Default, PartialEq)]
@@ -15,6 +15,8 @@ pub struct MenuBar {
     pub sidebar_hidden: bool,
     /// Whether the tab shown is pinned, or None with none shown.
     pub pinned: Option<bool>,
+    /// Whether the Space shown has its pinned rows collapsed.
+    pub pinned_shut: bool,
     /// Spaces › Change Profile: each profile by id and name, whether the Space shown can change to
     /// it and whether it's in it, then whether New Profile can be chosen. None in a private window.
     pub profiles: Option<(Vec<ProfileChoice>, bool)>,
@@ -43,6 +45,15 @@ impl MenuBar {
             None => "Pin/Unpin Tab",
         }
     }
+
+    /// View's item that collapses the pinned rows or expands them, by what it does now, after the
+    /// sidebar's, as Arc's.
+    pub fn pinned_item(&self) -> (&'static str, Command) {
+        match self.pinned_shut {
+            true => ("Expand Pinned Tabs", Command::ExpandPinned),
+            false => ("Collapse Pinned Tabs", Command::CollapsePinned),
+        }
+    }
 }
 
 impl Shell {
@@ -65,6 +76,7 @@ impl Shell {
             extensions,
             sidebar_hidden: self.sidebar_hidden,
             pinned,
+            pinned_shut: self.shown_space().is_some_and(|space| space.folders.pinned_shut),
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
         }
     }
@@ -117,8 +129,8 @@ mod tests {
     use super::ProfileChoice;
     use crate::shell::{Command, Folders, drag::detents::shell_with};
 
-    /// Tabs › Pin Tab is named by the tab shown, and with none both ways; View's sidebar item by
-    /// what it does now.
+    /// Tabs › Pin Tab is named by the tab shown, and with none both ways; View's sidebar and pinned
+    /// tabs items by what they do now.
     #[gpui::test]
     fn the_menu_bar_names_items_by_what_they_do_now(cx: &mut TestAppContext) {
         let (shell, host) = shell_with(cx, &[1], &[10], Folders::default());
@@ -130,6 +142,11 @@ mod tests {
         assert_eq!(host.menu_bar.borrow().pin_title(), "Unpin Tab");
         shell.update(cx, |shell, cx| shell.run(Command::ToggleSidebar, "ui", cx));
         assert_eq!(host.menu_bar.borrow().sidebar_title(), "Show Sidebar");
+        assert_eq!(host.menu_bar.borrow().pinned_item().1, Command::CollapsePinned);
+        let shut = Folders { pinned_shut: true, ..Folders::default() };
+        shell.update(cx, |shell, cx| shell.set_tabs(1, vec![1], vec![10], Vec::new(), shut, cx));
+        let item = host.menu_bar.borrow().pinned_item();
+        assert_eq!(item, ("Expand Pinned Tabs", Command::ExpandPinned));
     }
 
     /// The window is titled by the tab shown, as the sidebar names it, and by its Space with none.

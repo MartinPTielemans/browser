@@ -56,6 +56,10 @@ pub enum Command {
     NewFolder,
     /// Closes every folder of the Space shown.
     CollapseFolders,
+    /// Hides the pinned rows of the Space shown but the tab shown's, as a closed folder does.
+    CollapsePinned,
+    /// Shows them again.
+    ExpandPinned,
     /// Shows the sidebar's row of the tab shown: opens its folders and scrolls the list to it.
     RevealTab,
     /// Loads the selected pinned tab's pinned URL.
@@ -277,6 +281,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Clear Archive", Command::ClearArchive, &[]),
     ("Favorite Tab", Command::FavoriteTab, &["add to favorites"]),
     ("Collapse All Folders", Command::CollapseFolders, &[]),
+    ("Collapse Pinned Tabs", Command::CollapsePinned, &["hide pinned"]),
+    ("Expand Pinned Tabs", Command::ExpandPinned, &["show pinned"]),
     ("Reveal Tab in Sidebar", Command::RevealTab, &["locate"]),
     ("New Folder…", Command::NewFolder, &[]),
     ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
@@ -562,6 +568,8 @@ impl Command {
             Command::RenameTab => "rename-tab",
             Command::NewFolder => "new-folder",
             Command::CollapseFolders => "collapse-folders",
+            Command::CollapsePinned => "collapse-pinned",
+            Command::ExpandPinned => "expand-pinned",
             Command::RevealTab => "reveal-tab",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::ToggleMute => "toggle-mute",
@@ -773,6 +781,8 @@ impl Shell {
             Command::RenameTab => return self.rename_tab(self.selected, cx),
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
+            Command::CollapsePinned => return self.set_pinned_open(false, cx),
+            Command::ExpandPinned => return self.set_pinned_open(true, cx),
             Command::RevealTab => return self.reveal_tab(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
@@ -1128,6 +1138,12 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            Command::CollapsePinned => self.shown_space().is_some_and(|space| {
+                !space.pinned.is_empty() && !space.folders.pinned_shut
+            }),
+            Command::ExpandPinned => {
+                self.shown_space().is_some_and(|space| space.folders.pinned_shut)
+            }
             Command::Clear => !self.today().is_empty(),
             Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
@@ -1195,6 +1211,8 @@ fn private_runs(command: Command) -> bool {
             | Command::FavoriteTab
             | Command::NewFolder
             | Command::CollapseFolders
+            | Command::CollapsePinned
+            | Command::ExpandPinned
             | Command::BackToPinnedUrl
             | Command::NewSpace
             | Command::RenameSpace

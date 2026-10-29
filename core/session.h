@@ -90,6 +90,8 @@ struct SavedSpace {
   // Each top to bottom.
   std::vector<SavedTab> pinned;
   std::vector<SavedFolder> folders;
+  // Whether its pinned tabs and folders showed, or were collapsed.
+  bool pinned_open = true;
   std::vector<SavedTab> today;
   // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
   int shown = -1;

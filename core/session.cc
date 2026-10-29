@@ -211,6 +211,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   to.theme = space.theme();
   to.profile = space.profile();
   to.agent = space.agent();
+  to.pinned_open = space.pinned_open();
   int index = 0;
   // Each folder saved, to where it is among them.
   std::map<bc_id, int> folders;
@@ -424,6 +425,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     if (!space.theme.empty()) {
       dict.Set("theme", space.theme);
     }
+    if (!space.pinned_open) {
+      dict.Set("pinned_open", false);
+    }
     if (!space.profile.empty()) {
       dict.Set("profile", space.profile);
     }
@@ -567,6 +571,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     if (const std::string* theme = space->FindString("theme")) {
       to.theme = *theme;
     }
+    to.pinned_open = space->FindBool("pinned_open").value_or(true);
     if (const std::string* profile = space->FindString("profile")) {
       to.profile = *profile;
     }
@@ -891,6 +896,7 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);
+  space->SetPinnedOpen(saved_space.pinned_open);
   space->SetProfile(DirOf(profile));
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
     // Without its page until it's first shown, which saves launch making a page for each tab.

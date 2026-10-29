@@ -1026,6 +1026,14 @@ BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
 // returns how many it has. Each folder is followed by what's in it. They sit above its Today tabs.
 BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
 
+// Whether the Space's pinned tabs and folders show, which collapsing its pinned tabs hides but for
+// the tab shown, as a closed folder does. They show until bc_space_set_pinned_open hides them, and
+// the session keeps it.
+BC_EXPORT bool bc_space_pinned_open(bc_id space);
+
+// Then space_changed.
+BC_EXPORT void bc_space_set_pinned_open(bc_id space, bool open);
+
 // Whether |id| is a folder, and if it is, whether it shows what's in it in |open|.
 BC_EXPORT bool bc_folder(bc_id id, bool* open);
 

@@ -569,6 +569,17 @@ void bc_folder_rename(bc_id folder, const char* name) {
   }
 }
 
+bool bc_space_pinned_open(bc_id id) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return !space || space->pinned_open();
+}
+
+void bc_space_set_pinned_open(bc_id id, bool open) {
+  if (browser_core::Space* space = browser_core::Space::FromId(id)) {
+    space->SetPinnedOpen(open);
+  }
+}
+
 void bc_folder_set_open(bc_id folder, bool open) {
   if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
     space->SetOpen(folder, open);

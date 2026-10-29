@@ -3,12 +3,13 @@
 
 use std::{
     cell::Cell,
+    f32::consts::FRAC_PI_2,
     time::{Duration, Instant},
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, Role, SharedString, canvas, div,
-    prelude::*, px, rgb, svg,
+    AnyElement, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, Radians, Role,
+    SharedString, Transformation, canvas, div, prelude::*, px, rgb, svg,
 };
 
 use super::{
@@ -16,7 +17,8 @@ use super::{
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
-    BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
+    BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PINNED_CARET,
+    PINNED_CARET_GAP, PINNED_CARET_PLATE, PLATE_HEIGHT, PLATE_INSET, SPACE_NAME,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
@@ -51,6 +53,87 @@ impl Shell {
         for folder in open {
             self.browser.set_folder_open(folder, false, cx);
         }
+    }
+
+    /// Collapses the pinned rows of the Space shown or expands them, on a folder's fold.
+    pub(super) fn set_pinned_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        let shown = self.shown_space().filter(|space| space.folders.pinned_shut == open);
+        let Some(space) = shown.map(|space| space.id) else {
+            return;
+        };
+        self.folding = Some(open);
+        self.browser.set_pinned_open(space, open, cx);
+    }
+
+    /// The chevron after the Space's name that collapses its pinned rows or expands them. It fades
+    /// in with Clear while the Space has pinned rows and stays while they're collapsed, so the way
+    /// back shows. It acts as it's pressed, as a folder does.
+    fn pinned_caret(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let shut = self.shown_space()?.folders.pinned_shut;
+        let shown = shut || self.offers(Command::CollapsePinned);
+        let drawn = self.caret_drawn.clone();
+        if !shown {
+            if drawn.take().is_some() {
+                log!("browser: pinned caret hidden");
+            }
+            return None;
+        }
+        let (command, name) = match shut {
+            true => (Command::ExpandPinned, "Expand Pinned Tabs"),
+            false => (Command::CollapsePinned, "Collapse Pinned Tabs"),
+        };
+        // check.sh clicks where this says it's drawn.
+        let frame = canvas(
+            move |bounds, _, _| {
+                if drawn.replace(Some((shut, bounds))) != Some((shut, bounds)) {
+                    let (origin, size) = (bounds.origin, bounds.size);
+                    log!(
+                        "browser: pinned caret {} at {} {} {} {}",
+                        if shut { "shut" } else { "open" },
+                        f32::from(origin.x),
+                        f32::from(origin.y),
+                        f32::from(size.width),
+                        f32::from(size.height),
+                    );
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
+        let glyph = svg()
+            .path("icons/chevron-down.svg")
+            .size(px(PINNED_CARET))
+            .text_color(self.palette.text(SPACE_NAME))
+            .when(shut, |glyph| {
+                glyph.with_transformation(Transformation::rotate(Radians(-FRAC_PI_2)))
+            });
+        let live = shut || self.tools_live();
+        let caret = div()
+            .id("pinned-caret")
+            .flex_none()
+            .ml(px(PINNED_CARET_GAP))
+            .size(px(PINNED_CARET_PLATE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+            .opacity(if shut { 1. } else { self.tools_opacity() })
+            .child(frame)
+            .child(glyph)
+            .when(self.a11y, |caret| {
+                caret.button_named(name).aria_expanded(!shut).pressed_by_mouse_down(true, false)
+            });
+        Some(caret.when(live, |caret| {
+            caret.hover(|style| style.bg(self.palette.plate(NAV_HOVERED))).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
+                    // Not the name's double-click, which renames the Space.
+                    cx.stop_propagation();
+                    shell.run(command, "sidebar", cx);
+                }),
+            )
+        }))
     }
 
     /// Opens or closes the folder as it's pressed, as Arc's does, even if the press becomes a drag.
@@ -789,9 +872,12 @@ impl Shell {
             .left_0()
             .size_full();
         let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
+        // Bold, as Arc's, while the pinned rows are collapsed.
+        let shut = self.shown_space().is_some_and(|space| space.folders.pinned_shut);
         // A heading VoiceOver can jump to, whose menu is the Space's.
         let row = name_box(&self.palette, icon.is_some() || placeholder.is_some())
             .id("space-name")
+            .when(shut, |row| row.font_weight(FontWeight::BOLD))
             .when(self.a11y, |row| {
                 row.role(Role::Heading)
                     .accessibility_id("space-name")
@@ -835,6 +921,7 @@ impl Shell {
             }),
         )
         .child(div().truncate().child(name))
+        .children(self.pinned_caret(cx))
     }
 
     /// The line over Today, and Clear at its end, where the titles end.
@@ -1506,7 +1593,7 @@ mod tests {
     #[gpui::test]
     fn a_press_opens_or_closes_a_folder(cx: &mut TestAppContext) {
         let docs = [(20, ("Docs".into(), true))];
-        let folders = Folders { folders: docs.into(), parents: Default::default() };
+        let folders = Folders { folders: docs.into(), ..Folders::default() };
         let (shell, cx, host) = window_with(cx, vec![20, 21], vec![4], 4, folders);
         let (x, y) = close_button(&shell, cx, 20);
         let middle = point(px(x - 100.), px(y));
@@ -1516,6 +1603,39 @@ mod tests {
         assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(false));
         let calls = host.take();
         assert!(!calls.iter().any(|call| call.starts_with("select")), "{calls:?}");
+    }
+
+    /// The chevron after the Space's name collapses its pinned rows as it's pressed, which hides
+    /// them but the tab shown's from the list and from the tabs' order, and expands them again.
+    #[gpui::test]
+    fn the_caret_collapses_and_expands_the_pinned_rows(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window_with(cx, vec![1, 2], vec![4], 4, Folders::default());
+        let caret =
+            |cx: &mut VisualTestContext| shell.read_with(cx, |shell, _| shell.caret_drawn.get());
+        let (shut, frame) = caret(cx).expect("no caret with pinned rows");
+        assert!(!shut);
+        cx.simulate_mouse_move(frame.center(), None, Modifiers::none());
+        cx.simulate_mouse_down(frame.center(), MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().contains(&"pinned open 1 false".to_owned()));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(false));
+
+        let shut = Folders { pinned_shut: true, ..Folders::default() };
+        shell.update(cx, |shell, cx| shell.set_tabs(1, vec![1, 2], vec![4], Vec::new(), shut, cx));
+        cx.run_until_parked();
+        assert_eq!(shell.read_with(cx, |shell, _| shell.sidebar_rows()), [4]);
+        let stays = caret(cx).is_some_and(|(shut, _)| shut);
+        assert!(stays, "the caret didn't stay for the way back");
+        shell.update(cx, |shell, cx| shell.set_selected(2, cx));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.rows().0), [2]);
+        let offered = shell.read_with(cx, |shell, _| {
+            (shell.offers(Command::CollapsePinned), shell.offers(Command::ExpandPinned))
+        });
+        assert_eq!(offered, (false, true));
+
+        shell.update(cx, |shell, cx| shell.run(Command::ExpandPinned, "ui", cx));
+        assert!(host.take().contains(&"pinned open 1 true".to_owned()));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(true));
     }
 
     /// Presses in the first frames after ⌃2, while the second Space's rows still slide in from the

@@ -13,7 +13,9 @@
 # the app brings it back closed, a double-click renames it, and Delete Folder in its menu leaves its
 # tab where it was. Links and files dragged onto the list from the page or another app open as tabs
 # where the pointer lets go, and dragged text that isn't a link opens a search for it there, but a
-# link that isn't a web link doesn't open.
+# link that isn't a web link doesn't open. The chevron after the Space's name collapses the pinned
+# rows but the tab shown's, which the tabs' order then skips, and the command bar and the View menu
+# expand and collapse them. Launched again, the app brings them back collapsed.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -450,6 +452,62 @@ expect "^browser: selected $s\$" "the dropped text's search didn't show"
 expect "^browser: loaded $s https://duckduckgo.com/?q=dogs+and+cats" \
   "the dropped text didn't load a search for it: $(grep "^browser: loaded $s " "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/dropped-text.png" || fail "no window to capture"
+
+# The chevron after the Space's name, there while the pointer is over the sidebar, collapses the
+# pinned rows as it's pressed, and the name turns bold: they fold away, but for the tab shown's, as
+# a closed folder's do, and ⌘1–⌘9 count Today's tabs first. The command bar's Expand Pinned Tabs
+# brings them back, and View › Collapse Pinned Tabs folds them again.
+# The middle of the chevron the app last drew for pinned rows open or shut ($1).
+caret() {
+  grep "^browser: pinned caret $1 at " "$log" | tail -1 |
+    awk '{ printf "%d %d", $6 + $8 / 2, $7 + $9 / 2 }'
+}
+[ -n "$(caret open)" ] || fail "the Space with pinned tabs drew no chevron after its name"
+away
+send move $(caret open)
+expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over the chevron"
+expect '^browser: sidebar tools shown$' "the chevron didn't fade in with Clear"
+../tools/window-screenshot.sh "$pid" "$out/pinned-caret.png" || fail "no window to capture"
+send click $(caret open)
+expect '^browser: command collapse-pinned via sidebar$' "a click on the chevron didn't run collapse-pinned"
+expect "^browser: outline -\\[$e $c\\]\$" "the chevron didn't collapse the pinned rows: $(outline)"
+expect '^browser: pinned caret shut at ' "the chevron didn't turn for collapsed rows"
+settled
+../tools/window-screenshot.sh "$pid" "$out/pinned-collapsed.png" || fail "no window to capture"
+switch "1 cmd" "$t"
+bar_command expand-pinned "Expand Pinned Tabs" "expand pinned"
+expect "^browser: outline $e $c\$" "Expand Pinned Tabs didn't bring the pinned rows back: $(outline)"
+expect '^browser: pinned caret open at ' "the chevron didn't turn back for open rows"
+settled
+send menu Collapse Pinned Tabs
+expect '^browser: command collapse-pinned via ui$' "View › Collapse Pinned Tabs didn't run collapse-pinned"
+expect "^browser: outline -\\[$e $c\\]\$" "Collapse Pinned Tabs didn't collapse the pinned rows: $(outline)"
+quit_by_key
+await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
+exited
+
+# Launched again, the pinned rows come back collapsed, with the chevron, which expands them.
+log="$out/pinned-collapsed.log"
+step=0
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
+await '^browser: outline -\[[0-9]* [0-9]*\]$' || fail "the pinned rows didn't come back collapsed: $(outline)"
+await '^browser: pinned caret shut at ' || fail "the collapsed rows came back without the chevron"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: the restored pinned rows. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+send click $(caret shut)
+expect '^browser: command expand-pinned via sidebar$' "a click on the chevron didn't run expand-pinned"
+expect '^browser: outline [0-9]* [0-9]*$' "the chevron didn't expand the restored pinned rows: $(outline)"
+settled
+../tools/window-screenshot.sh "$pid" "$out/pinned-expanded.png" || fail "no window to capture"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, text that isn't a link opens a search for it there, and a link that isn't a web link doesn't open. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/dropped-text.png, $out/command-bar-commands.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, text that isn't a link opens a search for it there, and a link that isn't a web link doesn't open. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. The chevron after the Space's name collapses the pinned rows, which ⌘1 then skips, Expand Pinned Tabs and Collapse Pinned Tabs in the command bar and the View menu bring them back and fold them, and they come back collapsed. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/dropped-text.png, $out/command-bar-commands.png, $out/pinned-caret.png, $out/pinned-collapsed.png, $out/pinned-expanded.png"
