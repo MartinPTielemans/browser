@@ -1,16 +1,16 @@
 # An MCP client reaches the browser through the bridge beside it once Settings › Agents is on and
 # it's connected, as the saved settings say here. The socket is the user's alone, and the bridge
-# gets nowhere without the agent's token. Its first call makes its Space, and it may read only the
-# tabs there: a read of the user's tab is refused, with an activity-log entry, and a read of
-# example.com, opened in its Space, gives the page's text. A page with fields gives its prose and
-# none of their values: typed, filled in or a password, in its text and in its outline, and the
-# agent can't type into the password field. It types into another, opens a page, clicks its link,
-# scrolls, takes a screenshot and closes a tab, and a bank's site asks first, in a card whose Allow
-# Once opens it. Always Allow opens it from then on, until Revoke Permission in the Space's menu
-# takes that back. A login the user saved fills in neither as the agent's tab loads it nor from a
-# dropdown, and fills once the user takes the tab over, without a reload. Closing the client's end
-# ends its session with the tab, and turning Settings › Agents off takes the socket away and drops a
-# client connected.
+# gets nowhere without the agent's token. Its first call makes its Space, and it may list and read
+# only the tabs there: a list of the user's Space lists none, a read of the user's tab is refused,
+# with an activity-log entry, and a read of example.com, opened in its Space, gives the page's text.
+# A page with fields gives its prose and none of their values: typed, filled in or a password, in
+# its text and in its outline, and the agent can't type into the password field. It types into
+# another, opens a page, clicks its link, scrolls, takes a screenshot and closes a tab, and a bank's
+# site asks first, in a card whose Allow Once opens it. Always Allow opens it from then on, until
+# Revoke Permission in the Space's menu takes that back. A login the user saved fills in neither as
+# the agent's tab loads it nor from a dropdown, and fills once the user takes the tab over, without
+# a reload. Closing the client's end ends its session with the tab, and turning Settings › Agents
+# off takes the socket away and drops a client connected.
 
 log="$out/mcp.log"
 step=0
@@ -116,6 +116,11 @@ case "$listed" in
   *) fail "list_tabs in a new Space said: $listed" ;;
 esac
 case "$listed" in *"$user_tab"*) fail "list_tabs listed the user's tab" ;; esac
+# Asked for the user's Space by its id, the core lists none of its tabs.
+user_space=$(grep -m1 '^browser: spaces ' "$log" | cut -d' ' -f3)
+listed=$(call list_tabs "{\"space\":$user_space}")
+[ "$listed" = "error: The Space isn't the agent's own." ] ||
+  fail "list_tabs of the user's Space answered: $listed"
 
 refused=$(call read_page "{\"tab\":$user_tab}")
 [ "$refused" = "error: The tab isn't in the agent's own Space." ] ||

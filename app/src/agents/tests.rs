@@ -79,6 +79,14 @@ impl Browser for Made {
             .collect()
     }
 
+    fn agent_tabs(&self, agent: &str, space: u64, cx: &App) -> Vec<TabInfo> {
+        match self.agent_space(agent) {
+            0 => Vec::new(),
+            own if own == space => self.space_tabs(space, cx),
+            _ => Vec::new(),
+        }
+    }
+
     fn tab(&self, tab: u64, _: &App) -> TabInfo {
         let tabs = self.tabs.borrow();
         let found = tabs.iter().find(|each| each.0 == tab);
@@ -394,6 +402,26 @@ fn list_tabs_lists_only_the_agents_own_tabs(cx: &mut TestAppContext) {
         log(&agents, "claude-code", cx)[0],
         ("list_tabs".into(), "".into(), "".into())
     );
+}
+
+/// list_tabs of the user's Space is refused, as the core lists an agent none of it, and the log
+/// keeps why; of its own Space by id it lists its tabs.
+#[gpui::test]
+fn list_tabs_of_another_space_lists_none(cx: &mut TestAppContext) {
+    let (agents, _, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "list_tabs", json!({ "space": 1 }), cx)
+        .recv()
+        .unwrap();
+    assert!(answer.error);
+    assert_eq!(answer.text, "The Space isn't the agent's own.");
+    assert_eq!(
+        log(&agents, "claude-code", cx)[0],
+        ("list_tabs".into(), "".into(), "The Space isn't the agent's own.".into())
+    );
+    let answer = call(&agents, "claude-code", "list_tabs", json!({ "space": 2 }), cx)
+        .recv()
+        .unwrap();
+    assert_eq!(answer.text, "  20  Example Domain  https://www.example.com/");
 }
 
 /// read_page on a tab of the user's is refused, with the core's reason, which the activity log

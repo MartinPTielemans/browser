@@ -121,6 +121,9 @@ pub trait Browser {
     fn space_tab_ids(&self, space: u64, cx: &App) -> Vec<u64> {
         self.space_tabs(space, cx).into_iter().map(|tab| tab.id).collect()
     }
+    /// The tabs of `space` the core lists for `agent`, in `space_tabs`' order: none unless it's
+    /// the agent's own Space, as the core keeps that rule.
+    fn agent_tabs(&self, agent: &str, space: u64, cx: &App) -> Vec<TabInfo>;
     /// `tab`'s title and URL.
     fn tab(&self, tab: u64, cx: &App) -> TabInfo;
     /// Asks the core whether the agent may do `action` to `tab` (bc_agent_may_act): nothing, or
@@ -714,8 +717,22 @@ impl Agents {
         self.live.insert(agent.clone());
         match tool.as_str() {
             "list_tabs" => {
-                let space = self.space(client, cx);
-                let tabs = self.browser.space_tabs(space, cx);
+                let own = self.space(client, cx);
+                let space = match tools::space_argument(&arguments) {
+                    Ok(space) => space.unwrap_or(own),
+                    Err(why) => {
+                        _ = reply.send(ToolResult::error(why));
+                        return;
+                    }
+                };
+                let tabs = self.browser.agent_tabs(&agent, space, cx);
+                // The core lists none of another Space's tabs, whichever the agent asks for.
+                if space != own && tabs.is_empty() {
+                    self.note(&agent, "list_tabs", "", NOT_ITS_SPACE);
+                    cx.notify();
+                    _ = reply.send(ToolResult::error(NOT_ITS_SPACE));
+                    return;
+                }
                 self.note(&agent, "list_tabs", "", "");
                 cx.notify();
                 _ = reply.send(ToolResult::text(tools::tab_list(
@@ -1638,6 +1655,8 @@ const NOT_HELD: &str = "The user doesn't have that tab from you, so there's noth
 /// What the log says of an action the user refused, now or for good on its site.
 const SAID_NO: &str = "You said no.";
 const SAID_NEVER: &str = "You said never on this site.";
+/// Why an agent gets no list of another Space's tabs.
+const NOT_ITS_SPACE: &str = "The Space isn't the agent's own.";
 /// Why an agent can't open a page that isn't on the web.
 const WEB_ONLY: &str = "Agents may open only http and https pages.";
 /// Why an agent can't type into a password field.
