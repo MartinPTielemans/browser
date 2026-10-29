@@ -204,23 +204,46 @@ fn serve(stream: UnixStream, number: u64, shared: &Shared) {
     if writeln!(writer, "{}", json!({ "ok": true })).is_err() {
         return;
     }
-    while let Some(line) = read_line(&mut reader) {
-        // A token the user has since disconnected, or a browser that stopped, answers no more.
-        if shared.stopped.load(Ordering::SeqCst) || shared.agent(&token).as_ref() != Some(&agent) {
+    // Its messages are answered on a thread of their own, so this one reads on while a call waits
+    // on the user, and a client that closes its end then ends its session, which drops what waits
+    // for it (`Event::Bye`). The answering thread's end closes the connection.
+    thread::scope(|scope| {
+        let (requests, next) = mpsc::channel::<String>();
+        let answering = thread::Builder::new()
+            .name("agents-answers".into())
+            .spawn_scoped(scope, {
+                let agent = agent.clone();
+                move || {
+                    for line in next {
+                        let Some(answer) = message(shared, number, &agent, &line) else {
+                            continue;
+                        };
+                        if writeln!(writer, "{answer}")
+                            .and_then(|()| writer.flush())
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                }
+            });
+        if answering.is_err() {
             return;
         }
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Some(answer) = message(shared, number, &agent, &line) {
-            if writeln!(writer, "{answer}")
-                .and_then(|()| writer.flush())
-                .is_err()
+        while let Some(line) = read_line(&mut reader) {
+            // A token the user has since disconnected, or a browser that stopped, answers no more.
+            if shared.stopped.load(Ordering::SeqCst)
+                || shared.agent(&token).as_ref() != Some(&agent)
             {
-                return;
+                break;
+            }
+            if !line.trim().is_empty() && requests.send(line).is_err() {
+                break;
             }
         }
-    }
+        drop(requests);
+        end(shared, number);
+    });
 }
 
 impl Shared {
@@ -267,7 +290,7 @@ fn message(shared: &Shared, number: u64, agent: &str, line: &str) -> Option<Valu
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-            call(shared, agent, name, arguments).to_json()
+            call(shared, number, agent, name, arguments).to_json()
         }
         _ => return Some(error(id, -32601, "There's no such method.")),
     };
@@ -303,7 +326,7 @@ fn initialize(shared: &Shared, number: u64, agent: &str, params: &Value) -> Valu
 }
 
 /// Runs a tool on the UI thread, and waits for its answer.
-fn call(shared: &Shared, agent: &str, tool: &str, arguments: Value) -> ToolResult {
+fn call(shared: &Shared, number: u64, agent: &str, tool: &str, arguments: Value) -> ToolResult {
     let (reply, answer) = mpsc::channel();
     let call = Call {
         agent: agent.into(),
@@ -311,8 +334,16 @@ fn call(shared: &Shared, agent: &str, tool: &str, arguments: Value) -> ToolResul
         arguments,
         reply,
     };
-    if shared.events.unbounded_send(Event::Call(call)).is_err() {
-        return ToolResult::error("The browser has turned agents off.");
+    // Sent while the connection is open, under the lock `end` closes it with, so that the UI
+    // hears no call of a session after its agent's bye.
+    {
+        let connections = shared.connections.lock().unwrap();
+        if !connections.contains_key(&number) {
+            return ToolResult::error("The connection closed.");
+        }
+        if shared.events.unbounded_send(Event::Call(call)).is_err() {
+            return ToolResult::error("The browser has turned agents off.");
+        }
     }
     // The UI drops the call unanswered when the user turns agents off or disconnects the agent.
     answer
