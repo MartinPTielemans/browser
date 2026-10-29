@@ -15,7 +15,7 @@
 //! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
 //! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
-//! cmd with Ctrl, ctrl with Alt and alt with both, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
+//! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
 //! them, cmd with Ctrl and alt with Alt. flags presses and lets
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
 //! commits its text to a field of the UI's, not a page's. scroll turns the wheel a notch for each event,
@@ -605,7 +605,8 @@ fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
 }
 
 /// The Mac's modifiers named in `words`, cmd, shift, alt and ctrl, as an X state holds them on
-/// the keys that press them off the Mac.
+/// the keys that press them off the Mac: ⌘ with Ctrl, and ⌃ and ⌥ with Alt (docs/ux-spec.md ›
+/// Keyboard), so ⌥⌘↓ is Ctrl+Alt+↓ and ⌥↩ is Alt+Enter.
 fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     let (ctrl, alt) = (u16::from(KeyButMask::CONTROL), u16::from(KeyButMask::MOD1));
     words.fold(0, |state, word| {
@@ -613,8 +614,7 @@ fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
             | match word {
                 "shift" => u16::from(KeyButMask::SHIFT),
                 "cmd" => ctrl,
-                "ctrl" => alt,
-                "alt" => ctrl | alt,
+                "ctrl" | "alt" => alt,
                 _ => 0,
             }
     })
@@ -1027,11 +1027,13 @@ fn run_command(line: &str) -> Option<()> {
         }
         "key" => {
             let name = words.next()?;
-            let mut state = modifiers(words);
+            let words: Vec<_> = words.collect();
+            let mut state = modifiers(words.iter().copied());
             // ⌃Tab stays Ctrl+Tab, as keys.rs presses it, since Alt+Tab is the desktop's.
             let (ctrl, alt) = (u16::from(KeyButMask::CONTROL), u16::from(KeyButMask::MOD1));
-            if name == "tab" && state & (ctrl | alt) == alt {
-                state ^= ctrl | alt;
+            if name == "tab" && words.contains(&"ctrl") && !words.contains(&"cmd") {
+                let option = if words.contains(&"alt") { alt } else { 0 };
+                state = state & !alt | ctrl | option;
             }
             key(name, state)
         }
