@@ -131,8 +131,9 @@ if [ "$driven" = 1 ]; then
   # Sessions, never secrets: a page's text has its prose, and no field's value, whether the user
   # typed it, the page filled it in as autofill does, or it's a password.
   serve
-  printf '%s' '<title>fields</title>
-<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
+  # The page names itself once its fields and their handlers are there, which its title in the
+  # head, read before them, wouldn't say.
+  printf '%s' '<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
 <label>Name <input id=typed style="position:fixed;inset:0;width:100%;height:100%"></label>
 <label>Password <input id=password type=password></label>
 <label>Email <input id=email autocomplete=email></label>
@@ -145,10 +146,12 @@ password.value = "hunter2-by-ada";
 email.value = "ada@example.com";
 typed.oninput = () => document.title = "typed";
 note.oninput = () => document.title = "noted";
+document.title = "fields";
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
   send click $page_point
+  [ "$focus" = RenderWidgetHostViewCocoa ] || fail "a click on the fields page left focus on $focus"
   send type typed-by-ada
   expect "^browser: title $agent_tab typed\$" "typing didn't reach the page's field"
   read=$(call read_page "{\"tab\":$agent_tab}")
