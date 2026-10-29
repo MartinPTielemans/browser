@@ -13,8 +13,8 @@
 //! component to WCAG's minimums.
 
 use gpui::{
-    ColorSpace, Div, Global, Hsla, Rgba, div, linear_color_stop, linear_gradient, prelude::*, px,
-    rgb, rgba,
+    BoxShadow, ColorSpace, Div, Global, Hsla, Rgba, div, linear_color_stop, linear_gradient, point,
+    prelude::*, px, rgb, rgba,
 };
 
 use crate::theme::{self, DEFAULT_INTENSITY, GRAIN_STRENGTH, Theme};
@@ -33,6 +33,10 @@ pub use crate::tokens::palette::{STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, S
 use crate::tokens::shell::library::{COLUMN, LIBRARY_PLATE};
 use crate::tokens::shell::{CARD as PAGE_CARD, LIGHT_CARD as LIGHT_PAGE_CARD};
 use crate::tokens::palette::{ACCENT_HOVERED, ACCENT_PRESSED, INTENSITY_FLOOR, INTENSITY_SPAN, RING, SELECTION};
+use crate::tokens::palette::{
+    LIGHT_SELECTED, LIGHT_SELECTED_HOVERED, LIGHT_SELECTED_SHADOW, LIGHT_SELECTED_SHADOW_BLUR,
+    LIGHT_SELECTED_SHADOW_Y,
+};
 /// The ends of the scale each family's text runs toward, which the accent's search needs, and the
 /// ground a swatch's colours are judged on.
 const BLACK: Rgba = Rgba { r: 0., g: 0., b: 0., a: 1. };
@@ -129,6 +133,15 @@ impl Tone {
         match self {
             Tone::Dark => (GRADIENT_ALPHA, NEUTRAL_GRADIENT_ALPHA),
             Tone::Light => (LIGHT_GRADIENT_ALPHA, LIGHT_NEUTRAL_GRADIENT_ALPHA),
+        }
+    }
+
+    /// The selected row's plate, at rest and under the pointer: the ink on a dark window, as
+    /// Arc's dark rows are, and white on a light one, as its light rows are.
+    fn selected(self) -> (Rgba, f32, f32) {
+        match self {
+            Tone::Dark => (rgb(PAPER), STATE_SELECTED, STATE_SELECTED_HOVERED),
+            Tone::Light => (WHITE, LIGHT_SELECTED, LIGHT_SELECTED_HOVERED),
         }
     }
 
@@ -294,6 +307,10 @@ impl Palette {
         let plain = window.samples(self.shade, self.layer_alpha);
         let mut grounds: Vec<Rgba> =
             plain.iter().map(|&at| over(at, self.ink, GRAIN_SHIFT * window.grain)).collect();
+        // A light window's selected row is white, and a control's states still reach the ink's
+        // selected plate.
+        let (selected, alpha, _) = self.tone.selected();
+        grounds.extend(plain.iter().map(|&at| over(at, selected, alpha)));
         for plate in [SELECTED_PLATE, HOVERED_PLATE, FIELD_PLATE] {
             grounds.extend(plain.iter().map(|&at| over(at, self.ink, plate)));
         }
@@ -398,6 +415,27 @@ impl Palette {
     /// the find bar, the icon picker and Settings.
     pub fn on_dark(state: f32) -> Hsla {
         Hsla::from(rgb(PAPER)).opacity(state)
+    }
+
+    /// The selected row's plate, `hover` of the way to its fill under the pointer.
+    pub fn selected(&self, hover: f32) -> Hsla {
+        let (color, rest, under) = self.tone.selected();
+        Hsla::from(color).opacity(rest + (under - rest) * hover)
+    }
+
+    /// What lifts the selected row's plate off a light window, at `opacity`; nothing on a dark
+    /// one.
+    pub fn selected_shadow(&self, opacity: f32) -> Vec<BoxShadow> {
+        if self.tone == Tone::Dark {
+            return Vec::new();
+        }
+        vec![BoxShadow {
+            color: Hsla::from(BLACK).opacity(LIGHT_SELECTED_SHADOW * opacity),
+            offset: point(px(0.), px(LIGHT_SELECTED_SHADOW_Y)),
+            blur_radius: px(LIGHT_SELECTED_SHADOW_BLUR),
+            spread_radius: px(0.),
+            inset: false,
+        }]
     }
 
     /// A plate under a row or a field, the ink at `alpha`.
@@ -700,11 +738,13 @@ impl Window {
     /// alpha drops by the least steps that do. A ground of the tint's colour alone always reads.
     fn fit(&self) -> (f32, f32) {
         let (ink, end) = (self.tone.ink(), self.tone.end());
+        let (selected, selected_alpha, _) = self.tone.selected();
         let reads = |shade: f32, alpha: f32| {
             self.samples(shade, alpha).iter().all(|&at| {
                 let grained = over(at, ink, GRAIN_SHIFT * self.grain);
                 contrast(end, at) >= GLYPH + BETWEEN
                     && contrast(ink, grained) >= TEXT + BETWEEN
+                    && contrast(ink, over(at, selected, selected_alpha)) >= TEXT + BETWEEN
                     && [SELECTED_PLATE, HOVERED_PLATE]
                         .iter()
                         .all(|&plate| contrast(ink, over(at, ink, plate)) >= TEXT + BETWEEN)
