@@ -61,6 +61,8 @@ pub(super) struct Recorder {
     pub(super) default_browser: Cell<bool>,
     /// The system it says it runs on, the Mac unless a test says.
     pub(super) os: Cell<Option<crate::default_browser::Os>>,
+    /// An update has downloaded, as `update_ready` answers.
+    pub(super) update_ready: Cell<bool>,
     /// The import finds no browser on the machine.
     pub(super) no_browsers: Cell<bool>,
     /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
@@ -823,6 +825,14 @@ impl Browser for Recorder {
     fn settings(&self, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}
+
+    fn update_ready(&self) -> bool {
+        self.update_ready.get()
+    }
+
+    fn install_update(&self, _: &mut App) {
+        self.record("install update".into())
+    }
 
     fn passwords(&self, space: u64, _: &mut App) {
         self.record(format!("passwords {space}"));

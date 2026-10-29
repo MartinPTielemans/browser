@@ -1405,6 +1405,11 @@ impl Shell {
         self.private
     }
 
+    /// Whether a page of this window plays sound the user hears, which an update waits out.
+    pub fn plays_sound(&self) -> bool {
+        self.tabs.values().any(|tab| tab.page.audible && !tab.page.muted)
+    }
+
     /// A shell for another window, which starts out knowing what `from` heard from the core about
     /// every window: the Spaces, their tabs, the Library and the extensions. What's this window's,
     /// such as the Space shown, it hears for itself.
@@ -2975,6 +2980,7 @@ impl Shell {
             .children((!self.private).then(|| self.library_button(cx)))
             .children((!self.private).then(|| self.plus_button(cx)))
             .children(self.switcher(cx))
+            .children(self.update_row(cx))
             .children(self.flying_icon())
             .child(self.press_listener())
             .children(self.paging_frame(started))
@@ -3029,7 +3035,7 @@ impl Shell {
             .top(px(self.pages_top()))
             .left_0()
             .w(px(self.width()))
-            .bottom(px(FOOTER_HEIGHT))
+            .bottom(px(self.foot()))
             .overflow_hidden()
             .children(pages)
             .child(self.rest_press_listener(Self::press_at_rest, cx).absolute().size_full())

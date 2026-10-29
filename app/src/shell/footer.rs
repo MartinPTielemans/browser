@@ -1,12 +1,16 @@
-//! The sidebar's footer: the Space switcher and the plus button beside it.
+//! The sidebar's footer: the Space switcher and the plus button beside it, and over them the row
+//! that restarts into a downloaded update.
 
 use gpui::{Context, MouseButton, MouseDownEvent, Role, div, prelude::*, px, svg};
 
 use super::{
-    FOOTER_HEIGHT, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLUS_INSET, SPACE_GLYPH, SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH,
+    FAVICON_DRAWN, FOOTER_HEIGHT, HOVERED, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE,
+    NEW_TAB, NEW_TAB_PLUS, PLATE_HEIGHT, PLATE_INSET, PLUS_INSET, ROW_PITCH, SPACE_GLYPH,
+    SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH,
     SPACE_SHOWN, SPACE_SWATCH, SPACE_SWATCH_HOVERED, SPACE_SWATCH_SHOWN, SWITCHER_INSET, Shell,
-    access::Accessible,
+    access::Accessible, plate,
 };
+use crate::tokens::text;
 use crate::space_icon::{GLYPHS, SpaceIcon};
 
 /// How strong a Space's icon draws in the switcher, as its dot would: the Space shown at full
@@ -21,6 +25,47 @@ pub(super) fn icon_opacity(shown: bool, hovered: bool) -> f32 {
 }
 
 impl Shell {
+    /// How far the tab list stops above the window's bottom: the footer, and the update's row over
+    /// it while there is one.
+    pub(super) fn foot(&self) -> f32 {
+        FOOTER_HEIGHT + if self.update_shown() { ROW_PITCH } else { 0. }
+    }
+
+    /// A private window shows no update, as it shows no Library or plus button.
+    fn update_shown(&self) -> bool {
+        !self.private && self.browser.update_ready()
+    }
+
+    /// "Relaunch to update", a row over the footer once an update has downloaded. It stays until
+    /// the update installs, at the click, at quit or while the Mac is idle.
+    pub(super) fn update_row(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        if !self.update_shown() {
+            return None;
+        }
+        let icon = svg().path("icons/rotate-cw.svg").size(px(FAVICON_DRAWN));
+        let label = div().text_size(px(text::BODY)).text_color(self.palette.text(NEW_TAB));
+        let label = label.child("Relaunch to update");
+        Some(
+            div()
+                .id("update")
+                .when(self.a11y, |row| row.button_named("Relaunch to update"))
+                .absolute()
+                .left(px(PLATE_INSET))
+                .w(px(self.width() - 2. * PLATE_INSET))
+                .bottom(px(FOOTER_HEIGHT + (ROW_PITCH - PLATE_HEIGHT) / 2.))
+                .h(px(PLATE_HEIGHT))
+                .block_mouse_except_scroll()
+                .child(
+                    plate(icon.text_color(self.palette.glyph(NEW_TAB_PLUS)), label)
+                        .hover(|style| style.bg(self.palette.plate(HOVERED))),
+                )
+                .on_click(cx.listener(|shell, _, _, cx| {
+                    log!("browser: update relaunch via sidebar");
+                    shell.browser.install_update(cx);
+                })),
+        )
+    }
+
     /// A dot for each Space, in the footer. Arc draws none while there's only one.
     pub(super) fn switcher(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         if self.spaces.len() < 2 {
@@ -144,7 +189,40 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
+    use gpui::{AppContext as _, Modifiers, TestAppContext, point, px};
+
     use super::icon_opacity;
+    use crate::shell::{FOOTER_HEIGHT, Folders, ROW_PITCH, Shell, recorder::Recorder};
+
+    /// Once an update has downloaded, its row stands over the footer and the list stops above it,
+    /// and a click on it installs the update. A private window shows none.
+    #[gpui::test]
+    fn a_ready_update_takes_a_row_over_the_footer(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        host.update_ready.set(true);
+        let private = cx.new(|cx| Shell::private_window(host.clone(), 9, "Private".into(), 1, cx));
+        assert_eq!(private.read_with(cx, |shell, _| shell.foot()), FOOTER_HEIGHT);
+
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
+        });
+        cx.run_until_parked();
+        let (foot, at) = shell.read_with(cx, |shell, _| {
+            let y = f32::from(shell.viewport.height) - FOOTER_HEIGHT - ROW_PITCH / 2.;
+            (shell.foot(), point(px(shell.width() / 2.), px(y)))
+        });
+        assert_eq!(foot, FOOTER_HEIGHT + ROW_PITCH);
+        host.take();
+        cx.simulate_click(at, Modifiers::none());
+        assert!(host.take().contains(&"install update".to_string()));
+    }
 
     /// An icon is dimmed as the dot it replaces is: the Space shown at full strength, the others
     /// by the dots' ratio of 0.35 to 0.6, and a hovered one by the dots' 0.5 to 0.6 (#320's

@@ -14,7 +14,7 @@ use gpui::{
 use super::{
     CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, Pending,
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
-    FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
+    FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
@@ -394,7 +394,7 @@ impl Shell {
         }
         let at = in_sidebar(event.position, self.sidebar_origin.get());
         let width = self.width();
-        let rows = self.drawn_list_top()..f32::from(self.viewport.height) - FOOTER_HEIGHT;
+        let rows = self.drawn_list_top()..f32::from(self.viewport.height) - self.foot();
         if !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
             return false;
         }

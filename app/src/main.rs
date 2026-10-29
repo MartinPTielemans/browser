@@ -382,6 +382,17 @@ mod platform {
         pub fn host_check_for_updates();
         #[cfg(target_os = "macos")]
         pub fn host_take_update_notes(notes: extern "C" fn(url: *const c_char));
+        #[cfg(target_os = "macos")]
+        pub fn host_watch_updates(
+            ready: extern "C" fn(version: *const c_char),
+            quiet: extern "C" fn() -> bool,
+        );
+        #[cfg(target_os = "macos")]
+        pub fn host_install_update();
+        #[cfg(target_os = "macos")]
+        pub fn host_automatic_updates() -> bool;
+        #[cfg(target_os = "macos")]
+        pub fn host_set_automatic_updates(on: bool);
     }
 
     /// What host_take_drops hears of a drag.
@@ -2489,6 +2500,17 @@ impl Browser for Engine {
         settings::show_shortcuts(cx);
     }
 
+    fn update_ready(&self) -> bool {
+        UPDATE_READY.get()
+    }
+
+    fn install_update(&self, _: &mut App) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            platform::host_install_update()
+        };
+    }
+
     fn passwords(&self, space: u64, cx: &mut App) {
         let profile = unsafe { bc::bc_space_profile(space) };
         settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
@@ -3583,6 +3605,10 @@ fn start_updates(cx: &mut App) {
         extern "C" fn quit() {
             unsafe { bc::bc_quit() };
         }
+        #[cfg(target_os = "macos")]
+        unsafe {
+            platform::host_watch_updates(update_ready, pages_quiet)
+        };
         unsafe { platform::host_start_updater(quit) };
     }
     #[cfg(target_os = "linux")]
@@ -3605,6 +3631,33 @@ fn start_updates(cx: &mut App) {
         })
         .detach();
     }
+}
+
+thread_local! {
+    /// An update is downloaded, to install when the app quits, and the sidebar offers it.
+    static UPDATE_READY: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Sparkle downloaded an update: every window's sidebar offers to restart into it.
+#[cfg(target_os = "macos")]
+extern "C" fn update_ready(_version: *const c_char) {
+    UPDATE_READY.set(true);
+    update_shells(|_, cx| cx.notify());
+}
+
+/// Whether no page in any window plays sound, which an update installing while the Mac is idle
+/// would cut off.
+#[cfg(target_os = "macos")]
+extern "C" fn pages_quiet() -> bool {
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
+        return true;
+    };
+    let shells: Vec<_> =
+        WINDOWS.with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
+    let plays = |cx: &App, shell: &WeakEntity<Shell>| {
+        shell.read_with(cx, |shell, _| shell.plays_sound()).unwrap_or(false)
+    };
+    cx.update(|cx| !shells.iter().any(|shell| plays(cx, shell)))
 }
 
 /// The app menu's Check for Updates…. Flatpak's portal can't be asked to look now, as it looks

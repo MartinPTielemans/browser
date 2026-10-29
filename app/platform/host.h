@@ -585,6 +585,20 @@ void host_check_for_updates(void);
 // On the Mac: calls |notes| with the release notes' URL of the update this launch is the first of, once.
 void host_take_update_notes(void (*notes)(const char* url));
 
+// On the Mac, before host_start_updater: calls |ready| with the version of an update downloaded to
+// install when the app quits, once there is one. While updates install automatically, one installs
+// when the screen locks or the screensaver starts, if no window is full screen and |quiet| says no
+// page is playing sound.
+void host_watch_updates(void (*ready)(const char* version), bool (*quiet)(void));
+
+// On the Mac: installs the update |ready| named now, and relaunches into it.
+void host_install_update(void);
+
+// On the Mac: whether updates download and install by themselves (Settings › General), as Sparkle
+// keeps it, and setting it. Off, Sparkle asks when it finds one.
+bool host_automatic_updates(void);
+void host_set_automatic_updates(bool on);
+
 // For the test driver: presses the button titled |title| in the alert shown. False if none shows.
 bool host_choose(const char* title);
 

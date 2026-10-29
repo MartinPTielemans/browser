@@ -120,6 +120,10 @@ bool SignedLikeThisApp(NSURL* app) {
   return alike;
 }
 
+// What host_watch_updates gave.
+void (*g_ready)(const char* version);
+bool (*g_quiet)(void);
+
 }  // namespace
 
 // Sparkle's delegate, for both its updater and its alerts.
@@ -127,6 +131,9 @@ bool SignedLikeThisApp(NSURL* app) {
 @property(nonatomic) SPUStandardUpdaterController* controller;
 // A scheduled update's alert held back while a window was full screen.
 @property(nonatomic) BOOL waiting;
+// The update downloaded to install on quit, and what installs it now.
+@property(nonatomic) NSString* ready;
+@property(nonatomic, copy) void (^installReady)(void);
 @end
 
 @implementation Updates {
@@ -150,6 +157,11 @@ bool SignedLikeThisApp(NSURL* app) {
                selector:@selector(terminating:)
                    name:NSApplicationWillTerminateNotification
                  object:nil];
+    // The Mac going idle, when a ready update can install without the user waiting for it.
+    NSDistributedNotificationCenter* system = NSDistributedNotificationCenter.defaultCenter;
+    for (NSString* name in @[ @"com.apple.screenIsLocked", @"com.apple.screensaver.didstart" ]) {
+      [system addObserver:self selector:@selector(idle:) name:name object:nil];
+    }
   }
   return self;
 }
@@ -223,13 +235,51 @@ bool SignedLikeThisApp(NSURL* app) {
 }
 
 // An update downloaded in the background, to install when the app quits: macOS checks it now,
-// while the user goes on browsing.
+// while the user goes on browsing, and the sidebar offers to restart into it. Sparkle installs it
+// on quit all the same.
 - (BOOL)updater:(SPUUpdater*)updater
     willInstallUpdateOnQuit:(SUAppcastItem*)item
     immediateInstallationBlock:(void (^)(void))immediateInstallHandler {
   [self keepNotes:item];
   [self warm:item.versionString then:nil];
-  return NO;
+  self.ready = item.versionString;
+  self.installReady = immediateInstallHandler;
+  Log([NSString stringWithFormat:@"update %@ ready", item.versionString]);
+  if (g_ready) g_ready(item.versionString.UTF8String);
+  return YES;
+}
+
+// Installs the ready update and relaunches, once macOS has checked it, waiting at most 15 s, as
+// Install and Relaunch does.
+- (void)installNow {
+  void (^install)(void) = self.installReady;
+  if (!install) return;
+  self.installReady = nil;
+  __block BOOL installed = NO;
+  dispatch_block_t once = ^{
+    if (installed) return;
+    installed = YES;
+    install();
+  };
+  [self warm:self.ready then:once];
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kInstallWait * NSEC_PER_SEC),
+                 dispatch_get_main_queue(), once);
+}
+
+// The screen locked or its screensaver started: the user is away, so a ready update installs, as
+// they set it to, unless it would cut off what they left playing or showing full screen.
+- (void)idle:(NSNotification*)notification {
+  if (!self.installReady) return;
+  NSString* outcome = @"installs";
+  if (!self.controller.updater.automaticallyDownloadsUpdates) {
+    outcome = @"waits: not automatic";
+  } else if (AnyFullScreen()) {
+    outcome = @"waits: full screen";
+  } else if (g_quiet && !g_quiet()) {
+    outcome = @"waits: a page plays sound";
+  }
+  Log([NSString stringWithFormat:@"update %@ idle %@", self.ready, outcome]);
+  if ([outcome isEqual:@"installs"]) [self installNow];
 }
 
 - (void)updater:(SPUUpdater*)updater didFindValidUpdate:(SUAppcastItem*)item {
@@ -407,4 +457,31 @@ void host_take_update_notes(void (*notes)(const char* url)) {
   [defaults removeObjectForKey:kNotes];
   NSString* url = kept[@"url"];
   if ([url isKindOfClass:NSString.class]) notes(url.UTF8String);
+}
+
+void host_watch_updates(void (*ready)(const char* version), bool (*quiet)(void)) {
+  g_ready = ready;
+  g_quiet = quiet;
+}
+
+void host_install_update(void) {
+  [g_updates installNow];
+}
+
+// Sparkle's own setting, which it keeps in the user's defaults over Info.plist's, read before it's
+// loaded too.
+bool host_automatic_updates(void) {
+  if (g_updates) return g_updates.controller.updater.automaticallyDownloadsUpdates;
+  id kept = [NSUserDefaults.standardUserDefaults objectForKey:@"SUAutomaticallyUpdate"]
+                ?: [NSBundle.mainBundle objectForInfoDictionaryKey:@"SUAutomaticallyUpdate"];
+  return [kept boolValue];
+}
+
+void host_set_automatic_updates(bool on) {
+  if (g_updates) {
+    g_updates.controller.updater.automaticallyDownloadsUpdates = on;
+  } else {
+    [NSUserDefaults.standardUserDefaults setBool:on forKey:@"SUAutomaticallyUpdate"];
+  }
+  Log([NSString stringWithFormat:@"updates automatic %@", on ? @"on" : @"off"]);
 }

@@ -14,7 +14,7 @@ use crate::tooltip::{self, Anchor, Tip};
 use crate::palette::Palette;
 use super::{
     access::Accessible,
-    Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
+    Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, HAIRLINE,
     HOVERED, LIST_TOP,
     PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
     TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
@@ -87,7 +87,7 @@ impl Shell {
                 .left_0()
                 .w(px(self.width()))
                 .when(self.tiles_scroll(), |tiles| {
-                    tiles.bottom(px(FOOTER_HEIGHT)).overflow_hidden()
+                    tiles.bottom(px(self.foot())).overflow_hidden()
                 })
                 .children(tiles)
         })

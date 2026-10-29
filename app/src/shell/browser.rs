@@ -432,6 +432,12 @@ pub trait Browser {
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.
     fn shortcuts(&self, cx: &mut App);
+    /// Whether an update is downloaded, to install when the app quits.
+    fn update_ready(&self) -> bool {
+        false
+    }
+    /// Installs the ready update now and restarts into it.
+    fn install_update(&self, _: &mut App) {}
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
     fn passwords(&self, space: u64, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.

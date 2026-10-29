@@ -759,6 +759,15 @@ impl Settings {
         let unload = self.toggle("unload idle tabs", unload, set_unload_idle_tabs, accent, cx);
         let ad_blocking = unsafe { bc::bc_ad_blocking() };
         let ad_blocking = self.toggle("ad blocking", ad_blocking, set_ad_blocking, accent, cx);
+        // Sparkle's own setting, so the Mac's build alone has it; the others update their own way.
+        #[cfg(target_os = "macos")]
+        let updates = crate::updates_available().then(|| {
+            let on = unsafe { platform::host_automatic_updates() };
+            let on = self.toggle("automatic updates", on, set_automatic_updates, accent, cx);
+            group(&RowLook::settings(), [row(None, "Install updates automatically", on)])
+        });
+        #[cfg(not(target_os = "macos"))]
+        let updates: Option<gpui::Div> = None;
         div()
             .flex()
             .flex_col()
@@ -774,6 +783,7 @@ impl Settings {
             ]))
             .children(self.off_sites(off_sites, cx))
             .child(group(&RowLook::settings(), [self.default_browser_row(cx)]))
+            .children(updates)
             .into_any_element()
     }
 
@@ -1574,6 +1584,11 @@ fn set_unload_idle_tabs(unload: bool) {
 /// In every profile; a site's own stays as the user set it in the Site Controls.
 fn set_ad_blocking(on: bool) {
     unsafe { bc::bc_set_ad_blocking(on) };
+}
+
+#[cfg(target_os = "macos")]
+fn set_automatic_updates(on: bool) {
+    unsafe { platform::host_set_automatic_updates(on) };
 }
 
 fn set_haptics(haptics: bool) {

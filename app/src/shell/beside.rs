@@ -12,7 +12,7 @@ use gpui::{
 use gpui::canvas;
 
 use super::{
-    Command, FOOTER_HEIGHT, LIST_TOP, PLATE_INSET, Shell, TILE_HEIGHT, URL_FIELD_HEIGHT,
+    Command, LIST_TOP, PLATE_INSET, Shell, TILE_HEIGHT, URL_FIELD_HEIGHT,
     URL_FIELD_TOP, drag::in_sidebar,
 };
 
@@ -65,7 +65,7 @@ impl Shell {
                     .top(px(self.list_top_with(favorites.len())))
                     .left_0()
                     .w(px(width))
-                    .bottom(px(FOOTER_HEIGHT))
+                    .bottom(px(self.foot()))
                     .overflow_hidden()
                     .child(self.still_page(space, 0.));
                 let page = div()
