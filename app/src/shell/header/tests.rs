@@ -157,32 +157,40 @@ fn a_press_with_no_move_before_it_puts_the_pointer_over_the_sidebar(cx: &mut Tes
     assert!(!tools(&shell, cx).0);
 }
 
-/// A mouse's back and forward buttons over the sidebar go back and forward in the selected tab,
-/// as over Chrome's toolbar, and do nothing where its page can't.
+/// A mouse's back and forward buttons over the sidebar show the previous and next Space, as Arc's
+/// do, never past the first or last, and leave the page's history alone.
 #[gpui::test]
-fn mouse_back_and_forward_over_the_sidebar_go_back_and_forward(cx: &mut TestAppContext) {
+fn mouse_back_and_forward_over_the_sidebar_switch_spaces(cx: &mut TestAppContext) {
     let (shell, cx, host) = drawn_shell(cx);
-    let mut page = Page { url: "https://example.org/".into(), ..Page::default() };
+    let page = Page {
+        url: "https://example.org/".into(),
+        can_go_back: true,
+        can_go_forward: true,
+        ..Page::default()
+    };
     shell.update(cx, |shell, cx| {
-        shell.set_tabs(1, Vec::new(), vec![10, 11], Vec::new(), Folders::default(), cx);
+        let space = |id, name: &str| (id, name.into(), None, 0, "".into(), "".into(), "".into());
+        shell.set_spaces(vec![space(1, "One"), space(2, "Two")], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
         shell.set_selected(10, cx);
+        shell.set_page(10, page, cx);
     });
-    let mut press = |page: &Page, direction| {
-        shell.update(cx, |shell, cx| shell.set_page(10, page.clone(), cx));
+    let press = |direction, cx: &mut VisualTestContext| {
         cx.run_until_parked();
         host.take();
         let button = MouseButton::Navigate(direction);
         cx.simulate_mouse_down(point(px(100.), px(300.)), button, Modifiers::none());
         cx.run_until_parked();
-        host.take().into_iter().filter(|call| call.ends_with(" 10")).collect::<Vec<_>>()
+        // The page's history is left alone.
+        assert!(host.take().iter().all(|call| !call.ends_with(" 10")));
+        host.shown.take()
     };
-    assert!(press(&page, NavigationDirection::Back).is_empty());
-    assert!(press(&page, NavigationDirection::Forward).is_empty());
-    page.can_go_back = true;
-    assert_eq!(press(&page, NavigationDirection::Back), ["back 10"]);
-    assert!(press(&page, NavigationDirection::Forward).is_empty());
-    page.can_go_forward = true;
-    assert_eq!(press(&page, NavigationDirection::Forward), ["forward 10"]);
+    assert!(press(NavigationDirection::Back, cx).is_empty());
+    assert_eq!(press(NavigationDirection::Forward, cx), [2]);
+    shell.update(cx, |shell, cx| shell.set_space(2, cx));
+    assert!(press(NavigationDirection::Forward, cx).is_empty());
+    assert_eq!(press(NavigationDirection::Back, cx), [1]);
 }
 
 /// Whether the pointer is over the sidebar and Clear and the URL field's buttons show, once the

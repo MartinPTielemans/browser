@@ -485,7 +485,8 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 
 **Switching**
 
-- Click a dot, press ⌃1–⌃9, or swipe horizontally with two fingers over the sidebar.
+- Click a dot, press ⌃1–⌃9, swipe horizontally with two fingers over the sidebar, or press a mouse's back or forward side button over it.
+- A mouse's side buttons (3 and 4, Arc's numbering; X's 8 and 9) over the sidebar, or anywhere else in the UI, show the previous and next Space, as Arc's do, never past the first or last (decided by the owner, 2026-10-29). Over the page, the page takes them and goes back and forward, as in Chrome.
 - A Space shows the tab it showed last, not the top of its Today (Arc; decided by the owner, 2026-10-29). The core keeps each Space's selected tab, so a window, the command bar's Focus and an agent's switch all come back to it.
 - Paging is Dia's (bin):
   - Tracking moves the pages at half the scroll distance (−0.5 × the horizontal delta), whatever the system's "Swipe between pages" setting says. Magic Mouse one-finger swipes count too. Ardia tolerates 12 pt of vertical wobble, then locks to horizontal.
