@@ -1766,6 +1766,10 @@ impl Browser for Engine {
         name(bc::bc_tab_pinned_url, tab).to_string()
     }
 
+    fn typed_url(&self, text: &str) -> Option<String> {
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+    }
+
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
         let url = CString::new(url).unwrap_or_default();
         unsafe { bc::bc_tab_set_pinned_url(tab, url.as_ptr()) };

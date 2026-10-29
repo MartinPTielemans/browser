@@ -458,6 +458,7 @@ impl Shell {
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ),
+            replace_pinned_url(tab, "Replace Favorite URL with Current", page.away_from_pinned_url),
             (
                 MenuEntry::new("Duplicate Tab", true),
                 "duplicate-tab",
@@ -525,17 +526,28 @@ impl Shell {
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ),
-            (
-                MenuEntry::new("Rename Tab", true),
-                "rename-tab",
-                Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
-            ),
-            (
-                MenuEntry::new("Change Icon…", true),
-                "change-icon",
-                Box::new(move |shell, cx| shell.change_icon(tab, cx)),
-            ),
         ];
+        // Arc's Pinned URL › Replace Pinned URL with Current and Edit….
+        let pinned_url = items.len();
+        items.push((MenuEntry::new("Pinned URL", true), "", Box::new(|_, _| {})));
+        let (entry, name, action) =
+            replace_pinned_url(tab, "Replace Pinned URL with Current", page.away_from_pinned_url);
+        items.push((entry.under(pinned_url), name, action));
+        items.push((
+            MenuEntry::new("Edit…", true).under(pinned_url),
+            "edit-pinned-url",
+            Box::new(move |shell, cx| shell.edit_pinned_url(tab, cx)),
+        ));
+        items.push((
+            MenuEntry::new("Rename Tab", true),
+            "rename-tab",
+            Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
+        ));
+        items.push((
+            MenuEntry::new("Change Icon…", true),
+            "change-icon",
+            Box::new(move |shell, cx| shell.change_icon(tab, cx)),
+        ));
         if !page.icon.is_empty() {
             items.push(remove_icon(tab));
         }
@@ -813,6 +825,23 @@ fn separate(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     )
 }
 
+/// The menu item that makes the page a pinned tab or a favorite is at the one it goes back to,
+/// dimmed while it's there.
+fn replace_pinned_url(
+    tab: u64,
+    title: &'static str,
+    away: bool,
+) -> (MenuEntry, &'static str, MenuAction) {
+    (
+        MenuEntry::new(title, away),
+        "replace-pinned-url",
+        Box::new(move |shell, cx| {
+            let url = shell.page(tab).url.to_string();
+            shell.change(Prop::PinnedUrl(tab), Value::Text(url), cx)
+        }),
+    )
+}
+
 /// The menu item that gives a tab back its favicon.
 pub(super) fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     (
@@ -1043,6 +1072,8 @@ mod tests {
                 "Unpin Tab",
                 "Add to Favorites",
                 "Back to Pinned URL (disabled)",
+                "Pinned URL › Replace Pinned URL with Current (disabled)",
+                "Pinned URL › Edit…",
                 "Rename Tab",
                 "Change Icon…",
                 "Duplicate Tab",
@@ -1050,5 +1081,26 @@ mod tests {
                 "Close Tab",
             ]
         );
+    }
+
+    /// Away from its pinned URL, a pinned tab's Replace Pinned URL with Current makes the page it's
+    /// at the one it goes back to, and a favorite's Replace Favorite URL with Current does the same.
+    #[gpui::test]
+    fn replace_with_current_keeps_the_page_its_at(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10], Folders::default());
+        let away = Page { away_from_pinned_url: true, ..page("https://away.test/", false, false) };
+        shell.update(cx, |shell, cx| shell.set_page(1, away.clone(), cx));
+        tab_menu(&shell, &host, cx, 1);
+        host.take_edits();
+        cx.update(|cx| host.choose("Replace Pinned URL with Current", cx));
+        assert_eq!(host.take_edits(), ["pinned url 1 https://away.test/"]);
+        shell.update(cx, |shell, cx| {
+            shell.set_favorites(vec![(20, 0)], cx);
+            shell.set_page(20, away, cx)
+        });
+        let menu = tab_menu(&shell, &host, cx, 20);
+        assert_eq!(menu[..2], ["Back to Favorite URL", "Replace Favorite URL with Current"]);
+        cx.update(|cx| host.choose("Replace Favorite URL with Current", cx));
+        assert_eq!(host.take_edits(), ["pinned url 20 https://away.test/"]);
     }
 }
