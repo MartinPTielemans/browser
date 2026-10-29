@@ -8,6 +8,7 @@
 #include "base/environment.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/strings/cstring_view.h"
 #include "base/task/sequenced_task_runner.h"
@@ -73,10 +74,10 @@ void SyncToken(const signin::IdentityManager* identity_manager,
 class RelayInvalidations : public syncer::SyncInvalidationsService {
  public:
   RelayInvalidations()
-      : token_("ilo-relay:" + base::Uuid::GenerateRandomV4().AsLowercaseString()) {}
+      : device_("ilo-relay:" + base::Uuid::GenerateRandomV4().AsLowercaseString()) {}
 
   void Deliver(const std::string& payload) {
-    if (!listening_) {
+    if (!token_) {
       return;
     }
     for (syncer::InvalidationsListener& listener : listeners_) {
@@ -85,14 +86,25 @@ class RelayInvalidations : public syncer::SyncInvalidationsService {
   }
 
   // syncer::SyncInvalidationsService:
+  // The token comes after the call returns, as FCM's does: the engine watches it from before its
+  // backend starts, and a change it saw first would reach the backend before it exists.
   void StartListening() override {
-    listening_ = true;
-    NotifyToken();
+    if (token_) {
+      return;
+    }
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&RelayInvalidations::Listen, weak_factory_.GetWeakPtr()));
   }
-  void StopListening() override { listening_ = false; }
+  void StopListening() override {
+    weak_factory_.InvalidateWeakPtrs();
+    token_.reset();
+  }
   void StopListeningPermanently() override {
-    listening_ = false;
-    NotifyToken();
+    const bool had_token = token_.has_value();
+    StopListening();
+    if (had_token) {
+      NotifyToken();
+    }
   }
   void AddListener(syncer::InvalidationsListener* listener) override {
     if (!listeners_.HasObserver(listener)) {
@@ -111,9 +123,7 @@ class RelayInvalidations : public syncer::SyncInvalidationsService {
   void RemoveTokenObserver(syncer::FCMRegistrationTokenObserver* observer) override {
     token_observers_.RemoveObserver(observer);
   }
-  std::optional<std::string> GetFCMRegistrationToken() const override {
-    return listening_ ? token_ : std::string();
-  }
+  std::optional<std::string> GetFCMRegistrationToken() const override { return token_; }
   void SetInterestedDataTypesHandler(syncer::InterestedDataTypesHandler* handler) override {
     interested_data_types_handler_ = handler;
   }
@@ -135,18 +145,25 @@ class RelayInvalidations : public syncer::SyncInvalidationsService {
   }
 
  private:
+  void Listen() {
+    token_ = device_;
+    NotifyToken();
+  }
+
   void NotifyToken() {
     for (syncer::FCMRegistrationTokenObserver& observer : token_observers_) {
       observer.OnFCMRegistrationTokenChanged();
     }
   }
 
-  const std::string token_;
-  bool listening_ = false;
+  const std::string device_;
+  // Unset until listening, as FCM's is until it has one; an empty token would mean none ever.
+  std::optional<std::string> token_;
   base::ObserverList<syncer::InvalidationsListener> listeners_;
   base::ObserverList<syncer::FCMRegistrationTokenObserver> token_observers_;
   raw_ptr<syncer::InterestedDataTypesHandler> interested_data_types_handler_ = nullptr;
   std::optional<syncer::DataTypeSet> interested_data_types_;
+  base::WeakPtrFactory<RelayInvalidations> weak_factory_{this};
 };
 
 std::unique_ptr<syncer::SyncInvalidationsService> CreateRelayInvalidations(Profile* profile) {
