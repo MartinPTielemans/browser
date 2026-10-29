@@ -219,13 +219,14 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
 | [x] | Target under the card | MVP | 362 × 600, leaning 43 % toward the pointer, accent ≈ 0.15, dashes 7/7 ≈ 2 pt | Dia rec |
 | [x] | Target timing | MVP | slide ≈ 110 ms, grow ≈ 120 ms, no overshoot | Dia rec |
+| [ ] | Top and bottom targets | MVP | a tab dragged to the card's top or bottom centre stacks it with the page; a page alone has all four targets, a split those along its orientation; sizes the side ones' turned, fitting between them *interim*; Arc's: measure. Built; to tick: `./check.sh split`'s `split-targets-top.png` | Arc help |
 | [x] | Drag picture | MVP | tab for 1–2 frames, then 209 × 109.5 window card; ours shows the favicon and title, not the page's image | Dia rec |
 | [x] || Pane motion | MVP | a dropped tab's pane coming in on its side, the divider dragged, a pane closing: built with a drop showing the split at once, the divider following the pointer and a closed pane's page taking the card at once *interim*. Ticked on `./check.sh split`'s `split-left.png`, `split-resized.png` and `split-separated.png`. Arc's: measure | Arc |
 | [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus. Not built: waits on a tab dragged out of the window (Tabs › Drag to another window / desktop); then a drop on no target opens the window there | Dia rec |
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
 | [x] | Expand Current Split | MVP | the focused pane takes the card, the other keeps 220 pt at any width; one frame; again does nothing; kept after a quit. A flag in the core's split, worked out at each layout so a resize holds the 220, and saved with the session. In View after Developer and in the command bar, no key; dragging or double-clicking the gap, or a pane joining or leaving, ends it *interim* | Arc 1.170.0 ax, rec |
 | [x] | Commands | MVP | Flip, Move Pane Left/Right, Separate All, in the command bar | Dia P§6 |
-| [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the sides *interim* | Dia P§6 |
+| [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the top and bottom | Dia P§6 |
 
 ## Settings
 

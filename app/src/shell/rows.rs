@@ -1546,6 +1546,29 @@ mod tests {
         assert!(!host.take().iter().any(|call| call.starts_with("select")));
     }
 
+    /// A row dragged onto a page shown alone finds a target at each of the card's edges, and let go
+    /// on the top one it joins the page above it in a stacked split, as Arc's does.
+    #[gpui::test]
+    fn a_row_let_go_on_the_top_target_stacks_its_split(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, Vec::new(), vec![2, 3], 2);
+        let (x, y) = close_button(&shell, cx, 3);
+        let from = point(px(x - 100.), px(y));
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        let card = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport).0);
+        let top = point(card.center().x, card.top() + px(60.));
+        for to in [point(from.x, from.y - px(ROW_PITCH)), top] {
+            cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+        }
+        host.take();
+        host.take_edits();
+        cx.simulate_mouse_up(top, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take_edits(), ["split 3 2 true"]);
+        assert!(host.take().contains(&"split stacked 2 true".to_string()));
+    }
+
     /// A press on a folder's row closes it at once, as Arc's does, and a press again opens it.
     #[gpui::test]
     fn a_press_opens_or_closes_a_folder(cx: &mut TestAppContext) {
