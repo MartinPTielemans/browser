@@ -48,15 +48,21 @@ pub enum Refused {
     Taken(Holder),
 }
 
-/// The commands the user gave keys of their own, or none.
+/// The commands the user gave keys of their own, or none, and whether ⌘1–⌘8 leave the favorites
+/// out.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct UserKeys {
     set: Vec<(Command, Vec<String>)>,
+    /// Off by default, so ⌘1 is the first favorite, as in Arc.
+    favorites_unnumbered: bool,
 }
+
+/// The Shortcuts file's line for favorites_unnumbered, which no command is named.
+const FAVORITES_UNNUMBERED: &str = "favorites-unnumbered";
 
 impl Global for UserKeys {}
 
-static DEFAULTS: UserKeys = UserKeys { set: Vec::new() };
+static DEFAULTS: UserKeys = UserKeys { set: Vec::new(), favorites_unnumbered: false };
 
 /// The user's keys, or the defaults before they're read.
 pub fn user_keys(cx: &App) -> &UserKeys {
@@ -395,8 +401,18 @@ impl UserKeys {
         self.set(command, defaults(command))
     }
 
+    /// Every command's default keys, and the favorites numbered again.
     pub fn reset_all(&mut self) {
-        self.set.clear();
+        *self = UserKeys::default();
+    }
+
+    /// Whether ⌘1–⌘8 count the favorites before the Space's tabs (Settings › Shortcuts).
+    pub fn favorites_numbered(&self) -> bool {
+        !self.favorites_unnumbered
+    }
+
+    pub fn set_favorites_numbered(&mut self, numbered: bool) {
+        self.favorites_unnumbered = !numbered;
     }
 
     /// Keeps `keys` for `command`, unless they're its defaults.
@@ -407,19 +423,25 @@ impl UserKeys {
         }
     }
 
-    /// As Settings saves them: a line a command, its name, then its keys, if any.
+    /// As Settings saves them: a line a command, its name, then its keys, if any, and a line saying
+    /// the favorites are left out of ⌘1–⌘8 when they are.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
             let words = std::iter::once(command.name()).chain(keys.iter().map(String::as_str));
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
-        lines.collect()
+        let unnumbered = self.favorites_unnumbered.then(|| format!("{FAVORITES_UNNUMBERED}\n"));
+        lines.chain(unnumbered).collect()
     }
 
     /// What to_text wrote. A line it can't read, or keys another command keeps, is left out.
     pub fn parse(text: &str) -> Self {
         let mut keys = UserKeys::default();
         for line in text.lines() {
+            if line.trim() == FAVORITES_UNNUMBERED {
+                keys.favorites_unnumbered = true;
+                continue;
+            }
             let mut words = line.split_whitespace();
             let Some(command) = words.next().and_then(named) else {
                 continue;
@@ -889,7 +911,22 @@ mod tests {
         user.set(Command::ToggleSidebar, vec![]).unwrap();
         user.set(Command::NewFolder, keys(&["alt-cmd-n"])).unwrap();
         assert_eq!(UserKeys::parse(&user.to_text()), user);
+        user.set_favorites_numbered(false);
+        assert_eq!(UserKeys::parse(&user.to_text()), user);
         assert_eq!(UserKeys::parse("quit cmd-k\nnothing cmd-j\n"), UserKeys::default());
+    }
+
+    /// The favorites count in ⌘1–⌘8 until the user turns them off, and Restore Defaults turns them
+    /// on again.
+    #[test]
+    fn favorites_are_numbered_by_default() {
+        let mut user = UserKeys::default();
+        assert!(user.favorites_numbered());
+        assert_eq!(user.to_text(), "");
+        user.set_favorites_numbered(false);
+        assert!(!user.favorites_numbered());
+        user.reset_all();
+        assert!(user.favorites_numbered());
     }
 
     /// A key needs ⌘ or ⌃, as one without would type, and ⇧ with a character a page names its
