@@ -12,8 +12,8 @@
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
 //! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
-//! rightrelease, move, scroll, wheel, key, keydown, keyup, flags, type, resize, place, order, layout,
-//! state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
+//! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
+//! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl with Alt and alt with both, and ⌃Tab as Ctrl+Tab. flags presses and lets
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. scroll turns the wheel a notch for each event,
@@ -906,6 +906,18 @@ fn run_command(line: &str) -> Option<()> {
             for _ in 0..(dx.abs().round() as usize).max(1) {
                 click(at, if dx > 0. { 7 } else { 6 }, none, false)?;
             }
+            Some(())
+        }
+        // Handed to the app as the Mac's driver hands it to its host's monitor's handler.
+        // shortcut: no Linux input, such as a mouse's back and forward buttons, sends one yet.
+        "pageswipe" => {
+            let (x, y) = point(&mut words)?;
+            let back = match words.next()? {
+                "back" => true,
+                "forward" => false,
+                _ => return None,
+            };
+            crate::swiped(driven()?.ui as usize as *mut c_void, x, y, back);
             Some(())
         }
         "key" => {
