@@ -26,8 +26,8 @@ struct Menu {
 
 thread_local! {
     static MENU: Cell<Option<&'static Menu>> = const { Cell::new(None) };
-    /// The browser window it shows over, by its UI's view and the core's id, and that window's
-    /// size as it showed; None while hidden.
+    /// The window it shows over, by its UI's view and the core's id, 0 for Settings, and that
+    /// window's size as it showed; None while hidden.
     static SHOWN: Cell<Option<(*mut c_void, bc::bc_id, Size<Pixels>)>> = const { Cell::new(None) };
     /// The overlay it opened from, such as the command bar for its field's menu, by its view.
     static OVER: Cell<Option<*mut c_void>> = const { Cell::new(None) };
@@ -57,8 +57,8 @@ pub(crate) fn take_pointer_on(panels: &[Bounds<Pixels>]) {
 }
 
 /// Shows the menu's window at `left`, `top`, `width`, `height` in the content of `ui_view`'s
-/// browser window, or of the overlay `ui_view` is, with its keyboard, or moves it there as a
-/// submenu opens.
+/// browser window, of the overlay `ui_view` is, or of Settings, with its keyboard, or moves it
+/// there as a submenu opens.
 #[unsafe(no_mangle)]
 pub extern "C" fn host_show_menu_window(
     ui_view: *mut c_void,
@@ -73,15 +73,18 @@ pub extern "C" fn host_show_menu_window(
         Some((browser, bounds)) => (Some(ui_view), (browser, bounds.origin)),
         None => (None, (ui_view, point(px(0.), px(0.)))),
     };
+    // Settings is GPUI's own window, not the core's, and the menu takes its keys from it itself.
     let window = crate::window_with_view(ui_view);
-    if window == 0 {
+    if window == 0 && crate::settings_window::shown() != Some(ui_view) {
         return;
     }
     if SHOWN.get().is_none() {
         let content = gpui_linux::embedder_size(ui_view).unwrap_or_default();
         SHOWN.set(Some((ui_view, window, content)));
         OVER.set(over);
-        overlays::lend_keyboard(window, menu.view, true);
+        if window != 0 {
+            overlays::lend_keyboard(window, menu.view, true);
+        }
     }
     let bounds = Bounds::new(
         origin + point(px(left as f32), px(top as f32)),
@@ -100,7 +103,11 @@ pub extern "C" fn host_hide_menu_window() {
     };
     OVER.take();
     let view = menu.view;
-    gpui_linux::hide_overlay(view, move || overlays::lend_keyboard(window, view, false));
+    gpui_linux::hide_overlay(view, move || {
+        if window != 0 {
+            overlays::lend_keyboard(window, view, false);
+        }
+    });
     eprintln!("browser: menu window hidden");
 }
 
