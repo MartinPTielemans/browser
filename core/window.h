@@ -108,6 +108,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);
+  // The hook for Chrome's tabs (hooks.h): |contents|, which asked to be shown, as Picture in
+  // Picture's way back to its tab does, shows in the window holding it, in its Space.
+  static void ActivateContents(content::WebContents* contents);
   // Chrome's navigator calls this before it picks the Browser for a navigation.
   static void AdjustNavigate(NavigateParams& params);
   // From Chrome's DevTools: whether |browser|'s window docks them, as the core's windows do, and

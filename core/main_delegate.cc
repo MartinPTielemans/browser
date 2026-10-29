@@ -25,6 +25,7 @@
 #include "browser_core/install_question.h"
 #include "browser_core/leave_dialog.h"
 #include "browser_core/link_preview.h"
+#include "browser_core/mini_player.h"
 #include "browser_core/open_app_dialog.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
@@ -251,10 +252,12 @@ void Install(const bc_host& host) {
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
   g_browser_core_split_together = &Window::SplitTogether;
+  g_browser_core_activate_contents = &Window::ActivateContents;
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
   SetUpAdBlock();
+  SetUpMiniPlayer();
   g_browser_core_component_allowed = &widevine::MayUpdate;
   g_browser_core_no_passwords = &IsAgentTab;
   g_browser_core_no_autofill = &IsAgentTab;

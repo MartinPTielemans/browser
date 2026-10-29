@@ -24,6 +24,7 @@ extern bool g_browser_core_supplies_windows;
 
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
+class VideoOverlayWindowViews;
 class RenderViewContextMenuBase;
 class GURL;
 class LoginHandler;
@@ -54,6 +55,7 @@ class ConfigurationPolicyProvider;
 }
 
 namespace ui {
+class Event;
 class SimpleMenuModel;
 }
 
@@ -188,5 +190,16 @@ extern bool (*g_browser_core_no_autofill)(content::WebContents* contents);
 // the passkey request of |contents|'s page, which |asks| the user in Chrome's dialog, once it
 // knows how it would show. Not asked of one that shows only in autofill's suggestions.
 extern bool (*g_browser_core_refuse_passkey)(content::WebContents* contents, bool asks);
+
+// chrome/browser/ui/views/overlay/video_overlay_window_views.cc: a mouse, scroll or gesture event
+// on a video's Picture in Picture window, the Mini Player, before Chrome handles it. Returns true
+// once the core has handled it. While it's set, the window's background isn't a draggable caption,
+// which would keep a double-click from it, and the core moves the window itself.
+extern bool (*g_browser_core_mini_player_event)(VideoOverlayWindowViews* window, ui::Event* event);
+
+// chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc: |contents|
+// asked to be the tab shown, as Picture in Picture's way back to its tab does, once Chrome has made
+// it its Browser's active tab, before it activates the window.
+extern void (*g_browser_core_activate_contents)(content::WebContents* contents);
 
 #endif  // BROWSER_CORE_HOOKS_H_

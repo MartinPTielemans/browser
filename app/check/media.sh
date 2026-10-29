@@ -6,10 +6,11 @@
 # Settings turns it off for the sites they don't allow. A tab playing music out of sight has a
 # player at the sidebar's foot, whose button pauses it, whose click shows the tab, and whose × puts
 # it away. View › Cast… and the page menu's Cast… open the tab's Cast card, and × closes it. A
-# video's page menu floats it in Picture in Picture. Chromium's fake camera and microphone stand in
-# for real ones, and the share takes the tab titled Shared without its picker; the question for the
-# camera is answered with Allow, as the user would, since the fake question Chromium can put in its
-# place never tells the browser what's captured.
+# video's page menu floats it in Picture in Picture, the Mini Player, which a scroll or a drag
+# moves, ⌘ or Ctrl with a scroll sizes, and a double-click puts back in its tab, shown. Chromium's
+# fake camera and microphone stand in for real ones, and the share takes the tab titled Shared
+# without its picker; the question for the camera is answered with Allow, as the user would, since
+# the fake question Chromium can put in its place never tells the browser what's captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
@@ -338,10 +339,57 @@ expect "^browser: menu shown .*$(cased 'Picture in Picture')" \
 ../tools/window-screenshot.sh "$pid" "$out/video-menu.png" || fail "no window to capture"
 send choose "$(cased 'Picture in Picture')"
 expect "^browser: title $v floating\$" "the video menu's Picture in Picture didn't float the video"
-send click $page_point
-send key x
-expect "^browser: title $v landed\$" "the floating video didn't come back"
+
+# The floating video, the Mini Player, moves with a scroll or a drag, and ⌘-scroll, Ctrl-scroll
+# off the Mac, sizes it about its middle. A double-click on it, with another tab shown, shows its
+# tab and lands it. Linux alone: drive.mm doesn't find the Mini Player yet.
+# mini_player_at <condition> <failure>: waits for the Mini Player logged since the last command at
+# a frame, x, y, w and h, for which awk's <condition> holds of the last px, py, pw and ph, then
+# makes it the last.
+mini_player_at() {
+  for _ in $(seq 100); do
+    at=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: pip at ' | tail -1 |
+      cut -d' ' -f4-)
+    if [ -n "$at" ] && echo "$at" | awk -v px="$px" -v py="$py" -v pw="$pw" -v ph="$ph" \
+      "{ x = \$1; y = \$2; w = \$3; h = \$4; exit !($1) }"; then
+      read -r px py pw ph <<EOF
+$at
+EOF
+      return 0
+    fi
+    sleep 0.1
+  done
+  fail "$2"
+}
+if [ "$(uname)" = Linux ]; then
+  px=0 py=0 pw=0 ph=0
+  send pip
+  mini_player_at 1 "the floating video had no Mini Player"
+  # Two notches down move it up as far as the content would go, 120 a notch.
+  send pip wheel $((pw / 2)) $((ph / 3)) 2
+  mini_player_at "x == px && y == py - 240 && w == pw && h == ph" \
+    "a scroll over the Mini Player didn't move it with the content"
+  # Off its controls, between the buttons at its top and its middle's.
+  send pip drag $((pw / 2)) $((ph / 4)) $((pw / 2 - 200)) $((ph / 4))
+  mini_player_at "x == px - 200 && y == py && w == pw && h == ph" \
+    "a drag didn't move the Mini Player"
+  send pip wheel $((pw / 2)) $((ph / 3)) -2 cmd
+  mini_player_at "w > pw * 1.15 && h > ph * 1.15 && (2 * x + w - 2 * px - pw) ^ 2 <= 16 &&
+    (2 * y + h - 2 * py - ph) ^ 2 <= 16" "Ctrl with a scroll didn't grow the Mini Player in place"
+  ../tools/window-screenshot.sh "$pid" "$out/mini-player.png" || fail "no window to capture"
+  shown "$b"
+  send pip doubleclick $((pw / 2)) $((ph / 4))
+  expect "^browser: selected $v\( in .*\)\{0,1\}\$" \
+    "a double-click on the Mini Player didn't show its tab"
+  expect "^browser: title $v landed\$" "a double-click on the Mini Player didn't land it"
+  expect '^browser: pip gone$' "the Mini Player stayed after a double-click"
+else
+  echo "skip: moving, sizing and double-clicking the Mini Player on $(uname): drive.mm has no pip."
+  send click $page_point
+  send key x
+  expect "^browser: title $v landed\$" "the floating video didn't come back"
+fi
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab."

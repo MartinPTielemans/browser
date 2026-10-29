@@ -538,6 +538,14 @@ void Window::OnPageClicked(bc_id tab) {
 }
 
 // static
+void Window::ActivateContents(content::WebContents* contents) {
+  const bc_id tab = Tab::IdOf(contents);
+  if (Window* window = tab ? Holding(tab) : nullptr) {
+    window->Select(tab);
+  }
+}
+
+// static
 bool Window::CanDockDevTools(BrowserWindowInterface* browser) {
   return ForBrowser(browser);
 }
