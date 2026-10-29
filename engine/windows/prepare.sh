@@ -35,7 +35,8 @@ hook "    ninja_commandline.append('chrome')
     ninja_commandline.append('mini_installer')" \
 "    if os.environ.get('ILO_CORE_ONLY'):
         # Only the core's own objects, those its BUILD.gn has on Windows, as ninja knows no other.
-        graph = subprocess.run(ninja_commandline + ['-t', 'targets', 'all'],
+        # Its thread count is the int argparse gave it.
+        graph = subprocess.run([str(arg) for arg in ninja_commandline] + ['-t', 'targets', 'all'],
                                capture_output=True, text=True, check=True).stdout
         targets = [line.split(': ')[0] for line in graph.splitlines()]
         core = [t for t in targets if t.startswith('obj/browser_core/') and t.endswith('.obj')]
