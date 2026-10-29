@@ -831,7 +831,7 @@ if [ "$(uname)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 1
   send type abc
   expect "^browser: title $tab value abc\$" "typing didn't reach the text field in Safari's engine"
   for shortcut in "a select" "c copy"; do
-    read -r letter did <<<"$shortcut"
+    letter=${shortcut% *} did=${shortcut#* }
     send key "$letter" cmd
     expect "^browser: title $tab $did abc\$" \
       "⌘$(echo "$letter" | tr a-z A-Z) in Safari's engine's text field didn't $did its text"
