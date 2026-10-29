@@ -10,6 +10,8 @@ use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
 };
 
+use crate::theme::Appearance;
+
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
@@ -170,6 +172,9 @@ pub enum Command {
     Passwords,
     /// Plays a new profile's first launch again.
     Welcome,
+    /// Gives every window this appearance where its Space's theme doesn't choose one, in place of
+    /// the system's (View › Appearance).
+    Appearance(Appearance),
     Quit,
 }
 
@@ -316,6 +321,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
+    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
+    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
+    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
@@ -634,6 +642,9 @@ impl Command {
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
             Command::SiteSearchSettings => "site-search-settings",
+            Command::Appearance(Appearance::Automatic) => "appearance-automatic",
+            Command::Appearance(Appearance::Light) => "appearance-light",
+            Command::Appearance(Appearance::Dark) => "appearance-dark",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::About => "about",
@@ -893,6 +904,7 @@ impl Shell {
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::Appearance(appearance) => return self.set_app_appearance(appearance, cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
@@ -1180,6 +1192,7 @@ impl Shell {
             | Command::Import
             | Command::Passwords
             | Command::Welcome
+            | Command::Appearance(_)
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -1193,6 +1206,8 @@ impl Shell {
         }
         match command {
             Command::TogglePin if self.pinned().contains(&self.selected) => Some("Unpin Tab"),
+            // The appearance chosen already would do nothing.
+            Command::Appearance(appearance) => (appearance != self.app_appearance).then_some(name),
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }

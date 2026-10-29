@@ -30,6 +30,7 @@ use browser::shell::{
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
     SidePanel, Split, Trouble, WindowButton,
 };
+use browser::theme::Appearance;
 use browser::text_input::{
     Copy, Cut, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
 };
@@ -157,6 +158,7 @@ mod platform {
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
         pub fn host_set_window_light(ui_view: *mut c_void, light: bool);
+        pub fn host_set_app_appearance(appearance: c_int);
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
@@ -2205,6 +2207,11 @@ impl Browser for Engine {
         unsafe { platform::host_set_window_light(self.ui_view, light) };
     }
 
+    fn set_appearance(&self, appearance: Appearance, _: &mut App) {
+        settings::save_appearance(appearance);
+        give_host_appearance(appearance);
+    }
+
     fn page_moving(&self, moving: bool, _: &mut App) {
         unsafe { bc::bc_window_page_moving(self.window, moving) };
     }
@@ -3528,6 +3535,8 @@ unsafe extern "C" fn started(_: *mut c_void) {
         browser::face::register(cx);
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
+        settings::read_appearance(cx);
+        give_host_appearance(shell::app_appearance(cx));
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         #[cfg(target_os = "linux")]
@@ -3797,6 +3806,16 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
         menu(
             "View",
             vec![
+                MenuItem::submenu(menu(
+                    "Appearance",
+                    (Appearance::ALL.into_iter())
+                        .map(|each| {
+                            item(appearance_title(each), Command::Appearance(each))
+                                .checked(bar.appearance == each)
+                        })
+                        .collect(),
+                )),
+                MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
@@ -3907,6 +3926,25 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             ],
         ),
     ]
+}
+
+/// View › Appearance's item for `appearance`, as Arc's names them.
+fn appearance_title(appearance: Appearance) -> &'static str {
+    match appearance {
+        Appearance::Automatic => "Automatic",
+        Appearance::Light => "Light",
+        Appearance::Dark => "Dark",
+    }
+}
+
+/// Gives the host View › Appearance's choice, for the app's native parts and its pages.
+fn give_host_appearance(appearance: Appearance) {
+    let code = match appearance {
+        Appearance::Automatic => 0,
+        Appearance::Light => 1,
+        Appearance::Dark => 2,
+    };
+    unsafe { platform::host_set_app_appearance(code) };
 }
 
 /// Spaces › Change Profile: the profiles the Space shown can be in, as its menu's Profile items

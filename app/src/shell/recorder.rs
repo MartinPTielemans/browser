@@ -10,6 +10,8 @@ use std::{
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
 
+use crate::theme::Appearance;
+
 use super::{
     Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
     browser::WindowButton,
@@ -81,6 +83,8 @@ pub(super) struct Recorder {
     pub(super) window_title: RefCell<String>,
     /// Whether it was last asked to draw the window's material light.
     pub(super) window_light: Cell<Option<bool>>,
+    /// The appearance View › Appearance last chose.
+    pub(super) appearance: Cell<Option<Appearance>>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
     /// The system has a share sheet of its own.
@@ -652,6 +656,10 @@ impl Browser for Recorder {
 
     fn set_window_light(&self, light: bool, _: &mut App) {
         self.window_light.set(Some(light));
+    }
+
+    fn set_appearance(&self, appearance: Appearance, _: &mut App) {
+        self.appearance.set(Some(appearance));
     }
 
     fn page_moving(&self, moving: bool, _: &mut App) {

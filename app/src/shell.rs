@@ -24,7 +24,7 @@ use crate::{
     space_icon::{GLYPHS, SpaceIcon},
     text_input::{self, TextInput},
     palette::{Palette, Tone},
-    theme::Theme,
+    theme::{Appearance, Theme},
 };
 
 #[cfg(test)]
@@ -108,6 +108,7 @@ pub use keys::{
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
+pub use themes::{AppAppearance, app_appearance};
 pub use menus::{MenuEntry, new_profile_name};
 pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
 pub use side_panel::SidePanel;
@@ -1177,10 +1178,11 @@ pub struct Shell {
     /// out once.
     palette: Palette,
     palettes: RefCell<Vec<((Option<Theme>, Tone), Palette)>>,
-    /// The system's appearance as the window last drew, which a Space without a theme, or with an
-    /// automatic one, follows; the preview's own where it forces one; and the watch that draws
-    /// the window again once the system's changes.
+    /// The system's appearance as the window last drew, or the one View › Appearance chose in its
+    /// place, which a Space without a theme, or with an automatic one, follows; the preview's own
+    /// where it forces one; and the watch that draws the window again once the system's changes.
     system_tone: Tone,
+    app_appearance: Appearance,
     forced_tone: Option<Tone>,
     appearance_watch: Option<Subscription>,
     /// Whether the host was last asked to draw the material light.
@@ -1377,6 +1379,7 @@ impl Shell {
             palette: Palette::default(),
             palettes: RefCell::default(),
             system_tone: Tone::Dark,
+            app_appearance: Appearance::Automatic,
             forced_tone: None,
             appearance_watch: None,
             window_light: None,
