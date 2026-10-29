@@ -126,7 +126,9 @@ send click $(pinned_close 0)
 expect "^browser: selected $c in " "a click where an unloaded pinned tab's ✕ was didn't show the tab"
 none_since '^browser: command close-tab' || fail "an unloaded pinned tab showed its ✕"
 expect "^browser: loaded $c https://example.org/\$" "the pinned tab didn't load once shown"
-# Shown, its ✕ is −, which unloads it too and shows the top Today tab.
+# Shown, its ✕ is −, which unloads it too and shows the top Today tab. On Linux GPUI hears the
+# pointer leave as the tab's page shows, so the row is hovered again only once the pointer moves.
+[ "$(uname)" = Linux ] && send move $(pinned_close 0)
 expect "^browser: hover tab $c close − favicon none\$" "the pinned tab shown didn't draw −"
 send click $(pinned_close 0)
 expect '^browser: command close-tab via sidebar$' "a click on a pinned tab's − didn't run Close Tab"
