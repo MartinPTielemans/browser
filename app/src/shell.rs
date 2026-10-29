@@ -43,6 +43,8 @@ mod full_screen;
 mod access;
 #[cfg(test)]
 mod undo_tests;
+#[cfg(test)]
+mod help_tests;
 mod assets;
 mod browser;
 mod clean_link;

@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use crate::theme::Appearance;
+use crate::build_info::{self, BuildInfo};
 
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
@@ -180,6 +181,15 @@ pub enum Command {
     /// Gives every window this appearance where its Space's theme doesn't choose one, in place of
     /// the system's (View › Appearance).
     Appearance(Appearance),
+    /// Opens a new issue on the bug report form in a tab, its version and system fields filled
+    /// with the build's details. Nothing is sent until the user submits it.
+    ReportProblem,
+    /// Copies the build's details: the version, the engine's, the system's and the chip.
+    CopyBuildInfo,
+    /// Opens the site's help in a tab.
+    HelpCenter,
+    /// Opens the site's release notes in a tab.
+    WhatsNew,
     Quit,
 }
 
@@ -359,6 +369,10 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
+    ("Help Center", Command::HelpCenter, &["help", "support"]),
+    ("What's New", Command::WhatsNew, &["release notes", "changelog"]),
+    ("Report a Problem…", Command::ReportProblem, &["bug", "feedback", "issue"]),
+    ("Copy Build Info", Command::CopyBuildInfo, &["version"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
 
@@ -659,6 +673,10 @@ impl Command {
             Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
+            Command::ReportProblem => "report-problem",
+            Command::CopyBuildInfo => "copy-build-info",
+            Command::HelpCenter => "help-center",
+            Command::WhatsNew => "whats-new",
             Command::Quit => "quit",
         }
     }
@@ -871,6 +889,15 @@ impl Shell {
             Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
+            Command::ReportProblem => {
+                let url = BuildInfo::here().issue_url(build_info::NEW_ISSUE);
+                return self.browser.open_page(&url, cx);
+            }
+            Command::CopyBuildInfo => {
+                return self.copy(&BuildInfo::here().text(), "Copied Build Info", cx);
+            }
+            Command::HelpCenter => return self.browser.open_page(build_info::HELP_CENTER, cx),
+            Command::WhatsNew => return self.browser.open_page(build_info::WHATS_NEW, cx),
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
                 if !self.url(self.selected).starts_with("chrome://history") {
@@ -1216,6 +1243,10 @@ impl Shell {
             | Command::Passwords
             | Command::Welcome
             | Command::Appearance(_)
+            | Command::ReportProblem
+            | Command::CopyBuildInfo
+            | Command::HelpCenter
+            | Command::WhatsNew
             | Command::Settings => true,
             _ => self.selected != 0,
         }

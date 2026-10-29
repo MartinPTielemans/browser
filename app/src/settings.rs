@@ -7,10 +7,10 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
-use std::sync::LazyLock;
 use std::time::Instant;
 
 use browser::agents::{self, Agents, Client};
+use browser::build_info;
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
@@ -1913,11 +1913,8 @@ fn set_link_previews(previews: bool, _: &mut App) {
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built
 /// from, each of which opens in a tab.
 fn about() -> AnyElement {
-    let mut version = match option_env!("APP_BUILD") {
-        Some(build) => format!("Version {} ({build})", env!("CARGO_PKG_VERSION")),
-        None => format!("Version {}", env!("CARGO_PKG_VERSION")),
-    };
-    if let Some(engine) = ENGINE_VERSION.as_deref() {
+    let mut version = format!("Version {}", build_info::version());
+    if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
     let open = |id: &'static str, url: Option<String>| {
@@ -1957,23 +1954,6 @@ fn about() -> AnyElement {
         .child(group(&RowLook::settings(), notices).mt(px(BOX_GAP)))
         .into_any_element()
 }
-
-/// The engine's version: on the Mac, the name of the folder its framework's current version is in,
-/// as Chromium names it.
-static ENGINE_VERSION: LazyLock<Option<String>> = LazyLock::new(|| {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
-    let frameworks = std::env::current_exe().ok()?.parent()?.parent()?.join("Frameworks");
-    std::fs::read_dir(frameworks).ok()?.flatten().find_map(|entry| {
-        let name = entry.file_name();
-        if !name.to_str()?.ends_with(" Framework.framework") {
-            return None;
-        }
-        let current = std::fs::read_link(entry.path().join("Versions/Current")).ok()?;
-        Some(current.to_str()?.to_owned())
-    })
-});
 
 /// The URL of `name`, one of the licence files the app carries (tools/licences.sh): in the bundle's
 /// Resources on the Mac, beside the binary elsewhere. None where the build left it out, as `cargo
