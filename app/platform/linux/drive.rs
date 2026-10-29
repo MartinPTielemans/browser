@@ -15,7 +15,8 @@
 //! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
 //! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
-//! cmd with Ctrl, ctrl with Alt and alt with both, and ⌃Tab as Ctrl+Tab. flags presses and lets
+//! cmd with Ctrl, ctrl with Alt and alt with both, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
+//! them, cmd with Ctrl and alt with Alt. flags presses and lets
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
 //! commits its text to a field of the UI's, not a page's. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
@@ -616,6 +617,21 @@ fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     })
 }
 
+/// The Mac's modifiers named in `words` for a click, as Chrome reads a click's off the Mac: ⌘ with
+/// Ctrl and ⌥ with Alt. Its ⌥⌘-click is Ctrl+Alt there, and Ctrl+Alt+Shift, as keys press ⌥⇧, is
+/// a foreground tab's. ⌃-click, the Mac's right-click, has none.
+fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
+    words.fold(0, |state, word| {
+        state
+            | match word {
+                "shift" => u16::from(KeyButMask::SHIFT),
+                "cmd" => u16::from(KeyButMask::CONTROL),
+                "alt" => u16::from(KeyButMask::MOD1),
+                _ => 0,
+            }
+    })
+}
+
 /// The keysym of drive.mm's key `key`: a printable ASCII character, or a named key.
 fn keysym(key: &str) -> Option<u32> {
     Some(match key {
@@ -901,7 +917,7 @@ fn run_command(line: &str) -> Option<()> {
             let (x, y) = point(&mut words)?;
             let at = target_at(x, y)?;
             let which = if action == "rightclick" { 3 } else { 1 };
-            click(at, which, modifiers(words), false)?;
+            click(at, which, click_modifiers(words), false)?;
             if action == "doubleclick" {
                 click(at, 1, none, true)?;
             }
