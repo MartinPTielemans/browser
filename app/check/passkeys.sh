@@ -15,27 +15,31 @@ passkeys_check() {
   fi
   serve
   # The page's title says where it is: ready, registering, registered, signing in, signed in, or
-  # failed with the error's name. "r" registers ada@check.test, "s" signs in with any passkey the
-  # site has. A passkey's site is a host, never an address, so the page is at localhost.
+  # failed with the error's name. "r" registers ada@check.test, "s" signs in with that passkey. A
+  # passkey's site is a host, never an address, so the page is at localhost. Signing in names the
+  # passkey: asked for any, Chrome lists the key's accounts to choose from, even one, and the
+  # ceremony waits on that choice, which no touch makes.
   printf '%s' '<title>loading</title>
 <script>
 const bytes = n => crypto.getRandomValues(new Uint8Array(n));
+let passkey;
 const run = async key => {
   try {
     if (key == "r") {
       document.title = "registering";
-      await navigator.credentials.create({ publicKey: {
+      passkey = (await navigator.credentials.create({ publicKey: {
         rp: { id: "localhost", name: "Check" },
         user: { id: new Uint8Array(16), name: "ada@check.test", displayName: "Ada" },
         challenge: bytes(32),
         pubKeyCredParams: [{ type: "public-key", alg: -7 }],
         authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
-      } });
+      } })).rawId;
       document.title = "registered";
     } else if (key == "s") {
       document.title = "signing in";
       await navigator.credentials.get({ publicKey: {
         rpId: "localhost", challenge: bytes(32), userVerification: "preferred",
+        allowCredentials: [{ type: "public-key", id: passkey }],
       } });
       document.title = "signed in";
     }
