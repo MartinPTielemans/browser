@@ -107,6 +107,7 @@ pub(super) enum Prop {
     /// The URL a pinned tab or a favorite goes back to.
     PinnedUrl(u64),
     FolderName(u64),
+    FolderIcon(u64),
     SpaceName(u64),
     SpaceIcon(u64),
     SpaceColor(u64),
@@ -240,7 +241,8 @@ impl Edit {
                 Prop::TabName(each)
                 | Prop::TabIcon(each)
                 | Prop::PinnedUrl(each)
-                | Prop::FolderName(each) => id(each),
+                | Prop::FolderName(each)
+                | Prop::FolderIcon(each) => id(each),
                 Prop::SpaceName(_) | Prop::SpaceIcon(_) | Prop::SpaceColor(_) => {}
             },
             Edit::UndoClear { .. }
@@ -621,7 +623,7 @@ impl Shell {
             Prop::TabName(_) => What::RENAME_TAB,
             Prop::FolderName(_) => What::RENAME_FOLDER,
             Prop::SpaceName(_) => What::RENAME_SPACE,
-            Prop::TabIcon(_) | Prop::SpaceIcon(_) => What::CHANGE_ICON,
+            Prop::TabIcon(_) | Prop::FolderIcon(_) | Prop::SpaceIcon(_) => What::CHANGE_ICON,
             Prop::PinnedUrl(_) => What::CHANGE_PINNED_URL,
             Prop::SpaceColor(_) => match value {
                 Value::Color { color: None, .. } => What::REMOVE_THEME,
@@ -800,6 +802,10 @@ impl Shell {
                 let space = self.spaces.iter().find(|space| space.is_folder(folder))?;
                 Value::Text(space.folders.folders.get(&folder)?.0.to_string())
             }
+            Prop::FolderIcon(folder) => {
+                self.spaces.iter().any(|space| space.is_folder(folder)).then_some(())?;
+                Value::Text(self.folder_icon(folder).to_string())
+            }
             Prop::SpaceName(id) => Value::Text(space(id)?.name.to_string()),
             Prop::SpaceIcon(id) => Value::Text(space(id)?.icon.to_string()),
             Prop::SpaceColor(id) => {
@@ -818,6 +824,9 @@ impl Shell {
             (Prop::PinnedUrl(tab), Value::Text(url)) => browser.set_pinned_url(tab, url, cx),
             (Prop::FolderName(folder), Value::Text(name)) => {
                 browser.rename_folder(folder, name, cx)
+            }
+            (Prop::FolderIcon(folder), Value::Text(icon)) => {
+                browser.set_folder_icon(folder, icon, cx)
             }
             (Prop::SpaceName(space), Value::Text(name)) => browser.rename_space(space, name, cx),
             (Prop::SpaceIcon(space), Value::Text(icon)) => browser.set_space_icon(space, icon, cx),

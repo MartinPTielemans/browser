@@ -7,6 +7,7 @@ use std::rc::Rc;
 use gpui::{App, Bounds, Context, px, size};
 
 use crate::dock_dot::QUIET;
+use crate::folder_preview::{self, Ask, Item};
 use crate::hover_card::{Action, Anchor, Card, Event, Hover, Icon, Rest};
 use crate::space_icon::has_icon;
 
@@ -44,6 +45,73 @@ impl Shell {
         });
         let anchor = Anchor { row, window: self.viewport };
         self.browser.hover_card(Hover::Rest(Rest { card, anchor, events }), cx);
+    }
+
+    /// The pointer came onto `row` or left it: a closed folder's row rests for its preview of the
+    /// tabs in it, and leaving it lets the preview go. None shows while a row is dragged, has its
+    /// menu up or is being named.
+    pub(super) fn folder_preview(&self, row: Row, hovered: bool, cx: &mut Context<Self>) {
+        let Row::Tab(folder) = row else {
+            return;
+        };
+        if !self.is_folder(folder) {
+            return;
+        }
+        if !hovered {
+            return self.browser.folder_preview(Ask::Left(folder), cx);
+        }
+        let busy = self.dragging().is_some() || self.menu_row.is_some() || self.renaming.is_some();
+        let items = self.previewed(folder);
+        if busy || items.is_empty() {
+            return;
+        }
+        let Some(row) = self.tip_frames.borrow().get(&folder).copied() else {
+            return;
+        };
+        let shell = cx.weak_entity();
+        // It tells of the choice inside its own update, so the shell's waits for the update's end.
+        let chosen = Rc::new(move |tab: u64, cx: &mut App| {
+            let shell = shell.clone();
+            cx.defer(move |cx| {
+                shell.update(cx, |shell, cx| shell.show_previewed(tab, cx)).ok();
+            });
+        });
+        let rest = folder_preview::Rest {
+            folder,
+            name: self.folder_name(folder),
+            items,
+            anchor: Anchor { row, window: self.viewport },
+            chosen,
+        };
+        self.browser.folder_preview(Ask::Rest(rest), cx);
+    }
+
+    /// What a closed `folder`'s preview lists: the tabs in it and in the folders in it, as their
+    /// rows say them, or nothing for an open one, whose rows show.
+    pub(super) fn previewed(&self, folder: u64) -> Vec<Item> {
+        if self.shown_space().is_none_or(|space| space.is_open(folder)) {
+            return Vec::new();
+        }
+        let item = |tab: u64| {
+            let each = self.tabs.get(&tab);
+            let icon = match each.filter(|each| has_icon(&each.page.icon)) {
+                Some(each) => Icon::Emoji(each.page.icon.clone()),
+                None => Icon::Favicon(each.and_then(|each| each.favicon.clone())),
+            };
+            Item { tab, title: self.title(tab), url: self.url(tab), icon }
+        };
+        self.folder_tabs(folder).into_iter().map(item).collect()
+    }
+
+    /// Shows the tab chosen in a folder's preview, which peeks under its closed folder, with the
+    /// page focused, as a click on its row would.
+    fn show_previewed(&mut self, tab: u64, cx: &mut Context<Self>) {
+        if !self.tabs.contains_key(&tab) {
+            return;
+        }
+        log!("browser: command select via folder preview");
+        self.select(tab, cx);
+        self.browser.focus_page(cx);
     }
 
     /// What `tab`'s card shows, if it has one.
@@ -128,6 +196,7 @@ impl Shell {
     pub(super) fn end_hovers(&self, cx: &mut App) {
         self.browser.tooltip(None, cx);
         self.browser.hover_card(Hover::Close, cx);
+        self.browser.folder_preview(Ask::Close, cx);
     }
 
     /// The tab shown was `before`'s pages and is now another's: those it hid are pictured once

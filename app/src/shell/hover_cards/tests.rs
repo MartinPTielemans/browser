@@ -210,3 +210,85 @@ fn a_card_showing_pictures_its_tab_again(cx: &mut TestAppContext) {
     }
     assert_eq!(asked, ["card picture 3"]);
 }
+
+/// A drawn shell with the pinned tab 1, then the closed folder 5 holding 6 and the open folder 7,
+/// which holds 8, and the open folder 9 holding 10, with the Today tab 2 shown.
+fn with_folders(
+    cx: &mut TestAppContext,
+) -> (gpui::Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    let folders = Folders {
+        folders: [
+            (5, ("Reading".into(), false)),
+            (7, ("Rust".into(), true)),
+            (9, ("Work".into(), true)),
+        ]
+        .into(),
+        parents: [(6, 5), (7, 5), (8, 7), (10, 9)].into(),
+        ..Default::default()
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![(1, "Work".into(), None, 1, "".into(), "".into(), "".into())], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, vec![1, 5, 6, 7, 8, 9, 10], vec![2], Vec::new(), folders, cx);
+        for (tab, title) in [(1, "Mail"), (2, "Docs"), (6, "News"), (8, "Book"), (10, "Wiki")] {
+            shell.set_title(tab, title.into(), cx);
+            let url = format!("https://www.{}.example/", title.to_lowercase());
+            shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+        }
+        shell.set_selected(2, cx);
+    });
+    cx.run_until_parked();
+    host.take();
+    (shell, cx, host)
+}
+
+/// What the shell asks of the folder preview as the pointer comes onto `row`'s row.
+fn preview_on(shell: &gpui::Entity<Shell>, cx: &mut VisualTestContext, row: u64) {
+    shell.update(cx, |shell, cx| shell.folder_preview(Row::Tab(row), true, cx));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_closed_folder_previews_the_tabs_in_it_and_in_its_folders(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_folders(cx);
+    preview_on(&shell, cx, 5);
+    assert_eq!(host.take(), ["folder preview rest 5 6 8"]);
+    let titles: Vec<String> = (host.folder_preview.borrow().iter())
+        .flat_map(|rest| rest.items.iter().map(|item| item.title.to_string()))
+        .collect();
+    assert_eq!(titles, ["News", "Book"]);
+    // An open folder's rows show what's in it, and a tab has its card instead.
+    preview_on(&shell, cx, 9);
+    preview_on(&shell, cx, 1);
+    assert!(host.take().is_empty());
+    shell.update(cx, |shell, cx| shell.folder_preview(Row::Tab(5), false, cx));
+    assert_eq!(host.take(), ["folder preview left 5"]);
+}
+
+#[gpui::test]
+fn the_tab_chosen_in_a_preview_shows_with_its_page_focused(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_folders(cx);
+    preview_on(&shell, cx, 5);
+    host.take();
+    let rest = host.folder_preview.borrow().clone().expect("no preview asked for");
+    cx.update(|_, cx| (rest.chosen)(8, cx));
+    cx.run_until_parked();
+    let asked = host.take();
+    assert!(asked.contains(&"select 8".to_string()), "{asked:?}");
+    assert!(asked.contains(&"focus page".to_string()), "{asked:?}");
+}
+
+#[gpui::test]
+fn a_press_or_a_menu_ends_the_preview(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_folders(cx);
+    shell.update(cx, |shell, cx| shell.end_hovers(cx));
+    assert!(host.take().contains(&"folder preview close".to_string()));
+    // Nor does one open while a row has its menu up.
+    shell.update(cx, |shell, cx| shell.tab_menu(5, point(px(100.), px(200.)), cx));
+    host.take();
+    preview_on(&shell, cx, 5);
+    assert!(host.take().iter().all(|call| !call.starts_with("folder preview rest")));
+}
