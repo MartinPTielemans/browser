@@ -623,7 +623,7 @@ impl Render for HoverCard {
             window.drop_image(image).ok();
         }
         // The plate is inset by the margin, which its shadow draws in.
-        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(crate::face::UI);
         let Some(drawn) = self.drawn.clone() else {
             return root;
         };

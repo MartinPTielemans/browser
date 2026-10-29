@@ -357,13 +357,9 @@ mod platform {
         pub fn host_add_tooltip(tooltip_view: *mut c_void, margin: f64, away: extern "C" fn());
         pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_tooltip(fade: f64);
-        #[cfg(not(target_os = "linux"))]
         pub fn host_add_hover_card(card_view: *mut c_void, margin: f64, away: extern "C" fn());
-        #[cfg(not(target_os = "linux"))]
         pub fn host_show_hover_card(ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64);
-        #[cfg(not(target_os = "linux"))]
         pub fn host_hide_hover_card();
-        #[cfg(not(target_os = "linux"))]
         pub fn host_watch_memory_pressure(pressed: extern "C" fn());
         pub fn host_add_link_target(
             link_view: *mut c_void,
@@ -1516,10 +1512,8 @@ extern "C" fn tooltip_away() {
 }
 
 /// The hover card's requests, to the host's card window, over the browser window in front.
-#[cfg(not(target_os = "linux"))]
 struct CardHost;
 
-#[cfg(not(target_os = "linux"))]
 impl hover_card::Host for CardHost {
     fn show(&self, left: f32, top: f32, width: f32, height: f32) {
         let (left, top, width, height) = (left.into(), top.into(), width.into(), height.into());
@@ -1533,13 +1527,11 @@ impl hover_card::Host for CardHost {
 
 /// The window lost the keyboard, the app stopped being the active one, or a press or a scroll
 /// landed outside the card.
-#[cfg(not(target_os = "linux"))]
 extern "C" fn card_away() {
     update_app(hover_card::close);
 }
 
 /// The system is short of memory: the hover cards' pictures, which the core can take again, go.
-#[cfg(not(target_os = "linux"))]
 extern "C" fn memory_pressed() {
     update_app(hover_card::forget_all);
 }
@@ -3387,8 +3379,6 @@ fn finish_opening(
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
-    // shortcut: Linux's host has no card window yet, so the card is off there.
-    #[cfg(not(target_os = "linux"))]
     if let Some(card) = hover_card::open(Rc::new(CardHost), cx)
         && let Ok(view) = card.update(cx, |_, window, _| ns_view(window))
     {
