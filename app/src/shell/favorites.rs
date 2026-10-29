@@ -22,6 +22,10 @@ use super::{
     title,
 };
 
+/// The most favorites a Space shows, as Arc's 12 a profile. Past it a tab doesn't become one,
+/// and a list longer already, from before or an import, is kept.
+pub(super) const MOST_FAVORITES: usize = 12;
+
 /// Who shares the favorites, as Settings lists the choices. Each is the core's BC_FAVORITES_ value
 /// of the same name, which the bin checks at compile time.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -448,9 +452,30 @@ impl Shell {
                 }),
             )
             .on_click(cx.listener(move |shell, _, _, cx| shell.clicked_tile(tab, cx)))
+            .children(self.drawn_for_picker(tab))
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+            .child(self.icon_drawn(tab))
+    }
+
+    /// Logs the icon `tab`'s tile draws once it's another than the one it drew, so a capture after
+    /// a change waits for the frame that shows it.
+    fn icon_drawn(&self, tab: u64) -> impl IntoElement + use<> {
+        let (drawn, icon) = (self.tile_icons_drawn.clone(), self.page(tab).icon);
+        canvas(
+            move |_, _, _| {
+                let before = drawn.borrow_mut().insert(tab, icon.clone());
+                if before.is_some_and(|before| before != icon) {
+                    // check.sh reads this line.
+                    let icon = if icon.is_empty() { "none" } else { &icon };
+                    log!("browser: tile {tab} drawn with icon {icon}");
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
     }
 
     /// A left press on `tab`'s tile, which may become a drag.
@@ -502,6 +527,12 @@ impl Shell {
                 }
                 _ => self.tab_icon(tab),
             })
+    }
+
+    /// Whether `tab` can become a favorite of the Space shown, or is one already, below the most
+    /// it shows.
+    pub(super) fn has_room_for(&self, tab: u64) -> bool {
+        self.favorites.contains(&tab) || self.favorites.len() < MOST_FAVORITES
     }
 
     /// The favorites `space` shows: its own, or its profile's.

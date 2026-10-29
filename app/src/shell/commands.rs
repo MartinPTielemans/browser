@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use super::{
-    COPIED_TIME, Edit, Section, Shell, Swapped, UserKeys, What,
+    COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
@@ -23,6 +23,8 @@ use super::{
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Command {
     NewTab,
+    /// Opens the command bar on the open tabs alone, the Space shown's first, to switch to one.
+    SearchTabs,
     /// Opens another window on the same Spaces.
     NewWindow,
     /// Opens a private window, in the profile's off-the-record session.
@@ -58,6 +60,9 @@ pub enum Command {
     RevealTab,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
+    /// Loads the pinned URL of each pinned tab of the Space shown that's away from it, as Arc's
+    /// Reset all tabs in this Space does.
+    ResetSpaceTabs,
     /// Mutes the selected tab, or unmutes it.
     ToggleMute,
     /// Closes the Today tabs of the Space shown, but the one shown.
@@ -153,10 +158,17 @@ pub enum Command {
     PreviousPane,
     /// Opens Chrome's history page in a new tab.
     ViewHistory,
+    /// Opens Chromium's search engines page in a new tab, where the profile's site searches are
+    /// added and edited: each a name, a keyword and a URL with %s for the query.
+    SiteSearchSettings,
     /// Opens the Settings window, or brings it to the front.
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
     KeyboardShortcuts,
+    /// Opens the Settings window on its About tab: the version, the engine's and the credits.
+    About,
+    /// Opens the Settings window on its Import tab.
+    Import,
     /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
     Passwords,
     /// Plays a new profile's first launch again.
@@ -183,6 +195,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("alt-cmd-right", Command::NextSpace, true),
     ("alt-cmd-left", Command::PreviousSpace, true),
     ("cmd-l", Command::EditUrl, false),
+    ("shift-cmd-a", Command::SearchTabs, false),
     ("cmd-d", Command::TogglePin, false),
     ("cmd-enter", Command::BackToPinnedUrl, false),
     ("shift-cmd-k", Command::Clear, false),
@@ -266,6 +279,7 @@ const HIDE_SIDEBAR: &str = "Hide Sidebar";
 pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Pin Tab", Command::TogglePin, &["unpin"]),
     ("Next Tab", Command::NextTab, &[]),
+    ("Search Tabs…", Command::SearchTabs, &["switch tab", "open tabs"]),
     ("Archive Tab", Command::CloseTab, &["close tab"]),
     ("Clear Today", Command::Clear, &["unpinned tabs"]),
     ("Clear Cache and Refresh", Command::ClearCacheAndRefresh, &[]),
@@ -327,8 +341,11 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("View Archive…", Command::ViewArchive, &[]),
     ("View Downloads…", Command::ViewDownloads, &[]),
     ("View History", Command::ViewHistory, &[]),
+    ("Site Search Settings", Command::SiteSearchSettings, &["search engines", "keywords"]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
+    (concat!("About ", env!("APP_NAME")), Command::About, &["version", "credits", "licence"]),
+    ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
@@ -388,26 +405,30 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
 }
 
 /// The commands of BAR_COMMANDS that match `typed`, best first and then in the table's order, at
-/// most BAR_ROWS, each with the name `named` gives it now, leaving out those it gives none.
+/// most BAR_ROWS, each with the name `named` gives it now, leaving out those it gives none. With
+/// nothing typed, as the command bar's commands-only list starts, it's all of them in the table's
+/// order.
 pub fn find_commands(
     typed: &str,
     keys: &UserKeys,
     mut named: impl FnMut(&'static str, Command) -> Option<&'static str>,
 ) -> Vec<BarCommand> {
     let typed = typed.trim().to_lowercase();
-    if typed.is_empty() {
-        return Vec::new();
-    }
     let mut found: Vec<(Match, &'static str, Command)> = (BAR_COMMANDS.iter())
         .zip(LOWERCASE_NAMES.iter())
         .filter_map(|(&(name, command, keywords), lowercase)| {
-            let matched = match_of(lowercase, keywords, &typed)?;
+            let matched = match typed.is_empty() {
+                true => Match::Letters,
+                false => match_of(lowercase, keywords, &typed)?,
+            };
             Some((matched, named(name, command)?, command))
         })
         .collect();
     // Stable, so equals keep the table's order.
     found.sort_by_key(|&(matched, ..)| std::cmp::Reverse(matched));
-    found.truncate(BAR_ROWS);
+    if !typed.is_empty() {
+        found.truncate(BAR_ROWS);
+    }
     (found.into_iter())
         .map(|(matched, name, command)| BarCommand {
             name: name.into(),
@@ -525,13 +546,21 @@ impl Command {
     /// Whether it opens the command bar or the find bar with the keyboard, which the keys typed
     /// right after its shortcut belong in (docs/ux-spec.md › Command bar › Keys).
     pub fn opens_field(self) -> bool {
-        matches!(self, Command::NewTab | Command::EditUrl | Command::Find | Command::AddSplit)
+        matches!(
+            self,
+            Command::NewTab
+                | Command::SearchTabs
+                | Command::EditUrl
+                | Command::Find
+                | Command::AddSplit
+        )
     }
 
     /// The command's name in the log and in the user's saved keys.
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
+            Command::SearchTabs => "search-tabs",
             Command::NewWindow => "new-window",
             Command::NewPrivateWindow => "new-private-window",
             Command::CloseWindow => "close-window",
@@ -552,6 +581,7 @@ impl Command {
             Command::CollapseFolders => "collapse-folders",
             Command::RevealTab => "reveal-tab",
             Command::BackToPinnedUrl => "back-to-pinned-url",
+            Command::ResetSpaceTabs => "reset-space-tabs",
             Command::ToggleMute => "toggle-mute",
             Command::Clear => "clear",
             Command::Undo => "undo",
@@ -607,8 +637,11 @@ impl Command {
             Command::NextPane => "next-pane",
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
+            Command::SiteSearchSettings => "site-search-settings",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
+            Command::About => "about",
+            Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
             Command::Quit => "quit",
@@ -618,7 +651,7 @@ impl Command {
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = browser, no_json)]
-pub(super) struct Run(pub(super) Command);
+pub struct Run(pub Command);
 
 actions!(space_form, [CreateSpace]);
 actions!(space_name, [KeepName, CancelName]);
@@ -703,13 +736,20 @@ impl Shell {
             return;
         }
         // The command bar opens over the page, and the reveal's panel makes way for it.
-        if matches!(command, Command::NewTab | Command::EditUrl | Command::AddSplit) {
+        if matches!(
+            command,
+            Command::NewTab | Command::SearchTabs | Command::EditUrl | Command::AddSplit
+        ) {
             self.set_revealed(false, cx);
         }
         let target = match command {
             Command::NewTab => {
                 self.set_new_tab(true, cx);
                 return self.browser.command_bar(None, self.bar_tabs(), None, cx);
+            }
+            Command::SearchTabs => {
+                self.set_new_tab(false, cx);
+                return self.browser.search_tabs(self.open_tabs(), cx);
             }
             Command::EditUrl => {
                 self.set_new_tab(false, cx);
@@ -755,7 +795,17 @@ impl Shell {
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
             Command::RevealTab => return self.reveal_tab(cx),
+            // In an agent's Space ⌘↩ is the bar's Take Over or Hand Back.
+            Command::BackToPinnedUrl if self.agent_bar().is_some() => {
+                return self.agent_bar_primary(cx);
+            }
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
+            Command::ResetSpaceTabs => {
+                for tab in self.tabs_to_reset() {
+                    self.browser.back_to_pinned_url(tab, cx);
+                }
+                return;
+            }
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
             Command::Clear => return self.clear(cx),
             Command::Undo => {
@@ -800,7 +850,10 @@ impl Shell {
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
+            Command::SiteSearchSettings => return self.browser.site_search_settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
+            Command::About => return self.browser.about(cx),
+            Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
             Command::ViewHistory => {
@@ -1024,13 +1077,26 @@ impl Shell {
     /// sidebar's order. It leaves out the tab shown and what shows with it, as its suggestions do.
     /// All of them: the bar lists the first BAR_TABS_SHOWN, and looks through the rest for a name
     /// that what's typed starts.
-    fn bar_tabs(&self) -> Vec<BarTab> {
+    pub(super) fn bar_tabs(&self) -> Vec<BarTab> {
         let mut tabs = self.favorites.clone();
         if let Some(space) = self.shown_space() {
-            tabs.extend(space.pinned.iter().filter(|&&row| !space.is_folder(row)));
-            tabs.extend(&space.today);
+            tabs.extend(space_tabs(space));
         }
-        let shown = self.panes(self.selected);
+        self.as_bar_tabs(self.recent_first(tabs))
+    }
+
+    /// The tabs Search Tabs lists: the command bar's, then the other Spaces' pinned and Today tabs,
+    /// those shown most recently first, then the rest in the Spaces' order.
+    pub(super) fn open_tabs(&self) -> Vec<BarTab> {
+        let others = self.spaces.iter().filter(|space| space.id != self.space);
+        let others = self.recent_first(others.flat_map(space_tabs).collect());
+        let mut tabs = self.bar_tabs();
+        tabs.extend(self.as_bar_tabs(others));
+        tabs
+    }
+
+    /// `tabs`, those shown most recently first, then the rest in their order.
+    fn recent_first(&self, tabs: Vec<u64>) -> Vec<u64> {
         let recent = self.recent.iter().copied().filter(|tab| tabs.contains(tab));
         let mut order: Vec<u64> = recent.collect();
         for tab in tabs {
@@ -1039,7 +1105,13 @@ impl Shell {
             }
         }
         order
-            .into_iter()
+    }
+
+    /// `tabs` as the command bar lists them, without the tab shown and what shows with it, and
+    /// without those that have no page yet.
+    fn as_bar_tabs(&self, tabs: Vec<u64>) -> Vec<BarTab> {
+        let shown = self.panes(self.selected);
+        tabs.into_iter()
             .filter(|tab| !shown.contains(tab) && !self.url(*tab).is_empty())
             .map(|tab| BarTab {
                 tab,
@@ -1078,7 +1150,7 @@ impl Shell {
             Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
-            Command::BackToPinnedUrl => page.away_from_pinned_url,
+            Command::BackToPinnedUrl => page.away_from_pinned_url || self.agent_bar().is_some(),
             Command::CloseSplitPane
             | Command::SeparatePane
             | Command::SeparateSplit
@@ -1091,7 +1163,10 @@ impl Shell {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
             Command::Clear => !self.today().is_empty(),
-            Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),
+            Command::FavoriteTab => {
+                let tab = self.selected;
+                tab != 0 && !self.favorites.contains(&tab) && self.has_room_for(tab)
+            }
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
             Command::RenameTab => {
                 let favorite = self.favorites.contains(&self.selected);
@@ -1101,6 +1176,7 @@ impl Shell {
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
             Command::NewFolder
+            | Command::SearchTabs
             | Command::ReopenClosedTab
             | Command::NewWindow
             | Command::NewPrivateWindow
@@ -1115,12 +1191,27 @@ impl Shell {
             | Command::ManageExtensions
             | Command::AddExtension
             | Command::ViewHistory
+            | Command::SiteSearchSettings
             | Command::KeyboardShortcuts
+            | Command::About
+            | Command::Import
             | Command::Passwords
             | Command::Welcome
             | Command::Settings => true,
             _ => self.selected != 0,
         }
+    }
+
+    /// The pinned tabs of the Space shown that Reset all tabs in this Space takes back, those away
+    /// from their pinned URL. An unloaded one waits until it's shown, as loading it unseen would
+    /// cost what showing it does.
+    fn tabs_to_reset(&self) -> Vec<u64> {
+        let Some(space) = self.shown_space() else { return Vec::new() };
+        let away = |tab: &u64| {
+            let page = self.page(*tab);
+            page.away_from_pinned_url && !page.unloaded
+        };
+        space.pinned.iter().copied().filter(|&row| !space.is_folder(row)).filter(away).collect()
     }
 
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
@@ -1139,6 +1230,12 @@ impl Shell {
     }
 }
 
+/// `space`'s pinned tabs, without its folders, and its Today tabs, in the sidebar's order.
+fn space_tabs(space: &Space) -> impl Iterator<Item = u64> + '_ {
+    let pinned = space.pinned.iter().filter(|&&row| !space.is_folder(row));
+    pinned.chain(&space.today).copied()
+}
+
 /// Whether a private window runs `command`. It has one Space, unsaved, so nothing that keeps a tab
 /// or shows another Space, and none of what the regular windows keep: the closed tabs, the
 /// Library, the history.
@@ -1151,6 +1248,7 @@ fn private_runs(command: Command) -> bool {
             | Command::NewFolder
             | Command::CollapseFolders
             | Command::BackToPinnedUrl
+            | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
             | Command::ChangeProfile(_)
@@ -1162,6 +1260,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ClearArchive
             | Command::ViewDownloads
             | Command::ViewHistory
+            | Command::SiteSearchSettings
             | Command::ManageExtensions
             | Command::AddExtension
     )
@@ -1223,5 +1322,168 @@ mod tests {
         assert_eq!(keys.command_for("cmd-n", true), Some(Command::NewWindow));
         assert_eq!(keys.command_for("shift-cmd-n", true), Some(Command::NewPrivateWindow));
         assert_eq!(keys.command_for("shift-cmd-w", true), Some(Command::CloseWindow));
+    }
+
+    /// ⇧⌘A is a page's to keep, as Chrome's Search Tabs is, and the keys typed right after it wait
+    /// for the bar it opens.
+    #[test]
+    fn search_tabs_is_not_a_reserved_key() {
+        let keys = UserKeys::default();
+        assert_eq!(keys.command_for("shift-cmd-a", false), Some(Command::SearchTabs));
+        assert_eq!(keys.command_for("shift-cmd-a", true), None);
+        assert!(keys.holds_keys("shift-cmd-a"));
+        assert_eq!(keys.label(Command::SearchTabs).as_deref(), Some("⇧⌘A"));
+    }
+
+    /// ⇧⌘A with the UI focused lists the open tabs but the one shown: the Space shown's first, as
+    /// the command bar lists them, then the other Space's, the one shown last there first.
+    #[gpui::test]
+    fn search_tabs_lists_the_open_tabs_the_space_shown_first(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::VisualTestContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(bind_keys);
+        let (shell, cx): (gpui::Entity<Shell>, &mut VisualTestContext) =
+            cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str| (id, name.into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space(1, "One"), space(2, "Two")], cx);
+            shell.set_tabs(1, vec![10], vec![11, 12], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+            for tab in [10, 11, 12, 20, 21] {
+                let page = Page { url: format!("https://{tab}.test/").into(), ..Page::default() };
+                shell.set_page(tab, page, cx);
+            }
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+            shell.set_space(1, cx);
+            shell.set_selected(12, cx);
+            shell.set_selected(11, cx);
+        });
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        cx.simulate_keystrokes("shift-cmd-a");
+        assert_eq!(host.searched_tabs.take(), [vec![12, 10, 21, 20]]);
+        assert!(host.command_bars.take().is_empty(), "it opened the bar for a new tab too");
+    }
+
+    /// Reset all tabs in this Space takes back the pinned tabs away from their pinned URL, in a
+    /// folder too, but neither an unloaded one, which waits to be shown, nor a Today tab.
+    #[gpui::test]
+    fn reset_all_tabs_takes_back_the_loaded_pinned_tabs(cx: &mut gpui::TestAppContext) {
+        use std::{collections::HashMap, rc::Rc};
+
+        use gpui::VisualTestContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx): (gpui::Entity<Shell>, &mut VisualTestContext) =
+            cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "One".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            let folders = Folders {
+                folders: HashMap::from([(5, ("Folder".into(), false))]),
+                parents: HashMap::from([(4, 5)]),
+            };
+            shell.set_tabs(1, vec![2, 3, 5, 4, 6], vec![7], Vec::new(), folders, cx);
+            for tab in [2, 3, 4, 7] {
+                let unloaded = tab == 3;
+                let page = Page { away_from_pinned_url: true, unloaded, ..Page::default() };
+                shell.set_page(tab, page, cx);
+            }
+            shell.set_space(1, cx);
+            shell.set_selected(6, cx);
+            host.take();
+            shell.run(Command::ResetSpaceTabs, "ui", cx);
+        });
+        assert_eq!(host.take(), ["back to pinned url 2", "back to pinned url 4"]);
+    }
+
+    /// Another Space shown while the command bar is open gives the bar that Space's tabs once its
+    /// tab is selected, but the one shown, and New Tab keeps its plate there for the bar's pick.
+    /// With the bar closed, the bar hears nothing.
+    #[gpui::test]
+    fn the_open_command_bar_follows_another_space(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str| (id, name.into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space(1, "One"), space(2, "Two")], cx);
+            shell.set_tabs(1, Vec::new(), vec![11, 12], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![21, 22], Vec::new(), Folders::default(), cx);
+            for tab in [11, 12, 21, 22] {
+                let page = Page { url: format!("https://{tab}.test/").into(), ..Page::default() };
+                shell.set_page(tab, page, cx);
+            }
+            shell.set_space(1, cx);
+            shell.set_selected(11, cx);
+            shell.run(Command::NewTab, "ui", cx);
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+        });
+        assert_eq!(host.followed_tabs.take(), [vec![22]]);
+        assert!(shell.read_with(cx, |shell, _| shell.new_tab), "New Tab keeps its plate");
+        // A tab selected in the same Space isn't another Space.
+        shell.update(cx, |shell, cx| shell.set_selected(22, cx));
+        assert!(host.followed_tabs.take().is_empty());
+
+        host.bar_open.set(false);
+        shell.update(cx, |shell, cx| {
+            shell.set_space(1, cx);
+            shell.set_selected(11, cx);
+        });
+        assert!(host.followed_tabs.take().is_empty());
+        assert!(!shell.read_with(cx, |shell, _| shell.new_tab));
+    }
+
+    /// The bar finds Site Search Settings by its name or by Chrome's, and it opens the search
+    /// engines page. A private window keeps no site searches of its own, so it offers none.
+    #[gpui::test]
+    fn site_search_settings_open_from_the_bar_but_not_in_a_private_window(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui::AppContext as _;
+
+        use crate::shell::{Browser, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser: Rc<dyn Browser> = host.clone();
+        let regular = cx.new(|cx| Shell::new(browser.clone(), cx));
+        let private =
+            cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
+        let found = |shell: &gpui::Entity<Shell>, typed: &str, cx: &mut gpui::TestAppContext| {
+            shell.read_with(cx, |shell, _| {
+                find_commands(typed, &UserKeys::default(), |name, command| {
+                    shell.bar_name(name, command)
+                })
+                .into_iter()
+                .map(|row| row.name.to_string())
+                .collect::<Vec<_>>()
+            })
+        };
+        for typed in ["site search", "search engines", "keywords"] {
+            let name = "Site Search Settings".to_string();
+            assert_eq!(found(&regular, typed, cx).first(), Some(&name), "{typed}");
+            assert!(!found(&private, typed, cx).contains(&name), "{typed}");
+        }
+
+        regular.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
+        assert_eq!(host.site_search_settings.get(), 1);
+        private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
+        assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
     }
 }

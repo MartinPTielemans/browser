@@ -53,6 +53,10 @@ source_set("browser_core") {
   sources = [
     "ad_block.cc",
     "ad_block.h",
+    "agent_autofill.cc",
+    "agent_autofill.h",
+    "agent_page.cc",
+    "agent_page.h",
     "agent_session.cc",
     "agent_session.h",
     "api.cc",
@@ -102,6 +106,8 @@ source_set("browser_core") {
     "open_app_dialog.h",
     "page_menu.cc",
     "page_menu.h",
+    "page_text.cc",
+    "page_text.h",
     "password_offer.cc",
     "password_offer.h",
     "passwords.cc",
@@ -202,6 +208,8 @@ source_set("browser_core") {
     "//chrome/browser/ui/views/interaction:impl",
     "//chrome/common",
     "//chrome/common/profiler",
+    "//components/autofill/content/browser",
+    "//components/autofill/core/browser",
     "//components/component_updater",
     "//components/content_settings/core/browser",
     "//components/crash/core/app",
@@ -220,6 +228,7 @@ source_set("browser_core") {
     "//components/keep_alive_registry",
     "//components/omnibox/browser",
     "//components/page_info",
+    "//components/password_manager/content/browser",
     "//components/password_manager/core/browser",
     "//components/password_manager/core/browser:password_form",
     "//components/password_manager/core/browser/import:importer",
@@ -258,6 +267,7 @@ source_set("browser_core") {
     "//third_party/blink/public/mojom:mojom_core",
     "//third_party/crashpad/crashpad/client",
     "//third_party/widevine/cdm:buildflags",
+    "//ui/accessibility",
     "//ui/base",
     "//ui/display",
     "//ui/events:dom_keycode_converter",
@@ -324,7 +334,10 @@ source_set("browser_core") {
       "platform/win/keyboard.cc",
       "platform/win/window_views.cc",
     ]
-    deps += [ "//ui/base/ime" ]
+    deps += [
+      "//chrome/installer/util:with_no_strings",
+      "//ui/base/ime",
+    ]
   } else {
     sources += [ "platform/native_hosts_posix.cc" ]
   }

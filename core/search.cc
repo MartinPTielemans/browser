@@ -1,5 +1,6 @@
 #include "browser_core/search.h"
 
+#include <memory>
 #include <vector>
 
 #include "base/callback_list.h"
@@ -14,6 +15,7 @@
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/search_engines/default_search_manager.h"
 #include "components/search_engines/template_url.h"
+#include "components/search_engines/template_url_data_util.h"
 #include "components/search_engines/template_url_service.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "third_party/search_engines_data/resources/definitions/prepopulated_engines.h"
@@ -32,11 +34,21 @@ void PickDefaultEngine(TemplateURLService* engines) {
       engines->default_search_provider_source() != DefaultSearchManager::FROM_FALLBACK) {
     return;
   }
+  TemplateURL* duckduckgo = nullptr;
   for (TemplateURL* candidate : engines->GetTemplateURLs()) {
     if (candidate->prepopulate_id() == TemplateURLPrepopulateData::duckduckgo.id) {
-      engines->SetUserSelectedDefaultSearchProvider(candidate);
-      return;
+      duckduckgo = candidate;
+      break;
     }
+  }
+  // Chromium's list for a locale with no country, such as C or POSIX, has no DuckDuckGo: only no
+  // search, Bing and Yahoo.
+  if (!duckduckgo) {
+    duckduckgo = engines->Add(std::make_unique<TemplateURL>(
+        *TemplateURLDataFromPrepopulatedEngine(TemplateURLPrepopulateData::duckduckgo)));
+  }
+  if (duckduckgo) {
+    engines->SetUserSelectedDefaultSearchProvider(duckduckgo);
   }
 }
 

@@ -115,16 +115,18 @@ at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
   fail "the theme picker opened at $at, not 370 by 509"
 # Half way from the field's middle to its right edge is red: hue 0 at lightness 0.5. A whole
 # pixel's click lands half a point right of it and below.
-red="x=0.5000 y=0.0000 colors=1 intensity=0.810 grain=0.000 appearance=automatic"
+red_at="x=0.5000 y=0.0000"
 red_color=ff0000
-[ -z "$x11" ] || { red=${red/x=0.5000 y=0.0000/x=0.5030 y=0.0030}; red_color=ff0302; }
+[ -z "$x11" ] || { red_at="x=0.5030 y=0.0030"; red_color=ff0302; }
+rest="intensity=0.810 grain=0.000 appearance=automatic"
+red="$red_at colors=1 $rest"
 send clickkey 276.5 178.5
 expect "^browser: theme picker set $second $red\$" "a click in the field didn't give a colour"
 expect "^browser: colored space $second $red_color\$" "the field's colour wasn't the Space's colour"
 expect "^browser: themed space $second $red\$" "the core didn't keep the Space's theme"
 # + makes it two colours, the second the first's opposite.
 send clickkey 211.5 316.5
-expect "^browser: themed space $second ${red/colors=1/colors=2}\$" "+ didn't add a second colour"
+expect "^browser: themed space $second $red_at colors=2 $rest\$" "+ didn't add a second colour"
 ../tools/window-screenshot.sh "$pid" "$out/theme-picker.png" || fail "no window to capture"
 send key escape
 expect '^browser: theme picker dismissed$' "escape didn't close the theme picker"

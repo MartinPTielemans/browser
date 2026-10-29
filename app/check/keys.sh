@@ -15,8 +15,9 @@
 # while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
 # history page from the page and the UI. A page whose renderer crashes leaves the browser running,
 # and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
-# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. ⌘T as the window
-# comes on screen, before the overlays' windows are made, makes them and opens the bar.
+# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
+# Settings' About tab, with Settings key and with About already showing. ⌘T as the window comes on
+# screen, before the overlays' windows are made, makes them and opens the bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -182,20 +183,26 @@ grep -q '^browser: command find via page$' "$log" && fail "the page kept ⌘F, b
 grep -q '^browser: command \(back\|forward\) via page$' "$log" && fail "⌘← or ⌘→ in the page's text field went back or forward"
 
 # The driver's scripted input method stands in for Japanese input, which is system-wide.
-send ime on
-send type nihongo
-expect '^browser: title [0-9]* value abcdnihongo$' "the page didn't show the composition"
-send key space
-expect '^browser: title [0-9]* value abcd日本語$' "the page didn't show the conversion"
-send key return
-send ime off
+composed=日本語
+if [ "$(uname)" = Linux ]; then
+  echo "skip: composing in a page: the Linux driver types plain keys there; check/ime.sh covers it with a real input method."
+  composed=
+else
+  send ime on
+  send type nihongo
+  expect '^browser: title [0-9]* value abcdnihongo$' "the page didn't show the composition"
+  send key space
+  expect '^browser: title [0-9]* value abcd日本語$' "the page didn't show the conversion"
+  send key return
+  send ime off
+fi
 send type x
-expect '^browser: title [0-9]* value abcd日本語x$' "return in the page did more than commit: $(grep '^browser: title' "$log" | tail -1)"
+expect "^browser: title [0-9]* value abcd${composed}x\$" "return in the page did more than commit: $(grep '^browser: title' "$log" | tail -1)"
 # The Edit menu's Undo, Redo and Select All reach the focused page, which does them itself.
 send key z cmd
-expect '^browser: title [0-9]* value abcd日本語$' "⌘Z in the page's text field didn't undo"
+expect "^browser: title [0-9]* value abcd$composed\$" "⌘Z in the page's text field didn't undo"
 send key z cmd shift
-expect '^browser: title [0-9]* value abcd日本語x$' "⇧⌘Z in the page's text field didn't redo"
+expect "^browser: title [0-9]* value abcd${composed}x\$" "⇧⌘Z in the page's text field didn't redo"
 send key a cmd
 send type y
 expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
@@ -293,7 +300,7 @@ in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 # the next keys pressed.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 429 60
+send clickkey 373 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 581 159
 expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"
@@ -333,6 +340,20 @@ expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
 send clickkey 537 159
 expect '^browser: shortcut new-tab cmd-t$' "↺ didn't give New Tab ⌘T back"
+# The app menu's About opens Settings on its About tab: the version, the engine's and the credits.
+# Settings has the keyboard from the click on ↺, so the menu's command runs inside its window's
+# own update, which crashed the app when About read that window there.
+[ "$key" = GPUIWindow ] || fail "Settings didn't have the keyboard after a click on ↺: $key does"
+send menu About $app_name
+expect '^browser: settings tab About$' "About $app_name didn't show Settings' About tab"
+expect '^browser: settings drew About$' \
+  "Settings didn't draw About after About $app_name with Settings key"
+../tools/window-screenshot.sh "$pid" "$out/about.png" || fail "no window to capture"
+# Again with About showing: Settings comes forward and draws it again, with no tab to change.
+send menu About $app_name
+expect '^browser: settings drew About$' \
+  "Settings didn't draw About after About $app_name with About already showing"
+none_since '^browser: settings tab ' || fail "About $app_name with About showing changed the tab"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
@@ -444,5 +465,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png, $out/about.png"
 echo "$launch_bar"

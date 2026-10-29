@@ -72,6 +72,8 @@ mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
+mod agent_bar;
+mod agent_question;
 mod picture;
 mod recent_downloads;
 #[cfg(test)]
@@ -91,11 +93,11 @@ mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{Browser, Folders, Page, Split, Trouble, WindowButton};
+pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label,
-    menu_item, pane_added, run_from_bar, shown_tab,
+    Run, menu_item, pane_added, run_from_bar, shown_tab,
 };
 pub use drag::dropped_urls;
 pub use extensions::{
@@ -614,7 +616,19 @@ struct SpaceForm {
 enum Naming {
     Space(u64),
     Tab(u64),
+    /// A pinned tab's pinned URL, in its row in place of its title.
+    PinnedUrl(u64),
     Folder(u64),
+}
+
+impl Naming {
+    /// The tab whose row the field is in, if it's a tab's.
+    fn tab(self) -> Option<u64> {
+        match self {
+            Naming::Tab(tab) | Naming::PinnedUrl(tab) => Some(tab),
+            Naming::Space(_) | Naming::Folder(_) => None,
+        }
+    }
 }
 
 /// The field a Space's name, a tab's title or a folder's name turns into for renaming it.
@@ -982,6 +996,9 @@ pub struct Shell {
     /// The press under way was on a target that opens the command bar while it was open, so the
     /// click that follows only closes it.
     press_closed_bar: bool,
+    /// The window shows another Space, whose tab the core says next, for the command bar to follow
+    /// once it has.
+    bar_follows: bool,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -1150,6 +1167,13 @@ pub struct Shell {
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab whose question's card shows, and its moment on screen before Block and Allow work.
     question_settling: RefCell<Option<(u64, crate::settling::Settling)>>,
+    /// What an agent asks the user first, in every window (agent_question.rs).
+    agent_question: Option<crate::agents::Question>,
+    agent_question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// What the agents do and what the user holds from them, for the bar in an agent's Space
+    /// (agent_bar.rs).
+    agent_status: Vec<crate::agents::Status>,
+    agent_bar_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
@@ -1186,6 +1210,8 @@ pub struct Shell {
     /// tab's row, which draws it only while it is pending.
     name_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     tab_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The icon each tile drew last, for the line check.sh waits on once one changes.
+    tile_icons_drawn: Rc<RefCell<HashMap<u64, SharedString>>>,
     name_row_before: Option<Bounds<Pixels>>,
     /// The Space with no icon the icon picker shows for, whose name row holds the icon's place
     /// with a placeholder until the picker closes, and the watch on the picker that tells it so.
@@ -1263,6 +1289,7 @@ impl Shell {
             importing: None,
             in_hint: false,
             press_closed_bar: false,
+            bar_follows: false,
             drag: None,
             dragged: false,
             putting_back: false,
@@ -1347,6 +1374,10 @@ impl Shell {
             questions: HashMap::new(),
             question_drawn: Rc::default(),
             question_settling: RefCell::default(),
+            agent_question: None,
+            agent_question_drawn: Rc::default(),
+            agent_status: Vec::new(),
+            agent_bar_drawn: Rc::default(),
             drm_notes: HashMap::new(),
             keys: HashMap::new(),
             drm_drawn: Rc::default(),
@@ -1360,6 +1391,7 @@ impl Shell {
             theme_preview: None,
             name_row_drawn: Rc::default(),
             tab_row_drawn: Rc::default(),
+            tile_icons_drawn: Rc::default(),
             name_row_before: None,
             icon_placeholder: None,
             switching: None,
@@ -1774,6 +1806,7 @@ impl Shell {
         }
         self.end_hovers(cx);
         let before = std::mem::replace(&mut self.space, space);
+        self.bar_follows |= before != space;
         // Arc says again how to leave full screen in each Space it shows there.
         if before != space && self.full_screen && !self.page_fullscreen {
             self.browser.full_screen_note(true, cx);
@@ -1959,7 +1992,7 @@ impl Shell {
         });
         self.crash_cards.retain(|tab, _| open(tab));
         self.recent.retain(open);
-        if let Some(Naming::Tab(tab)) = self.renaming.as_ref().map(|renaming| renaming.naming)
+        if let Some(tab) = self.renaming.as_ref().and_then(|renaming| renaming.naming.tab())
             && !open(&tab)
         {
             self.renaming = None;
@@ -2017,7 +2050,12 @@ impl Shell {
         if tab == 0 && cfg!(target_os = "linux") {
             self.browser.focus_ui(cx);
         }
-        self.set_new_tab(false, cx);
+        // The command bar open over the Space before lists this one's tabs and suggestions now, so
+        // a pick never goes to the other or its profile (Arc).
+        let follows = std::mem::take(&mut self.bar_follows) && self.browser.command_bar_open(cx);
+        let new_tab =
+            follows && self.browser.command_bar_follows(self.bar_tabs(), self.open_tabs(), cx);
+        self.set_new_tab(new_tab, cx);
         self.selection_moved(before);
         self.adding_pane = None;
         self.link_tab_changed(cx);
@@ -2194,9 +2232,15 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
+        // shell hears of Chromium's as it resizes.
+        let full_screen = match cfg!(target_os = "linux") {
+            true => self.full_screen,
+            false => window.is_fullscreen(),
+        };
         let window_resizes = match fullscreen {
-            true => !window.is_fullscreen(),
-            false => self.window_for_page && window.is_fullscreen(),
+            true => !full_screen,
+            false => self.window_for_page && full_screen,
         };
         self.window_for_page = fullscreen && window_resizes;
         self.page_held = window_resizes.then(|| window.viewport_size());
@@ -2580,8 +2624,9 @@ impl Shell {
             || self.opened.is_some()
             || self.settle.is_some();
         if !moving && std::mem::take(&mut self.putting_back) {
-            // check.sh waits for this line before it presses a row or tile Escape put back: a press
-            // hits the frame drawn, which has them sliding home until now.
+            // check.sh waits for this line before it presses a row or tile put back, by Escape or
+            // by a drop where it was: a press hits the frame drawn, which has it sliding home until
+            // now.
             log!("browser: drag put back");
         }
         moving
@@ -2966,6 +3011,8 @@ impl Shell {
                     .children(self.dragged_tile(cx))
                     .children(self.turning_drag())
                     .children(self.question_card(cx))
+                    .children(self.agent_question_card(cx))
+                    .children(self.agent_bar_card(cx))
                     .children(self.drm_note_card(cx))
             }
         };
@@ -3760,6 +3807,22 @@ fn file_name(url: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// The `file:` URL of the file at `path`, with what a URL can't hold escaped, and a Windows path's
+/// drive and backslashes as Chromium reads them.
+pub fn file_url(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let mut url = String::from(if path.starts_with('/') { "file://" } else { "file:///" });
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                url.push(char::from(byte))
+            }
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
@@ -3768,7 +3831,7 @@ mod tests {
 
     use gpui::{Image, ImageFormat};
 
-    use super::{Curve, Folders, Page, Shape, Space, Tab, fade_at, file_name, tab_drawn};
+    use super::{Curve, Folders, Page, Shape, Space, Tab, fade_at, file_name, file_url, tab_drawn};
 
     /// A fade reversed partway starts from the opacity it had, so nothing jumps, and ends at the
     /// other end.
@@ -3791,6 +3854,19 @@ mod tests {
         assert_eq!(file_name("file:///tmp/100%.txt").unwrap(), "100%.txt");
         assert_eq!(file_name("file:///Users/someone/"), None);
         assert_eq!(file_name("https://example.com/notes.txt"), None);
+    }
+
+    /// The licences the app carries open in a tab from wherever it's installed, and come back to
+    /// the same name.
+    #[test]
+    fn a_path_becomes_a_file_url() {
+        let licence = "/Applications/My Apps/ilo.app/Contents/Resources/LICENSE";
+        let url = file_url(licence);
+        assert_eq!(url, "file:///Applications/My%20Apps/ilo.app/Contents/Resources/LICENSE");
+        assert_eq!(file_name(&url).unwrap(), "LICENSE");
+        assert_eq!(file_name(&file_url("/tmp/日記#1.txt")).unwrap(), "日記#1.txt");
+        let windows = r"C:\Program Files\ilo\THIRD-PARTY.txt";
+        assert_eq!(file_url(windows), "file:///C:/Program%20Files/ilo/THIRD-PARTY.txt");
     }
 
     fn png(bytes: &[u8]) -> Option<Arc<Image>> {

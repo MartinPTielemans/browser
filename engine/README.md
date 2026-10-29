@@ -112,8 +112,11 @@ so a crash of the browser in its first moments isn't caught. Its handler never u
 ungoogled-chromium's hunk that takes out the handler's upload thread and its URL stays, and the core
 sends them instead, only if the user says to (`docs/decisions.md`, 9). The reports are in the
 profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On Windows,
-`chrome_elf` starts Crashpad before the core runs, so they're in Chromium's default folder,
-`%LOCALAPPDATA%\Chromium\User Data\Crashpad`.
+`chrome_elf` starts Crashpad before the core runs, in the user data folder Chromium names after the
+product, which `patches/ours/chromium-windows-product-folder.patch` names after
+`app/branding/name`: `%LOCALAPPDATA%\ilo\User Data\Crashpad`, the prod profile's. A dev build's
+reports go there too. The core sends, offers and deletes reports only in the profile's own folder,
+so a build whose profile is elsewhere, as a dev build's is, does none of that.
 
 - **What's sent.** With Send Crash Reports on, the core sends each report not yet sent to the build's
   collector, the minidump alone, without cookies, and deletes it once the collector has it. One
@@ -131,11 +134,15 @@ profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On W
   Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
   (glitchtip.com/documentation/install), an organization and a project, and an auth token with
   `project:write` for the symbols.
-- **Symbols.** When the build names a collector, `tools/release.sh` uploads the Release engine's
-  dSYMs and the app's executable with `sentry-cli debug-files upload`, which GlitchTip takes as
-  Sentry does. The engine builds with ungoogled-chromium-macos's `symbol_level=1` and
-  `blink_symbol_level=0`, so frames have functions and lines outside Blink, and Blink's only
-  their library.
+- **Symbols.** When the build names a collector, each release job uploads its OS's with
+  `tools/symbols.sh`, through `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does.
+  The Mac's are the Release engine's dSYMs and the app's executable; that engine builds with
+  ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions
+  and lines outside Blink, and Blink's only their library. Linux and Windows build with their
+  ungoogled-chromium's `symbol_level=0`, so frames have functions and no lines: on Linux from the
+  symbol tables of `chrome` and `libBrowser.so`, which the Flatpak keeps, and on Windows from PDBs,
+  the engine's in its release beside it (`windows/cross/package.sh`, `fetch.sh symbols`) and
+  `Browser.pdb`. Lines there would take `symbol_level=1`, a full rebuild of each engine.
 
 ## Rules
 

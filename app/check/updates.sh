@@ -1,7 +1,7 @@
 # The Mac's updates (docs/ux-spec.md › Updates), on a check build with Sparkle (build.sh updates)
 # that checks a feed the run serves, for updates signed with a key the run makes and deletes after.
 # Neither is ever the product's: the run never reads branding/update-feed or the owner's key.
-# The app menu has Check for Updates… first. Sparkle checks every 8 hours, from the last check.
+# The app menu has Check for Updates… under About. Sparkle checks every 8 hours, from the last check.
 # Check for Updates… finds the feed's update and shows it with its Markdown notes. A scheduled
 # check that finds one while a window is full screen holds it, and shows it with the keyboard once
 # the window leaves full screen.
@@ -67,10 +67,11 @@ updates_check() {
       "keyboard."
   else
     send menubar "$app_name"
-    expect "^browser: menu bar $app_name: Check for Updates…, Settings…" \
-      "the app menu doesn't start with Check for Updates…"
+    expect "^browser: menu bar $app_name: About $app_name, Check for Updates…, Settings…" \
+      "the app menu doesn't have Check for Updates… under About"
     post openmenu "$app_name"
-    expect "^browser: menu tracked Check for Updates…, Settings…" "the app menu didn't open"
+    expect "^browser: menu tracked About $app_name, Check for Updates…, Settings…" \
+      "the app menu didn't open"
     ../tools/window-screenshot.sh "$pid" "$out/updates-menu.png" all || fail "no window to capture"
     send dismiss
     send menu Check for Updates…
@@ -125,7 +126,7 @@ updates_check() {
       fail "no window to capture"
     exec 3>&-
     quit
-    echo "ok: the check build's app menu starts with Check for Updates…, and Sparkle checks 8" \
+    echo "ok: the check build's app menu has Check for Updates… under About, and Sparkle checks 8" \
       "hours after the last check, in $interval s here. Check for Updates… found the run's" \
       "signed update and showed it with its Markdown notes. A check in full screen held its" \
       "update, which came with the keyboard once the window left full screen." \

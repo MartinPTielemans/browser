@@ -1,10 +1,10 @@
 //! The sidebar's menus, a Space's, a tab's, a favorite's, a folder's and the plus
 //! button's, and what their items do.
 
-use gpui::{Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
+use gpui::{App, Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
-    Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
+    AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
     undo::{Prop, Value},
     user_keys,
 };
@@ -96,7 +96,7 @@ impl MenuEntry {
         MenuEntry { checked, ..self }
     }
 
-    pub(super) fn destructive(self) -> Self {
+    pub(crate) fn destructive(self) -> Self {
         MenuEntry { destructive: true, ..self }
     }
 
@@ -131,7 +131,7 @@ impl Shell {
         if self.private {
             return;
         }
-        let items = self.space_items(space);
+        let items = self.space_items(space, cx);
         self.show_menu(items, position, None, cx);
     }
 
@@ -157,7 +157,7 @@ impl Shell {
             items.push((MenuEntry::line(), Box::new(|_, _| {})));
             // Its Profile submenu's items name their parent by where it is, now further down.
             let after = items.len();
-            items.extend(self.space_items(space).into_iter().map(|(entry, action)| {
+            items.extend(self.space_items(space, cx).into_iter().map(|(entry, action)| {
                 let parent = entry.parent.map(|parent| parent + after);
                 (MenuEntry { parent, ..entry }, action)
             }));
@@ -166,11 +166,18 @@ impl Shell {
     }
 
     /// The Space's menu's items, for its name, its dot and the sidebar's empty space.
-    fn space_items(&self, space: u64) -> Vec<(MenuEntry, MenuAction)> {
+    fn space_items(&self, space: u64, cx: &App) -> Vec<(MenuEntry, MenuAction)> {
         let entry = self.spaces.iter().find(|each| each.id == space);
         let icon = entry.is_some_and(|each| has_icon(&each.icon));
         let theme = entry.is_some_and(|each| each.color.is_some() || each.theme.is_some());
         let mut items = space_menu_head(space, icon, theme);
+        // An agent's Space leads to what the agent did in it, and lists what the user let it do
+        // for good, to take back.
+        if let Some(each) = entry.filter(|each| !each.agent.is_empty()) {
+            let mut agent = self.agent_items(space, &each.agent, cx);
+            agent.extend(items);
+            items = agent;
+        }
         let at = items.len();
         items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
         let mut profiles = self.profile_items(space);
@@ -185,6 +192,46 @@ impl Shell {
             MenuEntry::new("Delete Space", self.spaces.len() > 1).destructive(),
             Box::new(move |shell, cx| shell.delete_space(space, cx)),
         ));
+        items
+    }
+
+    /// The head of an agent's Space's menu: its activity, Revoke Permission with what the user
+    /// answered for good on each site, Take Back All Tabs and Disconnect.
+    fn agent_items(&self, space: u64, name: &str, cx: &App) -> Vec<(MenuEntry, MenuAction)> {
+        let AgentGrants { sites: grants, connected, tabs } =
+            self.browser.agent_permissions(space, cx);
+        let mut items: Vec<(MenuEntry, MenuAction)> = vec![
+            (
+                MenuEntry::new("Agent Activity…", true),
+                Box::new(|shell, cx| shell.browser.agent_activity(cx)),
+            ),
+            (MenuEntry::new("Revoke Permission", !grants.is_empty()), Box::new(|_, _| {})),
+        ];
+        let several = grants.len() > 1;
+        for (site, may) in grants {
+            let title = MenuEntry::label(if may { "Always Allow" } else { "Never" });
+            let title = format!("{title} on {site}");
+            items.push((
+                MenuEntry::named(title, true).under(1),
+                Box::new(move |shell, cx| shell.browser.revoke_agent(space, Some(site), cx)),
+            ));
+        }
+        if several {
+            items.push((MenuEntry::line().under(1), Box::new(|_, _| {})));
+            items.push((
+                MenuEntry::new("All Sites", true).under(1),
+                Box::new(move |shell, cx| shell.browser.revoke_agent(space, None, cx)),
+            ));
+        }
+        items.push((
+            MenuEntry::new("Take Back All Tabs", tabs),
+            Box::new(move |shell, cx| shell.browser.take_back_agent_tabs(space, cx)),
+        ));
+        items.push((
+            MenuEntry::named(format!("Disconnect {name}"), connected),
+            Box::new(move |shell, cx| shell.browser.disconnect_agent(space, cx)),
+        ));
+        items.push((MenuEntry::line(), Box::new(|_, _| {})));
         items
     }
 
@@ -421,6 +468,14 @@ impl Shell {
         } else {
             self.today_tab_menu(keys, tab, position)
         };
+        // A tab the user holds from an agent says so first, and gives it back (#404).
+        let mut held = self.held_items(tab);
+        let shift = held.len();
+        held.extend(items.into_iter().map(|(entry, name, action)| {
+            let parent = entry.parent.map(|parent| parent + shift);
+            (MenuEntry { parent, ..entry }, name, action)
+        }));
+        let items = held;
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         self.context_menu(
             entries,
@@ -444,6 +499,35 @@ impl Shell {
         cx.notify();
     }
 
+    /// The head of the menu of a tab the user holds from the agent whose Space shows: that they
+    /// took it back or the agent handed it to them, and Hand Back.
+    fn held_items(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let Some(space) = self.shown_space().filter(|space| !space.agent.is_empty()) else {
+            return Vec::new();
+        };
+        let held = (self.agent_status.iter())
+            .filter(|status| status.space == space.id)
+            .flat_map(|status| &status.held)
+            .find(|(id, _)| *id == tab);
+        let Some((_, why)) = held else {
+            return Vec::new();
+        };
+        let name = &space.agent;
+        let state = match why.is_empty() {
+            true => MenuEntry::label("Taken Back from"),
+            false => MenuEntry::label("Handed to You by"),
+        };
+        vec![
+            (MenuEntry::named(format!("{state} {name}"), false), "", Box::new(|_, _| {})),
+            (
+                MenuEntry::named(format!("{} {name}", MenuEntry::label("Hand Back to")), true),
+                "hand-back",
+                Box::new(move |shell, cx| shell.browser.hand_back(tab, cx)),
+            ),
+            (MenuEntry::line(), "", Box::new(|_, _| {})),
+        ]
+    }
+
     /// A favorite's menu.
     fn favorite_menu(
         &self,
@@ -458,6 +542,7 @@ impl Shell {
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ),
+            replace_pinned_url(tab, "Replace Favorite URL with Current", page.away_from_pinned_url),
             (
                 MenuEntry::new("Duplicate Tab", true),
                 "duplicate-tab",
@@ -470,7 +555,11 @@ impl Shell {
                 Box::new(move |shell, cx| shell.move_tab_to(tab, false, 0, 0, cx)),
             ),
         ];
-        // An icon the tab had as a pinned tab.
+        items.push((
+            MenuEntry::new("Change Icon…", true),
+            "change-icon",
+            Box::new(move |shell, cx| shell.change_icon(tab, cx)),
+        ));
         if has_icon(&page.icon) {
             items.push(remove_icon(tab));
         }
@@ -515,7 +604,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.pin_tab(tab, false, cx)),
             ),
             (
-                MenuEntry::new("Add to Favorites", true),
+                MenuEntry::new("Add to Favorites", self.has_room_for(tab)),
                 "add-to-favorites",
                 Box::new(move |shell, cx| shell.favorite_tab(tab, usize::MAX, cx)),
             ),
@@ -525,17 +614,28 @@ impl Shell {
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ),
-            (
-                MenuEntry::new("Rename Tab", true),
-                "rename-tab",
-                Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
-            ),
-            (
-                MenuEntry::new("Change Icon…", true),
-                "change-icon",
-                Box::new(move |shell, cx| shell.change_icon(tab, cx)),
-            ),
         ];
+        // Arc's Pinned URL › Replace Pinned URL with Current and Edit….
+        let pinned_url = items.len();
+        items.push((MenuEntry::new("Pinned URL", true), "", Box::new(|_, _| {})));
+        let (entry, name, action) =
+            replace_pinned_url(tab, "Replace Pinned URL with Current", page.away_from_pinned_url);
+        items.push((entry.under(pinned_url), name, action));
+        items.push((
+            MenuEntry::new("Edit…", true).under(pinned_url),
+            "edit-pinned-url",
+            Box::new(move |shell, cx| shell.edit_pinned_url(tab, cx)),
+        ));
+        items.push((
+            MenuEntry::new("Rename Tab", true),
+            "rename-tab",
+            Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
+        ));
+        items.push((
+            MenuEntry::new("Change Icon…", true),
+            "change-icon",
+            Box::new(move |shell, cx| shell.change_icon(tab, cx)),
+        ));
         if !page.icon.is_empty() {
             items.push(remove_icon(tab));
         }
@@ -813,6 +913,23 @@ fn separate(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     )
 }
 
+/// The menu item that makes the page a pinned tab or a favorite is at the one it goes back to,
+/// dimmed while it's there.
+fn replace_pinned_url(
+    tab: u64,
+    title: &'static str,
+    away: bool,
+) -> (MenuEntry, &'static str, MenuAction) {
+    (
+        MenuEntry::new(title, away),
+        "replace-pinned-url",
+        Box::new(move |shell, cx| {
+            let url = shell.page(tab).url.to_string();
+            shell.change(Prop::PinnedUrl(tab), Value::Text(url), cx)
+        }),
+    )
+}
+
 /// The menu item that gives a tab back its favicon.
 pub(super) fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     (
@@ -847,6 +964,7 @@ mod tests {
             ("Back to Pinned URL", "Back to pinned URL"),
             ("In Each Profile's Spaces", "In each profile's Spaces"),
             ("Duplicate", "Duplicate"),
+            ("Show in Folder", "Show in folder"),
         ];
         for (title, sentence) in cases {
             assert_eq!(sentence_case(title), sentence);
@@ -1043,6 +1161,8 @@ mod tests {
                 "Unpin Tab",
                 "Add to Favorites",
                 "Back to Pinned URL (disabled)",
+                "Pinned URL › Replace Pinned URL with Current (disabled)",
+                "Pinned URL › Edit…",
                 "Rename Tab",
                 "Change Icon…",
                 "Duplicate Tab",
@@ -1050,5 +1170,27 @@ mod tests {
                 "Close Tab",
             ]
         );
+    }
+
+    /// Away from its pinned URL, a pinned tab's Replace Pinned URL with Current makes the page it's
+    /// at the one it goes back to, and a favorite's Replace Favorite URL with Current does the same.
+    #[gpui::test]
+    fn replace_with_current_keeps_the_page_its_at(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10], Folders::default());
+        let away = Page { away_from_pinned_url: true, ..page("https://away.test/", false, false) };
+        shell.update(cx, |shell, cx| shell.set_page(1, away.clone(), cx));
+        tab_menu(&shell, &host, cx, 1);
+        host.take_edits();
+        cx.update(|cx| host.choose("Replace Pinned URL with Current", cx));
+        assert_eq!(host.take_edits(), ["pinned url 1 https://away.test/"]);
+        shell.update(cx, |shell, cx| {
+            shell.set_favorites(vec![(20, 0)], cx);
+            shell.set_page(20, away, cx)
+        });
+        let menu = tab_menu(&shell, &host, cx, 20);
+        assert_eq!(menu[..2], ["Back to Favorite URL", "Replace Favorite URL with Current"]);
+        assert!(menu.contains(&"Change Icon…".to_string()), "{menu:?}");
+        cx.update(|cx| host.choose("Replace Favorite URL with Current", cx));
+        assert_eq!(host.take_edits(), ["pinned url 20 https://away.test/"]);
     }
 }

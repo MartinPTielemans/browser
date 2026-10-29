@@ -1248,6 +1248,7 @@ void Window::LayOutPage() {
     // draws at its new size.
     StretchOnResize(contents, page_moving_ || MovingPages().contains(Tab::IdOf(contents)));
     platform::Pane& pane = panes.emplace_back(Tab::PageViewOf(contents), frame);
+    pane.color = page_color_;
     DevToolsContentsResizingStrategy strategy;
     if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
       // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
