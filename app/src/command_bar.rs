@@ -82,6 +82,9 @@ use crate::tokens::text;
 pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 /// What its input says for Search Tabs (ours, after the command's name).
 const TABS_PLACEHOLDER: &str = "Search Tabs…";
+/// What its input says, and its chip, while it lists only commands (ours).
+const COMMANDS_PLACEHOLDER: &str = "Search Commands…";
+const COMMANDS_CHIP: &str = "Commands";
 
 /// One of the core's suggestions for what's typed.
 #[derive(Default)]
@@ -94,7 +97,8 @@ pub struct Suggestion {
     pub tab: u64,
     /// What completes the text typed to this row, for the first row only.
     pub completion: String,
-    /// Whether ⇧⌦ can take it out of the profile's history.
+    /// Whether ⇧⌦, ⌥⌘⌫ or its ✕ can take it out of the profile's history: a page visited or a
+    /// search typed before, never one of the well-known sites or the search for what's typed.
     pub removable: bool,
     /// The browser command the row runs instead, and its shortcut.
     pub command: Option<shell::Command>,
@@ -189,8 +193,10 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ViewLibrary => "icons/library.svg",
         Command::ViewDownloads => "icons/arrow-down-to-line.svg",
         Command::ViewHistory => "icons/rotate-ccw-clock.svg",
-        Command::Settings => "icons/settings.svg",
+        Command::Settings | Command::SiteSearchSettings => "icons/settings.svg",
         Command::KeyboardShortcuts => "icons/keyboard.svg",
+        Command::About => "icons/info.svg",
+        Command::Import => "icons/arrow-down-to-line.svg",
         Command::Passwords => "icons/key-round.svg",
         _ => COMMAND_GLYPH,
     }
@@ -238,6 +244,8 @@ pub trait Host {
     /// loading `url` in it. The user's: agents get none, as it opens a window (decision 8).
     fn open_window(&self, url: &str, cx: &mut App);
     fn navigate(&self, tab: u64, url: &str);
+    /// Loads `tab`'s page again, as ↩ does on the URL the bar opened on (Arc).
+    fn reload(&self, tab: u64);
     fn select(&self, tab: u64);
     /// The browser window that shows `tab`'s page live (`bc_tab_window`), if it's another than
     /// the one the bar shows over.
@@ -306,6 +314,8 @@ pub struct CommandBar {
     selected: usize,
     /// The row under the pointer, which keeps its plate as the keys move the selection (Arc).
     hovered: Option<usize>,
+    /// The row whose ✕ was last drawn, and its page, for check.sh's line as it draws.
+    remove_drawn: Option<(usize, String)>,
     /// Whether an assistive app reads the bar's window, so its rows say what they are.
     a11y: bool,
     /// Whether it shows over the URL field, from a click on it, rather than centred.
@@ -314,6 +324,9 @@ pub struct CommandBar {
     page: String,
     /// The site search the bar is in, if any.
     site: Option<Site>,
+    /// While it lists only commands, as after Tab in an empty field or "/ " typed (Arc), what
+    /// leaving puts back before what's typed: nothing after Tab, "/ " after "/ ".
+    commands: Option<&'static str>,
     /// The rows' favicons by page, asked for as they first show. None until one comes.
     favicons: HashMap<String, Option<Arc<Image>>>,
     /// The Space's tabs it lists before anything is typed.
@@ -344,9 +357,13 @@ pub fn open_at(
     cx: &mut App,
 ) -> Option<WindowHandle<CommandBar>> {
     // Off the Mac ⌃ and ⌥ are both Alt, and Alt+↩ is ⌥↩'s, near Chrome's Alt+Enter, which opens a
-    // tab, so ⌃↩ has no key there.
+    // tab, so ⌃↩ has no key there. Arc's ⌥⌘⌫ would be Ctrl+Alt+Backspace, which X11 can take to end
+    // the session, so there ⇧⌦ alone removes a suggestion, as in Chrome.
     if !crate::shell::OFF_THE_MAC {
-        cx.bind_keys([KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar"))]);
+        cx.bind_keys([
+            KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar")),
+            KeyBinding::new("alt-cmd-backspace", Remove, Some("CommandBar")),
+        ]);
     }
     let key = |key, action| crate::shell::view_binding(key, action, "CommandBar", cx);
     let mac_keys = [
@@ -415,10 +432,12 @@ pub fn open_at(
                 suggested: String::new(),
                 selected: 0,
                 hovered: None,
+                remove_drawn: None,
                 a11y: false,
                 over_field: false,
                 page: String::new(),
                 site: None,
+                commands: None,
                 favicons: HashMap::new(),
                 tabs: Vec::new(),
                 scroll: ScrollHandle::new(),
@@ -515,11 +534,7 @@ fn reset(
             // Favicons change over time, and a long session shouldn't keep every one it saw. The
             // tabs' are the ones their rows show.
             bar.favicons.clear();
-            for tab in &tabs {
-                if let Some(favicon) = &tab.favicon {
-                    bar.favicons.insert(tab.url.to_string(), Some(favicon.clone()));
-                }
-            }
+            bar.keep_favicons(&tabs);
             bar.tabs = tabs;
             bar.open.set(true);
             bar.page = text.to_string();
@@ -528,6 +543,7 @@ fn reset(
                 bar.host.page_favicon(&bar.page);
             }
             bar.site_left(cx);
+            bar.commands = None;
             let placeholder = match target {
                 Target::Tabs => TABS_PLACEHOLDER,
                 _ => PLACEHOLDER_TEXT,
@@ -546,6 +562,65 @@ fn reset(
             bar.host.clone()
         })
         .ok()
+}
+
+/// The window the bar shows over shows another Space: the bar lists `tabs` from it, or for Search
+/// Tabs `open_tabs`, and asks again for what's typed, which the core answers from that Space's
+/// profile (decision 5), as Arc's bar does. So a pick never goes to the Space before or its
+/// profile: the rows from there go at once, the URL ⌘L opened it on with them, and the tab it
+/// edited isn't shown now, so ↩ opens a new tab. A new pane's bar goes, as its split view stays
+/// behind. Returns whether its pick opens a new tab.
+pub fn space_shown(tabs: Vec<shell::BarTab>, open_tabs: Vec<shell::BarTab>, cx: &mut App) -> bool {
+    let Some(bar_window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
+        return false;
+    };
+    bar_window
+        .update(cx, |bar, window, cx| {
+            if !bar.open.get() {
+                return false;
+            }
+            if let Target::Beside(_) = bar.target {
+                // The shell is in an update, which its dismissal would update again.
+                let host = bar.host.clone();
+                cx.defer(move |_| host.dismiss());
+                return false;
+            }
+            // check.sh reads this line.
+            log!("browser: command bar follows the Space");
+            let tabs = if matches!(bar.target, Target::Tabs) { open_tabs } else { tabs };
+            bar.favicons.clear();
+            bar.keep_favicons(&tabs);
+            bar.tabs = tabs;
+            // The site search's engine is the profile's, which this one may not have.
+            bar.leave_site(window, cx);
+            let mut text = bar.input.read(cx).text().to_string();
+            if let Target::Tab(_) = bar.target {
+                bar.target = Target::NewTab;
+                if text == bar.page {
+                    text.clear();
+                }
+                bar.page.clear();
+            }
+            if bar.commands.is_some() {
+                // Which commands do something now is the shell's to say, once out of its update.
+                cx.defer(move |cx| {
+                    bar_window.update(cx, |bar, window, cx| bar.list_commands(text, window, cx)).ok();
+                });
+            } else if matches!(bar.target, Target::Tabs) {
+                bar.name_tabs(text, window, cx);
+            } else {
+                // A completion from the profile before goes with its rows.
+                let typed = bar.typed(cx);
+                let text = if bar.completion.is_empty() { text } else { typed };
+                let caret = text.len();
+                let shown = text.clone().into();
+                bar.input.update(cx, |input, cx| input.set_text(shown, caret, window, cx));
+                bar.ask_for(text, window, cx);
+            }
+            cx.notify();
+            matches!(bar.target, Target::NewTab)
+        })
+        .unwrap_or(false)
 }
 
 /// The user left the bar with a click outside it, or Esc.
@@ -608,7 +683,9 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
     window
         .update(cx, |bar, window, cx| {
             // Older text's come after the bar has asked about newer, and Search Tabs asks for none.
-            if text != bar.request() || matches!(bar.target, Target::Tabs) {
+            // The commands-only list asks for none either.
+            if text != bar.request() || matches!(bar.target, Target::Tabs) || bar.commands.is_some()
+            {
                 return;
             }
             // check.sh reads these lines.
@@ -623,7 +700,8 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                         "" => String::new(),
                         keyword => format!(" site {keyword}"),
                     };
-                    format!("{}{tab}{site}", row.url)
+                    let removable = if row.removable { " removable" } else { "" };
+                    format!("{}{tab}{site}{removable}", row.url)
                 })
                 .collect();
             log!(
@@ -721,11 +799,19 @@ impl CommandBar {
         if matches!(self.target, Target::Tabs) {
             return self.name_tabs(text, window, cx);
         }
+        if self.commands.is_some() {
+            return self.list_commands(text, window, cx);
+        }
         // Chrome completes only typing at the end: not a deletion, a paste, or with the caret
         // elsewhere, and not in a site search.
         let deleted = text.len() < length && selection.start <= start;
         let typing = !deleted && !input.pasted() && selection == (text.len()..text.len());
         let complete = typing && self.site.is_none();
+        // "/ " typed lists only the commands, as Arc's bar does.
+        let slashed = typing && self.asked == "/" && text.strip_suffix([' ', '\u{3000}']) == Some("/");
+        if slashed && self.site.is_none() && self.lists_commands() {
+            return self.enter_commands("/ ", window, cx);
+        }
         // A space typed after the keyword the first row hints enters its engine's site search, or
         // an ideographic one, as Japanese input types, as in Chrome.
         let hint = self.rows.first().filter(|row| {
@@ -778,6 +864,76 @@ impl CommandBar {
         log!("browser: command bar finds tabs \"{typed}\": {}", ids.join(" "));
         self.asked = text.clone();
         self.set_rows(text, rows, window, cx);
+    }
+
+    /// Keeps the favicons `tabs` have, for their rows.
+    fn keep_favicons(&mut self, tabs: &[shell::BarTab]) {
+        for tab in tabs {
+            if let Some(favicon) = &tab.favicon {
+                self.favicons.insert(tab.url.to_string(), Some(favicon.clone()));
+            }
+        }
+    }
+
+    /// Whether the bar lists commands: not over a new pane or for Search Tabs.
+    fn lists_commands(&self) -> bool {
+        matches!(self.target, Target::NewTab | Target::Tab(_))
+    }
+
+    /// Lists only the commands, entered by Tab in an empty field or by `by`, "/ ", typed, as
+    /// Arc's bar does after Tab right after ⌘T.
+    fn enter_commands(&mut self, by: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        // check.sh reads this line.
+        log!("browser: command bar lists commands by {}", if by.is_empty() { "tab" } else { "slash" });
+        self.commands = Some(by);
+        self.completion.clear();
+        let placeholder = COMMANDS_PLACEHOLDER.into();
+        self.input.update(cx, |input, cx| input.set_placeholder(placeholder, cx));
+        self.input.update(cx, |input, cx| input.set_text(SharedString::default(), 0, window, cx));
+        self.list_commands(String::new(), window, cx);
+    }
+
+    /// Lists the commands that match `text`, or with nothing typed every one that does something
+    /// now.
+    fn list_commands(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let rows: Vec<Suggestion> =
+            self.host.commands(&text, cx).into_iter().map(Suggestion::from).collect();
+        // check.sh reads this line.
+        let names: Vec<&str> = rows.iter().map(|row| row.text.as_ref()).collect();
+        log!("browser: command bar commands only \"{text}\": {}", names.join(", "));
+        self.asked = text.clone();
+        self.set_rows(text, rows, window, cx);
+    }
+
+    /// Leaves the commands-only list, if it shows, putting back what entered it before what was
+    /// typed, with the caret after it, as the site search puts its keyword back. Returns whether
+    /// it showed.
+    fn leave_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(by) = self.commands.take() else {
+            return false;
+        };
+        // check.sh reads this line.
+        log!("browser: command bar leaves commands");
+        self.input.update(cx, |input, cx| input.set_placeholder(PLACEHOLDER_TEXT.into(), cx));
+        let text = format!("{by}{}", self.input.read(cx).text());
+        self.input.update(cx, |input, cx| input.set_text(text.clone().into(), by.len(), window, cx));
+        self.ask_for(text, window, cx);
+        true
+    }
+
+    /// Lists the rows for `text` in the input from the start: the Space's tabs for none, else the
+    /// core's suggestions once they come, and none until then.
+    fn ask_for(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.asked = text;
+        self.asked_at = Instant::now();
+        self.complete = false;
+        self.completion.clear();
+        let rows = if self.asked.is_empty() { self.tab_rows() } else { Vec::new() };
+        self.set_rows(String::new(), rows, window, cx);
+        if !self.asked.is_empty() {
+            let site = self.site.as_ref().map(|site| site.keyword.as_str());
+            self.host.suggest(site, &self.asked, false);
+        }
     }
 
     /// What the core was last asked for, as its suggestions name it: what was typed, after the
@@ -837,7 +993,12 @@ impl CommandBar {
 
     /// Tab: enters the site search the selected row hints, keeping what was typed after its first
     /// word, the keyword, as Chrome does. Else it selects the next row.
+    /// In an empty field, it lists only the commands, as Arc's does.
     fn enter_site_or_next(&mut self, _: &EnterSite, window: &mut Window, cx: &mut Context<Self>) {
+        let empty = self.input.read(cx).text().is_empty();
+        if empty && self.site.is_none() && self.commands.is_none() && self.lists_commands() {
+            return self.enter_commands("", window, cx);
+        }
         let hint = self.chosen().filter(|row| !row.keyword.is_empty() && self.site.is_none());
         let Some((keyword, name)) = hint.map(|row| (row.keyword.clone(), row.site.clone())) else {
             return self.select_next(true, window, cx);
@@ -847,37 +1008,40 @@ impl CommandBar {
         self.enter_site(keyword, name, query.to_string(), true, window, cx);
     }
 
-    /// ⇧Tab: leaves the site search, else selects the row before.
+    /// ⇧Tab: leaves the site search or the commands-only list, else selects the row before.
     fn leave_site_or_previous(
         &mut self,
         _: &LeaveSite,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.leave_site(window, cx) {
+        if !self.leave_site(window, cx) && !self.leave_commands(window, cx) {
             self.select_next(false, window, cx);
         }
     }
 
-    /// ⌫ with the caret at the start of a site search's input leaves it.
+    /// ⌫ with the caret at the start of a site search's input, or the commands-only list's,
+    /// leaves it.
     fn backspace(
         &mut self,
         _: &text_input::Backspace,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.site.is_some() && self.input.read(cx).selection() == (0..0) {
-            self.leave_site(window, cx);
+        if self.input.read(cx).selection() == (0..0)
+            && (self.leave_site(window, cx) || self.leave_commands(window, cx))
+        {
             cx.stop_propagation();
         }
     }
 
     /// Where ↩ goes for `text` before its suggestions come: the page it names, else a search for
     /// it, or in a site search, a search with that site's engine.
-    /// None for Search Tabs, which goes nowhere but its tabs.
+    /// None for Search Tabs, which goes nowhere but its tabs, and the commands-only list, which
+    /// runs only its commands.
     fn typed_url(&self, text: &str) -> Option<String> {
         match &self.site {
-            _ if matches!(self.target, Target::Tabs) => None,
+            _ if matches!(self.target, Target::Tabs) || self.commands.is_some() => None,
             Some(site) => self.host.search_url(Some(&site.keyword), text),
             None => self.host.typed_url(text),
         }
@@ -932,7 +1096,8 @@ impl CommandBar {
     /// what's typed, then those whose name or keyword does before the core's other rows; the rest
     /// after them. A site completing what's typed puts them all after. None over a new pane.
     fn with_commands(&self, text: &str, rows: Vec<Suggestion>, cx: &App) -> Vec<Suggestion> {
-        if matches!(self.target, Target::Beside(_)) {
+        // Nothing but spaces typed would list every command, as the commands-only list does.
+        if matches!(self.target, Target::Beside(_)) || text.trim().is_empty() {
             return rows;
         }
         let commands = self.host.commands(text, cx);
@@ -1056,6 +1221,17 @@ impl CommandBar {
             // check.sh reads these lines.
             log!("browser: command bar typed {text}");
         }
+        // On the URL it opened on, as Arc's does, ↩ loads the page again rather than going to it.
+        if let Target::Tab(tab) = self.target
+            && !self.page.is_empty()
+            && text == self.page
+            && self.chosen().is_none_or(|row| row.url == self.page)
+        {
+            // check.sh reads this line.
+            log!("browser: command bar reloads tab {tab}");
+            self.close();
+            return self.host.reload(tab);
+        }
         // Before anything is typed, that's one of the Space's tabs.
         if self.chosen().is_some() {
             self.take(self.selected, cx);
@@ -1078,7 +1254,7 @@ impl CommandBar {
     /// Paste and Search: searches for the clipboard's text, even if it names a page, as ⇧⌘↩
     /// does for what's typed.
     fn paste_and_search(&mut self, _: &PasteAndSearch, _: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.target, Target::Tabs) {
+        if matches!(self.target, Target::Tabs) || self.commands.is_some() {
             return;
         }
         let site = self.site.as_ref().map(|site| site.keyword.as_str());
@@ -1151,7 +1327,8 @@ impl CommandBar {
     fn dot_com(&self, cx: &App) -> Option<String> {
         let typed = self.typed(cx);
         let word = !typed.is_empty() && typed.chars().all(|c| c.is_alphanumeric() || c == '-');
-        let word = word && self.site.is_none() && !matches!(self.target, Target::Tabs);
+        let word = word && self.site.is_none() && self.commands.is_none();
+        let word = word && !matches!(self.target, Target::Tabs);
         word.then(|| self.host.typed_url(&format!("www.{typed}.com"))).flatten()
     }
 
@@ -1180,7 +1357,7 @@ impl CommandBar {
     /// ⇧⌘↩: searches for what was typed, even if it names a page, where ↩ goes (Dia). Search Tabs
     /// searches only its tabs.
     fn search(&mut self, _: &Search, _: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.target, Target::Tabs) {
+        if matches!(self.target, Target::Tabs) || self.commands.is_some() {
             return;
         }
         let typed = self.typed(cx);
@@ -1190,15 +1367,52 @@ impl CommandBar {
         }
     }
 
-    /// ⇧⌦: takes the selected row's page out of the profile's history, if it came from there, as
-    /// Chrome does. The core lists the rows again without it.
+    /// ⇧⌦, as Chrome's, or ⌥⌘⌫, as Arc's: takes the selected row out of the profile's history.
     fn remove(&mut self, _: &Remove, _: &mut Window, _: &mut Context<Self>) {
-        let Some(row) = self.chosen().filter(|row| row.removable) else {
+        if self.chosen().is_some() {
+            self.remove_row(self.selected);
+        }
+    }
+
+    /// Takes row `index`'s page or search out of the profile's history, if it came from there. The
+    /// core lists the rows again without it, and the row under it takes its place.
+    fn remove_row(&self, index: usize) {
+        let Some(row) = self.rows.get(index).filter(|row| row.removable) else {
             return;
         };
         // check.sh reads this line.
         log!("browser: command bar removes {}", row.url);
         self.host.remove_suggestion(&row.url);
+    }
+
+    /// The ✕ a row from history shows under the pointer, as Arc's does, which takes it out. It's
+    /// the arrow's tile, so the two read as one kind.
+    fn remove_button(&self, index: usize, selected: bool, cx: &mut Context<Self>) -> AnyElement {
+        let palette = palette::current(cx);
+        let (tile, color) = match selected {
+            true => (Hsla::from(palette.accent_label), Hsla::from(palette.accent)),
+            false => (palette.plate(ARROW_TILE), palette.on_overlay(ARROW)),
+        };
+        div()
+            .id(("remove", index))
+            .when(self.a11y, |button| button.role(Role::Button).aria_label("Remove Suggestion"))
+            .size(px(ICON_BOX))
+            .flex_none()
+            .ml(px(7.))
+            .mr(px(3.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(CHIP_RADIUS))
+            .bg(tile)
+            .child(svg().path("icons/x.svg").size(px(14.)).text_color(color))
+            // The click is the ✕'s, not the row's under it.
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |bar, _, _, cx| {
+                cx.stop_propagation();
+                bar.remove_row(index);
+            }))
+            .into_any_element()
     }
 
     /// ⌥↩: goes where ↩ would, in a new tab in a split view with the tab shown, or the tab the
@@ -1323,9 +1537,20 @@ impl CommandBar {
         self.host.hide();
     }
 
-    /// Esc leaves the site search first, then the bar.
+    /// ⌘T or ⌘L, which open the bar, close it again, as Arc's do, whichever opened it. The browser's
+    /// other shortcuts go on to the browser.
+    fn shortcut(&mut self, run: &shell::Run, _: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(run.0, shell::Command::NewTab | shell::Command::EditUrl) {
+            return cx.propagate();
+        }
+        // check.sh reads this line.
+        log!("browser: command bar closes again on {}", run.0.name());
+        self.host.dismiss();
+    }
+
+    /// Esc leaves the site search or the commands-only list first, then the bar.
     fn dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.leave_site(window, cx) {
+        if !self.leave_site(window, cx) && !self.leave_commands(window, cx) {
             self.host.dismiss();
         }
     }
@@ -1374,7 +1599,17 @@ impl CommandBar {
         let row = self.chosen().filter(|_| !self.asked.is_empty());
         match row.and_then(|row| self.glyph(row, size, color)) {
             Some(icon) => icon,
+            None if self.commands.is_some() => glyph(COMMAND_GLYPH, size, color),
             None => glyph("icons/search.svg", size, color),
+        }
+    }
+
+    /// What the chip before the input names: the site search's engine, or the commands-only list.
+    fn mode_name(&self) -> Option<SharedString> {
+        match (&self.site, self.commands) {
+            (Some(site), _) => Some(site.name.clone()),
+            (None, Some(_)) => Some(COMMANDS_CHIP.into()),
+            (None, None) => None,
         }
     }
 
@@ -1544,6 +1779,11 @@ impl CommandBar {
             .when_some(row.shortcut.clone(), |line, shortcut| {
                 line.child(div().flex_1()).child(chip(shortcut))
             })
+            // Under the pointer, the selected row too, as Arc's.
+            .when(row.removable && self.hovered == Some(index), |line| {
+                line.when(row.tab == 0, |line| line.child(div().flex_1()))
+                    .child(self.remove_button(index, selected, cx))
+            })
     }
 }
 
@@ -1570,6 +1810,16 @@ impl Render for CommandBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // check.sh reads these lines.
         log!("browser: command bar drew \"{}\"", self.input.read(cx).text());
+        let remove = self.hovered.and_then(|index| {
+            let row = self.rows.get(index).filter(|row| row.removable)?;
+            Some((index, row.url.clone()))
+        });
+        if remove != self.remove_drawn {
+            if let Some((index, url)) = &remove {
+                log!("browser: command bar drew remove on row {index} {url}");
+            }
+            self.remove_drawn = remove;
+        }
         self.a11y = window.is_a11y_active();
         let rows: Vec<_> = self
             .rows
@@ -1623,6 +1873,7 @@ impl Render for CommandBar {
                 .on_action(cx.listener(Self::paste_and_search))
                 .on_action(cx.listener(Self::remove))
                 .on_action(cx.listener(Self::dismiss))
+                .on_action(cx.listener(Self::shortcut))
                 .on_action(cx.listener(Self::enter_site_or_next))
                 .on_action(cx.listener(Self::leave_site_or_previous))
                 .capture_action(cx.listener(Self::backspace))
@@ -1657,7 +1908,7 @@ impl Render for CommandBar {
                         .text_size(px(text_size))
                         .line_height(px(23.))
                         .child(self.input_icon(cx))
-                        .when_some(self.site.as_ref(), |line, site| {
+                        .when_some(self.mode_name(), |line, name| {
                             line.child(
                                 div()
                                     .flex_none()
@@ -1666,7 +1917,7 @@ impl Render for CommandBar {
                                     .rounded(px(CHIP_RADIUS))
                                     .bg(palette.plate(CHIP))
                                     .text_size(px(text::BODY))
-                                    .child(site.name.clone()),
+                                    .child(name),
                             )
                         })
                         .child(div().flex_1().min_w_0().child(self.input.clone()))

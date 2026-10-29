@@ -67,14 +67,21 @@ check_find_bar() {
 # What's typed right after ⌘F, with no wait, lands in the bar, though the page has ⌘F first and the
 # keys come before the bar has the keyboard. All of it in the bar is none of it in the page. Linux
 # holds no keys for the bar yet (host_hold_keys), so there they're typed once it has the keyboard.
-post key f cmd
+# The driver starts a command as its line comes, so on the Mac nothing that forks, such as uname,
+# comes between ⌘F and the keys: ⌘F could be back from the page before they're sent, and they'd
+# test no hold.
 if [ "$(uname)" = Linux ]; then
+  post key f cmd
   expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
   expect '^browser: find bar shown$' "⌘F didn't open the find bar"
   echo "skip: keys typed right after ⌘F, before the find bar has the keyboard: Linux holds none for it yet."
   send type apple
 else
+  post key f cmd
   send type apple
+  sed -n "/^browser: drive $((step - 1)): /,/^browser: drive $step: /p" "$log" |
+    grep -q '^browser: command find via page$' &&
+    fail "⌘F was back from the page before the keys after it were sent, so they tested no hold"
   expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
   expect '^browser: find bar shown$' "⌘F didn't open the find bar"
   expect '^browser: held [0-9]* key events for GPUIPanel$' \
