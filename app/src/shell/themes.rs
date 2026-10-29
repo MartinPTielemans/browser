@@ -109,6 +109,7 @@ impl Shell {
         if self.window_light != Some(light) {
             self.window_light = Some(light);
             self.browser.set_window_light(light, cx);
+            log!("browser: window light {light}");
         }
         if cx.try_global::<super::commands::ShellHandle>().is_some_and(|key| key.0 == cx.weak_entity()) {
             palette::set_current(palette, cx);
