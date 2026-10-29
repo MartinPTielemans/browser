@@ -70,7 +70,8 @@ impl Shell {
 
     /// The buttons on `tab`'s card, each the call the row's menu or its drag makes: a Today tab
     /// pins and a pinned one unpins, either becomes a favorite, and a favorite leaves the
-    /// favorites, unless the Space shown is an agent's, as its menu has it. A private window
+    /// favorites, unless the Space shown is an agent's, as its menu has it, or there's no room for
+    /// it among them (MOST_FAVORITES), where its menu dims Add to Favorites. A private window
     /// keeps no tab, so it has none of those. Split puts the tab beside the page shown, where its
     /// drag onto the page could, which a favorite's can't.
     pub(super) fn card_actions(&self, tab: u64) -> Vec<Action> {
@@ -80,8 +81,11 @@ impl Shell {
             match favorite {
                 true if !self.agents_space_shown() => actions.push(Action::Unfavorite),
                 true => {}
-                false if self.pinned().contains(&tab) => actions.extend([Action::Unpin, Action::Favorite]),
-                false => actions.extend([Action::Pin, Action::Favorite]),
+                false if self.pinned().contains(&tab) => actions.push(Action::Unpin),
+                false => actions.push(Action::Pin),
+            }
+            if !favorite && self.has_room_for(tab) {
+                actions.push(Action::Favorite);
             }
         }
         if !favorite && self.split_partner(tab).is_some() {

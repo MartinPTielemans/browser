@@ -1149,7 +1149,10 @@ impl Shell {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
             Command::Clear => !self.today().is_empty(),
-            Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),
+            Command::FavoriteTab => {
+                let tab = self.selected;
+                tab != 0 && !self.favorites.contains(&tab) && self.has_room_for(tab)
+            }
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
             Command::RenameTab => {
                 let favorite = self.favorites.contains(&self.selected);
