@@ -390,6 +390,7 @@ use crate::tokens::shell::TILE;
 pub(crate) const TILE_HOVERED: f32 = crate::palette::state_alpha(TILE, crate::palette::STATE_HOVERED);
 use crate::tokens::shell::TILE_RING;
 use crate::tokens::shell::TILE_UNTHEMED;
+use crate::tokens::shell::TILE_UNTHEMED_LIGHT;
 use crate::tokens::shell::NAV;
 use crate::tokens::shell::NAV_DISABLED;
 use crate::tokens::shell::NAV_HOVERED;
