@@ -55,7 +55,8 @@ The Mac's DMG is built only with these repository secrets:
 | `MAC_NOTARY_KEY` | An App Store Connect API key for notarization, as a base64 `.p8` |
 | `MAC_NOTARY_KEY_ID`, `MAC_NOTARY_ISSUER_ID` | That key's ID and its issuer's |
 | `UPDATE_PRIVATE_KEY` | The updates' signing key: the contents of the file `generate_keys --account ilo -x <file>` writes (`tools/appcast.sh`) |
-| `UPDATE_PUBLIC_KEY` | Its public half, from `generate_keys --account ilo -p`, which the Mac and Windows builds carry |
+
+The Mac and Windows builds carry its public half from `app/branding/update-key`, or from an `UPDATE_PUBLIC_KEY` secret, which overrides the file when it's set.
 
 The Windows packages are unsigned: the Store signs the MSIX, and winget takes the installer.
 
