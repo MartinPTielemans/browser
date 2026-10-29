@@ -180,6 +180,7 @@ Arc's note at the window's top right, saying what was just done where the result
 | Find / next / previous | ⌘F / ⌘G / ⇧⌘G (menus) | ⌘F / ⌘G / ⇧⌘G | ⌘F / ⌘G / ⇧⌘G |
 | Use selection for find / jump to selection / find and replace | — / ⌘J / ⌥⌘F (menus) | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘J; ⌘E and ⌥⌘F come with their features (⌘E writes the system's find pasteboard) |
 | Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C; Quote needs the page's selection |
+| Paste URL as new tab | ⌥⌘V (help) | — | ⌥⌘V |
 | Downloads | ⇧⌘J (menus) | ⇧⌘J | ⇧⌘J |
 | Save page / print | ⇧⌘S / ⌘P (menus) | ⇧⌘S / ⌘P | same |
 | Capture a portion of the page | ⇧⌘2 (tooltip) | — | ⇧⌘2, which leaves capture mode too |
@@ -289,6 +290,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 - **Which engine** (Ours). A tab showing its page in Safari's engine shows Lucide's compass at 12 pt, 5 after the host in the URL field, in the host's colour at 0.6. It's quiet: the Site Controls name the engine and turn it off. The rest of the browser treats the tab like any other: it has the same sidebar row, title, favicon, back and forward, reload, sound and mute, and the same full screen and session restore. Find, zoom, DevTools, Capture, print, downloads, file pickers and the page's permission questions don't reach it yet. The page's own popups open as Chromium tabs.
 - **The key** (ours, for Chrome's key icon). While Chrome's toolbar would show its key for the page, as when the site's saved logins were filled in or one was just saved, or an offer to save one waits, the URL field shows Lucide's key-round after the host, and after the compass, drawn as the compass is, 12 pt, 5 after it, in the host's colour at 0.6. A press on it brings back an offer that showing another tab closed, or else opens the Site Controls, whose Passwords row lists the site's logins. Agents get no path to it: no call reads it, and they hear none of its callbacks.
 - **Copy URL** (Arc 1.170.0 menus). ⇧⌘C copies the tab's URL, and ⌥⇧⌘C a Markdown link, `[title](url)`. Arc also has Copy URL as Quote (⌃⇧⌘C). ⇧⌘C's toast (Shared rules › Toast) says "Copied Current URL", with a share button after the words (Arc 1.170 rec). Ours: the title's brackets are escaped, the URL is copied without its tracking parameters (› Command bar, Dia's), and the keys, menus and command bar show the toast, "Copied Current URL" or "Copied URL as Markdown", for 2 s (*interim*: Arc's stayed while its share menu was open, so its time isn't recorded, and its Markdown words aren't either). The share button comes with Share. The sidebar's button shows the toast and a checkmark (Sidebar › URL field).
+- **Paste URL as New Tab** (Arc help). ⌥⌘V, and the command of that name in the command bar, open the clipboard's link as a tab at the top of Today and show it. Ours: the clipboard is read only when it runs, and only one http(s) link opens, as a drop on the sidebar takes, so text, `javascript:` and `file:` open nothing. The page keeps ⌥⌘V if it handles it. No agent path: the clipboard is the user's.
 
 **Width**
 
@@ -386,7 +388,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
   - Closed, it hides its rows but the tab shown's, which stays under it until another tab shows (Arc; confirm in the capture). ⌘1–⌘9 skip what a closed folder hides, so each row keeps its number.
   - Dragging. Where a dragged row would land at the end of folders or after one, the pointer's travel right of where it pressed takes it in, a level for each 16 pt, between the levels that place allows: from the row below's to one inside the row above, if that's a folder. A folder drags as a row, among the pinned tabs only, never into itself. What's in it stays while it's dragged and moves with it when it lands.
   - Folders come back after a quit with their names and whether they're open.
-  - Collapse All Folders in the command bar closes every folder of the Space shown, on one fold.
+  - Collapse All Folders in the command bar closes every folder of the Space shown, on one fold, and Expand All Folders opens them, as Arc's Settings › Shortcuts has, with no key. Neither is undone or has an agent path: they only change the view, as Reveal Tab in Sidebar does.
   - Later: making a folder inside one, and Arc's folder drag, captured.
 
 **Clear divider and Today tabs** (Arc bin and a user's screenshot, D›Arc note: Clear)
