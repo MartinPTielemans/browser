@@ -412,9 +412,16 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
         .ok()?
         .reply()
         .ok()?;
+    let child = (connection.translate_coordinates(browser.window, browser.window, at.x, at.y))
+        .ok()?
+        .reply()
+        .ok()?
+        .child;
+    // An overlay is a child of the root, and a panel, such as the find bar, one of the browser
+    // window's, over its page.
     if let Some(view) = overlay_views()
         .into_iter()
-        .find(|&view| view as usize as u32 == top.child)
+        .find(|&view| [top.child, child].contains(&(view as usize as u32)))
     {
         let view = view as usize as u32;
         let inside = connection
@@ -429,11 +436,6 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
             ..at
         });
     }
-    let child = (connection.translate_coordinates(browser.window, browser.window, at.x, at.y))
-        .ok()?
-        .reply()
-        .ok()?
-        .child;
     Some(match child == browser.ui {
         true => Target {
             window: browser.gpui,
