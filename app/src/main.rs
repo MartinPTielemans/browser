@@ -230,6 +230,7 @@ mod platform {
         pub fn host_detent();
         pub fn host_dock_dot_launch(profile_dir: *const c_char);
         pub fn host_dock_dot(colored: bool, color: u32);
+        pub fn host_set_dock_menu(titles: *const *const c_char, count: usize);
         pub fn host_watch_control(released: extern "C" fn());
         pub fn host_take_drops(
             dragged: extern "C" fn(
@@ -3620,6 +3621,9 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
         cx.set_menus(menus(&shell::MenuBar::default(), None, None));
+        // The Dock icon's menu, as Arc's offers: the File menu's items.
+        let dock = [c"New Window", c"New Incognito Window"].map(CStr::as_ptr);
+        unsafe { platform::host_set_dock_menu(dock.as_ptr(), dock.len()) };
         // check.sh reads this line, as launches are timed from it.
         log!("browser: started at {:.1} ms", unsafe { platform::host_since_launch() });
         dock_dot::open(Rc::new(DockDot), cx);

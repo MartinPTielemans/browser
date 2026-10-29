@@ -481,6 +481,10 @@ void host_dock_dot_launch(const char* profile_dir);
 // it. Asked again for the same color, it checks the style again.
 void host_dock_dot(bool colored, uint32_t color);
 
+// Gives the Dock icon's menu the main menu's items titled |titles|, which run as they do there.
+// Once the browser has started, as Chrome's delegate answers the Dock until then.
+void host_set_dock_menu(const char* const* titles, size_t count);
+
 // Calls |released| once, after the event that shows ⌃ is no longer held: ⌃ going up, a key or a
 // button pressed without it, or the app going to the background. Watches the whole app, whichever
 // view has the keyboard.

@@ -97,6 +97,8 @@
 //   menu <title>                          chooses the main menu's item titled <title>, in a
 //                                         submenu too, or in the submenu <title> names first
 //                                         as "Submenu › Item"
+//   dock <title>                          chooses the Dock icon's menu's item titled <title>, the
+//                                         menu the Dock asks the app's delegate for
 //   menubar <menu>                        logs the items of the main menu's <menu>, as
 //                                         "browser: menu bar <menu>: <titles>", enabled as
 //                                         AppKit would show them now, written as "menu shown"
@@ -1467,6 +1469,17 @@ bool Run(const std::string& line, void (^done)(void)) {
       }
     }
     return false;
+  }
+  if (action == "dock") {
+    NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
+    NSMenu* menu = [NSApp.delegate applicationDockMenu:NSApp];
+    NSInteger index = [menu indexOfItemWithTitle:title];
+    if (index < 0) {
+      return false;
+    }
+    [menu performActionForItemAtIndex:index];
+    done();
+    return true;
   }
   if (action == "openmenu") {
     NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
