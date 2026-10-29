@@ -34,7 +34,7 @@ jobs:
         working-directory: app
     env:
       # The runs that pass on X11 so far.
-      LINUX_RUNS: tabs window find agents spaces
+      LINUX_RUNS: tabs window find agents spaces crash
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4

@@ -1,6 +1,7 @@
 # A crash leaves a minidump in the profile's Crashpad folder: --crash-after-start crashes the
-# browser once it has started and Crashpad's handler is up, the handler writes the report, and no
-# Chromium process outlives the crash, the handler included. Nor does one outlive a quit.
+# browser once it has started, Crashpad's handler is up and the profile's Preferences say its
+# session crashed, the handler writes the report, and no Chromium process outlives the crash, the
+# handler included. Nor does one outlive a quit.
 # Nothing goes to the crash collector, check/collector.py, while Send Crash Reports is off, as it is
 # at first: the next launch offers to send that crash's report in a toast, and keeps it. On, the
 # next launch sends the report, the minidump alone, without cookies, and deletes
@@ -11,6 +12,16 @@ log="$out/crash.log"
 crashpad="$(dirname "$saved")/Crashpad"
 rm -rf "$crashpad"
 rm -f "$saved" "$launch_frame"
+# The profile's session ended cleanly, as a quit leaves it, so the offer after the crash comes from
+# the mark the crash test's launch writes as it starts, not one an earlier try left.
+python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    prefs = json.load(f)
+prefs.setdefault("profile", {})["exit_type"] = "Normal"
+with open(sys.argv[1], "w") as f:
+    json.dump(prefs, f)
+' "$prefs" || fail "the session couldn't be marked clean in $prefs"
 python3 -I check/collector.py "$out/collector-port" > "$out/collector.log" 2>&1 &
 collector=$!
 for _ in $(seq 50); do
