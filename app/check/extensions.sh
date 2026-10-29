@@ -324,7 +324,8 @@ expect "^browser: menu shown $(cased 'Move to Top, Pin, Remove, Manage Extension
   "a right-click on Check Popup's tile didn't show its menu"
 send choose "$(cased 'Move to Top')"
 expect "^browser: site controls extension move-to-top $popup\$" "Move to Top didn't reach the panel"
-expect "^browser: extension actions $popup\$" "Move to Top didn't pin Check Popup"
+# With the badge its popup set for every tab, which the extension keeps.
+expect "^browser: extension actions $popup:1\$" "Move to Top didn't pin Check Popup"
 expect "^browser: site controls drew extensions $popup $clicked $panel $ublock\$" \
   "the grid didn't draw Check Popup first: $(grep '^browser: site controls drew' "$log" | tail -1)"
 none_since '^browser: site controls closing' || fail "Move to Top closed the Site Controls"
