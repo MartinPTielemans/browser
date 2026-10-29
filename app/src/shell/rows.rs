@@ -1502,6 +1502,20 @@ mod tests {
         assert!(!host.take().iter().any(|call| call.starts_with("select")));
     }
 
+    /// The pointer leaving the window while a row is held doesn't drag it: on Linux that's a move
+    /// holding no button, to the window's corner, as a page maps under the pointer.
+    #[gpui::test]
+    fn a_held_row_doesnt_drag_as_the_pointer_leaves(cx: &mut TestAppContext) {
+        let (shell, cx, _host) = window(cx, Vec::new(), vec![2, 3, 4], 2);
+        let (x, y) = close_button(&shell, cx, 4);
+        let from = point(px(x - 100.), px(y));
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_mouse_move(point(px(-1.), px(-1.)), None, Modifiers::none());
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.dragging().is_none()));
+    }
+
     /// A press on a folder's row closes it at once, as Arc's does, and a press again opens it.
     #[gpui::test]
     fn a_press_opens_or_closes_a_folder(cx: &mut TestAppContext) {
