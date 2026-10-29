@@ -279,7 +279,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | On by default | MVP | every profile, new and existing, and private windows, from the first page; nothing to install | Helium, Flecha |
 | [ ] | Engine | MVP | upstream uBlock Origin 1.75.0, pinned with its sha256, in the framework, loaded at each launch; updates with the browser; listed in the Extensions menu, pinnable, no Remove | Ours |
 | [ ] | Turning it off | MVP | Site Controls' first row, per site, reloading the page; Settings › General, everywhere | Ours |
-| [ ] | Filter lists | MVP | weekly while open, and 37 s after a launch when stale; never more often; source a default service URL | principles 1, 2 |
+| [ ] | Filter lists | MVP | weekly while open, and 37 s after a launch when stale; never more often; source a default service URL. Built: `core/ad_block.cc` gives uBlock Origin a 168 h update period and `kFilterListsSource`, which `--ad-block-lists` replaces for `check/adblock-lists.sh`: a list from the check's server blocks its script, and stale, it's fetched again 37 s after the launch, not before; needs its Mac run. The weekly update isn't checked | principles 1, 2 |
 | [ ] | First launch | MVP | requests through for about 3 s until the lists load; closing it: measure first | principle 1 |
 | [ ] | Cost | MVP | page-load and memory numbers, with and without it, against the performance gate | principle 1 |
 | [ ] | No agent path | MVP | agents can't change it, everywhere or for a site | decision 8 |
@@ -296,7 +296,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
 | [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
 | [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: Chrome's page should do it in a tab, unverified | Chrome |
-| [ ] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. Not started: unverified, probably works | Chrome |
+| [ ] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. `check/passkeys.sh` registers and signs in on a local page with a virtual security key (DevTools' WebAuthn domain, in the check only), and checks the dialog that waits for the key is a child window centred across the page, which escape closes; needs its Mac run. Security keys need no entitlement; iCloud Keychain's passkeys need Apple's `com.apple.developer.web-browser.public-key-credential` | Chrome |
 | [ ] | No agent path | MVP | agents never read or fill these. Holds today, since no call returns them and there is no MCP server; ticks with its allowlist test | decision 8 |
 
 ## Downloads
@@ -376,11 +376,11 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Check for Updates… | MVP | app menu | Dia, Ardia P§24 |
-| [ ] | Automatic checks | MVP | every 8 h (Ardia) | Ardia |
-| [ ] | No install during full screen | MVP | waits | Ardia P§24 |
-| [ ] | Release notes after an update | MVP | first launch | Ardia P§24 |
-| [ ] | Feed URL is a default service URL | MVP | forks can change it | principle 2 |
+| [ ] | Check for Updates… | MVP | app menu. Built (#503, #587). `check/updates.sh` checks it on `build.sh updates`, a copy with Sparkle whose feed is a local appcast signed with the run's own key, finding an update with its notes; needs its Mac run | Dia, Ardia P§24 |
+| [ ] | Automatic checks | MVP | every 8 h (Ardia). Built: `SUScheduledCheckInterval` 28800. The updates run reads Sparkle's next check, 8 h from the last; needs its Mac run | Ardia |
+| [ ] | No install during full screen | MVP | waits. Built: `platform/mac/updates.mm` holds a scheduled check's update while a window is full screen and shows it once none is. The updates run checks both; needs its Mac run | Ardia P§24 |
+| [ ] | Release notes after an update | MVP | first launch. Built: `platform/mac/updates.mm` keeps the notes for `host_take_update_notes`. Not checked: only a prod build opens them, for https notes, and an update needs a signed app to install, so the updates run checks only the alert's notes | Ardia P§24 |
+| [ ] | Feed URL is a default service URL | MVP | forks can change it. Built: `branding/update-feed`, which `build.sh` puts in the prod build; the updates run's build checks a feed of its own the same way. No run reads the product's | principle 2 |
 
 ## Keyboard
 
