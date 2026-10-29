@@ -79,11 +79,10 @@ impl Browser for Made {
             .collect()
     }
 
-    fn agent_tabs(&self, agent: &str, space: u64, cx: &App) -> Vec<TabInfo> {
+    fn agent_tabs(&self, agent: &str, cx: &App) -> Vec<TabInfo> {
         match self.agent_space(agent) {
             0 => Vec::new(),
-            own if own == space => self.space_tabs(space, cx),
-            _ => Vec::new(),
+            own => self.space_tabs(own, cx),
         }
     }
 
@@ -404,24 +403,24 @@ fn list_tabs_lists_only_the_agents_own_tabs(cx: &mut TestAppContext) {
     );
 }
 
-/// list_tabs of the user's Space is refused, as the core lists an agent none of it, and the log
-/// keeps why; of its own Space by id it lists its tabs.
+/// Two agents each list their own Space's tabs, as the core lists the calling agent's, and neither
+/// the other's nor the user's.
 #[gpui::test]
-fn list_tabs_of_another_space_lists_none(cx: &mut TestAppContext) {
-    let (agents, _, _) = connected(cx);
-    let answer = call(&agents, "claude-code", "list_tabs", json!({ "space": 1 }), cx)
-        .recv()
-        .unwrap();
-    assert!(answer.error);
-    assert_eq!(answer.text, "The Space isn't the agent's own.");
-    assert_eq!(
-        log(&agents, "claude-code", cx)[0],
-        ("list_tabs".into(), "".into(), "The Space isn't the agent's own.".into())
-    );
-    let answer = call(&agents, "claude-code", "list_tabs", json!({ "space": 2 }), cx)
+fn list_tabs_leaves_out_another_spaces_tabs(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    browser.agent_spaces.borrow_mut().insert("codex".into(), 3);
+    (browser.tabs.borrow_mut()).push((30, 3, "Rust", "https://www.rust-lang.org/"));
+    agents.update(cx, |agents, cx| agents.connect(Client::Codex, cx));
+    cx.run_until_parked();
+
+    let answer = call(&agents, "claude-code", "list_tabs", json!({}), cx)
         .recv()
         .unwrap();
     assert_eq!(answer.text, "  20  Example Domain  https://www.example.com/");
+    let answer = call(&agents, "codex", "list_tabs", json!({}), cx)
+        .recv()
+        .unwrap();
+    assert_eq!(answer.text, "  30  Rust  https://www.rust-lang.org/");
 }
 
 /// read_page on a tab of the user's is refused, with the core's reason, which the activity log
