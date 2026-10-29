@@ -108,14 +108,14 @@ jobs:
           [ -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ] || choco install innosetup -y --no-progress
 
       # The installer's ilo updates itself with WinSparkle, from updates signed with the key whose
-      # public half this is.
+      # public half is app/branding/update-key, or the UPDATE_PUBLIC_KEY secret when it's set.
       - name: Browser.dll
         working-directory: app/windows
         env:
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
         run: |
-          if [ -z "$UPDATE_PUBLIC_KEY" ]; then
-            echo "::error::No UPDATE_PUBLIC_KEY secret, so ilo couldn't update itself (README.md › Releases)."
+          if [ -z "$UPDATE_PUBLIC_KEY" ] && [ -z "$(tr -d '[:space:]' < ../branding/update-key)" ]; then
+            echo "::error::app/branding/update-key is empty, so ilo couldn't update itself (README.md › Releases)."
             exit 1
           fi
           cargo build --release --features prod
@@ -278,12 +278,11 @@ jobs:
           MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
           MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
           UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
-          UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
         working-directory: .
         run: |
           missing=
           for name in MAC_CERTIFICATE_P12 MAC_CERTIFICATE_PASSWORD MAC_NOTARY_KEY MAC_NOTARY_KEY_ID \
-            MAC_NOTARY_ISSUER_ID UPDATE_PRIVATE_KEY UPDATE_PUBLIC_KEY; do
+            MAC_NOTARY_ISSUER_ID UPDATE_PRIVATE_KEY; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
