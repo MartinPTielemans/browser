@@ -634,6 +634,15 @@ impl Browser for Fake {
 
     fn task_manager(&self, _: &mut App) {}
 
+    // The preview has no engine to trace, nor the toast's window.
+    fn start_trace(&self) -> bool {
+        false
+    }
+
+    fn stop_trace(&self) {}
+
+    fn trace_note(&self, _: Option<Rc<dyn Fn(&mut App)>>, _: &mut App) {}
+
     // The preview has no menu bar and no extensions.
     fn set_menus(&self, _: &MenuBar, _: &mut App) {}
 

@@ -139,6 +139,8 @@ struct Shown {
     full_screen: bool,
     /// The tab a held toast is about, which stays until it's answered or `hide_held` takes it.
     held: Option<u64>,
+    /// Whether it's the resting toast, which comes back after the others.
+    resting: bool,
     _timer: Task<()>,
 }
 
@@ -170,6 +172,8 @@ pub struct Toast {
     takes_clicks: bool,
     /// Where the host was last told the plate is.
     plate: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// What shows whenever no other toast does, until `hide_resting`, as while a trace records.
+    resting: Option<(SharedString, Vec<Button>)>,
 }
 
 struct ToastWindow(WindowHandle<Toast>);
@@ -212,6 +216,7 @@ pub fn open(
             shown: None,
             takes_clicks: false,
             plate: Rc::default(),
+            resting: None,
         })
     });
     match window {
@@ -249,6 +254,39 @@ pub fn show_held(text: &str, buttons: Vec<Button>, tab: u64, cx: &mut App) {
 /// crash's report.
 pub fn show_until_answered(text: &str, buttons: Vec<Button>, cx: &mut App) {
     present(text, None, buttons, None, false, None, cx);
+}
+
+/// Shows `text` with `buttons` after it, in place of any toast showing, until a button is pressed
+/// or `hide_resting` takes it away. Another toast takes its place for that one's time, and it comes
+/// back once that one has gone, as it says what keeps on, such as a trace recording.
+pub fn show_resting(text: &str, buttons: Vec<Button>, cx: &mut App) {
+    present(text, None, buttons.clone(), None, false, None, cx);
+    let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
+        return;
+    };
+    window
+        .update(cx, |toast, _, _| {
+            toast.resting = Some((text.to_string().into(), buttons));
+            if let Some(shown) = &mut toast.shown {
+                shown.resting = true;
+            }
+        })
+        .ok();
+}
+
+/// Takes away the resting toast, now and for good.
+pub fn hide_resting(cx: &mut App) {
+    let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
+        return;
+    };
+    window
+        .update(cx, |toast, _, cx| {
+            toast.resting = None;
+            if toast.shown.as_ref().is_some_and(|shown| shown.resting) {
+                toast.leave(cx);
+            }
+        })
+        .ok();
 }
 
 /// Takes away the held toast about `tab`, if it shows.
@@ -353,6 +391,7 @@ fn present(
                 settled: false,
                 full_screen,
                 held,
+                resting: false,
                 _timer: timer,
             });
             toast.take_clicks(cx);
@@ -403,6 +442,9 @@ impl Toast {
         let run = button.run.clone();
         // check.sh reads this line.
         log!("browser: toast button {}", button.name);
+        if self.shown.as_ref().is_some_and(|shown| shown.resting) {
+            self.resting = None;
+        }
         self.leave(cx);
         cx.defer(move |cx| run(position, cx));
     }
@@ -428,6 +470,9 @@ impl Toast {
                     toast.host.hide();
                     // check.sh reads this line.
                     log!("browser: toast hidden");
+                    if let Some((text, buttons)) = toast.resting.clone() {
+                        cx.defer(move |cx| show_resting(&text, buttons, cx));
+                    }
                     cx.notify();
                 })
                 .ok();

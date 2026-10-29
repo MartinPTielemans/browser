@@ -15,6 +15,7 @@ use super::{
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
+    trace,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -111,6 +112,8 @@ pub enum Command {
     JavaScriptConsole,
     /// Opens Chrome's Task Manager.
     TaskManager,
+    /// Starts recording a trace of the whole browser, or stops it and asks where to save it.
+    RecordTrace,
     /// Turns Developer Mode on or off for the page's site.
     ToggleDeveloperMode,
     /// Opens Chrome's extensions page in a new tab.
@@ -336,6 +339,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     (DEVELOPER_MODE_ON, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
     (DEVELOPER_MODE_OFF, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
     ("Open Task Manager", Command::TaskManager, &[]),
+    (trace::RECORD, Command::RecordTrace, &["performance", "tracing"]),
+    (trace::STOP_RECORDING, Command::RecordTrace, &["performance", "tracing"]),
     ("Manage Extensions…", Command::ManageExtensions, &["plugins"]),
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
@@ -405,7 +410,7 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
         return Vec::new();
     };
     let shell = shell.read(cx);
-    find_commands(typed, user_keys(cx), |name, command| shell.bar_name(name, command))
+    find_commands(typed, user_keys(cx), |name, command| shell.bar_name(name, command, cx))
 }
 
 /// The commands of BAR_COMMANDS that match `typed`, best first and then in the table's order, at
@@ -611,6 +616,7 @@ impl Command {
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
             Command::TaskManager => "task-manager",
+            Command::RecordTrace => "record-trace",
             Command::ToggleDeveloperMode => "toggle-developer-mode",
             Command::ManageExtensions => "manage-extensions",
             Command::AddExtension => "add-extension",
@@ -834,6 +840,10 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
+            Command::RecordTrace => {
+                trace::toggle(self.browser.clone(), cx);
+                return self.update_menus(cx);
+            }
             Command::ToggleDeveloperMode => {
                 let on = !self.page(self.selected).developer_mode;
                 return self.browser.set_developer_mode(self.selected, on, cx);
@@ -1188,6 +1198,7 @@ impl Shell {
             | Command::KeyboardShortcuts
             | Command::Passwords
             | Command::Welcome
+            | Command::RecordTrace
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -1195,7 +1206,7 @@ impl Shell {
 
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
     /// says what it would do.
-    fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
+    fn bar_name(&self, name: &'static str, command: Command, cx: &App) -> Option<&'static str> {
         if !self.offers(command) {
             return None;
         }
@@ -1208,6 +1219,7 @@ impl Shell {
                 let on = self.page(self.selected).developer_mode;
                 (name == developer_mode_title(on)).then_some(name)
             }
+            Command::RecordTrace => (name == trace::title(trace::recording(cx))).then_some(name),
             _ => Some(name),
         }
     }
@@ -1363,8 +1375,8 @@ mod tests {
 
         use crate::shell::{Folders, Page, recorder::Recorder};
 
-        let listed = |shell: &Shell| -> Vec<&str> {
-            let named = |name, command| shell.bar_name(name, command);
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
             (find_commands("developer mode", &UserKeys::default(), named).into_iter())
                 .filter(|found| found.command == Command::ToggleDeveloperMode)
                 .map(|found| if found.name == DEVELOPER_MODE_ON { "on" } else { "off" })
@@ -1387,13 +1399,13 @@ mod tests {
             shell
         });
         shell.update(cx, |shell, cx| {
-            assert_eq!(listed(shell), ["on"]);
+            assert_eq!(listed(shell, cx), ["on"]);
             shell.run(Command::ToggleDeveloperMode, "bar", cx);
             shell.set_page(10, page("http://localhost:3000/", true), cx);
-            assert_eq!(listed(shell), ["off"]);
+            assert_eq!(listed(shell, cx), ["off"]);
             shell.run(Command::ToggleDeveloperMode, "bar", cx);
             shell.set_page(10, page("chrome://settings/", false), cx);
-            assert!(listed(shell).is_empty());
+            assert!(listed(shell, cx).is_empty());
         });
         let calls = host.take();
         let changes: Vec<&String> = calls.iter().filter(|call| call.contains("developer")).collect();
@@ -1407,6 +1419,42 @@ mod tests {
             shell.set_selected(10, cx);
             shell
         });
-        private.update(cx, |shell, _| assert!(listed(shell).is_empty()));
+        private.update(cx, |shell, cx| assert!(listed(shell, cx).is_empty()));
+    }
+
+    /// Record a Trace starts one, and while it records the command bar and Help › Troubleshooting
+    /// offer Stop Recording Trace in its place, which stops it.
+    #[gpui::test]
+    fn record_a_trace_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::recorder::Recorder;
+
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
+            (find_commands("trace", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::RecordTrace)
+                .map(|found| if found.name == trace::RECORD { "record" } else { "stop" })
+                .collect()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell, cx), ["record"]);
+            shell.run(Command::RecordTrace, "bar", cx);
+            assert_eq!(listed(shell, cx), ["stop"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::STOP_RECORDING);
+        shell.update(cx, |shell, cx| {
+            shell.run(Command::RecordTrace, "ui", cx);
+            assert_eq!(listed(shell, cx), ["record"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::RECORD);
+        let calls = host.take();
+        let traced: Vec<&String> = calls.iter().filter(|call| call.contains("trace")).collect();
+        assert_eq!(traced, ["start trace", "trace note shown", "trace note hidden", "stop trace"]);
     }
 }

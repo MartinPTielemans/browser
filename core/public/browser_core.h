@@ -742,6 +742,9 @@ typedef struct bc_host {
   // bc_profile_add_history added |added| pages to |profile|'s history, once for each call that
   // returned true, in order.
   void (*history_added)(void* context, bc_id profile, size_t added);
+  // The trace bc_trace_stop ended: Chromium's JSON, |size| bytes, or null and 0 if it gave none.
+  // The user's: save it where they pick, or drop it.
+  void (*trace_recorded)(void* context, const char* json, size_t size);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1824,6 +1827,15 @@ BC_EXPORT void bc_tab_save_page(bc_id tab);
 // Opens Chrome's Task Manager, or brings it to the front, with the page |window| shows selected in
 // it. The user's: agents get none.
 BC_EXPORT void bc_window_task_manager(bc_id window);
+
+// Starts recording a trace of every process, as Help › Troubleshooting › Record a Trace does, with
+// Chrome's default categories, keeping the latest events once its buffer is full. Nothing records
+// until this. False if a trace is recording already. The user's: agents get no call for it.
+BC_EXPORT bool bc_trace_start(void);
+
+// Stops the trace bc_trace_start began, then trace_recorded with it, sent nowhere else. Nothing
+// without one.
+BC_EXPORT void bc_trace_stop(void);
 
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its

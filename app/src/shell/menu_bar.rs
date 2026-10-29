@@ -1,9 +1,9 @@
 //! What the menu bar shows that changes with the window, and the window's title, which the Window
 //! menu lists it by (docs/ux-spec.md › Menus).
 
-use gpui::{Context, SharedString};
+use gpui::{App, Context, SharedString};
 
-use super::{Extension, Shell, menus::space_menu_label};
+use super::{Extension, Shell, menus::space_menu_label, trace};
 
 /// What the key window's menu bar shows that changes with it.
 #[derive(Clone, Default, PartialEq)]
@@ -18,6 +18,8 @@ pub struct MenuBar {
     /// Whether the page shown is in Developer Mode, or None where it can't change: no web page, or
     /// a private window.
     pub developer_mode: Option<bool>,
+    /// Whether a trace is recording, which Help › Troubleshooting's item stops.
+    pub tracing: bool,
     /// Spaces › Change Profile: each profile by id and name, whether the Space shown can change to
     /// it and whether it's in it, then whether New Profile can be chosen. None in a private window.
     pub profiles: Option<(Vec<ProfileChoice>, bool)>,
@@ -52,11 +54,17 @@ impl MenuBar {
     pub fn developer_mode_title(&self) -> Option<&'static str> {
         self.developer_mode.map(super::commands::developer_mode_title)
     }
+
+    /// Help › Troubleshooting's item for the trace, by what it would do, as the command bar names
+    /// it.
+    pub fn trace_title(&self) -> &'static str {
+        trace::title(self.tracing)
+    }
 }
 
 impl Shell {
     /// What the menu bar shows for this window now.
-    fn menu_bar(&self) -> MenuBar {
+    fn menu_bar(&self, cx: &App) -> MenuBar {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         // A private window lists neither Spaces nor extensions: its one Space isn't one of them,
         // and Chrome keeps extensions out of a private session.
@@ -75,6 +83,7 @@ impl Shell {
             sidebar_hidden: self.sidebar_hidden,
             pinned,
             developer_mode: self.developer_mode(self.selected),
+            tracing: trace::recording(cx),
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
         }
     }
@@ -82,7 +91,7 @@ impl Shell {
     /// Gives the menu bar what it shows now, once that changes, so most tab switches and page
     /// updates leave the menus as they are.
     pub(super) fn update_menus(&mut self, cx: &mut Context<Self>) {
-        let bar = self.menu_bar();
+        let bar = self.menu_bar(cx);
         if bar == self.menus {
             return;
         }
@@ -99,7 +108,7 @@ impl Shell {
     pub(super) fn refresh_menus(&mut self, cx: &mut Context<Self>) {
         // The menu bar is the key window's, so its Undo and Redo name this window's steps.
         self.send_edit_titles(true, cx);
-        self.menus = self.menu_bar();
+        self.menus = self.menu_bar(cx);
         self.browser.set_menus(&self.menus, cx);
     }
 
