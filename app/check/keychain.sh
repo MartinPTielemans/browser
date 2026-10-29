@@ -7,9 +7,10 @@
 # Only in a check VM, as it uses the real Keychain, the VM's login keychain: never the owner's.
 # The prod build first, ./build.sh prod, then ./check.sh keychain, alone.
 #
-# A and B are throwaway identities made here, from a throwaway authority, in a keychain of the
-# run's own that's deleted after; the authority and an OU stand in for Apple's anchor and the
-# team. The copies have a name of their own for each run, so the cookie key's item is the run's.
+# A and B are throwaway self-signed identities made here, in a keychain of the run's own that's
+# deleted after; their OU stands in for the team. Apple's anchor has no stand-in: codesign over ssh
+# can't sign with a leaf whose authority isn't trusted (errSecInternalComponent), and trusting one
+# needs a user at the screen. The copies have a name of their own for each run, so the cookie key's item is the run's.
 # A team's identities share a Keychain partition, teamid:<team>, which identities with no team ID
 # don't, so with KEYCHAIN_PASSWORD, the VM user's login password, the run adds each copy's own to
 # the item's as a stand-in. Without it, a prompt the partition causes fails the run, and says so.
@@ -30,17 +31,18 @@ service="$check_name Safe Storage"
 procs="$dir"
 log="$out/keychain-0.log"
 defaults delete "$check_id" > /dev/null 2>&1 || true
+# Over ssh the login keychain is locked, and Chromium then runs with no cookie key at all.
+if [ -n "${KEYCHAIN_PASSWORD:-}" ]; then
+  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$HOME/Library/Keychains/login.keychain-db" ||
+    fail "the login keychain didn't unlock: is KEYCHAIN_PASSWORD the VM's login password?"
+fi
 
-# The authority, and A and B, which it issued for code signing, in the run's own keychain, which
-# codesign may use without asking.
+# A and B, for code signing, in the run's own keychain, which codesign may use without asking.
 openssl=/usr/bin/openssl
 cat > "$dir/openssl.cnf" << 'EOF'
 [req]
 distinguished_name = name
 [name]
-[authority]
-basicConstraints = critical, CA:true
-keyUsage = critical, keyCertSign
 [signer]
 basicConstraints = critical, CA:false
 keyUsage = critical, digitalSignature
@@ -48,21 +50,15 @@ extendedKeyUsage = critical, codeSigning
 EOF
 (
   cd "$dir"
-  $openssl req -config openssl.cnf -x509 -newkey rsa:2048 -nodes -days 2 -keyout ca.key \
-    -out ca.pem -subj "/CN=$check_name Authority" -extensions authority
   for who in A B; do
-    $openssl req -config openssl.cnf -newkey rsa:2048 -nodes -keyout $who.key -out $who.csr \
-      -subj "/CN=$check_name $who/OU=ILOCHECK"
-    $openssl x509 -req -in $who.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 2 \
-      -extfile openssl.cnf -extensions signer -out $who.pem
-    $openssl pkcs12 -export -inkey $who.key -in $who.pem -certfile ca.pem -passout pass:check \
-      -out $who.p12
+    $openssl req -config openssl.cnf -x509 -newkey rsa:2048 -nodes -days 2 -keyout $who.key \
+      -out $who.pem -subj "/CN=$check_name $who/OU=ILOCHECK" -extensions signer
+    $openssl pkcs12 -export -inkey $who.key -in $who.pem -passout pass:check -out $who.p12
   done
 ) > "$dir/openssl.log" 2>&1 || fail "openssl couldn't make the run's identities: $dir/openssl.log"
 sha1() { $openssl x509 -noout -fingerprint -sha1 -in "$dir/$1.pem" | sed 's/.*=//; s/://g'; }
 signer_a=$(sha1 A)
 signer_b=$(sha1 B)
-authority=$(sha1 ca)
 identities="$dir/identities.keychain-db"
 searched=$(security list-keychains -d user | tr -d '"')
 keychain_cleanup() {
@@ -141,9 +137,9 @@ run_copy() {
 }
 
 # A's own requirement, as Apple Development's names its certificate, then the team's, as
-# tools/requirement.sh makes it: the run's authority for Apple's anchor, ILOCHECK for the team.
+# tools/requirement.sh makes it, with ILOCHECK for the team and no anchor.
 own="designated => identifier \"$check_id\" and certificate leaf = H\"$signer_a\""
-team="designated => identifier \"$check_id\" and certificate root = H\"$authority\" and certificate leaf[subject.OU] = \"ILOCHECK\""
+team="designated => identifier \"$check_id\" and certificate leaf[subject.OU] = \"ILOCHECK\""
 
 # A first launch makes the cookie key, and the server's page sets its cookies, h from the server,
 # HttpOnly as a login's is, and n from the page. The profile keeps them, encrypted with the key.
@@ -158,6 +154,9 @@ share_partition
 run_copy team-a "$out/keychain-1.log" session "h=$port; n=$port"
 grep -q "^browser: the cookie key regranted to .*: 0\$" "$out/keychain-1.log" ||
   fail "the copy under the team's requirement didn't make the cookie key's item again: $(grep 'cookie key' "$out/keychain-1.log")"
+# The spare holds the key only while the item is made again.
+! security find-generic-password -s "$service (moving)" -a "$check_name" > /dev/null 2>&1 ||
+  fail "the cookie key's spare, \"$service (moving)\", is still in the Keychain"
 
 # B, a new identity under the same requirement, reads the key with no prompt, and sends the cookies.
 sign_copy team-b "$signer_b" "$team"
