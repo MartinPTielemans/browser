@@ -92,6 +92,12 @@ still_home() {
     fail "$1: the pinned tab isn't at its page"
 }
 
+# The pinned tab's row, 47 down once the favorite's row of tiles is over the Space's rows.
+tiles=0
+home_row() {
+  echo "100 $(($(pinned_row 0 | cut -d' ' -f2) + tiles))"
+}
+
 # Pinned, the tab's links to other sites open in the preview, which grows from the link.
 send key d cmd
 expect '^browser: command toggle-pin via page$' "⌘D with the page focused didn't reach the UI"
@@ -120,7 +126,7 @@ check_layout "the kept tab"
 [ "$(grep -c "^browser: loaded $p " "$log")" = 1 ] || fail "the kept tab's page loaded again"
 still_home "after ⌘↩"
 away
-send click $(pinned_row 0)
+send click $(home_row)
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the pinned row didn't show its tab"
 
 # A click on the dim closes it, and the page behind doesn't get the click.
@@ -163,7 +169,7 @@ still_home "after reopening the preview"
 # A favorite's links open it too: the pinned tab's copy, which Duplicate Tab in its menu puts at the
 # top of Today, under the pinned row, the divider and "+ New Tab", dragged onto the Space's name.
 away
-post rightclick $(pinned_row 0)
+post rightclick $(home_row)
 expect "^browser: menu shown $(cased '.*Duplicate Tab')" "a right-click on the pinned row didn't show its menu"
 send choose "$(cased 'Duplicate Tab')"
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
@@ -177,12 +183,12 @@ send dragto 114 112
 expect '^browser: drag shape tile$' "the copy's row dragged onto the Space's name didn't turn into a tile"
 send release 114 112
 expect "^browser: favorites $b\$" "the copy's row didn't become a favorite: \"$(grep '^browser: favorites' "$log" | tail -1)\""
+tiles=47
 open_preview "from the favorite"
 send key escape
 expect "^browser: tab $p closed\$" "Esc didn't close the favorite's preview"
-# The favorite's row of tiles takes the Space's rows 47 down.
 away
-send click 100 $(($(pinned_row 0 | cut -d' ' -f2) + 47))
+send click $(home_row)
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the pinned row didn't show its tab"
 
 # A call's link skips the preview and opens as a tab at the top of Today in the Space shown, which
@@ -204,7 +210,7 @@ none_since '^browser: link preview [1-9]' || fail "the Meet link opened in a pre
 ../tools/window-screenshot.sh "$pid" "$out/preview-meeting.png" || fail "no window to capture"
 grep -q "^browser: loaded $a http://meet.google.com" "$log" && fail "the Meet link loaded in the pinned tab"
 away
-send click $(pinned_row 0)
+send click $(home_row)
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the pinned row didn't show its tab"
 link_to site
 
