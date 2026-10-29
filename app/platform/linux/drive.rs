@@ -541,9 +541,14 @@ fn hover(to: Target, state: u16) -> Option<()> {
     Some(())
 }
 
-/// Sends a press of `button`, 1 the left, 3 the right and 4 to 7 the wheel's, or its release, at
-/// `at`, with `state` the modifiers and the buttons held before it.
+/// Sends a press of `button`, 1 the left, 2 the middle, 3 the right and 4 to 7 the wheel's, or its
+/// release, at `at`, with `state` the modifiers and the buttons held before it.
 fn button(at: Target, button: u8, press: bool, state: u16) -> Option<()> {
+    // A press in another window moves there first, as a hand's pointer does: GPUI hovers what's
+    // under the pointer only on a move, so without one its leave would unhover nothing.
+    if press && HOVERED.get().map(|from| from.window) != Some(at.window) {
+        motion(at, state)?;
+    }
     hover(at, state)?;
     let x = server()?;
     let (connection, root) = &*x;
@@ -596,8 +601,8 @@ fn motion(at: Target, state: u16) -> Option<()> {
     connection.flush().ok()
 }
 
-/// A click of `which` (1 the left, 3 the right, 4 to 7 the wheel's) at `at`, the second of a
-/// double click with `again`.
+/// A click of `which` (1 the left, 2 the middle, 3 the right, 4 to 7 the wheel's) at `at`, the
+/// second of a double click with `again`.
 fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
     first_press(at, which, again);
     button(at, which, true, state)?;
@@ -1112,10 +1117,14 @@ fn run_command(line: &str) -> Option<()> {
             }
             connection.flush().ok()
         }
-        "click" | "rightclick" | "doubleclick" => {
+        "click" | "rightclick" | "middleclick" | "doubleclick" => {
             let (x, y) = point(&mut words)?;
             let at = target_at(x, y)?;
-            let which = if action == "rightclick" { 3 } else { 1 };
+            let which = match action {
+                "rightclick" => 3,
+                "middleclick" => 2,
+                _ => 1,
+            };
             click(at, which, click_modifiers(words), false)?;
             if action == "doubleclick" {
                 click(at, 1, none, true)?;
