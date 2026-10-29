@@ -13,7 +13,7 @@ use gpui::{
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, drm_note, extensions, keys,
+    clean_link, drm_note, extensions, keys, sidebar_keys,
     panes::pane_frames,
     swap::{CHECK, LINK},
     user_keys,
@@ -62,6 +62,8 @@ pub enum Command {
     ExpandPinned,
     /// Shows the sidebar's row of the tab shown: opens its folders and scrolls the list to it.
     RevealTab,
+    /// Gives the sidebar the keyboard, its arrows moving over the rows (sidebar_keys.rs).
+    FocusSidebar,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
     /// Mutes the selected tab, or unmutes it.
@@ -291,6 +293,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Collapse Pinned Tabs", Command::CollapsePinned, &["hide pinned"]),
     ("Expand Pinned Tabs", Command::ExpandPinned, &["show pinned"]),
     ("Reveal Tab in Sidebar", Command::RevealTab, &["locate"]),
+    ("Focus Sidebar", Command::FocusSidebar, &["keyboard", "arrow keys"]),
     ("New Folder…", Command::NewFolder, &[]),
     ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
     ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
@@ -585,6 +588,7 @@ impl Command {
             Command::CollapsePinned => "collapse-pinned",
             Command::ExpandPinned => "expand-pinned",
             Command::RevealTab => "reveal-tab",
+            Command::FocusSidebar => "focus-sidebar",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::ToggleMute => "toggle-mute",
             Command::Clear => "clear",
@@ -692,6 +696,7 @@ pub fn bind_keys(cx: &mut App) {
     });
     extensions::bind(cx);
     drm_note::bind(cx);
+    sidebar_keys::bind(cx);
 }
 
 /// The command bar is about to show a page in the pane being added, if one is: the pages shown take
@@ -801,6 +806,7 @@ impl Shell {
             Command::CollapsePinned => return self.set_pinned_open(false, cx),
             Command::ExpandPinned => return self.set_pinned_open(true, cx),
             Command::RevealTab => return self.reveal_tab(cx),
+            Command::FocusSidebar => return self.focus_sidebar(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
             Command::Clear => return self.clear(cx),
@@ -1163,6 +1169,10 @@ impl Shell {
             }),
             Command::ExpandPinned => {
                 self.shown_space().is_some_and(|space| space.folders.pinned_shut)
+            }
+            // The Library and a page's full screen keep the sidebar away.
+            Command::FocusSidebar => {
+                self.library.is_none() && !self.page_fullscreen && !self.sidebar_rows().is_empty()
             }
             Command::Clear => !self.today().is_empty(),
             Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),

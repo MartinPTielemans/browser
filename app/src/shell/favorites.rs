@@ -451,6 +451,7 @@ impl Shell {
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+            .children(self.keyed_ring(tab, TILE_RADIUS))
     }
 
     /// A left press on `tab`'s tile, which may become a drag.
