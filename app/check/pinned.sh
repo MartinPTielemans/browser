@@ -264,9 +264,9 @@ send key z cmd
 expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo the pinned URL typed"
 expect "^browser: page $c away 1\$" "⌘Z didn't give the pinned tab back the pinned URL Edit… replaced"
 # ⌘-click on its favicon goes back too, keeping the page it's at in a new tab at the top of Today,
-# opened first, which shows (Arc).
+# opened first, which shows (Arc). It's the tab shown, so its ✕ is −.
 send move $(pinned_favicon 0)
-expect "^browser: hover tab $c close [01] favicon $c\$" \
+expect "^browser: hover tab $c close − favicon $c\$" \
   "the pointer on the pinned tab's favicon wasn't drawn"
 send click $(pinned_favicon 0) cmd
 expect '^browser: command back-to-pinned-url-keeping-page via sidebar$' \
