@@ -3843,6 +3843,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Reveal Tab in Sidebar", Command::RevealTab),
                 MenuItem::separator(),
                 item("Clear Today", Command::Clear),
+                item("Reset all tabs in this Space", Command::ResetSpaceTabs),
             ],
         ),
         menu(
