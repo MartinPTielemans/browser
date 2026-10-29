@@ -7,6 +7,7 @@ ours/chromium-core-link-linux.patch
 ours/chromium-core-wayland.patch
 ours/chromium-core-main.patch
 ours/chromium-core-browser-window.patch
+ours/chromium-core-tab-background.patch
 ours/chromium-core-embedded-view.patch
 ours/chromium-core-navigate.patch
 ours/chromium-core-devtools-dock.patch
