@@ -197,6 +197,13 @@ last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
 # returns once frames are being written, so the motion driven next is in it, and recorded waits
 # for the file.
 record() {
+  recorder=
+  # tools/window-record.sh records with the Mac's ScreenCaptureKit; elsewhere the steps run
+  # unrecorded.
+  if [ "$(uname)" != Darwin ]; then
+    echo "skip: recording $1 on $(uname): tools/window-record.sh is the Mac's"
+    return 0
+  fi
   recording="$out/$1.mp4"
   ../tools/window-record.sh "$pid" "$2" "$recording" > "$out/$1-record.log" 2>&1 &
   recorder=$!
@@ -209,6 +216,7 @@ record() {
   fail "the window's recording didn't start in 30 s"
 }
 recorded() {
+  [ -n "$recorder" ] || return 0
   wait "$recorder" || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
 }
 # The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
