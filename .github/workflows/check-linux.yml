@@ -10,7 +10,7 @@ name: Check on Linux
 
 on:
   push:
-    branches: [main, ci/linux-check-2]
+    branches: [main, ci/linux-check-2, ci/linux-check-2-1]
     paths-ignore: ['**/*.md', docs/**]
   workflow_dispatch:
     inputs:
