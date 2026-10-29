@@ -192,6 +192,9 @@ typedef struct bc_extension {
   // Whether the user allowed it in Incognito, as Chrome's extensions page does: it runs in private
   // windows, where the others don't, and its action and commands work there.
   bool incognito;
+  // Whether the browser turned it off as its process crashed twice and the user hasn't been told
+  // (bc_extension_crash_told). It stays set across launches until they are.
+  bool crashed;
 } bc_extension;
 
 // An extension's action as a window shows it, for the tab it shows.
@@ -1386,6 +1389,14 @@ BC_EXPORT void bc_extension_set_pinned(bc_id profile, const char* id, bool pinne
 // user confirms, so the app asks first. Returns false if it can't be removed, as one that policy
 // installed or the ad blocker the browser comes with. Then extensions_changed.
 BC_EXPORT bool bc_extension_remove(bc_id profile, const char* id);
+
+// The user was told the browser turned the extension off as it crashed (bc_extension.crashed), so
+// it isn't reported crashed again. Then extensions_changed.
+BC_EXPORT void bc_extension_crash_told(bc_id profile, const char* id);
+
+// Turns the extension on again, as Chrome's extensions page's switch does, its crashes counted
+// from none. Returns whether it's on. Then extensions_changed.
+BC_EXPORT bool bc_extension_turn_on(bc_id profile, const char* id);
 
 // Answers the question window_extension_question put, accepting it or not, if it's still asked:
 // the extension installs, is turned on again or gets the permissions, or not. Then

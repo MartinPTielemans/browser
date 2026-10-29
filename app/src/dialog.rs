@@ -383,6 +383,11 @@ pub fn asking(cx: &App) -> bool {
         .is_some_and(|dialog| dialog.asked.is_some())
 }
 
+/// Whether `pose` asks now: there's a dialog to ask in, and it isn't asking another question.
+pub fn can_pose(cx: &App) -> bool {
+    cx.try_global::<DialogWindow>().is_some() && !asking(cx)
+}
+
 /// Asks `message`, with `detail` under it, and calls `confirmed` if the user chooses `action`
 /// over Cancel, once the dialog has gone. The action is red, as what it does is hard to take
 /// back. Nothing while another dialog shows.

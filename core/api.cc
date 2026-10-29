@@ -965,6 +965,17 @@ bool bc_extension_remove(bc_id profile_id, const char* id) {
   return profile && id && browser_core::RemoveExtension(profile, id);
 }
 
+void bc_extension_crash_told(bc_id profile_id, const char* id) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && id) {
+    browser_core::ExtensionCrashTold(profile, id);
+  }
+}
+
+bool bc_extension_turn_on(bc_id profile_id, const char* id) {
+  Profile* profile = LoadedProfile(profile_id);
+  return profile && id && browser_core::TurnOnExtension(profile, id);
+}
+
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window && id && window->RunExtension(id, ToRect(anchor));

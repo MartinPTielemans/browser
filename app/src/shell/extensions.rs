@@ -43,6 +43,8 @@ pub struct Extension {
     pub removable: bool,
     /// The user allowed it in Incognito, so it runs in private windows too.
     pub incognito: bool,
+    /// The browser turned it off as it crashed twice, and the user hasn't been told.
+    pub crashed: bool,
 }
 
 impl Extension {
@@ -538,6 +540,57 @@ impl Shell {
             cx,
         );
     }
+
+    /// Tells the user, in the browser's dialog, of an extension of `profile`'s that the browser
+    /// turned off as it crashed twice: Turn On Again turns it on, Keep Off leaves it off, and
+    /// Remove… asks to remove it. The core hears once it's been told, so it asks once, and it asks
+    /// at the next launch if the dialog was busy or the browser went first.
+    pub fn tell_crashed_extension(&mut self, profile: u64, cx: &mut Context<Self>) {
+        let extensions = self.extensions.get(&profile).map_or(&[][..], Vec::as_slice);
+        let Some(extension) = extensions.iter().find(|extension| extension.crashed).cloned() else {
+            return;
+        };
+        let Extension { id, name, removable, .. } = extension;
+        let shell = cx.weak_entity();
+        let also = removable.then(|| {
+            let (id, name) = (id.clone(), name.clone());
+            let remove: Box<dyn FnOnce(&mut App)> = Box::new(move |cx| {
+                shell.update(cx, |shell, cx| shell.remove_extension(profile, id, name, cx)).ok();
+            });
+            (SharedString::from("Remove…"), remove)
+        });
+        let question = crate::dialog::Question {
+            icon: None,
+            message: format!("“{name}” was turned off").into(),
+            detail: "It crashed twice, so the browser turned it off. It stays off until you turn \
+                     it on again."
+                .into(),
+            list: Vec::new(),
+            action: "Turn On Again".into(),
+            cancel: "Keep Off".into(),
+            tone: crate::dialog::Tone::Accent,
+            also,
+            fields: Vec::new(),
+            check: None,
+            return_cancels: false,
+        };
+        let browser = self.browser.clone();
+        let turn_on = id.clone();
+        let asked = self.browser.tell(
+            question,
+            Box::new(move |cx| {
+                let on = browser.turn_on_extension(profile, &turn_on, cx);
+                // check.sh waits for this line.
+                log!("browser: turn on extension {turn_on} {}", if on { "on" } else { "refused" });
+            }),
+            cx,
+        );
+        if asked {
+            self.browser.extension_crash_told(profile, &id, cx);
+            // check.sh waits for this line.
+            log!("browser: told extension {id} crashed");
+        }
+    }
 }
 
 /// The command `keystroke` runs among the `extensions`' that run in a window, `private` or not,
@@ -643,7 +696,43 @@ mod tests {
                 .collect(),
             removable: true,
             incognito: false,
+            crashed: false,
         }
+    }
+
+    /// An extension the browser turned off as it crashed twice is told of once, in the browser's
+    /// dialog, whose Turn On Again turns it on; with the dialog busy, it waits to be told.
+    #[gpui::test]
+    fn a_crashed_extension_is_told_of_once_and_turns_on_again(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        let crashed = Extension { crashed: true, ..extension("wallet", false, &[]) };
+        host.dialog_busy.set(true);
+        shell.update(cx, |shell, cx| {
+            shell.set_extensions(3, vec![extension("notes", true, &[]), crashed.clone()], cx);
+            shell.tell_crashed_extension(3, cx);
+        });
+        assert!(host.told.borrow().is_empty());
+        assert!(!host.take().iter().any(|call| call.starts_with("crash told")));
+
+        host.dialog_busy.set(false);
+        shell.update(cx, |shell, cx| shell.tell_crashed_extension(3, cx));
+        assert_eq!(
+            *host.told.borrow(),
+            ["“wallet” was turned off: Turn On Again / Keep Off / Remove…"]
+        );
+        assert!(host.take().contains(&"crash told 3 wallet".to_string()));
+        let turn_on = host.told_action.borrow_mut().take().expect("its action");
+        cx.update(turn_on);
+        assert!(host.take().contains(&"turn on 3 wallet".to_string()));
+
+        // Told, the core reports it no longer crashed, and nothing asks again.
+        shell.update(cx, |shell, cx| {
+            let told = Extension { crashed: false, ..crashed };
+            shell.set_extensions(3, vec![told], cx);
+            shell.tell_crashed_extension(3, cx);
+        });
+        assert_eq!(host.told.borrow().len(), 1);
     }
 
     /// The browser's own ad blocker comes back at each launch, so its menu offers no Remove: the
