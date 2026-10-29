@@ -195,6 +195,9 @@ pub trait Browser {
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);
+    /// Opens Chrome's Clear browsing data dialog in a tab of the Space shown, for its profile. The
+    /// user's, as site_search_settings is.
+    fn clear_browsing_data(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;

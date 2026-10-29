@@ -1132,7 +1132,7 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::JavaScriptConsole, Command::ManageExtensions, Command::RenameSpace,
         Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
         Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
-        Command::Import, Command::NewSpace, Command::SiteSearchSettings,
+        Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::ClearBrowsingData,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {
@@ -1299,6 +1299,7 @@ fn clear_lists_clear_today_first_and_collapse_last(cx: &mut TestAppContext) {
         "Clear Cache and Refresh".into(),
         "Clear Cookies and Refresh".into(),
         "Clear Archive".into(),
+        "Clear Browsing Data… ⇧⌘⌫".into(),
         "https://clearhaus.com/".into(),
         "Collapse All Folders".into(),
     ];
