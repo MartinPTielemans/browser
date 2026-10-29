@@ -74,7 +74,16 @@ updates_check() {
     ../tools/window-screenshot.sh "$pid" "$out/updates-menu.png" all || fail "no window to capture"
     send dismiss
     send menu Check for Updates…
-    expect "^browser: update $next found\$" "Check for Updates… didn't find the feed's update"
+    # Found, or Sparkle's reason it isn't: none, with the feed's newest build, or failed.
+    expect "^browser: update \($next found\|none:\|failed:\)" \
+      "Check for Updates… didn't end: no update found, none or failed"
+    if ! grep -q "^browser: update $next found\$" "$log"; then
+      # Sparkle's own log, which says more, such as an item it couldn't parse.
+      /usr/bin/log show --last 5m --style compact \
+        --predicate 'subsystem == "org.sparkle-project.Sparkle"' > "$out/updates-sparkle.txt" 2>&1
+      fail "Check for Updates… didn't find build $next: $(grep '^browser: update \(none\|failed\):' \
+        "$log"). Sparkle's log: $out/updates-sparkle.txt"
+    fi
     expect "^browser: update $next shown\$" "Sparkle didn't show the update it found"
     expect "^browser: update $next notes A check update, from the updates run's own feed\.\$" \
       "the update's alert didn't show its notes"
