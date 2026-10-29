@@ -6,14 +6,15 @@
 // run that has one has every part.
 //
 //   node tree.mjs save <root> <path>...   saves <path>s, relative to <root>
-//   node tree.mjs restore <root> <run>    unpacks run <run>'s tree into <root>
+//   node tree.mjs restore <root> <run>    unpacks run <run>'s tree into <root>, and gives the step
+//                                         the commit it was saved from as its output `commit`
 //
 // TREE_NAME names the artifacts, mac-tree by default. TREE_RETENTION_DAYS sets how long they stay,
 // 90 by default, the most a public repository keeps them. Restoring from another run needs GITHUB_TOKEN with actions: read.
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
-import {mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {appendFile, mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {DefaultArtifactClient} from '@actions/artifact';
 
@@ -21,7 +22,7 @@ const NAME = process.env.TREE_NAME ?? 'mac-tree';
 const PREFIX = `${NAME}.tar.zst.`;
 const MANIFEST = `${NAME}.manifest`;
 // 4 GB parts: a 50 GB tree in 13, well under a job's 500 artifacts.
-const PART_BYTES = 4 << 30;
+const PART_BYTES = 4 * 2 ** 30;
 const artifacts = new DefaultArtifactClient();
 const work = join(process.env.RUNNER_TEMP ?? '/tmp', 'mac-tree');
 const seconds = start => Math.round((Date.now() - start) / 1000);
@@ -100,7 +101,7 @@ async function restore(root, runId) {
     return join(dir, name);
   };
   await rm(work, {recursive: true, force: true});
-  const {parts} = JSON.parse(await readFile(await download(MANIFEST), 'utf8'));
+  const {parts, commit} = JSON.parse(await readFile(await download(MANIFEST), 'utf8'));
   await mkdir(root, {recursive: true});
   const unpack = run('zstd -q -d -T0 | tar -C "$1" -xf -', [root], ['pipe', 'inherit', 'inherit']);
   let next = download(parts[0].name);
@@ -118,7 +119,8 @@ async function restore(root, runId) {
   }
   unpack.child.stdin.end();
   await unpack.done;
-  console.log(`tree: restored ${parts.length} parts in ${seconds(start)} s`);
+  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `commit=${commit}\n`);
+  console.log(`tree: restored ${parts.length} parts, saved from ${commit}, in ${seconds(start)} s`);
 }
 
 const [mode, root, ...rest] = process.argv.slice(2);

@@ -17,6 +17,11 @@ permissions:
   contents: read
   actions: read
 
+# bash with pipefail, so a step whose output goes through tee fails when its command does.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   save:
     strategy:
@@ -52,7 +57,7 @@ jobs:
           brew install -q go esbuild typescript coreutils uv
           brew_s=$((SECONDS - start))
           start=$SECONDS
-          xcodebuild -downloadComponent MetalToolchain > /dev/null && metal="$(xcrun metal --version | head -1)" || metal="no Metal toolchain"
+          xcodebuild -downloadComponent MetalToolchain > /dev/null 2>&1 && metal="$(xcrun metal --version | head -1)" || metal="no Metal toolchain"
           echo "brew install: $brew_s s; Metal toolchain: $((SECONDS - start)) s, $metal" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # What a build never uses, in the order a run would remove it, with the disk free after each.
@@ -71,14 +76,15 @@ jobs:
           echo "without the tool cache and .NET: $(free) GB, in $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Memory past the 7 GB, as a link that outgrows it would use it: pages written and read
-      # back, timed. macOS swaps to the disk as it needs.
+      # back, timed. macOS swaps to the disk as it needs. The pages are random, as a linker's are
+      # near enough, so its memory compressor can't fit them in less.
       - name: Memory
         run: |
           for gb in 5 10 14; do
             start=$SECONDS
             node --max-old-space-size=32768 -e '
-              const bufs = [];
-              for (let i = 0; i < Number(process.argv[1]); i++) { const b = Buffer.alloc(1 << 30, i); bufs.push(b); }
+              const random = require("crypto").randomBytes(2 ** 30), bufs = [random];
+              for (let i = 1; i < Number(process.argv[1]); i++) bufs.push(Buffer.from(random));
               let sum = 0; for (const b of bufs) for (let j = 0; j < b.length; j += 4096) sum += b[j];
               console.log(sum);' "$gb" > /dev/null && result=ok || result="failed ($?)"
             echo "$gb GB written and read back: $result in $((SECONDS - start)) s, then $(sysctl -n vm.swapusage)" | tee -a "$GITHUB_STEP_SUMMARY"
