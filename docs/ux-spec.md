@@ -197,7 +197,7 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 
 - ⌘-click opens a background tab. ⇧⌘-click opens a foreground tab. ⇧-click opens a new window. Middle-click opens a background tab.
 - ⌥-click downloads. ⌥⇧-click opens a split pane (Dia), and so does ⌥⌘-click (Chrome).
-- ⌘-click on back, forward or reload opens the result in a background tab.
+- ⌘-click or middle-click on back, forward or reload opens the result in a background tab under the tab (Arc), at the page back or forward goes to, or the tab's own page for reload. It loads once it's shown, as ilo's background tabs do, where Chrome's loads at once.
 - Double-click a tab to rename it.
 
 ### Menus
@@ -273,6 +273,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Narrow sidebar | reload goes first, then forward; back and forward stay together | Ardia, from Arc users |
 | Nav glyphs | white 0.60. In an inactive window all of them dim as a disabled one does. Reload turns to stop, ✕, while the page loads | Arc 1.170.0 cap |
 | Back, forward or reload when disabled | white 0.26, against the others' 0.60. Reload is disabled while no page is shown | Arc 1.170.0 cap |
+| Back and forward's history | a right-click, or a press held 0.5 s, on back or forward lists the tab's pages that way in ilo's menu at the pointer, nearest first, each with its 16 pt favicon (a globe without one) and its title (its URL without one); picking one goes there, and letting go of the hold doesn't go back too (Arc). Up to six each way, the pages a session keeps, so ⌘-click reaches each one. The hold is Chrome's, *interim*: Arc's isn't measured. A tab whose page is in Safari's engine lists none, as WebKit keeps that history | Arc help centre, Chrome |
 | Nav glyph size | Arc's, as drawn: the sidebar glyph 18.5 × 14.5, back and forward 14.5 × 12, reload 14 wide and 17 tall with its arrowhead, all with strokes ≈ 1.75 pt. Centred on the plate, the sidebar glyph 0.25 right and down, back and forward 0.25 left and 0.5 down. Ours: our own sidebar and arrow glyphs at those sizes, and Lucide's reload at Arc's width (14 × 14) | Arc 1.170.0 cap |
 | URL field top | 46 below the window top | Arc 1.170.0 cap, Arc (Ardia) P§4 |
 | URL field height, radius, fill, font | 36 tall, 8 in from the sidebar's sides, radius 12, white 0.10, and 0.20 under the pointer, the ladder's hover over it, as a tile (ours: Arc's isn't measured). The text is 13 pt system regular in white 0.60, its glyphs from x 21.5; ours draws the same glyphs at the same place | Arc 1.170.0 cap |

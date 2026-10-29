@@ -19,7 +19,7 @@ use gpui::{
     AnyWindowHandle, App, Bounds, Context, FocusHandle, Hsla, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Radians, Role, SharedString,
     Task, TitlebarOptions, Transformation, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, linear_color_stop, linear_gradient, point, prelude::*, px,
+    WindowHandle, WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point, prelude::*, px,
     Rgba, rgb, rgba, size, svg,
 };
 
@@ -193,6 +193,8 @@ fn panel_width(entries: &[MenuEntry], items: &[usize], checks: bool, width_of: &
     let lead = if checks { CHECK + GAP } else { 0. };
     let swatches = items.iter().any(|&at| entries[at].swatch.is_some());
     let lead = lead + if swatches { SWATCH + GAP } else { 0. };
+    let pages = items.iter().any(|&at| entries[at].page);
+    let lead = lead + if pages { FAVICON + GAP } else { 0. };
     let chevron = if submenus { GAP + CHEVRON } else { 0. };
     (2. * (PADDING + ROW_X) + lead + widest + chevron).clamp(MIN_WIDTH, MAX_WIDTH)
 }
@@ -1138,6 +1140,15 @@ impl ContextMenu {
                 .bg(gradient)
                 .when_some(ring, |dot, ring| dot.border_1().border_color(ring))
         });
+        let favicon = entry.page.then(|| match entry.favicon.clone() {
+            Some(favicon) => img(favicon).size(px(FAVICON)).flex_none().into_any_element(),
+            None => svg()
+                .path("icons/globe.svg")
+                .size(px(FAVICON))
+                .flex_none()
+                .text_color(secondary)
+                .into_any_element(),
+        });
         let trailing = match (&shortcut, submenu) {
             (_, true) => Some(
                 svg()
@@ -1175,6 +1186,7 @@ impl ContextMenu {
             })
             .children(check)
             .children(swatch)
+            .children(favicon)
             .child(div().flex_1().min_w_0().truncate().text_color(label).child(entry.title.clone()))
             .children(trailing)
             .when(a11y, |row| {

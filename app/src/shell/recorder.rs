@@ -422,6 +422,18 @@ impl Browser for Recorder {
         self.record(format!("forward {tab}"))
     }
 
+    fn tab_history(&self, tab: u64, forward: bool, _: &mut App) {
+        self.record(format!("history {tab} {}", if forward { "forward" } else { "back" }))
+    }
+
+    fn go_to_history(&self, tab: u64, offset: i32, _: &mut App) {
+        self.record(format!("go to {offset} in {tab}"))
+    }
+
+    fn open_history(&self, tab: u64, offset: i32, _: &mut App) {
+        self.record(format!("open {offset} of {tab} in the background"))
+    }
+
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
         self.record(format!("reload {tab}{}", if bypass_cache { " bypassing cache" } else { "" }))
     }
