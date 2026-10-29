@@ -154,6 +154,11 @@ fn dismiss(kind: Kind) {
 }
 
 fn left_popover(view: *mut c_void) {
+    // To ilo's menu over them, a value's, which gives the keyboard back as it closes.
+    if crate::menu_window::over(view) {
+        gpui_linux::set_overlay_keyboard(view, true, left_popover);
+        return;
+    }
     let kind = POPOVERS.with_borrow(|all| {
         (all.iter())
             .find(|each| each.view == view && each.shown.is_some())
@@ -162,6 +167,17 @@ fn left_popover(view: *mut c_void) {
     if let Some(kind) = kind {
         dismiss(kind);
     }
+}
+
+/// The browser window the Site Controls or Capture of `view` show over, by its UI's view, and
+/// where in its content, if they show: ilo's menu shows over them there (overlays::placed).
+pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter())
+            .find(|each| each.view == view)
+            .and_then(|each| each.shown)
+            .map(|shown| (shown.ui_view, shown.bounds))
+    })
 }
 
 /// The views of the Site Controls and Capture while they show and take clicks, for the test
