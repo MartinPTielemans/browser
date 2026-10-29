@@ -17,19 +17,29 @@ exec 3> "$out/drive"
 await_load
 first=$(space)
 user_tab=$(today | cut -d' ' -f1)
-# The Space is made with the Spaces menu open, which holds the menu bar back until the menu
-# closes, as AppKit can crash when the main menu is replaced under an open menu.
-post openmenu Spaces
-expect '^browser: menu tracked New Space…' "the Spaces menu didn't open"
+# On the Mac the Space is made with the Spaces menu open, which holds the menu bar back until the
+# menu closes, as AppKit can crash when the main menu is replaced under an open menu. Linux shows
+# no menu bar.
+mac=
+made="a Space made for an agent reaches the Spaces menu"
+if [ "$(uname)" = Darwin ]; then
+  mac=1
+  made="a Space made with the Spaces menu open reaches the menu bar once it closes"
+  post openmenu Spaces
+  expect '^browser: menu tracked New Space…' "the Spaces menu didn't open"
+fi
 post agentspace claude-code Claude Code
 expect '^browser: made space [1-9][0-9]* for agent claude-code$' "the driver didn't make the agent's Space"
 agent=$(grep '^browser: made space' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: added space $agent Claude Code\$" "the agent's Space didn't reach the switcher"
 expect "^browser: agent space $agent Claude Code\$" "the switcher didn't hear whose the Space is"
-expect '^browser: menu bar waits for the menu open$' "the menu bar was replaced under the open menu"
-none_since '^browser: menu bar put up' || fail "the menu bar was put up with the menu still open"
-post dismiss
-expect '^browser: menu bar put up once the menus closed$' "the menu bar didn't come once the menu closed"
+if [ -n "$mac" ]; then
+  expect '^browser: menu bar waits for the menu open$' "the menu bar was replaced under the open menu"
+  none_since '^browser: menu bar put up' || fail "the menu bar was put up with the menu still open"
+  post dismiss
+  expect '^browser: menu bar put up once the menus closed$' \
+    "the menu bar didn't come once the menu closed"
+fi
 send menubar Spaces
 expect '^browser: menu bar Spaces: .*Claude Code' "the Spaces menu didn't list the Space made while it was open"
 grep -q "^browser: agent space $first " "$log" && fail "the user's Space is an agent's"
@@ -111,7 +121,7 @@ if [ "$driven" = 1 ]; then
 fi
 quit
 if [ "$driven" = 1 ]; then
-  echo "ok: a Space made with the Spaces menu open reaches the menu bar once it closes; an agent's Space shows and switches as the user's, keeps the user's tabs out, clears its mark as each session ends, and comes back the agent's"
+  echo "ok: $made; an agent's Space shows and switches as the user's, keeps the user's tabs out, clears its mark as each session ends, and comes back the agent's"
 else
-  echo "ok: a Space made with the Spaces menu open reaches the menu bar once it closes; an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
+  echo "ok: $made; an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
 fi
