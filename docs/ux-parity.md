@@ -181,6 +181,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Commands | MVP | found by name, with their shortcuts; one whose name starts with what's typed comes first | Arc 1.170.0 cap |
 | [x] | Row icons | MVP | a clock for a page only in history; a favicon for an open tab or a site; a glyph for each command, Lucide's | Arc 1.170.0 cap |
 | [x] | Empty text | MVP | the Space's open tabs with Switch to Tab, most recently shown first; Arc's recents and commands under them: measure | Arc 1.170.0 cap |
+| [ ] | Remove a suggestion | MVP | a ✕ under the pointer on a page from history or a search typed before, and ⌥⌘⌫ beside ⇧⌦, take it out; none on default suggestions. Built, and checked by `cargo test`: the ✕ as Lucide's in the arrow's tile *interim*, ⌥⌘⌫ on the Mac only. Arc's look: measure. To tick: a capture of the ✕ under the pointer and a driven removal on the Mac, not written yet | Arc's help centre, Chrome |
 | [x] | Calculator | MVP | the row after the first; ↩ copies the result | Dia P§7 |
 | [x] | Paste and Go | MVP | with Paste and Search, in the command bar field's menu; the clipboard is read only once one is chosen | Dia P§7 |
 | [x] | Clean-link copy | MVP | Copy URL leaves out utm_ parameters and click IDs | Dia P§7 |
