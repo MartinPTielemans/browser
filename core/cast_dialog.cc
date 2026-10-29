@@ -73,7 +73,8 @@ void CastDialog::Open(bc_id tab) {
   if (!contents || !media_router::MediaRouterEnabled(contents->GetBrowserContext())) {
     return;
   }
-  GetOrCreateForWebContents(contents)->ShowMediaRouterDialog(
+  // Chrome's, through the factory Install set, as WebContentsUserData has one of its own.
+  MediaRouterDialogController::GetOrCreateForWebContents(contents)->ShowMediaRouterDialog(
       media_router::MediaRouterDialogActivationLocation::APP_MENU);
 }
 
