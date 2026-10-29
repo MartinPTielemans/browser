@@ -1279,7 +1279,7 @@ fn voiceover_hears_the_selected_row_as_the_keys_move_it(cx: &mut TestAppContext)
 struct MenuWindow;
 
 impl crate::menu::Host for MenuWindow {
-    fn show(&self, _: gpui::Bounds<gpui::Pixels>) {}
+    fn show(&self, _: gpui::Bounds<gpui::Pixels>, _: &[gpui::Bounds<gpui::Pixels>]) {}
     fn hide(&self) {}
 }
 
