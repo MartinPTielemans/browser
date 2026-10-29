@@ -1,0 +1,318 @@
+# The engine on the Mac, built on GitHub's free arm64 macOS runners and published as a release
+# fetch.sh downloads. A runner starts empty, so each run restores the tree the last one saved (the
+# source and its build, with their dates, at the same path) and ninja recompiles only what changed.
+# A runner has 6 hours, so the build runs in stages that each build until an hour is left and hand
+# the tree to the next as artifacts (engine-mac-tree/tree.mjs), as ungoogled-chromium-macos's CI
+# did before it moved to paid runners. Only the first build, or one with `fresh`, starts from
+# nothing, and that takes most of its 18 stages. Run by hand.
+name: Engine on the Mac
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to build, the branch's head by default
+        type: string
+        default: ''
+      fresh:
+        description: Start from nothing, not from the last tree
+        type: boolean
+        default: false
+      build_minutes:
+        description: Build for at most this long in each stage, to try the stages
+        type: string
+        default: ''
+  # While it's tried, before workflow_dispatch can run it from main: a push to this branch runs the
+  # stages for BUILD_MINUTES each.
+  push:
+    branches: [ci/mac-engine-hosted-2]
+
+# One build at a time: two would each start from the same tree.
+concurrency:
+  group: engine-mac
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The Xcode with the SDK Chromium 156's official builds use (setup.sh). Another would move the
+  # SDK's dates and its path, and the whole tree would recompile.
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+  # A job a core. The runner has 3 cores and 7 GB: build.sh's job per 3 GB would leave one idle, and
+  # one more would swap, which can lose the runner (engine-mac-measure.yml lost one at 10 GB of it).
+  BUILD_JOBS: 3
+  # What the stage keeps for the save after the build stops, in minutes, of the job's 6 hours.
+  SAVE_MINUTES: 60
+  BUILD_MINUTES: ${{ github.event_name == 'push' && '20' || inputs.build_minutes }}
+  FRESH: ${{ inputs.fresh }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  build-1:
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: &outputs
+      finished: ${{ steps.build.outputs.finished || join(needs.*.outputs.finished) }}
+      tree: ${{ steps.save.outputs.tree }}
+    steps: &steps
+      # With its history, where tree.sh finds the versions of our patches a kept tree from before it
+      # kept copies has in it, and the dates step finds what changed since the tree was saved.
+      - uses: actions/checkout@v4
+        if: join(needs.*.outputs.finished) != 'true'
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          fetch-depth: 0
+
+      # What a build never uses: 95 GB free becomes about 240.
+      - name: Free disk
+        if: join(needs.*.outputs.finished) != 'true'
+        run: |
+          echo "STAGE_START=$(date +%s)" >> "$GITHUB_ENV"
+          echo "COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          sudo mdutil -a -i off > /dev/null
+          sudo rm -rf "$ANDROID_HOME" ~/Library/Android "$RUNNER_TOOL_CACHE" /usr/local/share/{dotnet,powershell} ~/.dotnet ~/.ghcup
+          xcrun simctl runtime delete all > /dev/null 2>&1 || true
+          # The simulator service may still be writing its devices, which only costs what it keeps.
+          sudo rm -rf ~/Library/Developer/CoreSimulator /Library/Developer/CoreSimulator/Images || true
+          echo "free: $(df -g /System/Volumes/Data | awk 'NR == 2 { print $4 }') GB"
+
+      - name: Tools
+        if: join(needs.*.outputs.finished) != 'true'
+        run: |
+          [ -d "$DEVELOPER_DIR" ] || { echo "::error::The runner has no $DEVELOPER_DIR. Pin an Xcode it has with Chromium's SDK."; exit 1; }
+          brew install -q go esbuild typescript coreutils uv
+          xcodebuild -downloadComponent MetalToolchain > /dev/null
+          npm install -s --no-audit --no-fund --prefix .github/actions/engine-mac-tree
+
+      # The previous stage's tree, or the newest a finished run saved, unless the run starts fresh.
+      - name: Find the tree
+        id: tree
+        if: join(needs.*.outputs.finished) != 'true'
+        run: |
+          name=${{ join(needs.*.outputs.tree) }} run=
+          if [ -n "$name" ]; then
+            run=$GITHUB_RUN_ID
+          elif [ "$FRESH" != true ]; then
+            name=mac-tree
+            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mac-tree.manifest&per_page=20" \
+              --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')
+          fi
+          [ -n "$run" ] || echo "::notice::No tree to start from: this run builds the engine from nothing."
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+      - name: Restore
+        id: restore
+        if: join(needs.*.outputs.finished) != 'true' && steps.tree.outputs.run
+        uses: ./.github/actions/engine-mac-tree
+        with:
+          mode: restore
+          root: engine/.deps
+          run: ${{ steps.tree.outputs.run }}
+          name: ${{ steps.tree.outputs.name }}
+
+      # The checkout dates every file now, newer than what the tree built from it, so the core's
+      # files that haven't changed since the tree's commit get a date older than the build.
+      - name: Dates
+        if: join(needs.*.outputs.finished) != 'true' && steps.restore.outputs.commit
+        run: |
+          tree=${{ steps.restore.outputs.commit }}
+          git cat-file -e "$tree^{commit}" 2>/dev/null ||
+            { echo "::notice::The tree's commit ${tree::12} isn't in this clone, so the whole core recompiles."; exit 0; }
+          git diff --name-only "$tree" HEAD -- core | sort > "$RUNNER_TEMP/changed"
+          comm -23 <(git ls-files core | sort) "$RUNNER_TEMP/changed" | tr '\n' '\0' | xargs -0 touch -h -t 200001010000
+          echo "core: $(wc -l < "$RUNNER_TEMP/changed" | tr -d ' ') files changed since the tree's commit ${tree::12}"
+
+      - name: Set up the tree
+        if: join(needs.*.outputs.finished) != 'true'
+        run: engine/setup.sh update
+
+      # Until SAVE_MINUTES of the job's 6 hours are left; ninja stops cleanly on the signal, and the
+      # next stage carries on. With what's left to build, and the most swap the build took.
+      - name: Build
+        id: build
+        if: join(needs.*.outputs.finished) != 'true'
+        run: |
+          out=engine/.deps/src/out/Release
+          left() { ninja -C "$out" -n chrome | tail -1 | sed -nE 's#^\[[0-9]+/([0-9]+)\].*#\1#p' || true; }
+          before=$(left)
+          minutes=$(((STAGE_START + (345 - SAVE_MINUTES) * 60 - $(date +%s)) / 60))
+          [ -z "$BUILD_MINUTES" ] || [ "$BUILD_MINUTES" -ge "$minutes" ] || minutes=$BUILD_MINUTES
+          [ "$minutes" -ge 1 ] || minutes=1
+          peak=$RUNNER_TEMP/swap-peak
+          echo 0 > "$peak"
+          (
+            while sleep 15; do
+              mb=$(sysctl -n vm.swapusage | sed -E 's/.*used = ([0-9]+).*/\1/')
+              [ "$mb" -le "$(cat "$peak")" ] || echo "$mb" > "$peak"
+            done
+          ) &
+          trap 'kill $!' EXIT
+          start=$SECONDS
+          code=0
+          gtimeout -k 7m -s TERM "${minutes}m" engine/build.sh || code=$?
+          case $code in
+            0) finished=true ;;
+            124) finished=false ;;
+            *) exit "$code" ;;
+          esac
+          echo "finished=$finished" >> "$GITHUB_OUTPUT"
+          {
+            echo "${{ github.job }}: built for $(((SECONDS - start) / 60)) of ${minutes} minutes, ${before:-0} steps to go before, $(left) after; swap at most $(cat "$peak") MB"
+            [ "$finished" = false ] ||
+              awk -F'\t' '$4 ~ /Chromium Framework$/ { ms = $2 - $1 } END { print "the framework'\''s last link: " int(ms / 1000) " s" }' "$out/.ninja_log"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A release named after the commit, which holds the engine's source. fetch.sh takes the newest
+      # one in the checkout's history whose core API matches the checkout's.
+      - name: Publish
+        if: steps.build.outputs.finished == 'true'
+        run: |
+          archive=$RUNNER_TEMP/Chromium-arm64.tar.xz
+          tar -cJf "$archive" --no-mac-metadata --options xz:threads=0 -C engine/.deps/src/out/Release Chromium.app
+          shasum -a 256 "$archive" | cut -d' ' -f1 > "$archive.sha256"
+          tag=engine-mac-${COMMIT::12}
+          gh release view "$tag" > /dev/null 2>&1 ||
+            gh release create "$tag" --target "$COMMIT" --title "Mac engine ${COMMIT::12}" \
+              --notes "The Mac engine (Chromium $(git config -f engine/pins.ini chromium.version), Apple silicon) built from $COMMIT, which holds its source."
+          gh release upload "$tag" --clobber "$archive" "$archive.sha256"
+          rm "$archive"*
+
+      # A finished tree is the next run's start, kept the 90 days a public repository keeps
+      # artifacts; a stage's goes to the next stage. The optimization profile is saved beside the
+      # tree, or setup.sh would download it again, newer than every object built with it.
+      - name: What to save
+        id: save
+        if: steps.build.outputs.finished
+        run: |
+          if [ "${{ steps.build.outputs.finished }}" = true ]; then
+            echo "tree=mac-tree" >> "$GITHUB_OUTPUT"
+            echo "retention=90" >> "$GITHUB_OUTPUT"
+          else
+            echo "tree=mac-tree-${{ github.job }}" >> "$GITHUB_OUTPUT"
+            echo "retention=3" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pgo=$(cat engine/.deps/src/chrome/build/mac-arm.pgo.txt)" >> "$GITHUB_OUTPUT"
+      - name: Save
+        if: steps.build.outputs.finished
+        uses: ./.github/actions/engine-mac-tree
+        with:
+          mode: save
+          root: engine/.deps
+          paths: src stamps ungoogled-chromium-macos esbuild-node downloads/${{ steps.save.outputs.pgo }}
+          name: ${{ steps.save.outputs.tree }}
+          retention: ${{ steps.save.outputs.retention }}
+          commit: ${{ env.COMMIT }}
+  build-2:
+    needs: build-1
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-3:
+    needs: build-2
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-4:
+    needs: build-3
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-5:
+    needs: build-4
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-6:
+    needs: build-5
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-7:
+    needs: build-6
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-8:
+    needs: build-7
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-9:
+    needs: build-8
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-10:
+    needs: build-9
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-11:
+    needs: build-10
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-12:
+    needs: build-11
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-13:
+    needs: build-12
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-14:
+    needs: build-13
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-15:
+    needs: build-14
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-16:
+    needs: build-15
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-17:
+    needs: build-16
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  build-18:
+    needs: build-17
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs: *outputs
+    steps: *steps
+  complete:
+    needs: build-18
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure the build finished
+        run: '[ "${{ needs.build-18.outputs.finished }}" = true ] || { echo "The build did not finish in 18 stages."; exit 1; }'
