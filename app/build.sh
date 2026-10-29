@@ -2,7 +2,8 @@
 # Builds build/Browser.app: the GPUI executable in a copy of our engine's Chromium.app, which holds
 # Chrome's framework with the core in it, and Chromium's helper apps. `build.sh prod` builds the
 # copy for daily use instead, which tools/install.sh installs: the user's profile, the real
-# Keychain and the product's bundle id, on the Release engine.
+# Keychain and the product's bundle id, on the Release engine. `build.sh updates` makes the updates
+# run's copy of a built app, with Sparkle and a feed on this Mac (below).
 set -e
 cd "$(dirname "$0")"
 # On Linux, build/Browser: a copy of the engine, chrome and what it runs with, and libBrowser.so
@@ -50,6 +51,51 @@ esac
   echo "No .deps/accesskit_macos. Run ./setup.sh again, with dev for the dev engine." >&2
   exit 1
 }
+# Sparkle in the app at $1, checking the feed $2 every 8 hours for updates signed with the key $3,
+# and installing what it downloads when the app quits (docs/ux-spec.md › Updates). Its helpers for
+# sandboxed apps stay out, as this one isn't.
+add_sparkle() {
+  ditto .deps/Sparkle/Sparkle.framework "$1/Contents/Frameworks/Sparkle.framework"
+  rm -rf "$1/Contents/Frameworks/Sparkle.framework/XPCServices" \
+    "$1/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices"
+  plutil -replace SUFeedURL -string "$2" "$1/Contents/Info.plist"
+  plutil -replace SUPublicEDKey -string "$3" "$1/Contents/Info.plist"
+  plutil -replace SUEnableAutomaticChecks -bool YES "$1/Contents/Info.plist"
+  plutil -replace SUAutomaticallyUpdate -bool YES "$1/Contents/Info.plist"
+  plutil -replace SUScheduledCheckInterval -integer 28800 "$1/Contents/Info.plist"
+}
+# Fails unless there's Sparkle to add and UPDATE_PUBLIC_KEY is an EdDSA public key.
+check_update_key() {
+  [ -d .deps/Sparkle/Sparkle.framework ] || { echo "No .deps/Sparkle. Run ./setup.sh again." >&2; exit 1; }
+  python3 -I -c 'import base64, sys; sys.exit(len(base64.b64decode(sys.argv[1], validate=True)) != 32)' \
+    "$UPDATE_PUBLIC_KEY" 2>/dev/null || {
+    echo "The update key isn't an EdDSA public key: generate_keys -p prints one." >&2
+    exit 1
+  }
+}
+# The updates run's copy of build/Browser.app, build/Updates.app beside it, where the dev engine's
+# libraries are: Sparkle checks UPDATE_FEED, a feed on this Mac, for updates signed with
+# UPDATE_PUBLIC_KEY, both the run's own (check/updates.sh). Only the prod build carries the
+# product's feed and key, and only it reaches users. Its own id keeps Sparkle's settings apart
+# from every other build's, and a quit sent to it from launching another.
+if [ "${1:-}" = updates ]; then
+  case ${UPDATE_FEED:-} in
+    http://127.0.0.1:*/*) ;;
+    *)
+      echo "build.sh updates takes UPDATE_FEED on this Mac: http://127.0.0.1:<port>/…" >&2
+      exit 1
+      ;;
+  esac
+  [ -d build/Browser.app ] || { echo "No build/Browser.app. Build it with ./build.sh" >&2; exit 1; }
+  check_update_key
+  rm -rf build/Updates.app
+  cp -cR build/Browser.app build/Updates.app
+  add_sparkle build/Updates.app "$UPDATE_FEED" "$UPDATE_PUBLIC_KEY"
+  plutil -replace CFBundleIdentifier -string dev.browser.app.updates \
+    build/Updates.app/Contents/Info.plist
+  echo build/Updates.app
+  exit 0
+fi
 engine_out=$(dirname "$(cd .deps/Chromium.app && pwd -P)")
 id=dev.browser.app
 features=
@@ -67,14 +113,7 @@ if [ "${1:-}" = prod ]; then
   if [ -z "${UPDATE_PUBLIC_KEY:-}" ] && [ -f branding/update-key ]; then
     UPDATE_PUBLIC_KEY=$(tr -d '[:space:]' < branding/update-key)
   fi
-  if [ -n "${UPDATE_PUBLIC_KEY:-}" ]; then
-    [ -d .deps/Sparkle/Sparkle.framework ] || { echo "No .deps/Sparkle. Run ./setup.sh again." >&2; exit 1; }
-    python3 -I -c 'import base64, sys; sys.exit(len(base64.b64decode(sys.argv[1], validate=True)) != 32)' \
-      "$UPDATE_PUBLIC_KEY" 2>/dev/null || {
-      echo "The update key isn't an EdDSA public key: generate_keys -p prints one." >&2
-      exit 1
-    }
-  fi
+  [ -z "${UPDATE_PUBLIC_KEY:-}" ] || check_update_key
 fi
 # The version the user sees is the crate's. Sparkle orders updates by the build number, the count
 # of commits, which only grows on main; a shallow clone's count would be wrong.
@@ -151,17 +190,8 @@ if [ -z "$features" ]; then
   plutil -remove CFBundleURLTypes "$plist"
   plutil -remove CFBundleDocumentTypes "$plist"
 fi
-# Sparkle checks the feed every 8 hours and installs what it downloads when the app quits
-# (docs/ux-spec.md › Updates). Its helpers for sandboxed apps stay out, as this one isn't.
 if [ -n "$features" ] && [ -n "${UPDATE_PUBLIC_KEY:-}" ]; then
-  ditto .deps/Sparkle/Sparkle.framework "$app/Contents/Frameworks/Sparkle.framework"
-  rm -rf "$app/Contents/Frameworks/Sparkle.framework/XPCServices" \
-    "$app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices"
-  plutil -replace SUFeedURL -string "$(cat branding/update-feed)" "$plist"
-  plutil -replace SUPublicEDKey -string "$UPDATE_PUBLIC_KEY" "$plist"
-  plutil -replace SUEnableAutomaticChecks -bool YES "$plist"
-  plutil -replace SUAutomaticallyUpdate -bool YES "$plist"
-  plutil -replace SUScheduledCheckInterval -integer 28800 "$plist"
+  add_sparkle "$app" "$(cat branding/update-feed)" "$UPDATE_PUBLIC_KEY"
 fi
 # Chromium touches Bluetooth, the camera, the microphone, location and the local network for
 # pages and for its own metrics. Without a usage description, macOS kills the app the first time

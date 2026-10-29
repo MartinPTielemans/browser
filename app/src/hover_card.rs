@@ -9,7 +9,12 @@
 //! that hides it, at most twice the card's size, and held here in memory alone, by tab, until the
 //! tab unloads or closes or the system is short of memory.
 
-use std::{collections::HashMap, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     App, Bounds, Context, FontWeight, Global, Image, ImageSource, ObjectFit, Pixels, RenderImage,
@@ -20,7 +25,7 @@ use gpui::{
 
 use crate::elevation::{Level, WINDOW_MARGIN};
 use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STATE_SELECTED_HOVERED};
-use crate::shell::PagePicture;
+use crate::shell::{PagePicture, cubic_bezier, scaled::scaled, spring};
 pub use crate::tokens::hover_card::{EDGE, GAP, WIDTH};
 use crate::tokens::hover_card::{
     BUTTON, BUTTON_GAP, BUTTON_INSET, BUTTON_RADIUS, FAVICON, GLYPH, GLYPH_ALPHA, GROUND, HOST,
@@ -28,9 +33,9 @@ use crate::tokens::hover_card::{
     TEXT_TOP, TEXT_X, TITLE, TITLE_LINE, TITLE_SIZE,
 };
 
-/// How long the pointer rests on a row before its card shows: the tooltip's delay, which a hover
-/// that opens something waits as its threshold (docs/ux-principles.md).
-pub const DWELL: Duration = crate::tooltip::DELAY;
+/// How long the pointer rests on a row before its card shows: Dia's, sooner than the tooltip's
+/// delay (docs/ux-spec.md › Tooltip).
+pub const DWELL: Duration = Duration::from_millis(500);
 /// How long the card stays after the pointer leaves its row, for the pointer to cross the gap onto
 /// it (ours).
 pub const LEAVE: Duration = Duration::from_millis(150);
@@ -46,13 +51,63 @@ pub const WINDOW_HEIGHT: f32 = PADDING + INNER * PICTURE_MOST + TEXT + 2. * WIND
 /// from the card's bottom as from its right.
 const TEXT: f32 = TEXT_TOP + TITLE_LINE + BUTTON + BUTTON_INSET;
 
+/// Dia's motion (docs/ux-spec.md › Motion › Hover card in, out): the card grows from 0.92 of its
+/// size on a spring of 0.25 s and ζ 0.75 as it fades in, and springs back to 0.92 on 0.2 s and
+/// ζ 0.6 as it fades out, each fade over 100 ms on the same curve. Its window hides as the fade
+/// out ends, since nothing of it shows after.
+const FROM: f32 = 0.92;
+const IN_RESPONSE: f32 = 0.25;
+const IN_DAMPING: f32 = 0.75;
+const OUT_RESPONSE: f32 = 0.2;
+const OUT_DAMPING: f32 = 0.6;
+pub const FADE: Duration = Duration::from_millis(100);
+
+/// How big the card is drawn, from FROM to its size, and how opaque.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pose {
+    scale: f32,
+    opacity: f32,
+}
+
+impl Pose {
+    /// `seconds` after its window was first on screen.
+    fn arriving(seconds: f32) -> Self {
+        Pose {
+            scale: FROM + (1. - FROM) * spring(seconds, IN_RESPONSE, IN_DAMPING).unwrap_or(1.),
+            opacity: fade(seconds),
+        }
+    }
+
+    /// `seconds` after it started going, from where its motion was then.
+    fn going(self, seconds: f32) -> Self {
+        let sprung = spring(seconds, OUT_RESPONSE, OUT_DAMPING).unwrap_or(1.);
+        Pose {
+            scale: self.scale + (FROM - self.scale) * sprung,
+            opacity: self.opacity * (1. - fade(seconds)),
+        }
+    }
+}
+
+/// How far a fade is `seconds` in, from 0 to 1.
+fn fade(seconds: f32) -> f32 {
+    cubic_bezier(0.25, 0.46, 0.45, 0.94, (seconds / FADE.as_secs_f32()).min(1.))
+}
+
+/// The card is going: when it started, where its motion was then, and the timer that hides its
+/// window once it has faded out.
+struct Going {
+    at: Instant,
+    from: Pose,
+    _hide: Task<()>,
+}
+
 /// What the card asks of its window.
 pub trait Host {
     /// Shows the card's window with its plate at (`left`, `top`) in the browser window, `width` by
     /// `height`, or moves it there if it shows. The UI has kept it inside the window. Only the
     /// plate takes the mouse; the margin round it lets it through.
     fn show(&self, left: f32, top: f32, width: f32, height: f32);
-    /// Hides it.
+    /// Hides it at once, once the UI has drawn it going.
     fn hide(&self);
 }
 
@@ -154,7 +209,7 @@ pub enum Hover {
     Rest(Rest),
     /// It has left that tab's row.
     Left(u64),
-    /// A press, a scroll, a drag, a menu or a Space switch ends the card at once.
+    /// A press, a scroll, a drag, a menu, a Space switch or a key ends the card at once.
     Close,
 }
 
@@ -221,6 +276,11 @@ pub struct HoverCard {
     /// The pointer is on the card, which keeps it.
     on_card: bool,
     drawn: Option<Drawn>,
+    /// When the card shown was first on screen, where its motion starts.
+    appeared: Option<Instant>,
+    going: Option<Going>,
+    /// It has come to rest, which it logs once.
+    settled: bool,
     /// The tabs' pictures, and the tab each picture asked for is of.
     pictures: HashMap<u64, PagePicture>,
     asked: HashMap<u64, u64>,
@@ -267,6 +327,9 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<HoverCard>>
             wait: None,
             on_card: false,
             drawn: None,
+            appeared: None,
+            going: None,
+            settled: false,
             pictures: HashMap::new(),
             asked: HashMap::new(),
             painted: None,
@@ -277,6 +340,9 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<HoverCard>>
     match window {
         Ok(window) => {
             cx.set_global(CardWindow(window));
+            // Any key ends it, as in Dia, in whichever of the app's windows has the keyboard. The
+            // page's keys come to `close` from the core.
+            cx.intercept_keystrokes(|_, _, cx| close(cx)).detach();
             Some(window)
         }
         Err(error) => {
@@ -303,7 +369,8 @@ pub fn hover(hover: Hover, cx: &mut App) {
     });
 }
 
-/// The window lost the keyboard, or the app went to the back: the card goes.
+/// The window lost the keyboard, the app went to the back, or a key went down in the page: the
+/// card goes.
 pub fn close(cx: &mut App) {
     hover(Hover::Close, cx);
 }
@@ -423,6 +490,11 @@ impl HoverCard {
     }
 
     fn show(&mut self, rest: Rest, cx: &mut Context<Self>) {
+        // Back before its window has hidden, it comes in anew.
+        if self.going.take().is_some() {
+            self.appeared = None;
+            self.settled = false;
+        }
         let (tab, events) = (rest.card.tab, rest.events.clone());
         let new = self.shown.as_ref().is_none_or(|shown| shown.card.tab != tab);
         self.shown = Some(rest);
@@ -460,15 +532,51 @@ impl HoverCard {
         holds
     }
 
+    /// The card goes: it fades out, and its window hides after.
     fn close(&mut self, cx: &mut Context<Self>) {
         self.wait = None;
         self.resting = None;
         self.on_card = false;
-        if self.shown.take().is_some() {
-            self.host.hide();
-            // check.sh reads this line.
-            log!("browser: hover card hidden");
-            cx.notify();
+        if self.shown.is_none() {
+            return;
+        }
+        let from = self.pose();
+        self.shown = None;
+        let hide = cx.spawn(async move |card, cx| {
+            cx.background_executor().timer(FADE).await;
+            card.update(cx, |card, cx| card.hide(cx)).ok();
+        });
+        self.going = Some(Going { at: Instant::now(), from, _hide: hide });
+        cx.notify();
+    }
+
+    fn hide(&mut self, cx: &mut Context<Self>) {
+        self.going = None;
+        self.appeared = None;
+        self.settled = false;
+        self.host.hide();
+        // check.sh reads this line.
+        log!("browser: hover card hidden");
+        cx.notify();
+    }
+
+    fn pose(&self) -> Pose {
+        match &self.going {
+            Some(going) => going.from.going(going.at.elapsed().as_secs_f32()),
+            None => Pose::arriving(self.appeared.map_or(0., |at| at.elapsed().as_secs_f32())),
+        }
+    }
+
+    /// Whether the card's motion has more to draw: until its window is on screen, then as it
+    /// comes in, and while it goes.
+    fn moving(&self) -> bool {
+        match (&self.going, self.appeared) {
+            (Some(_), _) => true,
+            (None, _) if self.shown.is_none() => false,
+            (None, None) => true,
+            (None, Some(at)) => {
+                spring(at.elapsed().as_secs_f32(), IN_RESPONSE, IN_DAMPING).is_some()
+            }
         }
     }
 
@@ -519,6 +627,22 @@ impl Render for HoverCard {
         let Some(drawn) = self.drawn.clone() else {
             return root;
         };
+        // AppKit puts the window on screen some frames after it's asked to, and only then does
+        // GPUI draw it, so the motion starts there rather than skip its start. Until then it's
+        // drawn faded out, so the host's drawing before it shows has nothing of the last card.
+        if self.shown.is_some() && self.appeared.is_none() && window.is_visible() {
+            self.appeared = Some(Instant::now());
+        }
+        if self.moving() {
+            window.request_animation_frame();
+        } else if self.shown.is_some() && !self.settled {
+            self.settled = true;
+            // check.sh reads this line, so a capture after it shows the card whole.
+            log!("browser: hover card settled");
+        }
+        let pose = self.pose();
+        // Under Reduce Motion nothing scales, and the fades stay (docs/ux-spec.md › Motion).
+        let scale = if cx.reduce_motion() { 1. } else { pose.scale };
         let holds = match (&drawn.picture, drawn.card.pictured) {
             (Some(_), _) => "picture",
             (None, true) => "favicon",
@@ -595,7 +719,9 @@ impl Render for HoverCard {
             .rounded(px(RADIUS))
             .border(px(RIM))
             .border_color(Level::Popover.rim_in(&palette));
-        root.child(
+        // It grows about its top left corner, which its row is beside.
+        let corner = point(px(WINDOW_MARGIN), px(WINDOW_MARGIN));
+        root.child(scaled(
             div()
                 .id("hover-card")
                 .when(a11y, |plate| plate.role(Role::Group).aria_label(card.title.clone()))
@@ -605,13 +731,16 @@ impl Render for HoverCard {
                 .rounded(px(RADIUS))
                 .shadow(Level::Popover.shadow())
                 .bg(palette.overlay)
+                .opacity(pose.opacity)
                 .on_hover(cx.listener(|card, hovered: &bool, _, cx| card.on_card(*hovered, cx)))
                 .children(picture)
                 .child(title)
                 .child(host)
                 .child(buttons)
                 .child(rim),
-        )
+            scale,
+            corner,
+        ))
     }
 }
 

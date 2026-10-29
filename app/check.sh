@@ -3,12 +3,14 @@
 # Each run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
-#   split favorites cards extensions adblock windows private capture passwords links preview access
-#   trouble dialogs crash import quit onboarding
+#   split favorites cards extensions adblock adblock-lists windows private capture passwords
+#   links preview access trouble dialogs crash import quit onboarding passkeys
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
-# Every run but load and crash needs Browser to be the active app, and window and find take it
-# full screen for a moment.
+# Updates runs only when named too, until it passes on the Mac.
+# Every run but load and crash needs Browser to be the active app, and window, find and updates
+# take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
+# build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
 # another; BROWSER_DISPLAY=main opens it on the main display.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -23,18 +25,35 @@
 # there so far; the others stop where they need what Linux hasn't yet, such as the held escape's
 # rule (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
 # the driver says it can't do. Captures are the session's whole output.
+# BROWSER_XVFB=1 runs it under Xvfb and openbox instead, which CI has.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 # Each run starts a new profile, which would play the onboarding first. Only its own run plays it.
 export BROWSER_ONBOARDING=skip
 cd "$(dirname "$0")"
 if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
+  # Under Xvfb, as CI runs it (check-linux.yml): a 1280 by 800 screen, as the sway session's
+  # output, captured whole. openbox manages its windows, as sway does Xwayland's: with none, the
+  # keyboard follows the pointer rather than going to a window that opens, such as the find bar,
+  # and no window has a state.
+  if [ -n "${BROWSER_XVFB:-}" ]; then
+    # shellcheck disable=SC2016 # expanded by the session's shell
+    exec xvfb-run -a -s "-screen 0 1280x800x24" sh -c '
+      ready=$(mktemp -u)
+      openbox --startup "touch $ready" &
+      while [ ! -e "$ready" ]; do
+        kill -0 $! 2> /dev/null || { echo "openbox exited" >&2; exit 1; }
+        sleep 0.1
+      done
+      rm -f "$ready"
+      exec env BROWSER_HEADLESS=xvfb ./check.sh "$@"' sh "$@"
+  fi
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
-runs="$runs split favorites cards extensions adblock windows private capture passwords links preview"
-runs="$runs access trouble dialogs crash import quit onboarding"
-named="store adblock-live"
+runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
+runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys"
+named="store adblock-live updates"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;

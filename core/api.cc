@@ -372,10 +372,13 @@ bool bc_agent_may_act(const char* agent,
                       char* reason,
                       size_t capacity) {
   content::WebContents* contents = browser_core::Tab::FromId(tab);
-  std::string refused;
-  if (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab)) {
+  // An action no agent may do is refused whatever the tab, so that's the reason given.
+  std::string refused = browser_core::RefusedAction(action ? action : "");
+  if (refused.empty() && (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab))) {
     refused = "The tab isn't in the agent's own Space.";
-  } else if (contents && browser_core::Tab::FromWebContents(contents)->system_page()) {
+  }
+  if (refused.empty() && contents &&
+      browser_core::Tab::FromWebContents(contents)->system_page()) {
     // Its Space never switches a tab there, but the rule is the core's to keep, not the UI's.
     refused =
         "The tab shows its page in the system's engine, where the browser can't keep an agent's "

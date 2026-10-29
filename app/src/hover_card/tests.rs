@@ -95,13 +95,16 @@ fn picture(width: u32, height: u32) -> PagePicture {
 }
 
 #[gpui::test]
-fn a_card_shows_once_the_pointer_has_rested_on_its_row(cx: &mut TestAppContext) {
+fn a_card_shows_once_the_pointer_has_rested_on_its_row_for_dia_s_half_second(
+    cx: &mut TestAppContext,
+) {
     let (host, told) = open_card(cx);
     rest_on(cx, &told, card(1, true));
-    let before = DWELL - Duration::from_millis(10);
+    let before = Duration::from_millis(490);
     assert!(after(cx, &host, before).is_empty(), "a passing pointer opens nothing");
     assert_eq!(after(cx, &host, Duration::from_millis(10)), [shown(1, waiting_height())]);
     assert_eq!(*told.borrow(), ["shown 1"]);
+    assert!(DWELL < crate::tooltip::DELAY, "the card comes before a tooltip would");
 }
 
 #[gpui::test]
@@ -152,8 +155,8 @@ fn leaving_the_rows_closes_the_card_after_a_moment(cx: &mut TestAppContext) {
     rest_on(cx, &told, card(1, true));
     after(cx, &host, DWELL);
     ask(cx, Hover::Left(1));
-    assert!(after(cx, &host, LEAVE - Duration::from_millis(10)).is_empty());
-    assert_eq!(after(cx, &host, Duration::from_millis(10)), ["hide"]);
+    assert!(after(cx, &host, LEAVE).is_empty(), "it waits, then fades out");
+    assert_eq!(after(cx, &host, FADE), ["hide"]);
     // The next row waits for its dwell again.
     rest_on(cx, &told, card(2, true));
     assert!(host.0.take().is_empty());
@@ -170,7 +173,7 @@ fn the_pointer_on_the_card_keeps_it(cx: &mut TestAppContext) {
     cx.update(|cx| window.update(cx, |card, _, cx| card.on_card(true, cx)).unwrap());
     assert!(after(cx, &host, LEAVE * 4).is_empty(), "it stays while the pointer is on it");
     cx.update(|cx| window.update(cx, |card, _, cx| card.on_card(false, cx)).unwrap());
-    assert_eq!(after(cx, &host, LEAVE), ["hide"]);
+    assert_eq!(after(cx, &host, LEAVE + FADE), ["hide"]);
 }
 
 #[gpui::test]
@@ -179,11 +182,75 @@ fn a_press_a_scroll_or_a_menu_closes_it_at_once(cx: &mut TestAppContext) {
     rest_on(cx, &told, card(1, true));
     after(cx, &host, DWELL);
     ask(cx, Hover::Close);
-    assert_eq!(host.0.take(), ["hide"]);
+    // Its window stays while it fades out, and goes as the fade ends.
+    assert!(after(cx, &host, FADE - Duration::from_millis(10)).is_empty());
+    assert_eq!(after(cx, &host, Duration::from_millis(10)), ["hide"]);
     // And one waiting for its dwell never comes.
     rest_on(cx, &told, card(2, true));
     ask(cx, Hover::Close);
     assert!(after(cx, &host, DWELL * 2).is_empty());
+}
+
+#[gpui::test]
+fn any_key_closes_it_as_a_press_does(cx: &mut TestAppContext) {
+    let (host, told) = open_card(cx);
+    // The browser window, which has the keyboard while the card shows.
+    let browser = cx.add_empty_window().window_handle();
+    rest_on(cx, &told, card(1, true));
+    after(cx, &host, DWELL);
+    cx.simulate_keystrokes(browser, "x");
+    assert_eq!(after(cx, &host, FADE), ["hide"]);
+    // And one waiting for its dwell never comes.
+    rest_on(cx, &told, card(2, true));
+    cx.simulate_keystrokes(browser, "shift-a");
+    assert!(after(cx, &host, DWELL * 2).is_empty());
+}
+
+#[gpui::test]
+fn a_card_back_before_its_window_hid_stays(cx: &mut TestAppContext) {
+    let (host, told) = open_card(cx);
+    rest_on(cx, &told, card(1, true));
+    after(cx, &host, DWELL);
+    let window = card_window(cx);
+    ask(cx, Hover::Close);
+    // As a press on its button can show it again within the fade, on the shell's say.
+    let rest = Rest { card: card(2, true), anchor: row(2), events: Rc::new(|_, _, _| {}) };
+    cx.update(|cx| window.update(cx, |card, _, cx| card.show(rest, cx)).unwrap());
+    assert_eq!(after(cx, &host, FADE * 4), [shown(2, waiting_height())]);
+}
+
+/// Whether `pose` is `scale` big and `opacity` opaque, to a thousandth, as the curves solve.
+fn near(pose: Pose, scale: f32, opacity: f32) -> bool {
+    (pose.scale - scale).abs() < 0.001 && (pose.opacity - opacity).abs() < 0.001
+}
+
+#[test]
+fn it_grows_from_0_92_as_it_fades_in_over_100_ms() {
+    let start = Pose::arriving(0.);
+    assert!(near(start, 0.92, 0.), "{start:?}");
+    let half = Pose::arriving(0.05);
+    assert!(half.opacity > 0.5 && half.opacity < 1., "it eases out: {half:?}");
+    let faded_in = Pose::arriving(0.1);
+    assert!((faded_in.opacity - 1.).abs() < 0.001, "{faded_in:?}");
+    assert!(faded_in.scale > 0.92 && faded_in.scale < 1., "the spring goes on: {faded_in:?}");
+    // ζ 0.75 swings a little past its size before it settles.
+    assert!((0..60).any(|frame| Pose::arriving(frame as f32 / 120.).scale > 1.));
+    assert!(near(Pose::arriving(1.), 1., 1.));
+}
+
+#[test]
+fn it_springs_back_toward_0_92_as_it_fades_out_over_100_ms() {
+    let rest = Pose { scale: 1., opacity: 1. };
+    assert!(near(rest.going(0.), 1., 1.));
+    let gone = rest.going(FADE.as_secs_f32());
+    assert!(gone.opacity.abs() < 0.001, "{gone:?}");
+    // The 0.2 s spring has reached 0.92 and swung a little past it by then.
+    assert!(gone.scale < 0.92 && gone.scale > 0.9, "{gone:?}");
+    assert!(rest.going(0.05).scale < 1., "it shrinks as it fades");
+    // From midway in, it goes from where it was.
+    let midway = Pose::arriving(0.05);
+    assert!(near(midway.going(0.), midway.scale, midway.opacity));
+    assert!(midway.going(0.05).opacity < midway.opacity);
 }
 
 #[gpui::test]
@@ -193,8 +260,8 @@ fn a_button_closes_the_card_then_tells_the_shell(cx: &mut TestAppContext) {
     after(cx, &host, DWELL);
     let window = card_window(cx);
     cx.update(|cx| window.update(cx, |card, _, cx| card.press(Action::Favorite, cx)).unwrap());
-    assert_eq!(host.0.take(), ["hide"]);
     assert_eq!(*told.borrow(), ["shown 1", "favorite 1"]);
+    assert_eq!(after(cx, &host, FADE), ["hide"]);
 }
 
 #[gpui::test]
@@ -210,7 +277,7 @@ fn a_picture_coming_while_its_card_shows_takes_the_page_s_shape(cx: &mut TestApp
     assert_eq!(host.0.take(), [shown(1, height(INNER * 352. / 528.))]);
     // Its next card has it at once.
     ask(cx, Hover::Close);
-    host.0.take();
+    after(cx, &host, FADE);
     rest_on(cx, &told, card(1, true));
     assert_eq!(after(cx, &host, DWELL), [shown(1, height(INNER * 352. / 528.))]);
 }

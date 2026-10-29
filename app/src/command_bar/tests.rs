@@ -139,10 +139,19 @@ impl Bar {
     }
 
     fn open(cx: &mut TestAppContext, tabs: Vec<shell::BarTab>, host: Recorder) -> Self {
+        Bar::opened(cx, host, |cx| show(None, tabs, None, cx))
+    }
+
+    /// The bar, opened for Search Tabs on `tabs`.
+    fn search_tabs(cx: &mut TestAppContext, tabs: Vec<shell::BarTab>) -> Self {
+        Bar::opened(cx, Recorder::default(), |cx| show_tabs(tabs, cx))
+    }
+
+    fn opened(cx: &mut TestAppContext, host: Recorder, show: impl FnOnce(&mut App)) -> Self {
         let host = Rc::new(host);
         cx.update(text_input::bind_keys);
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the bar");
-        cx.update(|cx| show(None, tabs, None, cx));
+        cx.update(show);
         let cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
         Bar { cx, window, host }
@@ -852,6 +861,56 @@ fn the_start_of_an_open_tabs_name_puts_it_first_and_return_switches_to_it(cx: &m
     }
 }
 
+/// Search Tabs lists the tabs it's given, centred as for ⌘T, and what's typed keeps those it
+/// names, by a word of their title or site, in their order. Return switches to the one selected.
+#[gpui::test]
+fn search_tabs_lists_the_tabs_named_and_return_switches(cx: &mut TestAppContext) {
+    let tabs = vec![
+        titled(4, "Projects | Convex", CONVEX),
+        titled(2, "Inbox", "https://mail.test/"),
+        titled(9, "Convex docs", "https://docs.convex.dev/"),
+    ];
+    let mut bar = Bar::search_tabs(cx, tabs);
+    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 20"]);
+    let ids = |bar: &mut Bar| bar.rows().into_iter().map(|(_, tab)| tab).collect::<Vec<_>>();
+    assert_eq!(ids(&mut bar), [4, 2, 9]);
+    bar.type_text("conv");
+    assert_eq!(ids(&mut bar), [4, 9]);
+    bar.type_text("ex d");
+    assert_eq!(ids(&mut bar), [9]);
+    bar.keys(&["backspace"; 8].join(" "));
+    assert_eq!(ids(&mut bar), [4, 2, 9], "with nothing typed it lists them all again");
+    bar.type_text("mail");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["select 2", "hide"]);
+}
+
+/// Search Tabs switches across windows as the bar does, and goes nowhere but its tabs: what's
+/// typed is never a page or a search, by any key.
+#[gpui::test]
+fn search_tabs_goes_only_to_its_tabs(cx: &mut TestAppContext) {
+    let mut bar = Bar::search_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+    bar.host.elsewhere.borrow_mut().insert(4, 9);
+    bar.keys("cmd-enter");
+    assert_eq!(bar.calls(), ["hide", "activate 9 with 4"]);
+    let mut bar = Bar::search_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+    bar.type_text("example.com");
+    assert!(bar.rows().is_empty());
+    bar.keys("enter shift-enter cmd-enter alt-enter shift-cmd-enter ctrl-enter");
+    assert!(bar.calls().is_empty(), "{:?}", bar.calls());
+}
+
+/// It lists as many tabs as the bar has rows, and what's typed finds those after them.
+#[gpui::test]
+fn search_tabs_finds_tabs_past_the_rows_listed(cx: &mut TestAppContext) {
+    let mut tabs: Vec<_> = (1..=20).map(|id| tab(id, &format!("https://site{id}.test/"))).collect();
+    tabs.push(titled(30, "Last of all", "https://last.test/"));
+    let mut bar = Bar::search_tabs(cx, tabs);
+    assert_eq!(bar.rows().len(), shell::BAR_ROWS);
+    bar.type_text("last");
+    assert_eq!(bar.rows(), [("https://last.test/".to_string(), 30)]);
+}
+
 #[gpui::test]
 fn a_tab_the_core_lists_moves_up_rather_than_twice(cx: &mut TestAppContext) {
     let mut bar = Bar::with_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
@@ -1203,7 +1262,7 @@ fn a_site_completing_puts_every_command_after_the_suggestions(cx: &mut TestAppCo
     assert_eq!(listed.len(), shell::BAR_ROWS);
     assert_eq!(listed[0], "https://tabelog.com/");
     let commands =
-        ["Pin Tab ⌘D", "Next Tab ⌥⌘↓", "Archive Tab ⌘W", "Clear Today ⇧⌘K", "Favorite Tab"];
+        ["Pin Tab ⌘D", "Next Tab ⌥⌘↓", "Search Tabs… ⇧⌘A", "Archive Tab ⌘W", "Clear Today ⇧⌘K"];
     assert_eq!(listed[10..], commands);
 }
 
