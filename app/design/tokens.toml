@@ -902,6 +902,9 @@ button-keys = 0xffff_ff33
 button-keys-height = 20.0
 button-keys-inset = 5.0
 button-keys-radius = 6.0
+# The onboarding's last line, at the card's foot under the command bar it leaves up, as the line
+# under the mark is set.
+hint-bottom = 40.0
 
 [shell.extensions]
 # The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -973,8 +976,7 @@ title-cap = 52.0
 # the column, 240 wide, 24 apart and as tall as the window less 48 above and below, with Arc's
 # blue + 33 after the last, 30 across and halfway down, and the Library ends 37 after it, so it's
 # 216 + 264 a Space wide. The card is the Space's gradient at radius 16, with its list drawn as
-# the sidebar draws it, and its name's row has a brush at its end, 28 square, 13 from the card's
-# right. Arc's card has no search field over it.
+# the sidebar draws it, under its name's field. Arc's card has no search field over it.
 spaces-left = 28.0
 spaces-inset = 48.0
 card-width = 240.0
@@ -986,9 +988,23 @@ spaces-page = 400.0
 # The name's row in the card, 33 down to its middle as in Arc, with the rows 52 down.
 card-name-top = 14.0
 card-name-height = 38.0
+# The name's field across that row (*interim*, by proportion from stills of Arc 1.170's card, 240
+# wide): a plate 8 in from the card's sides and 36 tall, Ink at 0.1, at the controls' radius where
+# Arc's is 8; the icon in a dashed slot 24 square, 6 in, drawn as the icon picker's placeholder is
+# with its dashes Ink at 0.3; the name 6 after the slot, Ink at 0.5 until it's clicked into; and
+# the brush on a 28 square plate 4 in from the field's end.
+card-field-inset = 8.0
+card-field-height = 36.0
+card-field-radius = 6.0
+card-field-plate = 0.1
+card-slot = 24.0
+card-slot-x = 6.0
+card-slot-dash = 0.3
+card-name-gap = 6.0
+card-name-color = 0.5
 card-brush = 28.0
+card-brush-inset = 4.0
 card-brush-glyph = 14.0
-card-brush-right = 13.0
 card-brush-color = 0.35
 plus-gap = 33.0
 plus-size = 30.0
@@ -1054,6 +1070,63 @@ glow-width = 80.0
 glow-strip = 4.0
 # The circle's shadow, black at this much.
 shadow = 0.3
+
+[shell.onboarding]
+# A new profile's first launch (docs/ux-spec.md › Onboarding): the brand's ground over the whole
+# window, Paper in a light appearance and Ink in a dark one, with the other drawing on it, and the
+# Signal green only on the wordmark's dot and the one button.
+signal = 0x0e9f55
+# The wordmark, a dot, two stems and a ring, drawn from the brand's 214 × 154 units at a half, so
+# 107 × 77 pt in the window's middle.
+wordmark-scale = 0.5
+# "a good tool." under it in the display face, its caps this far under the wordmark's foot.
+tagline-size = 22.0
+tagline-line = 28.0
+tagline-gap = 28.0
+# Secondary words, the tagline's and a step's line, as an alpha of the ink.
+quiet = 0.6
+# A step's one message: a title in the display face, one line under it, and one button.
+title-size = 32.0
+title-line = 38.0
+line-size = 15.0
+line-line = 21.0
+line-gap = 10.0
+button-gap = 32.0
+button-height = 34.0
+button-inset = 16.0
+button-radius = 6.0
+button-size = 14.0
+# The button's key chip, Paper over the Signal green.
+chip = 0.2
+chip-height = 20.0
+chip-inset = 5.0
+chip-radius = 6.0
+chip-gap = 8.0
+# Skip, at the window's bottom right corner, quiet, with its key's chip.
+skip-margin = 24.0
+skip-size = 13.0
+skip-chip = 0.08
+# A step comes in from this far right as the one before leaves this far left, so the steps read as
+# a row.
+shift = 32.0
+# The colour step's swatches, the theme picker's, in a row under its line, a step larger than the
+# picker's 24 as the only thing on the screen to pick. The one picked is ringed in the ink, a gap
+# off it, and each has a hairline edge, so the lightest reads on Paper.
+swatch = 28.0
+swatch-pitch = 40.0
+swatch-gap = 28.0
+swatch-ring = 2.0
+swatch-edge = 0.12
+# The import step holds the import view as wide as Settings' boxes, on the flow's ground, its
+# boxes this much of the ink over it.
+import-width = 556.0
+import-surface = 0.05
+# The opt-ins step's switches, Settings' own, a row each under its line: the switch's name over its
+# one sentence, at body, and the switch at the row's end.
+opt-in-width = 420.0
+opt-in-gap = 20.0
+opt-in-line = 18.0
+opt-in-switch-gap = 24.0
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners

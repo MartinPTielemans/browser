@@ -181,14 +181,14 @@ expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once s
 # from the window's (site.sh).
 link_point="430 130"
 # Away from it by its page's link.
-away() {
+link_away() {
   send click $link_point
   expect "^browser: loaded $c ${site}notes.txt\$" "the page's link didn't load in the pinned tab"
   expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
 }
 # Away from it, then back with ⌘↩ from side $1, which a click gives the keyboard.
-away_and_back() {
-  away
+link_away_and_back() {
+  link_away
   if [ "$1" = ui ]; then
     send click $sidebar_point
   else
@@ -199,8 +199,8 @@ away_and_back() {
   expect "^browser: loaded $c $site\$" "⌘↩ with the $1 focused didn't load the pinned URL"
   expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
 }
-away_and_back page
-away_and_back ui
+link_away_and_back page
+link_away_and_back ui
 # An address typed into it opens in a tab it opened, at the top of Today, shown, and the pinned tab
 # keeps its page. Closing that tab shows the pinned one again, its opener.
 go_from_bar example.com
@@ -214,7 +214,7 @@ none_since "^browser: loaded $c " || fail "the address typed into the pinned tab
 send key w cmd
 expect "^browser: tab $typed closed\$" "⌘W didn't close the tab the pinned tab opened"
 expect "^browser: selected $c\( in .*\)\{0,1\}\$" "closing the tab the pinned tab opened didn't show the pinned tab"
-away
+link_away
 # The quit leaves Today's tab shown, so the pinned tab comes back unloaded.
 switch "2 cmd" "$a"
 # Its favicon under the pointer offers the way back.
@@ -327,12 +327,19 @@ expect "^browser: outline $f+\\[$c\\]\$" "the tab dragged under the folder didn'
 settled
 none_since '^browser: selected' || fail "dragging into and out of a folder showed a tab"
 ../tools/window-screenshot.sh "$pid" "$out/folder.png" || fail "no window to capture"
-# A click closes the folder and another opens it.
+# A click closes the folder and another opens it, recorded for its motion: closing critically
+# damped, opening on its ease-out, neither overshooting.
+record folder-motion 3
 send click $(pinned_row 0)
 expect '^browser: command toggle-folder via sidebar$' "a click on the folder didn't run toggle-folder"
 expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it: $(outline)"
+# Each half plays out in the film before the next click. The fold takes under 0.5 s, and with no
+# row under the folder nothing slides, so no "rows settled" says it's done.
+sleep 0.5
 send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
+sleep 0.5
+recorded
 # The command bar finds commands by their names' letters in order, those that start with what's
 # typed first, and one found by its letters alone last, after the suggestions. ↩ runs the command
 # selected.
@@ -340,6 +347,7 @@ send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type clear
 expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Cookies and Refresh, Clear Archive, Collapse All Folders$' "the command bar didn't find the four commands that start with \"clear\", then Collapse All Folders: $(grep '^browser: command bar commands' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/command-bar-commands.png" || fail "no window to capture"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 send key t cmd
@@ -387,8 +395,8 @@ send key return
 expect "^browser: renamed folder $f later\$" "the folder didn't take the name typed over its old one"
 ../tools/window-screenshot.sh "$pid" "$out/folder-restored.png" || fail "no window to capture"
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown Rename Folder, Delete Folder$' "the folder's menu isn't Rename Folder, Delete Folder"
-send choose Delete Folder
+expect "^browser: menu shown $(cased 'Rename Folder, Delete Folder')\$" "the folder's menu isn't Rename Folder, Delete Folder"
+send choose "$(cased 'Delete Folder')"
 expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
 # The toast offers Undo; ⌘Z remakes the folder around its tab, under the name it had, and ⇧⌘Z
@@ -432,4 +440,4 @@ send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/drop-before.png, $out/drop-line.png, $out/dropped.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"

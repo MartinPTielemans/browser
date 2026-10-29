@@ -114,10 +114,10 @@ expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in th
 e=$(today)
 expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
 post rightclick 100 112
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "the Space's menu didn't offer its theme"
 # The theme picker's pink swatch, and + for a second colour, which a relaunch brings back.
-send choose Edit Theme Color…
+send choose "$(cased 'Edit Theme Color…')"
 expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
 expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
 send clickkey "$(swatch_x 1)" $swatch_y
@@ -133,9 +133,9 @@ expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
 # Change Icon… in the Space's menu gives it an emoji from the icon picker's Emoji tab, found by a
 # search and picked with ↩, which a relaunch brings back.
 post rightclick 100 112
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $profile, \
-Delete Space\$" "the Space's menu didn't offer Change Icon…"
-send choose Change Icon…
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
+Delete Space")\$" "the Space's menu didn't offer Change Icon…"
+send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for $second on icon\$" "Change Icon… didn't open the icon picker"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
 # Emoji, the left half of Emoji | Icon at the picker's top.
@@ -168,9 +168,9 @@ expect "^browser: title $c news\$" "return didn't name the tab"
 # Change Icon… in its menu hangs the icon picker under its favicon, on the Emoji tab, and the first
 # emoji a search finds, which ↩ picks, is the tab's icon at once.
 post rightclick $(row 0)
-expect '^browser: menu shown .*, Change Icon…, Rename…, ' \
+expect "^browser: menu shown $(cased '.*, Change Icon…, Rename…, ')" \
   "a right-click on the tab's row didn't offer Change Icon…"
-send choose Change Icon…
+send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for tab $c on emoji\$" \
   "Change Icon… didn't open the icon picker on the Emoji tab for the tab"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker under the tab"
@@ -272,7 +272,7 @@ if [ "$active" != 1 ]; then
 fi
 # Rename… in its menu, with the name taken out, gives the tab back its page's title.
 post rightclick $(row 0)
-menu="Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below"
+menu=$(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below")
 expect "^browser: menu shown $menu\$" \
   "a right-click on the renamed tab's row didn't offer Rename…"
 send choose Rename…
@@ -285,7 +285,7 @@ expect "^browser: title $c Example Domain\$" \
 # finds no emoji, so ↩ picks nothing. Escape closes the picker with the icon as it was.
 post rightclick $(row 0)
 expect "^browser: menu shown $menu\$" "a right-click on the tab's row didn't offer Remove Icon"
-send choose Change Icon…
+send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for tab $c on emoji\$" \
   "Change Icon… didn't open the icon picker again"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker again"
@@ -304,7 +304,7 @@ none_since "^browser: page $c icon " || fail "escape changed the tab's icon"
 # Remove Icon gives it back its favicon.
 post rightclick $(row 0)
 expect "^browser: menu shown $menu\$" "a right-click on the tab's row didn't offer Remove Icon"
-send choose Remove Icon
+send choose "$(cased 'Remove Icon')"
 expect "^browser: page $c icon none\$" "Remove Icon didn't give the tab back its favicon"
 send click $page_point
 # The tab closed before the quit reopens from the Library at the top of Today, at its page. ⌘W
@@ -346,15 +346,15 @@ expect '^browser: library section downloads$' "⇧⌘J didn't open the Library o
 expect '^browser: library shown$' "⇧⌘J didn't open the Library after the relaunch"
 listed=$(grep '^browser: downloads ' "$log" | tail -1 | cut -d' ' -f3)
 post rightclick 300 111
-expect '^browser: menu shown Remove from List, Clear List$' \
+expect "^browser: menu shown $(cased 'Remove from List, Clear List')\$" \
   "a right-click on the cancelled download's row didn't show its menu"
-send choose Remove from List
+send choose "$(cased 'Remove from List')"
 expect "^browser: download $s Remove via download menu\$" "Remove from List didn't reach it"
 expect "^browser: downloads $((listed - 1))\$" "Remove from List didn't take the download off"
 post rightclick 300 111
-expect '^browser: menu shown Open, Show in Finder, Move to Trash, Remove from List, Clear List$' \
+expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
   "a right-click on the finished download's row didn't show its menu"
-send choose Clear List
+send choose "$(cased 'Clear List')"
 expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
 expect '^browser: downloads 0$' "Clear List didn't empty the list"
 [ -f "$out/downloads/notes.txt" ] || fail "Clear List deleted the download's file"
@@ -399,9 +399,9 @@ send move 24 $((height - 25))
 expect '^browser: recent downloads shown 1$' \
   "resting on the Library button didn't show the second download"
 post rightclick 120 $((height - 78))
-expect '^browser: menu shown Open, Show in Finder, Move to Trash, Remove from List, Clear List$' \
+expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
   "a right-click on the recent download's row didn't show its menu"
-send choose Move to Trash
+send choose "$(cased 'Move to Trash')"
 expect "^browser: download $t Trash via download menu\$" "Move to Trash didn't reach the download"
 expect '^browser: downloads 0$' "Move to Trash didn't take the download off the list"
 expect '^browser: recent downloads hidden$' "the recent downloads stayed with none left"

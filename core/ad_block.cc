@@ -75,6 +75,10 @@ constexpr char kOffSitesPref[] = "browser_core_off_sites";
 // hide what its page loads.
 constexpr char kFiltersSwitch[] = "ad-block-filters";
 
+// An assets.json in place of kFilterListsSource: check.sh's, on its own server, naming a list it
+// serves, so a run sees uBlock Origin fetch, apply and update a list without the network.
+constexpr char kListsSwitch[] = "ad-block-lists";
+
 constexpr int kSchemes = URLPattern::SCHEME_HTTP | URLPattern::SCHEME_HTTPS;
 
 // Its settings, as uBlock Origin reads them from managed storage (its managed_storage.json).
@@ -88,12 +92,14 @@ policy::PolicyBundle Settings() {
   set("advancedSettings",
       base::Value(base::ListValue().Append(
           base::ListValue().Append("autoUpdatePeriod").Append(kUpdatePeriodHours))));
+  const base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
+  const std::string lists = command_line.HasSwitch(kListsSwitch)
+                                ? command_line.GetSwitchValueASCII(kListsSwitch)
+                                : kFilterListsSource;
   // It ignores an empty address.
   set("adminSettings",
-      base::Value(base::WriteJson(base::DictValue().Set("assetsBootstrapLocation",
-                                                        kFilterListsSource))
+      base::Value(base::WriteJson(base::DictValue().Set("assetsBootstrapLocation", lists))
                       .value_or(std::string())));
-  const base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(kFiltersSwitch)) {
     base::ListValue filters;
     for (const std::string& filter :
