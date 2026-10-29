@@ -480,6 +480,12 @@ void host_file_preview(const char*,
 
 void host_copy(const char* text) {}
 
+// shortcut: Linux's clipboard is GPUI's (system.rs), which can't add the x-kde-passwordManagerHint
+// type that keeps a secret out of clipboard histories, so the secret isn't copied.
+bool host_copy_secret(const char* text, uint32_t seconds) {
+  return false;
+}
+
 void host_open_in_safari(const char* url) {}
 
 void host_open_full_disk_access(void) {}

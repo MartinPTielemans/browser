@@ -30,6 +30,12 @@ actions!(account, [Keep, Leave]);
 
 /// How long Copy says Copied, before it's Copy again.
 const COPIED: Duration = Duration::from_secs(2);
+/// How long the words stay on the clipboard after Copy: long enough to paste them where they're
+/// kept, then gone, as a password manager clears a password it copied.
+pub const WORDS_KEPT: Duration = Duration::from_secs(60);
+/// What the words' panel says while a copy of them is on the clipboard.
+pub const COPIED_NOTE: &str =
+    "Copied for this device only. The clipboard forgets them in a minute.";
 
 /// Where the account is, as the core says (BC_SYNC_).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -105,7 +111,10 @@ pub trait Host {
     fn request_pairing(&self);
     fn read_devices(&self);
     fn remove_device(&self, id: &str);
-    fn copy(&self, text: &str);
+    /// Puts the account's secret on this device's clipboard alone, marked for clipboard histories
+    /// and cloud clipboards to skip, and takes it off after `kept` unless something replaced it.
+    /// False where the clipboard can't be told that, which then isn't given it.
+    fn copy_secret(&self, text: &str, kept: Duration) -> bool;
     /// Asks `message`, with `detail` under it, and calls `confirmed` if the user chooses `action`,
     /// in red, ↩ answering `on_return`.
     fn confirm(
@@ -397,13 +406,18 @@ impl Account {
         let Some(words) = &mut self.words else {
             return;
         };
-        self.host.copy(&words.words.join(" "));
-        words.copied = Some(Instant::now());
-        cx.spawn(async move |account, cx| {
-            cx.background_executor().timer(COPIED).await;
-            account.update(cx, |_, cx| cx.notify()).ok();
-        })
-        .detach();
+        if !self.host.copy_secret(&words.words.join(" "), WORDS_KEPT) {
+            return;
+        }
+        words.copied = Some(cx.background_executor().now());
+        // Once Copied is Copy again, and once the clipboard has let the words go.
+        for after in [COPIED, WORDS_KEPT] {
+            cx.spawn(async move |account, cx| {
+                cx.background_executor().timer(after).await;
+                account.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .detach();
+        }
         cx.notify();
     }
 
@@ -619,7 +633,9 @@ impl Account {
                 }),
             )
         };
-        let copied = words.copied.is_some_and(|at| at.elapsed() < COPIED);
+        // The executor's clock, which tests move on.
+        let now = cx.background_executor().now();
+        let copied = words.copied.is_some_and(|at| now - at < COPIED);
         let title = if copied { "Copied" } else { "Copy" };
         let copy = self.button("copy", title, cx, |account, _, cx| account.copy_words(cx));
         // Copied says it happened, with a check, until it's Copy again.
@@ -635,6 +651,10 @@ impl Account {
             .child(note(
                 "Save these somewhere safe. You need them only if you lose every device.",
             ))
+            // Where a copy went, and that it doesn't stay, while it's there.
+            .when(words.copied.is_some_and(|at| now - at < WORDS_KEPT), |words| {
+                words.child(note(COPIED_NOTE).relative().child(self.place("copied".into())))
+            })
             .child(
                 div()
                     .mt(px(BUTTONS_TOP))

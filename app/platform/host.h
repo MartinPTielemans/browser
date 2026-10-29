@@ -527,6 +527,11 @@ void host_file_preview(const char* path, uint64_t id,
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);
+// Puts |text|, the account's secret, on the clipboard of this device alone, marked for clipboard
+// histories and managers to skip, as a password manager copies a password, and clears it after
+// |seconds| unless something replaced it. A driven run uses host_copy's pasteboard of its own.
+// False, doing nothing, where the clipboard can't be told to keep it to itself.
+bool host_copy_secret(const char* text, uint32_t seconds);
 
 // Opens |url| in Safari, which plays the protected video the engine can't. A driven run only logs it,
 // so checks never launch Safari.

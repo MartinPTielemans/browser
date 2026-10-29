@@ -2087,6 +2087,58 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
+namespace {
+
+// The clipboard's sequence number once the secret was put on it, which anything copied since
+// changes.
+DWORD g_secret_sequence = 0;
+
+void CALLBACK ClearSecret(HWND, UINT, UINT_PTR timer, DWORD) {
+  KillTimer(nullptr, timer);
+  if (GetClipboardSequenceNumber() == g_secret_sequence && OpenClipboard(nullptr)) {
+    EmptyClipboard();
+    CloseClipboard();
+  }
+}
+
+// A clipboard format holding |value|, as the formats Windows' clipboard history reads hold.
+void SetClipboardDword(const wchar_t* format, DWORD value) {
+  if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, sizeof value)) {
+    memcpy(GlobalLock(memory), &value, sizeof value);
+    GlobalUnlock(memory);
+    if (!SetClipboardData(RegisterClipboardFormatW(format), memory)) {
+      GlobalFree(memory);
+    }
+  }
+}
+
+}  // namespace
+
+bool host_copy_secret(const char* text, uint32_t seconds) {
+  std::wstring wide = Wide(text);
+  if (!OpenClipboard(nullptr)) {
+    return false;
+  }
+  EmptyClipboard();
+  const size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
+  if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+    memcpy(GlobalLock(memory), wide.c_str(), bytes);
+    GlobalUnlock(memory);
+    if (!SetClipboardData(CF_UNICODETEXT, memory)) {
+      GlobalFree(memory);
+    }
+  }
+  // Kept out of clipboard history and the cloud clipboard, and from clipboard monitors that honour
+  // it, as password managers mark what they copy.
+  SetClipboardDword(L"ExcludeClipboardContentFromMonitorProcessing", 0);
+  SetClipboardDword(L"CanIncludeInClipboardHistory", 0);
+  SetClipboardDword(L"CanUploadToCloudClipboard", 0);
+  CloseClipboard();
+  g_secret_sequence = GetClipboardSequenceNumber();
+  SetTimer(nullptr, 0, seconds * 1000, ClearSecret);
+  return true;
+}
+
 // shortcut: there's no Safari; protected video on Windows waits for WebView2 (decision 1).
 void host_open_full_disk_access(void) {}
 

@@ -18,7 +18,7 @@ const WORDS: &str = "abandon ability able about above absent absorb abstract abs
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<String>>,
-    /// What set_server and enter_recovery_words answer.
+    /// What set_server, enter_recovery_words and copy_secret answer.
     refuse: Cell<bool>,
     /// The question asked, and what confirming it does, until a test answers.
     asked: RefCell<Option<(String, Box<dyn FnOnce(&mut App)>)>>,
@@ -80,8 +80,9 @@ impl Host for Recorder {
         self.record(format!("remove {id}"));
     }
 
-    fn copy(&self, text: &str) {
-        self.record(format!("copy {}", text.split(' ').count()));
+    fn copy_secret(&self, text: &str, kept: Duration) -> bool {
+        self.record(format!("copy secret {} {}", text.split(' ').count(), kept.as_secs()));
+        !self.refuse.get()
     }
 
     fn confirm(
@@ -286,11 +287,36 @@ fn the_first_device_shows_its_words_once(cx: &mut TestAppContext) {
     tab.set(state(Status::On));
     assert!(tab.showing_words());
     tab.click("copy");
-    assert_eq!(tab.host.take(), ["copy 24"]);
+    assert_eq!(tab.host.take(), ["copy secret 24 60"]);
     tab.click("done");
     assert!(!tab.showing_words());
     assert_eq!(tab.host.take(), ["read devices"]);
     assert!(tab.drawn("sign-out") && tab.drawn("show-words"));
+}
+
+/// Copy puts the words on the clipboard as a secret, for this device alone and off it after a
+/// minute, and says so for as long as they're there (browser#641). Where the clipboard can't keep
+/// them to itself, nothing is copied and nothing says it was.
+#[gpui::test]
+fn copied_words_say_they_leave_the_clipboard(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::FirstDevice), cx);
+    tab.host.take();
+    tab.click("copy");
+    assert_eq!(tab.host.take(), ["copy secret 24 60"]);
+    assert!(tab.drawn("copied"));
+    tab.cx.executor().advance_clock(WORDS_KEPT - Duration::from_secs(1));
+    tab.cx.run_until_parked();
+    assert!(tab.drawn("copied"), "still on the clipboard");
+    tab.cx.executor().advance_clock(Duration::from_secs(2));
+    tab.cx.run_until_parked();
+    assert!(!tab.drawn("copied"), "the clipboard has let them go");
+
+    let mut tab = shown(state(Status::FirstDevice), cx);
+    tab.host.take();
+    tab.host.refuse.set(true);
+    tab.click("copy");
+    assert_eq!(tab.host.take(), ["copy secret 24 60"]);
+    assert!(!tab.drawn("copied"));
 }
 
 /// A new device asks the others to add it once, by itself, and shows the code once one answers.

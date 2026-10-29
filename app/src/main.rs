@@ -253,6 +253,7 @@ mod platform {
             ),
         );
         pub fn host_copy(text: *const c_char);
+        pub fn host_copy_secret(text: *const c_char, seconds: u32) -> bool;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(

@@ -7,7 +7,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use browser::account::{self, Account};
 use browser::default_browser::{self, DefaultBrowser, Os};
@@ -378,9 +378,10 @@ impl account::Host for CoreAccount {
         unsafe { bc::bc_sync_remove_device(id.as_ptr()) };
     }
 
-    fn copy(&self, text: &str) {
+    fn copy_secret(&self, text: &str, kept: Duration) -> bool {
         let text = CString::new(text).unwrap_or_default();
-        unsafe { platform::host_copy(text.as_ptr()) };
+        let kept = u32::try_from(kept.as_secs()).unwrap_or(u32::MAX);
+        unsafe { platform::host_copy_secret(text.as_ptr(), kept) }
     }
 
     /// In an alert, or on Linux in Settings' own dialog, as a profile's Delete asks.
