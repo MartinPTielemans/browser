@@ -587,11 +587,11 @@ expect "${controls}[^;]*; .*Window management Block" \
 send click 120 $(footer_y)
 none_since '^browser: site controls run certificate' || fail "the lock ran without a certificate"
 # Share closes them and hangs the system's share menu from its tile, at 122 118. Linux has no share
-# sheet, so its Site Controls have no Share, and their button closes them instead.
+# sheet, so its Site Controls have no Share, and Escape closes them instead.
 if [ "$(uname)" = Linux ]; then
   echo "skip: Share in the Site Controls: Linux has no share sheet, so they have no Share"
-  send click $site_controls_point
-  expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
+  send key escape
+  expect '^browser: site controls closing (escape)$' "escape didn't close the Site Controls"
 else
   send click 122 118
   expect '^browser: site controls run share$' "a click on Share didn't run it"
