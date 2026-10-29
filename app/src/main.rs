@@ -2146,6 +2146,23 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://settings/searchEngines");
     }
 
+    fn show_autofill(&self, kind: shell::AutoFill, _: &mut App) -> bool {
+        let kind = match kind {
+            shell::AutoFill::Contact => bc::BC_AUTOFILL_CONTACT,
+            shell::AutoFill::Passwords => bc::BC_AUTOFILL_PASSWORDS,
+            shell::AutoFill::Card => bc::BC_AUTOFILL_CARD,
+        };
+        unsafe { bc::bc_window_show_autofill(self.window, kind as i32) }
+    }
+
+    fn autofill_settings(&self, kind: shell::AutoFill, _: &mut App) {
+        let page = match kind {
+            shell::AutoFill::Card => "chrome://settings/payments",
+            _ => "chrome://settings/addresses",
+        };
+        open_tab(self.window, page);
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -3862,6 +3879,16 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 ),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
+                // Chrome's AutoFill, as Arc's and Dia's Edit menus have it: the dropdown at the
+                // field the page has focused, else the settings.
+                MenuItem::submenu(menu(
+                    "AutoFill",
+                    vec![
+                        item("Contact…", Command::AutoFill(shell::AutoFill::Contact)),
+                        item("Passwords…", Command::AutoFill(shell::AutoFill::Passwords)),
+                        item("Credit Card…", Command::AutoFill(shell::AutoFill::Card)),
+                    ],
+                )),
                 MenuItem::submenu(menu(
                     "Find",
                     vec![

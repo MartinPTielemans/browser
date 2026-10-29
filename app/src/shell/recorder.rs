@@ -103,6 +103,8 @@ pub(super) struct Recorder {
     pub(super) bar_open: Cell<bool>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
+    /// A field in the selected tab's page has the keyboard, so `show_autofill` opens a dropdown.
+    pub(super) page_field: Cell<bool>,
     /// The tabs the command bar was given to list each time the window showed another Space.
     pub(super) followed_tabs: RefCell<Vec<Vec<u64>>>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
@@ -565,6 +567,17 @@ impl Browser for Recorder {
 
     fn site_search_settings(&self, _: &mut App) {
         self.site_search_settings.set(self.site_search_settings.get() + 1);
+    }
+
+    fn show_autofill(&self, kind: super::AutoFill, _: &mut App) -> bool {
+        if self.page_field.get() {
+            self.record(format!("autofill {kind:?}"));
+        }
+        self.page_field.get()
+    }
+
+    fn autofill_settings(&self, kind: super::AutoFill, _: &mut App) {
+        self.record(format!("autofill settings {kind:?}"));
     }
 
     fn close_other_window(&self, _: &mut App) -> bool {

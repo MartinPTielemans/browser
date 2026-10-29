@@ -19,6 +19,7 @@
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/autofill_menu.h"
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
@@ -907,6 +908,11 @@ void bc_window_focus_page(bc_id window_id) {
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
     window->GiveKeyboardToPage();
   }
+}
+
+bool bc_window_show_autofill(bc_id window_id, int kind) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window && browser_core::ShowAutofill(window->selected(), kind);
 }
 
 bc_id bc_window_clear(bc_id window_id) {

@@ -680,6 +680,12 @@ impl Browser for Fake {
     fn view_history(&self, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
 
+    fn show_autofill(&self, _: shell::AutoFill, _: &mut App) -> bool {
+        false
+    }
+
+    fn autofill_settings(&self, _: shell::AutoFill, _: &mut App) {}
+
     fn close_other_window(&self, _: &mut App) -> bool {
         false
     }

@@ -306,7 +306,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
 | [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
-| [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |
+| [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Built: Contact…, Passwords… and Credit Card… in Edit's AutoFill, with `cargo test --lib`'s `autofill_opens_the_dropdown_at_the_field_or_else_the_settings`; the core's side (`core/autofill_menu.cc`) and the menu in `main.rs` aren't compiled yet. To tick: `./check.sh passwords` passing its AutoFill steps, written but not run yet: the Edit menu lists one AutoFill (`autofill-menu.png`), Passwords… opens Chrome's dropdown at the username field (`autofill-passwords.png`), and on a page with no field it opens Settings' Passwords | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
 | [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
 | [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: our Settings' Passwords lists usernames only, so nothing asks for a check; Chrome's page should do it in a tab, unverified | Chrome |

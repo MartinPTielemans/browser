@@ -8,7 +8,9 @@ use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
 use crate::theme::Appearance;
 
-use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog};
+use super::{
+    Answer, AutoFill, BarTab, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
+};
 
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
 /// during the call.
@@ -195,6 +197,13 @@ pub trait Browser {
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);
+    /// Opens Chrome's dropdown for `kind` under the field focused in the page of the window's
+    /// selected tab, if the page has the keyboard and the tab isn't an agent's, and says whether
+    /// it did.
+    fn show_autofill(&self, kind: AutoFill, cx: &mut App) -> bool;
+    /// Opens Chromium's settings page for the addresses or the cards autofill keeps, in a tab of
+    /// the Space shown. The user's: agents open no pages outside http(s) (AGENTS.md).
+    fn autofill_settings(&self, kind: AutoFill, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;

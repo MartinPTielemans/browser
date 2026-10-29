@@ -178,7 +178,19 @@ pub enum Command {
     /// Gives every window this appearance where its Space's theme doesn't choose one, in place of
     /// the system's (View › Appearance).
     Appearance(Appearance),
+    /// Opens Chrome's dropdown of this kind under the field focused in the page, or with none
+    /// focused, the settings that keep what it would list (Edit › AutoFill). Not in the command
+    /// bar, which has the keyboard while it shows, so no field in the page would have it.
+    AutoFill(AutoFill),
     Quit,
+}
+
+/// What Edit › AutoFill's items open Chrome's dropdown with.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum AutoFill {
+    Contact,
+    Passwords,
+    Card,
 }
 
 /// The browser's shortcuts (docs/ux-spec.md › Keyboard): the keystroke, with modifiers in the order
@@ -654,6 +666,9 @@ impl Command {
             Command::About => "about",
             Command::Import => "import",
             Command::Passwords => "passwords",
+            Command::AutoFill(AutoFill::Contact) => "autofill-contact",
+            Command::AutoFill(AutoFill::Passwords) => "autofill-passwords",
+            Command::AutoFill(AutoFill::Card) => "autofill-card",
             Command::Welcome => "welcome",
             Command::Quit => "quit",
         }
@@ -866,6 +881,7 @@ impl Shell {
             Command::About => return self.browser.about(cx),
             Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
+            Command::AutoFill(kind) => return self.autofill(kind, cx),
             Command::Welcome => return self.welcome_again(cx),
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
@@ -1208,10 +1224,25 @@ impl Shell {
             | Command::About
             | Command::Import
             | Command::Passwords
+            | Command::AutoFill(_)
             | Command::Welcome
             | Command::Appearance(_)
             | Command::Settings => true,
             _ => self.selected != 0,
+        }
+    }
+
+    /// Edit › AutoFill: Chrome's dropdown under the field the page has focused, or with none, the
+    /// settings that keep what it would list.
+    fn autofill(&mut self, kind: AutoFill, cx: &mut Context<Self>) {
+        if self.browser.show_autofill(kind, cx) {
+            return;
+        }
+        match kind {
+            AutoFill::Passwords => self.browser.passwords(self.space, cx),
+            // A private window opens no settings pages, as Site Search Settings shows.
+            _ if self.private => {}
+            _ => self.browser.autofill_settings(kind, cx),
         }
     }
 
@@ -1500,5 +1531,42 @@ mod tests {
         assert_eq!(host.site_search_settings.get(), 1);
         private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
         assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
+    }
+
+    /// Edit › AutoFill opens Chrome's dropdown while a field in the page has the keyboard, and
+    /// otherwise what keeps the data it would list: the Settings window's Passwords, or Chrome's
+    /// addresses or cards page, which a private window opens none of.
+    #[gpui::test]
+    fn autofill_opens_the_dropdown_at_the_field_or_else_the_settings(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui::{AppContext as _, Entity};
+
+        use crate::shell::{Browser, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser: Rc<dyn Browser> = host.clone();
+        let regular = cx.new(|cx| Shell::new(browser.clone(), cx));
+        let private =
+            cx.new(|cx| Shell::private_window(browser, 7, "Incognito".into(), 1, cx));
+        let choose_each = |shell: &Entity<Shell>, cx: &mut gpui::TestAppContext| {
+            host.take();
+            for kind in [AutoFill::Contact, AutoFill::Passwords, AutoFill::Card] {
+                shell.update(cx, |shell, cx| shell.run(Command::AutoFill(kind), "ui", cx));
+            }
+            host.take()
+        };
+
+        host.page_field.set(true);
+        let dropdowns = ["autofill Contact", "autofill Passwords", "autofill Card"];
+        assert_eq!(choose_each(&regular, cx), dropdowns);
+        assert_eq!(choose_each(&private, cx), dropdowns);
+
+        host.page_field.set(false);
+        let settings = ["autofill settings Contact", "passwords 0", "autofill settings Card"];
+        assert_eq!(choose_each(&regular, cx), settings);
+        assert_eq!(choose_each(&private, cx), ["passwords 7"]);
     }
 }

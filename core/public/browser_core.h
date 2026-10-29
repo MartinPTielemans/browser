@@ -1278,6 +1278,20 @@ BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 // the UI comes first. The user's: agents get none.
 BC_EXPORT void bc_window_focus_page(bc_id window);
 
+// What Edit › AutoFill opens Chrome's dropdown with (bc_window_show_autofill).
+#define BC_AUTOFILL_CONTACT 0
+#define BC_AUTOFILL_PASSWORDS 1
+#define BC_AUTOFILL_CARD 2
+
+// Edit › AutoFill › Contact…, Passwords… and Credit Card…: opens Chrome's dropdown under the field
+// focused in the page the window shows, if that page has the keyboard, and returns whether it did.
+// For BC_AUTOFILL_PASSWORDS it lists the logins saved for the site on any field Chrome can fill
+// one in, as its context menu's Passwords does; for the others, the addresses or cards Chrome has
+// for the field, as a click in it shows. With no field focused, it opens nothing, and the app opens
+// the settings for |kind| instead. An agent's tab gets nothing: the user's, and agents get none,
+// as they never read or fill saved data (decision 8).
+BC_EXPORT bool bc_window_show_autofill(bc_id window, int kind);
+
 // Clears the Space the window shows: closes its Today tabs but those any window shows, as
 // bc_tab_close does, for bc_window_undo_clear to bring back. While it shows every Today tab, a tab
 // alone or a split that is all of Today, it closes those too, and the window shows the tab the
