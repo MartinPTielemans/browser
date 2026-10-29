@@ -34,6 +34,7 @@ impl Render for Reveal {
                     moved.update(cx, |shell, cx| shell.pointer_at(x, cx));
                 })
                 .on_hover(move |hovered, _, cx| {
+                    log!("browser: diag reveal hovered {hovered}");
                     if !*hovered {
                         left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx));
                     }

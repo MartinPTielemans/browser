@@ -335,6 +335,7 @@ impl Shell {
     /// sidebar out over the page, and more than the hold zone past the panel's edge it sends it
     /// away.
     pub fn pointer_at(&mut self, x: f32, cx: &mut Context<Self>) {
+        log!("browser: diag pointer at {x} can {} question {} menu {} revealed {}", self.can_reveal(), self.question().is_some(), self.menu_open, self.revealed);
         if !self.can_reveal() {
             return;
         }
