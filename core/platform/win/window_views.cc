@@ -2,13 +2,13 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "base/auto_reset.h"
-#include "base/containers/contains.h"
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
@@ -179,7 +179,7 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   static void Detach(aura::Window* holder, aura::Window* view, const Staying& staying) {
     if (holder && view && view->parent() == holder) {
       holder->RemoveChild(view);
-      if (!base::Contains(staying, view)) {
+      if (!std::ranges::contains(staying, view)) {
         view->Hide();
       }
     }
