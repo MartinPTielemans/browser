@@ -1456,6 +1456,12 @@ BC_EXPORT void bc_age_tabs_for_testing(double seconds);
 // The user's: agents get none, as it keeps trackers off the user's pages.
 BC_EXPORT bool bc_ad_blocking(void);
 BC_EXPORT void bc_set_ad_blocking(bool on);
+// Whether a page may take its video or call into Picture in Picture as its tab is hidden, the
+// Mini Player, in every profile: on unless the user turned it off. Off blocks it by default, as
+// Chrome's settings do, and a site the user allows in its Site Controls still may. The core keeps
+// it with the Spaces. The user's: agents get none.
+BC_EXPORT bool bc_auto_picture_in_picture(void);
+BC_EXPORT void bc_set_auto_picture_in_picture(bool on);
 
 // Crash reports. Crashpad writes a minidump of every crash in the profile folder, and the core sends
 // one only while the user has Settings › Privacy › Send Crash Reports on, which is off by default:

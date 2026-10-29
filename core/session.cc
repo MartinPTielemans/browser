@@ -473,6 +473,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("ad_blocking", saved.settings.ad_blocking)
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
+                           .Set("auto_picture_in_picture",
+                                saved.settings.auto_picture_in_picture)
                            .Set("crash_report_offered", saved.settings.crash_report_offered)
                            .Set("widevine", saved.settings.widevine));
   return base::WriteJson(root);
@@ -712,6 +714,8 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.send_crash_reports =
         settings->FindBool("send_crash_reports").value_or(false);
     saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
+    saved.settings.auto_picture_in_picture =
+        settings->FindBool("auto_picture_in_picture").value_or(true);
     saved.settings.crash_report_offered =
         settings->FindDouble("crash_report_offered").value_or(0);
     saved.settings.widevine = settings->FindBool("widevine").value_or(false);
@@ -788,6 +792,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
     }
     // The profile the browser started in loaded before the settings were read.
     ApplyAdBlocking();
+    ApplyAutoPictureInPicture(/*changed=*/false);
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
     if (saved) {

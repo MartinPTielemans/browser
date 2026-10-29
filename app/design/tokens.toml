@@ -605,6 +605,8 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
+# Ours: the Mini Player's, on System Settings' indigo.
+mini-player-tile = 0x5e5ce6
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
 password-tile = 0x8e8e93

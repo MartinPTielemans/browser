@@ -82,6 +82,7 @@ use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::MINI_PLAYER_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
@@ -1575,6 +1576,8 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let mini_player = unsafe { bc::bc_auto_picture_in_picture() };
+        let mini_player = self.toggle("mini player", mini_player, set_mini_player, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
         let widevine = self.widevine.read(cx).shown().then(|| {
@@ -1591,6 +1594,11 @@ impl Settings {
                     Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
                     "Preview links to other sites from pinned tabs and favorites",
                     previews,
+                ),
+                row(
+                    Some(("icons/picture-in-picture-2.svg", MINI_PLAYER_TILE)),
+                    "Float a video or call in Picture in Picture as you leave its tab",
+                    mini_player,
                 ),
             ]))
             .children(widevine)
@@ -1875,6 +1883,11 @@ pub(crate) fn crash_reports_collector() -> String {
 
 fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
+}
+
+/// In every profile; a site the user allows in its Site Controls still floats.
+fn set_mini_player(on: bool, _: &mut App) {
+    unsafe { bc::bc_set_auto_picture_in_picture(on) };
 }
 
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built

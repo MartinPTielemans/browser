@@ -1054,6 +1054,16 @@ void bc_set_ad_blocking(bool on) {
   browser_core::SessionChanged();
 }
 
+bool bc_auto_picture_in_picture(void) {
+  return browser_core::UserSettings().auto_picture_in_picture;
+}
+
+void bc_set_auto_picture_in_picture(bool on) {
+  browser_core::UserSettings().auto_picture_in_picture = on;
+  browser_core::ApplyAutoPictureInPicture(/*changed=*/true);
+  browser_core::SessionChanged();
+}
+
 size_t bc_crash_reports_collector(char* host, size_t capacity) {
   return CopyString(browser_core::crash_reports::CollectorHost(), host, capacity);
 }

@@ -2,7 +2,8 @@
 # the camera, the microphone alone, or the screen while it shares a screen, a window or a tab, and
 # the tab it shares shows the screen too. While it shares a tab, another tab's menu has Share This
 # Tab Instead, which moves the share there. The marks go once the call ends. A call floats in
-# Picture in Picture while its tab is hidden, and comes back with it. A tab playing music out of
+# Picture in Picture while its tab is hidden, and comes back with it, unless its Site Controls block
+# that, or Settings turns it off for the sites they don't allow. A tab playing music out of
 # sight has a player at the sidebar's foot, whose button pauses it, whose click shows the tab, and
 # whose × puts it away. View › Cast… and the page menu's Cast… open the tab's Cast card, and ×
 # closes it. Chromium's fake camera and microphone stand in for real ones, and the share takes the
@@ -142,11 +143,14 @@ expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
 # A call floats once its tab is hidden, as Arc's does: Chrome's automatic Picture in Picture for a
 # page using the camera that asks for it with its media session, on https or a file alone. So a
 # file's page, from the command bar, whose "c" calls and which says when its window floats and
-# lands. Showing its tab again brings the call back.
+# lands, and whose "k" puts how often it was asked to float in its title. Showing its tab again
+# brings the call back.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+let asked = 0;
 navigator.mediaSession.setActionHandler("enterpictureinpicture", async () => {
+  asked++;
   const floating = await documentPictureInPicture.requestWindow({width: 320, height: 180});
   document.title = "floating";
   floating.addEventListener("pagehide", () => document.title = "landed");
@@ -158,6 +162,8 @@ onkeydown = async e => {
   } else if (e.key == "e") {
     call.getTracks().forEach(track => track.stop());
     document.title = "ended";
+  } else if (e.key == "k") {
+    document.title = "asked " + asked;
   }
 };
 </script>' > "$out/site/float.html"
@@ -181,6 +187,69 @@ shown "$b"
 expect "^browser: title $f floating\$" "the call didn't float with its tab hidden"
 shown_again "$f"
 expect "^browser: title $f landed\$" "the floating call didn't come back with its tab"
+
+# The call's Site Controls list the Automatic picture-in-picture it asked for. Blocked there, the
+# call stays in its tab as the tab hides, and allowed, it floats again. Back at Ask, Settings'
+# switch turns it off for every site the user hasn't allowed, and on again. The panel hangs from
+# the URL field's button at 206 64, its first row's middle at y 262, the rows 43 apart; Safari's
+# engine's row comes before the permissions.
+# floats <value> [capture]: sets the call's Automatic picture-in-picture to <value> in its Site
+# Controls, capturing them first as <capture>.
+floats() {
+  send move $sidebar_point
+  expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
+  send click 206 64
+  expect '^browser: site controls .*Automatic picture-in-picture [A-Z]' \
+    "the floating call's Site Controls didn't list Automatic picture-in-picture"
+  expect '^browser: site controls settled$' "the floating call's Site Controls didn't open"
+  [ -z "${2:-}" ] || ../tools/window-screenshot.sh "$pid" "$out/$2" || fail "no window to capture"
+  line=$(grep '^browser: site controls .*Automatic picture-in-picture ' "$log" | tail -1)
+  i=$(echo "$line" | sed 's/^[^;]*; //;s/;.*//' | tr ',' '\n' | sed 's/^ //' |
+    grep -n '^Automatic picture-in-picture ' | cut -d: -f1)
+  case "$line" in *"; Safari's engine "*) i=$((i + 1)) ;; esac
+  post click 207 $((262 + 43 * (i - 1)))
+  expect "^browser: menu shown .*$1" "Automatic picture-in-picture's menu didn't offer $1"
+  send choose "$1"
+  expect "^browser: site controls set Automatic picture-in-picture $1\$" "$1 in the menu didn't run"
+  send key escape
+  expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
+  send click $page_point
+}
+# mini_player: Settings' Advanced switch for it, which says it went <on or off>.
+mini_player() {
+  send key , cmd
+  expect '^browser: settings shown ' "⌘, from the page didn't show Settings"
+  send clickkey 491 60
+  expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+  send clickkey 592 208
+  expect "^browser: mini player $1\$" "a click on the Mini Player's switch didn't turn it $1"
+  [ "$1" = on ] || ../tools/window-screenshot.sh "$pid" "$out/settings-mini-player.png" ||
+    fail "no window to capture"
+  send key w cmd
+  expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+}
+floats Block site-controls-pip.png
+shown "$b"
+shown_again "$f"
+send key k
+expect "^browser: title $f asked 1\$" "blocked in its Site Controls, the call still floated"
+floats Allow
+shown "$b"
+expect "^browser: title $f floating\$" "allowed in its Site Controls, the call didn't float"
+shown_again "$f"
+expect "^browser: title $f landed\$" "the call allowed to float didn't come back with its tab"
+floats Ask
+mini_player off
+shown "$b"
+shown_again "$f"
+send key k
+expect "^browser: title $f asked 2\$" "with the Mini Player off in Settings, the call still floated"
+send click $page_point
+mini_player on
+shown "$b"
+expect "^browser: title $f floating\$" "with the Mini Player on again, the call didn't float"
+shown_again "$f"
+expect "^browser: title $f landed\$" "the call floating again didn't come back with its tab"
 send key e
 expect "^browser: title $f ended\$" "e didn't end the floating call"
 shown_again "$a"
@@ -239,4 +308,4 @@ fi
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×."

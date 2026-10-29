@@ -160,6 +160,9 @@ struct Settings {
   bool send_crash_reports = false;
   // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
   bool link_previews = true;
+  // Whether a page may take its video or call into Picture in Picture as its tab is hidden, in
+  // every profile (ApplyAutoPictureInPicture).
+  bool auto_picture_in_picture = true;
   // When the newest crash report the user was offered was written, in seconds since 1970, so no
   // report is offered twice, nor one older.
   double crash_report_offered = 0;
