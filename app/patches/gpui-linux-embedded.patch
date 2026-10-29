@@ -23,10 +23,10 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git a/crates/gpui_linux/src/gpui_linux.rs b/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..d1180be35c 100644
+index a5390e77f8..a881ec74c1 100644
 --- a/crates/gpui_linux/src/gpui_linux.rs
 +++ b/crates/gpui_linux/src/gpui_linux.rs
-@@ -1,4 +1,16 @@
+@@ -1,4 +1,17 @@
  #![cfg(any(target_os = "linux", target_os = "freebsd"))]
  mod linux;
  
@@ -35,7 +35,8 @@ index a5390e77f8..d1180be35c 100644
 +pub use linux::{drive_commit, drive_compose, marked_range, open_next_window_in};
 +pub use linux::{
 +    Corner, EmbeddedKeyboard, current_platform, dispatch_embedded, dispatch_embedded_after_read,
-+    embed, embed_wayland, embed_x11, embedded_fd, embedder_size, hide_overlay, hide_window, leave_overlay,
++    embed, embed_wayland, embed_x11, embedded_fd, embedder_size, give_held_keys, hide_overlay,
++    hide_window, hold_keys, leave_overlay,
 +    linux_platform, move_overlay, new_host_window, overlay_size, overlays_blend,
 +    set_overlay_keyboard,
 +    set_overlay_menu, set_overlay_outline, set_overlay_panel, set_overlay_pointer, set_overlay_under,
@@ -45,7 +46,7 @@ index a5390e77f8..d1180be35c 100644
 +#[cfg(feature = "wayland")]
 +pub use linux::{commit_embedded, compose_embedded, open_next_window_in_surface, resize_embedded};
 diff --git a/crates/gpui_linux/src/linux.rs b/crates/gpui_linux/src/linux.rs
-index e4da54b52b..0024e55973 100644
+index e4da54b52b..00c10e04f0 100644
 --- a/crates/gpui_linux/src/linux.rs
 +++ b/crates/gpui_linux/src/linux.rs
 @@ -1,7 +1,9 @@
@@ -67,8 +68,8 @@ index e4da54b52b..0024e55973 100644
  pub(crate) use headless::*;
  pub(crate) use keyboard::*;
 +pub use overlay::{
-+    Corner, embedder_size, hide_overlay, hide_window, leave_overlay, move_overlay, overlay_size,
-+    overlays_blend,
++    Corner, embedder_size, give_held_keys, hide_overlay, hide_window, hold_keys, leave_overlay,
++    move_overlay, overlay_size, overlays_blend,
 +    set_overlay_keyboard, set_overlay_menu, set_overlay_outline, set_overlay_panel,
 +    set_overlay_pointer, set_overlay_under, show_overlay, show_window, sync_display,
 +    take_overlay_keyboard, watch_control, watch_pointer_over,
@@ -142,10 +143,10 @@ index 0000000000..846d17431f
 +}
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..bf131e70a1
+index 0000000000..c45873b7b9
 --- /dev/null
 +++ b/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,875 @@
+@@ -0,0 +1,898 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -650,6 +651,26 @@ index 0000000000..bf131e70a1
 +    })
 +}
 +
++/// Holds the keys typed after the press of `shortcut`, which the embedder has now and which opens
++/// an overlay with the keyboard, for that overlay (`give_held_keys`). Under Wayland every key
++/// reaches GPUI too, and the overlay has the keyboard only once GPUI has read the keys typed by
++/// then, which it would leave to the embedder; the shortcut's press is where both find the keys
++/// to give it. Only the keystroke's key and modifiers count. On X11 GPUI has none to hold.
++pub fn hold_keys(#[allow(unused_variables)] shortcut: &gpui::Keystroke) {
++    #[cfg(feature = "wayland")]
++    super::wayland::hold_keys(shortcut);
++}
++
++/// The overlay `view` takes the keys held since a shortcut (`hold_keys`), and gets them once it
++/// shows with the keyboard, before those typed later. Says whether GPUI holds them; if it doesn't,
++/// as on X11, the embedder gives the overlay those it held.
++pub fn give_held_keys(#[allow(unused_variables)] view: *mut c_void) -> bool {
++    #[cfg(feature = "wayland")]
++    return super::wayland::give_held_keys(view as usize);
++    #[cfg(not(feature = "wayland"))]
++    false
++}
++
 +/// The user left the overlay `view`, as when the embedder dismisses it.
 +pub fn leave_overlay(view: *mut c_void) {
 +    left(view as usize);
@@ -870,6 +891,9 @@ index 0000000000..bf131e70a1
 +                        .filter(|each| each.view == view)
 +                        .for_each(|each| each.ready = true)
 +                });
++                // The keys typed since the shortcut that showed it, before those typed later.
++                #[cfg(feature = "wayland")]
++                super::wayland::deliver_held_keys();
 +            }
 +            true
 +        }
@@ -1391,7 +1415,7 @@ index cbc962bcff..4c439cadad 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git a/crates/gpui_linux/src/linux/wayland/client.rs b/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..459df30bc7 100644
+index 2d40cf7fa9..e152f71715 100644
 --- a/crates/gpui_linux/src/linux/wayland/client.rs
 +++ b/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -1761,16 +1785,19 @@ index 2d40cf7fa9..459df30bc7 100644
  
                  if group != old_layout {
                      this.handle_keyboard_layout_change();
-@@ -2153,7 +2269,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2153,7 +2269,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                      state.serial_tracker.update(SerialKind::KeyPress, serial);
                  }
  
 -                let focused_window = state.keyboard_focused_window.clone();
++                if holds_key(&state, key, key_state) {
++                    return;
++                }
 +                let focused_window = key_window(&state, state.keyboard_focused_window.clone());
                  let Some(focused_window) = focused_window else {
                      return;
                  };
-@@ -2218,16 +2334,17 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2218,16 +2337,17 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                          let rate = state.repeat.characters_per_second;
                          let repeat_interval = Duration::from_secs(1) / rate.max(1);
                          let id = state.repeat.current_id;
@@ -1792,7 +1819,7 @@ index 2d40cf7fa9..459df30bc7 100644
                                      let Some(client) = this.0.upgrade() else {
                                          return TimeoutAction::Drop;
                                      };
-@@ -2240,8 +2357,11 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2240,8 +2360,11 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                          return TimeoutAction::Drop;
                                      }
  
@@ -1806,7 +1833,7 @@ index 2d40cf7fa9..459df30bc7 100644
  
                                      drop(state);
                                      focused_window.handle_input(input.clone());
-@@ -2249,8 +2369,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2249,8 +2372,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                      // If the new scheduled time is in the past the event will repeat as soon as possible
                                      TimeoutAction::ToInstant(event_timestamp + repeat_interval)
                                  }
@@ -1818,7 +1845,7 @@ index 2d40cf7fa9..459df30bc7 100644
  
                          drop(state);
                          focused_window.handle_input(input);
-@@ -2398,6 +2519,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2398,6 +2522,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  state.serial_tracker.update(SerialKind::MouseEnter, serial);
                  state.mouse_location = Some(position);
                  state.button_pressed = None;
@@ -1829,7 +1856,7 @@ index 2d40cf7fa9..459df30bc7 100644
  
                  if let Some(window) = get_window(&mut state, &surface.id()) {
                      state.mouse_focused_window = Some(window.clone());
-@@ -2432,9 +2557,24 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2432,9 +2560,24 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  }
              }
              wl_pointer::Event::Leave { .. } => {
@@ -1855,7 +1882,7 @@ index 2d40cf7fa9..459df30bc7 100644
                          pressed_button: state.button_pressed,
                          modifiers: state.modifiers,
                      });
-@@ -2444,6 +2584,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2444,6 +2587,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                      state.cursor_hidden_window = None;
  
                      drop(state);
@@ -1866,7 +1893,7 @@ index 2d40cf7fa9..459df30bc7 100644
                      focused_window.handle_input(input);
                      focused_window.set_hovered(false);
                  }
-@@ -2453,10 +2597,15 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2453,10 +2600,15 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  surface_y,
                  ..
              } => {
@@ -1883,7 +1910,7 @@ index 2d40cf7fa9..459df30bc7 100644
                  state.restore_cursor_after_hide();
  
                  if let Some(window) = state.mouse_focused_window.clone() {
-@@ -2514,11 +2663,33 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2514,11 +2666,33 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  }
                  let button = linux_button_to_gpui(button);
                  let Some(button) = button else { return };
@@ -1917,7 +1944,7 @@ index 2d40cf7fa9..459df30bc7 100644
                          if let Some(window) = state.keyboard_focused_window.clone() {
                              if state.composing && state.text_input.is_some() {
                                  drop(state);
-@@ -2595,6 +2766,14 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2595,6 +2769,14 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
              } => {
                  state.axis_source = axis_source;
              }
@@ -1932,7 +1959,7 @@ index 2d40cf7fa9..459df30bc7 100644
              wl_pointer::Event::Axis {
                  axis: WEnum::Value(axis),
                  value,
-@@ -2688,17 +2867,37 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2688,17 +2870,37 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                      state.scroll_event_received = false;
                      let continuous = state.continuous_scroll_delta.take();
                      let discrete = state.discrete_scroll_delta.take();
@@ -1979,7 +2006,7 @@ index 2d40cf7fa9..459df30bc7 100644
                          }
                      } else if let Some(discrete) = discrete
                          && let Some(window) = state.mouse_focused_window.clone()
-@@ -2733,6 +2932,68 @@ impl Dispatch<zwp_pointer_gestures_v1::ZwpPointerGesturesV1, ()> for WaylandClie
+@@ -2733,6 +2935,68 @@ impl Dispatch<zwp_pointer_gestures_v1::ZwpPointerGesturesV1, ()> for WaylandClie
      }
  }
  
@@ -2048,7 +2075,7 @@ index 2d40cf7fa9..459df30bc7 100644
  impl Dispatch<zwp_pointer_gesture_pinch_v1::ZwpPointerGesturePinchV1, ()>
      for WaylandClientStatePtr
  {
-@@ -3061,7 +3322,7 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
+@@ -3061,7 +3325,7 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
              }
              (
                  DataSourceKind::Drag,
@@ -2057,7 +2084,7 @@ index 2d40cf7fa9..459df30bc7 100644
              ) => {
                  let Some(external_drag) = state.external_drag.take() else {
                      return;
-@@ -3071,6 +3332,9 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
+@@ -3071,6 +3335,9 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
                  let input = PlatformInput::FileDrop(FileDropEvent::Ended);
                  drop(state);
                  external_drag.window.handle_input(input);
@@ -2067,7 +2094,7 @@ index 2d40cf7fa9..459df30bc7 100644
              }
              _ => {}
          }
-@@ -3479,3 +3743,353 @@ mod tests {
+@@ -3479,3 +3746,460 @@ mod tests {
          );
      }
  }
@@ -2293,6 +2320,113 @@ index 2d40cf7fa9..459df30bc7 100644
 +pub(crate) fn control_held() -> bool {
 +    let client = EMBEDDED_CLIENT.with_borrow(|client| client.as_ref()?.upgrade());
 +    client.is_some_and(|client| client.borrow().modifiers.control)
++}
++
++/// The keys GPUI has after a shortcut of the embedder's that opens an overlay with the keyboard
++/// (`hold_keys`). Every key reaches both the embedder and GPUI, and the shortcut's press is the one
++/// place in the keys both know: the embedder's copies of the keys after it are its page's only if
++/// no overlay takes them, and GPUI's go to the overlay that does.
++struct HeldKeys {
++    shortcut: Keystroke,
++    since: Instant,
++    /// Whether GPUI has had the shortcut's press, after which it holds the keys.
++    after: bool,
++    keys: Vec<PlatformInput>,
++    /// The overlay that takes them (`give_held_keys`).
++    to: Option<usize>,
++}
++
++thread_local! {
++    static HELD_KEYS: RefCell<Option<HeldKeys>> = const { RefCell::new(None) };
++}
++
++/// As long as the embedder holds them (bc_hold_keys): past it, its page kept the shortcut.
++const HOLD_KEYS_FOR: Duration = Duration::from_millis(400);
++
++pub(crate) fn hold_keys(shortcut: &Keystroke) {
++    if EMBEDDED_CLIENT.with_borrow(|client| client.is_none()) {
++        return;
++    }
++    HELD_KEYS.set(Some(HeldKeys {
++        shortcut: shortcut.clone(),
++        since: Instant::now(),
++        after: false,
++        keys: Vec::new(),
++        to: None,
++    }));
++}
++
++pub(crate) fn give_held_keys(view: usize) -> bool {
++    HELD_KEYS.with_borrow_mut(|held| {
++        if held.as_ref().is_some_and(expired) {
++            *held = None;
++        }
++        if let Some(held) = held.as_mut() {
++            held.to = Some(view);
++        }
++        held.is_some()
++    })
++}
++
++fn expired(held: &HeldKeys) -> bool {
++    held.since.elapsed() > HOLD_KEYS_FOR
++}
++
++/// Gives the overlay that took the keys held (`give_held_keys`) them once it shows with the
++/// keyboard, before GPUI gives it those typed later.
++pub(crate) fn deliver_held_keys() {
++    let ready = crate::linux::overlay::keyboard_overlay();
++    let held = HELD_KEYS.with_borrow_mut(|held| {
++        let to = held.as_ref()?.to?;
++        (ready == Some(to)).then(|| held.take()).flatten()
++    });
++    let Some(held) = held else {
++        return;
++    };
++    if let Some(window) = held.to.and_then(|to| overlay_window(to as _)) {
++        for key in held.keys {
++            window.handle_input(key);
++        }
++    }
++}
++
++/// Whether the key `key`, pressed or released as `key_state` says, is held for an overlay
++/// (`hold_keys`), which it then is. A hold that no overlay showed for in time ends with its keys.
++fn holds_key(state: &WaylandClientState, key: u32, key_state: wl_keyboard::KeyState) -> bool {
++    HELD_KEYS.with_borrow_mut(|slot| {
++        let Some(held) = slot.as_mut() else {
++            return false;
++        };
++        if expired(held) {
++            *slot = None;
++            return false;
++        }
++        let Some(keymap_state) = state.keymap_state.as_ref() else {
++            return false;
++        };
++        let keycode = Keycode::from(key + MIN_KEYCODE);
++        if keymap_state.key_get_one_sym(keycode).is_modifier_key() {
++            return false;
++        }
++        let keystroke = keystroke_from_xkb(keymap_state, state.modifiers, keycode);
++        let input = match key_state {
++            wl_keyboard::KeyState::Pressed => PlatformInput::KeyDown(KeyDownEvent {
++                keystroke,
++                is_held: false,
++                prefer_character_input: false,
++            }),
++            wl_keyboard::KeyState::Released => PlatformInput::KeyUp(KeyUpEvent { keystroke }),
++            _ => return false,
++        };
++        if !held.after {
++            held.after = matches!(&input, PlatformInput::KeyDown(down)
++                if down.keystroke.key == held.shortcut.key
++                    && down.keystroke.modifiers == held.shortcut.modifiers);
++            return false;
++        }
++        held.keys.push(input);
++        true
++    })
 +}
 +
 +fn overlay_window(view: *mut std::ffi::c_void) -> Option<WaylandWindowStatePtr> {

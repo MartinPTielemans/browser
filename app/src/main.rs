@@ -2776,8 +2776,25 @@ unsafe extern "C" fn tab_key_before_page(
     });
     if holds == Some(true) {
         unsafe { platform::host_hold_keys() };
+        #[cfg(target_os = "linux")]
+        gpui_linux::hold_keys(&held_keystroke(unsafe { &*key }));
     }
     false
+}
+
+/// The keystroke GPUI has for `key`, one typed in a page.
+#[cfg(target_os = "linux")]
+fn held_keystroke(key: &bc::bc_key) -> gpui::Keystroke {
+    let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+    let has = |flag| key.modifiers & flag != 0;
+    let modifiers = gpui::Modifiers {
+        control: has(bc::BC_MODIFIER_CONTROL),
+        alt: has(bc::BC_MODIFIER_ALT),
+        shift: has(bc::BC_MODIFIER_SHIFT),
+        platform: has(bc::BC_MODIFIER_META),
+        function: false,
+    };
+    shell::web_keystroke(&name, modifiers)
 }
 
 /// Gives the keys the core held from a page since a shortcut that opens a field (bc_hold_keys) to
@@ -2787,17 +2804,14 @@ fn give_held_keys(view: *mut c_void) {
     unsafe extern "C" fn take(held: *mut c_void, keys: *const bc::bc_key, count: usize) {
         let held = unsafe { &mut *held.cast::<Vec<gpui::Keystroke>>() };
         for key in unsafe { std::slice::from_raw_parts(keys, count) } {
-            let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
-            let has = |flag| key.modifiers & flag != 0;
-            let modifiers = gpui::Modifiers {
-                control: has(bc::BC_MODIFIER_CONTROL),
-                alt: has(bc::BC_MODIFIER_ALT),
-                shift: has(bc::BC_MODIFIER_SHIFT),
-                platform: has(bc::BC_MODIFIER_META),
-                function: false,
-            };
-            held.push(shell::web_keystroke(&name, modifiers));
+            held.push(held_keystroke(key));
         }
+    }
+    // Under Wayland GPUI has every key too and gives the overlay its own, those after the
+    // shortcut's press, which both had; the core's go to the page only if nothing takes them.
+    if gpui_linux::give_held_keys(view) {
+        unsafe { bc::bc_give_held_keys(None, std::ptr::null_mut()) };
+        return;
     }
     let mut held: Vec<gpui::Keystroke> = Vec::new();
     unsafe { bc::bc_give_held_keys(Some(take), (&raw mut held).cast()) };
