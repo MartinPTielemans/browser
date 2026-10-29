@@ -53,7 +53,7 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
     settings_window,
 };
 
@@ -222,6 +222,7 @@ fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(panels::shown());
     views.extend(menu_window::shown());
+    views.extend(reveal_window::shown());
     views
 }
 
