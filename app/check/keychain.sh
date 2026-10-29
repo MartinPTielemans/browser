@@ -27,6 +27,7 @@ dir="$PWD/$out/keychain"
 mkdir -p "$dir"
 check_id="$id.keychain-check"
 check_name="$app_name Keychain Check $port"
+first_name="$check_name"
 service="$check_name Safe Storage"
 procs="$dir"
 log="$out/keychain-0.log"
@@ -66,10 +67,12 @@ keychain_cleanup() {
   security list-keychains -d user -s $searched 2> /dev/null || true
   security delete-keychain "$identities" 2> /dev/null || true
   # Deleting the run's cookie key may ask, so it gets 5 s.
-  for item in "$service" "$service (moving)"; do
-    security delete-generic-password -s "$item" -a "$check_name" > /dev/null 2>&1 &
-    deleting=$!
-    (sleep 5 && kill "$deleting" 2> /dev/null) &
+  for name in "$first_name" "$first_name Spare"; do
+    for item in "$name Safe Storage" "$name Safe Storage (moving)"; do
+      security delete-generic-password -s "$item" -a "$name" > /dev/null 2>&1 &
+      deleting=$!
+      (sleep 5 && kill "$deleting" 2> /dev/null) &
+    done
   done
 }
 trap 'keychain_cleanup; cleanup' EXIT
@@ -164,6 +167,38 @@ share_partition
 run_copy team-b "$out/keychain-2.log" session "h=$port; n=$port"
 grep -q "cookie key" "$out/keychain-2.log" &&
   fail "B's copy went through the cookie key again: $(grep 'cookie key' "$out/keychain-2.log")"
+# A launch that stopped while the item was made again left the key only in the spare. The next
+# launch puts it back, and the profile's cookies, encrypted with it, are still sent. The run can't
+# delete an item the app made without macOS asking, so this copy has a name, and items, of its own,
+# made here with a key the run chose, open to any app as the app's own would be to it.
+check_name="$first_name Spare"
+service="$check_name Safe Storage"
+key=$($openssl rand -base64 16)
+security add-generic-password -s "$service" -a "$check_name" -w "$key" -A ||
+  fail "the Keychain didn't take the spare copy's cookie key"
+rm -rf "$dir/profile"
+sign_copy team-spare "$signer_a" "$team"
+share_partition
+# The team's signature is the one the last launch read the key under, so this one goes straight on.
+run_copy team-spare "$out/keychain-3.log" "session?set" none
+grep -q "cookie key" "$out/keychain-3.log" &&
+  fail "the spare copy's first launch went through the cookie key: $(grep 'cookie key' "$out/keychain-3.log")"
+security delete-generic-password -s "$service" -a "$check_name" > /dev/null ||
+  fail "the spare copy's cookie key couldn't be deleted"
+security add-generic-password -s "$service (moving)" -a "$check_name" -w "$key" -A ||
+  fail "the Keychain didn't take the spare"
+# The spare, too, as the app reads it.
+item="$service"
+service="$item (moving)"
+share_partition
+service="$item"
+defaults delete "$check_id" KeychainKeySignature
+run_copy team-spare "$out/keychain-4.log" session "h=$port; n=$port"
+grep -q "^browser: the cookie key came back from its spare: 0\$" "$out/keychain-4.log" ||
+  fail "the cookie key didn't come back from its spare: $(grep 'cookie key' "$out/keychain-4.log")"
+! security find-generic-password -s "$service (moving)" -a "$check_name" > /dev/null 2>&1 ||
+  fail "the cookie key's spare, \"$service (moving)\", is still in the Keychain after it came back"
+
 partitions="with each copy's partition added"
 [ -n "${KEYCHAIN_PASSWORD:-}" ] || partitions="with no partition added"
-echo "ok: keychain. A login cookie set under identity A was sent under B, after the team's requirement, with no prompt, $partitions."
+echo "ok: keychain. A login cookie set under identity A was sent under B, after the team's requirement, with no prompt, $partitions. With the cookie key only in its spare, a launch put it back and the profile's cookies were sent."
