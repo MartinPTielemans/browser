@@ -16,6 +16,7 @@
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/autofill_menu.h"
+#include "browser_core/autofill_offer.h"
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
@@ -1225,7 +1226,9 @@ void bc_tab_show_certificate(bc_id id) {
 }
 
 void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
-  browser_core::PasswordOffer::Answer(id, answer, username);
+  if (!browser_core::AutofillOffer::Answer(id, answer)) {
+    browser_core::PasswordOffer::Answer(id, answer, username);
+  }
 }
 
 void bc_tab_show_offer(bc_id id) {

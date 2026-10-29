@@ -11,6 +11,7 @@
 
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/autofill_offer.h"
 #include "browser_core/host.h"
 #include "browser_core/side_panel.h"
 #include "browser_core/tab.h"
@@ -145,11 +146,14 @@ autofill::AutofillBubbleBase* NoBubbleShown() {
 
 }  // namespace
 
+void NoAutofillBubbles::Register(BrowserWindowInterface* browser) {
+  registration_.emplace(browser->GetUnownedUserDataHost(), *this);
+}
 autofill::AutofillBubbleBase* NoAutofillBubbles::ShowSaveCreditCardBubble(
-    content::WebContents*,
-    autofill::SaveCardBubbleController*,
+    content::WebContents* web_contents,
+    autofill::SaveCardBubbleController* controller,
     bool) {
-  return NoBubbleShown();
+  return AutofillOffer::SaveCard(web_contents, controller);
 }
 autofill::AutofillBubbleBase* NoAutofillBubbles::ShowIbanBubble(content::WebContents*,
                                                                 autofill::IbanBubbleController*,
@@ -174,10 +178,10 @@ autofill::AutofillBubbleBase* NoAutofillBubbles::ShowAutofillAiLocalSaveNotifica
   return NoBubbleShown();
 }
 autofill::AutofillBubbleBase* NoAutofillBubbles::ShowSaveAddressProfileBubble(
-    content::WebContents*,
-    std::unique_ptr<autofill::SaveAddressBubbleController>,
+    content::WebContents* web_contents,
+    std::unique_ptr<autofill::SaveAddressBubbleController> controller,
     bool) {
-  return NoBubbleShown();
+  return AutofillOffer::SaveAddress(web_contents, std::move(controller));
 }
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
 autofill::AutofillBubbleBase* NoAutofillBubbles::ShowAddressSignInPromo(
@@ -312,6 +316,7 @@ void BrowserWindowStandIn::SetBrowser(BrowserWindowInterface* browser) {
   browser_ = browser;
   location_bar_->set_browser(browser);
   side_panel_ = std::make_unique<SidePanel>(browser);
+  autofill_bubbles_.Register(browser);
   if (views::Widget* widget = this->widget()) {
     widget_observation_.Observe(widget);
   }

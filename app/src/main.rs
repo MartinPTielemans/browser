@@ -4694,9 +4694,18 @@ unsafe extern "C" fn tab_offer_changed(
                 .collect(),
         };
         let never = string(offer.never);
+        let details = match offer.detail_count {
+            0 => Vec::new(),
+            count => unsafe { std::slice::from_raw_parts(offer.details, count) }
+                .iter()
+                .map(|detail| string(*detail))
+                .collect(),
+        };
         offer::Offer {
             kind: match offer.kind as u32 {
                 bc::BC_OFFER_KIND_PASSWORD_UPDATE => offer::Kind::Update,
+                bc::BC_OFFER_KIND_ADDRESS => offer::Kind::Address,
+                bc::BC_OFFER_KIND_CARD => offer::Kind::Card,
                 _ => offer::Kind::Save,
             },
             title: string(offer.title),
@@ -4707,6 +4716,7 @@ unsafe extern "C" fn tab_offer_changed(
             accept: string(offer.accept),
             decline: string(offer.decline),
             never: (!never.is_empty()).then_some(never),
+            details,
         }
     });
     update_app(|cx| offer::changed(tab, offer, cx));
