@@ -637,6 +637,7 @@ dependencies = [
  "bindgen",
  "cc",
  "emojis",
+ "futures-lite",
  "gpui",
  "gpui_linux",
  "gpui_macos",
@@ -648,6 +649,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "unicode-segmentation",
+ "zbus",
 ]
 
 [[package]]
