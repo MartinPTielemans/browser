@@ -14,6 +14,7 @@
             "customInfo": {
               "iconType": { "emoji_v2": "🏠" },
               "windowTheme": {
+                "windowAppearance": { "single": { "_0": "dark" } },
                 "background": {
                   "single": {
                     "_0": {
@@ -52,9 +53,10 @@
             "customInfo": {
               "iconType": { "icon": "flash" },
               "windowTheme": {
+                "windowAppearance": { "appearanceBased": { "light": "light", "dark": "dark" } },
                 "background": {
-                  "single": {
-                    "_0": {
+                  "appearanceBased": {
+                    "light": {
                       "contentOverBackgroundAppearance": "light",
                       "isVibrant": true,
                       "style": {
@@ -65,6 +67,22 @@
                                 "color": { "red": 0.9, "green": 0.6, "blue": 0.7, "alpha": 1, "colorSpace": "extendedSRGB" },
                                 "modifiers": { "intensityFactor": 0.9, "noiseFactor": 0, "overlay": "base" },
                                 "translucencyStyle": "subtle"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "dark": {
+                      "contentOverBackgroundAppearance": "dark",
+                      "isVibrant": false,
+                      "style": {
+                        "color": {
+                          "_0": {
+                            "basicColor": {
+                              "_0": {
+                                "color": { "red": 0.1, "green": 0.1, "blue": 0.2, "alpha": 1, "colorSpace": "extendedSRGB" },
+                                "translucencyStyle": "dark"
                               }
                             }
                           }

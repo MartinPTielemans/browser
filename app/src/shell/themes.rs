@@ -32,13 +32,14 @@ impl Shell {
         }
     }
 
-    /// The theme `space`'s window shows: its own, or a theme of its colour alone for a Space whose
-    /// colour came before themes did; none in a private window.
+    /// The theme `space`'s window shows: its own, in the look its tone draws, or a theme of its
+    /// colour alone for a Space whose colour came before themes did; none in a private window.
     pub(super) fn space_theme(&self, space: u64) -> Option<Theme> {
         if self.private {
             return None;
         }
-        self.theme_of(space).or_else(|| {
+        let dark = self.tone_of(space) == Tone::Dark;
+        self.theme_of(space).map(|theme| theme.shown(dark)).or_else(|| {
             let entry = self.spaces.iter().find(|each| each.id == space)?;
             entry.color.map(Theme::of_color)
         })
@@ -125,7 +126,9 @@ impl Shell {
         let Some(entry) = self.spaces.iter().find(|each| each.id == space) else {
             return;
         };
-        let theme = entry.theme.or_else(|| entry.color.map(Theme::of_color));
+        // A theme of two looks opens as the one shown, and what the picker makes is one look.
+        let dark = self.tone_of(space) == Tone::Dark;
+        let theme = entry.theme.map(|theme| theme.shown(dark)).or_else(|| entry.color.map(Theme::of_color));
         let shell = cx.weak_entity();
         let changed: Changed = Rc::new(move |theme, done, cx| {
             shell.update(cx, |shell, cx| shell.theme_changed(space, theme, done, cx)).ok();
