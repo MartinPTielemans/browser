@@ -4750,6 +4750,7 @@ unsafe extern "C" fn extensions_changed(
             pinned: extension.pinned,
             options: text(extension.options),
             removable: extension.removable,
+            incognito: extension.incognito,
             commands: match extension.commands.is_null() {
                 true => &[][..],
                 false => unsafe {

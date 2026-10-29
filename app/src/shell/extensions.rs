@@ -41,6 +41,16 @@ pub struct Extension {
     pub commands: Vec<ExtensionCommand>,
     /// The user may remove it, which the browser's own ad blocker they turn off in Settings instead.
     pub removable: bool,
+    /// The user allowed it in Incognito, so it runs in private windows too.
+    pub incognito: bool,
+}
+
+impl Extension {
+    /// Whether it runs in a window, `private` or not: Chrome runs only the extensions the user
+    /// allowed in Incognito in a private session.
+    pub fn runs(&self, private: bool) -> bool {
+        self.enabled && (self.incognito || !private)
+    }
 }
 
 /// One of an extension's keyboard commands that has a key.
@@ -251,7 +261,7 @@ impl Shell {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         let extensions = self.extensions.get(&profile).map_or(&[][..], Vec::as_slice);
         let keys = user_keys(cx);
-        let Some((id, name)) = (command_for(keystroke, extensions, keys))
+        let Some((id, name)) = (command_for(keystroke, extensions, self.private, keys))
             .map(|(extension, command)| (extension.id.clone(), command.name.clone()))
         else {
             return false;
@@ -530,19 +540,20 @@ impl Shell {
     }
 }
 
-/// The command `keystroke` runs among the turned-on `extensions`', as Chrome gives them keys: never
-/// one of the browser's reserved shortcuts, and one of its others only if the user set it, as a
-/// suggested key that's taken isn't given.
+/// The command `keystroke` runs among the `extensions`' that run in a window, `private` or not,
+/// as Chrome gives them keys: never one of the browser's reserved shortcuts, and one of its others
+/// only if the user set it, as a suggested key that's taken isn't given.
 fn command_for<'a>(
     keystroke: &str,
     extensions: &'a [Extension],
+    private: bool,
     keys: &UserKeys,
 ) -> Option<(&'a Extension, &'a ExtensionCommand)> {
     if keys.command_for(keystroke, true).is_some() {
         return None;
     }
     let ours = keys.command_for(keystroke, false).is_some();
-    extensions.iter().filter(|extension| extension.enabled).find_map(|extension| {
+    extensions.iter().filter(|extension| extension.runs(private)).find_map(|extension| {
         (extension.commands.iter())
             .find(|command| command.keystroke == keystroke && !(ours && command.suggested))
             .map(|command| (extension, command))
@@ -631,6 +642,7 @@ mod tests {
                 })
                 .collect(),
             removable: true,
+            incognito: false,
         }
     }
 
@@ -665,7 +677,7 @@ mod tests {
             extension("b", true, &[("library", "shift-cmd-l", true), ("side", "cmd-s", false)]),
         ];
         let run = |keystroke| {
-            command_for(keystroke, &extensions, &UserKeys::default())
+            command_for(keystroke, &extensions, false, &UserKeys::default())
                 .map(|(extension, command)| format!("{} {}", extension.id, command.name))
         };
         assert_eq!(run("shift-cmd-y").as_deref(), Some("a hello"));
@@ -673,6 +685,32 @@ mod tests {
         assert_eq!(run("shift-cmd-l"), None);
         assert_eq!(run("cmd-s").as_deref(), Some("b side"));
         assert_eq!(run("alt-shift-p"), None);
+    }
+
+    /// A private window runs the keys of, and lists in its menu bar, only the extensions the user
+    /// allowed in Incognito, as Chrome runs only those in a private session.
+    #[gpui::test]
+    fn a_private_window_runs_only_extensions_allowed_in_incognito(cx: &mut TestAppContext) {
+        let allowed = extension("allowed", true, &[("go", "shift-cmd-y", true)]);
+        let allowed = Extension { incognito: true, ..allowed };
+        let other = extension("other", true, &[("side", "shift-cmd-u", true)]);
+        let extensions = vec![other, allowed];
+        let run = |keystroke, private| {
+            command_for(keystroke, &extensions, private, &UserKeys::default())
+                .map(|(extension, _)| extension.id.to_string())
+        };
+        assert_eq!(run("shift-cmd-u", false).as_deref(), Some("other"));
+        assert_eq!(run("shift-cmd-u", true), None);
+        assert_eq!(run("shift-cmd-y", true).as_deref(), Some("allowed"));
+
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::private_window(host.clone(), 1, "Private".into(), 7, cx));
+        let listed = shell.update(cx, |shell, cx| {
+            shell.set_extensions(7, extensions.clone(), cx);
+            let bar = shell.menu_bar();
+            bar.extensions.iter().map(|extension| extension.id.to_string()).collect::<Vec<_>>()
+        });
+        assert_eq!(listed, ["allowed"]);
     }
 
     fn action(id: &str, pinned: bool) -> ExtensionAction {

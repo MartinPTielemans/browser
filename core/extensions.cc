@@ -39,6 +39,7 @@
 #include "extensions/browser/extension_registrar.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/browser/permissions/active_tab_permission_granter.h"
 #include "extensions/browser/ui_util.h"
 #include "extensions/browser/uninstall_reason.h"
@@ -60,6 +61,19 @@ namespace browser_core {
 namespace {
 
 constexpr char kOnCommand[] = "commands.onCommand";
+
+// Extension |id| if it's turned on in |profile| and runs there: in a private window's profile only
+// if the user allowed it in Incognito, as in Chrome, whose off-the-record registry is the
+// original's and lists every extension.
+const extensions::Extension* RunsIn(Profile* profile, const std::string& id) {
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
+  if (extension && profile->IsOffTheRecord() &&
+      !extensions::util::IsIncognitoEnabled(extension, profile)) {
+    return nullptr;
+  }
+  return extension;
+}
 
 // The key a command's |code| is, as bc_key names one, or "" for a media key, which no window's
 // keys are.
@@ -266,7 +280,9 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
                             .options = options.emplace_back(OptionsPage(*extension)).c_str(),
                             .commands = told.data(),
                             .command_count = told.size(),
-                            .removable = !IsAdBlocker(extension->id())});
+                            .removable = !IsAdBlocker(extension->id()),
+                            .incognito = extensions::util::IsIncognitoEnabled(extension->id(),
+                                                                              profile_)});
     }
     Host().extensions_changed(Host().context, ProfileId(DirOf(profile_)), extensions.data(),
                               extensions.size());
@@ -529,8 +545,7 @@ bool RunExtension(bc_id window,
                   const std::string& id,
                   views::View* anchor) {
   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
-  const extensions::Extension* extension =
-      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
+  const extensions::Extension* extension = RunsIn(profile, id);
   extensions::ExtensionActionRunner* runner =
       extensions::ExtensionActionRunner::GetForWebContents(contents);
   if (!extension || !runner) {
@@ -564,8 +579,7 @@ bool RunExtensionCommand(content::WebContents* contents,
                          const std::string& id,
                          const std::string& name) {
   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
-  const extensions::Extension* extension =
-      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
+  const extensions::Extension* extension = RunsIn(profile, id);
   extensions::EventRouter* router = extensions::EventRouter::Get(profile);
   if (!extension || !router->ExtensionHasEventListener(id, kOnCommand)) {
     return false;
