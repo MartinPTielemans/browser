@@ -891,10 +891,15 @@ fn run_command(line: &str) -> Option<()> {
             let (connection, _) = &*x;
             let above = ConfigureWindowAux::new().stack_mode(StackMode::ABOVE);
             connection.configure_window(browser.window, &above).ok()?;
-            let focus = xproto::InputFocus::PARENT;
-            connection
-                .set_input_focus(focus, browser.window, x11rb::CURRENT_TIME)
-                .ok()?;
+            // A window that has it keeps it where it is, as a window manager leaves it: taken up
+            // from GPUI's window to the browser window's own, the keys go to neither.
+            let focus = connection.get_input_focus().ok()?.reply().ok()?.focus;
+            if !within(connection, focus, browser.window) {
+                let focus = xproto::InputFocus::PARENT;
+                connection
+                    .set_input_focus(focus, browser.window, x11rb::CURRENT_TIME)
+                    .ok()?;
+            }
             connection.flush().ok()
         }
         "click" | "rightclick" | "doubleclick" => {
