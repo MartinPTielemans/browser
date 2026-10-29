@@ -101,4 +101,55 @@ std::optional<SyncSecret> OpenPairing(const PairingKeys& requester,
   return secret;
 }
 
+PairingRequest::PairingRequest() = default;
+
+PairingRequest::PairingRequest(const PairingKey& private_key) : keys_(private_key) {}
+
+PairingRequest::~PairingRequest() = default;
+
+std::array<uint8_t, 32> PairingRequest::commitment() const {
+  return PairingCommitment(keys_.public_key);
+}
+
+bool PairingRequest::Accept(const PairingKey& approver) {
+  if (approver_) {
+    return false;
+  }
+  approver_ = approver;
+  code_ = PairingCode(keys_.public_key, approver);
+  return true;
+}
+
+std::optional<SyncSecret> PairingRequest::Open(const std::string& pairing,
+                                               const std::vector<uint8_t>& sealed) const {
+  return approver_ ? OpenPairing(keys_, *approver_, pairing, sealed) : std::nullopt;
+}
+
+PairingAnswer::PairingAnswer(const std::array<uint8_t, 32>& commitment)
+    : commitment_(commitment) {}
+
+PairingAnswer::PairingAnswer(const std::array<uint8_t, 32>& commitment,
+                             const PairingKey& private_key)
+    : commitment_(commitment), keys_(private_key) {}
+
+PairingAnswer::~PairingAnswer() = default;
+
+bool PairingAnswer::Reveal(const PairingKey& requester) {
+  if (revealed_) {
+    return false;
+  }
+  revealed_ = true;
+  if (PairingCommitment(requester) != commitment_) {
+    return false;
+  }
+  requester_ = requester;
+  code_ = PairingCode(requester, keys_.public_key);
+  return true;
+}
+
+std::optional<std::vector<uint8_t>> PairingAnswer::Seal(const std::string& pairing,
+                                                        const SyncSecret& secret) const {
+  return requester_ ? SealPairing(keys_, *requester_, pairing, secret) : std::nullopt;
+}
+
 }  // namespace browser_core

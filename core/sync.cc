@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/base64.h"
 #include "base/base64url.h"
 #include "base/command_line.h"
@@ -38,6 +39,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/profiles.h"
+#include "browser_core/sync_guard.h"
 #include "browser_core/sync_pairing.h"
 #include "browser_core/sync_relay.h"
 #include "browser_core/sync_words.h"
@@ -388,21 +390,20 @@ using Fetched = base::OnceCallback<void(int status, std::optional<base::DictValu
 
 // This device asking the others for the secret (protocol.md, Pairing: the requester).
 struct Request {
-  PairingKeys keys;
+  PairingRequest pairing;
   std::string id;
-  std::string code;
   base::OneShotTimer expiry;
 };
 
 // Another device asking this one, which holds the secret (the approver).
 struct Asked {
+  explicit Asked(const std::array<uint8_t, 32>& commitment) : pairing(commitment) {}
+
+  PairingAnswer pairing;
   std::string id;
   std::string name;
   std::string os;
-  std::array<uint8_t, 32> commitment;
-  PairingKeys keys;
   bool accepted = false;
-  std::optional<PairingKey> requester;
   base::OneShotTimer expiry;
 };
 
@@ -559,7 +560,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     if (status == BC_SYNC_FIRST_DEVICE) {
       SyncSecret secret;
       crypto::RandBytes(secret);
-      secret_ = secret;
+      SetSecret(secret);
       problem_ = BC_SYNC_PROBLEM_NONE;
       Save();
       UseSecret();
@@ -640,7 +641,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     request_ = std::make_unique<Request>();
     base::DictValue frame;
     frame.Set("type", "pair_request");
-    frame.Set("commitment", Base64Url(PairingCommitment(request_->keys.public_key)));
+    frame.Set("commitment", Base64Url(request_->pairing.commitment()));
     frame.Set("name", device_name_);
     frame.Set("os", kOs);
     relay_->Send(Frame(std::move(frame)));
@@ -648,11 +649,11 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   }
 
   void AnswerPairing(const std::string& id, bool add) {
-    if (!asked_ || asked_->id != id || !asked_->requester || !secret_) {
+    if (!asked_ || asked_->id != id || asked_->pairing.code().empty() || !secret_) {
       return;
     }
     std::optional<std::vector<uint8_t>> sealed =
-        add ? SealPairing(asked_->keys, *asked_->requester, asked_->id, *secret_) : std::nullopt;
+        add ? asked_->pairing.Seal(asked_->id, *secret_) : std::nullopt;
     if (sealed && relay_open_) {
       base::DictValue frame;
       frame.Set("type", "pair_seal");
@@ -781,7 +782,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     const std::string server = Server().is_valid() ? Server().spec() : std::string();
     const std::string trimmed =
         !server.empty() && server.back() == '/' ? server.substr(0, server.size() - 1) : server;
-    const std::string code = request_ ? request_->code : std::string();
+    const std::string code = request_ ? request_->pairing.code() : std::string();
     const std::string email = SignedIn() ? email_ : std::string();
     const std::array<std::string, 3> now = {trimmed, email, code};
     const int status = Status();
@@ -803,6 +804,12 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
                            .email = email.c_str(),
                            .code = code.c_str()};
     Host().sync_changed(Host().context, &state);
+  }
+
+  // The secret, which also keys passwords' client tags (sync_guard.h).
+  void SetSecret(const std::optional<SyncSecret>& secret) {
+    secret_ = secret;
+    SetSyncPasswordTagKey(secret);
   }
 
   // Storage.
@@ -850,8 +857,9 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
       }
       const std::string secret = Decrypt(root->FindString("secret"));
       if (SignedIn() && secret.size() == SyncSecret().size()) {
-        secret_.emplace();
-        std::ranges::copy(secret, secret_->begin());
+        SyncSecret kept;
+        std::ranges::copy(secret, kept.begin());
+        SetSecret(kept);
       }
     }
     loaded_ = true;
@@ -1127,7 +1135,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     starting_over_ = false;
     refresh_.clear();
     access_.clear();
-    secret_.reset();
+    SetSecret(std::nullopt);
     email_.clear();
     account_.clear();
     device_.clear();
@@ -1163,15 +1171,18 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   // one on the account's first device, else the one it has.
   void UseSecret() {
     const std::optional<bool> passphrase = HasPassphrase();
-    if (!secret_ || !passphrase) {
+    // Sync's settings tell its observers as each one changes, which calls this again, before
+    // first-time setup is marked complete.
+    if (!secret_ || !passphrase || using_secret_) {
       return;
     }
+    base::AutoReset<bool> using_secret(&using_secret_, true);
     syncer::SyncUserSettings* settings = Service()->GetUserSettings();
     const std::string words = SyncWordsOf(*secret_);
     if (*passphrase) {
       // The account's data was started over with another secret since this device kept it.
       if (settings->IsPassphraseRequired() && !settings->SetDecryptionPassphrase(words)) {
-        secret_.reset();
+        SetSecret(std::nullopt);
         Save();
         return;
       }
@@ -1200,7 +1211,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
       Notify();
       return;
     }
-    secret_ = secret;
+    SetSecret(secret);
     Save();
     UseSecret();
     Notify();
@@ -1344,30 +1355,38 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
       if (!approver) {
         return;
       }
-      approver_ = *approver;
+      if (!request_->pairing.Accept(*approver)) {
+        // A second key, from someone between the devices trying to make the codes agree.
+        SendPairing("pair_cancel", *pairing);
+        request_.reset();
+        problem_ = BC_SYNC_PROBLEM_SERVER;
+        Notify();
+        return;
+      }
       base::DictValue reveal;
       reveal.Set("type", "pair_reveal");
       reveal.Set("pairing", *pairing);
-      reveal.Set("public_key", Base64Url(request_->keys.public_key));
+      reveal.Set("public_key", Base64Url(request_->pairing.public_key()));
       relay_->Send(Frame(std::move(reveal)));
-      request_->code = PairingCode(request_->keys.public_key, approver_);
       Notify();
     } else if (*type == "pair_reveal" && pairing && asked_ && asked_->id == *pairing &&
                asked_->accepted) {
       std::optional<PairingKey> requester = Key32(frame->FindString("public_key"));
-      if (!requester || PairingCommitment(*requester) != asked_->commitment) {
-        // Not the key the request committed to: someone between the devices swapped it.
+      const bool shown = !asked_->pairing.code().empty();
+      if (!requester || !asked_->pairing.Reveal(*requester)) {
+        // Not the key the request committed to, or a second: someone between the devices.
         SendPairing("pair_cancel", asked_->id);
         asked_.reset();
+        if (shown && Host().sync_pairing_asked) {
+          Host().sync_pairing_asked(Host().context, nullptr);
+        }
         return;
       }
-      asked_->requester = *requester;
-      const std::string code = PairingCode(*requester, asked_->keys.public_key);
       if (Host().sync_pairing_asked) {
         bc_sync_pairing asked = {.id = asked_->id.c_str(),
                                  .name = asked_->name.c_str(),
                                  .os = asked_->os.c_str(),
-                                 .code = code.c_str()};
+                                 .code = asked_->pairing.code().c_str()};
         Host().sync_pairing_asked(Host().context, &asked);
       }
     } else if (*type == "pair_sealed" && pairing && request_ && request_->id == *pairing) {
@@ -1376,7 +1395,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
         sealed = base::Base64UrlDecode(*encoded, base::Base64UrlDecodePolicy::IGNORE_PADDING);
       }
       std::optional<SyncSecret> secret =
-          sealed ? OpenPairing(request_->keys, approver_, *pairing, *sealed) : std::nullopt;
+          sealed ? request_->pairing.Open(*pairing, *sealed) : std::nullopt;
       request_.reset();
       if (!secret) {
         problem_ = BC_SYNC_PROBLEM_SERVER;
@@ -1431,13 +1450,12 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     if (!secret_ || asked_ || !commitment) {
       return;
     }
-    asked_ = std::make_unique<Asked>();
+    asked_ = std::make_unique<Asked>(*commitment);
     asked_->id = *pairing;
     const std::string* name = frame.FindString("name");
     const std::string* os = frame.FindString("os");
     asked_->name = name ? *name : std::string();
     asked_->os = os ? *os : std::string();
-    asked_->commitment = *commitment;
     StartExpiry(asked_->expiry, frame, *pairing);
     for (Window* window : Window::All()) {
       if (window->widget() && window->widget()->IsActive()) {
@@ -1453,7 +1471,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     base::DictValue frame;
     frame.Set("type", "pair_accept");
     frame.Set("pairing", asked_->id);
-    frame.Set("public_key", Base64Url(asked_->keys.public_key));
+    frame.Set("public_key", Base64Url(asked_->pairing.public_key()));
     if (relay_open_) {
       relay_->Send(Frame(std::move(frame)));
     }
@@ -1468,7 +1486,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
       problem_ = reason == "cancelled" ? BC_SYNC_PROBLEM_DECLINED : BC_SYNC_PROBLEM_EXPIRED;
       Notify();
     } else if (asked_ && asked_->id == pairing) {
-      const bool shown = asked_->requester.has_value();
+      const bool shown = !asked_->pairing.code().empty();
       asked_.reset();
       if (shown && reason != "done" && Host().sync_pairing_asked) {
         Host().sync_pairing_asked(Host().context, nullptr);
@@ -1543,13 +1561,13 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
   base::OneShotTimer relay_retry_;
 
   std::unique_ptr<Request> request_;
-  PairingKey approver_ = {};
   std::unique_ptr<Asked> asked_;
 
   std::map<const signin::IdentityManager*, base::RepeatingClosure> watches_;
   std::unique_ptr<syncer::SyncSetupInProgressHandle> setup_;
   // SetEncryptionPassphrase was called, and its answer is yet to come back as the type.
   bool encrypting_ = false;
+  bool using_secret_ = false;
   // The server cleared the account's data for bc_sync_start_over, and the engine is yet to see.
   bool starting_over_ = false;
   base::ScopedObservation<syncer::SyncService, syncer::SyncServiceObserver> sync_observation_{
@@ -1580,6 +1598,16 @@ void Install() {
     return Account::Get().CreateInvalidations(profile);
   };
   g_browser_core_sync_url = [] { return Account::Get().SyncUrl(); };
+  g_browser_core_sync_hold_commit = &HoldSyncCommit;
+  g_browser_core_sync_check_commit = [](syncer::DataType type,
+                                        const syncer::CommitRequestDataList& commit) {
+    // The hold keeps a type from committing until the passphrase encrypts it, so a commit that
+    // isn't ciphertext is a bug that would give the server what it mustn't read. Stopping here
+    // sends nothing; dropping the commit instead would leave its changes in flight for good.
+    CHECK(SyncCommitIsCiphertext(type, commit))
+        << "plaintext in a commit of " << syncer::DataTypeToDebugString(type);
+  };
+  g_browser_core_sync_password_tag = &SyncPasswordTag;
 }
 
 void Start() {
