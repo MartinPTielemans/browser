@@ -14,6 +14,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "browser_core/autofill_menu.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/link_target.h"
@@ -229,6 +230,7 @@ Tab::~Tab() = default;
 void Tab::Attach(content::WebContents* contents) {
   Observe(contents);
   TabLink::CreateForWebContents(contents, id_);
+  AutofillMenu::Watch(contents);
   // Chrome's tab helpers make the driver as the tab is made, before anything asks for its id.
   if (auto* driver = favicon::ContentFaviconDriver::FromWebContents(contents)) {
     favicon_observation_.Observe(driver);

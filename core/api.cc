@@ -15,6 +15,7 @@
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/autofill_menu.h"
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
@@ -1246,6 +1247,10 @@ void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
 
 void bc_tab_show_offer(bc_id id) {
   browser_core::PasswordOffer::ShowAgain(id);
+}
+
+bool bc_tab_autofill(bc_id id, int kind) {
+  return browser_core::AutofillMenu::Open(id, kind);
 }
 
 void bc_tab_close_page_menu(bc_id id, int command) {

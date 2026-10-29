@@ -431,6 +431,9 @@ pub trait Browser {
     fn shortcuts(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
     fn passwords(&self, space: u64, cx: &mut App);
+    /// Opens Chrome's dropdown of `kind` at the form field that has the keyboard in the tab's page.
+    /// Returns false if no field there has it.
+    fn autofill(&self, tab: u64, kind: super::AutoFill, cx: &mut App) -> bool;
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.

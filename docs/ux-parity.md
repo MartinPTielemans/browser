@@ -292,7 +292,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
 | [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
-| [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |
+| [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Contact…, Passwords… and Credit Card… open Chrome's dropdown at the field the core saw take the keyboard, else Settings' Passwords; the passwords run checks Passwords… and the no-field case (autofill-menu-passwords), the autofill run Contact… and Credit Card…. Unverified until those run | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
 | [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Blink's PasswordReveal, on from the core; the passwords run captures the eye (password-reveal) and its absence on a filled password (password-filled-reveal). Unverified until that runs | Dia |
 | [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: our Settings' Passwords lists usernames only, so nothing asks for a check; Chrome's page should do it in a tab, unverified | Chrome |

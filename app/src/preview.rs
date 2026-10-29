@@ -742,6 +742,10 @@ impl Browser for Fake {
 
     fn passwords(&self, _: u64, _: &mut App) {}
 
+    fn autofill(&self, _: u64, _: browser::shell::AutoFill, _: &mut App) -> bool {
+        false
+    }
+
     fn shortcuts(&self, _: &mut App) {}
 
     // Each made-up Space shows its top tab.

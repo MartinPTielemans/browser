@@ -2499,6 +2499,15 @@ impl Browser for Engine {
         settings::set_send_crash_reports(on);
     }
 
+    fn autofill(&self, tab: u64, kind: shell::AutoFill, _: &mut App) -> bool {
+        let kind = match kind {
+            shell::AutoFill::Contact => bc::BC_AUTOFILL_CONTACT,
+            shell::AutoFill::Passwords => bc::BC_AUTOFILL_PASSWORDS,
+            shell::AutoFill::Card => bc::BC_AUTOFILL_CARD,
+        };
+        tab != 0 && unsafe { bc::bc_tab_autofill(tab, kind as i32) }
+    }
+
     fn new_window(&self, cx: &mut App) {
         let id = self.window;
         // Outside the shell's update, as the new window's shell reads this one's.
@@ -3744,6 +3753,14 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 ),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
+                MenuItem::submenu(menu(
+                    "AutoFill",
+                    vec![
+                        item("Contact…", Command::AutoFill(shell::AutoFill::Contact)),
+                        item("Passwords…", Command::AutoFill(shell::AutoFill::Passwords)),
+                        item("Credit Card…", Command::AutoFill(shell::AutoFill::Card)),
+                    ],
+                )),
                 MenuItem::submenu(menu(
                     "Find",
                     vec![
