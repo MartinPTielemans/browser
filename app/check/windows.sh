@@ -14,7 +14,8 @@
 # same way, and the window it left draws WebKit's picture of it, which the core gives from a task of
 # its own (#364: an answer inside the call that asked aborted the browser). A heavy page and a light
 # one move between two windows every way a page moves, and the run says how long each stage of a
-# move takes.
+# move takes. A row dragged out of a window onto another's list moves its tab there, its page live,
+# unless escape puts it back, and let go over no window it opens one of its own around the pointer.
 
 # The page counts in its title from its first frame, so a page that reloaded would count from 1
 # again. "o" in it opens a tab under it, as a link to a new tab does.
@@ -524,6 +525,33 @@ send release $(there "$last")
 none_since '^browser: dropped tab ' || fail "the tab put back with escape dropped in the other window"
 none_since "^browser: window $fifth shows $other\$" || fail "the tab put back with escape moved its page"
 [ "$(today)" = "$before" ] || fail "the tab put back with escape moved, to \"$(today)\""
+none_since '^browser: window opened ' || fail "the tab put back with escape opened a window"
+# Let go in the gap between the windows, over neither, the tab opens in a window of its own, as big
+# as the first, around the pointer, which shows its page live and comes to the front.
+gap="710 300"
+loads=$(grep -c "^browser: loaded $other " "$log" || true)
+send press $(row_of "$other")
+send dragto 100 $(($(row_of "$other" | cut -d' ' -f2) + 20))
+send dragto $gap
+expect "^browser: dragged $other out\$" "a row dragged into the gap between the windows didn't come out"
+send release $gap
+expect "^browser: tab $other opened in window [0-9]*\$" "the tab let go over neither window didn't open a window"
+sixth=$(grep "^browser: tab $other opened in window " "$log" | tail -1 | cut -d' ' -f7)
+expect "^browser: window $sixth shows $other\$" "the tab's own window didn't show it"
+expect "^browser: key window $sixth\$" "the tab's own window didn't come to the front"
+expect "^browser: window $first page elsewhere $other\$" "the first window wasn't told the page went"
+[ "$(grep -c "^browser: loaded $other " "$log" || true)" = "$loads" ] ||
+  fail "the page in its own window loaded again"
+driven_sixth=$(grep -c '^browser: window opened ' "$log")
+send order
+frame=$(grep "^browser: frame window $driven_sixth " "$log" | tail -1 | cut -d' ' -f5-8)
+echo "$frame" | awk -v x=$((x1 + 710)) -v y=$((y1 + 300)) '
+  { exit !($3 == 700 && $4 == 700 && $1 <= x && x <= $1 + $3 && $2 <= y && y <= $2 + $4) }' ||
+  fail "the tab's own window isn't as big as the first, under the pointer: $frame"
+../tools/window-screenshot.sh "$pid" "$out/windows-own-window.png" all || fail "no window to capture"
+send window "$driven_sixth"
+send key w cmd shift
+expect "^browser: window closed $sixth\$" "⇧⌘W didn't close the tab's own window"
 send window "$driven_fifth"
 send key w cmd shift
 expect "^browser: window closed $fifth\$" "⇧⌘W didn't close the window the tab was dropped in"
@@ -535,4 +563,4 @@ exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
 forget_engine_sites
-echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab${webkit_moved:-}, and a row dragged out onto another window's list moves its tab to the gap marked there and its page there live, unless escape puts it back. Each stage of a page's move between windows: $out/handover-summary.txt. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png, $out/windows-drag-out.png, $out/windows-dropped-in.png${webkit_moved:+, $out/windows-webkit-pictured.png}"
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab${webkit_moved:-}, and a row dragged out onto another window's list moves its tab to the gap marked there and its page there live, unless escape puts it back, and let go over no window it opens one of its own around the pointer. Each stage of a page's move between windows: $out/handover-summary.txt. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png, $out/windows-drag-out.png, $out/windows-dropped-in.png, $out/windows-own-window.png${webkit_moved:+, $out/windows-webkit-pictured.png}"
