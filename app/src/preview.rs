@@ -878,6 +878,9 @@ impl Browser for Fake {
     // The preview has no material: its window is the tint over GPUI's clear.
     fn set_window_light(&self, _: bool, _: &mut App) {}
 
+    // The preview keeps nothing for a next launch.
+    fn set_appearance(&self, _: Appearance, _: &mut App) {}
+
     fn page_moving(&self, _: bool, _: &mut App) {}
 
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
