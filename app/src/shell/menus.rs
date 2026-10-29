@@ -653,15 +653,36 @@ impl Shell {
         items
     }
 
-    /// A folder's menu.
+    /// A folder's menu, as Arc's.
     fn folder_menu(&self, folder: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
         let links = !self.folder_links(folder).is_empty();
-        vec![
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
             (
                 MenuEntry::new("Rename Folder", true),
                 "rename-folder",
                 Box::new(move |shell, cx| shell.rename_folder(folder, cx)),
             ),
+            (
+                MenuEntry::new("Change Icon…", true),
+                "change-folder-icon",
+                Box::new(move |shell, cx| shell.change_folder_icon(folder, cx)),
+            ),
+        ];
+        if has_icon(&self.folder_icon(folder)) {
+            items.push((
+                MenuEntry::new("Remove Icon", true),
+                "remove-folder-icon",
+                Box::new(move |shell, cx| {
+                    shell.change(Prop::FolderIcon(folder), Value::Text(String::new()), cx)
+                }),
+            ));
+        }
+        items.push((
+            MenuEntry::new("Duplicate", true),
+            "duplicate-folder",
+            Box::new(move |shell, cx| shell.duplicate_folder(folder, cx)),
+        ));
+        let rest: [(MenuEntry, &'static str, MenuAction); 6] = [
             (MenuEntry::line(), "", Box::new(|_, _| {})),
             (
                 MenuEntry::new("Copy All Links", links),
@@ -684,12 +705,19 @@ impl Shell {
                 "delete-folder",
                 Box::new(move |shell, cx| shell.delete_folder_now(folder, cx)),
             ),
-        ]
+        ];
+        items.extend(rest);
+        items
     }
 
-    /// The tabs in `folder` and the folders in it, in the sidebar's order, with their links,
-    /// without their tracking parameters. Those with none are left out.
-    fn folder_links(&self, folder: u64) -> Vec<(u64, String)> {
+    /// A folder's Duplicate, as Arc's: a copy under it of what it holds, the tabs unloaded until
+    /// shown. As a tab's Duplicate, it's no step to undo; the copy is deleted as any folder is.
+    fn duplicate_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
+        self.browser.duplicate_folder(folder, cx);
+    }
+
+    /// The tabs in `folder` and the folders in it, in the sidebar's order.
+    pub(super) fn folder_tabs(&self, folder: u64) -> Vec<u64> {
         let Some(space) = self.spaces.iter().find(|space| space.is_folder(folder)) else {
             return Vec::new();
         };
@@ -701,7 +729,14 @@ impl Shell {
             parent == folder
         };
         let tabs = space.pinned.iter().filter(|&&row| !space.is_folder(row) && within(row));
-        let links = tabs.map(|&tab| (tab, clean_link(&self.url(tab))));
+        tabs.copied().collect()
+    }
+
+    /// The tabs in `folder` and the folders in it, in the sidebar's order, with their links,
+    /// without their tracking parameters. Those with none are left out.
+    fn folder_links(&self, folder: u64) -> Vec<(u64, String)> {
+        let tabs = self.folder_tabs(folder).into_iter();
+        let links = tabs.map(|tab| (tab, clean_link(&self.url(tab))));
         links.filter(|(_, link)| !link.is_empty()).collect()
     }
 
@@ -1339,6 +1374,33 @@ mod tests {
         assert_eq!(host.take(), [format!("share sheet 10 https://example.com/ {title}")]);
     }
 
+    /// A folder's menu is Arc's: its name and icon, a copy of it, its links, then its deletion,
+    /// with Remove Icon once it has one.
+    #[gpui::test]
+    fn a_folders_menu_is_arcs(cx: &mut TestAppContext) {
+        let folders = Folders {
+            folders: [(20, ("Docs".into(), true)), (22, ("Old".into(), true))].into(),
+            parents: [(21, 20)].into(),
+            icons: [(22, "📚".into())].into(),
+        };
+        let (shell, host) = shell_with(cx, &[20, 21, 22], &[24], folders);
+        let menu = tab_menu(&shell, &host, cx, 20);
+        // Its tab has no address here, so Copy All Links is greyed out.
+        let head = ["Rename Folder", "Change Icon…", "Duplicate", "Copy All Links (disabled)"];
+        assert_eq!(menu[..4], head, "{menu:?}");
+        assert_eq!(menu.last().unwrap(), "Delete Folder");
+        let menu = tab_menu(&shell, &host, cx, 22);
+        assert_eq!(menu[..4], ["Rename Folder", "Change Icon…", "Remove Icon", "Duplicate"]);
+        host.take();
+        host.take_edits();
+        cx.update(|cx| host.choose("Remove Icon", cx));
+        assert_eq!(host.take_edits(), ["folder icon 22 "]);
+        tab_menu(&shell, &host, cx, 20);
+        cx.update(|cx| host.choose("Duplicate", cx));
+        let edits = host.take_edits();
+        assert!(edits.len() == 1 && edits[0].starts_with("duplicate folder 20 "), "{edits:?}");
+    }
+
     /// A folder's menu copies the links of every tab in it, nested folders' too, each on a line or
     /// as Markdown, and pastes the clipboard's link as a tab at its top, as Arc's does.
     #[gpui::test]
@@ -1346,6 +1408,7 @@ mod tests {
         let folders = Folders {
             folders: [(20, ("Docs".into(), true)), (22, ("Old".into(), false))].into(),
             parents: [(21, 20), (22, 20), (23, 22)].into(),
+            ..Default::default()
         };
         let (shell, host) = shell_with(cx, &[20, 21, 22, 23], &[24], folders);
         shell.update(cx, |shell, cx| {
@@ -1387,6 +1450,7 @@ mod tests {
         let folders = Folders {
             folders: [(20, ("Docs".into(), true))].into(),
             parents: Default::default(),
+            ..Default::default()
         };
         let (shell, host) = shell_with(cx, &[20], &[10], folders);
         shell.update(cx, |shell, cx| {
@@ -1398,10 +1462,11 @@ mod tests {
             let home = Folders {
                 folders: [(30, ("Old".into(), false)), (31, ("Older".into(), true))].into(),
                 parents: [(31, 30)].into(),
+                ..Default::default()
             };
             shell.set_tabs(2, vec![30, 31], vec![40], Vec::new(), home, cx);
             let theirs = [(50, ("Theirs".into(), true))].into();
-            let other = Folders { folders: theirs, parents: Default::default() };
+            let other = Folders { folders: theirs, ..Default::default() };
             shell.set_tabs(3, vec![50], Vec::new(), Vec::new(), other, cx);
         });
         let menu = tab_menu(&shell, &host, cx, 10);
@@ -1494,6 +1559,7 @@ mod tests {
         let made = Folders {
             folders: [(folder, ("New Folder".into(), true))].into(),
             parents: [(3, folder), (5, folder)].into(),
+            ..Default::default()
         };
         tabs(&shell, cx, 1, vec![2, folder, 3, 5], vec![4], made);
         shell.update(cx, |shell, cx| shell.undo(cx));

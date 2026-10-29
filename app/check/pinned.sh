@@ -9,14 +9,15 @@
 # away from its pinned URL, without loading it. Dragging a row moves its tab in the pinned tabs,
 # pins it and unpins it, without showing it, and escape puts it back. New Folder makes a folder
 # under the pinned tabs, which takes the name typed. A row dragged right under it goes in and
-# dragged left comes out, a folder drags as a row, and a click closes and opens it. Launched again,
-# the app brings it back closed, a double-click renames it, Settings' Export… writes it and its tab
-# as Markdown links, and Delete Folder in its menu leaves its tab where it was. Links and files
-# dragged onto the list from the page or another app open as tabs where the pointer lets go, and
-# dragged text that isn't a web link doesn't. A split made with a pinned tab is pinned. Away from
-# its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change its pinned URL, which
-# ⌘Z gives back, and ⌘-click on its favicon goes back keeping the page in a new tab. Export Space as
-# Markdown… saves the Space's folders, pinned tabs and Today tabs as a list of links.
+# dragged left comes out, a folder drags as a row, a click closes and opens it, and closed, it
+# previews its tab, which the keyboard shows. Launched again, the app brings it back closed, a
+# double-click renames it, Settings' Export… writes it and its tab as Markdown links, and Delete
+# Folder in its menu leaves its tab where it was. Links and files dragged onto the list from the
+# page or another app open as tabs where the pointer lets go, and dragged text that isn't a web link
+# doesn't. A split made with a pinned tab is pinned. Away from its pinned URL, Pinned URL › Replace
+# Pinned URL with Current and Edit… change its pinned URL, which ⌘Z gives back, and ⌘-click on its
+# favicon goes back keeping the page in a new tab. Export Space as Markdown… saves the Space's
+# folders, pinned tabs and Today tabs as a list of links.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -464,6 +465,20 @@ bar_command expand-folders "Expand All Folders" "expand all"
 expect "^browser: outline $f+\\[$c\\]\$" "Expand All Folders didn't open the folder: $(outline)"
 bar_command collapse-folders "Collapse All Folders" "collapse all"
 expect "^browser: outline $f-\\[$c\\]\$" "Collapse All Folders didn't close the folder again: $(outline)"
+# The pointer resting on the closed folder previews its tab with the keyboard in its search, where
+# ↓ and ↩ show the tab, keeping the folder closed.
+send move $(pinned_row 0)
+expect "^browser: folder preview shown $f at " "resting on the closed folder didn't preview it"
+../tools/window-screenshot.sh "$pid" "$out/folder-preview.png" || fail "no window to capture"
+send key down
+send key return
+expect "^browser: folder preview chose $c\$" "↓ and ↩ in the folder's preview didn't choose its tab"
+expect '^browser: folder preview hidden$' "choosing a tab left the folder's preview up"
+expect "^browser: selected $c in " "the tab chosen in the folder's preview didn't show"
+expect "^browser: outline $f-\\[$c\\]\$" \
+  "showing a tab from the preview opened the folder: $(outline)"
+send move $page_point
+switch "9 cmd" "$a"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited

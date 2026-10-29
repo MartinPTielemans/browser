@@ -1494,6 +1494,7 @@ mod tests {
             let folders = Folders {
                 folders: HashMap::from([(5, ("Folder".into(), false))]),
                 parents: HashMap::from([(4, 5)]),
+                ..Default::default()
             };
             shell.set_tabs(1, vec![2, 3, 5, 4, 6], vec![7], Vec::new(), folders, cx);
             for tab in [2, 3, 4, 7] {

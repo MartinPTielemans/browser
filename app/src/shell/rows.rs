@@ -136,7 +136,8 @@ impl Shell {
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(row, *hovered, cx);
                 shell.hover_tooltip(row, *hovered, cx);
-                shell.hover_card(row, *hovered, cx)
+                shell.hover_card(row, *hovered, cx);
+                shell.folder_preview(row, *hovered, cx)
             }))
             // The ghost is a picture of a row that stays in the list.
             .when(self.a11y && !ghost, |element| self.row_access(element, row, selected))
@@ -256,13 +257,22 @@ impl Shell {
             None => title(&self.palette, self.folder_name(folder), false).pr(px(TITLE_END_INSET)),
         };
         let renaming = renaming.is_some();
-        let icon = self.swaps.glyph(
-            Swapped::Folder(folder),
-            folder_glyph(open),
-            FAVICON_DRAWN,
-            self.palette.text(SECONDARY).into(),
-        );
-        let plate = plate(icon, label).child(self.framed(folder, 0.));
+        let emoji_icon = self.folder_icon(folder);
+        let icon = match has_icon(&emoji_icon) {
+            true => emoji(emoji_icon),
+            false => self
+                .swaps
+                .glyph(
+                    Swapped::Folder(folder),
+                    folder_glyph(open),
+                    FAVICON_DRAWN,
+                    self.palette.text(SECONDARY).into(),
+                )
+                .into_any_element(),
+        };
+        let plate = plate(icon, label)
+            .child(self.framed(folder, 0.))
+            .children(self.drawn_for_picker(Subject::Folder(folder)));
         self.row(Row::Tab(folder), plate, ghost, cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
@@ -548,10 +558,10 @@ impl Shell {
             )
     }
 
-    /// Where `tab`'s row or tile is, for the icon picker to hang under while it waits for it to
-    /// settle.
-    pub(super) fn drawn_for_picker(&self, tab: u64) -> Option<impl IntoElement + use<>> {
-        let pending = Some(Pending::Icon(Subject::Tab(tab)));
+    /// Where the row or tile of `subject`, a tab or a folder, is, for the icon picker to hang under
+    /// while it waits for it to settle.
+    pub(super) fn drawn_for_picker(&self, subject: Subject) -> Option<impl IntoElement + use<>> {
+        let pending = Some(Pending::Icon(subject));
         (self.picker_pending.map(|(picker, _)| picker) == pending).then(|| {
             let drawn = self.tab_row_drawn.clone();
             canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
@@ -732,7 +742,7 @@ impl Shell {
                 }))
             })
             .child(icon);
-        let bounds = self.drawn_for_picker(tab);
+        let bounds = self.drawn_for_picker(Subject::Tab(tab));
         // The field of a rename takes the row's clicks while it's up.
         let plate = plate(icon.into_any_element(), label).child(self.framed(tab, 0.));
         let row = self.row(Row::Tab(tab), plate, ghost, cx);
@@ -1560,7 +1570,7 @@ mod tests {
     #[gpui::test]
     fn expand_and_collapse_all_fold_only_the_folders_that_change(cx: &mut TestAppContext) {
         let docs = [(20, ("Docs".into(), true)), (22, ("Work".into(), false))];
-        let folders = Folders { folders: docs.into(), parents: Default::default() };
+        let folders = Folders { folders: docs.into(), ..Default::default() };
         let (shell, cx, host) = window_with(cx, vec![20, 21, 22, 23], vec![4], 4, folders);
         let folds = |command, cx: &mut VisualTestContext| {
             host.take();
@@ -1583,7 +1593,7 @@ mod tests {
     #[gpui::test]
     fn a_press_opens_or_closes_a_folder(cx: &mut TestAppContext) {
         let docs = [(20, ("Docs".into(), true))];
-        let folders = Folders { folders: docs.into(), parents: Default::default() };
+        let folders = Folders { folders: docs.into(), ..Default::default() };
         let (shell, cx, host) = window_with(cx, vec![20, 21], vec![4], 4, folders);
         let (x, y) = close_button(&shell, cx, 20);
         let middle = point(px(x - 100.), px(y));

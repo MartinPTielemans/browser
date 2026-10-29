@@ -1,10 +1,10 @@
 //! The popover that picks a Space's icon, Arc's: it hangs under the Space's name, its arrow at the
 //! icon, with Emoji | Icon at its top, and a trash button after it once there's an icon to remove,
 //! and under them the glyphs, or a search and a grid of emoji (docs/ux-spec.md › Spaces › Icon).
-//! A tab's hangs the same way from its favicon, with the Emoji tab only, as a tab's icon is an
-//! emoji. GPUI can't draw over the page's native view, so it's a window of its own that the host
-//! shows over the browser window, as its child, with the keyboard, translucent over a blur in the
-//! shape drawn here. What it asks of its window goes through `Host`.
+//! A tab's hangs the same way from its favicon, and a folder's from its folder, each with the Emoji
+//! tab only, as their icons are emoji. GPUI can't draw over the page's native view, so it's a
+//! window of its own that the host shows over the browser window, as its child, with the keyboard,
+//! translucent over a blur in the shape drawn here. What it asks of its window goes through `Host`.
 
 use std::{ops::Range, rc::Rc, time::Instant};
 
@@ -96,25 +96,27 @@ pub enum Tab {
 pub enum Subject {
     Space(u64),
     Tab(u64),
+    Folder(u64),
 }
 
 impl Subject {
-    /// The tabs it offers: a tab's custom icon takes the favicon's place, so it is a character the
-    /// row draws, and the Icon tab's glyphs are a Space's.
+    /// The tabs it offers: a tab's custom icon takes the favicon's place, and a folder's the
+    /// folder's, so each is a character the row draws, and the Icon tab's glyphs are a Space's.
     fn tabs(self) -> &'static [Tab] {
         match self {
             Subject::Space(_) => &[Tab::Emoji, Tab::Icon],
-            Subject::Tab(_) => &[Tab::Emoji],
+            Subject::Tab(_) | Subject::Folder(_) => &[Tab::Emoji],
         }
     }
 }
 
 impl std::fmt::Display for Subject {
-    /// As check.sh reads it: a Space is its id, a tab "tab" and its id.
+    /// As check.sh reads it: a Space is its id, a tab "tab" and its id, a folder "folder" and its.
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Subject::Space(space) => write!(f, "{space}"),
             Subject::Tab(tab) => write!(f, "tab {tab}"),
+            Subject::Folder(folder) => write!(f, "folder {folder}"),
         }
     }
 }
@@ -262,7 +264,7 @@ pub fn show(
         .update(cx, |picker, window, cx| {
             let tab = match subject {
                 Subject::Space(_) => tab_for(&icon),
-                Subject::Tab(_) => Tab::Emoji,
+                Subject::Tab(_) | Subject::Folder(_) => Tab::Emoji,
             };
             // check.sh reads this line.
             log!("browser: icon picker for {subject} on {}", tab.name());
