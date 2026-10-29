@@ -1827,6 +1827,11 @@ BC_EXPORT void bc_window_set_side_panel_width(bc_id window, double width);
 // down, as a drag on a title bar does. Called on the drag's first move.
 BC_EXPORT void bc_window_start_move(bc_id window);
 
+// On Linux, where the UI draws the window's buttons: whether |window| is maximized, which its third
+// button shows, as restore rather than maximize. The UI asks as the window's bounds change, as
+// maximizing and restoring change them.
+BC_EXPORT bool bc_window_is_maximized(bc_id window);
+
 #ifdef __cplusplus
 }
 #endif
