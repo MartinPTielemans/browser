@@ -461,7 +461,9 @@ impl Shell {
             (
                 MenuEntry::new("Duplicate Tab", true),
                 "duplicate-tab",
-                Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+                Box::new(move |shell, cx| {
+                    shell.browser.duplicate(tab, cx);
+                }),
             ),
             (
                 MenuEntry::new("Remove from Favorites", !self.agents_space_shown()),
@@ -542,7 +544,7 @@ impl Shell {
         items.push((
             MenuEntry::new("Duplicate Tab", true),
             "duplicate-tab",
-            Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+            Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
         if self.panes(tab).len() > 1 {
             items.push(separate(tab));
@@ -644,13 +646,20 @@ impl Shell {
             "rename-tab",
             Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
         ));
-        // Dimmed while the tab is silent, as Arc's; a muted one unmutes.
-        let mute = if page.muted { "Unmute" } else { "Mute" };
-        items.push((
-            MenuEntry::new(mute, page.audible || page.muted),
-            "toggle-mute",
-            Box::new(move |shell, cx| shell.toggle_mute(tab, cx)),
-        ));
+        // Dimmed while the tab is silent, as Arc's; a muted one unmutes. A split's offers it under
+        // each of its tabs' names, as Arc's does.
+        for &pane in &panes {
+            let page = self.page(pane);
+            let mute = if page.muted { "Unmute" } else { "Mute" };
+            let mut entry = MenuEntry::new(mute, page.audible || page.muted);
+            if panes.len() > 1 {
+                let name = items.len();
+                let title = self.tabs.get(&pane).map(|tab| tab.title.clone()).unwrap_or_default();
+                items.push((MenuEntry::named(title, true), "", Box::new(|_, _| {})));
+                entry = entry.under(name);
+            }
+            items.push((entry, "toggle-mute", Box::new(move |shell, cx| shell.toggle_mute(pane, cx))));
+        }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Add Split View", panes.len() < MAX_PANES),
@@ -663,7 +672,7 @@ impl Shell {
         items.push((
             MenuEntry::new("Duplicate", true),
             "duplicate-tab",
-            Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+            Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
         // A private window's tabs stay in it. The others: every one of the user's Spaces, the
         // tab's checked, then a new one.
@@ -743,8 +752,15 @@ impl Shell {
     /// The + button's menu, by Arc's menus' names for what it makes (ours: Arc's + menu isn't
     /// recorded).
     pub(super) fn plus_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let items = [("New Space…", Command::NewSpace), ("New Folder…", Command::NewFolder)];
-        let entries = items.iter().map(|&(title, _)| MenuEntry::new(title, true)).collect();
+        let items = [
+            ("New Space…", Command::NewSpace),
+            ("New Folder…", Command::NewFolder),
+            ("New Split View", Command::AddSplit),
+        ];
+        let split = self.selected != 0 && self.panes(self.selected).len() < MAX_PANES;
+        let enabled = |command| command != Command::AddSplit || split;
+        let entries =
+            items.iter().map(|&(title, command)| MenuEntry::new(title, enabled(command))).collect();
         self.context_menu(
             entries,
             position,
@@ -951,6 +967,35 @@ mod tests {
             .map(|entry| entry.title.as_ref())
             .collect();
         assert_eq!(keyed, ["Copy Link"]);
+    }
+
+    /// A split's menu offers Mute under each of its tabs' names, and its Duplicate copies the whole
+    /// split, joined again in its order and orientation, as Arc's does.
+    #[gpui::test]
+    fn a_splits_menu_mutes_each_tab_and_duplicates_the_split(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11, 12], Folders::default());
+        shell.update(cx, |shell, cx| {
+            let split = crate::shell::Split { tabs: vec![10, 11], stacked: true, ..Default::default() };
+            shell.set_tabs(1, Vec::new(), vec![10, 11, 12], vec![split], Folders::default(), cx);
+            shell.set_title(10, "Ten".into(), cx);
+            shell.set_title(11, "Eleven".into(), cx);
+            shell.set_page(11, page("https://example.com/", true, false), cx);
+        });
+        let menu = tab_menu(&shell, &host, cx, 11);
+        let mutes: Vec<&str> = (menu.iter().map(String::as_str))
+            .filter(|title| title.contains("Mute"))
+            .collect();
+        assert_eq!(mutes, ["Ten › Mute (disabled)", "Eleven › Mute"]);
+        host.take();
+        host.take_edits();
+        shell.update(cx, |shell, cx| shell.duplicate_row(11, cx));
+        let calls = host.take();
+        assert_eq!(calls[..2], ["duplicate 10", "duplicate 11"]);
+        let edits = host.take_edits();
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        let copies: Vec<&str> = edits[0].split(' ').skip(1).collect();
+        assert_eq!(copies[2], "false", "the second copy joins the first on its right");
+        assert!(calls.contains(&format!("split stacked {} true", copies[1])), "{calls:?}");
     }
 
     /// The last tab has none below to archive, and a tab with no page has no link to copy or share.

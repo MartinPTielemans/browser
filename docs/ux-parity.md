@@ -125,7 +125,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Switching to another profile's Space | MVP | the window's profile switches with it, and its favorites | decision 5 |
 | [x] | Moving a tab across profiles | MVP | reloads in the new profile after a one-time warning, with its history | Dia P§1 |
 | [x] | Favorites per Space or per profile | MVP | per profile; confirm in Arc | Arc |
-| [x] | Switcher footer | MVP | 50 tall; Library 32 at 8 in on the left; + 32 at 8 in on the right, its menu New Space… and New Folder… *interim*, Arc's: measure | Arc 1.170.0 cap, ax |
+| [x] | Switcher footer | MVP | 50 tall; Library 32 at 8 in on the left; + 32 at 8 in on the right, its menu New Space…, New Folder… and New Split View *interim*, Arc's: measure | Arc 1.170.0 cap, ax |
 | [x] | Switcher band | MVP | 42 in from each side; items 36 × 34 at a 34 pitch; none with one Space; more than fit: narrower *interim*, Arc's: measure | Arc 1.170.0 ax |
 | [x] | Switcher dot | MVP | 8 pt; white 0.50 shown, 0.19 others | Arc 1.170.0 cap |
 | [x] || Space icons in the switcher | MVP | built: an emoji takes the dot's place in its item, the Space shown at full strength *interim*. Ticked on `./check.sh spaces`' `space-icon.png` and `space-emoji.png`. Arc's look: measure | — |
@@ -208,6 +208,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
 | [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
+| [ ] | A split's menu | MVP | Mute under each tab's name; Duplicate copies the whole split. Built, and checked by `cargo test`; to tick: a capture of a split row's menu | Arc help |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
 | [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |

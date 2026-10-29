@@ -166,6 +166,22 @@ impl Shell {
         self.select(tab, cx);
     }
 
+    /// Duplicate on a split's row copies the whole split, as Arc's does: each page with its history,
+    /// joined again in the same order and orientation. A tab alone is copied alone.
+    pub(super) fn duplicate_row(&mut self, tab: u64, cx: &mut Context<Self>) {
+        let (panes, stacked) = (self.panes(tab), self.stacked(tab));
+        let copies: Vec<u64> = panes.iter().map(|&pane| self.browser.duplicate(pane, cx)).collect();
+        if copies.len() < 2 || copies.contains(&0) {
+            return;
+        }
+        for pair in copies.windows(2) {
+            self.browser.split_with(pair[1], pair[0], false, cx);
+        }
+        if stacked {
+            self.browser.set_split_stacked(copies[0], true, cx);
+        }
+    }
+
     /// Expand Current Split: the focused page takes the card and each other page keeps 220 pt, in
     /// the same frame (Arc). The core holds it as a flag on the page and works the widths out at
     /// every layout, so a resized window keeps the 220. Dragging a gap, evening the pages or a

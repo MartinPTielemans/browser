@@ -17,8 +17,9 @@ pub trait Browser {
     fn close(&self, tab: u64, split: bool, cx: &mut App);
     /// Closes the Today tabs below `tab`, showing `tab` if one of them showed.
     fn close_below(&self, tab: u64, cx: &mut App);
-    /// Opens a copy of `tab` with its history, under it in Today, and shows it.
-    fn duplicate(&self, tab: u64, cx: &mut App);
+    /// Opens a copy of `tab` with its history, under it in Today, and shows it. Returns its id, or
+    /// 0.
+    fn duplicate(&self, tab: u64, cx: &mut App) -> u64;
     /// Moves `tab` to `space`. The window goes with it if it shows it. Into another profile's Space
     /// it goes as a new tab, whose page loads there again.
     fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
