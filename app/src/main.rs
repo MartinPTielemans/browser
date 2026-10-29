@@ -922,6 +922,8 @@ impl site_controls::Host for SiteControlsHost {
 }
 
 thread_local! {
+    /// The toast's view, which a share button in it opens the share sheet from.
+    static TOAST_VIEW: Cell<*mut c_void> = const { Cell::new(std::ptr::null_mut()) };
     /// The UI's view of the browser window ilo's menu shows over, and whether in its reveal's panel.
     static MENU_OVER: Cell<(*mut c_void, bool)> = const { Cell::new((std::ptr::null_mut(), false)) };
 }
@@ -2328,6 +2330,27 @@ impl Browser for Engine {
         with_overlays(show, cx);
     }
 
+    fn toast_share(&self, text: &str, url: &str, title: &str, time: Duration, cx: &mut App) {
+        if !has_share_sheet() {
+            return self.toast(text, None, time, cx);
+        }
+        let (Ok(url), Ok(title)) = (CString::new(url), CString::new(title)) else {
+            return;
+        };
+        // The sheet hangs from the button, in the toast's window.
+        let share = toast::Button {
+            label: toast::Label::Glyph("icons/share.svg"),
+            name: "share",
+            run: Rc::new(move |at, _| {
+                let (x, y) = (f64::from(at.x), f64::from(at.y));
+                let view = TOAST_VIEW.get();
+                unsafe { platform::host_share(view, x, y, 1., 1., url.as_ptr(), title.as_ptr()) };
+            }),
+        };
+        let text = text.to_string();
+        with_overlays(move |cx| toast::show_with_buttons(&text, vec![share], time, cx), cx);
+    }
+
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App) {
         let text = text.to_string();
         with_overlays(move |cx| toast::show_undo(&text, undo, time, cx), cx);
@@ -3342,6 +3365,7 @@ fn finish_opening(
         && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
     {
         toast_host.view.set(view);
+        TOAST_VIEW.set(view);
         unsafe { platform::host_add_toast(view) };
     }
     if let Some(capture) = capture::open(Rc::new(CaptureHost { toast: toast_host }), cx)

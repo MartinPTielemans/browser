@@ -29,7 +29,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
 | [x] | Window full screen with the sidebar | MVP | the sidebar stays docked, the window's buttons come down with it, the command bar opens; "To exit full screen, press ⎋." 41 tall at the card's top right for 4.8 s, again per Space *interim*; ⎋ leaves *interim* | Arc 1.170 rec |
 | [x] | Toast | MVP | 46.5 tall, 8 inside the card's top right corner; medium text with a key's chip; grows from 0.7 on spring 0.32 s / ζ 0.52, fades in over 100 ms, leaves over 70 ms. Text size and fill *interim* | Arc 1.170 rec |
-| [ ] | Toast's other uses | MVP | ⇧⌘C's says "Copied Current URL" (Arc 1.170 rec), for 2 s *interim*: built, `./check.sh clear`'s `url-toast.png`. Its share button not built, though the capture toast has Share; next, ⇧⌘C's toast takes the capture toast's share button. ⌘W's note for an archived tab isn't shown; whether Arc has one: measure | Arc 1.170 rec |
+| [ ] | Toast's other uses | MVP | ⇧⌘C's says "Copied Current URL" (Arc 1.170 rec), for 2 s *interim*, with its share button, which opens the system's share sheet for the page: built, from the keys, the menus, the URL field's button and Copy Link; to tick: `./check.sh clear`'s `url-toast.png`, whose run presses the button. ⌘W's note for an archived tab isn't shown; whether Arc has one: measure | Arc 1.170 rec |
 
 ## Sidebar
 

@@ -696,6 +696,11 @@ impl Browser for Recorder {
         self.toasts.borrow_mut().push(text.into());
     }
 
+    fn toast_share(&self, text: &str, url: &str, title: &str, _: Duration, _: &mut App) {
+        self.toasts.borrow_mut().push(text.into());
+        self.record(format!("toast share {url} {title}"));
+    }
+
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, _: Duration, _: &mut App) {
         self.undo_toasts.borrow_mut().push(text.into());
         *self.undo_toast.borrow_mut() = Some(undo);
