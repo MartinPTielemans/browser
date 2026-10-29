@@ -2,14 +2,19 @@
 //! with its keyboard until the user leaves them, as their windows do on the Mac. GPUI shows each as
 //! an overlay of that window (overlays.rs); the core lends it the window's keyboard while it has it.
 //!
-//! shortcut: no blur or shadow under the Site Controls, which show and go without their motion's
-//! scale, and the pointer over Capture is the arrow, not a camera.
+//! The Site Controls cast their shadow from a window under them (shadows.rs).
+//!
+//! shortcut: no blur under the Site Controls, which show and go without their motion's scale, and
+//! the pointer over Capture is the arrow, not a camera.
 
 use std::{cell::RefCell, ffi::c_void};
 
 use gpui::{Bounds, Pixels, point, px, size};
 
-use crate::{bc, overlays};
+use crate::{bc, overlays, shadows};
+
+/// The Site Controls' slot in the host's overlays, for their elevation (platform/host.h).
+const SITE_CONTROLS: std::ffi::c_int = 3;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -83,6 +88,9 @@ fn show(kind: Kind, ui_view: *mut c_void, left: f64, top: f64, width: f64, heigh
         overlays::lend_keyboard(window, view, true);
     }
     gpui_linux::set_overlay_pointer(view, None);
+    if kind == Kind::SiteControls {
+        shadows::show(SITE_CONTROLS, ui_view, bounds, 0.);
+    }
     gpui_linux::show_overlay(view, ui_view, bounds, px(0.), true, left_popover);
     true
 }
@@ -113,6 +121,9 @@ fn hide(kind: Kind) -> bool {
             overlays::lend_keyboard(shown.window, view, false);
         }
     });
+    if kind == Kind::SiteControls {
+        shadows::hide(SITE_CONTROLS);
+    }
     // check.sh reads this line.
     eprintln!("browser: {} hidden", name(kind));
     true
@@ -167,6 +178,7 @@ pub(crate) fn forget_window(ui_view: *mut c_void) {
 #[unsafe(no_mangle)]
 pub extern "C" fn host_add_site_controls(view: *mut c_void, dismissed: extern "C" fn()) {
     add(Kind::SiteControls, view, dismissed);
+    shadows::attach(SITE_CONTROLS, view);
 }
 
 #[unsafe(no_mangle)]
@@ -181,6 +193,7 @@ pub extern "C" fn host_set_site_controls_shape(corners: *const f64, count: usize
         .map(|corner| (corner[0] as f32, corner[1] as f32, corner[2] as f32))
         .collect();
     gpui_linux::set_overlay_outline(view, &corners);
+    shadows::set_shape(SITE_CONTROLS, &corners);
 }
 
 #[unsafe(no_mangle)]
@@ -207,6 +220,7 @@ pub extern "C" fn host_set_site_controls_height(height: f64) {
     });
     if let Some(Some((view, bounds))) = moved {
         gpui_linux::move_overlay(view, bounds, px(0.));
+        shadows::moved(SITE_CONTROLS, bounds, 0.);
         eprintln!("browser: site controls height {height}");
     }
 }
