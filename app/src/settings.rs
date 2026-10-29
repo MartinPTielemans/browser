@@ -55,7 +55,6 @@ use browser::tokens::settings::FIRST;
 use browser::tokens::settings::BOX_GAP;
 use browser::tokens::settings::PADDING;
 use browser::tokens::settings::RADIUS;
-use browser::tokens::settings::SWITCH_HEIGHT;
 use browser::tokens::settings::CONTROL_HEIGHT;
 use browser::tokens::settings::CONTROL_PADDING;
 use browser::tokens::settings::CONTROL_RADIUS;
@@ -286,12 +285,15 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     ),
 ];
 
-/// The pop-up buttons in General, top to bottom after the switch.
+/// The pop-up buttons.
 #[derive(Clone, Copy, PartialEq)]
 enum Popup {
     ArchiveAfter,
     Favorites,
     PasswordsProfile,
+    /// A profile's, in the Profiles tab.
+    SearchEngine(u64),
+    ProfileArchiveAfter(u64),
 }
 
 pub struct Settings {
@@ -318,6 +320,9 @@ pub struct Settings {
     off_sites_logged: Option<String>,
     /// Where each Turn On has been logged, so it logs only where it moves to.
     turn_on_logged: Rc<RefCell<Vec<String>>>,
+    /// Where each pop-up button's text starts, as last drawn, for its menu to put the chosen
+    /// item's over.
+    popup_texts: Rc<RefCell<Vec<(Popup, gpui::Point<gpui::Pixels>)>>>,
     /// The profile whose logins the Passwords tab lists, once the user has picked one.
     passwords_profile: Option<u64>,
     /// Each profile's logins, as the core last told them.
@@ -453,6 +458,27 @@ fn profiles() -> Vec<Profile> {
             }
         })
         .collect()
+}
+
+/// The archive pop-up's text for `seconds`, and which of ARCHIVE_AFTER it is.
+fn archive_after(seconds: f64) -> (SharedString, Option<usize>) {
+    let chosen = ARCHIVE_AFTER.iter().position(|&(_, each)| each == seconds);
+    let label = match chosen {
+        Some(index) => ARCHIVE_AFTER[index].0.into(),
+        None => format!("{:.0} hours", seconds / 3600.).into(),
+    };
+    (label, chosen)
+}
+
+/// The search engines `profile`'s default is picked from, each its keyword and name, and the
+/// keyword of the default, or None while it loads or a policy or an extension picks it.
+fn search_engines(profile: u64) -> Option<(Vec<(SharedString, SharedString)>, SharedString)> {
+    let engines = crate::name(bc::bc_profile_search_engines, profile);
+    let engines: Vec<(SharedString, SharedString)> = (engines.lines())
+        .filter_map(|line| line.split_once('\t'))
+        .map(|(keyword, name)| (keyword.to_string().into(), name.to_string().into()))
+        .collect();
+    (!engines.is_empty()).then(|| (engines, crate::name(bc::bc_profile_search_engine, profile)))
 }
 
 /// Where `profile`'s downloads go, with ~ for the home folder, or None while it loads.
@@ -687,6 +713,7 @@ fn open(cx: &mut App) {
                 search,
                 off_sites_logged: None,
                 turn_on_logged: Rc::default(),
+                popup_texts: Rc::default(),
                 passwords_profile: None,
                 logins: HashMap::new(),
                 asked: HashSet::new(),
@@ -833,18 +860,13 @@ impl Settings {
     }
 
     fn general(&self, off_sites: &[OffSite], accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
-        let after = unsafe { bc::bc_archive_after() };
-        let chosen = ARCHIVE_AFTER.iter().position(|&(_, seconds)| seconds == after);
-        let label: SharedString = match chosen {
-            Some(index) => ARCHIVE_AFTER[index].0.into(),
-            None => format!("{:.0} hours", after / 3600.).into(),
-        };
+        let (label, chosen) = archive_after(unsafe { bc::bc_archive_after() });
         let archive = self.popup(
             Popup::ArchiveAfter,
             label,
             POPUP_WIDTH,
             cx.listener(move |settings, _, window, cx| {
-                settings.choose_archive_after(chosen, window, cx)
+                settings.choose_archive_after(None, chosen, window, cx)
             }),
         );
         let scope = favorites_scope();
@@ -869,10 +891,11 @@ impl Settings {
             // Unload under the archive's time, as both are about tabs left unseen.
             .child(group(&RowLook::settings(), [
                 row(None, "Warn before quitting", warn),
-                row(None, "Archive tabs after", archive.into_any_element()),
+                // Each profile then keeps its own, in Profiles.
+                row(None, "New profiles archive tabs after", archive.into_any_element()),
                 row(None, "Unload tabs you haven't used in a while", unload),
                 row(None, "Favorites", favorites.into_any_element()),
-                // Last, so popup_text finds the pop-ups where they were.
+                // Last, so the checks find the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
             ]))
             .children(self.off_sites(off_sites, cx))
@@ -972,7 +995,20 @@ impl Settings {
         width: f32,
         press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> gpui::Div {
+        let texts = self.popup_texts.clone();
+        let at = canvas(
+            |_, _, _| {},
+            move |bounds, _, _, _| {
+                let text = point(bounds.origin.x + px(CONTROL_PADDING), bounds.origin.y);
+                let mut texts = texts.borrow_mut();
+                texts.retain(|&(each, _)| each != which);
+                texts.push((which, text));
+            },
+        )
+        .absolute()
+        .inset_0();
         div()
+            .relative()
             .flex_none()
             .w(px(width))
             .mr(px(POPUP_END))
@@ -985,6 +1021,7 @@ impl Settings {
             .rounded(px(CONTROL_RADIUS))
             .bg(rgb(if self.choosing == Some(which) { CONTROL_PRESSED } else { CONTROL }))
             .on_mouse_down(MouseButton::Left, press)
+            .child(at)
             .child(label)
             .child(
                 svg().path("icons/chevrons-up-down.svg").size(px(CHEVRONS)).text_color(rgb(TEXT)),
@@ -1020,9 +1057,11 @@ impl Settings {
     }
 
     /// Opens the archive's pop-up menu over its button, with the time chosen now, `chosen`, over
-    /// the button's text, as a pop-up button does, and sets the time picked.
+    /// the button's text, as a pop-up button does, and sets the time picked: `profile`'s, or with
+    /// None, the one new profiles start with.
     fn choose_archive_after(
         &mut self,
+        profile: Option<u64>,
         chosen: Option<usize>,
         window: &Window,
         cx: &mut Context<Self>,
@@ -1035,14 +1074,52 @@ impl Settings {
             .collect();
         let settings = cx.weak_entity();
         let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
-            if let Some((title, seconds)) = picked.map(|index| ARCHIVE_AFTER[index]) {
-                // check.sh waits for this line.
-                log!("browser: archive tabs after {title}");
-                unsafe { bc::bc_set_archive_after(seconds) };
+            match (picked.map(|index| ARCHIVE_AFTER[index]), profile) {
+                (Some((title, seconds)), Some(profile)) => {
+                    // check.sh waits for this line.
+                    log!("browser: profile {profile} archive tabs after {title}");
+                    unsafe { bc::bc_profile_set_archive_after(profile, seconds) };
+                }
+                (Some((title, seconds)), None) => {
+                    // check.sh waits for this line.
+                    log!("browser: archive tabs after {title}");
+                    unsafe { bc::bc_set_archive_after(seconds) };
+                }
+                (None, _) => {}
             }
             settings.update(cx, |settings, cx| settings.chose(cx)).ok();
         });
-        self.pop_up(Popup::ArchiveAfter, items, picked, window, cx);
+        let which = profile.map_or(Popup::ArchiveAfter, Popup::ProfileArchiveAfter);
+        self.pop_up(which, items, picked, window, cx);
+    }
+
+    /// Opens a profile's search engine pop-up menu over its button, as the archive's, and makes
+    /// the engine picked its default.
+    fn choose_search_engine(
+        &mut self,
+        profile: u64,
+        engines: Vec<(SharedString, SharedString)>,
+        chosen: Option<usize>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (engines.iter().enumerate())
+            .map(|(index, (_, name))| {
+                let on = Some(index) == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::named(name.clone(), true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some((keyword, name)) = picked.and_then(|index| engines.get(index)) {
+                // check.sh waits for this line.
+                log!("browser: profile {profile} searches with {name}");
+                let keyword = CString::new(keyword.as_str()).unwrap_or_default();
+                unsafe { bc::bc_profile_set_search_engine(profile, keyword.as_ptr()) };
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::SearchEngine(profile), items, picked, window, cx);
     }
 
     /// Opens the favorites' pop-up menu over its button, as the archive's, and sets the scope
@@ -1082,9 +1159,14 @@ impl Settings {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        let texts = self.popup_texts.borrow();
+        let Some(at) = texts.iter().find(|&&(each, _)| each == which).map(|&(_, at)| at) else {
+            return;
+        };
+        drop(texts);
         self.choosing = Some(which);
         cx.notify();
-        show_menu(ns_view(window), items, popup_text(which), false, Look::dark(), picked, cx);
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// The pop-up's menu closed.
@@ -1148,6 +1230,32 @@ impl Settings {
                 .children(delete.map(|delete| delete.ml(px(PADDING))));
             // Its own settings under it, as Arc's Settings › Profiles keeps them: none to show
             // until the core has loaded it.
+            let search = search_engines(id).map(|(engines, keyword)| {
+                let chosen = engines.iter().position(|(each, _)| *each == keyword);
+                let label = chosen.map_or(keyword, |index| engines[index].1.clone());
+                let popup = self.popup(
+                    Popup::SearchEngine(id),
+                    label,
+                    POPUP_WIDTH,
+                    cx.listener(move |settings, _, window, cx| {
+                        settings.choose_search_engine(id, engines.clone(), chosen, window, cx)
+                    }),
+                );
+                row(None, "Search engine", popup.into_any_element())
+            });
+            let after = unsafe { bc::bc_profile_archive_after(id) };
+            let archive = (after > 0.).then(|| {
+                let (label, chosen) = archive_after(after);
+                let popup = self.popup(
+                    Popup::ProfileArchiveAfter(id),
+                    label,
+                    POPUP_WIDTH,
+                    cx.listener(move |settings, _, window, cx| {
+                        settings.choose_archive_after(Some(id), chosen, window, cx)
+                    }),
+                );
+                row(None, "Archive tabs after", popup.into_any_element())
+            });
             let folder = download_folder(id).map(|folder| {
                 let change = button(&RowLook::settings(), ("download-folder", id), "Change…")
                     .on_click(cx.listener(move |_, _, _, cx| choose_download_folder(id, cx)));
@@ -1162,7 +1270,8 @@ impl Settings {
                     }));
                 row(None, "Browsing data", clear.into_any_element())
             });
-            group(&RowLook::settings(), [Some(head), folder, clear].into_iter().flatten())
+            let rows = [Some(head), search, archive, folder, clear];
+            group(&RowLook::settings(), rows.into_iter().flatten())
         });
         let new = button(&RowLook::settings(), "new-profile", "New Profile")
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
@@ -1878,24 +1987,6 @@ impl Settings {
         }
         cx.notify();
     }
-}
-
-/// Where `which`'s pop-up button's text starts in the window: General's in the first box under the
-/// switch's row, one row each, and the Passwords tab's in its first row.
-fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
-    let switch_row = PADDING + SWITCH_HEIGHT + PADDING + 1.;
-    let popup_row = PADDING + CONTROL_HEIGHT + PADDING + 1.;
-    let (width, above) = match which {
-        Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
-        // Under Unload's switch.
-        Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
-        // The Passwords tab's first row.
-        Popup::PasswordsProfile => (POPUP_WIDTH, 0.),
-    };
-    point(
-        px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),
-        px(TITLE_BAR + TOOLBAR + FIRST + 1. + above + PADDING),
-    )
 }
 
 /// What the core has for who shares the favorites.

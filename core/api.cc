@@ -631,6 +631,32 @@ bool bc_profile_set_offers_passwords(bc_id profile_id, bool offer) {
   return true;
 }
 
+size_t bc_profile_search_engines(bc_id profile, char* engines, size_t capacity) {
+  return CopyString(browser_core::DefaultEngineChoices(browser_core::ProfileOrLoad(profile)),
+                    engines, capacity);
+}
+
+size_t bc_profile_search_engine(bc_id profile, char* keyword, size_t capacity) {
+  return CopyString(
+      base::UTF16ToUTF8(browser_core::DefaultEngine(browser_core::ProfileOrLoad(profile))),
+      keyword, capacity);
+}
+
+bool bc_profile_set_search_engine(bc_id profile, const char* keyword) {
+  return keyword && browser_core::SetDefaultEngine(browser_core::ProfileOrLoad(profile),
+                                                   base::UTF8ToUTF16(keyword));
+}
+
+double bc_profile_archive_after(bc_id profile_id) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  return profile ? browser_core::ProfileArchiveAfter(profile).InSecondsF() : 0;
+}
+
+bool bc_profile_set_archive_after(bc_id profile, double seconds) {
+  return seconds > 0 && browser_core::SetProfileArchiveAfter(browser_core::ProfileOrLoad(profile),
+                                                              base::Seconds(seconds));
+}
+
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
   return (pages || !count) &&
          browser_core::AddImportedHistory(LoadedProfile(profile), profile, pages, count);
@@ -1151,14 +1177,25 @@ bc_id bc_tab_open(bc_id window_id, const char* url, bool when_shown) {
   return tab;
 }
 
-size_t bc_typed_url(const char* text, char* url, size_t capacity) {
-  Profile* profile = browser_core::StartProfile();
+// The profile |window_id| shows, else the one the core started with.
+static Profile* SearchProfile(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  Profile* profile = window ? ProfileOf(*window) : nullptr;
+  return profile ? profile : browser_core::StartProfile();
+}
+
+size_t bc_typed_url(bc_id window, const char* text, char* url, size_t capacity) {
+  Profile* profile = SearchProfile(window);
   const GURL typed = profile && text ? browser_core::TypedUrl(profile, text) : GURL();
   return typed.is_valid() ? CopyString(typed.spec(), url, capacity) : 0;
 }
 
-size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity) {
-  Profile* profile = browser_core::StartProfile();
+size_t bc_search_url(bc_id window,
+                     const char* keyword,
+                     const char* text,
+                     char* url,
+                     size_t capacity) {
+  Profile* profile = SearchProfile(window);
   const std::u16string engine = keyword ? base::UTF8ToUTF16(keyword) : std::u16string();
   const GURL search = profile && text ? browser_core::SearchUrl(profile, engine, text) : GURL();
   return search.is_valid() ? CopyString(search.spec(), url, capacity) : 0;

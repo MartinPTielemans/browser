@@ -17,6 +17,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
@@ -114,6 +115,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   // Before Chrome stops taking factories, as the first profile is made.
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
+    RegisterArchivePrefs();
     widevine::Start();
   }
 
