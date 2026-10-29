@@ -461,7 +461,10 @@ cat > "$crx/source/manifest.json" << EOF
 EOF
 printf '%s' '<title>loading</title><body style="margin:0;height:100vh"><script src="ask.js"></script>' \
   > "$crx/source/ask.html"
+# Chrome holds an update while one of the extension's pages is open, as this one is, so the page
+# reloads the extension once version 2 is ready, which puts it in.
 printf '%s' 'requestAnimationFrame(() => setTimeout(() => document.title = "ask"));
+chrome.runtime.onUpdateAvailable.addListener(() => chrome.runtime.reload());
 onclick = () => chrome.permissions.request({permissions: ["bookmarks"]}).then(
   granted => document.title = granted ? "granted" : "refused");
 onkeydown = e => {
@@ -606,7 +609,13 @@ await '^browser: title [0-9]* granted$' || fail "Check Install didn't hear the b
 send click $page_point
 send key u
 served 'GET /check2.crx' "Check Install's update didn't fetch version 2"
-await "^browser: extensions menu $manager $ublock\$" ||
+# The menu without it, looked for since the key, as the launch logged one before the install.
+for _ in $(seq 300); do
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "^browser: extensions menu $manager $ublock\$" &&
+    break
+  sleep 0.1
+done
+sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "^browser: extensions menu $manager $ublock\$" ||
   fail "version 2 didn't turn Check Install off: $(grep '^browser: extensions' "$log" | tail -1)"
 # Check Manager turns it on, which Chrome asks the user first, listing what's new.
 open_extension_page "$manager/manage.html" manage
