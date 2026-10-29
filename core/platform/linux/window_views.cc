@@ -44,6 +44,7 @@
 #include "ui/gfx/x/event_observer.h"
 #include "ui/gfx/x/shape.h"
 #include "ui/gfx/x/window_event_manager.h"
+#include "ui/gfx/x/xinput.h"
 #include "ui/gfx/x/xproto.h"
 #include "ui/base/hit_test.h"
 #include "ui/platform_window/platform_window.h"
@@ -542,6 +543,12 @@ class WindowViews : public views::WidgetObserver,
 
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
+    // The UI's keys that reach the window itself go on to GPUI's, where OnKeyEvent keeps them from
+    // the pages. wlroots 0.17's Xwayland puts the input focus back on a window it has just mapped
+    // each time GPUI takes it, so a second window's keys would reach neither (#769).
+    if (ui_has_keyboard_ && !overlay_has_keyboard_ && ForwardKeyToUI(event)) {
+      return;
+    }
     if (auto* focus = event.As<x11::FocusEvent>()) {
       // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
@@ -616,6 +623,44 @@ class WindowViews : public views::WidgetObserver,
       connection->ConfigureWindow(
           {.window = main, .x = 0, .y = 0, .width = pixels.width(), .height = pixels.height()});
     }
+  }
+
+  // Sends GPUI's window a key |event| on the window as a core key event, the kind GPUI reads.
+  // Chromium selects XInput2's key events on the window as well, so a real key comes as one of
+  // those and the driver's as a core one.
+  bool ForwardKeyToUI(const x11::Event& event) {
+    x11::KeyEvent key;
+    if (auto* core = event.As<x11::KeyEvent>(); core && core->event == window()) {
+      key = *core;
+    } else if (auto* device = event.As<x11::Input::DeviceEvent>();
+               device && device->event == window() &&
+               (device->opcode == x11::Input::DeviceEvent::KeyPress ||
+                device->opcode == x11::Input::DeviceEvent::KeyRelease)) {
+      key.opcode = device->opcode == x11::Input::DeviceEvent::KeyPress ? x11::KeyEvent::Press
+                                                                       : x11::KeyEvent::Release;
+      key.detail = static_cast<x11::KeyCode>(device->detail);
+      key.time = device->time;
+      key.root = device->root;
+      key.root_x = static_cast<int16_t>(static_cast<int32_t>(device->root_x) >> 16);
+      key.root_y = static_cast<int16_t>(static_cast<int32_t>(device->root_y) >> 16);
+      key.event_x = static_cast<int16_t>(static_cast<int32_t>(device->event_x) >> 16);
+      key.event_y = static_cast<int16_t>(static_cast<int32_t>(device->event_y) >> 16);
+      // A core event's state holds the keyboard group in bits 13 and 14.
+      key.state = static_cast<x11::KeyButMask>(device->mods.effective |
+                                               device->group.effective << 13);
+      key.same_screen = 1;
+    } else {
+      return false;
+    }
+    const x11::Window main = UIMain();
+    if (main == x11::Window::None) {
+      return false;
+    }
+    // GPUI's window fills the window from its corner, so the key's place in it stays the same.
+    key.event = main;
+    key.child = x11::Window::None;
+    x11::Connection::Get()->SendEvent(key, main, x11::EventMask::NoEvent).IgnoreError();
+    return true;
   }
 
   // GPUI's window for the UI, the one it opened in |ui_|.
