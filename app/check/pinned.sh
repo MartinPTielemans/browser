@@ -546,7 +546,7 @@ expect "^browser: renamed folder $f later\$" "the folder didn't take the name ty
 # tabs as Markdown links, the folder a list of what it holds.
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
-send clickkey 491 60
+send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 # On the Mac, ⌥'s switch row is 42 under the other three.
 [ "$(uname)" = Darwin ] && option_row=42 || option_row=0
