@@ -132,8 +132,9 @@ so a build whose profile is elsewhere, as a dev build's is, does none of that.
   page text, which is why sending is the user's to turn on.
 - **The collector.** `app/branding/crash-reports` holds GlitchTip's minidump endpoint,
   `https://<host>/api/<project id>/minidump/?sentry_key=<key>`, read off the project's DSN,
-  `https://<key>@<host>/<project id>`. Empty, as a fork's starts, the build sends nothing and
-  Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
+  `https://<key>@<host>/<project id>`. Only the prod build (`app/build.sh prod`, as every
+  release is) names it, so a dev build or a check never sends to it. Empty, as a fork's starts,
+  the build sends nothing and Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
   (glitchtip.com/documentation/install), an organization and a project, and an auth token with
   `project:write` for the symbols.
 - **Symbols.** When the build names a collector, each release job uploads its OS's with
