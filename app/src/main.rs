@@ -159,6 +159,7 @@ mod platform {
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
+        pub fn host_watch_window_active(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
@@ -490,6 +491,10 @@ fn front() -> (bc::bc_id, *mut c_void) {
 /// A browser window has gone full screen or left it, once macOS's transition is over.
 extern "C" fn full_screen_changed(ui_view: *mut c_void, entered: bool) {
     update_window(window_with_view(ui_view), |shell, cx| shell.set_full_screen(entered, cx));
+}
+
+extern "C" fn window_active_changed(ui_view: *mut c_void, active: bool) {
+    update_window(window_with_view(ui_view), |shell, cx| shell.set_window_active(active, cx));
 }
 
 extern "C" fn swiped(ui_view: *mut c_void, x: f64, y: f64, back: bool) -> bool {
@@ -3313,6 +3318,7 @@ fn finish_opening(
         platform::host_take_drops(dragged);
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
+        platform::host_watch_window_active(window_active_changed);
         platform::host_watch_swipes(swiped);
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);

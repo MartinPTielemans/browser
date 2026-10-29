@@ -97,6 +97,10 @@ void host_activate(void* ui_view);
 // Calls |changed| with the view of each browser window that becomes the key window.
 void host_watch_key_window(void (*changed)(void* ui_view));
 
+// Calls |changed| with the view of each browser window that has become the active app's main
+// window, or stopped being, as the window's material follows: its header's glyphs dim with it.
+void host_watch_window_active(void (*changed)(void* ui_view, bool active));
+
 // Calls |changed| with the view of each browser window that has gone full screen, or left it, once
 // macOS's transition is over.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));

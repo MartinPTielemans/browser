@@ -997,6 +997,9 @@ pub struct Shell {
     wheel_paged: Option<Instant>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
+    /// Whether the window is the active app's main one, as its material shows; its header's glyphs
+    /// dim while it isn't.
+    window_active: bool,
     /// Whether an assistive app reads the window being drawn, so its elements say what they are
     /// (access.rs). Each render sets it from its window.
     a11y: bool,
@@ -1272,6 +1275,7 @@ impl Shell {
             wheel: None,
             wheel_paged: None,
             hovered_favicon: None,
+            window_active: true,
             a11y: false,
             drawn_hover: (None, None, "0"),
             history: undo::History::default(),
@@ -2248,6 +2252,15 @@ impl Shell {
         self.full_screen = entered;
         if !entered || !self.page_fullscreen {
             self.browser.full_screen_note(entered, cx);
+        }
+    }
+
+    /// The window became the active app's main one, or stopped being.
+    pub fn set_window_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if active != std::mem::replace(&mut self.window_active, active) {
+            // The check waits for this line.
+            log!("browser: window active {active}");
+            cx.notify();
         }
     }
 
