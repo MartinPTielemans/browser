@@ -546,9 +546,11 @@ class WindowViews : public views::WidgetObserver,
       return;
     }
     // A child X window the core didn't put in the browser window, mapped there, is Chromium's
-    // output for the window, opaque and over the UI until it's sent under it.
+    // output for the window, opaque and over the UI until it's sent under it. The window's own map
+    // comes with the same |event|, and sending it under would put a new window under the others
+    // once the window manager has raised it (#712).
     auto* map = event.As<x11::MapNotifyEvent>();
-    if (map && map->event == window() && map->window != ui_) {
+    if (map && map->event == window() && map->window != window() && map->window != ui_) {
       x11::Connection::Get()->ConfigureWindow(
           {.window = map->window, .stack_mode = x11::StackMode::Below});
     }
