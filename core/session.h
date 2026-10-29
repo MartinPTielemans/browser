@@ -148,6 +148,9 @@ struct Settings {
   bool haptics = true;
   // Whether the app asks before the user's Quit quits.
   bool warn_before_quitting = true;
+  // Whether a launch brings back the last session's windows with their Today tabs, else one window
+  // showing no tab (RestoreSession).
+  bool restore_windows = true;
   // Whether the app warns before moving a tab to another profile's Space, which it does once.
   bool warn_moving_profiles = true;
   // Who shares the favorites: a BC_FAVORITES_ value.
