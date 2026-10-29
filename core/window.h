@@ -351,6 +351,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id CloneInto(BrowserWindowInterface& browser, content::WebContents& contents);
   // |split_with| is the tab whose page opened it to show beside it, or 0.
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with);
+  // Shows the tab Chrome made active by itself, while it's still the active one.
+  void ShowActivated(base::WeakPtr<content::WebContents> contents);
   // The Space a tab opened by |opener|, or by nothing for 0, goes to: its opener's, else the one
   // the window shows.
   Space* SpaceForOpened(bc_id opener) const;
@@ -433,6 +435,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;
   bool opening_tab_ = false;
+  // Show makes the tab it shows Chrome's active one, which the window doesn't follow.
+  bool showing_ = false;
   // Whether the keyboard was the page's as the window went out of sight, which hid the page, or is
   // the page shown's once the window is active again.
   bool page_had_keyboard_ = false;

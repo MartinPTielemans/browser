@@ -1151,7 +1151,10 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   const bc_id freed = left && Picturing(left) ? left : 0;
   PasswordOffer::Moving moving(freed);
   HoldPictured();
-  tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
+  {
+    base::AutoReset<bool> showing(&showing_, true);
+    tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
+  }
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
   std::vector<bc_id> panes = space ? space->Panes(tab) : std::vector<bc_id>{tab};
@@ -2143,6 +2146,17 @@ void Window::RemoveObserver(web_modal::ModalDialogHostObserver* observer) {
 void Window::OnTabStripModelChanged(TabStripModel* tab_strip_model,
                                     const TabStripModelChange& change,
                                     const TabStripSelectionChange& selection) {
+  if (change.type() == TabStripModelChange::kSelectionOnly) {
+    // Chrome makes a tab active by itself for a page that calls window.focus(), as a site's does
+    // when its notification is clicked, and for an extension's tabs.update. The window shows it,
+    // posted, as Select changes the tab strip.
+    if (!showing_ && selection.active_tab_changed() && selection.new_contents) {
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE, base::BindOnce(&Window::ShowActivated, weak_factory_.GetWeakPtr(),
+                                    selection.new_contents->GetWeakPtr()));
+    }
+    return;
+  }
   if (change.type() == TabStripModelChange::kRemoved) {
     // Tabs closing with the window, or as the browser quits, come back at the next launch instead.
     if (closing_ || browser_shutdown::IsTryingToQuit()) {
@@ -2346,6 +2360,18 @@ Space* Window::SpaceOf(content::WebContents* contents) {
 Space* Window::SpaceForOpened(bc_id opener) const {
   Space* space = opener ? Space::Holding(opener) : nullptr;
   return space ? space : Space::FromId(space_);
+}
+
+void Window::ShowActivated(base::WeakPtr<content::WebContents> contents) {
+  tabs::TabInterface* tab =
+      contents ? tabs::TabInterface::MaybeGetFromContents(contents.get()) : nullptr;
+  if (!tab || !tab->GetBrowserWindowInterface() ||
+      tab->GetBrowserWindowInterface()->GetTabStripModel()->GetActiveWebContents() !=
+          contents.get() ||
+      contents.get() == shown_.get() || std::ranges::contains(panes_, Tab::IdOf(contents.get()))) {
+    return;
+  }
+  Select(Tab::IdOf(contents.get()));
 }
 
 void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with) {

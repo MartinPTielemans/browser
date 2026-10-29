@@ -22,7 +22,8 @@
 # with it and reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space
 # can't be deleted. The Spaces menu lists the Spaces, and its names show them. A page out of sight,
 # behind another tab, in a Space not shown, in a minimized window or a hidden app, is hidden and
-# runs no animation frames, and it's visible once it's back.
+# runs no animation frames, and it's visible once it's back. A page's focus() shows its tab, from
+# behind another Space, as a site's does from its notification's click.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last. The page puts
 # "hidden" in its title as it hides, and "visible <n>" as it shows again, with the n animation
@@ -179,6 +180,40 @@ show_space "key left alt cmd" previous-space ui "$first" "$a"
 show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 ../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
+
+# A page's focus() shows its tab, in its Space, as a site's does from its notification's click,
+# which macOS hands Chromium and Chromium gives the page: here the focus page brings the tab it
+# opened back from behind another Space. It doesn't hold that macOS shows a site's notification
+# and hands its click on.
+serve
+send key t cmd
+expect '^browser: command bar shown$' "⌘T for the focus page didn't open the command bar"
+send type "${site}focus.html"
+send key return
+expect "^browser: today [0-9][0-9]* $a\$" "the focus page didn't open at the top of Today"
+f=$(today | cut -d' ' -f1)
+await "^browser: title $f ready\$" || fail "the focus page didn't draw"
+send click $page_point
+send type o
+expect "^browser: today .* .* .*\$" "the focus page's o didn't open a tab"
+g=$(today | tr ' ' '\n' | grep -vx -e "$f" -e "$a")
+expect "^browser: selected $g\( in .*\)\{0,1\}\$" "the focus page's tab wasn't shown"
+await "^browser: title $g opened\$" || fail "the focus page's tab didn't draw"
+send click $page_point
+send key 2 ctrl
+expect "^browser: space $second in " "⌃2 from the focus page's tab didn't show Space $second"
+expect "^browser: space $first\( in .*\)\{0,1\}\$" "focus() didn't show its tab's Space"
+expect "^browser: selected $g\( in .*\)\{0,1\}\$" "focus() didn't show its tab"
+../tools/window-screenshot.sh "$pid" "$out/space-focus.png" || fail "no window to capture"
+send key w cmd
+expect "^browser: today $f $a\$" "⌘W didn't close the focus page's tab"
+expect '^browser: selected [0-9]' "⌘W on the focus page's tab didn't show another"
+if [ "$(grep '^browser: selected' "$log" | tail -1 | cut -d' ' -f3)" != "$f" ]; then
+  send click $(row 0)
+  expect "^browser: selected $f\( in .*\)\{0,1\}\$" "the focus page's row didn't show it"
+fi
+send key w cmd
+expect_tabs "$a" "$a" "after closing the focus page"
 
 # A page out of sight is hidden, as in Chrome, and runs no animation frames: a tab behind the one
 # shown, and the tab a Space not shown shows. Back in sight, it's visible.
@@ -797,5 +832,5 @@ paged=$(sed -n '/^browser: paged frames /s/[^0-9.][^0-9.]*/ /gp' "$log" | sort -
   awk '{ n += $1; m[NR] = $2; if ($3 > x) x = $3 }
     END { if (NR) printf "%d page changes, %d frames, median %.2f ms, max %.2f ms",
       NR, n, m[int((NR + 1) / 2)], x }')
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name, dot or Library card shows Rename, Change Icon…, Edit Theme Color… and Delete, and one on the sidebar's empty space New Tab before them, which opens the command bar; the theme picker, from the form's row and the menu, gives a Space its colours from its field, a swatch's own, + and the wave, the window taking them as they're made, and Remove Theme Color, offered once it has one, takes them away; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels; a Library card's brush opens the theme picker, which makes the Space light and dark, and a click on the card's name edits it in the card with the Library left open. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. A page behind another tab, in a Space not shown, in a minimized window or a hidden app is hidden and runs no animation frames, and is visible once back. Paging, the sidebar a frame: ${paged:-not logged}. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/library-rename.png, $out/new-space-pull.png, $out/space-empty-menu.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
-echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/theme-picker.png, $out/space-theme.png, $out/new-space.png, $out/spaces.png, $out/space-icon-picker.png, $out/space-icon.png, $out/space-emoji.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name, dot or Library card shows Rename, Change Icon…, Edit Theme Color… and Delete, and one on the sidebar's empty space New Tab before them, which opens the command bar; the theme picker, from the form's row and the menu, gives a Space its colours from its field, a swatch's own, + and the wave, the window taking them as they're made, and Remove Theme Color, offered once it has one, takes them away; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels; a Library card's brush opens the theme picker, which makes the Space light and dark, and a click on the card's name edits it in the card with the Library left open. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. A page's focus() shows its tab and the tab's Space. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. A page behind another tab, in a Space not shown, in a minimized window or a hidden app is hidden and runs no animation frames, and is visible once back. Paging, the sidebar a frame: ${paged:-not logged}. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/library-rename.png, $out/new-space-pull.png, $out/space-empty-menu.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/theme-picker.png, $out/space-theme.png, $out/new-space.png, $out/spaces.png, $out/space-focus.png, $out/space-icon-picker.png, $out/space-icon.png, $out/space-emoji.png"
