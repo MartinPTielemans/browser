@@ -2,10 +2,13 @@
 //! hidden, its reveal over the page (docs/ux-spec.md › Sidebar reveal); its gradient in the
 //! Space's colour; and the marker for the selected tab's row scrolled out of the list.
 
-use std::time::Instant;
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
-    Bounds, ClickEvent, Context, CursorStyle, DispatchPhase, Hsla, MouseButton, MouseDownEvent,
+    App, Bounds, ClickEvent, Context, CursorStyle, DispatchPhase, Hsla, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Rgba, canvas, div, linear_color_stop, linear_gradient, point,
     prelude::*, px, size,
 };
@@ -17,8 +20,13 @@ use super::{
     PLATE_INSET, ROW_HEIGHT, Row, SELECTED, Slot,
     CARD_INSET, PRIVATE_SHADE, REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
     REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX,
-    SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Settle, Shell, settle_progress, spring,
+    SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Settle, Shell, Space, settle_progress, spring,
 };
+
+/// What the toast says when a tab opens with the sidebar hidden, and for how long (ours: Arc's
+/// isn't measured).
+pub(super) const OPENED: &str = "Opened in a New Tab";
+const OPENED_TIME: Duration = Duration::from_secs(4);
 
 impl Shell {
     /// The docked sidebar's width as drawn: with the pointer while its edge is dragged, then on its
@@ -174,8 +182,13 @@ impl Shell {
     /// shown is in and scrolls the list to its row, once more after the folders open. It moves
     /// only the user's view, so agents get none; they open folders with `bc_folder_set_open`.
     pub(super) fn reveal_tab(&mut self, cx: &mut Context<Self>) {
-        let tab = self.selected;
-        let Some(space) = self.shown_space().filter(|_| tab != 0) else {
+        self.reveal_row(self.selected, cx);
+    }
+
+    /// Reveal Tab in Sidebar for `tab`, if the Space shown still has it.
+    fn reveal_row(&mut self, tab: u64, cx: &mut Context<Self>) {
+        let listed = |space: &&Space| space.pinned.contains(&tab) || space.today.contains(&tab);
+        let Some(space) = self.shown_space().filter(listed) else {
             return;
         };
         let row = self.row_of(tab);
@@ -188,6 +201,23 @@ impl Shell {
         }
         self.revealing = (!shut.is_empty()).then_some(tab);
         self.scroll_to_row(tab);
+    }
+
+    /// Tabs opened in the Space shown while the sidebar is hidden, whose rows aren't seen: a toast
+    /// says so, and its Show reveals the top one's row (Arc's release notes; the words are ours).
+    pub(super) fn toast_opened(&mut self, tabs: &[u64], cx: &mut Context<Self>) {
+        let Some(&tab) = tabs.first().filter(|_| self.sidebar_hidden && !self.reveal_shown()) else {
+            return;
+        };
+        let text = match tabs.len() {
+            1 => OPENED.to_owned(),
+            count => format!("Opened in {count} New Tabs"),
+        };
+        let shell = cx.entity().downgrade();
+        let show = Rc::new(move |cx: &mut App| {
+            shell.update(cx, |shell, cx| shell.reveal_row(tab, cx)).ok();
+        });
+        self.browser.toast_button(&text, ("Show", "show"), show, OPENED_TIME, cx);
     }
 
     /// Whether the selected tab's row is scrolled wholly out past the list's top (true) or its
@@ -531,6 +561,30 @@ mod tests {
         Folders, SIDEBAR_MAX, SIDEBAR_MIN, SIDEBAR_WIDTH, Shell, drag::detents::shell_with,
         recorder::Recorder,
     };
+
+    /// A tab opening while the sidebar is hidden gets a toast whose Show brings the sidebar back at
+    /// its row; tabs moving, or opening with the sidebar shown, get none.
+    #[gpui::test]
+    fn a_tab_opened_with_the_sidebar_hidden_is_toasted(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[1], Folders::default());
+        let tabs = |today: Vec<u64>| {
+            move |shell: &mut Shell, cx: &mut Context<Shell>| {
+                shell.set_tabs(1, Vec::new(), today, Vec::new(), Folders::default(), cx)
+            }
+        };
+        shell.update(cx, tabs(vec![2, 1]));
+        assert!(host.toasts.borrow().is_empty(), "a toast with the sidebar shown");
+        shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+        shell.update(cx, tabs(vec![1, 2]));
+        assert!(host.toasts.borrow().is_empty(), "a toast for tabs moved");
+        shell.update(cx, tabs(vec![3, 4, 1, 2]));
+        assert_eq!(*host.toasts.borrow(), ["Opened in 2 New Tabs"]);
+        shell.update(cx, tabs(vec![5, 3, 4, 1, 2]));
+        assert_eq!(host.toasts.borrow().last().unwrap(), super::OPENED);
+        let show = host.toast_run.borrow_mut().take().expect("no Show");
+        cx.update(|cx| show(cx));
+        assert!(!shell.read_with(cx, |shell, _| shell.sidebar_hidden), "Show left it hidden");
+    }
 
     /// The reveal's window, which draws the shell's panel, as the app's does.
     struct Reveal(Entity<Shell>);

@@ -2345,6 +2345,23 @@ impl Browser for Engine {
         toast::hide_undo(cx);
     }
 
+    fn toast_button(
+        &self,
+        text: &str,
+        (label, name): (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        time: Duration,
+        cx: &mut App,
+    ) {
+        let text = text.to_string();
+        let button = toast::Button {
+            label: toast::Label::Text(label.into()),
+            name,
+            run: Rc::new(move |_, cx| run(cx)),
+        };
+        with_overlays(move |cx| toast::show_with_buttons(&text, vec![button], time, cx), cx);
+    }
+
     fn full_screen_note(&self, shown: bool, cx: &mut App) {
         match shown {
             true => with_overlays(toast::show_full_screen, cx),

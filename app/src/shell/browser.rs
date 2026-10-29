@@ -349,6 +349,16 @@ pub trait Browser {
     /// Shows `text` in the toast with an Undo button and ⌘Z's chip after it, which runs `undo` as
     /// the key does, for `time` and for as long as the pointer is over it.
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App);
+    /// Shows `text` in the toast with a button after it, its label and its name in the logs, which
+    /// runs `run`, for `time` and for as long as the pointer is over it.
+    fn toast_button(
+        &self,
+        text: &str,
+        button: (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        time: Duration,
+        cx: &mut App,
+    );
     /// Takes the toast away if it has an Undo button, as the undo it offered has been done.
     fn hide_undo_toast(&self, cx: &mut App);
     /// Gives the Edit menu's Undo and Redo the titles of what they'd undo and redo, plain Undo and

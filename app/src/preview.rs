@@ -967,6 +967,16 @@ impl Browser for Fake {
 
     fn hide_undo_toast(&self, _: &mut App) {}
 
+    fn toast_button(
+        &self,
+        _: &str,
+        _: (&'static str, &'static str),
+        _: Rc<dyn Fn(&mut App)>,
+        _: Duration,
+        _: &mut App,
+    ) {
+    }
+
     fn set_edit_titles(&self, _: Option<&str>, _: Option<&str>, _: &mut App) {}
 
     fn full_screen_note(&self, _: bool, _: &mut App) {}
