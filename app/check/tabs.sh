@@ -673,8 +673,11 @@ expect "^browser: loaded $waiting https\{0,1\}://example.org/\$" "⌘↩'s tab d
 # shown stays. On Linux the driver sends cmd as Ctrl, so that's the Ctrl-click. From two pages, each
 # with its own favicon, whose links, over all of them, go on in the same tab: back to next, and next
 # to a text file. Each page's title is its name once it has drawn, and the name its row shows.
+# Held, back shrinks a little and grows back as its menu opens; reload pressed shrinks too, and let
+# go off it grows back without reloading, as a button does.
 serve
 back_button='138 23.5'
+reload_button='206 23.5'
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR42mNgcPhPGhrVMKph+GoAAJiZPxAbf0wNAAAAAElFTkSuQmCC |
   base64 -d > "$out/site/next.png"
 for page in back:next.html:icon.png next:notes.txt:next.png; do
@@ -720,9 +723,11 @@ expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its
 go_on next.html
 drawn next
 send press $back_button
+expect '^browser: nav back pressed drawn$' "back held didn't draw itself shrunk"
 expect "^browser: history $h back 1\$" "holding back didn't ask for the pages back"
 expect '^browser: menu drawn back (favicon)$' \
   "holding back didn't draw the back page's row: $(grep '^browser: menu ' "$log" | tail -1)"
+expect '^browser: nav back at rest drawn$' "back held didn't grow back as its menu opened"
 ../tools/window-screenshot.sh "$pid" "$out/back-held.png" || fail "no window to capture"
 send release $back_button
 none_since '^browser: command back via sidebar$' || fail "letting go of back held went back too"
@@ -730,6 +735,13 @@ send choose back
 expect '^browser: command history -1 via sidebar$' "choosing the held menu's row didn't reach the UI"
 expect "^browser: page $h back 0 forward 1 loading 0 ${site}back.html\$" "choosing the held menu's row didn't go back"
 expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its favicon"
+send press $reload_button
+expect '^browser: nav reload pressed drawn$' "reload pressed didn't draw itself shrunk"
+../tools/window-screenshot.sh "$pid" "$out/reload-pressed.png" || fail "no window to capture"
+# Let go on the URL field's left end, off reload.
+send release 40 64
+expect '^browser: nav reload at rest drawn$' "reload let go didn't grow back"
+none_since '^browser: command reload via sidebar$' || fail "reload let go off it reloaded"
 go_on next.html
 drawn next
 send click $back_button cmd
@@ -903,6 +915,6 @@ chrome_ms=$(echo "$spans" | grep -v incomplete | summary)
 [ -n "$chrome_ms" ] || fail "the trace has no finished tab switches"
 # grep -c finds none in a run where no switch was cut off, and exits 1 then.
 chrome_ms="$chrome_ms, $(echo "$spans" | grep -c incomplete || true) incomplete, not counted"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, ⇧⌘A lists the open tabs alone, typing filters them and ↩ switches, ⌘T and ⌘L close the open bar again, ⌘L's field holds the whole address and ↩ on it reloads, Tab in the empty field or \"/ \" lists only the commands until Esc or ⌫ leaves, keys and clicks switch, ⇧⌦ and a click on a row's ✕ take a page out of history and ⌥⌘⌫ a search typed before, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on, Site Search Settings opens Chromium's search engines page, back right-clicked or held lists the pages back, nearest first, with their favicons, and a row picked goes there, and ⌘-clicked opens the page back in a tab behind. Reset all tabs in this Space takes the loaded pinned tabs back to their pinned URLs and leaves the unloaded one."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, ⇧⌘A lists the open tabs alone, typing filters them and ↩ switches, ⌘T and ⌘L close the open bar again, ⌘L's field holds the whole address and ↩ on it reloads, Tab in the empty field or \"/ \" lists only the commands until Esc or ⌫ leaves, keys and clicks switch, ⇧⌦ and a click on a row's ✕ take a page out of history and ⌥⌘⌫ a search typed before, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on, Site Search Settings opens Chromium's search engines page, back right-clicked or held lists the pages back, nearest first, with their favicons, and a row picked goes there, back held and reload pressed shrink a little and grow back, and reload let go off it doesn't reload, and ⌘-clicked opens the page back in a tab behind. Reset all tabs in this Space takes the loaded pinned tabs back to their pinned URLs and leaves the unloaded one."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/search-tabs.png, $out/url-field-bar.png, $out/commands-only.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/remove-suggestion.png, $out/site-search-settings.png, $out/idle-unloaded.png, $out/back-held.png, $out/back-menu.png, $out/back-behind.png"

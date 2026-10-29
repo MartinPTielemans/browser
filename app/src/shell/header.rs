@@ -15,11 +15,12 @@ use gpui::{
 use super::{
     access::Accessible,
     beside::AtRest,
-    BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
-    NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
-    Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
-    URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP, commands::BAR_COMMANDS, fade_at,
-    host,
+    BACK_X, Command, FORWARD_X, HeldNav, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED,
+    NAV_PRESS_SCALE, NAV_RADIUS, NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY,
+    SIDEBAR_BUTTON_X, Shell, Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET,
+    URL_BUTTON_SIZE, URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP,
+    commands::BAR_COMMANDS, drag::held_depth, fade_at, host,
+    scaled::scaled_from_middle,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -81,7 +82,8 @@ impl Shell {
         // Back and forward list the tab's history that way, held or right-clicked (history.rs).
         let lists = matches!(command, Command::Back | Command::Forward);
         // A dimmed one names itself too, as the system's tooltips do.
-        self.with_tooltip(button, command, TipSide::Under, cx)
+        let button = self
+            .with_tooltip(button, command, TipSide::Under, cx)
             .when(enabled, |button| {
                 button
                     .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
@@ -96,27 +98,80 @@ impl Shell {
                         }
                     }))
             })
-            .when(enabled && lists, |button| {
-                let release = |shell: &mut Shell, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Shell>| {
-                    shell.release_nav()
-                };
+            // Back, forward and reload shrink a little while they're held.
+            .when(enabled && x != SIDEBAR_BUTTON_X, |button| {
+                let release =
+                    |shell: &mut Shell, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Shell>| {
+                        shell.release_nav();
+                        shell.let_go_nav(cx)
+                    };
                 button
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.hold_nav(x, command, cx);
                             shell.press_nav(command, event.position, cx)
                         }),
                     )
                     .on_mouse_up(MouseButton::Left, cx.listener(release))
                     .on_mouse_up_out(MouseButton::Left, cx.listener(release))
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                            shell.ask_history(command == Command::Forward, event.position, cx)
-                        }),
-                    )
             })
-            .child(glyph)
+            .when(enabled && lists, |button| {
+                button.on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                        shell.ask_history(command == Command::Forward, event.position, cx)
+                    }),
+                )
+            })
+            .child(glyph);
+        scaled_from_middle(button, self.nav_scale(x))
+    }
+
+    /// The pointer pressed the header button at `x`, which runs `command`.
+    fn hold_nav(&mut self, x: f32, command: Command, cx: &mut Context<Self>) {
+        let pressed = Instant::now();
+        self.held_nav = Some(HeldNav { x, command, pressed, let_go: None, drawn_in: false });
+        cx.notify();
+    }
+
+    /// The pointer let go of the header button it pressed, or its menu took the press over.
+    pub(super) fn let_go_nav(&mut self, cx: &mut Context<Self>) {
+        if let Some(held) = self.held_nav.as_mut().filter(|held| held.let_go.is_none()) {
+            held.let_go = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
+    /// How small the header button at `x` is drawn, plate and glyph: smaller while it's held,
+    /// growing back from where it is once it's let go, as a row's plate does.
+    pub(super) fn nav_scale(&self, x: f32) -> f32 {
+        let Some(held) = self.held_nav.as_ref().filter(|held| held.x == x) else {
+            return 1.;
+        };
+        1. - (1. - NAV_PRESS_SCALE) * held_depth(held.pressed, held.let_go, Instant::now())
+    }
+
+    /// Lets the held header button go once it has grown back, and asks for the next frame only
+    /// while it's shrinking or growing, so a button at rest costs no frames.
+    pub(super) fn step_held_nav(&mut self, window: &mut Window) {
+        let Some(held) = &mut self.held_nav else {
+            return;
+        };
+        let name = held.command.name();
+        match (held.let_go, held_depth(held.pressed, held.let_go, Instant::now())) {
+            (Some(_), 0.) => {
+                // check.sh waits for these lines.
+                log!("browser: nav {name} at rest drawn");
+                self.held_nav = None;
+            }
+            (None, 1.) if !held.drawn_in => {
+                held.drawn_in = true;
+                log!("browser: nav {name} pressed drawn");
+            }
+            (None, 1.) => {}
+            _ => window.request_animation_frame(),
+        }
     }
 
     /// Gives `button`, a sidebar button's plate that runs `command`, a tooltip with the command's

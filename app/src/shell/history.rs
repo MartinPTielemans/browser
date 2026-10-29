@@ -106,6 +106,8 @@ impl Shell {
                 .update(cx, |shell, cx| {
                     shell.nav_hold = None;
                     shell.nav_held = true;
+                    // The menu takes the press over, so the button grows back as it opens.
+                    shell.let_go_nav(cx);
                     shell.ask_history(forward, position, cx);
                 })
                 .ok();
