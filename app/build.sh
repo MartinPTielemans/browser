@@ -122,7 +122,8 @@ if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
   [ -z "$features" ] || { echo "A prod build needs the whole history: git fetch --unshallow" >&2; exit 1; }
 fi
 build=$(git rev-list --count HEAD)
-cargo build --release --bin Browser $features
+# The build number, for Settings › About to show beside the version.
+APP_BUILD=$build cargo build --release --bin Browser $features
 
 app=build/Browser.app
 rm -rf "$app"

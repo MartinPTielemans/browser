@@ -162,6 +162,10 @@ pub enum Command {
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
     KeyboardShortcuts,
+    /// Opens the Settings window on its About tab: the version, the engine's and the credits.
+    About,
+    /// Opens the Settings window on its Import tab.
+    Import,
     /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
     Passwords,
     /// Plays a new profile's first launch again.
@@ -337,6 +341,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Site Search Settings", Command::SiteSearchSettings, &["search engines", "keywords"]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
+    (concat!("About ", env!("APP_NAME")), Command::About, &["version", "credits", "licence"]),
+    ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
@@ -630,6 +636,8 @@ impl Command {
             Command::SiteSearchSettings => "site-search-settings",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
+            Command::About => "about",
+            Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
             Command::Quit => "quit",
@@ -830,6 +838,8 @@ impl Shell {
             Command::Settings => return self.browser.settings(cx),
             Command::SiteSearchSettings => return self.browser.site_search_settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
+            Command::About => return self.browser.about(cx),
+            Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
             Command::ViewHistory => {
@@ -1166,6 +1176,8 @@ impl Shell {
             | Command::ViewHistory
             | Command::SiteSearchSettings
             | Command::KeyboardShortcuts
+            | Command::About
+            | Command::Import
             | Command::Passwords
             | Command::Welcome
             | Command::Settings => true,

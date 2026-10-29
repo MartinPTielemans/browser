@@ -748,6 +748,10 @@ impl Browser for Fake {
 
     fn shortcuts(&self, _: &mut App) {}
 
+    fn about(&self, _: &mut App) {}
+
+    fn import(&self, _: &mut App) {}
+
     // Each made-up Space shows its top tab.
     fn show_space(&self, space: u64, cx: &mut App) {
         self.later(cx, move |shell, cx| {

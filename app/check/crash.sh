@@ -125,7 +125,7 @@ send click $page_point
 if [ "$(uname)" = Darwin ] && [ "$active" = 1 ]; then
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings"
-  send clickkey 458 60
+  send clickkey 430 60
   expect '^browser: settings tab Privacy$' "a click on Privacy didn't show its tab"
   ../tools/window-screenshot.sh "$pid" "$out/privacy.png" || fail "no window to capture"
   send clickkey 592 133
