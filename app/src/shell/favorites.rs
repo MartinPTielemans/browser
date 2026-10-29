@@ -456,6 +456,26 @@ impl Shell {
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+            .child(self.icon_drawn(tab))
+    }
+
+    /// Logs the icon `tab`'s tile draws once it's another than the one it drew, so a capture after
+    /// a change waits for the frame that shows it.
+    fn icon_drawn(&self, tab: u64) -> impl IntoElement + use<> {
+        let (drawn, icon) = (self.tile_icons_drawn.clone(), self.page(tab).icon);
+        canvas(
+            move |_, _, _| {
+                let before = drawn.borrow_mut().insert(tab, icon.clone());
+                if before.is_some_and(|before| before != icon) {
+                    // check.sh reads this line.
+                    let icon = if icon.is_empty() { "none" } else { &icon };
+                    log!("browser: tile {tab} drawn with icon {icon}");
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
     }
 
     /// A left press on `tab`'s tile, which may become a drag.
