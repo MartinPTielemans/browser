@@ -304,6 +304,8 @@ pub struct Settings {
     recording: Option<Command>,
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
+    /// The Shortcuts tab's search, which narrows its rows to what it finds.
+    search: Entity<TextInput>,
     default_browser: Entity<DefaultBrowser>,
     /// The sites with ad blocking off, as General last logged them for check.sh.
     off_sites_logged: Option<String>,
@@ -623,6 +625,21 @@ fn open(cx: &mut App) {
             cx.observe(&widevine, |_, _, cx| cx.notify()).detach();
             let agents = agents::global(cx);
             let agents = agents.map(|agents| cx.observe(&agents, |_, _, cx| cx.notify()));
+            let search = cx.new(|cx| {
+                TextInput::new("Search", cx)
+                    .placeholder_color(rgb(DETAIL))
+                    .caret_color(rgb(TEXT))
+            });
+            let mut searched = String::new();
+            cx.observe(&search, move |_, search, cx| {
+                let typed = search.read(cx).text();
+                if typed != searched {
+                    searched = typed.to_string();
+                    log_found(&searched, cx);
+                }
+                cx.notify();
+            })
+            .detach();
             Settings {
                 #[cfg(target_os = "linux")]
                 dialog,
@@ -638,6 +655,7 @@ fn open(cx: &mut App) {
                 focus_renaming: false,
                 recording: None,
                 refused: None,
+                search,
                 off_sites_logged: None,
                 turn_on_logged: Rc::default(),
                 passwords_profile: None,
@@ -1615,30 +1633,57 @@ impl Settings {
             }));
     }
 
-    /// The commands by section, each with its keys in a chip. A click on a command's chip
-    /// records its next keys; escape leaves them and ⌫ takes them away. ↺ gives a command its
-    /// default back, and Restore Defaults every command.
+    /// The search, then the commands it finds by section, each with its keys in a chip. A click on
+    /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
+    /// a command its default back, and Restore Defaults every command.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
-        let sections = SHORTCUTS.iter().enumerate().map(|(index, (section, rows))| {
-            let rows = rows.iter().map(|(name, keys)| {
-                let control = match keys {
-                    Keys::Of(command) => self.shortcut(*command, accent, cx),
-                    Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
-                };
-                row(None, *name, control)
-            });
-            div()
-                .when(index > 0, |section| section.mt(px(SECTION_GAP)))
-                .child(
+        let typed = self.search.read(cx).text().to_string();
+        let found = found(&typed, cx);
+        let sections = SHORTCUTS.iter().filter_map(|(section, rows)| {
+            let rows: Vec<gpui::Div> = rows
+                .iter()
+                .filter(|(name, _)| found.contains(name))
+                .map(|(name, keys)| {
+                    let control = match keys {
+                        Keys::Of(command) => self.shortcut(*command, accent, cx),
+                        Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                    };
+                    row(None, *name, control)
+                })
+                .collect();
+            (!rows.is_empty()).then(|| {
+                div().mt(px(SECTION_GAP)).child(
                     div()
                         .mb(px(HEADER_GAP))
                         .pl(px(PADDING))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(*section),
-                )
-                .child(group(&RowLook::settings(), rows))
+                    )
+                    .child(group(&RowLook::settings(), rows))
+            })
         });
         let sections: Vec<gpui::Div> = sections.collect();
+        // Ours: Arc's look for a search that finds nothing isn't recorded.
+        let none = sections.is_empty().then(|| {
+            div().mt(px(SECTION_GAP)).pl(px(PADDING)).text_color(rgb(DETAIL)).child("No Results")
+        });
+        let search = div()
+            .h(px(CONTROL_HEIGHT))
+            .px(px(CONTROL_PADDING))
+            .flex()
+            .items_center()
+            .rounded(px(CONTROL_RADIUS))
+            .bg(rgb(CONTROL))
+            // Keys typed here are the search's, not a command's being recorded.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|settings, _, _, cx| {
+                    settings.recording = None;
+                    settings.refused = None;
+                    cx.notify();
+                }),
+            )
+            .child(self.search.clone());
         let restore = button(&RowLook::settings(), "restore-shortcuts", "Restore Defaults");
         let restore = restore.on_click(cx.listener(|settings, _, _, cx| {
             shell::change_keys(cx, UserKeys::reset_all);
@@ -1650,7 +1695,9 @@ impl Settings {
             cx.notify();
         }));
         div()
+            .child(search)
             .children(sections)
+            .children(none)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(restore))
             .into_any_element()
     }
@@ -2018,6 +2065,29 @@ fn command_name(command: Command) -> &'static str {
 
 /// Where the user's keys are kept: in the profile directory, beside Chromium's profiles, as the
 /// core keeps no settings of the app's own.
+/// The names of the Shortcuts tab's rows that a search for `typed` finds, by their names or the
+/// keys their chips show.
+fn found(typed: &str, cx: &App) -> Vec<&'static str> {
+    let user = shell::user_keys(cx);
+    let rows = SHORTCUTS.iter().flat_map(|(_, rows)| rows.iter());
+    let found = rows.filter(|(name, keys)| {
+        let label = match keys {
+            Keys::Of(command) => user.label(*command),
+            Keys::Text(text) => Some(text.to_string()),
+        };
+        shell::shortcut_found(typed, name, label.as_deref())
+    });
+    found.map(|(name, _)| *name).collect()
+}
+
+fn log_found(typed: &str, cx: &App) {
+    // check.sh waits for this line.
+    match typed {
+        "" => log!("browser: shortcuts search cleared"),
+        _ => log!("browser: shortcuts search {typed:?} finds {}", found(typed, cx).join(", ")),
+    }
+}
+
 fn shortcuts_path() -> String {
     format!("{}/Shortcuts", crate::profile_dir())
 }

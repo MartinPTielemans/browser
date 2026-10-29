@@ -106,7 +106,7 @@ pub use extensions::{
 };
 pub use keys::{
     Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable,
-    recorded, reserved, user_keys, view_binding, written_as,
+    recorded, reserved, shortcut_found, user_keys, view_binding, written_as,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
