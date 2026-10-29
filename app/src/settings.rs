@@ -182,6 +182,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Search Tabs", Keys::Of(Command::SearchTabs)),
             ("Archive Tab", Keys::Of(Command::CloseTab)),
             ("Close Window", Keys::Of(Command::CloseWindow)),
+            ("Stay On Top", Keys::Of(Command::StayOnTop)),
             ("Restore Last Closed Tab", Keys::Of(Command::ReopenClosedTab)),
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),

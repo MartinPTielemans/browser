@@ -485,6 +485,13 @@ void host_dock_dot(bool colored, uint32_t color);
 // Once the browser has started, as Chrome's delegate answers the Dock until then.
 void host_set_dock_menu(const char* const* titles, size_t count);
 
+// Whether a window can stay over other apps' windows (Window › Stay On Top).
+bool host_can_stay_on_top(void);
+
+// Keeps |ui_view|'s window over other apps' windows, with its overlays over it, or puts it back
+// among them.
+void host_set_on_top(void* ui_view, bool on_top);
+
 // Calls |released| once, after the event that shows ⌃ is no longer held: ⌃ going up, a key or a
 // button pressed without it, or the app going to the background. Watches the whole app, whichever
 // view has the keyboard.

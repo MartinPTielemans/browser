@@ -501,8 +501,8 @@ NSRect Unconstrained(id, SEL, NSRect frame, NSScreen*) {
 // browser window are child windows, ahead of it in that order, so a tooltip or an overlay's shadow
 // on screen at alpha 0 was taken for it. Over the main window of the active app, they're a level
 // above, as AppKit's own help tags and menus are. Over any other window, and while another app is
-// active, they're at its level, so they don't cover another window or app over it.
-constexpr NSWindowLevel kOverLevel = NSNormalWindowLevel + 1;
+// active, they're at its level, so they don't cover another window or app over it. A window that
+// stays on top (host_set_on_top) is at the floating level, and its overlays go from there.
 
 // Ours of a window's child windows: GPUI's panels and the overlays' shadows, not the bubbles
 // Chromium levels itself.
@@ -513,8 +513,8 @@ bool IsOurs(NSWindow* child) {
 
 // A window above the normal level defaults to transient, which Spaces and Mission Control treat
 // apart from a normal window, so it's managed, as Chromium makes its own.
-void SetOverLevel(NSWindow* child, bool raised) {
-  const NSWindowLevel level = raised ? kOverLevel : NSNormalWindowLevel;
+void SetOverLevel(NSWindow* child, NSWindow* parent, bool raised) {
+  const NSWindowLevel level = parent.level + (raised ? 1 : 0);
   if (child.level != level) {
     child.collectionBehavior |= NSWindowCollectionBehaviorManaged;
     child.level = level;
@@ -532,14 +532,14 @@ void LevelOver(NSWindow* parent, bool raised) {
       }];
   for (NSWindow* child in children) {
     if (IsOurs(child)) {
-      SetOverLevel(child, raised);
+      SetOverLevel(child, parent, raised);
     }
   }
 }
 
 // Puts |child| over |parent|, at the level of |parent|'s others.
 void AddOver(NSWindow* parent, NSWindow* child) {
-  SetOverLevel(child, NSApp.active && parent.mainWindow);
+  SetOverLevel(child, parent, NSApp.active && parent.mainWindow);
   [parent addChildWindow:child ordered:NSWindowAbove];
 }
 
@@ -3357,6 +3357,22 @@ void ControlReleased() {
 void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y,
                                      const host_dragged* items, size_t count)) {
   g_dragged = dragged;
+}
+
+bool host_can_stay_on_top(void) {
+  return true;
+}
+
+void host_set_on_top(void* ui_view, bool on_top) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
+  NSWindow* window = browser->window;
+  window.level = on_top ? NSFloatingWindowLevel : NSNormalWindowLevel;
+  LevelOver(window, NSApp.active && window.mainWindow);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: window level %ld\n", (long)window.level);
 }
 
 void host_watch_control(void (*released)(void)) {

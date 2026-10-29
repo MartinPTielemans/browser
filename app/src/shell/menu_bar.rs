@@ -18,6 +18,8 @@ pub struct MenuBar {
     /// Spaces › Change Profile: each profile by id and name, whether the Space shown can change to
     /// it and whether it's in it, then whether New Profile can be chosen. None in a private window.
     pub profiles: Option<(Vec<ProfileChoice>, bool)>,
+    /// Whether the window stays on top of other apps' windows, or None where the platform can't.
+    pub on_top: Option<bool>,
 }
 
 /// A profile a Space can be in, as its menus list it.
@@ -66,6 +68,7 @@ impl Shell {
             sidebar_hidden: self.sidebar_hidden,
             pinned,
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
+            on_top: self.browser.can_stay_on_top().then_some(self.on_top),
         }
     }
 
@@ -130,6 +133,21 @@ mod tests {
         assert_eq!(host.menu_bar.borrow().pin_title(), "Unpin Tab");
         shell.update(cx, |shell, cx| shell.run(Command::ToggleSidebar, "ui", cx));
         assert_eq!(host.menu_bar.borrow().sidebar_title(), "Show Sidebar");
+    }
+
+    /// Window › Stay On Top keeps the window over other apps' and checks itself, and again lets it
+    /// go back among them.
+    #[gpui::test]
+    fn stay_on_top_turns_on_and_off_with_its_check(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[10], Folders::default());
+        assert_eq!(host.menu_bar.borrow().on_top, Some(false));
+        host.take();
+        shell.update(cx, |shell, cx| shell.run(Command::StayOnTop, "ui", cx));
+        assert!(host.take().contains(&"on top true".to_string()));
+        assert_eq!(host.menu_bar.borrow().on_top, Some(true));
+        shell.update(cx, |shell, cx| shell.run(Command::StayOnTop, "ui", cx));
+        assert!(host.take().contains(&"on top false".to_string()));
+        assert_eq!(host.menu_bar.borrow().on_top, Some(false));
     }
 
     /// The window is titled by the tab shown, as the sidebar names it, and by its Space with none.

@@ -1043,6 +1043,8 @@ pub struct Shell {
     full_screen: bool,
     /// When ⎋ last went down in window full screen, for a second press to leave it.
     escaped: Option<Instant>,
+    /// The window stays on top of other apps' windows (Window › Stay On Top).
+    on_top: bool,
     /// On Linux, whether the window is maximized, which its third button shows.
     maximized: bool,
     /// Whether the window went full screen for the page, so it comes back with it.
@@ -1316,6 +1318,7 @@ impl Shell {
             link_system: None,
             full_screen: false,
             escaped: None,
+            on_top: false,
             maximized: false,
             window_for_page: false,
             page_held: None,

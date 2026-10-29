@@ -231,6 +231,8 @@ mod platform {
         pub fn host_dock_dot_launch(profile_dir: *const c_char);
         pub fn host_dock_dot(colored: bool, color: u32);
         pub fn host_set_dock_menu(titles: *const *const c_char, count: usize);
+        pub fn host_can_stay_on_top() -> bool;
+        pub fn host_set_on_top(ui_view: *mut c_void, on_top: bool);
         pub fn host_watch_control(released: extern "C" fn());
         pub fn host_take_drops(
             dragged: extern "C" fn(
@@ -2281,6 +2283,14 @@ impl Browser for Engine {
         unsafe { platform::host_press_window_button(self.ui_view, button) };
     }
 
+    fn can_stay_on_top(&self) -> bool {
+        unsafe { platform::host_can_stay_on_top() }
+    }
+
+    fn set_on_top(&self, on_top: bool, _: &mut App) {
+        unsafe { platform::host_set_on_top(self.ui_view, on_top) };
+    }
+
     fn start_window_move(&self, _: &mut App) {
         unsafe { bc::bc_window_start_move(self.window) };
     }
@@ -3813,6 +3823,16 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
     let about = item(concat!("About ", env!("APP_NAME")), Command::About);
     let mut app = vec![about, MenuItem::separator()];
+    let mut window_menu = vec![MenuItem::action("Minimize Window", Minimize)];
+    // Where the platform can keep a window over other apps' (Window › Stay On Top).
+    if let Some(on_top) = bar.on_top {
+        window_menu.push(item("Stay On Top", Command::StayOnTop).checked(on_top));
+    }
+    window_menu.extend([
+        MenuItem::separator(),
+        item("Open Library…", Command::ViewLibrary),
+        item("View Downloads…", Command::ViewDownloads),
+    ]);
     // Only a release build that carries Sparkle has updates to check for.
     if updates_available() {
         app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
@@ -3971,15 +3991,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 ])
                 .collect(),
         ),
-        menu(
-            "Window",
-            vec![
-                MenuItem::action("Minimize Window", Minimize),
-                MenuItem::separator(),
-                item("Open Library…", Command::ViewLibrary),
-                item("View Downloads…", Command::ViewDownloads),
-            ],
-        ),
+        menu("Window", window_menu),
         menu(
             "Help",
             vec![
