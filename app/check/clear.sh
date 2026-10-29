@@ -579,10 +579,6 @@ i=$(listed | grep -n '^Window management ' | cut -d: -f1)
 post click 207 $(row_y $((i - 1)))
 expect '^browser: menu shown Allow (checked), Block, Ask$' \
   "the value of Window management didn't offer Allow, Block and Ask"
-# On Linux the menu over the Site Controls takes a choice once the click that opened it is done.
-if [ "$(uname)" = Linux ]; then
-  await "^browser: drive $step done" || fail "the click on Window management's value didn't finish"
-fi
 send choose Block
 expect '^browser: site controls set Window management Block$' "Block in the menu didn't run"
 expect "${controls}[^;]*; .*Window management Block" \
@@ -590,10 +586,17 @@ expect "${controls}[^;]*; .*Window management Block" \
 # http has no certificate to show, so the lock doesn't take the click.
 send click 120 $(footer_y)
 none_since '^browser: site controls run certificate' || fail "the lock ran without a certificate"
-# Share closes them and hangs the system's share menu from its tile, at 122 118.
-send click 122 118
-expect '^browser: site controls run share$' "a click on Share didn't run it"
-expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
+# Share closes them and hangs the system's share menu from its tile, at 122 118. Linux has no share
+# sheet, so its Site Controls have no Share, and their button closes them instead.
+if [ "$(uname)" = Linux ]; then
+  echo "skip: Share in the Site Controls: Linux has no share sheet, so they have no Share"
+  send click $site_controls_point
+  expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
+else
+  send click 122 118
+  expect '^browser: site controls run share$' "a click on Share didn't run it"
+  expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
+fi
 expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
 # Hover still works once they've closed: the pointer out to the page hides the URL field's buttons,
 # and back over the sidebar shows them. While they were open the buttons stayed, as the pointer
