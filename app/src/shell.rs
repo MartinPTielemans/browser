@@ -3577,7 +3577,7 @@ pub(crate) fn fade_at(from: f32, to: f32, elapsed: f32, duration: f32) -> f32 {
 
 /// Where a CSS cubic-bezier(`x1`, `y1`, `x2`, `y2`) curve is at `x`, from 0 to 1: the x of each
 /// control point, then its y.
-pub(crate) fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
+pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     let at = |t: f32, p1: f32, p2: f32| {
         let u = 1. - t;
         3. * u * u * t * p1 + 3. * u * t * t * p2 + t * t * t
