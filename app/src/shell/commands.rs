@@ -235,6 +235,9 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("f12", Command::DevTools, false),
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
+    // Arc's, unreserved: a page or field that uses ⌃D, as a Mac text field's forward delete,
+    // keeps it. Off the Mac it would be Alt+D, Chrome's, so it has none there.
+    ("ctrl-d", Command::ToggleDeveloperMode, false),
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),

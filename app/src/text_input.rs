@@ -110,6 +110,10 @@ pub fn bind_keys(cx: &mut App) {
         key("shift-cmd-v", Box::new(PasteAndMatchStyle)),
     ];
     cx.bind_keys(mac_keys);
+    // A Mac text field's forward delete, which keeps ⌃D from the browser's Developer Mode.
+    if !crate::shell::OFF_THE_MAC {
+        cx.bind_keys([KeyBinding::new("ctrl-d", Delete, context)]);
+    }
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, context),
         KeyBinding::new("delete", Delete, context),

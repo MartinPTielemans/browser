@@ -19,8 +19,9 @@
 # Controls, from the page, open a panel under the field that lists the site's permissions as
 # Chrome's page info does. A value changed there sticks, and its Reset permissions sets them back.
 # Their Developer Mode row lists localhost on by itself, and turns it off and on for the tab, as the
-# command bar's Turn off and Turn on Developer Mode for this site do, and View › Developer's. In it
-# the URL field says the whole URL and the tab's row has its outline.
+# command bar's Turn off and Turn on Developer Mode for this site do, View › Developer's and ⌃D,
+# from the page and the UI, which the page's text field and the command bar's keep as forward
+# delete. In it the URL field says the whole URL and the tab's row has its outline.
 # Escape, a click outside and the button close it. A page that asks for Widevine brings a note under
 # the field, which ClearKey doesn't. From macOS 14 its button shows the page in Safari's engine, in
 # the tab, and the profile keeps the site for it: the site's cookies, HttpOnly too, and its
@@ -636,6 +637,38 @@ expect "^browser: menu bar View: .*, $developer on Developer Mode for this site$
   "View › Developer didn't name Turn on Developer Mode for this site once it was off"
 send menu Developer › Turn on Developer Mode for this site
 expect "^browser: page $r developer mode 1\$" "View › Developer didn't turn Developer Mode on"
+# So does ⌃D, which the page gets first: in its text field it deletes forward, as in any Mac field,
+# and so it does in the command bar's, and with the page's keyboard elsewhere, or the UI's, it
+# turns Developer Mode off and on.
+send click $field_point
+send key a cmd
+send type ab
+expect "^browser: title $r value ab\$" "typing didn't reach the localhost page's text field"
+send key left
+send key d ctrl
+expect "^browser: title $r value a\$" "⌃D in the page's text field didn't delete forward"
+none_since '^browser: command toggle-developer-mode ' ||
+  fail "⌃D in the page's text field toggled Developer Mode"
+send click $page_point
+send key d ctrl
+expect '^browser: command toggle-developer-mode via page$' "⌃D with the page focused didn't reach the UI"
+expect "^browser: page $r developer mode 0\$" "⌃D from the page didn't turn Developer Mode off"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type developer
+expect '^browser: command bar commands "developer": ' "the command bar didn't find developer"
+send key left
+send key d ctrl
+expect '^browser: command bar commands "develope": ' "⌃D in the command bar didn't delete forward"
+none_since '^browser: command toggle-developer-mode ' ||
+  fail "⌃D in the command bar's field toggled Developer Mode"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+# The sidebar's empty space under its rows.
+send click 120 650
+send key d ctrl
+expect '^browser: command toggle-developer-mode via ui$' "⌃D with the UI focused didn't run"
+expect "^browser: page $r developer mode 1\$" "⌃D from the UI didn't turn Developer Mode on"
 # The page asks and is refused without a question.
 send click $page_point
 send key a
