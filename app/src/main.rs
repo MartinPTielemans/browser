@@ -2025,6 +2025,29 @@ impl Browser for Engine {
         }
     }
 
+    fn save_markdown(&self, space: u64, name: &str, markdown: String, links: usize, cx: &mut App) {
+        let save = move |path: std::path::PathBuf| match std::fs::write(&path, markdown) {
+            // check.sh reads this line.
+            Ok(()) => log!("browser: exported {links} links of space {space} to {}", path.display()),
+            Err(error) => log!("couldn't export the Space to {}: {error}", path.display()),
+        };
+        // A check names its file, as it can't drive the system's panel.
+        if !cfg!(feature = "prod")
+            && let Some(file) = std::env::var_os("BROWSER_EXPORT_FILE")
+        {
+            return save(file.into());
+        }
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+        let chosen = cx.prompt_for_new_path(&home, Some(name));
+        cx.foreground_executor()
+            .spawn(async move {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    save(path);
+                }
+            })
+            .detach();
+    }
+
     fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
         unsafe { bc::bc_tab_close_page_menu(tab, command.unwrap_or(0)) };
     }

@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// ilo's nouns, which stay capitalized in a sentence, as Chrome's Incognito does.
-const PROPER_NOUNS: [&str; 3] = ["Space", "Spaces", "Library"];
+const PROPER_NOUNS: [&str; 4] = ["Space", "Spaces", "Library", "Markdown"];
 
 /// `title`, written in title case, in sentence case, as Chromium's menus and the Windows and GNOME
 /// guidelines write theirs off the Mac, so ilo's menus read as the window's others do there.
@@ -187,6 +187,15 @@ impl Shell {
         }
         profiles.extend(deletes);
         items.extend(profiles.into_iter().map(|(entry, action)| (entry.under(at), action)));
+        // Ours: Arc exports every Space at once, from Settings.
+        items.push((
+            MenuEntry::new("Export as Markdown…", true),
+            Box::new(move |shell, cx| {
+                // check.sh waits for this line.
+                log!("browser: command export-space via space menu");
+                shell.export_space(space, cx)
+            }),
+        ));
         items.push((MenuEntry::line(), Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Delete Space", self.spaces.len() > 1).destructive(),

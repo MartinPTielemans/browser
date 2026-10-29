@@ -632,6 +632,8 @@ impl Browser for Fake {
     // The made-up pages have no source and no DevTools.
     fn view_source(&self, _: u64, _: &mut App) {}
     fn save_page(&self, _: u64, _: &mut App) {}
+
+    fn save_markdown(&self, _: u64, _: &str, _: String, _: usize, _: &mut App) {}
     fn close_page_menu(&self, _: u64, _: Option<i32>, _: &mut App) {}
     fn print(&self, _: u64, _: &mut App) {}
 

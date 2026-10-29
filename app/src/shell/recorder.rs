@@ -115,6 +115,8 @@ pub(super) struct Recorder {
     made: Cell<u64>,
     /// The URL each pinned tab or favorite goes back to, and the name each tab was given.
     pub(super) pinned_urls: RefCell<HashMap<u64, String>>,
+    /// Each Space saved as Markdown: its id, the name offered, the file and its links.
+    pub(super) saved_markdown: RefCell<Vec<(u64, String, String, usize)>>,
     pub(super) names: RefCell<HashMap<u64, String>>,
     /// The words of the toasts with no Undo button it was asked to show.
     pub(super) toasts: RefCell<Vec<String>>,
@@ -489,6 +491,10 @@ impl Browser for Recorder {
     fn view_source(&self, _: u64, _: &mut App) {}
 
     fn save_page(&self, _: u64, _: &mut App) {}
+
+    fn save_markdown(&self, space: u64, name: &str, markdown: String, links: usize, _: &mut App) {
+        self.saved_markdown.borrow_mut().push((space, name.to_string(), markdown, links));
+    }
 
     fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
         match command {

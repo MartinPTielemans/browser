@@ -149,6 +149,9 @@ pub trait Browser {
     fn view_source(&self, tab: u64, cx: &mut App);
     /// Asks where to save the tab's page, and saves it there.
     fn save_page(&self, tab: u64, cx: &mut App);
+    /// Asks where to save Space `space`'s `markdown`, which holds `links` links, offering `name`,
+    /// and saves it there.
+    fn save_markdown(&self, space: u64, name: &str, markdown: String, links: usize, cx: &mut App);
     /// Shows print preview for the tab's page.
     fn print(&self, tab: u64, cx: &mut App);
     /// Opens or closes the tab's DevTools (0), opens or closes them at the console (1), or opens
