@@ -174,14 +174,16 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
 
   // Takes |view| out of |holder| if it's there, so closing a slot never deletes a page, and hides
   // it unless it's |staying| in the window. A page out of every window that's never hidden still
-  // counts as visible, so its tab would go on drawing and running its timers and never unload;
-  // Chromium's views hide a page they let go of too (NativeViewHostAura).
+  // counts as visible, so its tab would go on drawing and running its timers and never unload.
+  // It's hidden before it leaves: its visibility is its occlusion state, which Aura's tracker
+  // stops updating once the view is out of the slot's window, so one hidden after would stay
+  // visible.
   static void Detach(aura::Window* holder, aura::Window* view, const Staying& staying) {
     if (holder && view && view->parent() == holder) {
-      holder->RemoveChild(view);
       if (!std::ranges::contains(staying, view)) {
         view->Hide();
       }
+      holder->RemoveChild(view);
     }
   }
 
