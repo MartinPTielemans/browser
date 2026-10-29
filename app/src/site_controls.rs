@@ -14,10 +14,10 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, ClickEvent, Context, FocusHandle, Global, Image, KeyBinding, PathBuilder, Pixels,
-    Point, SharedString, Size, Task, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, canvas, div, img,
-    linear_color_stop, linear_gradient, point, prelude::*, px, size, svg,
+    App, Bounds, ClickEvent, Context, FocusHandle, Global, Image, KeyBinding, MouseButton,
+    MouseDownEvent, PathBuilder, Pixels, Point, SharedString, Size, Task, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
+    canvas, div, img, linear_color_stop, linear_gradient, point, prelude::*, px, size, svg,
 };
 
 use crate::{
@@ -189,6 +189,70 @@ pub struct Extension {
     pub icon: Option<Arc<Image>>,
     /// It acts on the page. One that doesn't is dimmed, as in the toolbar.
     pub enabled: bool,
+    /// Its action is pinned at the URL field's end, where the grid's first tiles come from.
+    pub pinned: bool,
+    /// It has an options page, which its menu opens.
+    pub options: bool,
+    /// The user may remove it, which the ad blocker the browser comes with isn't.
+    pub removable: bool,
+}
+
+/// An item of an extension tile's menu, the pinned action's with Move to Top.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExtensionItem {
+    /// Makes its action the first pinned, which pins it if it isn't, so its tile leads the grid.
+    MoveToTop,
+    Pin,
+    Unpin,
+    Options,
+    /// Removes it, once the user confirms in the browser window's dialog.
+    Remove,
+    /// Its details on Chrome's extensions page.
+    Manage,
+}
+
+impl ExtensionItem {
+    /// For the logs.
+    fn name(self) -> &'static str {
+        match self {
+            ExtensionItem::MoveToTop => "move-to-top",
+            ExtensionItem::Pin => "pin",
+            ExtensionItem::Unpin => "unpin",
+            ExtensionItem::Options => "options",
+            ExtensionItem::Remove => "remove",
+            ExtensionItem::Manage => "manage",
+        }
+    }
+
+    /// Whether the panel stays to show the grid it changes; the others close it for what they open.
+    fn stays(self) -> bool {
+        matches!(self, ExtensionItem::MoveToTop | ExtensionItem::Pin | ExtensionItem::Unpin)
+    }
+}
+
+/// The menu of the extension at `index` in the grid: Move to Top, which the first tile has done,
+/// then the pinned action's items, with Pin for an unpinned one.
+fn extension_items(
+    extension: &Extension,
+    index: usize,
+) -> Vec<(MenuEntry, Option<ExtensionItem>)> {
+    let item = |title: &'static str, run: ExtensionItem| (MenuEntry::new(title, true), Some(run));
+    let mut items = vec![
+        (MenuEntry::new("Move to Top", index > 0), Some(ExtensionItem::MoveToTop)),
+        (MenuEntry::line(), None),
+        match extension.pinned {
+            true => item("Unpin", ExtensionItem::Unpin),
+            false => item("Pin", ExtensionItem::Pin),
+        },
+    ];
+    if extension.options {
+        items.push(item("Options", ExtensionItem::Options));
+    }
+    if extension.removable {
+        items.push((MenuEntry::new("Remove", true).destructive(), Some(ExtensionItem::Remove)));
+    }
+    items.push(item("Manage Extension", ExtensionItem::Manage));
+    items
 }
 
 /// What the panel hangs from.
@@ -218,6 +282,8 @@ pub enum Run {
     RemoveLogin(Login),
     /// Every login of the tab's profile, in Settings.
     Passwords,
+    /// An item of the extension's tile's menu.
+    ExtensionItem(SharedString, ExtensionItem),
 }
 
 /// An action tile. Arc's row is Share, Boost, Capture a portion and Capture the full page; the
@@ -398,6 +464,8 @@ struct Open {
     /// The browser window's size, which tooltips stay inside.
     window: Size<Pixels>,
     extensions: Vec<Extension>,
+    /// The grid's order as it last drew, by id.
+    drawn: Vec<SharedString>,
     /// None until the core first reports, which is when it shows.
     site: Option<Site>,
     height: f32,
@@ -626,6 +694,7 @@ pub fn show(
             beak,
             window,
             extensions,
+            drawn: Vec::new(),
             site: None,
             height: 0.,
             hovered: None,
@@ -752,7 +821,7 @@ fn lock_label(site: &Site) -> SharedString {
 
 /// The "…" menu: Arc's, without Boost's items.
 fn more_items() -> Vec<(MenuEntry, Option<Run>)> {
-    let item = |title: &str, run: Run| (MenuEntry::new(title.to_string(), true), Some(run));
+    let item = |title: &'static str, run: Run| (MenuEntry::new(title, true), Some(run));
     vec![
         item("Clear Cache", Run::Command(Command::ClearCacheAndRefresh)),
         item("Clear Cookies", Run::Command(Command::ClearCookiesAndRefresh)),
@@ -880,8 +949,8 @@ impl SiteControls {
             return;
         };
         let items = [
-            MenuEntry { checked: on, ..MenuEntry::new("On".to_string(), true) },
-            MenuEntry { checked: !on, ..MenuEntry::new("Off".to_string(), true) },
+            MenuEntry { checked: on, ..MenuEntry::new("On", true) },
+            MenuEntry { checked: !on, ..MenuEntry::new("Off", true) },
         ];
         let panel = cx.weak_entity();
         let chosen = Box::new(move |chosen: Option<usize>, cx: &mut App| {
@@ -941,6 +1010,44 @@ impl SiteControls {
                             panel.host.allow_saving(tab, &login);
                         }
                         passwords::Action::ShowAll => panel.run("passwords", Run::Passwords, cx),
+                    }
+                })
+                .ok();
+        });
+        self.host.menu(items, position, chosen, cx);
+    }
+
+    /// Shows the menu of the extension at `index` in the grid at `position`. Pinning and Move to
+    /// Top keep the panel, whose grid the core redraws; the others close it for what they open.
+    fn extension_menu(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(open) = self.open.as_ref().filter(|open| open.closing.is_none()) else {
+            return;
+        };
+        let Some(extension) = open.extensions.get(index) else {
+            return;
+        };
+        let (tab, id) = (open.tab, extension.id.clone());
+        let (items, runs): (Vec<MenuEntry>, Vec<Option<ExtensionItem>>) =
+            extension_items(extension, index).into_iter().unzip();
+        let panel = cx.weak_entity();
+        let chosen = Box::new(move |chosen: Option<usize>, cx: &mut App| {
+            let Some(Some(item)) = chosen.and_then(|index| runs.get(index).copied()) else {
+                return;
+            };
+            panel
+                .update(cx, |panel, cx| {
+                    let open = panel.open.as_ref();
+                    if !open.is_some_and(|open| open.tab == tab && open.closing.is_none()) {
+                        return;
+                    }
+                    let run = Run::ExtensionItem(id.clone(), item);
+                    match item.stays() {
+                        true => {
+                            // check.sh reads this line.
+                            log!("browser: site controls extension {} {id}", item.name());
+                            panel.host.run(run, tab, cx);
+                        }
+                        false => panel.run(&format!("extension {}", item.name()), run, cx),
                     }
                 })
                 .ok();
@@ -1071,6 +1178,13 @@ impl SiteControls {
                     .on_click(cx.listener(move |panel, _, _, cx| {
                         panel.run("extension", Run::Extension(id.clone(), tile), cx)
                     }))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |panel, event: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            panel.extension_menu(index, event.position, cx)
+                        }),
+                    )
                     .children((extension.icon.clone()).map(|icon| {
                         let icon = img(icon).size(px(EXTENSION_ICON));
                         icon.when(!extension.enabled, |icon| icon.opacity(ACTION_DIMMED))
@@ -1357,6 +1471,12 @@ impl Render for SiteControls {
         if settling {
             // check.sh reads this line.
             log!("browser: site controls settled");
+        }
+        let ids: Vec<SharedString> = (open.extensions.iter()).map(|each| each.id.clone()).collect();
+        if ids != open.drawn {
+            // check.sh reads this line.
+            log!("browser: site controls drew extensions {}", ids.join(" "));
+            open.drawn = ids;
         }
         let Some(open) = self.open.as_ref() else {
             return root;

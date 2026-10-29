@@ -17,7 +17,7 @@ use super::{
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
-    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
+    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
@@ -106,18 +106,18 @@ impl Shell {
             // folder's keeps its hover fill, as Arc's do. The held row says so, not GPUI's pressed
             // state, which outlives the release of a press that selected its row.
             .when(self.pressed(row) && !selected && dragging != Some(slot) && !folder, |plate| {
-                plate.bg(self.palette.plate(SELECTED))
+                plate.bg(self.palette.selected(0.)).shadow(self.palette.selected_shadow(1.))
             })
             .when(row == Row::NewTab && !selected, |plate| {
                 // GPUI keeps an element's pressed state only once a listener gives it a hitbox.
                 plate
                     .on_mouse_down(MouseButton::Left, |_, _, _| {})
-                    .group_active("row", |style| style.bg(self.palette.plate(SELECTED)))
+                    .group_active("row", |style| style.bg(self.palette.selected(0.)))
             })
             // A ghost covers the rows it passes, in the colours its row has in place.
             .when(ghost, |plate| {
-                let fill = if selected { SELECTED } else { HOVERED };
-                plate.bg(self.window_fill().blend(self.palette.plate(fill)))
+                let fill = if selected { self.palette.selected(0.) } else { self.palette.plate(HOVERED) };
+                plate.bg(self.window_fill().blend(fill))
             });
         let scale = match row {
             Row::Tab(tab) => self.press_scale(tab),
@@ -542,6 +542,20 @@ impl Shell {
             )
     }
 
+    /// Where `tab`'s row or tile is, for the icon picker to hang under while it waits for it to
+    /// settle.
+    pub(super) fn drawn_for_picker(&self, tab: u64) -> Option<impl IntoElement + use<>> {
+        let pending = Some(Pending::Icon(Subject::Tab(tab)));
+        (self.picker_pending.map(|(picker, _)| picker) == pending).then(|| {
+            let drawn = self.tab_row_drawn.clone();
+            canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+        })
+    }
+
     /// A split view's row, for its first tab: a segment per tab, left to right. A press on one
     /// shows the split with its page focused, and the close button closes them all.
     fn split_row(
@@ -557,13 +571,11 @@ impl Shell {
         let pinned = self.pinned().contains(&first);
         let closable = panes.iter().any(|&tab| !(self.page(tab).unloaded && pinned));
         let renaming = self.renaming.as_ref().filter(|renaming| {
-            matches!(renaming.naming, Naming::Tab(tab) if panes.contains(&tab))
+            renaming.naming.tab().is_some_and(|tab| panes.contains(&tab))
         });
         let content = match renaming {
             Some(renaming) => {
-                let Naming::Tab(tab) = renaming.naming else {
-                    unreachable!()
-                };
+                let Some(tab) = renaming.naming.tab() else { unreachable!() };
                 plate(self.tab_icon(tab), self.naming_field(renaming, cx))
             }
             None => {
@@ -652,7 +664,7 @@ impl Shell {
         // The close button shows under the pointer, and the title truncates before it.
         let close = self.close_button(vec![tab], cx);
         let renaming =
-            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Tab(tab));
+            self.renaming.as_ref().filter(|renaming| renaming.naming.tab() == Some(tab));
         let label = match renaming {
             Some(renaming) => self.naming_field(renaming, cx),
             None => div()
@@ -696,11 +708,17 @@ impl Shell {
                 cx.notify();
             }))
             // It shows the tab after going back, which the row's press leaves to it, so the old
-            // page never loads.
+            // page never loads. With ⌘ the page goes on in a copy at the top of Today, shown, as
+            // Arc's does.
             .when(away, |icon| {
-                icon.on_click(cx.listener(move |shell, _, _, cx| {
+                icon.on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
                     if shell.dragged {
                         return;
+                    }
+                    if event.modifiers().secondary(cx) {
+                        log!("browser: command back-to-pinned-url-keeping-page via sidebar");
+                        shell.browser.duplicate(tab, cx);
+                        return shell.browser.back_to_pinned_url(tab, cx);
                     }
                     log!("browser: command back-to-pinned-url via sidebar");
                     shell.browser.back_to_pinned_url(tab, cx);
@@ -708,17 +726,7 @@ impl Shell {
                 }))
             })
             .child(icon);
-        // Where the row is, for the icon picker to hang under while it waits for the row to settle.
-        let pending = Some(Pending::Icon(Subject::Tab(tab)));
-        let bounds = (self.picker_pending.map(|(picker, _)| picker) == pending)
-            .then(|| {
-                let drawn = self.tab_row_drawn.clone();
-                canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-            });
+        let bounds = self.drawn_for_picker(tab);
         // The field of a rename takes the row's clicks while it's up.
         let plate = plate(icon.into_any_element(), label).child(self.framed(tab, 0.));
         let row = self.row(Row::Tab(tab), plate, ghost, cx);
@@ -805,7 +813,9 @@ impl Shell {
             .children(icon)
             .children(placeholder);
         if let Some(renaming) =
-            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Space(space))
+            self.renaming.as_ref().filter(|renaming| {
+                renaming.naming == Naming::Space(space) && !renaming.in_library
+            })
         {
             return row
                 .key_context("Naming")
@@ -996,12 +1006,18 @@ fn breath_strength(phase: f32) -> f32 {
 }
 
 impl Shell {
-    /// A tab's status dot, in the slot at its row's end, if it has one: Signal green while an
-    /// agent is at work in it, else the row's text while its page loads, breathing while it loads
-    /// either way.
+    /// A tab's status dot, in the slot at its row's end, if it has one: a Signal ring while the
+    /// user holds it from its agent, Signal green while an agent is at work in it, else the row's
+    /// text while its page loads, breathing while it loads either way.
     fn status_dot(&self, tab: u64) -> Option<impl IntoElement + use<>> {
         let (loading, agent) = (self.page(tab).loading, self.agent_at_work(tab));
         let dot = match (agent, loading) {
+            // The user holds it from its agent: a ring with nothing in it, waiting on them.
+            _ if self.agent_holds(tab) => div()
+                .size(px(STATUS_DOT))
+                .rounded_full()
+                .border(px(STATUS_RING))
+                .border_color(rgb(STATUS_AGENT)),
             (true, _) => ringed_dot(STATUS_AGENT, STATUS_DOT),
             (false, true) => {
                 div().size(px(STATUS_DOT)).rounded_full().bg(self.palette.text(STATUS_LOADING))
@@ -1173,6 +1189,36 @@ mod tests {
         cx.run_until_parked();
         let first = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get()).unwrap();
         assert_eq!(f32::from(row.center().y - first.center().y).abs(), ROW_PITCH);
+    }
+
+    /// A favorite's Change Icon… has its tile say where it is, for the picker to hang under its
+    /// middle.
+    #[gpui::test]
+    fn change_icon_on_a_favorite_has_its_tile_say_where_it_is(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            shell.set_favorites(vec![(20, 1), (21, 1)], cx);
+        });
+        report(&shell, cx, vec![2], 2);
+        shell.update(cx, |shell, cx| shell.change_icon(21, cx));
+        cx.run_until_parked();
+        let tile = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get());
+        let tile = tile.expect("the favorite's tile didn't say where it is");
+        // Inside the tile's hairline.
+        let height = f32::from(tile.size.height);
+        assert!((height - crate::tokens::shell::TILE_HEIGHT).abs() <= 1., "{height} tall");
+        // The first tile is a tile's pitch left of it.
+        shell.update(cx, |shell, cx| shell.change_icon(20, cx));
+        cx.run_until_parked();
+        let first = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get()).unwrap();
+        let places = shell.read_with(cx, |shell, _| shell.tile_places(2));
+        let pitch = f32::from(tile.center().x - first.center().x);
+        assert!((pitch - (places[1][0] - places[0][0])).abs() < 0.5, "{pitch} apart");
     }
 
     /// An icon picker's window that shows nowhere.
@@ -1593,6 +1639,27 @@ mod tests {
         cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
         assert_eq!(host.take(), ["back to pinned url 2", "select 2", "focus page"]);
+    }
+
+    /// ⌘-click on an away pinned tab's favicon keeps its page in a copy, which the core shows, and
+    /// takes the tab back without showing it.
+    #[gpui::test]
+    fn a_command_click_on_the_way_back_keeps_the_page_in_a_new_tab(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3], 3);
+        shell.update(cx, |shell, cx| {
+            let page = Page { away_from_pinned_url: true, ..shell.page(2) };
+            shell.set_page(2, page, cx)
+        });
+        let (_, y) = close_button(&shell, cx, 2);
+        let favicon = (FAVICON_X + FAVICON_SIZE / 2., y);
+        move_to(cx, favicon);
+        host.take();
+        let at = point(px(favicon.0), px(favicon.1));
+        let command = cx.update(|_, cx| Modifiers::secondary_key(cx));
+        cx.simulate_mouse_down(at, MouseButton::Left, command);
+        cx.simulate_mouse_up(at, MouseButton::Left, command);
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["card close", "duplicate 2", "back to pinned url 2"]);
     }
 
     /// How the user goes back to the tab they came from.

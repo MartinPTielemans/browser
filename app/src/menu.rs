@@ -919,7 +919,7 @@ pub fn field_menu(show: Rc<ShowOver>) -> FieldMenu {
             }) else {
                 return;
             };
-            let items = (items.into_iter()).map(|(title, enabled)| MenuEntry::new(title, enabled)).collect();
+            let items = (items.into_iter()).map(|(title, enabled)| MenuEntry::named(title, enabled)).collect();
             let chosen = Box::new(move |index: Option<usize>, cx: &mut App| {
                 if let Some(index) = index {
                     cx.update_window(handle, |_, window, cx| chosen(index, window, cx)).ok();

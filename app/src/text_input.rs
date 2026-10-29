@@ -19,6 +19,7 @@ use gpui::{
     point, prelude::*, px, relative, rgb, size,
 };
 use unicode_segmentation::*;
+use crate::shell::MenuEntry;
 use crate::tokens::text_input::PLACEHOLDER;
 use crate::tokens::palette::{NO_THEME_ACCENT, SELECTION};
 
@@ -96,6 +97,19 @@ pub fn without_javascript(text: &str) -> &str {
 
 pub fn bind_keys(cx: &mut App) {
     let context = Some("TextInput");
+    let key = |key, action| crate::shell::view_binding(key, action, "TextInput", cx);
+    let mac_keys = [
+        key("cmd-a", Box::new(SelectAll)),
+        key("cmd-v", Box::new(Paste)),
+        key("cmd-c", Box::new(Copy)),
+        key("cmd-x", Box::new(Cut)),
+        // So the Edit menu shows them. The menu's Undo and Redo go to the first responder, which
+        // undoes for itself, as a page does.
+        key("cmd-z", Box::new(Undo)),
+        key("shift-cmd-z", Box::new(Redo)),
+        key("shift-cmd-v", Box::new(PasteAndMatchStyle)),
+    ];
+    cx.bind_keys(mac_keys);
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, context),
         KeyBinding::new("delete", Delete, context),
@@ -103,10 +117,6 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("right", Right, context),
         KeyBinding::new("shift-left", SelectLeft, context),
         KeyBinding::new("shift-right", SelectRight, context),
-        KeyBinding::new("cmd-a", SelectAll, context),
-        KeyBinding::new("cmd-v", Paste, context),
-        KeyBinding::new("cmd-c", Copy, context),
-        KeyBinding::new("cmd-x", Cut, context),
         KeyBinding::new("home", Home, context),
         KeyBinding::new("end", End, context),
         // As in any Mac text field, and ahead of the browser's back and forward.
@@ -116,11 +126,6 @@ pub fn bind_keys(cx: &mut App) {
         // Full Keyboard Access's, and Windows' and Linux's, way to a field's menu.
         KeyBinding::new("shift-f10", OpenMenu, context),
         KeyBinding::new("menu", OpenMenu, context),
-        // So the Edit menu shows them. The menu's Undo and Redo go to the first responder, which
-        // undoes for itself, as a page does.
-        KeyBinding::new("cmd-z", Undo, context),
-        KeyBinding::new("shift-cmd-z", Redo, context),
-        KeyBinding::new("shift-cmd-v", PasteAndMatchStyle, context),
     ]);
 }
 
@@ -385,7 +390,7 @@ impl TextInput {
         items.push(("", false, None));
         items.push(("Select All", !self.content.is_empty(), Some(Box::new(SelectAll))));
         let titles = (items.iter())
-            .map(|&(title, enabled, _)| (SharedString::from(title), enabled))
+            .map(|&(title, enabled, _)| (MenuEntry::label(title), enabled))
             .collect();
         let mut actions: Vec<Option<Box<dyn Action>>> =
             items.into_iter().map(|(_, _, action)| action).collect();
@@ -729,6 +734,11 @@ impl EntityInputHandler for TextInput {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let last_layout = self.last_layout.as_ref()?;
+        // An empty field lays out its placeholder, and its caret is at its start. An input method
+        // under Wayland composes for a field only once it knows where that is.
+        if self.content.is_empty() {
+            return Some(Bounds::new(bounds.origin, size(px(0.), bounds.size.height)));
+        }
         if last_layout.text != self.shown() {
             return None;
         }
@@ -1012,3 +1022,6 @@ impl Focusable for TextInput {
         self.focus_handle.clone()
     }
 }
+
+#[cfg(test)]
+mod tests;

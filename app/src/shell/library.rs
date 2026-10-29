@@ -17,12 +17,17 @@ use super::{
     access::Accessible,
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, MenuEntry, NAV,
     NAV_RADIUS, NAV_SIZE, PLATE_INSET, SECONDARY, SEGMENT_FAVICON_X, Shell, Space, UNSELECTED_TITLE,
-    clean_link, divider_box, favicon, folder_icon, host, SPACE_SWATCH_SHOWN, icon_slot, name_box,
-    plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
+    clean_link, divider_box, favicon, folder_icon, host, SPACE_SWATCH_SHOWN, dashed_square,
+    plate, row_box, space_icon_drawn, spring_to, split_plate, still_clear, title, Naming,
     header::TipSide,
     display_face::{cap_top, display_text},
 };
-use crate::{menu::Look, text_input::TextInput};
+use crate::{
+    palette::Palette,
+    text_input::TextInput,
+    tooltip::{Anchor, Tip},
+};
+use crate::tokens::shell::EMOJI_SIZE;
 
 use crate::tokens::shell::library::LIBRARY_WIDTH;
 /// The push, on Arc's measured spring (1 run, rms 1.0 pt). The Library comes with it from its own
@@ -83,9 +88,18 @@ use crate::tokens::shell::library::CARD_GAP;
 use crate::tokens::shell::library::SPACES_PAGE;
 use crate::tokens::shell::library::CARD_NAME_TOP;
 use crate::tokens::shell::library::CARD_NAME_HEIGHT;
+use crate::tokens::shell::library::CARD_FIELD_INSET;
+use crate::tokens::shell::library::CARD_FIELD_HEIGHT;
+use crate::tokens::shell::library::CARD_FIELD_RADIUS;
+use crate::tokens::shell::library::CARD_FIELD_PLATE;
+use crate::tokens::shell::library::CARD_SLOT;
+use crate::tokens::shell::library::CARD_SLOT_X;
+use crate::tokens::shell::library::CARD_SLOT_DASH;
+use crate::tokens::shell::library::CARD_NAME_GAP;
+use crate::tokens::shell::library::CARD_NAME_COLOR;
 use crate::tokens::shell::library::CARD_BRUSH;
+use crate::tokens::shell::library::CARD_BRUSH_INSET;
 use crate::tokens::shell::library::CARD_BRUSH_GLYPH;
-use crate::tokens::shell::library::CARD_BRUSH_RIGHT;
 use crate::tokens::shell::library::CARD_BRUSH_COLOR;
 use crate::elevation::Level;
 use crate::tokens::shell::library::PLUS_GAP;
@@ -189,7 +203,7 @@ pub struct Download {
 pub enum DownloadAction {
     /// Opens the file, or for one still running, opens it once it's done, or no longer.
     Open,
-    /// Shows the file in Finder.
+    /// Shows the file in Finder, or the file manager off the Mac.
     Show,
     Pause,
     Resume,
@@ -236,7 +250,14 @@ fn download_menu_items(
         ],
         DownloadState::Done => vec![
             act("Open", DownloadAction::Open),
-            act("Show in Finder", DownloadAction::Show),
+            // Off the Mac, Chrome's word for the file manager there.
+            act(
+                match super::OFF_THE_MAC {
+                    true => "Show in Folder",
+                    false => "Show in Finder",
+                },
+                DownloadAction::Show,
+            ),
             (MenuEntry::new("Move to Trash", true).destructive(), Some(DownloadChoice::Trash)),
         ],
         DownloadState::Cancelled | DownloadState::Failed => Vec::new(),
@@ -725,7 +746,7 @@ impl Shell {
             entries,
             position,
             false,
-            Look { light: false, ..self.menu_look() },
+            self.menu_look(),
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| match chosen {
@@ -973,9 +994,8 @@ impl Shell {
             )
     }
 
-    /// A Space's card: its name over the rows the sidebar would show, in its colour. A click shows
-    /// the Space, and the brush or a right-click shows its menu, for what the Space can be changed
-    /// in.
+    /// A Space's card: its name's field over the rows the sidebar would show, in its colour. A
+    /// click shows the Space, and a right-click shows its menu.
     fn space_card(&self, space: &Space, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let id = space.id;
         // The card is the Space's window, opaque, so it's drawn in the Space's own palette.
@@ -1013,35 +1033,7 @@ impl Shell {
                 card_row(depth, split_plate(segments))
             }
         });
-        // A Space without an icon shows its swatch in the icon's place.
-        let icon = space_icon(&palette, &space.icon).or_else(|| {
-            let behind = window_at(0.).to_rgb();
-            let swatch = palette.swatch.draw(SPACE_SWATCH_SHOWN, &[behind]);
-            Some(icon_slot(swatch))
-        });
-        let brush = div()
-            .id(("space-brush", id))
-            .absolute()
-            .top(px(CARD_NAME_TOP + (CARD_NAME_HEIGHT - CARD_BRUSH) / 2.))
-            .right(px(CARD_BRUSH_RIGHT))
-            .size(px(CARD_BRUSH))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(NAV_RADIUS))
-            .block_mouse_except_scroll()
-            .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
-            .active(|style| style.bg(palette.plate(STATE_PRESSED)))
-            .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                shell.space_menu(id, event.position(), cx);
-            }))
-            .child(
-                svg()
-                    .path("icons/paintbrush.svg")
-                    .size(px(CARD_BRUSH_GLYPH))
-                    .text_color(palette.glyph(CARD_BRUSH_COLOR)),
-            );
+        let field = self.card_field(space, &palette, window_at(0.), cx);
         div()
             .id(("space-card", id))
             .flex_none()
@@ -1068,15 +1060,134 @@ impl Shell {
                     .rounded(px(CARD_RADIUS))
                     .group_hover("space-card", |style| style.bg(palette.plate(STATE_HOVERED))),
             )
-            .child(
-                name_box(&palette, icon.is_some())
-                    .mt(px(CARD_NAME_TOP))
-                    .h(px(CARD_NAME_HEIGHT))
-                    .children(icon)
-                    .child(div().truncate().child(space.name.clone())),
-            )
+            .child(field)
             .child(div().children(rows))
-            .child(brush)
+    }
+
+    /// The field across the top of a Space's card (Arc): its icon in a dashed slot, which opens the
+    /// icon picker, its name, which a click puts in a field there to type over, and the brush, which
+    /// opens the theme picker. `behind` is the card's colour at its top, for the swatch of a Space
+    /// with no icon.
+    fn card_field(
+        &self,
+        space: &Space,
+        palette: &Palette,
+        behind: Hsla,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let id = space.id;
+        // A Space without an icon shows its swatch in the icon's place.
+        let icon = space_icon_drawn(palette, &space.icon).unwrap_or_else(|| {
+            palette.swatch.draw(SPACE_SWATCH_SHOWN, &[behind.to_rgb()]).into_any_element()
+        });
+        let frames = self.slot_frames.clone();
+        let slot = div()
+            .id(("space-icon-slot", id))
+            .flex_none()
+            .relative()
+            .size(px(CARD_SLOT))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(EMOJI_SIZE))
+            .block_mouse_except_scroll()
+            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
+                let frame = shell.slot_frames.borrow().get(&id).copied();
+                let tip = frame.filter(|_| *hovered).map(|frame| {
+                    (Tip::named("Edit Space icon".into()), Anchor::under(frame, shell.viewport))
+                });
+                shell.hover_tip(tip, cx);
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)),
+            )
+            .on_click(cx.listener(move |shell, _, _, cx| {
+                cx.stop_propagation();
+                shell.change_space_icon(id, cx);
+            }))
+            .child(
+                canvas(
+                    move |bounds, _, _| {
+                        frames.borrow_mut().insert(id, bounds);
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+            .child(dashed_square(palette.glyph(CARD_SLOT_DASH)).absolute().size_full())
+            .child(icon);
+        let renaming = self.renaming.as_ref().filter(|renaming| {
+            renaming.naming == Naming::Space(id) && renaming.in_library
+        });
+        let name = match renaming {
+            // A click in the field places the caret, and mustn't reach the card.
+            Some(renaming) => self
+                .naming_field(renaming, cx)
+                .id(("space-name", id))
+                .pr_0()
+                .on_click(|_, _, cx| cx.stop_propagation()),
+            None => div()
+                .id(("space-name", id))
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .flex()
+                .items_center()
+                .cursor_text()
+                .text_color(palette.text(CARD_NAME_COLOR))
+                .on_click(cx.listener(move |shell, _, window, cx| {
+                    cx.stop_propagation();
+                    shell.rename_space_in_card(id, window, cx);
+                }))
+                .child(div().truncate().child(space.name.clone())),
+        };
+        let brush = div()
+            .id(("space-brush", id))
+            .flex_none()
+            .size(px(CARD_BRUSH))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+            .block_mouse_except_scroll()
+            .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
+            .active(|style| style.bg(palette.plate(STATE_PRESSED)))
+            .on_click(cx.listener(move |shell, _, _, cx| {
+                cx.stop_propagation();
+                shell.edit_space_theme(id, cx);
+            }))
+            .child(
+                svg()
+                    .path("icons/paintbrush.svg")
+                    .size(px(CARD_BRUSH_GLYPH))
+                    .text_color(palette.glyph(CARD_BRUSH_COLOR)),
+            );
+        div()
+            .flex_none()
+            .mt(px(CARD_NAME_TOP))
+            .h(px(CARD_NAME_HEIGHT))
+            .px(px(CARD_FIELD_INSET))
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .w_full()
+                    .h(px(CARD_FIELD_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .gap(px(CARD_NAME_GAP))
+                    .pl(px(CARD_SLOT_X))
+                    .pr(px(CARD_BRUSH_INSET))
+                    .rounded(px(CARD_FIELD_RADIUS))
+                    .bg(palette.plate(CARD_FIELD_PLATE))
+                    .text_size(px(text::BODY))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(slot)
+                    .child(name)
+                    .child(brush),
+            )
     }
 
     /// Shows `space`, from its card, and closes the Library.
@@ -1647,6 +1758,9 @@ pub(super) fn of(received: i64, total: i64) -> String {
         false => bytes(received),
     }
 }
+
+#[cfg(test)]
+mod rename_tests;
 
 #[cfg(test)]
 mod tests {

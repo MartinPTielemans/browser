@@ -9,6 +9,7 @@
 
 #include "base/containers/span.h"
 #include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
 
@@ -42,11 +43,12 @@ struct DockedDevTools {
 };
 
 // A page to show, at |frame| from the top-left of the window's content, with its DevTools if
-// they're docked.
+// they're docked, and |color|, 0xRRGGBB, under it where it hasn't drawn, as the app's card is.
 struct Pane {
   gfx::NativeView page;
   gfx::Rect frame;
   std::optional<DockedDevTools> devtools;
+  std::optional<uint32_t> color;
 };
 
 // An extension's side panel page, at |frame| like a pane's. The app draws its header above it, so
@@ -66,6 +68,12 @@ void ShowPages(views::Widget* widget,
                size_t focused,
                uint32_t ring_color,
                std::optional<SidePanelPage> side_panel);
+
+// Keeps the pages shown in |widget|'s window where they are as it resizes, until ShowPages lays
+// them out again: for a page going full screen, or back, which the app lays out once, at the
+// window's new size. On the Mac, where the app hears of a resize before the pages are laid out at
+// it, and on Windows so far, it does nothing.
+void HoldPagesForResize(views::Widget* widget);
 
 // Hides the pages shown, their DevTools and the side panel, in place, for a window out of sight, so
 // Chromium counts them hidden. ShowPages shows them again.
@@ -88,6 +96,12 @@ void ReleaseKeyboard(views::Widget* widget);
 // Runs |change|, which may move the keyboard in |widget|'s window, then gives the keyboard back to
 // what had it, if that's still in the window.
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change);
+
+// Holds |page|, which no window shows, hidden in |widget|'s window until the runner returned runs,
+// so it has the window's compositor to draw unseen with, as for a picture of it. Where a hidden
+// page's view keeps its compositor, as on the Mac, or |page| is in a window already, it does
+// nothing.
+base::ScopedClosureRunner DrawUnseen(views::Widget* widget, gfx::NativeView page);
 
 // Whether |view|, a page's, stretches the frame it last drew to fill itself as it resizes, until
 // the page draws at the new size, rather than shows that frame at its old size in the top-left

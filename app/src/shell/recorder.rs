@@ -10,6 +10,8 @@ use std::{
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
 
+use crate::theme::Appearance;
+
 use super::{
     Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
     browser::WindowButton,
@@ -57,6 +59,15 @@ pub(super) struct Recorder {
     pub(super) detents: Cell<usize>,
     /// How many tabs and folders it was asked to move.
     pub(super) moves: Cell<usize>,
+    /// Whether the system opens links with it, as `is_default_browser` answers.
+    pub(super) default_browser: Cell<bool>,
+    /// The system it says it runs on, the Mac unless a test says.
+    pub(super) os: Cell<Option<crate::default_browser::Os>>,
+    /// The import finds no browser on the machine.
+    pub(super) no_browsers: Cell<bool>,
+    /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
+    pub(super) crash_reports: Cell<Option<bool>>,
+    pub(super) agents: Cell<Option<bool>>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -70,6 +81,10 @@ pub(super) struct Recorder {
     /// What the menu bar was last asked to show, and the window's title.
     pub(super) menu_bar: RefCell<MenuBar>,
     pub(super) window_title: RefCell<String>,
+    /// Whether it was last asked to draw the window's material light.
+    pub(super) window_light: Cell<Option<bool>>,
+    /// The appearance View › Appearance last chose.
+    pub(super) appearance: Cell<Option<Appearance>>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
     /// The system has a share sheet of its own.
@@ -82,8 +97,14 @@ pub(super) struct Recorder {
     pub(super) site_controls_extensions: RefCell<Vec<Vec<SharedString>>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
+    /// Each time the shell opened Search Tabs: the tabs it lists, in order.
+    pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
     pub(super) bar_open: Cell<bool>,
+    /// How many times Site Search Settings opened.
+    pub(super) site_search_settings: Cell<usize>,
+    /// The tabs the command bar was given to list each time the window showed another Space.
+    pub(super) followed_tabs: RefCell<Vec<Vec<u64>>>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
     /// "moving" and "still" for what the shell told the core about the motion.
     pub(super) page_events: RefCell<Vec<&'static str>>,
@@ -112,11 +133,17 @@ pub(super) struct Recorder {
     /// The platform has Apple's engine for a tab's page.
     /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
+    /// Where it says Google's Widevine module is.
+    pub(super) widevine: Cell<crate::widevine::Widevine>,
+    /// What it says PlayReady needs.
+    pub(super) playready: Cell<super::PlayReady>,
     /// The shell it answers each picture asked of it for with this picture, at once, inside the
     /// call that asked, as a core that answers inline would.
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
     /// The answers to page dialogs it was given, with what was typed.
     pub(super) replies: RefCell<Vec<PageReply>>,
+    /// What it says every agent's Space's menu lists.
+    pub(super) agent_permissions: RefCell<super::AgentGrants>,
 }
 
 impl Recorder {
@@ -197,7 +224,9 @@ impl Browser for Recorder {
         self.edit(format!("close below {tab}"));
     }
 
-    fn duplicate(&self, _: u64, _: &mut App) {}
+    fn duplicate(&self, tab: u64, _: &mut App) {
+        self.record(format!("duplicate {tab}"))
+    }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
         self.edit(format!("space {tab} {space}"));
@@ -328,6 +357,16 @@ impl Browser for Recorder {
 
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
         self.edit(format!("pinned url {tab} {url}"));
+        self.pinned_urls.borrow_mut().insert(tab, url.to_string());
+    }
+
+    /// An address as it's typed, else a test search.
+    fn typed_url(&self, text: &str) -> Option<String> {
+        Some(match text.contains('.') {
+            true if text.contains("://") => text.to_string(),
+            true => format!("https://{text}/"),
+            false => format!("https://search.test/?q={text}"),
+        })
     }
 
     fn tab_name(&self, tab: u64) -> String {
@@ -399,6 +438,10 @@ impl Browser for Recorder {
         self.record(format!("answer {tab} {answer:?}"))
     }
 
+    fn answer_agent(&self, question: u64, answer: crate::agents::Answer, _: &mut App) {
+        self.record(format!("answer agent {question} {answer:?}"))
+    }
+
     fn can_open_in_safari(&self) -> bool {
         true
     }
@@ -411,12 +454,28 @@ impl Browser for Recorder {
         self.system_engine.get()
     }
 
+    fn playready_needs(&self) -> super::PlayReady {
+        self.playready.get()
+    }
+
     fn close_media_note(&self, tab: u64, _: &mut App) {
         self.record(format!("close media note {tab}"));
     }
 
     fn use_system_engine(&self, tab: u64, _: &mut App) {
         self.record(format!("system engine {tab}"))
+    }
+
+    fn widevine(&self) -> crate::widevine::Widevine {
+        self.widevine.get()
+    }
+
+    fn download_widevine(&self, _: &mut App) {
+        self.record("download widevine".into())
+    }
+
+    fn restart(&self, _: &mut App) {
+        self.record("restart".into())
     }
 
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, _: &mut App) {
@@ -476,7 +535,9 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn set_extension_pinned(&self, _: u64, _: &str, _: bool, _: &mut App) {}
+    fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, _: &mut App) {
+        self.record(format!("pin {profile} {id} {pinned}"));
+    }
 
     fn remove_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
         Default::default()
@@ -501,6 +562,10 @@ impl Browser for Recorder {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+
+    fn site_search_settings(&self, _: &mut App) {
+        self.site_search_settings.set(self.site_search_settings.get() + 1);
+    }
 
     fn close_other_window(&self, _: &mut App) -> bool {
         Default::default()
@@ -563,9 +628,13 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    // The import's made-up Arc, so the first launch has a browser to import from, unless a test
+    // says there's none.
     fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
-        let nowhere = std::path::Path::new("/nonexistent");
-        let roots = crate::import::sources::Roots::under(nowhere, crate::import::sources::Os::Mac);
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/src/import/fixture");
+        let home = if self.no_browsers.get() { "/nonexistent" } else { fixture };
+        let os = crate::import::sources::Os::Mac;
+        let roots = crate::import::sources::Roots::under(std::path::Path::new(home), os);
         std::rc::Rc::new(crate::import::Detached(roots))
     }
 
@@ -595,7 +664,9 @@ impl Browser for Recorder {
     ) {
     }
 
-    fn focus_ui(&self, _: &mut App) {}
+    fn focus_ui(&self, _: &mut App) {
+        self.record("focus ui".into())
+    }
 
     fn focus_page(&self, _: &mut App) {
         self.record("focus page".into())
@@ -608,6 +679,14 @@ impl Browser for Recorder {
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
+
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        self.window_light.set(Some(light));
+    }
+
+    fn set_appearance(&self, appearance: Appearance, _: &mut App) {
+        self.appearance.set(Some(appearance));
+    }
 
     fn page_moving(&self, moving: bool, _: &mut App) {
         self.page_events.borrow_mut().push(if moving { "moving" } else { "still" });
@@ -626,6 +705,10 @@ impl Browser for Recorder {
     fn start_window_move(&self, _: &mut App) {}
 
     fn window_maximized(&self) -> bool {
+        false
+    }
+
+    fn window_full_screen(&self) -> bool {
         false
     }
 
@@ -734,8 +817,22 @@ impl Browser for Recorder {
         self.bar_open.set(true);
     }
 
+    fn search_tabs(&self, tabs: Vec<BarTab>, _: &mut App) {
+        self.searched_tabs.borrow_mut().push(tabs.iter().map(|tab| tab.tab).collect());
+        self.bar_open.set(true);
+    }
+
     fn command_bar_open(&self, _: &App) -> bool {
         self.bar_open.get()
+    }
+
+    /// A bar that follows opens a new tab, as one ⌘T opened.
+    fn command_bar_follows(&self, tabs: Vec<BarTab>, _: Vec<BarTab>, _: &mut App) -> bool {
+        let open = self.bar_open.get();
+        if open {
+            self.followed_tabs.borrow_mut().push(tabs.iter().map(|tab| tab.tab).collect());
+        }
+        open
     }
 
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {
@@ -784,8 +881,45 @@ impl Browser for Recorder {
 
     fn shortcuts(&self, _: &mut App) {}
 
+    fn about(&self, _: &mut App) {}
+
+    fn import(&self, _: &mut App) {}
+
     fn passwords(&self, space: u64, _: &mut App) {
         self.record(format!("passwords {space}"));
+    }
+
+    fn agent_activity(&self, _: &mut App) {
+        self.record("agent activity".into());
+    }
+
+    fn agent_permissions(&self, _: u64, _: &App) -> super::AgentGrants {
+        self.agent_permissions.borrow().clone()
+    }
+
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, _: &mut App) {
+        let site = site.map_or("all".into(), |site| site.to_string());
+        self.record(format!("revoke agent {space} {site}"));
+    }
+
+    fn disconnect_agent(&self, space: u64, _: &mut App) {
+        self.record(format!("disconnect agent {space}"));
+    }
+
+    fn take_back_agent_tabs(&self, space: u64, _: &mut App) {
+        self.record(format!("take back agent {space}"));
+    }
+
+    fn take_over(&self, agent: SharedString, tab: u64, _: &mut App) {
+        self.record(format!("take over {agent} {tab}"));
+    }
+
+    fn hand_back(&self, tab: u64, _: &mut App) {
+        self.record(format!("hand back {tab}"));
+    }
+
+    fn stop_agent(&self, agent: SharedString, _: &mut App) {
+        self.record(format!("stop agent {agent}"));
     }
 
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
@@ -796,6 +930,40 @@ impl Browser for Recorder {
 
     fn new_window(&self, _: &mut App) {
         self.record("new window".into())
+    }
+
+    fn welcome_window(&self, _: &mut App) {
+        self.record("welcome window".into())
+    }
+
+    fn is_default_browser(&self) -> bool {
+        self.default_browser.get()
+    }
+
+    fn make_default_browser(&self, _: &mut App) {
+        self.record("make default browser".into())
+    }
+
+    fn os(&self) -> crate::default_browser::Os {
+        self.os.get().unwrap_or(crate::default_browser::Os::Mac)
+    }
+
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        self.crash_reports.get()
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        self.crash_reports.set(Some(on));
+        self.record(format!("crash reports {on}"))
+    }
+
+    fn agents(&self, _: &App) -> Option<bool> {
+        self.agents.get()
+    }
+
+    fn set_agents(&self, on: bool, _: &mut App) {
+        self.agents.set(Some(on));
+        self.record(format!("agents {on}"))
     }
 
     fn close_window(&self, _: &mut App) {

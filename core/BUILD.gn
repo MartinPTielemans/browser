@@ -113,6 +113,10 @@ source_set("browser_core") {
   sources = [
     "ad_block.cc",
     "ad_block.h",
+    "agent_autofill.cc",
+    "agent_autofill.h",
+    "agent_page.cc",
+    "agent_page.h",
     "agent_session.cc",
     "agent_session.h",
     "api.cc",
@@ -160,6 +164,8 @@ source_set("browser_core") {
     "open_app_dialog.h",
     "page_menu.cc",
     "page_menu.h",
+    "page_text.cc",
+    "page_text.h",
     "password_offer.cc",
     "password_offer.h",
     "passwords.cc",
@@ -171,6 +177,7 @@ source_set("browser_core") {
     "platform/keyboard.h",
     "platform/keychain.h",
     "platform/native_hosts.h",
+    "platform/playready.h",
     "platform/system_page.h",
     "platform/window_views.h",
     "popular_sites.cc",
@@ -204,6 +211,8 @@ source_set("browser_core") {
     "system_engine.h",
     "tab.cc",
     "tab.h",
+    "widevine.cc",
+    "widevine.h",
     "window.cc",
     "window.h",
   ]
@@ -266,6 +275,9 @@ source_set("browser_core") {
     "//chrome/browser/ui/views/interaction:impl",
     "//chrome/common",
     "//chrome/common/profiler",
+    "//components/autofill/content/browser",
+    "//components/autofill/core/browser",
+    "//components/component_updater",
     "//components/content_settings/core/browser",
     "//components/crash/core/app",
     "//components/content_settings/core/common",
@@ -285,6 +297,7 @@ source_set("browser_core") {
     "//components/keep_alive_registry",
     "//components/omnibox/browser",
     "//components/page_info",
+    "//components/password_manager/content/browser",
     "//components/password_manager/core/browser",
     "//components/password_manager/core/browser:password_form",
     "//components/password_manager/core/browser/import:importer",
@@ -310,6 +323,7 @@ source_set("browser_core") {
     ":sync_spaces_proto",
     "//components/sync_device_info",
     "//components/tabs:public",
+    "//components/update_client",
     "//components/url_formatter",
     "//components/viz/common",
     "//components/web_modal",
@@ -331,6 +345,8 @@ source_set("browser_core") {
     "//third_party/blink/public/mojom:mojom_core",
     "//third_party/boringssl",
     "//third_party/crashpad/crashpad/client",
+    "//third_party/widevine/cdm:buildflags",
+    "//ui/accessibility",
     "//ui/base",
     "//ui/display",
     "//ui/events:dom_keycode_converter",
@@ -377,18 +393,37 @@ source_set("browser_core") {
     }
   }
   if (is_win || is_linux) {
-    sources += [ "platform/app_library.h" ]
+    sources += [
+      "platform/app_library.h",
+      "platform/focus_ring_aura.cc",
+      "platform/focus_ring_aura.h",
+    ]
+    deps += [
+      "//cc/paint",
+      "//skia",
+      "//ui/aura",
+      "//ui/compositor",
+      "//ui/gfx",
+    ]
   }
   if (is_win) {
     sources += [
       "platform/native_hosts_win.cc",
       "platform/win/app_library.cc",
       "platform/win/keyboard.cc",
+      "platform/win/playready.cc",
       "platform/win/window_views.cc",
     ]
-    deps += [ "//ui/base/ime" ]
+    deps += [
+      "//chrome/installer/util:with_no_strings",
+      "//components/cdm/common:buildflags",
+      "//ui/base/ime",
+    ]
   } else {
-    sources += [ "platform/native_hosts_posix.cc" ]
+    sources += [
+      "platform/native_hosts_posix.cc",
+      "platform/playready_none.cc",
+    ]
   }
   if (is_linux) {
     sources += [

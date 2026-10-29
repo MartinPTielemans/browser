@@ -13,6 +13,7 @@
 #include "browser_core/host.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/widevine.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/document_service.h"
 #include "content/public/browser/page.h"
@@ -47,15 +48,21 @@ std::string_view SystemOf(std::string_view key_system) {
   return {};
 }
 
-// Whether ilo can play what |system| protects. None can: ungoogled-chromium ships no Widevine
-// module, and Chromium has no other on a Mac. Once the user can have Widevine's (#236), this is
-// where it answers true, or the app is told what to offer instead; the app hears the same signal.
-bool CanPlay(std::string_view) {
-  return false;
+// Whether ilo can play what |system| protects: Widevine once Chromium loaded Google's module,
+// which on Linux the user can have it download from the note (widevine.h). ungoogled-chromium ships
+// none, and PlayReady has no CDM here.
+bool CanPlay(std::string_view system) {
+  return system == "com.widevine.alpha" && widevine::Loaded();
 }
 
-// What the app has been told about one tab: the system a page of it asked for that ilo can't play,
-// until the tab goes to another site.
+// Whether two pages are at the same site, as the note goes with the site.
+bool SameSite(const GURL& a, const GURL& b) {
+  return net::registry_controlled_domains::SameDomainOrHost(
+      a, b, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+}
+
+// What the app has been told about one tab: the system a page of it was refused that ilo can't
+// play, until the tab goes to another site.
 class Unsupported : public content::WebContentsObserver,
                     public content::WebContentsUserData<Unsupported> {
  public:
@@ -63,10 +70,13 @@ class Unsupported : public content::WebContentsObserver,
   Unsupported& operator=(const Unsupported&) = delete;
   ~Unsupported() override = default;
 
-  // The tab's document asked for |system|.
+  // The tab's document was refused |system|.
   void Asked(const std::string& system) {
-    // Once for each system a document asks for, as pages ask again at every play.
-    if (NoteClosed(web_contents()->GetLastCommittedURL()) || !asked_.insert(system).second) {
+    // Once for each system a document asks for, as pages ask again at every play. A site that was
+    // given one plays with it, as Netflix asks for Widevine before PlayReady on Windows.
+    const GURL& url = web_contents()->GetLastCommittedURL();
+    if (NoteClosed(url) || (!played_at_.is_empty() && SameSite(url, played_at_)) ||
+        !asked_.insert(system).second) {
       return;
     }
     if (shown_.empty()) {
@@ -91,6 +101,13 @@ class Unsupported : public content::WebContentsObserver,
     }
   }
 
+  // The tab's document was given a system the note names: the site plays, and has no note while
+  // the tab stays at it.
+  void Played() {
+    played_at_ = web_contents()->GetLastCommittedURL();
+    Forget();
+  }
+
   // The tab's page is no longer Chromium's, or its site's note was closed: what it asked for goes
   // with it.
   void Forget() {
@@ -112,12 +129,14 @@ class Unsupported : public content::WebContentsObserver,
   void PrimaryPageChanged(content::Page& page) override {
     // A new document asks again.
     asked_.clear();
+    const GURL& now = page.GetMainDocument().GetLastCommittedURL();
+    if (!played_at_.is_empty() && !SameSite(now, played_at_)) {
+      played_at_ = GURL();
+    }
     if (shown_.empty()) {
       return;
     }
-    const GURL& now = page.GetMainDocument().GetLastCommittedURL();
-    if (!net::registry_controlled_domains::SameDomainOrHost(
-            now, shown_at_, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES)) {
+    if (!SameSite(now, shown_at_)) {
       shown_.clear();
       Changed();
     }
@@ -145,6 +164,8 @@ class Unsupported : public content::WebContentsObserver,
   // note began at.
   std::string shown_;
   GURL shown_at_;
+  // A page at the site that was given a system, if the tab is still at it.
+  GURL played_at_;
   // What the app was last told.
   std::string told_;
   base::WeakPtrFactory<Unsupported> weak_factory_{this};
@@ -170,7 +191,7 @@ class DrmRequest final : public content::DocumentService<mojom::DrmRequest> {
       : content::DocumentService<mojom::DrmRequest>(frame, std::move(receiver)) {}
 
   // mojom::DrmRequest:
-  void KeySystemRequested(const std::string& key_system) override {
+  void KeySystemAnswered(const std::string& key_system, bool granted) override {
     content::RenderFrameHost& frame = render_frame_host();
     // The page the user is on, not one that's loading behind it or kept for going back.
     if (!frame.GetPage().IsPrimary()) {
@@ -178,10 +199,16 @@ class DrmRequest final : public content::DocumentService<mojom::DrmRequest> {
     }
     const std::string_view system = SystemOf(key_system);
     content::WebContents* contents = content::WebContents::FromRenderFrameHost(&frame);
-    if (system.empty() || !contents || CanPlay(system)) {
+    if (system.empty() || !contents) {
       return;
     }
-    Unsupported::GetOrCreateForWebContents(contents)->Asked(std::string(system));
+    if (granted) {
+      Unsupported::GetOrCreateForWebContents(contents)->Played();
+      return;
+    }
+    if (!CanPlay(system)) {
+      Unsupported::GetOrCreateForWebContents(contents)->Asked(std::string(system));
+    }
   }
 };
 

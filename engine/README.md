@@ -75,6 +75,8 @@ The zip is named after its contents' hash. The first build takes about as long a
 
 `windows/prepare.sh` is ungoogled-chromium-windows's own build on Windows, which `.github/workflows/engine-windows.yml` runs by hand on GitHub's runners, for when the cross build can't.
 
+Both add `enable_playready=true` to the args. Chromium sets it only in Chrome-branded builds, and nothing else on PlayReady's path checks branding, so with it protected video plays through Windows' own PlayReady (decision 1).
+
 ## Releases
 
 A copy for other Macs is the Release engine with the prod app in it. `app/build.sh prod` builds it, and `SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh` signs each part inside out with the hardened runtime, notarizes the app and then a DMG through the Keychain's `notary` profile (`xcrun notarytool store-credentials notary`), and staples both, leaving `app/build/release/ilo.dmg`. Only a Developer ID passes Gatekeeper on another Mac. The entitlements are Chromium's, trimmed to what a browser outside App Sandbox uses, in `app/entitlements/`. `tools/install.sh` signs the owner's own copy instead, on its Apple Development identity.
@@ -95,6 +97,7 @@ ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patch
   - **What a check sends.** In the body: the protocol version, Chromium's version and channel, the updater's version, macOS's version, the CPU architecture, and a random session id and request id. For each component it sends the id and the installed version. The headers repeat the ids and say whether the check runs in the foreground.
   - **What it doesn't send.** No cookies and no pings. None of the fields Chrome uses to link one check to the next (install id, install date, cohorts, ping day counts). No language, hardware or enterprise state. Google still sees the IP address, and the versions can help it link checks.
   - **How responses are checked.** CUP signatures and the CRX3 publisher key, as in Chrome.
+  - **Google's Widevine module, on Linux.** Once the user says yes in the protected-media note or Settings, the checks also ask for the Widevine component (`oimompecagnajdejgnnjijobebaeigek`), the first at once, and it downloads from the same hosts. Removing it in Settings takes it out of the checks again. `patches/ours/chromium-widevine-component.patch` lets the core add it to Ardia's list, whose update URL is already Google's own.
 - **Chrome Web Store.** The browser talks to it on three occasions, and with no store extension installed only the first:
   - The store's own page, chromewebstore.google.com, gets Chrome's install API and sees the installed extensions, as in Chrome.
   - An install the user confirms fetches the extension's icon from the address the page gives, Google's image host. It then downloads the extension from clients2.google.com, which redirects to clients2.googleusercontent.com. The download carries the profile's cookies and the store page as referrer, as in Chrome.
@@ -111,8 +114,11 @@ so a crash of the browser in its first moments isn't caught. Its handler never u
 ungoogled-chromium's hunk that takes out the handler's upload thread and its URL stays, and the core
 sends them instead, only if the user says to (`docs/decisions.md`, 9). The reports are in the
 profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On Windows,
-`chrome_elf` starts Crashpad before the core runs, so they're in Chromium's default folder,
-`%LOCALAPPDATA%\Chromium\User Data\Crashpad`.
+`chrome_elf` starts Crashpad before the core runs, in the user data folder Chromium names after the
+product, which `patches/ours/chromium-windows-product-folder.patch` names after
+`app/branding/name`: `%LOCALAPPDATA%\ilo\User Data\Crashpad`, the prod profile's. A dev build's
+reports go there too. The core sends, offers and deletes reports only in the profile's own folder,
+so a build whose profile is elsewhere, as a dev build's is, does none of that.
 
 - **What's sent.** With Send Crash Reports on, the core sends each report not yet sent to the build's
   collector, the minidump alone, without cookies, and deletes it once the collector has it. One
@@ -130,11 +136,15 @@ profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On W
   Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
   (glitchtip.com/documentation/install), an organization and a project, and an auth token with
   `project:write` for the symbols.
-- **Symbols.** When the build names a collector, `tools/release.sh` uploads the Release engine's
-  dSYMs and the app's executable with `sentry-cli debug-files upload`, which GlitchTip takes as
-  Sentry does. The engine builds with ungoogled-chromium-macos's `symbol_level=1` and
-  `blink_symbol_level=0`, so frames have functions and lines outside Blink, and Blink's only
-  their library.
+- **Symbols.** When the build names a collector, each release job uploads its OS's with
+  `tools/symbols.sh`, through `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does.
+  The Mac's are the Release engine's dSYMs and the app's executable; that engine builds with
+  ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions
+  and lines outside Blink, and Blink's only their library. Linux and Windows build with their
+  ungoogled-chromium's `symbol_level=0`, so frames have functions and no lines: on Linux from the
+  symbol tables of `chrome` and `libBrowser.so`, which the Flatpak keeps, and on Windows from PDBs,
+  the engine's in its release beside it (`windows/cross/package.sh`, `fetch.sh symbols`) and
+  `Browser.pdb`. Lines there would take `symbol_level=1`, a full rebuild of each engine.
 
 ## Rules
 

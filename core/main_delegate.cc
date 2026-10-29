@@ -16,6 +16,7 @@
 #include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/agent_autofill.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
@@ -36,6 +37,7 @@
 #include "browser_core/sync_spaces.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/widevine.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_browser_main.h"
@@ -112,7 +114,14 @@ base::FilePath FindNativeHost(const std::string& name) {
 class ExtraParts : public ChromeBrowserMainExtraParts {
  public:
   // Before Chrome stops taking factories, as the first profile is made.
-  void PreProfileInit() override { system_engine::RegisterProfilePrefs(); }
+  void PreProfileInit() override {
+    system_engine::RegisterProfilePrefs();
+    widevine::Start();
+  }
+
+  void PostProfileInit(Profile* profile, bool is_initial_profile) override {
+    crash_reports::ProfileStarted(profile);
+  }
 
   void PreBrowserStart() override {
     // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.
@@ -141,6 +150,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
 
   void PostMainMessageLoopRun() override {
     // Their Browsers are gone: quitting closed them, and the run loop waited for that.
+    widevine::Stop();
     FlushSession();
     Window::CloseAll();
     ReleaseProfiles();
@@ -247,6 +257,10 @@ void Install(const bc_host& host) {
   sync::Install();
   sync_spaces::Install();
   SetUpAdBlock();
+  g_browser_core_component_allowed = &widevine::MayUpdate;
+  g_browser_core_no_passwords = &IsAgentTab;
+  g_browser_core_no_autofill = &IsAgentTab;
+  g_browser_core_refuse_passkey = &RefuseAgentPasskey;
 }
 
 int Run(int argc, const char** argv, const bc_host& host) {
@@ -266,6 +280,13 @@ void Quit() {
                                                               base::BindOnce(&chrome::AttemptExit));
 }
 
+void Restart() {
+  // Posted as Quit is. Chrome starts its executable again with this one's switches once it has
+  // quit, and --no-startup-window keeps Chrome from bringing back its own windows over the app's.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&chrome::AttemptRestart));
+}
+
 MainDelegate::MainDelegate(const StartupTimestamps& timestamps)
     : ChromeMainDelegate(timestamps) {}
 
@@ -277,8 +298,18 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
     // First, so the features below join the app's rather than being replaced by them. The app's
     // switches go after the ones Chromium was given, which still win.
+    // The arguments the process was given, which the app reads its switches from, as Chromium read
+    // them: on Linux it has since written its process title over them (#605).
+    std::vector<std::string> given;
+    for (const base::CommandLine::StringType& arg : command_line->argv()) {
+#if BUILDFLAG(IS_WIN)
+      given.push_back(base::WideToUTF8(arg));
+#else
+      given.push_back(arg);
+#endif
+    }
     std::vector<std::string> app_switches;
-    const bc_host* host = platform::LoadApp(&app_switches);
+    const bc_host* host = platform::LoadApp(given, &app_switches);
     if (!host) {
       LOG(ERROR) << "no app: the engine has no " << BC_APP_LIBRARY << " beside it with "
                  << BC_APP_ENTRY;

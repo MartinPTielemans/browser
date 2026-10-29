@@ -303,6 +303,8 @@ void ShowPages(views::Widget* widget,
   }
 }
 
+void HoldPagesForResize(views::Widget*) {}
+
 void HidePages(views::Widget* widget) {
   BrowserCoreWindowView* view = WindowView(widget);
   for (BrowserCorePane* pane in view.panes) {
@@ -367,6 +369,10 @@ void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
 
 void StretchOnResize(content::RenderWidgetHostView* view, bool stretch) {
   content::SetStretchContentOnResize(view, stretch);
+}
+
+base::ScopedClosureRunner DrawUnseen(views::Widget*, gfx::NativeView) {
+  return base::ScopedClosureRunner();
 }
 
 }  // namespace browser_core::platform

@@ -225,5 +225,23 @@ extern std::string (*g_browser_core_sync_password_tag)(const std::string& tag);
 extern std::vector<std::unique_ptr<syncer::DataTypeController>> (*g_browser_core_sync_controllers)(
     Profile* profile,
     syncer::SyncService* sync_service);
+// components/component_updater/component_updater_service.cc: whether the component updater may
+// check for and download the component |id| as well as the three security components it always
+// does (engine/patches/ardia/chromium-component-updater-security-only.patch): Google's Widevine
+// module, once the user said yes. Every other component stays out of its requests.
+extern bool (*g_browser_core_component_allowed)(const std::string& id);
+
+// chrome/browser/password_manager/chrome_password_manager_client.cc: whether |contents|'s page is
+// to have none of the user's saved passwords, filled or in a dropdown, nor offer to save one.
+extern bool (*g_browser_core_no_passwords)(content::WebContents* contents);
+
+// chrome/browser/ui/autofill/chrome_autofill_client.cc: whether |contents|'s page is to show none
+// of autofill's suggestions: addresses, cards, passwords and passkeys.
+extern bool (*g_browser_core_no_autofill)(content::WebContents* contents);
+
+// chrome/browser/webauthn/chrome_authenticator_request_delegate.cc: whether Chrome is to cancel
+// the passkey request of |contents|'s page, which |asks| the user in Chrome's dialog, once it
+// knows how it would show. Not asked of one that shows only in autofill's suggestions.
+extern bool (*g_browser_core_refuse_passkey)(content::WebContents* contents, bool asks);
 
 #endif  // BROWSER_CORE_HOOKS_H_

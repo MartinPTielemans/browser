@@ -8,7 +8,8 @@
 
 namespace browser_core::platform {
 
-const bc_host* LoadApp(std::vector<std::string>* switches) {
+const bc_host* LoadApp(const std::vector<std::string>& given,
+                       std::vector<std::string>* switches) {
   base::FilePath dir;
   base::PathService::Get(base::DIR_EXE, &dir);
   const base::FilePath path = dir.Append(BC_APP_LIBRARY);
@@ -23,8 +24,12 @@ const bc_host* LoadApp(std::vector<std::string>* switches) {
   if (!entry) {
     return nullptr;
   }
-  int argc = 0;
-  const char** argv = nullptr;
+  std::vector<const char*> given_argv;
+  for (const std::string& arg : given) {
+    given_argv.push_back(arg.c_str());
+  }
+  int argc = static_cast<int>(given_argv.size());
+  const char** argv = given_argv.data();
   const bc_host* host = entry(&argc, &argv);
   for (int i = 0; i < argc; ++i) {
     switches->push_back(argv[i]);

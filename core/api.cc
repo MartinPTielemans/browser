@@ -1,6 +1,7 @@
 // The C API in public/browser_core.h, over the core's C++.
 
 #include <algorithm>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
@@ -10,8 +11,11 @@
 #include "base/functional/callback_helpers.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/agent_autofill.h"
+#include "browser_core/agent_page.h"
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
@@ -30,10 +34,12 @@
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/page_menu.h"
+#include "browser_core/page_text.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/playready.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -44,6 +50,7 @@
 #include "browser_core/sync.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/widevine.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
@@ -76,6 +83,10 @@
 #include "ui/views/widget/widget.h"
 #endif
 
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+#include "browser_core/platform/focus_ring_aura.h"
+#endif
+
 namespace {
 
 gfx::Rect ToRect(bc_rect rect) {
@@ -89,6 +100,23 @@ views::Widget* OpenWidget(bc_id id) {
   views::Widget* widget = window ? window->widget() : nullptr;
   return widget && !widget->IsClosed() ? widget : nullptr;
 }
+
+#if BUILDFLAG(IS_LINUX)
+// Takes window |id|'s |widget| out of full screen. Linux reports no change Chromium asks for
+// itself, so a page full screen leaves with it here, as the Mac's does as AppKit says it's leaving.
+void LeaveFullScreen(bc_id id, views::Widget* widget) {
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  // The app lays the page leaving out once, at the window's new size.
+  if (window && window->FullScreenForPage()) {
+    browser_core::platform::HoldPagesForResize(widget);
+  }
+  widget->SetFullscreen(false);
+  // Found again: the window's resize runs the app, which may close it.
+  if (browser_core::Window* still = browser_core::Window::FromId(id)) {
+    still->LeavingFullScreen();
+  }
+}
+#endif
 
 // Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
 size_t CopyString(const std::string& text, char* to, size_t capacity) {
@@ -167,6 +195,10 @@ void bc_quit(void) {
   browser_core::Quit();
 }
 
+void bc_restart(void) {
+  browser_core::Restart();
+}
+
 bool bc_quitting(void) {
   return browser_shutdown::IsTryingToQuit();
 }
@@ -216,6 +248,22 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 #endif
 }
 
+bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> ring =
+      widget ? browser_core::platform::FocusRingFrame(widget) : std::nullopt;
+  if (!ring) {
+    return false;
+  }
+  *frame = {static_cast<double>(ring->x()), static_cast<double>(ring->y()),
+            static_cast<double>(ring->width()), static_cast<double>(ring->height())};
+  return true;
+#else
+  return false;
+#endif
+}
+
 void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
 #if BUILDFLAG(IS_LINUX)
   if (views::Widget* widget = OpenWidget(id)) {
@@ -240,7 +288,7 @@ void bc_window_toggle_maximized(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    widget->SetFullscreen(false);
+    LeaveFullScreen(id, widget);
   } else if (widget->IsMaximized()) {
     widget->Restore();
   } else {
@@ -348,10 +396,16 @@ bool bc_agent_may_act(const char* agent,
                       char* reason,
                       size_t capacity) {
   content::WebContents* contents = browser_core::Tab::FromId(tab);
-  std::string refused;
-  if (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab)) {
+  // An action no agent may do is refused whatever the tab, so that's the reason given.
+  std::string refused = browser_core::RefusedAction(action ? action : "");
+  if (refused.empty() && (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab))) {
     refused = "The tab isn't in the agent's own Space.";
-  } else if (contents && browser_core::Tab::FromWebContents(contents)->system_page()) {
+  }
+  if (refused.empty() && browser_core::IsHeld(tab)) {
+    refused = "The user has this tab until they hand it back. Ask for it with ask_for_tab.";
+  }
+  if (refused.empty() && contents &&
+      browser_core::Tab::FromWebContents(contents)->system_page()) {
     // Its Space never switches a tab there, but the rule is the core's to keep, not the UI's.
     refused =
         "The tab shows its page in the system's engine, where the browser can't keep an agent's "
@@ -382,7 +436,115 @@ size_t bc_agent_disconnected(const char* agent) {
 }
 
 bool bc_tab_take_back(bc_id tab) {
+  browser_core::Hold(tab);
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
+}
+
+bool bc_agent_hand_off(const char* agent, bc_id tab) {
+  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || browser_core::IsHeld(tab)) {
+    return false;
+  }
+  browser_core::Hold(tab);
+  return true;
+}
+
+bool bc_tab_hand_back(bc_id tab) {
+  return browser_core::HandBack(tab);
+}
+
+bool bc_tab_held(bc_id tab) {
+  return browser_core::IsHeld(tab);
+}
+
+bc_id bc_agent_open_tab(const char* agent, const char* url) {
+  const GURL target(url ? url : "");
+  if (!agent || !*agent || !target.SchemeIsHTTPOrHTTPS()) {
+    return 0;
+  }
+  browser_core::Space* space = nullptr;
+  for (browser_core::Space* each : browser_core::Space::All()) {
+    if (each->agent() && each->agent()->id == agent) {
+      space = each;
+    }
+  }
+  // The window showing the agent's Space, or else the first of the user's, for its Browser.
+  browser_core::Window* window = nullptr;
+  for (browser_core::Window* each : browser_core::Window::All()) {
+    if (!each->off_the_record() && (!window || (space && each->space() == space->id()))) {
+      window = each;
+    }
+  }
+  Profile* profile = space ? browser_core::ProfileFor(space->profile()) : nullptr;
+  content::WebContents* contents =
+      window && profile ? window->OpenTab(profile, target, /*when_shown=*/false) : nullptr;
+  if (!contents) {
+    return 0;
+  }
+  const bc_id tab = browser_core::Tab::IdOf(contents);
+  space->Add(tab, /*opener=*/0, /*foreground=*/false);
+  browser_core::AgentActed(agent, tab);
+  if (browser_core::Host().tab_opened) {
+    browser_core::Host().tab_opened(browser_core::Host().context, window->id(), tab, 0, false);
+  }
+  return tab;
+}
+
+bool bc_agent_navigate(const char* agent, bc_id tab, const char* url) {
+  const GURL target(url ? url : "");
+  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || browser_core::IsHeld(tab) ||
+      !target.SchemeIsHTTPOrHTTPS() || !browser_core::Window::PageOf(tab)) {
+    return false;
+  }
+  LoadInTab(tab, target, ui::PAGE_TRANSITION_TYPED);
+  return true;
+}
+
+size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capacity) {
+  if (!agent || !*agent) {
+    return 0;
+  }
+  // The agent's Space, found here as bc_agent_open_tab finds it, so no other Space is listed.
+  const browser_core::Space* space = nullptr;
+  for (const browser_core::Space* each : browser_core::Space::All()) {
+    if (each->agent() && each->agent()->id == agent) {
+      space = each;
+    }
+  }
+  if (!space) {
+    return 0;
+  }
+  std::vector<bc_id> listed = space->pinned();
+  std::ranges::copy(space->today(), std::back_inserter(listed));
+  std::copy_n(listed.begin(), std::min(capacity, listed.size()), tabs);
+  return listed.size();
+}
+
+void bc_agent_page(const char* agent,
+                   bc_id tab,
+                   uint64_t request,
+                   int action,
+                   int64_t element,
+                   const char* text) {
+  const bool may =
+      agent && browser_core::Space::AgentMayAct(agent, tab) && !browser_core::IsHeld(tab);
+  // A tab the browser unloaded to save memory gets its page back, not shown.
+  content::WebContents* contents = may ? browser_core::Window::PageOf(tab) : nullptr;
+  if (!contents) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](bc_id tab, uint64_t request) {
+                         if (browser_core::Host().agent_page_done) {
+                           browser_core::Host().agent_page_done(
+                               browser_core::Host().context, tab, request,
+                               "The tab isn't in the agent's own Space.", true);
+                         }
+                       },
+                       tab, request));
+    return;
+  }
+  browser_core::AgentPage::CreateForWebContents(contents);
+  browser_core::AgentPage::FromWebContents(contents)->Act(request, action, element,
+                                                          text ? text : "");
 }
 
 bc_id bc_space_profile(bc_id id) {
@@ -1086,6 +1248,22 @@ void bc_tab_close_media_note(bc_id id) {
   }
 }
 
+int bc_widevine(void) {
+  return browser_core::widevine::State();
+}
+
+void bc_widevine_download(void) {
+  browser_core::widevine::Download();
+}
+
+void bc_widevine_remove(void) {
+  browser_core::widevine::Remove();
+}
+
+int bc_playready_needs() {
+  return browser_core::platform::PlayReadyNeeds();
+}
+
 void bc_tab_stop(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::Tab::FromWebContents(contents)->Stop();
@@ -1131,6 +1309,23 @@ void bc_tab_capture(bc_id id, uint64_t request, bool full_page, bc_rect rect) {
 void bc_tab_picture(bc_id id, uint64_t request, int width, int height) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::PicturePage(contents, request, gfx::Size(std::max(width, 0), std::max(height, 0)));
+  }
+}
+
+void bc_tab_read_text(bc_id id, uint64_t request) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::PageText::GetOrCreateForWebContents(contents)->Read(request);
+  } else if (browser_core::Host().tab_text) {
+    // A tab without its page, or none: nothing to read, told from a task of its own.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](bc_id tab, uint64_t request) {
+                         if (browser_core::Host().tab_text) {
+                           browser_core::Host().tab_text(browser_core::Host().context, tab,
+                                                         request, nullptr);
+                         }
+                       },
+                       id, request));
   }
 }
 
@@ -1397,7 +1592,13 @@ void bc_tab_close_below(bc_id id) {
 }
 
 void bc_tab_move_to_space(bc_id id, bc_id space) {
+  browser_core::Space* from = browser_core::Space::Holding(id);
+  const bool agents = from && from->agent();
   browser_core::Window::MoveToSpace(id, space);
+  browser_core::Space* to = browser_core::Space::Holding(id);
+  if (agents && to && !to->agent()) {
+    browser_core::FillForUser(id);
+  }
 }
 
 void bc_tab_close(bc_id id, bool split) {
@@ -1489,6 +1690,29 @@ bool bc_window_is_maximized(bc_id id) {
   return widget && widget->IsMaximized();
 #else
   return false;
+#endif
+}
+
+bool bc_window_is_full_screen(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  return widget && widget->IsFullscreen();
+#else
+  return false;
+#endif
+}
+
+void bc_window_toggle_full_screen(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  if (!widget) {
+    return;
+  }
+  if (widget->IsFullscreen()) {
+    LeaveFullScreen(id, widget);
+  } else {
+    widget->SetFullscreen(true);
+  }
 #endif
 }
 

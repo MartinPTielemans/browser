@@ -1648,7 +1648,7 @@ void host_hide_tooltip(double) {
 }
 
 // shortcut: the card takes clicks over its whole window, the margin round the plate included, and
-// ends only as the pointer leaves it or the UI ends it, without its fade.
+// ends only as the pointer leaves it or the UI ends it, as a key does.
 void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
   Adopt(g_card, card_view, false, nullptr);
   // A click on its buttons leaves the keyboard where it was.
@@ -1661,7 +1661,7 @@ void host_show_hover_card(void* ui_view, double left, double top, double, double
   Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
 }
 
-void host_hide_hover_card(double) {
+void host_hide_hover_card(void) {
   Hide(g_card);
 }
 
@@ -2139,9 +2139,9 @@ bool host_copy_secret(const char* text, uint32_t seconds) {
   return true;
 }
 
-// shortcut: there's no Safari; protected video on Windows waits for WebView2 (decision 1).
 void host_open_full_disk_access(void) {}
 
+// There's no Safari: Windows plays protected video with Chromium's own PlayReady (decision 1).
 void host_open_in_safari(const char* url) {
   fprintf(stderr, "browser: no system engine for %s\n", url);
 }

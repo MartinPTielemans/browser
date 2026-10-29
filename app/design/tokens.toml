@@ -497,6 +497,21 @@ neutral = 0.1
 # dialog.
 overlay-dark = 0x1f1d17
 dialog-dark = 0x2a2720
+# The light window, Dia's light layers: material 13 under white at `light-tint`, read before the
+# gradient as Dia's composite gives it over a black and a white backdrop, 0.8·255 + 0.2·(137, 243)
+# (interim, until the window run measures ours). A theme's colours lie over it at 0.75 of the
+# gradient's 0.36, and a neutral one's of its 0.12. The stand-in is Dia's light composite over
+# grey 20 (ours, as the dark one).
+light-tint = 0.8
+light-ground-over-black = 0xe7e7e7
+light-ground-over-white = 0xfdfdfd
+light-stand-in = 0xe9e9e9
+light-gradient-alpha = 0.27
+light-neutral-gradient-alpha = 0.09
+# What floats over a light window: Paper, the light menu's fill, and a dialog a step lighter, as
+# the dark dialog is a step lighter than the dark overlay (ours).
+overlay-light = 0xf3f0e8
+dialog-light = 0xfbf9f4
 # The accent of a Space without a theme starts from ilo green (#0B8045), lighter, so Ink reads on
 # it at 4.6:1 where Paper on #0B8045 is 4.4:1. On the measured window over a white backdrop it's
 # 2.7:1, so the palette takes it lighter still at its hue, to #57B97A, as it does a theme's colour.
@@ -511,10 +526,11 @@ intensity-floor = 0.2
 intensity-span = 0.55
 # A Space swatch's ring, a hairline.
 ring = 1.0
-# The accent under the pointer and pressed (#319), this much OKLab lightness further from its
-# label, so the label reads more on it; and a text selection, the accent at this.
-accent-hovered = 0.04
-accent-pressed = 0.08
+# The accent under the pointer, each channel at this, darker as every filled button goes (the
+# owner, 2026-10-26); pressed, each channel at this, a step darker again, whatever the label (the
+# owner, #707); and a text selection, the accent at this.
+accent-hovered = 0.9
+accent-pressed = 0.8
 selection = 0.28
 # One ladder of states for every control whose states Arc wasn't recorded with, but the accent's
 # (#318): pressed, under the pointer, selected, and selected under the pointer. They're the
@@ -525,6 +541,14 @@ state-pressed = 0.065
 state-hovered = 0.12
 state-selected = 0.2
 state-selected-hovered = 0.36
+# On a light window the tab shown lies on white 0.85 over a black 0.20 shadow rather than on a plate
+# of Ink (Arc's light `TabCellBackgroundCurrent`). Ours, as Arc's light rows aren't recorded: the
+# shadow 1 down and blurred 2, and the plate white 1 under the pointer.
+light-selected = 0.85
+light-selected-hovered = 1.0
+light-selected-shadow = 0.2
+light-selected-shadow-y = 1.0
+light-selected-shadow-blur = 2.0
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
@@ -612,6 +636,12 @@ link-previews-tile = 0x30b0c7
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
 password-tile = 0x8e8e93
+# Ours, for the Agents tab: the switch on ilo's green, as agents are the browser's own, and each
+# client on the profiles' grey, as none is ours.
+agents-tile = 0x289054
+client-tile = 0x8e8e93
+# Ours: exporting the Spaces' links is a file, grey as the profiles' and passwords' tiles.
+export-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
@@ -781,8 +811,10 @@ cancel-height = 15.0
 # black, darker than any Space and without its colour (ours: Arc's and Dia's private look isn't
 # recorded).
 private-shade = 0.35
-# Dia's card, #121212 at 0.5: what shows before a page first paints.
+# Dia's card, #121212 at 0.5 on a dark window and white at 0.7 on a light one: what shows before
+# a page first paints.
 card = 0x1212_1280
+light-card = 0xffff_ffb3
 # Everything below is an alpha of the palette's ink, Ink or Paper (palette.rs): text and glyphs
 # through its floors, plates in Paper's terms. Arc's row tokens (docs/ux-spec.md › Tab rows): the
 # tab shown is 0.2, a row under the pointer 0.12 and a pressed one 0.065, with no line or shadow.
@@ -814,10 +846,12 @@ sleeping-favicon = 0.5
 # A favorite's tile: 0.10 at rest (Dia), with the resting level's rim, and under the pointer the
 # ladder's hover over that (palette's `state-hovered`; Dia's isn't measured). The one shown is
 # themed by its icon (tile_theme.rs), and black with Dia's default selection ring, white 0.45,
-# where the icon gives no theme.
+# where the icon gives no theme. A light window's is white (Dia), unthemed whatever its icon until
+# the light theme is built (ours).
 tile = 0.1
 tile-ring = 0.45
 tile-unthemed = 0x0000_00ff
+tile-unthemed-light = 0xffff_ffff
 # The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
 # with nowhere to go, over a hover plate of 0.077.
 nav = 0.6
@@ -907,6 +941,9 @@ button-keys = 0xffff_ff33
 button-keys-height = 20.0
 button-keys-inset = 5.0
 button-keys-radius = 6.0
+# The onboarding's last line, at the card's foot under the command bar it leaves up, as the line
+# under the mark is set.
+hint-bottom = 40.0
 
 [shell.extensions]
 # The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -930,8 +967,9 @@ badge-text-color = 0xffffff
 site-controls-end = -1.0
 tool-pitch = 28.0
 # The URL field's words with no page shown: the command bar's placeholder, which a click opens
-# over them, at white 0.32, which is to the host's 0.60 as the bar's placeholder is to its text.
-url-placeholder = 0xffff_ff52
+# over them, at the ink's 0.32, which is to the host's 0.60 as the bar's placeholder is to its
+# text, raised as all text is to read on the window.
+url-placeholder = 0.32
 # The password manager's key after the host (ours, for Chrome's key icon), drawn as the engine's
 # compass is, 12 pt and 5 after the host, and taking clicks 4 around it.
 key-gap = 5.0
@@ -978,8 +1016,7 @@ title-cap = 52.0
 # the column, 240 wide, 24 apart and as tall as the window less 48 above and below, with Arc's
 # blue + 33 after the last, 30 across and halfway down, and the Library ends 37 after it, so it's
 # 216 + 264 a Space wide. The card is the Space's gradient at radius 16, with its list drawn as
-# the sidebar draws it, and its name's row has a brush at its end, 28 square, 13 from the card's
-# right. Arc's card has no search field over it.
+# the sidebar draws it, under its name's field. Arc's card has no search field over it.
 spaces-left = 28.0
 spaces-inset = 48.0
 card-width = 240.0
@@ -991,9 +1028,23 @@ spaces-page = 400.0
 # The name's row in the card, 33 down to its middle as in Arc, with the rows 52 down.
 card-name-top = 14.0
 card-name-height = 38.0
+# The name's field across that row (*interim*, by proportion from stills of Arc 1.170's card, 240
+# wide): a plate 8 in from the card's sides and 36 tall, Ink at 0.1, at the controls' radius where
+# Arc's is 8; the icon in a dashed slot 24 square, 6 in, drawn as the icon picker's placeholder is
+# with its dashes Ink at 0.3; the name 6 after the slot, Ink at 0.5 until it's clicked into; and
+# the brush on a 28 square plate 4 in from the field's end.
+card-field-inset = 8.0
+card-field-height = 36.0
+card-field-radius = 6.0
+card-field-plate = 0.1
+card-slot = 24.0
+card-slot-x = 6.0
+card-slot-dash = 0.3
+card-name-gap = 6.0
+card-name-color = 0.5
 card-brush = 28.0
+card-brush-inset = 4.0
 card-brush-glyph = 14.0
-card-brush-right = 13.0
 card-brush-color = 0.35
 plus-gap = 33.0
 plus-size = 30.0
@@ -1059,6 +1110,63 @@ glow-width = 80.0
 glow-strip = 4.0
 # The circle's shadow, black at this much.
 shadow = 0.3
+
+[shell.onboarding]
+# A new profile's first launch (docs/ux-spec.md › Onboarding): the brand's ground over the whole
+# window, Paper in a light appearance and Ink in a dark one, with the other drawing on it, and the
+# Signal green only on the wordmark's dot and the one button.
+signal = 0x0e9f55
+# The wordmark, a dot, two stems and a ring, drawn from the brand's 214 × 154 units at a half, so
+# 107 × 77 pt in the window's middle.
+wordmark-scale = 0.5
+# "a good tool." under it in the display face, its caps this far under the wordmark's foot.
+tagline-size = 22.0
+tagline-line = 28.0
+tagline-gap = 28.0
+# Secondary words, the tagline's and a step's line, as an alpha of the ink.
+quiet = 0.6
+# A step's one message: a title in the display face, one line under it, and one button.
+title-size = 32.0
+title-line = 38.0
+line-size = 15.0
+line-line = 21.0
+line-gap = 10.0
+button-gap = 32.0
+button-height = 34.0
+button-inset = 16.0
+button-radius = 6.0
+button-size = 14.0
+# The button's key chip, Paper over the Signal green.
+chip = 0.2
+chip-height = 20.0
+chip-inset = 5.0
+chip-radius = 6.0
+chip-gap = 8.0
+# Skip, at the window's bottom right corner, quiet, with its key's chip.
+skip-margin = 24.0
+skip-size = 13.0
+skip-chip = 0.08
+# A step comes in from this far right as the one before leaves this far left, so the steps read as
+# a row.
+shift = 32.0
+# The colour step's swatches, the theme picker's, in a row under its line, a step larger than the
+# picker's 24 as the only thing on the screen to pick. The one picked is ringed in the ink, a gap
+# off it, and each has a hairline edge, so the lightest reads on Paper.
+swatch = 28.0
+swatch-pitch = 40.0
+swatch-gap = 28.0
+swatch-ring = 2.0
+swatch-edge = 0.12
+# The import step holds the import view as wide as Settings' boxes, on the flow's ground, its
+# boxes this much of the ink over it.
+import-width = 556.0
+import-surface = 0.05
+# The opt-ins step's switches, Settings' own, a row each under its line: the switch's name over its
+# one sentence, at body, and the switch at the row's end.
+opt-in-width = 420.0
+opt-in-gap = 20.0
+opt-in-line = 18.0
+opt-in-switch-gap = 24.0
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners
@@ -1263,6 +1371,13 @@ default-intensity = 0.81
 # How strongly grain at 1 lies over the colours: Arc's window at full grain is ≈ 5.5 levels of
 # luminance noisier (Arc 1.170 rec at 2×).
 grain-strength = 0.075
+# Ours, each texture's strength as a share of grain's, so it moves the window's colours as much as
+# the noise does at the same grain: the noise's root mean square opacity over its own.
+dust-strength = 2.47
+weave-strength = 0.91
+fleck-strength = 1.47
+# Arc's texture in an inactive window, at a quarter of its strength (Arc 1.167).
+inactive-texture = 0.25
 
 [theme-picker]
 # Arc 1.170's, measured at 2× (docs/ux-spec.md › Themes), in points from the card's top left.

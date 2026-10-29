@@ -16,6 +16,7 @@ use super::{
     fade_at,
     keys::user_keys,
 };
+use crate::palette::Palette;
 use crate::tokens::text;
 
 /// The mark and the line fade in over this long on the scroll edge's curve, as the hover card's
@@ -58,6 +59,7 @@ use crate::tokens::shell::empty::BUTTON_KEYS;
 use crate::tokens::shell::empty::BUTTON_KEYS_HEIGHT;
 use crate::tokens::shell::empty::BUTTON_KEYS_INSET;
 use crate::tokens::shell::empty::BUTTON_KEYS_RADIUS;
+use crate::tokens::shell::empty::HINT_BOTTOM;
 
 impl Shell {
     /// Shows the first run's welcome on the empty card until a page shows: the launch had no
@@ -74,6 +76,7 @@ impl Shell {
             self.empty_since = None;
             self.empty_settled = false;
             self.welcome = false;
+            self.in_hint = false;
             return;
         }
         let since = *self.empty_since.get_or_insert_with(Instant::now);
@@ -110,7 +113,7 @@ impl Shell {
         }
         let (frame, _) = self.page_frame(self.viewport);
         let sign = match self.welcome {
-            true => welcome(cx),
+            true => welcome(&self.palette, cx),
             false => self.sign(cx),
         };
         Some(
@@ -132,8 +135,38 @@ impl Shell {
                 .on_click(cx.listener(|shell, _, _, cx| {
                     shell.clicked_bar_target(Command::NewTab, "card", cx)
                 }))
-                .child(sign.opacity(self.empty_opacity(Instant::now()))),
+                .child(sign.opacity(self.empty_opacity(Instant::now())))
+                .children(self.in_hint.then(|| self.hint(cx))),
         )
+    }
+
+    /// The onboarding's last word, at the card's foot under the command bar it leaves up: what the
+    /// bar is, and its key.
+    fn hint(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let keys = user_keys(cx).label(Command::NewTab).map(|keys| {
+            div()
+                .h(px(KEYS_HEIGHT))
+                .px(px(KEYS_INSET))
+                .flex()
+                .items_center()
+                .rounded(px(KEYS_RADIUS))
+                .bg(self.palette.plate(rgba(KEYS_FILL).a))
+                .text_size(px(KEYS_SIZE))
+                .child(keys)
+        });
+        div()
+            .absolute()
+            .bottom(px(HINT_BOTTOM))
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .items_center()
+            .gap(px(KEYS_GAP))
+            .text_size(px(WORDS_SIZE))
+            .text_color(self.palette.text(SECONDARY))
+            .child("Type a site, a search or a command.")
+            .when_some(keys, |hint, keys| hint.child(keys).child("brings it back from anywhere."))
     }
 
     /// The mark, the Space's name in the display face, and the line.
@@ -145,7 +178,7 @@ impl Shell {
                 .flex()
                 .items_center()
                 .rounded(px(KEYS_RADIUS))
-                .bg(rgba(KEYS_FILL))
+                .bg(self.palette.plate(rgba(KEYS_FILL).a))
                 .text_size(px(KEYS_SIZE))
                 .child(keys)
         });
@@ -156,14 +189,14 @@ impl Shell {
             .text_color(self.palette.text(SECONDARY))
             .child(div().text_size(px(WORDS_SIZE)).child("New Tab"))
             .children(keys);
-        let sign = div().flex().flex_col().items_center().child(mark(1.));
+        let sign = div().flex().flex_col().items_center().child(mark(1., &self.palette));
         match self.shown_space().map(|space| space.name.clone()).filter(|name| !name.is_empty()) {
             // The name's caps, not its line, start the mark's gap below the mark.
             Some(name) => sign
                 .child(
                     display_text(name, NAME_SIZE, NAME_LINE, cx)
                         .mt(px(MARK_GAP - cap_top(NAME_SIZE, NAME_LINE)))
-                        .text_color(rgba(NAME)),
+                        .text_color(self.palette.text(rgba(NAME).a)),
                 )
                 .child(line.mt(px(NAME_GAP))),
             None => sign.child(line.mt(px(MARK_GAP))),
@@ -171,8 +204,9 @@ impl Shell {
     }
 }
 
-/// ilo's mark, the app icon's i, at `scale` of its size on the card.
-fn mark(scale: f32) -> gpui::Div {
+/// ilo's mark, the app icon's i, at `scale` of its size on the card. Its stem takes the window's
+/// ink, as the icon's does on its light tile.
+fn mark(scale: f32, palette: &Palette) -> gpui::Div {
     div()
         .flex()
         .flex_col()
@@ -184,13 +218,13 @@ fn mark(scale: f32) -> gpui::Div {
                 .w(px(MARK_STEM_WIDTH * scale))
                 .h(px(MARK_STEM_HEIGHT * scale))
                 .rounded_full()
-                .bg(rgba(MARK_STEM_FILL)),
+                .bg(palette.plate(rgba(MARK_STEM_FILL).a)),
         )
 }
 
 /// The first run's welcome: a bigger mark, "Welcome to ilo" and "a good tool." in the display
 /// face, and a button that opens a new tab, as a click anywhere on the card does.
-fn welcome(cx: &mut Context<Shell>) -> gpui::Div {
+fn welcome(palette: &Palette, cx: &mut Context<Shell>) -> gpui::Div {
     let keys = user_keys(cx).label(Command::NewTab).map(|keys| {
         div()
             .h(px(BUTTON_KEYS_HEIGHT))
@@ -220,14 +254,15 @@ fn welcome(cx: &mut Context<Shell>) -> gpui::Div {
         .flex()
         .flex_col()
         .items_center()
-        .child(mark(WELCOME_MARK))
+        .child(mark(WELCOME_MARK, palette))
         .child(
             display_text("Welcome to ilo", WELCOME_SIZE, WELCOME_LINE, cx)
                 .mt(px(MARK_GAP - cap_top(WELCOME_SIZE, WELCOME_LINE)))
-                .text_color(rgba(NAME)),
+                .text_color(palette.text(rgba(NAME).a)),
         )
         .child(
-            display_text("a good tool.", TAGLINE_SIZE, TAGLINE_LINE, cx).text_color(rgba(TAGLINE)),
+            display_text("a good tool.", TAGLINE_SIZE, TAGLINE_LINE, cx)
+                .text_color(palette.text(rgba(TAGLINE).a)),
         )
         .child(button)
 }

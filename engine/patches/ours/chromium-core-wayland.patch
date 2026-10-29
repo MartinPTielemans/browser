@@ -1,8 +1,9 @@
 Lets the app's UI share Chromium's Wayland display on Linux (decision 3), as a subsurface of the
 browser window: chrome exports its libwayland's client API, so the app's calls reach the copy the
 display came from; Chromium tags its surfaces, so pointer events on the UI's aren't taken for its
-own; the core can reach a window's surface through the WaylandProxy, made outside tests too; and
-a hook runs the core after each dispatch of Chromium's events, for the UI's that its reads queued.
+own, and a drag over them keeps Chromium's offer of it, as wlroots ends a drag whose offer goes;
+the core can reach a window's surface through the WaylandProxy, made outside tests too; and a hook
+runs the core after each dispatch of Chromium's events, for the UI's that its reads queued.
 Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
 --- a/build/linux/chrome.map
 +++ b/build/linux/chrome.map
@@ -106,7 +107,7 @@ Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
    sources = [
 --- a/ui/ozone/platform/wayland/common/wayland_util.cc
 +++ b/ui/ozone/platform/wayland/common/wayland_util.cc
-@@ -270,9 +270,18 @@ gfx::SizeF ApplyWaylandTransform(const gfx::SizeF& size,
+@@ -270,9 +270,22 @@ gfx::SizeF ApplyWaylandTransform(const gfx::SizeF& size,
    return result;
  }
  
@@ -117,17 +118,21 @@ Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
 +  wl_proxy_set_tag(reinterpret_cast<wl_proxy*>(surface), &kChromiumSurfaceTag);
 +}
 +
++bool IsChromiumSurface(wl_surface* surface) {
++  return wl_proxy_get_tag(reinterpret_cast<wl_proxy*>(surface)) == &kChromiumSurfaceTag;
++}
++
  ui::WaylandWindow* RootWindowFromWlSurface(wl_surface* surface) {
    if (!surface)
      return nullptr;
-+  if (wl_proxy_get_tag(reinterpret_cast<wl_proxy*>(surface)) != &kChromiumSurfaceTag)
++  if (!IsChromiumSurface(surface))
 +    return nullptr;
    auto* wayland_surface = static_cast<ui::WaylandSurface*>(
        wl_proxy_get_user_data(reinterpret_cast<wl_proxy*>(surface)));
    if (!wayland_surface)
 --- a/ui/ozone/platform/wayland/common/wayland_util.h
 +++ b/ui/ozone/platform/wayland/common/wayland_util.h
-@@ -94,7 +94,12 @@ gfx::RectF ApplyWaylandTransform(const gfx::RectF& rect,
+@@ -94,7 +94,13 @@ gfx::RectF ApplyWaylandTransform(const gfx::RectF& rect,
  gfx::SizeF ApplyWaylandTransform(const gfx::SizeF& size,
                                   wl_output_transform transform);
  
@@ -136,6 +141,7 @@ Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
 +// the app's UI, gets the same pointer and keyboard events, and its surfaces' user data isn't a
 +// WaylandSurface.
 +void TagSurface(wl_surface* surface);
++bool IsChromiumSurface(wl_surface* surface);
 +
 +// Returns the root WaylandWindow for the given wl_surface, or null if it isn't Chromium's.
  ui::WaylandWindow* RootWindowFromWlSurface(wl_surface* surface);
@@ -185,3 +191,32 @@ Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
  }
  
  void WaylandConnection::RegisterGlobalObjectFactory(
+--- a/ui/ozone/platform/wayland/host/wayland_data_device.cc
++++ b/ui/ozone/platform/wayland/host/wayland_data_device.cc
+@@ -102,6 +102,15 @@ void WaylandDataDevice::OnEnter(void* data,
+   auto* self = static_cast<WaylandDataDevice*>(data);
+   WaylandWindow* window = wl::RootWindowFromWlSurface(surface);
+ 
++  // browser_core: the app's UI shares the display (common/wayland_util.h), and its own data device
++  // has this drag's offer too. wlroots cancels a drag whose offer is destroyed while it's over the
++  // surface, so the offer is kept until the next enter, by when the compositor is done with it.
++  self->app_offer_.reset();
++  if (surface && !wl::IsChromiumSurface(surface)) {
++    self->app_offer_ = std::move(self->new_offer_);
++    return;
++  }
++
+   // During Chrome's tab dragging, when a browser window is quickly snapped in
+   // and out, it might get destroyed before the wl_data_device::enter event is
+   // processed for a drag offer. If this happens, |window| will be null here, so
+--- a/ui/ozone/platform/wayland/host/wayland_data_device.h
++++ b/ui/ozone/platform/wayland/host/wayland_data_device.h
+@@ -132,6 +132,8 @@ class WaylandDataDevice : public WaylandDataDeviceBase {
+   // new data offers temporarily until it is possible to determine which kind
+   // session it belongs to.
+   std::unique_ptr<WaylandDataOffer> new_offer_;
++  // browser_core: the offer of a drag over the app's UI, kept until the next enter.
++  std::unique_ptr<WaylandDataOffer> app_offer_;
+ };
+ 
+ }  // namespace ui

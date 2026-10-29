@@ -30,7 +30,7 @@ fn at(x: f32, y: f32) -> Point<Pixels> {
 }
 
 fn item(title: &str) -> MenuEntry {
-    MenuEntry::new(title.to_string(), true)
+    MenuEntry::named(title.to_string(), true)
 }
 
 fn under(parent: usize, title: &str) -> MenuEntry {
@@ -43,7 +43,7 @@ fn tab_menu() -> Vec<MenuEntry> {
         item("Copy Link"),                        // 0
         MenuEntry::line(),                        // 1
         item("Rename…"),                          // 2
-        MenuEntry::new("Mute".to_string(), false), // 3
+        MenuEntry::new("Mute", false),            // 3
         item("Duplicate"),                        // 4
         item("Move to"),                          // 5
         MenuEntry { checked: true, ..under(5, "Space 1") }, // 6
@@ -162,7 +162,7 @@ fn the_same_letter_again_goes_to_the_next_item_it_starts() {
 #[test]
 fn typing_ignores_accents_and_finds_only_what_can_be_chosen() {
     let now = Instant::now();
-    let entries = vec![item("Éditer"), MenuEntry::new("Mute".to_string(), false), item("Move")];
+    let entries = vec![item("Éditer"), MenuEntry::new("Mute", false), item("Move")];
     let mut menu = opened(entries, 100., 100.);
     menu.key(Key::Char('e'), now);
     assert_eq!(menu.highlighted(), ["Éditer"]);
@@ -658,7 +658,7 @@ fn contrast(a: u32, b: u32) -> f32 {
 #[test]
 fn every_label_reads_at_4_5_to_1_in_both_looks() {
     use super::{DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL, Highlight, PRESSED};
-    use crate::{palette::Palette, theme::{Appearance, Theme}};
+    use crate::{palette::{Palette, Tone}, theme::{Appearance, Theme}};
     for look in [Look { light: false, ..Look::dark() }, Look { light: true, ..Look::dark() }] {
         let palette = look.palette();
         let panel = palette.fill >> 8;
@@ -680,7 +680,7 @@ fn every_label_reads_at_4_5_to_1_in_both_looks() {
             let angle = step as f32 * std::f32::consts::TAU / 24.;
             for distance in [0., 0.35, 0.7, 1.] {
                 let theme = Theme { appearance, ..Theme::at(distance * angle.cos(), distance * angle.sin()) };
-                palettes.push(Palette::of(Some(&theme)));
+                palettes.extend([Tone::Dark, Tone::Light].map(|tone| Palette::of(Some(&theme), tone)));
             }
         }
     }

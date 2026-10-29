@@ -12,13 +12,24 @@
 //! another engine or app. The core reports it (tab_media_unsupported) and keeps the sites it was
 //! closed for (tab_close_media_note).
 //!
+//! On Linux a Widevine page's note offers Google's Widevine module instead, named as Google's and
+//! downloaded from Google only at the button's yes; Linux loads it at launch, so the note then
+//! offers a restart, which brings the page back. Its × is the no, and Settings › Advanced keeps the
+//! way back. In an agent's Space it says why and offers nothing, as the yes is the user's alone.
+//!
+//! On Windows, Chromium plays sites that offer Microsoft's PlayReady where the PC can, so the note
+//! shows only where it can't, and says why: it needs Windows 11, an x64 PC and graphics with
+//! hardware DRM, outside private windows (bc_playready_needs). It offers nothing, as there's no
+//! other engine to give.
+//!
 //! In Safari's engine the note says why a protected video shows black when the display connection's
 //! protection (HDCP) falls short, as a dock's can, which the site never says. A statement, with
 //! nothing to offer: the fix is the user's cable. Its × and escape close it for the tab, until it
 //! goes to another site, as the cause is the desk's and not the site's.
 
 use gpui::{
-    App, Context, FontWeight, KeyBinding, MouseButton, SharedString, actions, div, prelude::*, px,
+    App, Context, Div, FontWeight, KeyBinding, MouseButton, SharedString, Stateful, actions, div,
+    prelude::*, px,
 };
 
 use super::{
@@ -26,6 +37,7 @@ use super::{
     permission::{BESIDE_CLOSE, BUTTONS_TOP, card_button, card_close, card_listener},
 };
 use crate::tooltip::{Anchor, Tip};
+use crate::widevine::Widevine;
 
 /// Ours, as neither Arc nor Dia has protected media to explain: short and plain. It says the video
 /// plays here, in this tab. There's no sign-in to warn of, as the core brings the site's cookies and
@@ -34,9 +46,36 @@ const SWITCH_WORDS: &str = "This site's video needs Safari's engine. Play it in 
 const SWITCH: &str = "Play in This Tab";
 const WORDS: &str =
     concat!("This site's video needs a module ", env!("APP_NAME"), " doesn't have yet.");
+const PLAYREADY_WINDOWS_11: &str =
+    concat!("This site's video needs Windows 11, where ", env!("APP_NAME"), " plays it.");
+const PLAYREADY_X64: &str = concat!(
+    "This site's video needs an Intel or AMD PC. ",
+    env!("APP_NAME"),
+    " can't play it on ARM."
+);
+const PLAYREADY_HARDWARE: &str =
+    "This site's video needs hardware DRM, which this PC's graphics don't offer.";
+const PLAYREADY_PRIVATE: &str = "This site's video doesn't play in a private window.";
 const OPEN: &str = "Open in Safari";
 /// A private window's page leaves it for Safari's own window, which keeps history.
 const OPEN_PRIVATE: &str = "Open in Safari, not private";
+/// Ours, naming the module as Google's, as the user downloads a proprietary file from Google.
+const WIDEVINE: &str = "com.widevine.alpha";
+const WIDEVINE_WORDS: &str = concat!(
+    "This site's video needs Google's Widevine module, which ",
+    env!("APP_NAME"),
+    " can download from Google."
+);
+const WIDEVINE_DOWNLOAD: &str = "Download from Google";
+const WIDEVINE_FAILED_WORDS: &str = "Google's Widevine module didn't download.";
+const WIDEVINE_RETRY: &str = "Try Again";
+const WIDEVINE_DOWNLOADING_WORDS: &str = "Downloading Google's Widevine module…";
+const WIDEVINE_RESTART_WORDS: &str = concat!(
+    "Google's Widevine module is ready. Restart ",
+    env!("APP_NAME"),
+    " to play this video."
+);
+const WIDEVINE_RESTART: &str = concat!("Restart ", env!("APP_NAME"));
 /// Ours: what the × does, as there's no second control for it.
 const CLOSE_TIP: &str = "Don't Show for This Site";
 /// What the core reports for a page in Safari's engine whose protected video is kept off the
@@ -49,6 +88,29 @@ const OUTPUT_CLOSE_TIP: &str = "Close";
 const CLOSE_KEY: &str = "drm-note-close";
 
 actions!(drm_note, [CloseNote]);
+
+/// What Windows' PlayReady needs that the PC may lack, as the core says (bc_playready_needs).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlayReady {
+    /// Not Windows.
+    #[default]
+    None,
+    Windows11,
+    X64,
+    /// Windows 11 on x64: the graphics' hardware DRM.
+    Hardware,
+}
+
+impl PlayReady {
+    pub fn from_core(needs: i32) -> Self {
+        match u32::try_from(needs).unwrap_or(crate::bc::BC_PLAYREADY_NONE) {
+            crate::bc::BC_PLAYREADY_WINDOWS_11 => Self::Windows11,
+            crate::bc::BC_PLAYREADY_X64 => Self::X64,
+            crate::bc::BC_PLAYREADY_HARDWARE => Self::Hardware,
+            _ => Self::None,
+        }
+    }
+}
 
 /// Escape while the UI has the keyboard, over Stop's, which it falls through to unless it closes
 /// the note. The page keeps its own escape, which reaches Stop if it hands it back.
@@ -83,12 +145,14 @@ impl Shell {
     }
 
     /// The key system behind the note of the tab shown, if its page needs one. A page's question
-    /// takes the note's place until it's answered, as both hang from the same place. Each note is
-    /// its engine's: Chromium's until the tab is in Safari's, which has only the output's.
+    /// takes the note's place until it's answered, as an agent's does, as all hang from the same
+    /// place. Each note is its engine's: Chromium's until the tab is in Safari's, which has only the
+    /// output's.
     pub(super) fn drm_note(&self) -> Option<&SharedString> {
         let playing = self.page(self.selected).system_engine;
+        let asked = self.question().is_some() || self.agent_question.is_some();
         self.drm_notes.get(&self.selected).filter(|key_system| {
-            (key_system.as_ref() == OUTPUT_RESTRICTED) == playing && self.question().is_none()
+            (key_system.as_ref() == OUTPUT_RESTRICTED) == playing && !asked
         })
     }
 
@@ -151,6 +215,72 @@ impl Shell {
         self.browser.use_system_engine(self.selected, cx);
     }
 
+    /// Where Google's Widevine module is, if the note of the tab shown offers it: for a Widevine
+    /// page, where the core offers the module, and not in an agent's Space.
+    fn widevine_offer(&self) -> Option<Widevine> {
+        let state = self.browser.widevine();
+        let offered = state != Widevine::None && !self.agents_space_shown();
+        let widevine = |key_system: &&SharedString| offered && key_system.as_ref() == WIDEVINE;
+        self.drm_note().filter(widevine).map(|_| state)
+    }
+
+    /// The user's yes to Google's Widevine module, from the note of the tab shown.
+    fn download_widevine(&mut self, cx: &mut Context<Self>) {
+        if !self.widevine_offer().is_some_and(Widevine::downloadable) {
+            return;
+        }
+        // check-widevine.sh reads this line.
+        log!("browser: widevine download");
+        self.browser.download_widevine(cx);
+    }
+
+    /// Restarts the browser, which loads the module downloaded, from the note of the tab shown.
+    fn restart_for_widevine(&mut self, cx: &mut Context<Self>) {
+        if self.widevine_offer() != Some(Widevine::Restart) {
+            return;
+        }
+        log!("browser: widevine restart");
+        self.browser.restart(cx);
+    }
+
+    /// The note's words and button, if it has one, for Google's Widevine module in `state`.
+    fn widevine_card(
+        &self,
+        state: Widevine,
+        cx: &mut Context<Self>,
+    ) -> (&'static str, Option<Stateful<Div>>) {
+        let download = |label| {
+            card_button(&self.palette, "drm-note-widevine", label)
+                .on_click(cx.listener(|shell, _, _, cx| shell.download_widevine(cx)))
+        };
+        match state {
+            Widevine::Absent => (WIDEVINE_WORDS, Some(download(WIDEVINE_DOWNLOAD))),
+            Widevine::Failed => (WIDEVINE_FAILED_WORDS, Some(download(WIDEVINE_RETRY))),
+            Widevine::Downloading => (WIDEVINE_DOWNLOADING_WORDS, None),
+            Widevine::Restart => (
+                WIDEVINE_RESTART_WORDS,
+                Some(
+                    card_button(&self.palette, "drm-note-restart", WIDEVINE_RESTART)
+                        .on_click(cx.listener(|shell, _, _, cx| shell.restart_for_widevine(cx))),
+                ),
+            ),
+            // Loaded, the core reports no note; one shown after Remove plays until a restart.
+            Widevine::Ready | Widevine::None => (WORDS, None),
+        }
+    }
+
+    /// What the note says where it has no engine to give: on Windows, what PlayReady needs.
+    fn unplayable_words(&self) -> &'static str {
+        match self.browser.playready_needs() {
+            PlayReady::None => WORDS,
+            PlayReady::Windows11 => PLAYREADY_WINDOWS_11,
+            PlayReady::X64 => PLAYREADY_X64,
+            // A private window keeps no licence, so it's the one place a capable PC can't play.
+            PlayReady::Hardware if self.private => PLAYREADY_PRIVATE,
+            PlayReady::Hardware => PLAYREADY_HARDWARE,
+        }
+    }
+
     /// Opens the page of the tab shown in Safari. The tab keeps its page, and its note.
     fn open_in_safari(&mut self, cx: &mut Context<Self>) {
         if self.drm_note().is_none() || self.output_note() {
@@ -175,25 +305,26 @@ impl Shell {
         }
         let output = self.output_note();
         let switch = !output && self.can_switch();
-        // Where neither is, the note says why and offers nothing.
-        let button = if output {
-            None
+        // Where none is, the note says why and offers nothing.
+        let (words, button) = if output {
+            (OUTPUT_WORDS, None)
+        } else if let Some(state) = self.widevine_offer() {
+            self.widevine_card(state, cx)
         } else if switch {
-            Some(
-                card_button(&self.palette, "drm-note-switch", SWITCH)
-                    .on_click(cx.listener(|shell, _, _, cx| shell.use_system_engine(cx))),
+            (
+                SWITCH_WORDS,
+                Some(
+                    card_button(&self.palette, "drm-note-switch", SWITCH)
+                        .on_click(cx.listener(|shell, _, _, cx| shell.use_system_engine(cx))),
+                ),
             )
         } else {
-            self.browser.can_open_in_safari().then(|| {
+            let open = self.browser.can_open_in_safari().then(|| {
                 let label = if self.private { OPEN_PRIVATE } else { OPEN };
                 card_button(&self.palette, "drm-note-safari", label)
                     .on_click(cx.listener(|shell, _, _, cx| shell.open_in_safari(cx)))
-            })
-        };
-        let words = match (output, switch) {
-            (true, _) => OUTPUT_WORDS,
-            (false, true) => SWITCH_WORDS,
-            (false, false) => WORDS,
+            });
+            (self.unplayable_words(), open)
         };
         // Shown under the pointer, as a row's ×, and always to VoiceOver's cursor, which is no
         // pointer. It takes clicks either way, as the pointer is over the card to click it.
@@ -233,7 +364,11 @@ mod tests {
 
     use gpui::{App, AppContext, Modifiers, TestAppContext};
 
-    use super::{CLOSE_KEY, OUTPUT_RESTRICTED};
+    use super::{
+        CLOSE_KEY, OUTPUT_RESTRICTED, PLAYREADY_PRIVATE, PLAYREADY_WINDOWS_11, PlayReady, WORDS,
+    };
+
+    use crate::widevine::Widevine;
 
     use crate::shell::{Folders, Page, Question, Shell, bind_keys, recorder::Recorder};
 
@@ -455,6 +590,135 @@ mod tests {
         cx.run_until_parked();
         assert!(!host.take().iter().any(|asked| asked.starts_with("close media note")));
         shell.read_with(cx, |shell, _| assert!(shell.drm_note().is_none()));
+    }
+
+    /// On Linux, the core offers Google's Widevine module: a Widevine page's note offers it and
+    /// downloads it at the user's yes, the button, and at nothing else.
+    #[gpui::test]
+    fn the_note_offers_googles_widevine_module_and_downloads_it_at_the_yes(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, host) = window_with_tabs(cx);
+        host.widevine.set(Widevine::Absent);
+        shell.update(cx, |shell, cx| {
+            // Without a note, there's nothing to say yes to.
+            shell.download_widevine(cx);
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            assert_eq!(shell.widevine_offer(), Some(Widevine::Absent));
+            host.take();
+            shell.download_widevine(cx);
+        });
+        assert_eq!(host.take(), ["download widevine"]);
+    }
+
+    /// The no: the × closes the note for the site, as anywhere, and downloads nothing.
+    #[gpui::test]
+    fn closing_the_widevine_note_downloads_nothing(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        host.widevine.set(Widevine::Absent);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            host.take();
+            shell.close_drm_note(cx);
+            shell.download_widevine(cx);
+        });
+        assert_eq!(host.take(), ["close media note 10"]);
+    }
+
+    /// While it downloads, the note offers nothing; a download that failed is offered again.
+    #[gpui::test]
+    fn a_failed_download_is_offered_again(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        host.widevine.set(Widevine::Downloading);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            host.take();
+            shell.download_widevine(cx);
+            shell.restart_for_widevine(cx);
+        });
+        assert!(host.take().is_empty());
+        host.widevine.set(Widevine::Failed);
+        shell.update(cx, |shell, cx| shell.download_widevine(cx));
+        assert_eq!(host.take(), ["download widevine"]);
+    }
+
+    /// Linux loads the module at launch, so once it's downloaded the note restarts the browser,
+    /// and downloads nothing more.
+    #[gpui::test]
+    fn once_downloaded_the_note_restarts_the_browser(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        host.widevine.set(Widevine::Restart);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            host.take();
+            shell.download_widevine(cx);
+            shell.restart_for_widevine(cx);
+        });
+        assert_eq!(host.take(), ["restart"]);
+    }
+
+    /// The yes is the user's: in an agent's Space the note offers no module, and the browser
+    /// downloads none.
+    #[gpui::test]
+    fn an_agents_space_gets_no_widevine_offer(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        host.widevine.set(Widevine::Absent);
+        shell.update(cx, |shell, cx| {
+            let agent = (1, "Agent".into(), None, 0, "".into(), "claude-code".into(), "".into());
+            shell.set_spaces(vec![agent], cx);
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            assert!(shell.drm_note().is_some());
+            assert_eq!(shell.widevine_offer(), None);
+            host.take();
+            shell.download_widevine(cx);
+        });
+        assert!(host.take().is_empty());
+    }
+
+    /// The module plays Widevine alone, and where the core offers none, nothing changes.
+    #[gpui::test]
+    fn the_module_is_offered_for_widevine_where_the_core_has_it(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            assert_eq!(shell.widevine_offer(), None);
+            host.widevine.set(Widevine::Absent);
+            shell.set_media_unsupported(10, "com.microsoft.playready", cx);
+            assert_eq!(shell.widevine_offer(), None);
+        });
+    }
+
+    /// On Windows the note shows only where PlayReady can't play, and says what the PC lacks:
+    /// Windows 11 first, then an x64 PC, then the graphics' hardware DRM.
+    #[gpui::test]
+    fn on_windows_the_note_says_what_playready_needs(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.microsoft.playready", cx);
+            assert_eq!(shell.unplayable_words(), WORDS, "a Mac or Linux note named Windows");
+            let said = |needs| {
+                host.playready.set(needs);
+                shell.unplayable_words()
+            };
+            assert!(said(PlayReady::Windows11).contains("Windows 11"));
+            assert!(said(PlayReady::X64).contains("ARM"));
+            assert!(said(PlayReady::Hardware).contains("hardware DRM"));
+        });
+    }
+
+    /// A private window can't keep PlayReady's licences, so on a PC that plays, the note says
+    /// that's why, and elsewhere still what the PC lacks.
+    #[gpui::test]
+    fn a_private_window_says_it_cant_play(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.private = true;
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            host.playready.set(PlayReady::Hardware);
+            assert_eq!(shell.unplayable_words(), PLAYREADY_PRIVATE);
+            host.playready.set(PlayReady::Windows11);
+            assert_eq!(shell.unplayable_words(), PLAYREADY_WINDOWS_11);
+        });
     }
 
     /// Escape with the UI focused closes the note in front, and with none it stops, as before:

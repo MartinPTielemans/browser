@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -14,12 +15,16 @@
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/scoped_observation.h"
+#include "browser_core/platform/focus_ring_aura.h"
+#include "chrome/installer/util/install_util.h"
+#include "chrome/installer/util/shell_util.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/win/hwnd_subclass.h"
+#include "ui/base/win/shell.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
@@ -153,6 +158,7 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   HWND ui() const { return ui_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
+  FocusRing& ring() { return ring_; }
   double corner_radius() const { return corner_radius_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
 
@@ -221,6 +227,7 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
       LayOut(slot, size, scale);
     }
     LayOut(side_panel_, size, scale);
+    ring_.Fit();
   }
 
   void LayOut(Slot& slot, const gfx::Size& window_size, float scale) {
@@ -260,6 +267,7 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override { LayOut(); }
 
   void OnWidgetDestroying(views::Widget*) override {
+    ring_.Hide();
     for (Slot& slot : panes_) {
       Empty(slot);
     }
@@ -294,6 +302,8 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   HWND ui_;
   std::vector<Slot> panes_;
   Slot side_panel_;
+  // After the slots, so it leaves its holder before that goes.
+  FocusRing ring_;
   double corner_radius_ = 0;
   HWND had_keyboard_ = nullptr;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
@@ -341,6 +351,9 @@ views::NativeWidget* NewNativeWidget(views::Widget* widget, base::RepeatingClosu
 void AddWindowViews(views::Widget* widget, void* ui_view) {
   HWND ui = static_cast<HWND>(ui_view);
   HWND window = views::HWNDForWidget(widget);
+  // Chrome's toasts name the app by this ID, and the shortcut ilo.iss makes has it, so the windows
+  // need it too to group with that shortcut pinned to the taskbar.
+  ui::win::SetAppIdForWindow(ShellUtil::GetBrowserModelId(InstallUtil::IsPerUserInstall()), window);
   if (ui) {
     // The app's UI was a window of its own until now, made before the core's.
     SetWindowLongPtr(ui, GWL_STYLE,
@@ -417,10 +430,12 @@ void ShowPages(views::Widget* widget,
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->ShowInactive();
   }
-  // shortcut: a split view's focused pane has no ring on Windows yet; draw it in the app's UI around
-  // the pane, or as a layered child HWND, when split view is ported.
-  (void)focused;
-  (void)ring_color;
+  if (panes.size() > 1 && focused < panes.size()) {
+    views->ring().Show(views->WidgetFor(slots[focused])->GetNativeView(), ring_color,
+                       corner_radius);
+  } else {
+    views->ring().Hide();
+  }
 
   Slot& panel = views->side_panel();
   if (side_panel) {
@@ -442,6 +457,8 @@ void ShowPages(views::Widget* widget,
   views->LayOut();
 }
 
+void HoldPagesForResize(views::Widget*) {}
+
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   if (!views) {
@@ -459,6 +476,21 @@ void HidePages(views::Widget* widget) {
 
 // The app's host has no view for a link preview's page here yet, so nothing calls it with one.
 void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+
+std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views) {
+    return std::nullopt;
+  }
+  for (Slot& slot : views->panes()) {
+    if (slot.widget && views->ring().In(slot.widget->GetNativeView())) {
+      gfx::Rect frame(views->ContentSize());
+      frame.Inset(slot.insets);
+      return frame;
+    }
+  }
+  return std::nullopt;
+}
 
 bool KeyboardForPage(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
@@ -520,6 +552,12 @@ void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
 
 void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Windows; the page shows its last frame unscaled until it redraws.
+}
+
+// shortcut: a page out of every window has no compositor here either, as on Linux, so its picture
+// waits until it's shown; hold it as Linux's does once the Windows engine runs the cards check.
+base::ScopedClosureRunner DrawUnseen(views::Widget*, gfx::NativeView) {
+  return base::ScopedClosureRunner();
 }
 
 }  // namespace browser_core::platform

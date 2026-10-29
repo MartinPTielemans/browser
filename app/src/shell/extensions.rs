@@ -271,6 +271,54 @@ impl Shell {
         self.browser.set_extension_pinned(profile, id, !pinned, cx);
     }
 
+    /// Makes the extension's action the first pinned in the shown Space's profile, pinning it if it
+    /// isn't. The core pins after the others, so the others pinned go again, in their order.
+    fn move_to_top(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(profile) = self.shown_space().map(|space| space.profile) else {
+            return;
+        };
+        let pinned: Vec<SharedString> =
+            self.extension_actions.iter().map(|action| action.id.clone()).collect();
+        // check.sh waits for this line.
+        log!("browser: move extension {id} to top");
+        if !pinned.iter().any(|each| each == id) {
+            self.browser.set_extension_pinned(profile, id, true, cx);
+        }
+        for other in pinned.iter().filter(|each| *each != id) {
+            self.browser.set_extension_pinned(profile, other, false, cx);
+            self.browser.set_extension_pinned(profile, other, true, cx);
+        }
+    }
+
+    /// Does what the extension's Site Controls tile's menu chose, as the pinned action's menu does.
+    pub fn extension_item(
+        &mut self,
+        id: &SharedString,
+        item: site_controls::ExtensionItem,
+        cx: &mut Context<Self>,
+    ) {
+        let profile = self.shown_space().map_or(0, |space| space.profile);
+        let Some(extension) = (self.extensions.get(&profile).into_iter().flatten())
+            .find(|extension| extension.id == *id)
+            .cloned()
+        else {
+            return;
+        };
+        match item {
+            site_controls::ExtensionItem::MoveToTop => self.move_to_top(id, cx),
+            site_controls::ExtensionItem::Pin | site_controls::ExtensionItem::Unpin => {
+                self.toggle_pinned(id, cx)
+            }
+            site_controls::ExtensionItem::Options => {
+                self.browser.open_extension_options(&extension.options, cx)
+            }
+            site_controls::ExtensionItem::Remove => {
+                self.remove_extension(profile, id.clone(), extension.name, cx)
+            }
+            site_controls::ExtensionItem::Manage => self.browser.manage_extensions(Some(id), cx),
+        }
+    }
+
     /// How many of the actions show, and whether the overflow button follows them, in the places
     /// that leave the host its room with the field's button shown, so they keep their places as
     /// it comes and goes.
@@ -389,7 +437,7 @@ impl Shell {
             .map(|action| {
                 let id = action.id.clone();
                 let run: MenuAction = Box::new(move |shell, cx| shell.run_extension(&id, cx));
-                (MenuEntry::new(action.title.clone(), true), run)
+                (MenuEntry::named(action.title.clone(), true), run)
             })
             .collect();
         let button = self.action_bounds(shown);
@@ -519,11 +567,17 @@ fn grid(
     let turned_on = |id: &SharedString| {
         extensions.iter().find(|extension| extension.id == *id).is_none_or(|each| each.enabled)
     };
-    let tile = |action: &ExtensionAction| site_controls::Extension {
-        id: action.id.clone(),
-        title: action.title.clone(),
-        icon: action.icon.clone(),
-        enabled: action.enabled,
+    let tile = |action: &ExtensionAction| {
+        let extension = extensions.iter().find(|extension| extension.id == action.id);
+        site_controls::Extension {
+            id: action.id.clone(),
+            title: action.title.clone(),
+            icon: action.icon.clone(),
+            enabled: action.enabled,
+            pinned: action.pinned,
+            options: extension.is_some_and(|extension| !extension.options.is_empty()),
+            removable: extension.is_some_and(|extension| extension.removable),
+        }
     };
     let others = (extensions.iter())
         .filter(|extension| extension.enabled)
@@ -549,6 +603,7 @@ mod tests {
 
     use super::{Extension, ExtensionAction, ExtensionCommand, UserKeys, command_for, fit_actions};
     use crate::shell::{Command, Folders, Shell, recorder::Recorder};
+    use crate::site_controls;
 
     fn extension(id: &str, enabled: bool, commands: &[(&str, &str, bool)]) -> Extension {
         Extension {
@@ -666,6 +721,40 @@ mod tests {
             .map(|action| action.id.to_string())
             .collect();
         assert_eq!(toolbar, ["zeta", "beta"]);
+    }
+
+    /// Move to Top makes an extension the first pinned, pinning it if it isn't: the core pins after
+    /// the others, so the others pinned go again, in their order.
+    #[gpui::test]
+    fn move_to_top_pins_it_first(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space 1".into(), None, 7, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            let extensions = ["alpha", "beta", "zeta"].map(|id| extension(id, true, &[]));
+            shell.set_extensions(7, extensions.to_vec(), cx);
+            shell.set_extension_actions(vec![action("zeta", true), action("beta", true)], cx);
+        });
+        host.take();
+        let move_to_top = |id: &'static str, cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| {
+                shell.extension_item(&id.into(), site_controls::ExtensionItem::MoveToTop, cx)
+            });
+            host.take()
+        };
+        assert_eq!(move_to_top("beta", cx), ["pin 7 zeta false", "pin 7 zeta true"]);
+        assert_eq!(
+            move_to_top("alpha", cx),
+            [
+                "pin 7 alpha true",
+                "pin 7 zeta false",
+                "pin 7 zeta true",
+                "pin 7 beta false",
+                "pin 7 beta true"
+            ]
+        );
     }
 
     /// Every pinned action has a place to be run from: its own, or the overflow button's.

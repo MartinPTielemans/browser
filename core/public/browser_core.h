@@ -356,6 +356,10 @@ typedef struct bc_agent_activity {
 #define BC_AGENT_SESSION_RELEASED 1
 // The user took the tab back (bc_tab_take_back).
 #define BC_AGENT_SESSION_TAKEN_BACK 2
+// Its page asked for one of the user's passkeys, in Chrome's dialog, which is the user's: the
+// tab is held as bc_tab_take_back holds it. This comes for a tab in an agent's Space even when
+// the agent had no session there, as the app must know the tab is the user's.
+#define BC_AGENT_SESSION_PASSKEY 3
 
 // An extension's side panel as a window shows it, beside the page of the tab it shows.
 typedef struct bc_side_panel {
@@ -695,16 +699,20 @@ typedef struct bc_host {
   void (*window_side_panel)(void* context, bc_id window, const bc_side_panel* panel);
   // A page of |tab| asked for a protected-media key system ilo can't play, such as Widevine, which
   // Netflix and Spotify play their video with: |key_system| is "com.widevine.alpha" or
-  // "com.microsoft.playready", never the page's own string. Once for each key system a document
-  // asks for, unless it's the one the app was last told. It comes with an empty |key_system| once
-  // the tab goes to another site, or once bc_tab_set_system_engine switches it: the note it asks
-  // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Never at a
-  // site whose note the user closed (bc_tab_close_media_note). Agents get none: the note hands the
-  // user's page to another engine or app. For a tab in the system's engine, |key_system| is
-  // "output-restricted" once its page's protected video is kept off the screen, as the display
-  // connection's protection (HDCP) isn't enough for it: once a tab and site, with the empty one as
-  // the tab goes to another site or back to Chromium. Closing that note is the app's alone.
+  // "com.microsoft.playready", never the page's own string. Once for each key system a document is
+  // refused, unless it's the one the app was last told, and never once a page at the site was given
+  // one, as a site may ask for Widevine and then play with PlayReady on Windows. It comes with an
+  // empty |key_system| once the tab goes to another site, or once bc_tab_set_system_engine switches
+  // it: the note it asks for is gone. bc_tab_set_system_engine answers it where
+  // bc_system_engine_available. Never at a site whose note the user closed
+  // (bc_tab_close_media_note). Agents get none: the note hands the user's page to another engine or
+  // app. For a tab in the system's engine, |key_system| is "output-restricted" once its page's
+  // protected video is kept off the screen, as the display connection's protection (HDCP) isn't
+  // enough for it: once a tab and site, with the empty one as the tab goes to another site or back
+  // to Chromium. Closing that note is the app's alone.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
+  // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
+  void (*widevine_changed)(void* context, int state);
   // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
   // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
   // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
@@ -807,6 +815,13 @@ typedef struct bc_host {
   // bc_profile_add_history added |added| pages to |profile|'s history, once for each call that
   // returned true, in order.
   void (*history_added)(void* context, bc_id profile, size_t added);
+  // The text bc_tab_read_text asked for as |request|, UTF-8, or null if the tab had no page loaded
+  // or closed first.
+  void (*tab_text)(void* context, bc_id tab, uint64_t request, const char* text);
+  // The answer to bc_agent_page's |request| for |tab|: with |error|, |text| says why it couldn't,
+  // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
+  // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
+  void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
   // The browser's account changed, or was first read, once the browser has started. The user's
   // alone: agents hear none.
   void (*sync_changed)(void* context, const bc_sync_state* state);
@@ -827,8 +842,9 @@ typedef struct bc_host {
 // Windows and Linux, where the sandbox needs Chromium's own executable to start every process
 // (chrome.exe, and chrome through its zygote): there the app is BC_APP_LIBRARY, beside it, and the
 // core calls its BC_APP_ENTRY in the browser process, as Chromium starts, for what the app would
-// pass bc_main. It returns the callbacks, which it keeps for as long as the process runs, and sets
-// |argc| and |argv|.
+// pass bc_main. |argc| and |argv| come in as the arguments the process was given, which there the
+// app can't read itself once Chromium has written its process title over them, and the entry sets
+// them to the switches. It returns the callbacks, which it keeps for as long as the process runs.
 BC_EXPORT int bc_main(int argc, const char** argv, const bc_host* host);
 
 #if defined(_WIN32)
@@ -841,6 +857,10 @@ typedef const bc_host* (*bc_app_entry)(int* argc, const char*** argv);
 
 // Asks Chromium to quit. Pages get their unload handlers first, then bc_main returns.
 BC_EXPORT void bc_quit(void);
+
+// Quits as bc_quit does, then starts the browser again with the switches it was given, and the app
+// brings back its windows and Spaces as after any quit.
+BC_EXPORT void bc_restart(void);
 
 // Whether Chromium is quitting: after bc_quit, the Dock's Quit or logging out. The windows it
 // closes then still call window_closed.
@@ -876,6 +896,11 @@ BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
 
 // On Linux, whether the keys in |window| are the app's UI's rather than a page's.
 BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
+
+// On Linux and Windows, where the core draws a split view's ring around the focused page: whether
+// it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
+// For the test driver, which sees the Mac's ring as a view.
+BC_EXPORT bool bc_window_focus_ring(bc_id window, bc_rect* frame);
 
 // On Linux, while an overlay of the app's over |window|, such as the command bar, has the keyboard:
 // neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
@@ -948,11 +973,11 @@ BC_EXPORT bc_id bc_space_create(const char* name);
 // A Space is the user's or an agent's, from when it's made for as long as it lives, and saved with
 // it (decision 8). An agent is an AI client, such as Claude Code, driving the browser through the
 // core. The rules its calls keep, once there are any:
-// - It works only in its own Space: bc_agent_may_act answers which tabs are its to act on. The
-//   user's tabs and favorites never are, and no tab moves into an agent's Space, by
-//   bc_tab_move_to_space or bc_tab_move, until the user can give an agent a tab, with its
-//   activity-log entry. A tab the user opens in one, while a window shows it, is the agent's like
-//   the rest.
+// - It works only in its own Space: bc_agent_may_act answers which tabs are its to act on, and
+//   bc_agent_list_tabs lists that Space's tabs alone. The user's tabs and favorites never are, and
+//   no tab moves into an agent's Space, by bc_tab_move_to_space or bc_tab_move, until the user can
+//   give an agent a tab, with its activity-log entry. A tab the user opens in one, while a window
+//   shows it, is the agent's like the rest.
 // - Its actions never move the user's focus: no window shows another Space or tab, and no page
 //   takes the keyboard, because of one.
 // - The user can watch it, as an agent's Space shows in the windows like the others, take over in
@@ -977,10 +1002,12 @@ BC_EXPORT size_t bc_space_agent(bc_id space, char* agent, size_t capacity);
 // bc_space_name does, or an empty string for the user's own Space.
 BC_EXPORT size_t bc_space_agent_name(bc_id space, char* name, size_t capacity);
 
-// Whether the agent with the id |agent| may do |action| to |tab|: only if the tab is in that
-// agent's own Space, and Chromium shows its page, not the system's engine, where the browser can't
-// keep an agent's rules. Agent code calls it once for each call an agent makes on a tab, before
-// acting. If refused, copies why into |reason| as bc_space_name does, else an empty string. Either
+// Whether the agent with the id |agent| may do |action| to |tab|: only if |action| is one agents
+// may do, the tab is in that agent's own Space, and Chromium shows its page, not the system's
+// engine, where the browser can't keep an agent's rules. Agents may back, click, close_tab,
+// forward, hand_off, navigate, press_key, read_page, screenshot, scroll, select_option, snapshot
+// and type; ad_blocking, devtools, passwords and any other action are refused. Agent code calls it
+// once for each call an agent makes on a tab, before acting. If refused, copies why into |reason| as bc_space_name does, else an empty string. Either
 // way, then agent_activity, for the activity log.
 BC_EXPORT bool bc_agent_may_act(const char* agent,
                                 bc_id tab,
@@ -1001,9 +1028,82 @@ BC_EXPORT bool bc_agent_release_tab(const char* agent, bc_id tab);
 // how many it had. Agent code calls it.
 BC_EXPORT size_t bc_agent_disconnected(const char* agent);
 
-// The user takes |tab| back from the agent at work in it, as at the end of a handoff. Ends that
-// agent's session there and returns whether one had it. The user's: agents get none.
+// Opens a tab loading the http(s) |url| at the top of the Today tabs of the Space of the agent with
+// the id |agent|, without showing it: no window shows another Space or tab, and no page takes the
+// keyboard, because of it. Returns 0, opening none, for any other URL, an agent without a Space or
+// with no window open. The agent's session in the tab starts, as bc_agent_may_act's does, and
+// tab_opened tells of the tab, then spaces_changed. Agent code calls it.
+BC_EXPORT bc_id bc_agent_open_tab(const char* agent, const char* url);
+
+// Loads the http(s) |url| in |tab|, if it's in the Space of the agent with the id |agent|, and
+// returns whether it does: never another URL. Agent code calls it after bc_agent_may_act.
+BC_EXPORT bool bc_agent_navigate(const char* agent, bc_id tab, const char* url);
+
+// Copies up to |capacity| of the tabs of the Space of the agent with the id |agent| into |tabs|, its
+// pinned tabs top to bottom without their folders, then its Today tabs, and returns how many it
+// has: 0 for an agent with no Space yet. The core finds the Space, so no other Space's tabs, the
+// user's or another agent's, are ever listed. Agent code calls it for an agent's list of tabs,
+// never bc_space_pinned or bc_space_today.
+BC_EXPORT size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capacity);
+
+// What bc_agent_page does in a tab. Each but SCREENSHOT then answers with the page's accessibility
+// tree, once the page has settled, as an action can start a navigation.
+// The tree alone.
+#define BC_AGENT_PAGE_SNAPSHOT 0
+// Clicks the element: its center, scrolled into view first.
+#define BC_AGENT_PAGE_CLICK 1
+// Types |text| into the element, in place of what it holds, and with SUBMIT presses Return. Never
+// into a password field.
+#define BC_AGENT_PAGE_TYPE 2
+#define BC_AGENT_PAGE_TYPE_SUBMIT 3
+// Presses the key |text| names: Enter, Tab, Escape, Backspace, Delete, Space, ArrowUp, ArrowDown,
+// ArrowLeft, ArrowRight, PageUp, PageDown, Home or End.
+#define BC_AGENT_PAGE_KEY 4
+// Scrolls the element into view, or with no element the page by most of a screen.
+#define BC_AGENT_PAGE_SCROLL_DOWN 5
+#define BC_AGENT_PAGE_SCROLL_UP 6
+// Goes back, or forward, in the tab's history.
+#define BC_AGENT_PAGE_BACK 7
+#define BC_AGENT_PAGE_FORWARD 8
+// A JPEG of what the page's view shows.
+#define BC_AGENT_PAGE_SCREENSHOT 9
+
+// Does |action|, a BC_AGENT_PAGE_ value, in |tab| for the agent with the id |agent|, to |element|,
+// a backendDOMNodeId from the tree, or 0, with |text| as the action says, else null. Then
+// agent_page_done with |request|, from a task of its own. Refused, with an error, if the tab isn't
+// in the agent's Space or its page isn't http(s). Through Chromium's DevTools protocol, inside the
+// browser, never a remote-debugging port, and never with the agent's own script. The tree leaves
+// out what fields hold: no node's value, and nothing under a field, where Chromium puts the text
+// typed or filled into it, and it marks password fields. A tab whose page the browser unloaded gets
+// it back, not shown. While an agent works in a tab its page keeps drawing, hidden, as a tab Chrome
+// captures does, until a while after its last action or the end of its session there. Chrome's
+// autofill suggestions close before each input, so an agent's keys never fill the user's data.
+// Agent code calls it after bc_agent_may_act.
+BC_EXPORT void bc_agent_page(const char* agent,
+                             bc_id tab,
+                             uint64_t request,
+                             int action,
+                             int64_t element,
+                             const char* text);
+
+// The user takes |tab| over from the agent at work in it. Ends that agent's session there, returns
+// whether one had it, and holds the tab: no agent may act in it (bc_agent_may_act refuses) until
+// bc_tab_hand_back. The user's: agents get none. Chrome fills, suggests and offers to save the
+// user's passwords, addresses, cards and passkeys in a held tab as in any of theirs, and none of
+// them in an agent's tab it doesn't hold; its sign-in form fills at once, without a reload.
 BC_EXPORT bool bc_tab_take_back(bc_id tab);
+
+// The agent with the id |agent| hands |tab|, in its Space, to the user, for a step only they may
+// do, such as a sign-in: the tab is held as bc_tab_take_back holds it, and its session stays.
+// Returns whether it was, not if the user holds it already. Agent code calls it after
+// bc_agent_may_act.
+BC_EXPORT bool bc_agent_hand_off(const char* agent, bc_id tab);
+
+// The user hands |tab| back to agents, and returns whether they held it. The user's.
+BC_EXPORT bool bc_tab_hand_back(bc_id tab);
+
+// Whether the user holds |tab| from agents.
+BC_EXPORT bool bc_tab_held(bc_id tab);
 
 // The profile the Space's tabs open in, which its favorites are in.
 BC_EXPORT bc_id bc_space_profile(bc_id space);
@@ -1412,7 +1512,8 @@ BC_EXPORT void bc_set_ad_blocking(bool on);
 // or answers it.
 //
 // The host of the collector the app named with --crash-upload-url, or nothing without one, when
-// nothing is sent and Settings doesn't offer to. Copied as bc_profile_name copies a name.
+// nothing is sent and Settings doesn't offer to. Nothing on Windows too, where Crashpad writes them
+// in the default folder other Chromiums share. Copied as bc_profile_name copies a name.
 BC_EXPORT size_t bc_crash_reports_collector(char* host, size_t capacity);
 // Whether the user has Send Crash Reports on and there's a collector.
 BC_EXPORT bool bc_send_crash_reports(void);
@@ -1567,6 +1668,58 @@ BC_EXPORT bool bc_tab_set_system_engine(bc_id tab, bool on);
 // (bc_site_controls). Does nothing for a page that isn't http(s). The user's: agents get none.
 BC_EXPORT void bc_tab_close_media_note(bc_id tab);
 
+// Google's Widevine module, which Netflix, Spotify and Disney+ play their video with in Chromium
+// (#236). It's Google's proprietary file, and its licence forbids bundling it, so ilo never ships
+// it. On Linux the user can have the browser download it from Google's component service, from the
+// protected-media note, and remove it in Settings. Elsewhere it's never offered: the Mac plays these
+// sites in its system engine, and Windows with its own PlayReady. Until the user says yes, the
+// component updater leaves it out of its checks, and once they have, it keeps it up to date with
+// the security components (engine/README.md, What reaches Google).
+// - BC_WIDEVINE_NONE: not offered on this platform.
+// - BC_WIDEVINE_ABSENT: offered, not downloaded, or removed.
+// - BC_WIDEVINE_DOWNLOADING: downloading, after the user's yes.
+// - BC_WIDEVINE_FAILED: the download failed, for want of a network or of a module for this
+//   platform. bc_widevine_download tries again.
+// - BC_WIDEVINE_RESTART: downloaded. Pages play with it once the browser restarts (bc_restart), as
+//   Linux loads it at launch, before the sandbox closes.
+// - BC_WIDEVINE_READY: loaded. Pages that ask for Widevine play, and tab_media_unsupported never
+//   names it.
+#define BC_WIDEVINE_NONE 0
+#define BC_WIDEVINE_ABSENT 1
+#define BC_WIDEVINE_DOWNLOADING 2
+#define BC_WIDEVINE_FAILED 3
+#define BC_WIDEVINE_RESTART 4
+#define BC_WIDEVINE_READY 5
+
+// Where Google's Widevine module is: a BC_WIDEVINE_ value. Then widevine_changed with each change.
+BC_EXPORT int bc_widevine(void);
+
+// The user said yes to Google's Widevine module: the browser downloads it from Google's component
+// service, then keeps it up to date. Does nothing unless it's BC_WIDEVINE_ABSENT or
+// BC_WIDEVINE_FAILED. Then widevine_changed. The user's alone: agents get no way to it.
+BC_EXPORT void bc_widevine_download(void);
+
+// Removes Google's Widevine module: deletes it, and the component updater stops asking for it. A
+// module the browser loaded plays until it restarts. Then widevine_changed with
+// BC_WIDEVINE_ABSENT. The user's: agents get none.
+BC_EXPORT void bc_widevine_remove(void);
+
+// What PlayReady, which Windows plays these sites with in Chromium, needs that this PC may lack,
+// for the protected-media note to say why a site was refused. It plays on Windows 11 on an x64 PC
+// whose graphics have PlayReady's hardware DRM (security level 3000), outside private windows,
+// which can't keep its licences. Chromium finds the hardware out only as a page asks, so this
+// names what it can rule out first.
+// - BC_PLAYREADY_NONE: no PlayReady here, off Windows: the note says nothing of it.
+// - BC_PLAYREADY_WINDOWS_11: Windows 10, which Chromium's PlayReady doesn't run on.
+// - BC_PLAYREADY_X64: an ARM PC, which runs the browser emulated and has no PlayReady for it.
+// - BC_PLAYREADY_HARDWARE: Windows 11 on x64, so the graphics have no hardware DRM, or Chromium
+//   turned it off after it failed.
+#define BC_PLAYREADY_NONE 0
+#define BC_PLAYREADY_WINDOWS_11 1
+#define BC_PLAYREADY_X64 2
+#define BC_PLAYREADY_HARDWARE 3
+BC_EXPORT int bc_playready_needs(void);
+
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as
 // in Chrome, unless the user has changed the text since the bar opened. Highlights the matches
@@ -1610,6 +1763,15 @@ BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_re
 // hidden to the page, as Chrome's tab previews do. The user's: agents get none, as with
 // bc_tab_capture.
 BC_EXPORT void bc_tab_picture(bc_id tab, uint64_t request, int width, int height);
+
+// Reads the text of the tab's page as its accessibility tree has it, across its frames, a line for
+// each block: what a screen reader reads, but no field's value, typed or autofilled, a password's
+// above all, nor the text of an editable region. Chromium builds the tree for this one read,
+// without running the page's JavaScript or turning accessibility on for the tab. A page that's
+// loading is read once it stops, or after 15 s. A tab without its page loaded has nothing to read.
+// Then tab_text with |request|, from a task of its own. Agents read pages through it, each read
+// checked with bc_agent_may_act first.
+BC_EXPORT void bc_tab_read_text(bc_id tab, uint64_t request);
 
 // Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the
 // page's DevTools, so a page that isn't being captured pays nothing.
@@ -1923,6 +2085,13 @@ BC_EXPORT void bc_window_start_move(bc_id window);
 // maximizing and restoring change them.
 BC_EXPORT bool bc_window_is_maximized(bc_id window);
 
+// On Linux, as bc_window_is_maximized: whether |window| is full screen, as the window manager's
+// own full-screen key or a page can put it. The UI asks as the window's bounds change.
+BC_EXPORT bool bc_window_is_full_screen(bc_id window);
+
+// On Linux: puts |window| full screen, or takes it out, as the window manager's own full-screen key
+// does, for the test driver. bc_window_toggle_maximized takes it out as Escape asks.
+BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 // The browser's account, which keeps the Spaces and the first profile's bookmarks, passwords and
 // open tabs the same on each of its devices, through an ilo server (ilo-server's docs/protocol.md).
 // The server stores what's synced encrypted with the account's secret, which only devices hold: the

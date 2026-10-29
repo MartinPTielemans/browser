@@ -1,0 +1,128 @@
+Lets the core keep the user's saved passwords, autofill and passkeys out of an agent's tab
+(//browser_core/hooks.h, //browser_core/agent_autofill.h): Chrome's password manager fills in and
+offers to save no password there, its autofill shows no suggestions, and a page's passkey request
+is cancelled as the user would, for the core to hand the tab to the user. Chrome gates its own
+Actor the same way.
+
+--- a/chrome/browser/password_manager/chrome_password_manager_client.cc
++++ b/chrome/browser/password_manager/chrome_password_manager_client.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/password_manager/chrome_password_manager_client.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <memory>
+ #include <optional>
+@@ -232,6 +233,9 @@
+ // already.
+ using Logger = autofill::SavePasswordProgressLogger;
+ 
++// browser_core: an agent's tab gets no saved password (//browser_core/hooks.h).
++bool (*g_browser_core_no_passwords)(content::WebContents* contents) = nullptr;
++
+ namespace {
+ 
+ #if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS) || BUILDFLAG(IS_ANDROID)
+@@ -319,6 +323,12 @@
+ bool ChromePasswordManagerClient::IsFillingEnabled(
+     const url::Origin& origin,
+     base::optional_ref<const GURL> url) const {
++  if (g_browser_core_no_passwords &&
++      g_browser_core_no_passwords(web_contents())) {
++    // browser_core: which IsSavingAndFillingEnabled() follows, so it offers
++    // to save none either.
++    return false;
++  }
+   if (origin.opaque() &&
+       base::FeatureList::IsEnabled(
+           password_manager::features::kPasswordBlockOpaqueOrigins)) {
+@@ -403,6 +413,10 @@
+ bool ChromePasswordManagerClient::PromptUserToSaveOrUpdatePassword(
+     std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save,
+     bool update_password) {
++  if (g_browser_core_no_passwords &&
++      g_browser_core_no_passwords(web_contents())) {
++    return false;
++  }
+ #if BUILDFLAG(IS_ANDROID)
+   // The metrics are only relevant for cases in which the CCT doesn't have time
+   // to show a prompt.
+--- a/chrome/browser/ui/autofill/chrome_autofill_client.cc
++++ b/chrome/browser/ui/autofill/chrome_autofill_client.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <utility>
+ 
+@@ -245,6 +246,10 @@
+ #include "components/compose/core/browser/compose_manager.h"
+ #endif
+ 
++// browser_core: an agent's tab shows no autofill suggestions
++// (//browser_core/hooks.h).
++bool (*g_browser_core_no_autofill)(content::WebContents* contents) = nullptr;
++
+ namespace autofill {
+ 
+ namespace {
+@@ -868,6 +873,11 @@
+ ChromeAutofillClient::ShowAutofillSuggestions(
+     const PopupOpenArgs& open_args,
+     base::WeakPtr<AutofillSuggestionDelegate> delegate) {
++  if (g_browser_core_no_autofill &&
++      g_browser_core_no_autofill(web_contents())) {
++    // browser_core: an agent's tab shows none (//browser_core/hooks.h).
++    return AutofillSuggestionController::GenerateSuggestionUiSessionId();
++  }
+   // The Autofill Popup cannot open if it overlaps with another popup.
+   // Therefore, the IPH is hidden before showing the Autofill Popup.
+   HideAutofillFieldIph();
+--- a/chrome/browser/webauthn/chrome_authenticator_request_delegate.cc
++++ b/chrome/browser/webauthn/chrome_authenticator_request_delegate.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/webauthn/chrome_authenticator_request_delegate.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <array>
+@@ -125,6 +126,11 @@
+ using TransportAvailabilityInfo =
+     device::FidoRequestHandlerBase::TransportAvailabilityInfo;
+ 
++// browser_core: a passkey in an agent's tab is the user's to give
++// (//browser_core/hooks.h).
++bool (*g_browser_core_refuse_passkey)(content::WebContents* contents,
++                                      bool asks) = nullptr;
++
+ namespace {
+ 
+ ChromeAuthenticatorRequestDelegate::TestObserver* g_observer = nullptr;
+@@ -760,6 +766,22 @@
+     g_observer->OnPreTransportAvailabilityEnumerated(this);
+   }
+ 
++  // browser_core: a passkey in an agent's tab is the user's to give
++  // (//browser_core/hooks.h). Cancelled as the user would, once this returns,
++  // as cancelling destroys the request.
++  const UIPresentation presentation = dialog_controller_->ui_presentation();
++  if (g_browser_core_refuse_passkey &&
++      presentation != UIPresentation::kAutofill &&
++      g_browser_core_refuse_passkey(
++          content::WebContents::FromRenderFrameHost(GetRenderFrameHost()),
++          presentation == UIPresentation::kModal)) {
++    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
++        FROM_HERE,
++        base::BindOnce(&ChromeAuthenticatorRequestDelegate::OnCancelRequest,
++                       weak_ptr_factory_.GetWeakPtr()));
++    return;
++  }
++
+   if (!webauthn_ui_enabled()) {
+     return;
+   }

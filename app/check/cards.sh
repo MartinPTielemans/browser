@@ -1,8 +1,9 @@
 # Resting on a sidebar tab's row shows its hover card beside the rows (#430): a picture of a tab
 # not shown, taken once the switches that hid it are quiet and never on a switch, its title and
 # host, and its buttons. The tab shown has no picture, as its page is beside the card. The next row
-# swaps its card in at once, and leaving the rows or scrolling them lets it go. The card takes the
-# Space's look, dark and light. Reports how long the switches take, beside the tabs run's.
+# swaps its card in at once, and leaving the rows, scrolling them or a key lets it go. It comes in
+# and goes out in Dia's motion, which card-motion.mp4 records. The card takes the Space's look,
+# dark and light. Reports how long the switches take, beside the tabs run's.
 
 # A page of colour, so its picture shows in the card.
 page='data:text/html,<title>loading</title>
@@ -43,6 +44,7 @@ expect "^browser: hover card shown $a pin favorite\( split\)\{0,1\} picture\$" \
   "resting on the hidden tab's row didn't show its card with its picture"
 expect "^browser: hover card drawn $a picture\$" "the hidden tab's card wasn't drawn with its picture"
 expect '^browser: hover card window shown$' "the hidden tab's card didn't come on screen"
+expect '^browser: hover card settled$' "the hidden tab's card didn't come to rest"
 asked=$(grep '^browser: hover card at ' "$log" | tail -1)
 placed=$(grep '^browser: hover card window at ' "$log" | tail -1)
 echo "$asked $placed" | awk '
@@ -64,12 +66,28 @@ expect "^browser: hover card shown $a " "resting on the hidden tab's row again d
 send scroll $(row 1) -5 1
 expect '^browser: hover card hidden$' "a scroll over the rows didn't hide the card"
 send move $page_point
+# A key ends it too, as in Dia, here one the page has.
+send move $(row 1)
+expect "^browser: hover card shown $a " "resting on the hidden tab's row a third time didn't show its card"
+expect '^browser: hover card settled$' "the hidden tab's card didn't come to rest before the key"
+send key x
+expect '^browser: hover card hidden$' "a key typed in the page didn't hide the card"
+send move $page_point
+# The card coming in and going out, recorded for its motion: it fades in over 100 ms as it grows
+# from 0.92 on a spring, and fades out as it springs back (docs/ux-spec.md › Motion › Hover card).
+record card-motion 3
+send move $(row 1)
+expect "^browser: hover card shown $a " "resting on the hidden tab's row didn't show its card for the recording"
+expect '^browser: hover card settled$' "the recorded card didn't come to rest"
+send move $page_point
+expect '^browser: hover card hidden$' "leaving the rows didn't hide the recorded card"
+recorded
 
 # A light theme for the Space: the theme picker's first swatch, then the sun. The card takes the
 # Space's look.
 post rightclick 100 112
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, " "the Space's menu didn't offer its theme"
-send choose Edit Theme Color…
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, ")" "the Space's menu didn't offer its theme"
+send choose "$(cased 'Edit Theme Color…')"
 expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
 expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
 send clickkey "$(swatch_x 0)" $swatch_y
@@ -82,6 +100,7 @@ expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
 send move $(row 1)
 expect "^browser: hover card shown $a .* picture\$" "the hidden tab's card didn't show in the light Space"
 expect '^browser: hover card window shown$' "the hidden tab's card didn't come on screen in the light Space"
+expect '^browser: hover card settled$' "the hidden tab's card didn't come to rest in the light Space"
 ../tools/window-screenshot.sh "$pid" "$out/card-light.png" || fail "no window to capture"
 send move $page_point
 expect '^browser: hover card hidden$' "leaving the rows didn't hide the light card"
@@ -98,5 +117,5 @@ exec 3>&-
 quit
 
 app_ms=$(sed -n 's/^browser: selected [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: resting on a tab's row shows its card beside the rows, with a picture of its page once it's hidden and the switch quiet, and none for the tab shown; the next row swaps in at once, leaving the rows or a scroll lets it go, and the card takes a light Space's look."
-echo "  Switch, key to the core's report, with cards pictured: $app_ms. Windows: $out/card-dark.png, $out/card-shown-tab.png, $out/card-light.png"
+echo "ok: resting on a tab's row shows its card beside the rows, with a picture of its page once it's hidden and the switch quiet, and none for the tab shown; the next row swaps in at once, leaving the rows, a scroll or a key typed in the page lets it go, it comes and goes in Dia's motion, and the card takes a light Space's look."
+echo "  Switch, key to the core's report, with cards pictured: $app_ms. Windows: $out/card-dark.png, $out/card-shown-tab.png, $out/card-light.png. Motion: $out/card-motion.mp4"

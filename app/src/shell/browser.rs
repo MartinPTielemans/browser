@@ -6,6 +6,8 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
+use crate::theme::Appearance;
+
 use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog};
 
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
@@ -89,6 +91,8 @@ pub trait Browser {
     fn pinned_url(&self, tab: u64) -> String;
     /// Gives a pinned tab or a favorite the URL it goes back to, which unpinning forgets.
     fn set_pinned_url(&self, tab: u64, url: &str, cx: &mut App);
+    /// The URL the address bar goes to for `text` typed in it, or None if it names nothing.
+    fn typed_url(&self, text: &str) -> Option<String>;
     /// The name the user gave the tab, or empty while it shows its page's title.
     fn tab_name(&self, tab: u64) -> String;
     /// Puts back what the archive removal `removal` took out, and returns how many tabs, 0 if it
@@ -130,6 +134,8 @@ pub trait Browser {
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
+    /// Answers what an agent asks (Shell::set_agent_question), if it still asks.
+    fn answer_agent(&self, question: u64, answer: crate::agents::Answer, cx: &mut App);
     /// Asks the dialog a tab's page asks over the tab's card, with the corners of its radius, or
     /// takes back the one it asks (None).
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, cx: &mut App);
@@ -186,6 +192,9 @@ pub trait Browser {
     fn set_side_panel_width(&self, width: f32, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
+    /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
+    /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
+    fn site_search_settings(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
@@ -258,6 +267,11 @@ pub trait Browser {
     fn set_focus_color(&self, color: u32, cx: &mut App);
     /// What the window's pages show until their first frame, 0xRRGGBB.
     fn set_page_color(&self, color: u32, cx: &mut App);
+    /// Draws the window's material light, or dark, under the UI's tint.
+    fn set_window_light(&self, light: bool, cx: &mut App);
+    /// Keeps View › Appearance's choice for the next launch, and gives it the app's native parts
+    /// and its pages, which follow it as they follow the system's.
+    fn set_appearance(&self, appearance: Appearance, cx: &mut App);
     /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
     /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
     /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.
@@ -275,6 +289,9 @@ pub trait Browser {
     /// On Linux, whether the browser window is maximized, which the third window button the UI
     /// draws shows. False on the Mac, where AppKit draws that button.
     fn window_maximized(&self) -> bool;
+    /// On Linux, whether the browser window is full screen, as the window manager or a page can
+    /// put it. False on the Mac, where AppKit says when it goes and comes back.
+    fn window_full_screen(&self) -> bool;
     /// Shows the sidebar reveal's window over the page, `width` points wide from the browser
     /// window's left edge and as tall as it. It calls `Shell::pointer_at` as the pointer moves
     /// anywhere in the browser's windows until it's hidden.
@@ -305,6 +322,18 @@ pub trait Browser {
     /// Shows `tab`'s page in Safari's engine, in the tab, and has its profile keep the site for it.
     /// The user's: agents get none.
     fn use_system_engine(&self, _tab: u64, _cx: &mut App) {}
+    /// Where Google's Widevine module is, which the core offers on Linux alone.
+    fn widevine(&self) -> crate::widevine::Widevine {
+        crate::widevine::Widevine::None
+    }
+    /// Downloads Google's Widevine module from Google. The user's yes: agents get none.
+    fn download_widevine(&self, _cx: &mut App) {}
+    /// Quits and starts again, bringing back the windows and their Spaces.
+    fn restart(&self, _cx: &mut App) {}
+    /// What PlayReady, which Windows plays protected video with, needs that the PC may lack.
+    fn playready_needs(&self) -> super::PlayReady {
+        super::PlayReady::None
+    }
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;
@@ -372,9 +401,21 @@ pub trait Browser {
         field: Option<Bounds<Pixels>>,
         cx: &mut App,
     );
+    /// Opens the command bar centred for Search Tabs, listing only `tabs` and filtering them by
+    /// what's typed, to switch to one.
+    fn search_tabs(&self, tabs: Vec<BarTab>, cx: &mut App);
     /// Whether the command bar shows, which stays true through a click outside it until the app
     /// calls `Shell::command_bar_dismissed`, so a click on what opens it can tell it has closed it.
     fn command_bar_open(&self, cx: &App) -> bool;
+    /// The window shows another Space: the command bar, if it shows over this window, lists
+    /// `tabs` from it, or `open_tabs` for Search Tabs, and its profile's suggestions (decision 5).
+    /// Returns whether its pick opens a new tab, for New Tab to keep its plate.
+    fn command_bar_follows(
+        &self,
+        tabs: Vec<BarTab>,
+        open_tabs: Vec<BarTab>,
+        cx: &mut App,
+    ) -> bool;
     /// Opens the command bar over `pane`, a new pane in the card at `card`, for a page to show
     /// there in a split view with `with`.
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);
@@ -418,8 +459,31 @@ pub trait Browser {
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.
     fn shortcuts(&self, cx: &mut App);
+    /// Opens the Settings window on its About tab.
+    fn about(&self, cx: &mut App);
+    /// Opens the Settings window on its Import tab.
+    fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
     fn passwords(&self, space: u64, cx: &mut App);
+    /// Opens the Settings window on its Agents tab, which lists what each agent did.
+    fn agent_activity(&self, cx: &mut App);
+    /// What the user let the agent whose Space is `space` do, for its Space's menu to take back.
+    fn agent_permissions(&self, space: u64, cx: &App) -> AgentGrants;
+    /// Forgets the user's answer for good to the agent whose Space is `space` on `site`, or on
+    /// every site with None.
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, cx: &mut App);
+    /// Disconnects the agent whose Space is `space`, whose token then stops working.
+    fn disconnect_agent(&self, space: u64, cx: &mut App);
+    /// The user takes back each tab of the agent's Space `space` they don't hold, as Take Over
+    /// takes one.
+    fn take_back_agent_tabs(&self, space: u64, cx: &mut App);
+    /// The user takes over `tab`, where the agent with the id `agent` is at work: it may not act
+    /// there until they hand it back.
+    fn take_over(&self, agent: SharedString, tab: u64, cx: &mut App);
+    /// The user hands `tab` back to its agent.
+    fn hand_back(&self, tab: u64, cx: &mut App);
+    /// The user stops the agent with the id `agent`: what it's doing and asking ends.
+    fn stop_agent(&self, agent: SharedString, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.
@@ -427,6 +491,33 @@ pub trait Browser {
     fn quit(&self, cx: &mut App);
     /// Opens another window on the same Spaces, after this one's draw.
     fn new_window(&self, cx: &mut App);
+    /// new_window, with a new profile's first launch playing in the new window, which shows no
+    /// page.
+    fn welcome_window(&self, _cx: &mut App) {}
+    /// Whether the system opens http and https links with the browser, which the onboarding asks
+    /// only as it starts, to leave out its step for it.
+    fn is_default_browser(&self) -> bool {
+        true
+    }
+    /// Asks the system to make the browser the default, which asks the user first.
+    fn make_default_browser(&self, _cx: &mut App) {}
+    /// The system it runs on, which sets the default browser its own way.
+    fn os(&self) -> crate::default_browser::Os {
+        crate::default_browser::Os::current()
+    }
+
+    /// Whether crash reports are sent, as Settings' switch has it, or None while there's no
+    /// collector to send them to, when neither Settings nor the first launch offers it.
+    fn crash_reports(&self, _cx: &App) -> Option<bool> {
+        None
+    }
+    fn set_crash_reports(&self, _on: bool, _cx: &mut App) {}
+    /// Whether agents may use the browser, as Settings' switch has it, or None in a build without
+    /// the agents' server.
+    fn agents(&self, _cx: &App) -> Option<bool> {
+        None
+    }
+    fn set_agents(&self, _on: bool, _cx: &mut App) {}
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);
@@ -480,6 +571,17 @@ pub enum Trouble {
 
 /// A split view: its tabs in their order, which sit together in their list as one row, shown side
 /// by side, else stacked top to bottom.
+/// What an agent's Space's menu lists, to take back (agent_permissions).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AgentGrants {
+    /// The sites where the user answered the agent for good, by name: Always Allow (true) or
+    /// Never (false).
+    pub sites: Vec<(SharedString, bool)>,
+    pub connected: bool,
+    /// Whether the Space has a tab the user doesn't hold.
+    pub tabs: bool,
+}
+
 #[derive(Clone, Default)]
 pub struct Split {
     pub tabs: Vec<u64>,
