@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/auto_reset.h"
+#include "base/containers/contains.h"
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
@@ -136,6 +137,9 @@ struct Slot {
   bool bottom_corners_only = false;
 };
 
+// The pages and DevTools a window shows once it changes, which move between its slots unhidden.
+using Staying = std::vector<aura::Window*>;
+
 class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
  public:
   WindowViews(views::Widget* widget, HWND ui) : widget_(widget), ui_(ui) {
@@ -168,16 +172,23 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
     return slot.widget.get();
   }
 
-  // Takes |view| out of whichever slot holds it, so closing a slot never deletes a page.
-  static void Detach(aura::Window* view) {
-    if (view && view->parent()) {
-      view->parent()->RemoveChild(view);
+  // Takes |view| out of |holder| if it's there, so closing a slot never deletes a page, and hides
+  // it unless it's |staying| in the window. A page out of every window that's never hidden still
+  // counts as visible, so its tab would go on drawing and running its timers and never unload;
+  // Chromium's views hide a page they let go of too (NativeViewHostAura).
+  static void Detach(aura::Window* holder, aura::Window* view, const Staying& staying) {
+    if (holder && view && view->parent() == holder) {
+      holder->RemoveChild(view);
+      if (!base::Contains(staying, view)) {
+        view->Hide();
+      }
     }
   }
 
-  void Empty(Slot& slot) {
-    Detach(slot.page);
-    Detach(slot.devtools);
+  void Empty(Slot& slot, const Staying& staying = {}) {
+    aura::Window* holder = slot.widget ? slot.widget->GetNativeView() : nullptr;
+    Detach(holder, slot.page, staying);
+    Detach(holder, slot.devtools, staying);
     slot.page = nullptr;
     slot.devtools = nullptr;
     if (slot.widget) {
@@ -304,7 +315,9 @@ gfx::Insets InsetsOf(const gfx::Rect& frame, const gfx::Size& window) {
 // Puts |view| in |parent| if it isn't there, and shows it unless |hidden|.
 void Hold(aura::Window* parent, aura::Window* view, bool hidden) {
   if (view->parent() != parent) {
-    WindowViews::Detach(view);
+    if (view->parent()) {
+      view->parent()->RemoveChild(view);
+    }
     parent->AddChild(view);
   }
   if (hidden) {
@@ -354,10 +367,21 @@ void ShowPages(views::Widget* widget,
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = views->ContentSize();
 
+  Staying staying;
+  for (const Pane& pane : panes) {
+    staying.push_back(pane.page);
+    if (pane.devtools) {
+      staying.push_back(pane.devtools->view);
+    }
+  }
+  if (side_panel) {
+    staying.push_back(side_panel->page);
+  }
+
   std::vector<Slot>& slots = views->panes();
   // Pages that stay in the same pane keep their slot, and with it the keyboard.
   for (size_t i = panes.size(); i < slots.size(); ++i) {
-    views->Empty(slots[i]);
+    views->Empty(slots[i], staying);
   }
   if (slots.size() < panes.size()) {
     slots.resize(panes.size());
@@ -371,7 +395,7 @@ void ShowPages(views::Widget* widget,
     // A page or DevTools that left this pane leaves its slot.
     for (aura::Window* child : aura::Window::Windows(parent->children())) {
       if (child != pane.page && child != devtools) {
-        WindowViews::Detach(child);
+        WindowViews::Detach(parent, child, staying);
       }
     }
     if (devtools) {
@@ -402,7 +426,7 @@ void ShowPages(views::Widget* widget,
     aura::Window* parent = holder->GetNativeView();
     for (aura::Window* child : aura::Window::Windows(parent->children())) {
       if (child != side_panel->page) {
-        WindowViews::Detach(child);
+        WindowViews::Detach(parent, child, staying);
       }
     }
     Hold(parent, side_panel->page, hidden);
@@ -411,7 +435,7 @@ void ShowPages(views::Widget* widget,
     panel.bottom_corners_only = true;
     hidden ? holder->Hide() : holder->ShowInactive();
   } else {
-    views->Empty(panel);
+    views->Empty(panel, staying);
   }
   views->LayOut();
 }
