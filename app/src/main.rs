@@ -3892,6 +3892,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                     PasteAndMatchStyle,
                     OsAction::PasteAndMatchStyle,
                 ),
+                item("Paste URL as New Tab", Command::PasteUrlAsTab),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
