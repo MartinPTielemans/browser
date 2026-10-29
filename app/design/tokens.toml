@@ -497,6 +497,21 @@ neutral = 0.1
 # dialog.
 overlay-dark = 0x1f1d17
 dialog-dark = 0x2a2720
+# The light window, Dia's light layers: material 13 under white at `light-tint`, read before the
+# gradient as Dia's composite gives it over a black and a white backdrop, 0.8·255 + 0.2·(137, 243)
+# (interim, until the window run measures ours). A theme's colours lie over it at 0.75 of the
+# gradient's 0.36, and a neutral one's of its 0.12. The stand-in is Dia's light composite over
+# grey 20 (ours, as the dark one).
+light-tint = 0.8
+light-ground-over-black = 0xe7e7e7
+light-ground-over-white = 0xfdfdfd
+light-stand-in = 0xe9e9e9
+light-gradient-alpha = 0.27
+light-neutral-gradient-alpha = 0.09
+# What floats over a light window: Paper, the light menu's fill, and a dialog a step lighter, as
+# the dark dialog is a step lighter than the dark overlay (ours).
+overlay-light = 0xf3f0e8
+dialog-light = 0xfbf9f4
 # The accent of a Space without a theme starts from ilo green (#0B8045), lighter, so Ink reads on
 # it at 4.6:1 where Paper on #0B8045 is 4.4:1. On the measured window over a white backdrop it's
 # 2.7:1, so the palette takes it lighter still at its hue, to #57B97A, as it does a theme's colour.
@@ -781,8 +796,10 @@ cancel-height = 15.0
 # black, darker than any Space and without its colour (ours: Arc's and Dia's private look isn't
 # recorded).
 private-shade = 0.35
-# Dia's card, #121212 at 0.5: what shows before a page first paints.
+# Dia's card, #121212 at 0.5 on a dark window and white at 0.7 on a light one: what shows before
+# a page first paints.
 card = 0x1212_1280
+light-card = 0xffff_ffb3
 # Everything below is an alpha of the palette's ink, Ink or Paper (palette.rs): text and glyphs
 # through its floors, plates in Paper's terms. Arc's row tokens (docs/ux-spec.md › Tab rows): the
 # tab shown is 0.2, a row under the pointer 0.12 and a pressed one 0.065, with no line or shadow.
