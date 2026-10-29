@@ -120,10 +120,13 @@ jobs:
 
       # The installer's ilo updates itself with WinSparkle, from updates signed with the key whose
       # public half is app/branding/update-key, or the UPDATE_PUBLIC_KEY secret when it's set.
+      # With Cargo's release profile, which strips debuginfo, MSVC's linker writes no PDB, and
+      # Browser.pdb's public symbols are what name Browser.dll's functions in a crash report.
       - name: Browser.dll
         working-directory: app/windows
         env:
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
+          CARGO_PROFILE_RELEASE_STRIP: none
         run: |
           if [ -z "$UPDATE_PUBLIC_KEY" ] && [ -z "$(tr -d '[:space:]' < ../branding/update-key)" ]; then
             echo "::error::app/branding/update-key is empty, so ilo couldn't update itself (README.md › Releases)."
