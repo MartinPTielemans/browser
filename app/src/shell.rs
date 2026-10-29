@@ -192,6 +192,9 @@ const SELECTED_UNHOVER: f32 = 0.17;
 // each way over 70 ms, linear (Arc 1.170 rec at 2×, two presses: 1 pt in at each end).
 const PRESS_SCALE: f32 = 0.99;
 const PRESS_TIME: f32 = 0.07;
+// A pressed header button, back, forward or reload, shrinks the same way, also 1 pt in at each end,
+// so a press reads the same on a 32 pt button as on a row (ours: Arc's isn't recorded).
+const NAV_PRESS_SCALE: f32 = (NAV_SIZE - 2.) / NAV_SIZE;
 // A pressed row comes away once the pointer has moved this far (ours), and the tiles make room for
 // a dragged tab critically damped, as Arc's do (docs/ux-spec.md › Motion: Favorites room).
 const DRAG_START: f32 = 4.;
@@ -731,6 +734,16 @@ struct HeldRow {
     let_go: Option<Instant>,
 }
 
+/// A header button the pointer pressed, known by where it is, as reload and stop are one button;
+/// the command it ran then, when, when it let go, and whether it has been drawn all the way in.
+struct HeldNav {
+    x: f32,
+    command: Command,
+    pressed: Instant,
+    let_go: Option<Instant>,
+    drawn_in: bool,
+}
+
 /// A tab's row or tile the pointer pressed, which follows the pointer once it has moved far enough.
 /// Over the favorites it's drawn as a tile, and over the list as a row. Or links or files dragged
 /// over the list from the page or another app, which the rows make room for in the same way.
@@ -934,6 +947,8 @@ pub struct Shell {
     unhovered: Vec<(Row, Instant)>,
     /// The row the pointer pressed, for its plate's shrinking and growing back.
     held_row: Option<HeldRow>,
+    /// The header button the pointer pressed, for its shrinking and growing back.
+    held_nav: Option<HeldNav>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
     /// Where the frame last drawn had each tab's row in the list, which the pointer's presses hit
@@ -1287,6 +1302,7 @@ impl Shell {
             menu_open: false,
             unhovered: Vec::new(),
             held_row: None,
+            held_nav: None,
             slides: HashMap::new(),
             drawn_rows: RefCell::default(),
             drawn_top: RefCell::default(),
@@ -2820,6 +2836,7 @@ impl Render for Shell {
         self.step_retip(cx);
         self.step_drag_shape(window, cx);
         self.step_held_row(window);
+        self.step_held_nav(window);
         self.step_form_going(cx);
         self.step_scroll_edge(window);
         self.step_tools(window);
@@ -3337,6 +3354,7 @@ impl Shell {
         self.step_retip(cx);
         self.step_drag_shape(window, cx);
         self.step_held_row(window);
+        self.step_held_nav(window);
         self.step_form_going(cx);
         self.step_scroll_edge(window);
         self.step_tools(window);

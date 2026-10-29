@@ -782,16 +782,20 @@ pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Poin
 }
 
 impl HeldRow {
-    /// How far the plate has shrunk at `now`, 0 to 1: in while it's held, then back out from as
-    /// far as it got, at the same pace.
     fn depth(&self, now: Instant) -> f32 {
-        let way = |from: Instant, to: Instant| {
-            (to.saturating_duration_since(from).as_secs_f32() / PRESS_TIME).min(1.)
-        };
-        match self.let_go {
-            None => way(self.pressed, now),
-            Some(let_go) => (way(self.pressed, let_go) - way(let_go, now)).max(0.),
-        }
+        held_depth(self.pressed, self.let_go, now)
+    }
+}
+
+/// How far a plate pressed at `pressed` has shrunk at `now`, 0 to 1: in over PRESS_TIME while it's
+/// held, then back out from as far as it got, at the same pace, once it's `let_go`.
+pub(super) fn held_depth(pressed: Instant, let_go: Option<Instant>, now: Instant) -> f32 {
+    let way = |from: Instant, to: Instant| {
+        (to.saturating_duration_since(from).as_secs_f32() / PRESS_TIME).min(1.)
+    };
+    match let_go {
+        None => way(pressed, now),
+        Some(let_go) => (way(pressed, let_go) - way(let_go, now)).max(0.),
     }
 }
 
