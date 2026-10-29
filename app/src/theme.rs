@@ -1,6 +1,7 @@
 //! A Space's theme, as Arc's theme picker makes it: one to three colours placed in a square field,
 //! how strongly the window takes them, its grain, and its appearance (docs/ux-spec.md › Themes).
-//! The core keeps it with the Space as text, and the main colour as the Space's colour.
+//! A theme from Arc can also have another look for a dark window. The core keeps it with the
+//! Space as text, and the main colour as the Space's colour.
 //!
 //! The field is a disc of HSL colours about its centre (Arc 1.170 rec at 2×, twelve handles): the
 //! hue is the angle clockwise from the right, saturation is 1, and lightness is the distance from
@@ -53,6 +54,20 @@ pub struct Theme {
     /// 0 to 1: how much grain lies over them.
     pub grain: f32,
     pub appearance: Appearance,
+    /// The look a dark window draws instead, where the theme has two, as Arc's can; the picker
+    /// makes themes of one.
+    pub dark: Option<Look>,
+}
+
+/// A theme's colours, intensity and grain, without its appearance.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub x: f32,
+    pub y: f32,
+    pub saturation: f32,
+    pub count: usize,
+    pub intensity: f32,
+    pub grain: f32,
 }
 
 impl Theme {
@@ -67,7 +82,22 @@ impl Theme {
             intensity: DEFAULT_INTENSITY,
             grain: 0.,
             appearance: Appearance::Automatic,
+            dark: None,
         }
+    }
+
+    /// The theme's own look, the one a light window draws.
+    pub fn look(&self) -> Look {
+        let Theme { x, y, saturation, count, intensity, grain, .. } = *self;
+        Look { x, y, saturation, count, intensity, grain }
+    }
+
+    /// The theme as a window draws it, `dark` or light: its dark look on a dark window where it
+    /// has one, as a theme of one look.
+    pub fn shown(self, dark: bool) -> Theme {
+        let look = self.dark.filter(|_| dark).unwrap_or(self.look());
+        let Look { x, y, saturation, count, intensity, grain } = look;
+        Theme { x, y, saturation, count, intensity, grain, dark: None, ..self }
     }
 
     /// A theme of `color`, 0xRRGGBB, alone: in the field at its hue and HSL lightness, and at its
@@ -128,7 +158,8 @@ impl Theme {
     }
 
     /// The text the core keeps; the saturation only once a swatch has set it, so a theme from the
-    /// field reads as it did before swatches kept theirs.
+    /// field reads as it did before swatches kept theirs, and a dark look as its place, count,
+    /// intensity, grain and saturation.
     pub fn to_text(&self) -> String {
         let text = format!(
             "x={:.4} y={:.4} colors={} intensity={:.3} grain={:.3} appearance={}",
@@ -139,10 +170,16 @@ impl Theme {
             self.grain,
             self.appearance.name()
         );
-        if self.saturation < 1. {
+        let text = if self.saturation < 1. {
             format!("{text} saturation={:.4}", self.saturation)
         } else {
             text
+        };
+        match self.dark {
+            Some(Look { x, y, saturation, count, intensity, grain }) => format!(
+                "{text} dark={x:.4},{y:.4},{count},{intensity:.3},{grain:.3},{saturation:.4}"
+            ),
+            None => text,
         }
     }
 
@@ -174,12 +211,27 @@ impl Theme {
                         theme.appearance = *appearance;
                     }
                 }
+                "dark" => theme.dark = parse_look(value),
                 _ => {}
             }
         }
         let (x, y) = in_disc(x?, y?);
         Some(Theme { x, y, ..theme })
     }
+}
+
+/// A dark look as `to_text` writes it: x, y, count, intensity, grain and saturation.
+fn parse_look(text: &str) -> Option<Look> {
+    let numbers: Vec<f32> = (text.split(','))
+        .map(|n| n.parse::<f32>().ok().filter(|n| n.is_finite()))
+        .collect::<Option<_>>()?;
+    let [x, y, count, intensity, grain, saturation] = numbers[..] else {
+        return None;
+    };
+    let (x, y) = in_disc(x, y);
+    let count = (count as usize).clamp(1, MAX_COLORS);
+    let [intensity, grain, saturation] = [intensity, grain, saturation].map(|n| n.clamp(0., 1.));
+    Some(Look { x, y, saturation, count, intensity, grain })
 }
 
 /// (x, y) turned `degrees` clockwise about the field's centre.
