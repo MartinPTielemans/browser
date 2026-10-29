@@ -94,7 +94,8 @@ pub struct Suggestion {
     pub tab: u64,
     /// What completes the text typed to this row, for the first row only.
     pub completion: String,
-    /// Whether ⇧⌦ can take it out of the profile's history.
+    /// Whether ⇧⌦, ⌥⌘⌫ or its ✕ can take it out of the profile's history: a page visited or a
+    /// search typed before, never one of the well-known sites or the search for what's typed.
     pub removable: bool,
     /// The browser command the row runs instead, and its shortcut.
     pub command: Option<shell::Command>,
@@ -346,9 +347,13 @@ pub fn open_at(
     cx: &mut App,
 ) -> Option<WindowHandle<CommandBar>> {
     // Off the Mac ⌃ and ⌥ are both Alt, and Alt+↩ is ⌥↩'s, near Chrome's Alt+Enter, which opens a
-    // tab, so ⌃↩ has no key there.
+    // tab, so ⌃↩ has no key there. Arc's ⌥⌘⌫ would be Ctrl+Alt+Backspace, which X11 can take to end
+    // the session, so there ⇧⌦ alone removes a suggestion, as in Chrome.
     if !crate::shell::OFF_THE_MAC {
-        cx.bind_keys([KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar"))]);
+        cx.bind_keys([
+            KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar")),
+            KeyBinding::new("alt-cmd-backspace", Remove, Some("CommandBar")),
+        ]);
     }
     let key = |key, action| crate::shell::view_binding(key, action, "CommandBar", cx);
     let mac_keys = [
@@ -1203,15 +1208,52 @@ impl CommandBar {
         }
     }
 
-    /// ⇧⌦: takes the selected row's page out of the profile's history, if it came from there, as
-    /// Chrome does. The core lists the rows again without it.
+    /// ⇧⌦, as Chrome's, or ⌥⌘⌫, as Arc's: takes the selected row out of the profile's history.
     fn remove(&mut self, _: &Remove, _: &mut Window, _: &mut Context<Self>) {
-        let Some(row) = self.chosen().filter(|row| row.removable) else {
+        if self.chosen().is_some() {
+            self.remove_row(self.selected);
+        }
+    }
+
+    /// Takes row `index`'s page or search out of the profile's history, if it came from there. The
+    /// core lists the rows again without it, and the row under it takes its place.
+    fn remove_row(&self, index: usize) {
+        let Some(row) = self.rows.get(index).filter(|row| row.removable) else {
             return;
         };
         // check.sh reads this line.
         log!("browser: command bar removes {}", row.url);
         self.host.remove_suggestion(&row.url);
+    }
+
+    /// The ✕ a row from history shows under the pointer, as Arc's does, which takes it out. It's
+    /// the arrow's tile, so the two read as one kind.
+    fn remove_button(&self, index: usize, selected: bool, cx: &mut Context<Self>) -> AnyElement {
+        let palette = palette::current(cx);
+        let (tile, color) = match selected {
+            true => (Hsla::from(palette.accent_label), Hsla::from(palette.accent)),
+            false => (palette.plate(ARROW_TILE), palette.on_overlay(ARROW)),
+        };
+        div()
+            .id(("remove", index))
+            .when(self.a11y, |button| button.role(Role::Button).aria_label("Remove Suggestion"))
+            .size(px(ICON_BOX))
+            .flex_none()
+            .ml(px(7.))
+            .mr(px(3.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(CHIP_RADIUS))
+            .bg(tile)
+            .child(svg().path("icons/x.svg").size(px(14.)).text_color(color))
+            // The click is the ✕'s, not the row's under it.
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |bar, _, _, cx| {
+                cx.stop_propagation();
+                bar.remove_row(index);
+            }))
+            .into_any_element()
     }
 
     /// ⌥↩: goes where ↩ would, in a new tab in a split view with the tab shown, or the tab the
@@ -1567,6 +1609,11 @@ impl CommandBar {
             })
             .when_some(row.shortcut.clone(), |line, shortcut| {
                 line.child(div().flex_1()).child(chip(shortcut))
+            })
+            // Under the pointer, the selected row too, as Arc's.
+            .when(row.removable && self.hovered == Some(index), |line| {
+                line.when(row.tab == 0, |line| line.child(div().flex_1()))
+                    .child(self.remove_button(index, selected, cx))
             })
     }
 }

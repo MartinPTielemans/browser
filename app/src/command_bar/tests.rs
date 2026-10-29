@@ -305,6 +305,15 @@ impl Bar {
         self.cx.run_until_parked();
     }
 
+    /// A click where row `index` shows its ✕ under the pointer, at its end.
+    fn click_remove(&mut self, index: usize) {
+        self.point_at(index);
+        let x = WIDTH - LIST_X - PLATE_INSET - ROW_END - 3. - ICON_BOX / 2.;
+        let y = height(0) + LINE + LIST_TOP + (index as f32 + 0.5) * ROW_HEIGHT;
+        self.cx.simulate_click(point(px(x), px(y)), Modifiers::none());
+        self.cx.run_until_parked();
+    }
+
     /// The row with the selection's plate, and the row with the pointer's, if it has one.
     fn plates(&mut self) -> (usize, Option<usize>) {
         self.window
@@ -540,6 +549,33 @@ fn shift_delete_takes_a_page_out_of_history(cx: &mut TestAppContext) {
     bar.suggest("ex", vec![searching("ex"), page("https://b.test/")]);
     bar.keys("enter");
     assert_eq!(bar.calls(), ["open https://b.test/", "hide"]);
+}
+
+/// A page from history, or a search typed before, shows a ✕ under the pointer that takes it out,
+/// as Arc's does, and ⌥⌘⌫ takes out the selected one, as ⇧⌦ does. The search for what's typed
+/// and the well-known sites have none: there a click at the row's end takes the row.
+#[gpui::test]
+fn the_pointer_shows_a_cross_that_takes_a_suggestion_out(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    let typed_before = Suggestion { removable: true, ..searching("example") };
+    let site = Suggestion { removable: false, ..page("https://example.com/") };
+    let rows = vec![searching("ex"), page("https://a.test/"), typed_before, site];
+    bar.suggest("ex", rows);
+    bar.click_remove(1);
+    assert_eq!(bar.calls(), ["remove https://a.test/"]);
+    bar.click_remove(2);
+    assert_eq!(bar.calls(), [format!("remove {}", search("example"))]);
+    bar.keys("down alt-cmd-backspace");
+    assert_eq!(bar.calls(), ["remove https://a.test/"]);
+    bar.click_remove(3);
+    assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
+
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), page("https://a.test/")]);
+    bar.click_remove(0);
+    assert_eq!(bar.calls(), [format!("open {}", search("ex")), "hide".into()]);
 }
 
 #[gpui::test]
