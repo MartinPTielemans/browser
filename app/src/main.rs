@@ -2742,6 +2742,12 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     if matches!(command, Command::Undo | Command::Redo) && key.editing {
         return false;
     }
+    // Its field opens before GPUI has read the keys typed after it, which it holds for the field
+    // under Wayland, as for a shortcut the page gets first (gpui_linux::hold_keys).
+    #[cfg(target_os = "linux")]
+    if reserved && command.opens_field() {
+        gpui_linux::hold_keys(&held_keystroke(key));
+    }
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
