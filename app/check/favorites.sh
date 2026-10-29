@@ -119,16 +119,19 @@ expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't sh
 # The footer's Library button names itself beside it, with its shortcut's keys on chips (Arc), and
 # the header's sidebar button under it; each goes when the pointer leaves.
 check_layout "before the buttons' tooltips"
+# Off the Mac the chips name Ctrl and Shift (commands.rs's keys_named).
+library_keys='⇧⌘L' sidebar_keys='⌘S'
+[ "$(uname)" = Darwin ] || library_keys=CtrlShiftL sidebar_keys=CtrlS
 send move 24 $((height - 25))
-expect '^browser: tooltip shown View Library ⇧⌘L$' \
-  "resting on the Library button didn't show View Library and ⇧⌘L"
+expect "^browser: tooltip shown View Library $library_keys\$" \
+  "resting on the Library button didn't show View Library and $library_keys"
 expect '^browser: tooltip window shown$' "the Library button's tooltip didn't fade in"
 ../tools/window-screenshot.sh "$pid" "$out/library-tooltip.png" || fail "no window to capture"
 send move 100 400
 expect '^browser: tooltip hidden$' "the pointer leaving the Library button didn't hide its tooltip"
 send move 93 23
-expect '^browser: tooltip shown Hide Sidebar ⌘S$' \
-  "resting on the sidebar button didn't show Hide Sidebar and ⌘S"
+expect "^browser: tooltip shown Hide Sidebar $sidebar_keys\$" \
+  "resting on the sidebar button didn't show Hide Sidebar and $sidebar_keys"
 expect '^browser: tooltip window shown$' "the sidebar button's tooltip didn't fade in"
 ../tools/window-screenshot.sh "$pid" "$out/header-tooltip.png" || fail "no window to capture"
 send move 100 400
