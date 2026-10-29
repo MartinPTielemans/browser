@@ -28,6 +28,7 @@ use super::{
     display_face::{cap_top, display_text},
 };
 use crate::{
+    menu::Look,
     palette::Palette,
     text_input::TextInput,
     tooltip::{Anchor, Tip},
