@@ -1757,15 +1757,14 @@ impl Browser for Engine {
             shell.update(cx, |shell, cx| shell.drag_away(cx)).ok();
         }
         let space = unsafe { bc::bc_window_space(self.window) };
-        let Some((window, at)) = under else {
-            return;
-        };
-        let Some(shell) = shell_of(window) else {
-            return;
+        let Some((window, at, shell)) =
+            under.and_then(|(window, at)| Some((window, at, shell_of(window)?)))
+        else {
+            return open_window_for(self.window, self.ui_view, tab, position, cx);
         };
         let place = shell.update(cx, |shell, cx| shell.drop_tab_in(tab, at, cx)).ok().flatten();
         let Some((pinned, folder, index)) = place else {
-            return;
+            return open_window_for(self.window, self.ui_view, tab, position, cx);
         };
         let Some(ui_view) = WINDOWS.with_borrow(|windows| {
             windows.iter().find(|open| open.id == window).map(|open| open.ui_view)
@@ -2845,16 +2844,20 @@ unsafe extern "C" fn tab_key_unhandled(
 /// Opens a browser window and returns its id, with `ui_view` filling it under the page: the first
 /// at the frame the front window had when the browser last quit, saved window `saved` behind the
 /// others at its own (bc_window_open_saved), each kept on screen, else centered on the main
-/// display, or cascaded from the one of `after` and as big. With `private`, a profile, it's a
-/// private window in that profile's off-the-record session.
+/// display, or cascaded from the one of `after` and as big, unless it's given its frame, `at`.
+/// With `private`, a profile, it's a private window in that profile's off-the-record session.
 fn open_browser_window(
     ui_view: *mut c_void,
     after: Option<*mut c_void>,
     private: Option<bc::bc_id>,
     saved: Option<usize>,
+    at: Option<bc::bc_rect>,
 ) -> Option<bc::bc_id> {
-    let frames = if after.is_none() || saved.is_some() { saved_frames() } else { Vec::new() };
-    let frame = frames.get(saved.unwrap_or(0)).copied().and_then(placed);
+    let frames = match at {
+        None if after.is_none() || saved.is_some() => saved_frames(),
+        _ => Vec::new(),
+    };
+    let frame = at.or_else(|| frames.get(saved.unwrap_or(0)).copied().and_then(placed));
     let bounds = frame.unwrap_or_else(|| {
         let (mut width, mut height) = WINDOW_SIZE;
         let (mut x, mut y) = (0., 0.);
@@ -2933,7 +2936,7 @@ fn open_saved_windows(cx: &mut App) {
         let Some(above) = WINDOWS.with_borrow(|windows| windows.last().cloned()) else {
             return;
         };
-        open_window_as(Some(above), None, Some(index), cx);
+        open_window_as(Some(above), None, Some(index), None, cx);
     }
 }
 
@@ -3015,6 +3018,36 @@ fn window_under(
         && profile(space) == tabs_profile;
     let at = point(px((x - under.x) as f32), px((y - under.y) as f32));
     takes.then_some((window, at))
+}
+
+/// Opens a window for `tab`, dragged out of window `from`, with `ui_view`, and let go at `position`
+/// there, away from any list: as ⌘N's, as big as `from`, centred on the pointer and kept on screen
+/// where the platform says where windows are, showing the tab's page, live.
+fn open_window_for(
+    from: bc::bc_id,
+    ui_view: *mut c_void,
+    tab: u64,
+    position: Point<Pixels>,
+    cx: &mut App,
+) {
+    let frame = window_frame(ui_view).and_then(|frame| {
+        let x = frame.x + f64::from(position.x) - frame.width / 2.;
+        let y = frame.y + f64::from(position.y) - frame.height / 2.;
+        placed(bc::bc_rect { x, y, ..frame })
+    });
+    // Outside the shell's update, as the new window's shell reads this one's.
+    cx.defer(move |cx| {
+        let from = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|window| window.id == from && !window.private).cloned()
+        });
+        let Some(window) = from.and_then(|from| open_window_as(Some(from), None, None, frame, cx))
+        else {
+            return;
+        };
+        // check.sh waits for this line.
+        log!("browser: tab {tab} opened in window {window}");
+        unsafe { bc::bc_window_select(window, tab) };
+    });
 }
 
 /// The shell of the window `id`, if it's open.
@@ -3171,16 +3204,17 @@ fn open_window(
     private: Option<bc::bc_id>,
     cx: &mut App,
 ) -> Option<bc::bc_id> {
-    open_window_as(from, private, None, cx)
+    open_window_as(from, private, None, None, cx)
 }
 
 /// open_window, or with `saved`, the saved window after the first the launch brings back
 /// (bc_window_open_saved): behind `from` and not key, starting with its shell's state as ⌘N's
-/// window does, but showing the Space it showed, with its page.
+/// window does, but showing the Space it showed, with its page. With `at`, at that frame.
 fn open_window_as(
     from: Option<BrowserWindow>,
     private: Option<bc::bc_id>,
     saved: Option<usize>,
+    at: Option<bc::bc_rect>,
     cx: &mut App,
 ) -> Option<bc::bc_id> {
     #[cfg(not(target_os = "linux"))]
@@ -3189,7 +3223,7 @@ fn open_window_as(
     #[cfg(target_os = "linux")]
     let ui_view = gpui_linux::new_host_window().unwrap_or(0) as usize as *mut c_void;
     let after = from.as_ref().map(|from| from.ui_view);
-    let id = open_browser_window(ui_view, after, private, saved)?;
+    let id = open_browser_window(ui_view, after, private, saved, at)?;
     // Under Wayland, the window's surface, which GPUI's goes in as a subsurface, is the view, and
     // GPUI's window starts at its size.
     #[cfg(target_os = "linux")]
