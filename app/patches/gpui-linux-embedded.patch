@@ -2879,10 +2879,18 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git a/crates/gpui_linux/src/linux/x11/client.rs b/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..1ecd563b4a 100644
+index e21f019c64..98f7500347 100644
 --- a/crates/gpui_linux/src/linux/x11/client.rs
 +++ b/crates/gpui_linux/src/linux/x11/client.rs
-@@ -25,6 +25,7 @@ use x11rb::{
+@@ -3,6 +3,7 @@ use ashpd::WindowIdentifier;
+ use calloop::{
+     LoopHandle, RegistrationToken,
+     generic::{FdWrapper, Generic},
++    timer::TimeoutAction,
+ };
+ use collections::HashMap;
+ use core::str;
+@@ -25,6 +26,7 @@ use x11rb::{
      cursor,
      errors::ConnectionError,
      protocol::randr::ConnectionExt as _,
@@ -2890,7 +2898,7 @@ index e21f019c64..1ecd563b4a 100644
      protocol::xinput::ConnectionExt,
      protocol::xkb::ConnectionExt as _,
      protocol::xproto::{
-@@ -58,12 +59,24 @@ use crate::linux::{
+@@ -58,12 +60,24 @@ use crate::linux::{
  };
  use crate::linux::{LinuxCommon, LinuxKeyboardLayout, X11Window, modifiers_from_xinput_info};
  
@@ -2916,7 +2924,123 @@ index e21f019c64..1ecd563b4a 100644
  };
  use gpui_wgpu::{CompositorGpuHint, GpuContext};
  
-@@ -204,6 +217,7 @@ pub struct X11ClientState {
+@@ -163,8 +177,106 @@ pub struct Xdnd {
+ struct PointerDeviceState {
+     horizontal: ScrollAxisState,
+     vertical: ScrollAxisState,
++    /// Whether fingers lifting from it send a scroll of nothing, so a pause while they rest on the
++    /// touchpad doesn't end their scroll (`FingerScrolls`): Xwayland's devices and libinput's
++    /// driver's do.
++    lifts: bool,
+ }
+ 
++/// Fingers scrolling on a touchpad. XInput's smooth scrolling has no begin or end, so the first
++/// scroll that isn't a wheel's starts it, and the scroll of nothing that libinput's driver and
++/// Xwayland send as the fingers lift ends it, or for a driver that sends none (synaptics, evdev),
++/// a quiet spell. GPUI's other platforms say where fingers start and lift, as a swipe needs.
++#[derive(Default)]
++struct FingerScrolls(Option<FingerScroll>);
++
++struct FingerScroll {
++    /// The window it started over, which hears all of it.
++    window: xproto::Window,
++    device: xinput::DeviceId,
++    /// Whether its device sends a lift (`PointerDeviceState::lifts`).
++    lifts: bool,
++    position: Point<Pixels>,
++    modifiers: Modifiers,
++    last: Instant,
++}
++
++/// A finger scroll's event, with the window it goes to.
++type FingerEvent = (xproto::Window, gpui::ScrollEvent);
++
++impl FingerScrolls {
++    /// A scroll of `lines` from `device` over `window` at `now`: the finger scroll's events, after
++    /// an end to another device's, or `None` for a wheel's.
++    fn scroll(
++        &mut self,
++        window: xproto::Window,
++        device: xinput::DeviceId,
++        lifts: bool,
++        lines: Point<f64>,
++        position: Point<Pixels>,
++        modifiers: Modifiers,
++        now: Instant,
++    ) -> Option<Vec<FingerEvent>> {
++        // A scroll of nothing is the fingers lifting, which no wheel sends.
++        if lines.x == 0. && lines.y == 0. {
++            return Some(Vec::from_iter(self.end_if(|fingers| fingers.device == device)));
++        }
++        let scrolling = self.0.as_ref().is_some_and(|fingers| fingers.device == device);
++        if !scrolling && is_wheel(lines) {
++            return None;
++        }
++        // Another device's fingers have let go.
++        let mut events = Vec::from_iter(self.end_if(|fingers| fingers.device != device));
++        let phase = if self.0.is_some() { TouchPhase::Moved } else { TouchPhase::Started };
++        let fingers = self.0.get_or_insert(FingerScroll {
++            window,
++            device,
++            lifts,
++            position,
++            modifiers,
++            last: now,
++        });
++        if fingers.window == window {
++            fingers.position = position;
++        }
++        (fingers.modifiers, fingers.last) = (modifiers, now);
++        events.push((
++            fingers.window,
++            finger_scroll_event(fingers.position, lines, modifiers, phase),
++        ));
++        Some(events)
++    }
++
++    /// When the scroll ends if its device sends nothing more: a quiet spell after its last.
++    fn due(&self) -> Option<Instant> {
++        let fingers = self.0.as_ref()?;
++        Some(fingers.last + if fingers.lifts { FINGER_SCROLL_LOST } else { FINGER_SCROLL_QUIET })
++    }
++
++    /// Ends the scroll if `ends` it: the window it started over hears it end, with no delta.
++    fn end_if(&mut self, ends: impl FnOnce(&FingerScroll) -> bool) -> Option<FingerEvent> {
++        let fingers = self.0.take_if(|fingers| ends(fingers))?;
++        let event = finger_scroll_event(
++            fingers.position,
++            Point::default(),
++            fingers.modifiers,
++            TouchPhase::Ended,
++        );
++        Some((fingers.window, event))
++    }
++}
++
++/// A finger scroll's pixels for each of XInput's lines, as on Wayland: Xwayland moves the
++/// valuator a tenth of a click for each of Wayland's pixels, which GPUI triples there as it does
++/// lines here.
++const FINGER_PIXELS_PER_LINE: f64 = 10.;
++/// The quiet spell that ends a finger scroll from a device that sends no lift: a touchpad reports
++/// every 7 to 12 ms while the fingers move.
++const FINGER_SCROLL_QUIET: Duration = Duration::from_millis(60);
++/// The one for a device that does, after which a lift that went to another window is taken as
++/// heard.
++const FINGER_SCROLL_LOST: Duration = Duration::from_secs(1);
++
+ #[derive(Debug, Default)]
+ struct ScrollAxisState {
+     /// Valuator number for looking up this axis's scroll value.
+@@ -176,7 +288,7 @@ struct ScrollAxisState {
+     /// This gets set to `None` whenever it might be invalid - when devices change or when window focus changes.
+     /// The logic errs on the side of invalidating this, since the consequence is just skipping the delta of one scroll event.
+     /// The consequence of not invalidating it can be large invalid deltas, which are much more user visible.
+-    scroll_value: Option<f32>,
++    scroll_value: Option<f64>,
+ }
+ 
+ pub struct X11ClientState {
+@@ -204,6 +316,7 @@ pub struct X11ClientState {
      pub(crate) xcb_connection: Rc<XCBConnection>,
      xkb_device_id: i32,
      client_side_decorations_supported: bool,
@@ -2924,7 +3048,18 @@ index e21f019c64..1ecd563b4a 100644
      pub(crate) x_root_index: usize,
      pub(crate) resource_database: Database,
      pub(crate) atoms: XcbAtoms,
-@@ -525,6 +539,7 @@ impl X11Connection {
+@@ -232,6 +345,10 @@ pub struct X11ClientState {
+     pub(crate) cursor_hidden_window: Option<xproto::Window>,
+ 
+     pointer_device_states: BTreeMap<xinput::DeviceId, PointerDeviceState>,
++    finger_scrolls: FingerScrolls,
++    /// Ends a finger scroll after its quiet spell, and exists only while there is one, so an idle
++    /// client doesn't wake.
++    finger_scroll_timer: Option<RegistrationToken>,
+ 
+     pub(crate) supports_xinput_gestures: bool,
+ 
+@@ -525,6 +642,7 @@ impl X11Connection {
                  xcb_connection,
                  xkb_device_id,
                  client_side_decorations_supported,
@@ -2932,10 +3067,98 @@ index e21f019c64..1ecd563b4a 100644
                  x_root_index,
                  resource_database,
                  atoms,
-@@ -879,8 +894,93 @@ impl X11Client {
+@@ -548,6 +666,8 @@ impl X11Connection {
+                 invisible_cursor_cache: None,
+ 
+                 pointer_device_states,
++                finger_scrolls: FingerScrolls::default(),
++                finger_scroll_timer: None,
+ 
+                 supports_xinput_gestures,
+ 
+@@ -879,8 +999,172 @@ impl X11Client {
              .map(|window_reference| window_reference.window.clone())
      }
  
++    /// A smooth scroll of `lines` from `device` over `x_window`: a wheel's, or fingers' with
++    /// where they start and lift (`FingerScrolls`).
++    fn scroll(
++        &self,
++        window: &X11WindowStatePtr,
++        x_window: xproto::Window,
++        device: xinput::DeviceId,
++        lines: Point<f64>,
++        position: Point<Pixels>,
++        modifiers: Modifiers,
++    ) {
++        let mut state = self.0.borrow_mut();
++        let lifts = (state.pointer_device_states.get(&device)).is_some_and(|pointer| pointer.lifts);
++        let events = (state.finger_scrolls).scroll(
++            x_window,
++            device,
++            lifts,
++            lines,
++            position,
++            modifiers,
++            Instant::now(),
++        );
++        drop(state);
++        let Some(events) = events else {
++            let lines = Point::new(lines.x as f32, lines.y as f32);
++            window.handle_input(PlatformInput::Scroll(make_scroll_wheel_event(
++                position, lines, modifiers,
++            )));
++            return;
++        };
++        self.finger_scroll_timer();
++        self.finger_scroll_events(events);
++    }
++
++    /// Keeps the finger scroll's timer while there is one, and none otherwise.
++    fn finger_scroll_timer(&self) {
++        let mut state = self.0.borrow_mut();
++        let scrolling = state.finger_scrolls.0.is_some();
++        if scrolling && state.finger_scroll_timer.is_none() {
++            let this = state.this.clone();
++            state.finger_scroll_timer = crate::linux::platform::insert_timer(
++                &state.loop_handle,
++                FINGER_SCROLL_QUIET,
++                move |deadline| {
++                    (this.get_client()).map_or(TimeoutAction::Drop, |client| {
++                        client.finger_scroll_quiet(deadline)
++                    })
++                },
++            )
++            .log_err();
++        } else if !scrolling && let Some(timer) = state.finger_scroll_timer.take() {
++            state.loop_handle.remove(timer);
++        }
++    }
++
++    /// The finger scroll's timer: ends the scroll once its quiet spell is over, or waits till then.
++    fn finger_scroll_quiet(&self, now: Instant) -> TimeoutAction {
++        let mut state = self.0.borrow_mut();
++        if let Some(due) = state.finger_scrolls.due()
++            && now < due
++        {
++            return TimeoutAction::ToInstant(due);
++        }
++        // It goes as this returns.
++        state.finger_scroll_timer = None;
++        let ended = state.finger_scrolls.end_if(|_| true);
++        drop(state);
++        self.finger_scroll_events(ended);
++        TimeoutAction::Drop
++    }
++
++    fn finger_scroll_events(&self, events: impl IntoIterator<Item = FingerEvent>) {
++        for (window, event) in events {
++            if let Some(window) = self.get_window(window) {
++                window.handle_input(PlatformInput::Scroll(event));
++            }
++        }
++    }
++
 +    /// The menu's window and the point in it, in 16.16 fixed point, for a held button's motion or
 +    /// release at the root's `root_x`, `root_y` over the menu that shows, which the X server's
 +    /// grab of the pointer gives `window`, as the press that opened the menu went there.
@@ -3026,7 +3249,7 @@ index e21f019c64..1ecd563b4a 100644
              Event::UnmapNotify(event) => {
                  let mut state = self.0.borrow_mut();
                  if let Some(window_ref) = state.windows.get_mut(&event.window) {
-@@ -890,10 +990,21 @@ impl X11Client {
+@@ -890,10 +1174,21 @@ impl X11Client {
              }
              Event::MapNotify(event) => {
                  let mut state = self.0.borrow_mut();
@@ -3050,7 +3273,7 @@ index e21f019c64..1ecd563b4a 100644
              }
              Event::VisibilityNotify(event) => {
                  let mut state = self.0.borrow_mut();
-@@ -1044,6 +1155,48 @@ impl X11Client {
+@@ -1044,6 +1339,48 @@ impl X11Client {
                          height: event.height.into(),
                      },
                  };
@@ -3099,7 +3322,7 @@ index e21f019c64..1ecd563b4a 100644
                  let window = self.get_window(event.window)?;
                  window
                      .set_bounds(bounds)
-@@ -1069,6 +1222,32 @@ impl X11Client {
+@@ -1069,6 +1406,32 @@ impl X11Client {
                  self.enable_ime();
              }
              Event::FocusOut(event) => {
@@ -3132,7 +3355,7 @@ index e21f019c64..1ecd563b4a 100644
                  let window = self.get_window(event.event)?;
                  window.set_active(false);
                  let mut state = self.0.borrow_mut();
-@@ -1117,6 +1296,12 @@ impl X11Client {
+@@ -1117,6 +1480,12 @@ impl X11Client {
                  );
                  let modifiers = modifiers_from_xkb(&state.xkb);
                  let capslock = capslock_from_xkb(&state.xkb);
@@ -3145,7 +3368,7 @@ index e21f019c64..1ecd563b4a 100644
                  if state.last_modifiers_changed_event == modifiers
                      && state.last_capslock_changed_event == capslock
                  {
-@@ -1230,6 +1415,8 @@ impl X11Client {
+@@ -1230,6 +1599,8 @@ impl X11Client {
              }
              Event::XinputButtonPress(event) => {
                  let window = self.get_window(event.event)?;
@@ -3154,7 +3377,7 @@ index e21f019c64..1ecd563b4a 100644
                  let mut state = self.0.borrow_mut();
  
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -1307,7 +1494,12 @@ impl X11Client {
+@@ -1307,7 +1678,12 @@ impl X11Client {
                      }
                  }
              }
@@ -3168,7 +3391,7 @@ index e21f019c64..1ecd563b4a 100644
                  let window = self.get_window(event.event)?;
                  let mut state = self.0.borrow_mut();
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -1332,7 +1524,26 @@ impl X11Client {
+@@ -1332,7 +1708,26 @@ impl X11Client {
                      None => {}
                  }
              }
@@ -3196,15 +3419,38 @@ index e21f019c64..1ecd563b4a 100644
                  let window = self.get_window(event.event)?;
                  let mut state = self.0.borrow_mut();
                  state.restore_cursor_after_hide();
-@@ -1416,6 +1627,7 @@ impl X11Client {
+@@ -1384,12 +1779,8 @@ impl X11Client {
+                 if let Some(pointer) = state.pointer_device_states.get_mut(&event.sourceid) {
+                     let scroll_delta = get_scroll_delta_and_update_state(pointer, &event);
+                     drop(state);
+-                    if let Some(scroll_delta) = scroll_delta {
+-                        window.handle_input(PlatformInput::Scroll(make_scroll_wheel_event(
+-                            position,
+-                            scroll_delta,
+-                            modifiers,
+-                        )));
++                    if let Some(lines) = scroll_delta {
++                        self.scroll(&window, event.event, event.sourceid, lines, position, modifiers);
+                     }
+                 }
+             }
+@@ -1413,9 +1804,15 @@ impl X11Client {
+                 );
+                 let modifiers = modifiers_from_xinput_info(event.mods);
+                 state.modifiers = modifiers;
++                // Fingers scrolling as the pointer leaves have let go, for the window, as on
++                // Wayland.
++                let ended = state.finger_scrolls.end_if(|fingers| fingers.window == event.event);
                  drop(state);
++                self.finger_scroll_timer();
++                self.finger_scroll_events(ended);
  
                  let window = self.get_window(event.event)?;
 +                window.handle_input(crate::linux::moved_away(modifiers));
                  window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
                      pressed_button,
                      position,
-@@ -2052,6 +2264,9 @@ impl X11ClientState {
+@@ -2052,6 +2449,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -3214,7 +3460,7 @@ index e21f019c64..1ecd563b4a 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2302,450 @@ impl X11ClientState {
+@@ -2087,6 +2487,450 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -3665,7 +3911,7 @@ index e21f019c64..1ecd563b4a 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2246,10 +2905,31 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
+@@ -2246,10 +3090,35 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
      window.set_visibility(visibility);
  }
  
@@ -3680,6 +3926,10 @@ index e21f019c64..1ecd563b4a 100644
      value.integral as f32 + value.frac as f32 / u32::MAX as f32
  }
  
++fn fp3232_to_f64(value: xinput::Fp3232) -> f64 {
++    f64::from(value.integral) + f64::from(value.frac) / (1u64 << 32) as f64
++}
++
 +/// The modifiers a sent core event's state holds, as XInput 2 gives them.
 +fn sent_modifiers(state: xproto::KeyButMask) -> xinput::ModifierInfo {
 +    xinput::ModifierInfo {
@@ -3697,7 +3947,104 @@ index e21f019c64..1ecd563b4a 100644
  fn detect_compositor_gpu(
      xcb_connection: &XCBConnection,
      screen: &xproto::Screen,
-@@ -2620,6 +3300,11 @@ fn get_scale_factor(
+@@ -2465,6 +3334,20 @@ fn current_pointer_device_states(
+     )
+     .log_err()?;
+ 
++    // A property libinput's driver gives every pointer, which no other driver does.
++    let libinput = xcb_connection
++        .intern_atom(true, b"libinput Horizontal Scroll Enabled")
++        .ok()
++        .and_then(|cookie| cookie.reply().ok())
++        .map(|reply| reply.atom)
++        .filter(|&atom| atom != x11rb::NONE);
++    let has_property = |device: xinput::DeviceId, atom: xproto::Atom| {
++        xcb_connection
++            .xinput_xi_list_properties(device)
++            .ok()
++            .and_then(|cookie| cookie.reply().ok())
++            .is_some_and(|reply| reply.properties.contains(&atom))
++    };
+     let mut pointer_device_states = BTreeMap::new();
+     pointer_device_states.extend(
+         devices_query_result
+@@ -2498,6 +3381,8 @@ fn current_pointer_device_states(
+                         PointerDeviceState {
+                             horizontal: horizontal.unwrap_or_else(Default::default),
+                             vertical: vertical.unwrap_or_else(Default::default),
++                            lifts: info.name.starts_with(b"xwayland-")
++                                || libinput.is_some_and(|atom| has_property(info.deviceid, atom)),
+                         },
+                     ))
+                 }
+@@ -2539,10 +3424,12 @@ fn reset_pointer_device_scroll_positions(pointer: &mut PointerDeviceState) {
+ }
+ 
+ /// Returns the scroll delta for a smooth scrolling motion event, or `None` if no scroll data is present.
++/// In f64, as the valuator only grows, and a wheel's whole 120ths of a click (`is_wheel`) would be
++/// lost in f32's rounding of it.
+ fn get_scroll_delta_and_update_state(
+     pointer: &mut PointerDeviceState,
+     event: &xinput::MotionEvent,
+-) -> Option<Point<f32>> {
++) -> Option<Point<f64>> {
+     let delta_x = get_axis_scroll_delta_and_update_state(event, &mut pointer.horizontal);
+     let delta_y = get_axis_scroll_delta_and_update_state(event, &mut pointer.vertical);
+     if delta_x.is_some() || delta_y.is_some() {
+@@ -2555,13 +3442,13 @@ fn get_scroll_delta_and_update_state(
+ fn get_axis_scroll_delta_and_update_state(
+     event: &xinput::MotionEvent,
+     axis: &mut ScrollAxisState,
+-) -> Option<f32> {
++) -> Option<f64> {
+     let axis_index = get_valuator_axis_index(&event.valuator_mask, axis.valuator_number?)?;
+     if let Some(axis_value) = event.axisvalues.get(axis_index) {
+-        let new_scroll = fp3232_to_f32(*axis_value);
++        let new_scroll = fp3232_to_f64(*axis_value);
+         let delta_scroll = axis
+             .scroll_value
+-            .map(|old_scroll| (old_scroll - new_scroll) * axis.multiplier);
++            .map(|old_scroll| (old_scroll - new_scroll) * f64::from(axis.multiplier));
+         axis.scroll_value = Some(new_scroll);
+         delta_scroll
+     } else {
+@@ -2570,6 +3457,35 @@ fn get_axis_scroll_delta_and_update_state(
+     }
+ }
+ 
++/// Whether a smooth scroll of `lines` is a wheel's: a wheel turns by whole 120ths of a click, as
++/// Xwayland and libinput's driver post it, where fingers move by any amount.
++fn is_wheel(lines: Point<f64>) -> bool {
++    let whole = |lines: f64| {
++        let v120 = lines / f64::from(SCROLL_LINES) * 120.;
++        (v120 - v120.round()).abs() < 0.01
++    };
++    whole(lines.x) && whole(lines.y)
++}
++
++/// Fingers scrolling by `lines`, in pixels as on Wayland, with where they are in the scroll.
++fn finger_scroll_event(
++    position: Point<Pixels>,
++    lines: Point<f64>,
++    modifiers: Modifiers,
++    touch_phase: TouchPhase,
++) -> gpui::ScrollEvent {
++    let pixels = |lines: f64| px((lines * FINGER_PIXELS_PER_LINE) as f32);
++    // As a wheel's, with shift held vertical scrolling turns horizontal.
++    let lines = if modifiers.shift { Point::new(lines.y, 0.) } else { lines };
++    gpui::ScrollEvent {
++        position,
++        delta: ScrollDelta::Pixels(Point::new(pixels(lines.x), pixels(lines.y))),
++        modifiers,
++        touch_phase,
++        source: gpui::ScrollSource::Pointer,
++    }
++}
++
+ fn make_scroll_wheel_event(
+     position: Point<Pixels>,
+     scroll_delta: Point<f32>,
+@@ -2620,6 +3536,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -3709,10 +4056,97 @@ index e21f019c64..1ecd563b4a 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3583,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3819,130 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
++    /// Two fingers a third of the way across Xwayland's pointer, resting 300 ms, then lifting:
++    /// each scroll's time in ms, a tick of 0.53 lines, and the lift.
++    const RESTING: [f64; 29] = [
++        0., 12.159, 24.317, 36.45, 48.59, 60.742, 72.911, 97.152, 97.199, 109.283, 121.405,
++        133.537, 145.693, 158.055, 170.13, 182.266, 194.38, 206.533, 230.862, 230.909, 243.09,
++        255.299, 267.472, 279.623, 291.778, 303.873, 316.052, 328.333, 340.521,
++    ];
++    const LIFT: f64 = 653.393;
++
++    /// What the window hears from `scrolls` (ms, device, lines across) on devices that `lift`:
++    /// each phase but Moved and when, a wheel's as Lines, and how many moves.
++    fn replay(lift: bool, scrolls: &[(f64, u16, f64)]) -> (Vec<(f64, &'static str)>, usize) {
++        let start = Instant::now();
++        let ms = |at: Instant| (at - start).as_secs_f64() * 1000.;
++        let mut fingers = FingerScrolls::default();
++        let (mut heard, mut moves) = (Vec::new(), 0);
++        // A wheel's scroll is `None`.
++        let mut hear = |at: Instant, events: Option<Vec<FingerEvent>>| {
++            let Some(events) = events else {
++                return heard.push((ms(at), "wheel"));
++            };
++            for (_, event) in events {
++                match event.touch_phase {
++                    TouchPhase::Started => heard.push((ms(at), "started")),
++                    TouchPhase::Moved => moves += 1,
++                    _ => heard.push((ms(at), "ended")),
++                }
++            }
++        };
++        for &(time, device, lines) in scrolls {
++            let at = start + Duration::from_secs_f64(time / 1000.);
++            // The timer fires at the end of the quiet spell.
++            if let Some(due) = fingers.due().filter(|&due| due <= at) {
++                hear(due, Some(Vec::from_iter(fingers.end_if(|_| true))));
++            }
++            let lines = Point::new(lines, 0.);
++            let (position, modifiers) = (Point::default(), Modifiers::default());
++            hear(at, fingers.scroll(1, device, lift, lines, position, modifiers, at));
++        }
++        if let Some(due) = fingers.due() {
++            hear(due, Some(Vec::from_iter(fingers.end_if(|_| true))));
++        }
++        let heard = heard.into_iter().map(|(at, what)| ((at * 1000.).round() / 1000., what));
++        (heard.collect(), moves)
++    }
++
++    fn resting(lift: Option<f64>) -> Vec<(f64, u16, f64)> {
++        let moving = RESTING.iter().map(|&time| (time, 8, 0.52969));
++        moving.chain(lift.map(|time| (time, 8, 0.))).collect()
++    }
++
++    #[test]
++    fn fingers_start_where_they_scroll_and_end_where_they_lift() {
++        // Resting before the lift doesn't end the scroll on a device that sends one.
++        let (heard, moves) = replay(true, &resting(Some(LIFT)));
++        assert_eq!(heard, [(0., "started"), (LIFT, "ended")]);
++        assert_eq!(moves, 28);
++        // Without the lift, which went to another window, it ends a second after the last.
++        let (heard, _) = replay(true, &resting(None));
++        assert_eq!(heard, [(0., "started"), (1340.521, "ended")]);
++        // A driver that sends no lift (synaptics, evdev): a quiet spell longer than the pad's
++        // gaps, such as the 24 ms in these, ends it.
++        let (heard, moves) = replay(false, &resting(None));
++        assert_eq!(heard, [(0., "started"), (400.521, "ended")]);
++        assert_eq!(moves, 28);
++        // A lift with no scroll, or from another device, ends nothing.
++        assert_eq!(replay(true, &[(0., 8, 0.)]).0, []);
++        let (heard, _) = replay(true, &[(0., 8, 1.31), (12., 9, 0.), (24., 8, 0.)]);
++        assert_eq!(heard, [(0., "started"), (24., "ended")]);
++        // Another device's fingers end the first's.
++        let (heard, _) = replay(true, &[(0., 8, 1.31), (12., 9, 1.31), (24., 9, 0.)]);
++        assert_eq!(heard, [(0., "started"), (12., "ended"), (12., "started"), (24., "ended")]);
++    }
++
++    #[test]
++    fn a_wheel_never_starts_a_finger_scroll() {
++        // Xwayland's wheel, two ticks 60 ms apart, three lines each.
++        let (heard, _) = replay(true, &[(0., 8, -3.), (60.07, 8, -3.)]);
++        assert_eq!(heard, [(0., "wheel"), (60.07, "wheel")]);
++        // libinput's driver's high-resolution wheel, in 120ths of a click.
++        let (heard, _) = replay(true, &[(0., 8, 0.75), (8., 8, 1.5), (16., 8, -0.025)]);
++        assert_eq!(heard, [(0., "wheel"), (8., "wheel"), (16., "wheel")]);
++        // A finger's tick that happens to be whole 120ths, once the fingers are scrolling, isn't.
++        let (heard, moves) = replay(true, &[(0., 8, 0.52969), (12., 8, 0.75), (24., 8, 0.)]);
++        assert_eq!((heard, moves), (vec![(0., "started"), (24., "ended")], 1));
++    }
++
 +    #[test]
 +    fn an_outline_is_its_rows() {
 +        let span = |rows: &[xproto::Rectangle], y: i16| -> Vec<(i16, u16)> {
@@ -3753,7 +4187,7 @@ index e21f019c64..1ecd563b4a 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3935,101 @@ mod tests {
+@@ -3213,3 +4258,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
