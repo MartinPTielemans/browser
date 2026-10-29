@@ -259,6 +259,8 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
 /// The name of the sidebar's second row in the command bar, which it lists only while there's a
 /// sidebar to hide.
 const HIDE_SIDEBAR: &str = "Hide Sidebar";
+/// ⇧⌘C's toast, Arc's words (Arc 1.170 rec).
+const COPIED_URL: &str = "Copied Current URL";
 
 /// The commands the command bar finds, with the words besides their names' that find them, in
 /// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
@@ -966,7 +968,10 @@ impl Shell {
     /// and says so in the toast.
     fn copy_url(&mut self, markdown: bool, cx: &mut Context<Self>) {
         if let Some((text, toast)) = self.url_to_copy(markdown) {
-            self.copy(&text, toast, cx);
+            match markdown {
+                true => self.copy(&text, toast, cx),
+                false => self.copy_page(self.selected, &text, cx),
+            }
         }
     }
 
@@ -977,7 +982,7 @@ impl Shell {
             return None;
         }
         let (text, toast) = match markdown {
-            false => (url.clone(), "Copied Current URL"),
+            false => (url.clone(), COPIED_URL),
             true => {
                 let title = markdown_text(&self.title(self.selected));
                 (format!("[{title}]({url})"), "Copied URL as Markdown")
@@ -991,10 +996,10 @@ impl Shell {
     pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: command copy-url via sidebar");
-        let Some((text, toast)) = self.url_to_copy(false) else {
+        let Some((text, _)) = self.url_to_copy(false) else {
             return;
         };
-        self.copy(&text, toast, cx);
+        self.copy_page(self.selected, &text, cx);
         if self.url_copied.is_none() {
             self.swaps.start(Swapped::CopyUrl, LINK, CHECK, Instant::now());
         }
@@ -1017,6 +1022,16 @@ impl Shell {
         // check.sh reads this line.
         log!("browser: copied {text}");
         self.browser.toast(toast, None, COPIED_TIME, cx);
+    }
+
+    /// Copies `url`, `tab`'s page's, and says so in the toast with a share button for the page,
+    /// as Arc's ⇧⌘C does.
+    pub(super) fn copy_page(&mut self, tab: u64, url: &str, cx: &mut Context<Self>) {
+        self.browser.copy(url, cx);
+        // check.sh reads this line.
+        log!("browser: copied {url}");
+        let title = self.title(tab);
+        self.browser.toast_share(COPIED_URL, url, &title, COPIED_TIME, cx);
     }
 
     /// The tabs the command bar lists before anything is typed, as Arc's does: the favorites and

@@ -536,7 +536,8 @@ void host_open_in_safari(const char* url);
 void host_open_full_disk_access(void);
 
 // Shows the system's share menu for the page at |url| titled |title|, hanging from the frame at
-// |x|, |y|, |width| by |height| points in |ui_view|'s window's content.
+// |x|, |y|, |width| by |height| points in |ui_view|'s window's content, or in |ui_view| itself
+// when it's another of the UI's views, such as the toast's.
 void host_share(void* ui_view,
                 double x,
                 double y,
