@@ -487,8 +487,11 @@ chrome.management.getAll().then(all => {
   install = all.find(each => each.name == "Check Install").id;
   document.title = "manage";
 });
+// Then it says which version came back on, with which permissions.
 onclick = () => chrome.management.setEnabled(install, true).then(
-  () => document.title = "enabled", error => document.title = "refused " + error.message);' \
+  () => chrome.management.get(install)).then(
+  info => document.title = "enabled " + info.version + " " + info.permissions.join(","),
+  error => document.title = "refused " + error.message);' \
   > "$crx/manager/manage.js"
 make_crx() {
   python3 -I -c '
@@ -617,20 +620,26 @@ for _ in $(seq 300); do
 done
 sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "^browser: extensions menu $manager $ublock\$" ||
   fail "version 2 didn't turn Check Install off: $(grep '^browser: extensions' "$log" | tail -1)"
-# Check Manager turns it on, which Chrome asks the user first, listing what's new.
+# Check Manager turns it on, which Chrome asks the user first in its re-enable prompt. The list is
+# the prompt's own, as Chrome's dialog draws it: what the extension is granted, bookmarks too,
+# without the downloads version 2 adds.
 open_extension_page "$manager/manage.html" manage
 send click $page_point
 expect '^browser: dialog shown The newest version of "Check Install" has been disabled' \
   "turning Check Install on didn't ask the user"
 grep "^browser: extension question $installed asks " "$log" | tail -1 |
-  grep -q 'Manage your downloads' ||
-  fail "the question didn't list the downloads' warning: $(grep 'extension question' "$log" | tail -1)"
+  grep -q 'Read and change your bookmarks' ||
+  fail "the question didn't list the bookmarks granted: $(grep 'extension question' "$log" | tail -1)"
 await '^browser: dialog settled$' || fail "the re-enable dialog didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/extension-reenable.png" || fail "no window to capture"
 expect '^browser: dialog takes input$' "the re-enable dialog never took input"
 send key return
 expect '^browser: dialog confirmed$' "return didn't turn Check Install on"
-await '^browser: title [0-9]* enabled$' || fail "Check Manager didn't hear Check Install was on"
+# Version 2 came back on, with the downloads it asked for.
+await '^browser: title [0-9]* enabled 2 ' ||
+  fail "Check Install's version 2 didn't come back on: $(grep '^browser: title' "$log" | tail -1)"
+grep '^browser: title [0-9]* enabled 2 ' "$log" | tail -1 | grep -q '[ ,]downloads\(,\|$\)' ||
+  fail "version 2 came back on without the downloads: $(grep '^browser: title' "$log" | tail -1)"
 expect "^browser: extensions menu $installed $manager $ublock\$" "Check Install didn't come back on"
 before=$(today)
 send menu "Add Extension…"
@@ -639,4 +648,4 @@ expect "^browser: today [0-9]* $before\$" "Add Extension… didn't open a tab"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: a .crx from a page asks to be added with the browser's dialog, in Chrome's words, listing its warnings. Escape cancels it, and return adds it. Its asking for more, and turning it back on after an update asking for more turned it off, ask with the same dialog, listing what's new, and return grants them. Add Extension… opens a tab. Windows: $out/extension-install.png, $out/extension-permissions.png, $out/extension-reenable.png"
+echo "ok: a .crx from a page asks to be added with the browser's dialog, in Chrome's words, listing its warnings. Escape cancels it, and return adds it. Its asking for more, and turning version 2 back on after its asking for more turned it off, ask with the same dialog, in Chrome's prompt's words, and return grants them. Add Extension… opens a tab. Windows: $out/extension-install.png, $out/extension-permissions.png, $out/extension-reenable.png"
