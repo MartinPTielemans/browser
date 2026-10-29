@@ -1383,13 +1383,19 @@ fn main() {
         let shell_window = window.as_ref().ok().copied();
         match window {
             // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads or =spaces opens
-            // it there.
+            // it there; =rename opens its Spaces with the first card's name in its field.
             Ok(window) if std::env::var_os("PREVIEW_LIBRARY").is_some() => {
                 window
-                    .update(cx, |shell, _, cx| match std::env::var("PREVIEW_LIBRARY").as_deref() {
-                        Ok("downloads") => shell.run(Command::ViewDownloads, "preview", cx),
-                        Ok("spaces") => shell.show_spaces(cx),
-                        _ => shell.run(Command::ViewLibrary, "preview", cx),
+                    .update(cx, |shell, window, cx| {
+                        match std::env::var("PREVIEW_LIBRARY").as_deref() {
+                            Ok("downloads") => shell.run(Command::ViewDownloads, "preview", cx),
+                            Ok("spaces") => shell.show_spaces(cx),
+                            Ok("rename") => {
+                                shell.show_spaces(cx);
+                                shell.preview_rename_card(window, cx);
+                            }
+                            _ => shell.run(Command::ViewLibrary, "preview", cx),
+                        }
                     })
                     .ok();
             }
