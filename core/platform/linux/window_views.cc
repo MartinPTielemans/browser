@@ -30,6 +30,7 @@
 #include "ui/aura/window_tracker.h"
 #include "ui/aura/window_tree_host_platform.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/layer_solid_color.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/geometry/insets.h"
@@ -209,7 +210,7 @@ class WindowViews : public views::WidgetObserver,
       // A colour where its page hasn't drawn, as an aura page draws nothing before its first
       // frame, where the Mac's view shows its background.
       slot.holder->Init(ui::LAYER_SOLID_COLOR);
-      slot.holder->layer()->SetColor(SK_ColorTRANSPARENT);
+      slot.holder->layer()->AsSolidColor()->SetColor(SkColors::kTransparent);
       slot.holder->SetName("BrowserCorePane");
       slot.holder->layer()->SetMasksToBounds(true);
       slot.holder->layer()->SetIsFastRoundedCorner(true);
@@ -714,9 +715,10 @@ void ShowPages(views::Widget* widget,
       }
     }
     views->Keep(slot, pane.page, devtools);
-    holder->layer()->SetColor(pane.color ? SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff,
-                                                         *pane.color & 0xff)
-                                         : SK_ColorTRANSPARENT);
+    holder->layer()->AsSolidColor()->SetColor(
+        pane.color ? SkColor4f::FromColor(SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff,
+                                                        *pane.color & 0xff))
+                   : SkColors::kTransparent);
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->Show();
   }
