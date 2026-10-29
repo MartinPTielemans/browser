@@ -172,9 +172,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether the window is full screen because a page took it there, not the user, so it leaves
   // with the page.
   bool FullScreenForPage() const;
-  // From the platform's window, as it starts to leave full screen, and off the Mac from the core
-  // as it takes the window out: a page full screen leaves now.
-  void LeavingFullScreen();
+  // The one way out of full screen, whoever starts it: the app's buttons, Chrome's controller as a
+  // page or its tab leaves, AppKit as it starts to leave, or off the Mac the window manager, which
+  // has taken the window out already. A page full screen leaves now, and is laid out once, at the
+  // window's new size.
+  void LeaveFullScreen();
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
