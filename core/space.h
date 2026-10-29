@@ -58,14 +58,15 @@ class Space {
   static Space* Create(std::string name,
                        bc_id id = 0,
                        std::optional<Agent> agent = std::nullopt);
-  // A private window's Space, its tabs in the off-the-record profile of the profile in the
-  // directory |profile|. It holds Today tabs alone, and isn't among All(), so it's never saved,
-  // archived or listed with the Spaces. It goes with its window.
-  static Space* CreateOffTheRecord(std::string profile);
+  // A window's own Space, a private or a Blank Window's, its tabs in the profile in the directory
+  // |profile|, or its off-the-record profile with |off_the_record|. It holds Today tabs alone, and
+  // isn't among All(), so it's never saved, archived or listed with the Spaces. It goes with its
+  // window.
+  static Space* CreateOwn(std::string profile, bool off_the_record);
   // Deletes the Space, which windows no longer show.
   static void Delete(bc_id id);
   static Space* FromId(bc_id id);
-  // Every Space but the private windows', in the order they were made.
+  // Every Space but the windows' own, in the order they were made.
   static std::vector<Space*> All();
   // The Space holding |tab|, pinned or in Today, if any.
   static Space* Holding(bc_id tab);
@@ -89,10 +90,12 @@ class Space {
   const std::string& profile() const { return profile_; }
   // The agent it belongs to, or none for the user's own.
   const std::optional<Agent>& agent() const { return agent_; }
-  // Whether it's a private window's (CreateOffTheRecord), whose tabs open in that profile's
-  // off-the-record profile instead.
+  // Whether it's a window's own (CreateOwn), shown by that window alone and never saved.
+  bool own() const { return own_; }
+  // Whether it's a private window's, whose tabs open in that profile's off-the-record profile
+  // instead.
   bool off_the_record() const { return off_the_record_; }
-  // The Space's node. A private window's has none.
+  // The Space's node. A window's own has none.
   const Node& node() const { return node_; }
   // The pinned tab's or folder's |id|'s node, or null if it isn't one of the Space's.
   const Node* NodeOf(bc_id id) const;
@@ -257,6 +260,7 @@ class Space {
   std::string icon_;
   std::string theme_;
   std::string profile_;
+  bool own_ = false;
   bool off_the_record_ = false;
   Node node_;
   // Pinned tabs and folders.
