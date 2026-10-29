@@ -21,6 +21,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/space_default.h"
 #include "browser_core/space.h"
 #include "browser_core/sync_spaces.pb.h"
 #include "browser_core/tab.h"
@@ -94,9 +95,8 @@ bool Synced(const Space* space) {
   return !space->agent() && space->node().id.is_valid();
 }
 
-// The device's own first Space, made because a browser needs one, while the user hasn't touched it:
-// its only one, never given another name, colour, icon or theme, with no pinned tabs or folders,
-// and no favorites shown in it. Else null.
+// The device's own first Space, made because a browser needs one, while it gives way to the
+// account's (space_default.h): its only one, which the user hasn't made theirs. Else null.
 Space* UntouchedDefault() {
   std::vector<Space*> own = Space::All();
   std::erase_if(own, [](Space* space) { return !Synced(space); });
@@ -104,9 +104,14 @@ Space* UntouchedDefault() {
     return nullptr;
   }
   Space* space = own.front();
-  return !space->touched() && space->pinned_rows().empty() && Favorites::In(*space).empty()
-             ? space
-             : nullptr;
+  const FirstSpace first = {
+      .named = space->touched(),
+      .coloured = space->color().has_value() || !space->theme().empty(),
+      .today_tabs = space->today().size(),
+      .pinned_rows = space->pinned_rows().size(),
+      .favorites = Favorites::In(*space).size(),
+  };
+  return GivesWay(first) ? space : nullptr;
 }
 
 // Every Space, pinned tab and folder as sync knows them now, by id.

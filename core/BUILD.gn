@@ -87,6 +87,15 @@ source_set("sync_guard") {
   ]
 }
 
+# Whether a device's first Space gives way to the account's, apart so browser_core_unittests
+# tests the rule alone.
+source_set("space_default") {
+  sources = [
+    "space_default.cc",
+    "space_default.h",
+  ]
+}
+
 # The core's logic that needs no browser. engine/linux/build.sh builds it and the engine's
 # workflow runs it. A plain executable on gtest's own main, since //base/test's launcher brings
 # //third_party/test_fonts on Linux, which the engine's tree doesn't check out, and these tests
@@ -94,10 +103,12 @@ source_set("sync_guard") {
 executable("browser_core_unittests") {
   testonly = true
   sources = [
+    "space_default_unittest.cc",
     "sync_guard_unittest.cc",
     "sync_pairing_unittest.cc",
   ]
   deps = [
+    ":space_default",
     ":sync_guard",
     ":sync_keys",
     "//base",
@@ -219,6 +230,7 @@ source_set("browser_core") {
 
   deps = [
     ":drm_request",
+    ":space_default",
     ":sync_guard",
     ":sync_keys",
     "//base",

@@ -252,7 +252,6 @@ void Space::SetName(std::string name) {
 }
 
 void Space::SetColor(std::optional<uint32_t> color) {
-  touched_ |= color != color_;
   color_ = color;
   ReportSpacesChanged();
 }
@@ -264,7 +263,6 @@ void Space::SetIcon(std::string icon) {
 }
 
 void Space::SetTheme(std::string theme) {
-  touched_ |= theme != theme_;
   theme_ = std::move(theme);
   ReportSpacesChanged();
 }
