@@ -290,6 +290,15 @@ fn driven() -> Option<Browser> {
     browser(DRIVEN.get())
 }
 
+/// Whether `window` is mapped, with every window it's in: the server sends no key to one that isn't.
+fn viewable(connection: &RustConnection, window: xproto::Window) -> bool {
+    connection
+        .get_window_attributes(window)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .is_some_and(|attributes| attributes.map_state == xproto::MapState::VIEWABLE)
+}
+
 /// Whether `window` is `ancestor` or inside it.
 fn within(
     connection: &RustConnection,
@@ -819,14 +828,14 @@ fn hold_control() -> Option<()> {
 fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
     let x = server()?;
     let (connection, root) = &*x;
-    // As the X server picks it: the window under the pointer when that's in the focus window, else
-    // the focus window.
+    // As the X server picks it: the window under the pointer when that's shown and in the focus
+    // window, else the focus window. A find bar closed by a click is still the last one hovered.
     let window = match keyboard_window() {
         Some(
             Keyboard::Overlay(focus) | Keyboard::Settings(_, focus) | Keyboard::Browser(_, focus),
         ) => (HOVERED.get())
             .map(|hovered| hovered.window)
-            .filter(|&hovered| within(connection, hovered, focus))
+            .filter(|&hovered| viewable(connection, hovered) && within(connection, hovered, focus))
             .unwrap_or(focus),
         None => driven()?.window,
     };
