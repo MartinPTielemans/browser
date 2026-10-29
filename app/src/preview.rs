@@ -677,6 +677,7 @@ impl Browser for Fake {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+    fn open_page(&self, _: &str, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
