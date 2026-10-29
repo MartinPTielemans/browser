@@ -210,8 +210,10 @@ fi
 ../tools/window-screenshot.sh "$pid" "$out/page-menu.png" || fail "no window to capture"
 send choose Print…
 print_preview "the page menu's Print…" print.png
-# ⌘P, as File › Print, with the page's text field focused.
+# ⌘P, as File › Print, with the page's text field focused, as what's typed there shows.
 send click 300 250
+send type z
+expect "^browser: title $opener .*z\$" "typing in the page's text field didn't reach it"
 ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
 page_shortcut p print
 print_preview ⌘P print-key.png xy
