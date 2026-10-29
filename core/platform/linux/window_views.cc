@@ -18,6 +18,7 @@
 #include "base/scoped_observation.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/platform/focus_ring_aura.h"
 #include "browser_core/platform/linux/ui_text_input.h"
 #include "browser_core/platform/linux/wayland.h"
 #include "browser_core/window.h"
@@ -195,6 +196,7 @@ class WindowViews : public views::WidgetObserver,
   bool overlay_has_keyboard() const { return overlay_has_keyboard_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
+  FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
   UITextInput& ui_text_input() { return ui_text_input_; }
 
@@ -255,6 +257,7 @@ class WindowViews : public views::WidgetObserver,
       LayOut(slot, size);
     }
     LayOut(side_panel_, size);
+    ring_.Fit();
   }
 
   void LayOut(Slot& slot, const gfx::Size& window_size) {
@@ -438,6 +441,7 @@ class WindowViews : public views::WidgetObserver,
     children_events_ = x11::ScopedEventSelector();
     focus_observation_.Reset();
     content()->RemovePreTargetHandler(this);
+    ring_.Hide();
     for (Slot& slot : panes_) {
       Empty(slot);
     }
@@ -576,6 +580,8 @@ class WindowViews : public views::WidgetObserver,
   x11::Window ui_;
   std::vector<Slot> panes_;
   Slot side_panel_;
+  // After the slots, so it leaves its holder before that goes.
+  FocusRing ring_;
   double corner_radius_ = 0;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
@@ -707,10 +713,11 @@ void ShowPages(views::Widget* widget,
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->Show();
   }
-  // shortcut: a split view's focused pane has no ring on Linux yet; draw it in the app's UI around
-  // the pane when split view is ported, as on Windows.
-  (void)focused;
-  (void)ring_color;
+  if (panes.size() > 1 && focused < panes.size()) {
+    views->ring().Show(views->HolderFor(slots[focused]), ring_color, corner_radius);
+  } else {
+    views->ring().Hide();
+  }
 
   Slot& panel = views->side_panel();
   if (side_panel) {
@@ -750,6 +757,19 @@ void HidePages(views::Widget* widget) {
 
 // The app's host has no view for a link preview's page here yet, so nothing calls it with one.
 void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+
+std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views) {
+    return std::nullopt;
+  }
+  for (Slot& slot : views->panes()) {
+    if (slot.holder && views->ring().In(slot.holder.get())) {
+      return slot.holder->bounds();
+    }
+  }
+  return std::nullopt;
+}
 
 bool KeyboardForPage(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
