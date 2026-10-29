@@ -85,12 +85,12 @@ if [ "$active" != 1 ]; then
   exit 0
 fi
 first=$(space)
-# The toolbar's tabs, 55 wide or as wide as their names, 1 apart, centred: Import is the middle
-# one. Its list has a row for each browser, its Import… button at the row's end; then a browser's
+# The toolbar's tabs, 55 wide or as wide as their names, 1 apart, centred: Import is the fourth of
+# seven. Its list has a row for each browser, its Import… button at the row's end; then a browser's
 # choices, a row each, with Back and Import under them.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 370 60
+send clickkey 342 60
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
 expect '^browser: import found Arc, Chrome, Firefox$' \
   "the import didn't find the fixture's Arc, Chrome and Firefox, and only them"
