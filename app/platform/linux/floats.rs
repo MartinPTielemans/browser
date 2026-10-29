@@ -3,13 +3,17 @@
 //! their windows do on the Mac. GPUI shows each as an overlay of that window (overlays.rs) that
 //! lets the pointer through to what's under it, but for the toast's plate while it has buttons.
 //!
-//! shortcut: the tooltip and the link target show and hide at once, without fading, and the link
-//! target doesn't hear the pointer over the page, which is Chromium's on Linux, so it doesn't move
-//! out of the pointer's way.
+//! The tooltip and the link target fade in and out as the UI asks, as the Mac's do, drawn by GPUI
+//! (motion.rs).
+//!
+//! shortcut: the link target doesn't hear the pointer over the page, which is Chromium's on Linux,
+//! so it doesn't move out of the pointer's way.
 
 use std::{cell::RefCell, ffi::c_void};
 
 use gpui::{Bounds, Pixels, point, px, size};
+
+use crate::motion::{self, EASE_OUT, Motion, Track};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -25,6 +29,10 @@ struct Float {
     view: *mut c_void,
     /// The UI's view of the browser window it shows over; null while hidden.
     over: *mut c_void,
+    /// The one it's still fading out over, once hidden.
+    fading: *mut c_void,
+    /// How many times it was shown or hidden, so a fade's end that came after another knows.
+    changes: u32,
     /// Where the UI asked, from the window's content's top left: the tooltip's and the link
     /// target's own corner, which their window holds `margin` in from its own.
     left: f64,
@@ -57,9 +65,20 @@ thread_local! {
 fn add(kind: Kind, view: *mut c_void) {
     // None of them takes the pointer until the toast has buttons.
     gpui_linux::set_overlay_pointer(view, Some(&[]));
+    if matches!(kind, Kind::Tooltip | Kind::LinkTarget) {
+        motion::attach(view);
+    }
     FLOATS.with_borrow_mut(|floats| {
         floats.retain(|float| float.kind != kind);
-        floats.push(Float { kind, view, over: std::ptr::null_mut(), left: 0., top: 0. });
+        floats.push(Float {
+            kind,
+            view,
+            over: std::ptr::null_mut(),
+            fading: std::ptr::null_mut(),
+            changes: 0,
+            left: 0.,
+            top: 0.,
+        });
     });
 }
 
@@ -98,8 +117,8 @@ fn bounds(kind: Kind, ui_view: *mut c_void) -> Option<Bounds<Pixels>> {
 
 /// Shows the float `kind` over `ui_view`'s window, or moves it there, and says where for check.sh.
 fn show(kind: Kind, ui_view: *mut c_void) -> Option<Bounds<Pixels>> {
-    let over = find(kind, |float| float.over)?;
-    if !over.is_null() && over != ui_view {
+    let (over, fading) = find(kind, |float| (float.over, float.fading))?;
+    if [over, fading].iter().any(|each| !each.is_null() && *each != ui_view) {
         hide(kind);
     }
     let bounds = bounds(kind, ui_view)?;
@@ -111,17 +130,87 @@ fn show(kind: Kind, ui_view: *mut c_void) -> Option<Bounds<Pixels>> {
     Some(bounds)
 }
 
+/// Hides the float `kind` at once, and says whether it showed: it may have been fading out.
 fn hide(kind: Kind) -> bool {
-    let Some((view, over)) =
-        find(kind, |float| (float.view, std::mem::replace(&mut float.over, std::ptr::null_mut())))
-    else {
+    let Some((view, over, fading)) = find(kind, |float| {
+        float.changes += 1;
+        let over = std::mem::replace(&mut float.over, std::ptr::null_mut());
+        (float.view, over, std::mem::replace(&mut float.fading, std::ptr::null_mut()))
+    }) else {
         return false;
     };
-    if over.is_null() {
+    if over.is_null() && fading.is_null() {
         return false;
     }
     gpui_linux::hide_overlay(view, || {});
-    true
+    !over.is_null()
+}
+
+/// Shows the tooltip or the link target over `ui_view`'s window, fading in over `fade` seconds from
+/// where it is, as one fading out over that window goes back to full, and then says it's `shown`.
+fn fade_in(kind: Kind, ui_view: *mut c_void, fade: f64, shown: &'static str) {
+    let Some((view, over, fading)) = find(kind, |float| (float.view, float.over, float.fading))
+    else {
+        return;
+    };
+    let from = match ui_view == over || ui_view == fading {
+        true => motion::opacity(view),
+        false => 0.,
+    };
+    let fade = seconds(fade);
+    let opacity = Track { from, to: 1., seconds: fade, curve: EASE_OUT };
+    motion::start(view, Motion::fade(opacity));
+    if show(kind, ui_view).is_none() {
+        return;
+    }
+    let Some(change) = find(kind, |float| {
+        float.fading = std::ptr::null_mut();
+        float.changes += 1;
+        float.changes
+    }) else {
+        return;
+    };
+    motion::after(fade, move || {
+        if find(kind, |float| float.changes) == Some(change) {
+            // check.sh waits for this line, so a capture after it shows the float whole.
+            eprintln!("{shown}");
+        }
+    });
+}
+
+/// Hides the tooltip or the link target, fading out over `fade` seconds; with none, at once, which
+/// also ends a fade out.
+fn fade_out(kind: Kind, fade: f64) {
+    let fade = seconds(fade);
+    if fade == 0. {
+        hide(kind);
+        return;
+    }
+    let Some(Some((view, change))) = find(kind, |float| {
+        if float.over.is_null() {
+            return None;
+        }
+        float.fading = std::mem::replace(&mut float.over, std::ptr::null_mut());
+        float.changes += 1;
+        Some((float.view, float.changes))
+    }) else {
+        return;
+    };
+    let from = motion::opacity(view);
+    motion::start(view, Motion::fade(Track { from, to: 0., seconds: fade, curve: EASE_OUT }));
+    motion::after(fade, move || {
+        if find(kind, |float| float.changes) == Some(change) {
+            hide(kind);
+        }
+    });
+}
+
+/// A fade's seconds, none where the float can't blend with what's under it.
+fn seconds(fade: f64) -> f32 {
+    match gpui_linux::overlays_blend() {
+        true => fade as f32,
+        false => 0.,
+    }
 }
 
 /// The user left the float of `view`, by a press elsewhere or the keyboard going to another
@@ -151,7 +240,7 @@ pub(crate) fn place(ui_view: *mut c_void) {
 /// `ui_view`'s window is closing: what floats over it goes.
 pub(crate) fn forget_window(ui_view: *mut c_void) {
     for kind in [Kind::Hud, Kind::DropTargets, Kind::Toast, Kind::Tooltip, Kind::LinkTarget] {
-        if find(kind, |float| float.over == ui_view) == Some(true) {
+        if find(kind, |float| float.over == ui_view || float.fading == ui_view) == Some(true) {
             hide(kind);
         }
     }
@@ -254,18 +343,16 @@ pub extern "C" fn host_add_tooltip(tooltip_view: *mut c_void, margin: f64, away:
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, _fade: f64) {
+pub extern "C" fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64) {
     find(Kind::Tooltip, |float| (float.left, float.top) = (left, top));
-    if show(Kind::Tooltip, ui_view).is_some() {
-        // check.sh reads these lines: where it is, to compare with where the UI asked.
-        eprintln!("browser: tooltip window at {left} {top}");
-        eprintln!("browser: tooltip window shown");
-    }
+    // check.sh reads this line: where it is, to compare with where the UI asked.
+    eprintln!("browser: tooltip window at {left} {top}");
+    fade_in(Kind::Tooltip, ui_view, fade, "browser: tooltip window shown");
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn host_hide_tooltip(_fade: f64) {
-    hide(Kind::Tooltip);
+pub extern "C" fn host_hide_tooltip(fade: f64) {
+    fade_out(Kind::Tooltip, fade);
 }
 
 #[unsafe(no_mangle)]
@@ -279,15 +366,12 @@ pub extern "C" fn host_add_link_target(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn host_show_link_target(ui_view: *mut c_void, left: f64, top: f64, _fade: f64) {
+pub extern "C" fn host_show_link_target(ui_view: *mut c_void, left: f64, top: f64, fade: f64) {
     find(Kind::LinkTarget, |float| (float.left, float.top) = (left, top));
-    if show(Kind::LinkTarget, ui_view).is_some() {
-        // check.sh reads this line.
-        eprintln!("browser: link target window shown");
-    }
+    fade_in(Kind::LinkTarget, ui_view, fade, "browser: link target window shown");
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn host_hide_link_target(_fade: f64) {
-    hide(Kind::LinkTarget);
+pub extern "C" fn host_hide_link_target(fade: f64) {
+    fade_out(Kind::LinkTarget, fade);
 }
