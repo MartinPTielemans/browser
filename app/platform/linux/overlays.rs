@@ -3,7 +3,9 @@
 //! server blends no child window's edges and a compositor blends a window's. The core lends it the
 //! window's keyboard while it shows.
 //!
-//! shortcut: no blur, shadow or growth yet.
+//! Each casts its shadow from a window under it (shadows.rs).
+//!
+//! shortcut: no blur, growth or shrinking yet.
 
 use std::{
     cell::RefCell,
@@ -12,7 +14,7 @@ use std::{
 
 use gpui::{Bounds, Pixels, point, px, size};
 
-use crate::bc;
+use crate::{bc, shadows};
 
 struct Overlay {
     view: *mut c_void,
@@ -84,6 +86,7 @@ pub extern "C" fn host_add_overlay(
             });
         }
     });
+    shadows::attach(overlay, view);
 }
 
 #[unsafe(no_mangle)]
@@ -103,6 +106,7 @@ pub extern "C" fn host_set_overlay_shape(overlay: c_int, corners: *const f64, co
         .collect();
     if let Some(view) = with_overlay(overlay, |o| o.view) {
         gpui_linux::set_overlay_outline(view, &corners);
+        shadows::set_shape(overlay, &corners);
     }
 }
 
@@ -154,6 +158,7 @@ pub extern "C" fn host_show_overlay(
     if !was_shown {
         lend_keyboard(window, view, true);
     }
+    shadows::show(overlay, ui_view, bounds, f32::from(radius));
     gpui_linux::show_overlay(view, ui_view, bounds, radius, true, left_overlay);
     let (origin, size) = (bounds.origin, bounds.size);
     let name = NAMES[overlay as usize];
@@ -174,6 +179,7 @@ pub extern "C" fn host_set_overlay_height(overlay: c_int, height: f64) {
     });
     if let Some(Some((view, bounds, radius))) = moved {
         gpui_linux::move_overlay(view, bounds, radius);
+        shadows::moved(overlay, bounds, f32::from(radius));
         eprintln!("browser: {} height {height}", NAMES[overlay as usize]);
     }
 }
@@ -199,6 +205,7 @@ fn hide(overlay: c_int) -> bool {
         return false;
     };
     gpui_linux::hide_overlay(view, move || lend_keyboard(window, view, false));
+    shadows::hide(overlay);
     eprintln!("browser: {} hidden", NAMES[overlay as usize]);
     true
 }
