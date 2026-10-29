@@ -23,17 +23,28 @@
 # there so far; the others stop where they need what Linux hasn't yet, such as the held escape's
 # rule (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
 # the driver says it can't do. Captures are the session's whole output.
-# BROWSER_XVFB=1 runs it under Xvfb instead, which CI has.
+# BROWSER_XVFB=1 runs it under Xvfb and openbox instead, which CI has.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 # Each run starts a new profile, which would play the onboarding first. Only its own run plays it.
 export BROWSER_ONBOARDING=skip
 cd "$(dirname "$0")"
 if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
-  # Under Xvfb, X11 with no window manager, as CI runs it (check-linux.yml): a 1280 by 800 screen,
-  # as the sway session's output, captured whole.
+  # Under Xvfb, as CI runs it (check-linux.yml): a 1280 by 800 screen, as the sway session's
+  # output, captured whole. openbox manages its windows, as sway does Xwayland's: with none, the
+  # keyboard follows the pointer rather than going to a window that opens, such as the find bar,
+  # and no window has a state.
   if [ -n "${BROWSER_XVFB:-}" ]; then
-    exec xvfb-run -a -s "-screen 0 1280x800x24" env BROWSER_HEADLESS=xvfb ./check.sh "$@"
+    # shellcheck disable=SC2016 # expanded by the session's shell
+    exec xvfb-run -a -s "-screen 0 1280x800x24" sh -c '
+      ready=$(mktemp -u)
+      openbox --startup "touch $ready" &
+      while [ ! -e "$ready" ]; do
+        kill -0 $! 2> /dev/null || { echo "openbox exited" >&2; exit 1; }
+        sleep 0.1
+      done
+      rm -f "$ready"
+      exec env BROWSER_HEADLESS=xvfb ./check.sh "$@"' sh "$@"
   fi
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
 fi
