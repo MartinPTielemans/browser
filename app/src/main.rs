@@ -3466,6 +3466,15 @@ unsafe extern "C" fn started(_: *mut c_void) {
         dock_dot::open(Rc::new(DockDot), cx);
         open_window(None, None, cx);
     });
+    // On Chromium's Wayland display, GPUI's windows and their surfaces are on a display Chromium
+    // has closed by the time the thread-locals go at exit, and dropping them there crashes (#474).
+    #[cfg(target_os = "linux")]
+    if wayland {
+        std::mem::forget(app);
+    } else {
+        APP.set(Some(app));
+    }
+    #[cfg(not(target_os = "linux"))]
     APP.set(Some(app));
     #[cfg(target_os = "linux")]
     if let Some(fd) = gpui_linux::embedded_fd() {
