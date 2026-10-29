@@ -36,6 +36,8 @@ struct Made {
     asked: RefCell<Option<Question>>,
     /// The tabs the user holds from agents, as the core keeps them.
     held: RefCell<HashSet<u64>>,
+    /// Each action the agents asked the core whether they may take (bc_agent_may_act).
+    checked: RefCell<Vec<String>>,
 }
 
 impl Made {
@@ -102,7 +104,8 @@ impl Browser for Made {
         )
     }
 
-    fn may_act(&self, agent: &str, tab: u64, _: &str, _: &mut App) -> Result<(), String> {
+    fn may_act(&self, agent: &str, tab: u64, action: &str, _: &mut App) -> Result<(), String> {
+        self.checked.borrow_mut().push(action.into());
         if self.held.borrow().contains(&tab) {
             return Err(HELD.into());
         }
@@ -1125,4 +1128,98 @@ fn run_steps_runs_its_steps_in_order(cx: &mut TestAppContext) {
     assert!(stopped.text.starts_with("Step 2 would click “Place order” on example.com"));
     assert!(stopped.text.ends_with("1. Scrolled down."));
     assert_eq!(*browser.asked.borrow(), None, "the run left its question");
+}
+
+/// The actions the core lets an agent take in its tabs, agent_session.cc's RefusedAction: each a
+/// thing the user does in a page, or handing the tab to them.
+const CORE_ALLOWS: [&str; 13] = [
+    "back",
+    "click",
+    "close_tab",
+    "forward",
+    "hand_off",
+    "navigate",
+    "press_key",
+    "read_page",
+    "screenshot",
+    "scroll",
+    "select_option",
+    "snapshot",
+    "type",
+];
+
+/// Agents never read or fill a saved password, address, card or passkey (principle 3). The server
+/// offers exactly these tools, and every one asks the core only for an action its allowlist has,
+/// so a tool or action that could reach them fails here until it's added on purpose, with its rule.
+#[gpui::test]
+fn agents_get_only_the_allowlisted_tools(cx: &mut TestAppContext) {
+    let listed = tools::list();
+    let names: Vec<&str> = (listed.as_array().unwrap().iter())
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "list_tabs",
+            "open_tab",
+            "close_tab",
+            "navigate",
+            "snapshot",
+            "read_page",
+            "click",
+            "type",
+            "press_key",
+            "scroll",
+            "screenshot",
+            "run_steps",
+            "hand_off",
+            "ask_for_tab",
+        ]
+    );
+
+    let (agents, browser, _) = connected(cx);
+    let tab = |more: Value| {
+        let mut arguments = json!({ "tab": 20 });
+        arguments.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        arguments
+    };
+    let calls = [
+        ("list_tabs", json!({})),
+        ("open_tab", json!({ "url": "example.com" })),
+        ("snapshot", tab(json!({}))),
+        ("read_page", tab(json!({}))),
+        ("click", tab(json!({ "ref": "e1" }))),
+        ("type", tab(json!({ "ref": "e1", "text": "SAVE10" }))),
+        ("press_key", tab(json!({ "key": "Tab" }))),
+        ("scroll", tab(json!({}))),
+        ("screenshot", tab(json!({}))),
+        ("navigate", tab(json!({ "url": "back" }))),
+        ("navigate", tab(json!({ "url": "forward" }))),
+        ("navigate", tab(json!({ "url": "iana.org" }))),
+        ("run_steps", tab(json!({ "steps": [{ "action": "scroll" }] }))),
+        ("hand_off", tab(json!({ "reason": "Sign in" }))),
+        ("ask_for_tab", tab(json!({ "reason": "To go on" }))),
+        ("close_tab", json!({ "tab": 30 })),
+    ];
+    for (tool, arguments) in calls {
+        let pages = browser.pages.borrow().len();
+        let answer = call(&agents, "claude-code", tool, arguments, cx);
+        if browser.pages.borrow().len() > pages {
+            shop_done(&agents, &browser, cx);
+        }
+        if let Some(read) = browser.reads.borrow_mut().pop() {
+            agents.update(cx, |agents, cx| agents.text_read(read.1, Some("Shop".into()), cx));
+        }
+        cx.run_until_parked();
+        _ = answer.try_recv();
+    }
+
+    let checked: HashSet<String> = browser.checked.borrow().iter().cloned().collect();
+    for action in &checked {
+        assert!(CORE_ALLOWS.contains(&action.as_str()), "{action} isn't the core's to allow");
+    }
+    let page_actions = ["snapshot", "read_page", "click", "type", "press_key", "scroll"];
+    for action in page_actions.into_iter().chain(["screenshot", "back", "hand_off", "close_tab"]) {
+        assert!(checked.contains(action), "{action} didn't ask the core: {checked:?}");
+    }
 }

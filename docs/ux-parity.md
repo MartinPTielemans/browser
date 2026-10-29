@@ -310,10 +310,10 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
-| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
+| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Built: the core turns on Blink's PasswordReveal, and blurs an agent's tab's page as its session starts and as it's handed back; neither is compiled yet. To tick: `./check.sh passwords` passing its eye steps, written but not run yet, where cdp.py sees the eye hidden for the password filled in, shown once one is typed, and hidden again with the field's focus, with its capture `password-reveal.png` | Dia |
 | [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: our Settings' Passwords lists usernames only, so nothing asks for a check; Chrome's page should do it in a tab, unverified | Chrome |
 | [x] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. `check/passkeys.sh` registers and signs in on a local page with a virtual security key (DevTools' WebAuthn domain, in the check only), and checks the dialog that waits for the key is a child window centred across the page, which escape closes, with a capture (passkeys-dialog). Security keys need no entitlement; iCloud Keychain's passkeys need Apple's `com.apple.developer.web-browser.public-key-credential` | Chrome |
-| [ ] | No agent path | MVP | agents never read or fill these. Holds today, since no call returns them and there is no MCP server; ticks with its allowlist test | decision 8 |
+| [x] | No agent path | MVP | agents never read or fill these. Holds: no core call an agent makes returns them, Chrome fills and offers nothing in an agent's tab (chromium-core-agent-no-autofill.patch), and the MCP server's tools are a fixed list, each asking the core only for an action its allowlist has (agent_session.cc's RefusedAction). `cargo test`'s `agents_get_only_the_allowlisted_tools` calls each tool and fails on a new one or one asking for another action | decision 8 |
 
 ## Downloads
 
