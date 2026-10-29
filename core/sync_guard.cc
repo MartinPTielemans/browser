@@ -7,6 +7,8 @@
 #include "base/base64url.h"
 #include "base/no_destructor.h"
 #include "base/synchronization/lock.h"
+#include "build/build_config.h"
+#include "components/sync/protocol/device_info_specifics.pb.h"
 #include "components/sync/protocol/entity_data.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/password_specifics.pb.h"
@@ -64,6 +66,40 @@ bool HoldSyncCommit(syncer::DataType type, bool encrypted, syncer::PassphraseTyp
   }
   return syncer::EncryptableUserTypes().Has(type) &&
          !(encrypted && syncer::IsExplicitPassphrase(passphrase));
+}
+
+std::string SyncDeviceLabel(const std::string& model) {
+#if BUILDFLAG(IS_MAC)
+  std::string label = "ilo on Mac";
+#elif BUILDFLAG(IS_WIN)
+  std::string label = "ilo on Windows";
+#else
+  std::string label = "ilo on Linux";
+#endif
+  return model.empty() ? label : label + " (" + model + ")";
+}
+
+void TrimSyncCommit(syncer::DataType type, syncer::CommitRequestDataList& commit) {
+  if (type != syncer::DEVICE_INFO) {
+    return;
+  }
+  for (const std::unique_ptr<syncer::CommitRequestData>& change : commit) {
+    syncer::EntityData& entity = *change->entity;
+    if (entity.is_deleted()) {
+      continue;
+    }
+    const sync_pb::DeviceInfoSpecifics& full = entity.specifics.device_info();
+    sync_pb::DeviceInfoSpecifics trimmed;
+    trimmed.set_cache_guid(full.cache_guid());
+    trimmed.set_client_name(SyncDeviceLabel(full.model()));
+    trimmed.set_device_type(full.device_type());
+    trimmed.set_os_type(full.os_type());
+    trimmed.set_device_form_factor(full.device_form_factor());
+    trimmed.set_last_updated_timestamp(full.last_updated_timestamp());
+    trimmed.set_pulse_interval_in_minutes(full.pulse_interval_in_minutes());
+    *entity.specifics.mutable_device_info() = std::move(trimmed);
+    entity.name = entity.specifics.device_info().client_name();
+  }
 }
 
 bool SyncCommitIsCiphertext(syncer::DataType type, const syncer::CommitRequestDataList& commit) {

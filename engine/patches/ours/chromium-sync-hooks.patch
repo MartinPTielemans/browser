@@ -16,8 +16,8 @@ DataTypeWorker asks the core, through g_browser_core_sync_hold_commit, whether a
 wait to commit, so nothing of a type Chromium can encrypt goes up until the account's passphrase
 encrypts it, which the server doesn't hold, and not the keystore key it does; and once the
 passphrase's types are encrypted it nudges, since the passphrase's other changes came first. It
-gives each commit to g_browser_core_sync_check_commit as it leaves, for the core to stop one that
-isn't ciphertext only.
+gives each commit to g_browser_core_sync_commit as it leaves, for the core to trim what the server
+needn't see, such as the device's name, and to stop a commit that isn't ciphertext only.
 GetClientTag gives a password's client tag, its site and username, to
 g_browser_core_sync_password_tag, so the hash the server sees is keyed with the account's secret.
 
@@ -212,12 +212,12 @@ g_browser_core_sync_password_tag, so the hash the server sees is keyed with the 
  #include "components/sync/protocol/sync_entity.pb.h"
  
 +// browser_core: whether a type's changes wait to commit, and a last look at each commit before
-+// it goes (//browser_core/hooks.h).
++// it goes, which may trim it (//browser_core/hooks.h).
 +bool (*g_browser_core_sync_hold_commit)(syncer::DataType type,
 +                                        bool encrypted,
 +                                        syncer::PassphraseType passphrase) = nullptr;
-+void (*g_browser_core_sync_check_commit)(syncer::DataType type,
-+                                         const syncer::CommitRequestDataList& commit) = nullptr;
++void (*g_browser_core_sync_commit)(syncer::DataType type,
++                                   syncer::CommitRequestDataList& commit) = nullptr;
 +
  namespace syncer {
  
@@ -235,8 +235,8 @@ g_browser_core_sync_password_tag, so the hash the server sees is keyed with the 
           (data_type_state_.encryption_key_name() ==
            cryptographer_->GetDefaultEncryptionKeyName()));
  
-+  if (g_browser_core_sync_check_commit) {
-+    g_browser_core_sync_check_commit(type_, response);
++  if (g_browser_core_sync_commit) {
++    g_browser_core_sync_commit(type_, response);
 +  }
 +
    return std::make_unique<CommitContributionImpl>(

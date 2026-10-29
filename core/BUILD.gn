@@ -4,7 +4,6 @@
 
 import("//build/config/sanitizers/sanitizers.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
-import("//testing/test.gni")
 import("//third_party/protobuf/proto_library.gni")
 
 # What a page tells the core about the key system it asks for. Blink's encrypted media module calls
@@ -89,8 +88,11 @@ source_set("sync_guard") {
 }
 
 # The core's logic that needs no browser. engine/linux/build.sh builds it and the engine's
-# workflow runs it.
-test("browser_core_unittests") {
+# workflow runs it. A plain executable on gtest's own main, since //base/test's launcher brings
+# //third_party/test_fonts on Linux, which the engine's tree doesn't check out, and these tests
+# draw no text.
+executable("browser_core_unittests") {
+  testonly = true
   sources = [
     "sync_guard_unittest.cc",
     "sync_pairing_unittest.cc",
@@ -99,10 +101,10 @@ test("browser_core_unittests") {
     ":sync_guard",
     ":sync_keys",
     "//base",
-    "//base/test:run_all_unittests",
     "//components/sync",
     "//components/sync/protocol",
     "//testing/gtest",
+    "//testing/gtest:gtest_main",
   ]
 }
 

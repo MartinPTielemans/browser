@@ -21,6 +21,19 @@ namespace browser_core {
 // shared with another user never commits.
 bool HoldSyncCommit(syncer::DataType type, bool encrypted, syncer::PassphraseType passphrase);
 
+// What the account's server and its other devices call this device, in place of its name, which
+// is often its owner's: "ilo on Mac", with |model|, Chromium's for its hardware, if it has one, as
+// "ilo on Mac (MacBookPro18,3)".
+std::string SyncDeviceLabel(const std::string& model);
+
+// Trims each change in |commit|, of |type|, to what the account's other devices read. A
+// DEVICE_INFO record, which Chromium never encrypts, keeps its cache GUID, operating system, form
+// factor and when it was last updated, with SyncDeviceLabel for its name; the server reads none
+// of it, and the rest (the device's name, browser version and user agent, hardware maker and
+// model, sign-in device id, and the FCM, Sharing and phone-as-a-security-key fields Google's
+// servers use) stays on the device.
+void TrimSyncCommit(syncer::DataType type, syncer::CommitRequestDataList& commit);
+
 // Whether each change in |commit|, of |type|, is as Chromium leaves it once the passphrase
 // encrypted it, if |type| is one Chromium can encrypt: named "encrypted" or not at all, with
 // specifics that hold ciphertext only.
