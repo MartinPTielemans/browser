@@ -579,6 +579,10 @@ i=$(listed | grep -n '^Window management ' | cut -d: -f1)
 post click 207 $(row_y $((i - 1)))
 expect '^browser: menu shown Allow (checked), Block, Ask$' \
   "the value of Window management didn't offer Allow, Block and Ask"
+# On Linux the menu over the Site Controls takes a choice once the click that opened it is done.
+if [ "$(uname)" = Linux ]; then
+  await "^browser: drive $step done" || fail "the click on Window management's value didn't finish"
+fi
 send choose Block
 expect '^browser: site controls set Window management Block$' "Block in the menu didn't run"
 expect "${controls}[^;]*; .*Window management Block" \
