@@ -65,18 +65,14 @@ check_find_bar() {
 }
 
 # What's typed right after ⌘F, with no wait, lands in the bar, though the page has ⌘F first and the
-# keys come before the bar has the keyboard. All of it in the bar is none of it in the page. Linux
-# holds no keys for the bar yet (host_hold_keys), so there they're typed once it has the keyboard.
+# keys come before the bar has the keyboard. All of it in the bar is none of it in the page.
 post key f cmd
-if [ "$(uname)" = Linux ]; then
-  expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
-  expect '^browser: find bar shown$' "⌘F didn't open the find bar"
-  echo "skip: keys typed right after ⌘F, before the find bar has the keyboard: Linux holds none for it yet."
-  send type apple
-else
-  send type apple
-  expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
-  expect '^browser: find bar shown$' "⌘F didn't open the find bar"
+send type apple
+expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
+expect '^browser: find bar shown$' "⌘F didn't open the find bar"
+# Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
+# it has the input focus, so there what the bar finds is the proof.
+if [ "$(uname)" != Linux ]; then
   expect '^browser: held [0-9]* key events for GPUIPanel$' \
     "the keys typed right after ⌘F didn't wait for the find bar"
 fi
