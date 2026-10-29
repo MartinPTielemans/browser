@@ -20,6 +20,8 @@ if [ "$(uname -s)" = Linux ]; then
   mkdir -p build
   cp -al "$(cd .deps/engine && pwd -P)" build/Browser
   cp target/release/libBrowser.so build/Browser/
+  # uBlock Origin goes beside chrome, Chromium's assets folder off the Mac, where the core loads it.
+  cp -R "$(./fetch-ublock.sh)" build/Browser/ublock
   # shellcheck disable=SC2086
   ../tools/licences.sh build/Browser linux/Cargo.toml "$(rustc -vV | sed -n 's/^host: //p')" $features
   exit 0
@@ -38,6 +40,7 @@ case "$(uname -s)" in
     mkdir -p build
     cp -al .deps/engine build/Browser
     cp target/release/Browser.dll build/Browser/
+    cp -R "$(./fetch-ublock.sh)" build/Browser/ublock
     exit 0
     ;;
 esac
