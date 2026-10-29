@@ -33,8 +33,10 @@
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
+#include "ui/content_accelerators/accelerator_util.h"
 #include "ui/gfx/range/range.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/focus/focus_manager.h"
 #include "ui/views/widget/widget.h"
 
 namespace browser_core {
@@ -531,13 +533,22 @@ content::KeyboardEventProcessingResult BrowserWindowStandIn::PreHandleKeyboardEv
 }
 
 bool BrowserWindowStandIn::HandleKeyboardEvent(const input::NativeWebKeyboardEvent& event) {
+  views::Widget* widget = this->widget();
+  views::FocusManager* focus_manager = widget ? widget->GetFocusManager() : nullptr;
+  // A tab's dialog, such as print preview off the Mac, hands on the keys its page doesn't use, and
+  // its own keys come first, as in Chrome, where they're the window's: escape closes it rather
+  // than stopping the tab's page.
+  if (focus_manager &&
+      focus_manager->IsAcceleratorRegistered(ui::GetAcceleratorFromNativeWebKeyboardEvent(event)) &&
+      unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, focus_manager)) {
+    return true;
+  }
   if (AskApp(Host().tab_key_unhandled, browser_, event)) {
     return true;
   }
   // As BrowserView does: what neither the page nor the app used goes to the window's menus.
-  views::Widget* widget = this->widget();
-  return widget && widget->GetFocusManager() &&
-         unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, widget->GetFocusManager());
+  return focus_manager &&
+         unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, focus_manager);
 }
 
 std::unique_ptr<FindBar> BrowserWindowStandIn::CreateFindBar() {

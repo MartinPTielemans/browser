@@ -256,6 +256,7 @@ source_set("browser_core") {
     "//third_party/crashpad/crashpad/client",
     "//third_party/widevine/cdm:buildflags",
     "//ui/base",
+    "//ui/content_accelerators",
     "//ui/display",
     "//ui/events:dom_keycode_converter",
     "//ui/events:events_base",
