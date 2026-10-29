@@ -64,6 +64,20 @@ expect "^browser: hover card shown $a " "resting on the hidden tab's row again d
 send scroll $(row 1) -5 1
 expect '^browser: hover card hidden$' "a scroll over the rows didn't hide the card"
 send move $page_point
+# Coming and going, recorded for Dia's motion: it fades in over 0.1 s as it grows from its top left
+# on a spring, and fades as it shrinks back on a quicker one.
+record card-motion 4
+send move $(row 1)
+expect '^browser: hover card window shown$' "resting on the hidden tab's row didn't bring its card on screen"
+send move $page_point
+expect '^browser: hover card window gone$' "leaving the rows didn't take the card's window away"
+recorded
+# A key typed into the page ends it too.
+send move $(row 1)
+expect '^browser: hover card window shown$' "resting on the row didn't bring the card back on screen"
+send key x
+expect '^browser: hover card hidden$' "a key typed into the page didn't end the card"
+send move $page_point
 
 # A light theme for the Space: the theme picker's first swatch, then the sun. The card takes the
 # Space's look.
@@ -98,5 +112,5 @@ exec 3>&-
 quit
 
 app_ms=$(sed -n 's/^browser: selected [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: resting on a tab's row shows its card beside the rows, with a picture of its page once it's hidden and the switch quiet, and none for the tab shown; the next row swaps in at once, leaving the rows or a scroll lets it go, and the card takes a light Space's look."
-echo "  Switch, key to the core's report, with cards pictured: $app_ms. Windows: $out/card-dark.png, $out/card-shown-tab.png, $out/card-light.png"
+echo "ok: resting on a tab's row shows its card beside the rows, with a picture of its page once it's hidden and the switch quiet, and none for the tab shown; the next row swaps in at once, leaving the rows, a scroll or a key lets it go, coming and going with Dia's fade and springs, and the card takes a light Space's look."
+echo "  Switch, key to the core's report, with cards pictured: $app_ms. Windows: $out/card-dark.png, $out/card-shown-tab.png, $out/card-light.png, $out/card-motion.mp4"
