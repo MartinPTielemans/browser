@@ -9,6 +9,9 @@ server's 401 ask the core again. g_browser_core_sync_account_watch gives the cor
 IdentityManager's events would make, for when the user signs in or out.
 SyncInvalidationsServiceFactory takes the core's service, which hears from the relay, when it sets
 g_browser_core_sync_invalidations.
+SyncServiceImpl gives the engine the core's server when it sets g_browser_core_sync_url, read as
+each engine starts, so a server the user names takes effect at their next sign-in, without a
+restart, where --sync-url is read once.
 
 --- a/components/sync/service/sync_auth_manager.h
 +++ b/components/sync/service/sync_auth_manager.h
@@ -169,3 +172,28 @@ g_browser_core_sync_invalidations.
    gcm::GCMDriver* gcm_driver =
        gcm::GCMProfileServiceFactory::GetForProfile(profile)->driver();
    instance_id::InstanceIDDriver* instance_id_driver =
+--- a/components/sync/service/sync_service_impl.cc
++++ b/components/sync/service/sync_service_impl.cc
+@@ -85,6 +85,11 @@
+ #include "components/sync/protocol/nigori_specifics.pb.h"
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
++// browser_core: the server the engine talks to, the browser's own account's,
++// which can change while it runs. Set by the core; null leaves the command
++// line's. Defined here so Chrome's other targets link without it.
++GURL (*g_browser_core_sync_url)() = nullptr;
++
+ namespace syncer {
+ 
+ namespace {
+@@ -648,7 +653,9 @@
+   } else {
+     params.engine_components_factory =
+         EngineComponentsFactoryImpl::CreateForServerSync(
+-            EngineSwitchesFromCommandLine(), sync_service_url_,
++            EngineSwitchesFromCommandLine(),
++            g_browser_core_sync_url ? g_browser_core_sync_url()
++                                    : sync_service_url_,
+             base::BindOnce(
+                 create_http_post_provider_factory_override_for_test_.value_or(
+                     create_http_post_provider_factory_),

@@ -32,6 +32,7 @@
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
 #include "browser_core/sign_in_dialog.h"
+#include "browser_core/sync.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -127,6 +128,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
     if (Profile* profile = StartProfile()) {
       UseProfile(profile);
     }
+    sync::Start();
     // Once the Spaces the last launch saved are read, and so once the run loop is running.
     LoadSession(base::BindOnce([] {
       if (g_host.started) {
@@ -241,6 +243,7 @@ void Install(const bc_host& host) {
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
+  sync::Install();
   SetUpAdBlock();
 }
 

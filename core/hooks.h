@@ -200,6 +200,10 @@ extern void (*g_browser_core_sync_account_watch)(const signin::IdentityManager* 
 extern std::unique_ptr<syncer::SyncInvalidationsService> (*g_browser_core_sync_invalidations)(
     Profile* profile);
 
+// components/sync/service/sync_service_impl.cc: the server sync talks to, read as its engine
+// starts, in place of --sync-url's, which is read once.
+extern GURL (*g_browser_core_sync_url)();
+
 // chrome/browser/sync/sync_service_factory.cc: the controllers of the core's own data types for
 // |profile|'s sync, such as ILO_SPACE's, after Chrome's.
 extern std::vector<std::unique_ptr<syncer::DataTypeController>> (*g_browser_core_sync_controllers)(
