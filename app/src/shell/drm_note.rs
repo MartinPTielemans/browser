@@ -637,7 +637,7 @@ mod tests {
     }
 
     /// Escape with the UI focused closes the note in front, and with none it stops, as before:
-    /// here, in full screen with nothing loading, it leaves full screen.
+    /// here, in full screen with nothing loading, two presses leave full screen.
     #[gpui::test]
     fn escape_closes_the_note_and_otherwise_stops(cx: &mut TestAppContext) {
         let host = Rc::new(Recorder::default());
@@ -662,6 +662,8 @@ mod tests {
         let asked = host.take();
         assert!(asked.contains(&"close media note 10".to_string()));
         assert!(!asked.contains(&"window button zoom".to_string()), "escape also stopped");
+        cx.simulate_keystrokes("escape");
+        assert!(!host.take().contains(&"window button zoom".to_string()), "one press left");
         cx.simulate_keystrokes("escape");
         assert!(host.take().contains(&"window button zoom".to_string()));
     }
