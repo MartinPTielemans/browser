@@ -449,6 +449,8 @@ void host_watch_memory_pressure(void (*pressed)(void)) {}
 // keyboard from the page and, on X11, puts the X server's focus on GPUI's window.
 void host_focus(void* view) {}
 
+// Nothing asks: Chromium's loop can't wait here for an answer, so Settings asks in a dialog of its
+// own (settings.rs).
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
   return -1;
 }

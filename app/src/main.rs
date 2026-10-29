@@ -268,6 +268,7 @@ mod platform {
         pub fn host_show_settings();
         pub fn host_hide_settings();
         pub fn host_close_other_window() -> bool;
+        #[cfg(not(target_os = "linux"))]
         pub fn host_ask(
             message: *const c_char,
             detail: *const c_char,
@@ -2538,7 +2539,8 @@ impl Browser for Engine {
 
 /// Asks `message` in an alert with `buttons`, the first the default, and returns the index of the
 /// one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert closes, so
-/// it's called in a task.
+/// it's called in a task. Linux has no alert, and its loop can't wait for one (settings.rs).
+#[cfg(not(target_os = "linux"))]
 fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
     let text = |text: &str| CString::new(text).unwrap_or_default();
     let (message, detail) = (text(message), text(detail));

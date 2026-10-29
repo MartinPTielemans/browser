@@ -424,3 +424,59 @@ fn the_checkbox_answers_with_a_click(cx: &mut TestAppContext) {
     dialog.keys("enter");
     assert_eq!(dialog.calls(), ["show over 100", "hide", "cancel  checked"]);
 }
+
+/// A window with a button all over it, and its own dialog, as Settings has on Linux.
+struct Covered {
+    dialog: Entity<Dialog>,
+    host: Rc<Recorder>,
+}
+
+impl Render for Covered {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let host = self.host.clone();
+        div()
+            .size_full()
+            .child(
+                div()
+                    .id("under")
+                    .size_full()
+                    .on_click(move |_, _, _| host.0.borrow_mut().push("under".into())),
+            )
+            .children(cover(&self.dialog, cx))
+    }
+}
+
+#[gpui::test]
+fn a_windows_own_dialog_covers_it_until_it_has_gone(cx: &mut TestAppContext) {
+    let host = Rc::new(Recorder::default());
+    let (view, cx) = cx.add_window_view(|_, cx| Covered {
+        dialog: in_window(host.clone(), cx),
+        host: host.clone(),
+    });
+    cx.simulate_resize(size(px(684.), px(650.)));
+    let ask = |cx: &mut VisualTestContext| {
+        let deleted = host.clone();
+        let delete = Box::new(move |_: &mut App| deleted.0.borrow_mut().push("delete".into()));
+        cx.update(|window, cx| {
+            let dialog = view.read(cx).dialog.clone();
+            ask_in(&dialog, "Delete “Work”?".into(), String::new(), "Delete", delete, window, cx);
+        });
+        cx.run_until_parked();
+    };
+    let click = |x: f32, y: f32, cx: &mut VisualTestContext| {
+        cx.simulate_click(point(px(x), px(y)), Modifiers::none());
+        cx.executor().advance_clock(Duration::from_secs_f32(MOVE));
+        cx.run_until_parked();
+    };
+    ask(cx);
+    // A click around the card cancels, and doesn't reach the window under it.
+    click(342., 30., cx);
+    assert_eq!(host.0.take(), ["show", "hide"]);
+    click(342., 30., cx);
+    assert_eq!(host.0.take(), ["under"]);
+    ask(cx);
+    cx.simulate_keystrokes("enter");
+    cx.executor().advance_clock(Duration::from_secs_f32(MOVE));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["show", "hide", "delete"]);
+}
