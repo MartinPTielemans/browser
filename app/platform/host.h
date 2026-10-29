@@ -69,7 +69,8 @@ void host_window_closed(void* ui_view);
 // GPUI hears only of its own window's, which the page's taking the keyboard ends.
 void host_window_active(void* ui_view, bool active, bool whole_window);
 
-// Linux only: a capture's file name, as the Mac's save panel offers it.
+// A capture's file name for now, as macOS names a screenshot:
+// "Capture 2026-10-29 at 18.04.12.png".
 void host_capture_name(char* name, size_t capacity);
 
 // Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
