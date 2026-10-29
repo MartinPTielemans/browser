@@ -30,6 +30,7 @@
 #include "ui/compositor/layer.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -99,6 +100,35 @@ void SetInputFocus(x11::Window window) {
   x11::Connection::Get()
       ->SetInputFocus({x11::InputFocus::Parent, window, x11::Time::CurrentTime})
       .IgnoreError();
+}
+
+// Sends |event| to the X window with the input focus, where the X server sends a key typed now,
+// unless that's still in |browser|, which would get it again.
+void SendToInputFocus(const ui::KeyEvent& event, x11::Window browser) {
+  const int code = ui::KeycodeConverter::DomCodeToNativeKeycode(event.code());
+  if (code == ui::KeycodeConverter::InvalidNativeKeycode()) {
+    return;
+  }
+  const x11::Window focus = InputFocus();
+  if (focus == x11::Window::None || IsWithin(focus, browser)) {
+    return;
+  }
+  x11::Connection* connection = x11::Connection::Get();
+  constexpr auto kNone = x11::KeyButMask{};
+  const x11::KeyEvent key{
+      .opcode = event.type() == ui::EventType::kKeyPressed ? x11::KeyEvent::Press
+                                                           : x11::KeyEvent::Release,
+      .detail = static_cast<x11::KeyCode>(code),
+      .root = connection->default_root(),
+      .event = focus,
+      .state = (event.IsShiftDown() ? x11::KeyButMask::Shift : kNone) |
+               (event.IsCapsLockOn() ? x11::KeyButMask::Lock : kNone) |
+               (event.IsControlDown() ? x11::KeyButMask::Control : kNone) |
+               (event.IsAltDown() ? x11::KeyButMask::Mod1 : kNone),
+      .same_screen = true,
+  };
+  connection->SendEvent(key, focus, x11::EventMask::NoEvent);
+  connection->Flush();
 }
 
 ui::PlatformWindow* PlatformWindowOf(views::Widget* widget) {
@@ -475,6 +505,11 @@ class WindowViews : public views::WidgetObserver,
     // The UI's or an overlay's, which on Wayland reach the window too.
     if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
+    }
+    // On X11 only one typed before the overlay that took the keyboard had the input focus reaches
+    // the window, as fast typing after ⌃F does once the keys held for the bar were given to it.
+    if (overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      SendToInputFocus(*event, window());
     }
   }
 
