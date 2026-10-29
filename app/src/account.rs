@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, KeyBinding, Pixels, Render,
+    App, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight, KeyBinding, Pixels, Render,
     SharedString, Window, actions, canvas, div, prelude::*, px, rgb, svg,
 };
 
@@ -168,6 +168,22 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("enter", Keep, Some("AccountField")),
         KeyBinding::new("escape", Leave, Some("AccountField")),
     ]);
+}
+
+/// Puts `text` on GPUI's clipboard and takes it off after `kept` if it's still there, for a host
+/// that can't copy a secret itself (Linux). GPUI can't mark it for clipboard managers to skip.
+pub fn copy_for(text: &str, kept: Duration, cx: &mut App) {
+    cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+    let text = text.to_owned();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(kept).await;
+        cx.update(|cx| {
+            if cx.read_from_clipboard().and_then(|item| item.text()) == Some(text) {
+                cx.write_to_clipboard(ClipboardItem::new_string(String::new()));
+            }
+        });
+    })
+    .detach();
 }
 
 /// The code as both devices show it, in two threes, so it's read and checked at a glance.

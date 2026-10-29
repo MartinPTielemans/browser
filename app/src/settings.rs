@@ -19,7 +19,7 @@ use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
 use gpui::{
-    AnyElement, App, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
+    AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
     KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
     TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
@@ -384,19 +384,7 @@ impl account::Host for CoreAccount {
         if unsafe { platform::host_copy_secret(secret.as_ptr(), seconds) } {
             return;
         }
-        // Where the host can't (Linux), GPUI's clipboard, which can't mark it for clipboard
-        // managers to skip, but still lets it go after `kept` if it's still the secret.
-        cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
-        let text = text.to_owned();
-        cx.spawn(async move |cx| {
-            cx.background_executor().timer(kept).await;
-            cx.update(|cx| {
-                if cx.read_from_clipboard().and_then(|item| item.text()) == Some(text) {
-                    cx.write_to_clipboard(ClipboardItem::new_string(String::new()));
-                }
-            });
-        })
-        .detach();
+        account::copy_for(text, kept, cx);
     }
 
     /// In an alert, or on Linux in Settings' own dialog, as a profile's Delete asks.

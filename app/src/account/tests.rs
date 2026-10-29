@@ -310,6 +310,24 @@ fn copied_words_say_they_leave_the_clipboard(cx: &mut TestAppContext) {
     assert!(!tab.drawn("copied"), "the clipboard has let them go");
 }
 
+/// Where the host can't copy a secret (Linux), the words go on GPUI's clipboard and off it after
+/// the minute, unless something else was copied since.
+#[gpui::test]
+fn the_clipboard_lets_the_words_go(cx: &mut TestAppContext) {
+    let clipboard = |cx: &mut TestAppContext| cx.read(|cx| cx.read_from_clipboard()?.text());
+    cx.update(|cx| copy_for(WORDS, WORDS_KEPT, cx));
+    assert_eq!(clipboard(cx).as_deref(), Some(WORDS));
+    cx.executor().advance_clock(WORDS_KEPT - Duration::from_secs(1));
+    assert_eq!(clipboard(cx).as_deref(), Some(WORDS));
+    cx.executor().advance_clock(Duration::from_secs(2));
+    assert_eq!(clipboard(cx).unwrap_or_default(), "", "the words have gone");
+
+    cx.update(|cx| copy_for(WORDS, WORDS_KEPT, cx));
+    cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string("mine".into())));
+    cx.executor().advance_clock(WORDS_KEPT * 2);
+    assert_eq!(clipboard(cx).as_deref(), Some("mine"), "the user's own copy stays");
+}
+
 /// A new device asks the others to add it once, by itself, and shows the code once one answers.
 /// Cancel takes the request back, and it asks again only when the user does.
 #[gpui::test]
