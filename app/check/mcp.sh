@@ -15,6 +15,21 @@
 log="$out/mcp.log"
 step=0
 rm -f "$saved" "$launch_frame"
+# The throwaway login the run saves, on localhost, goes once it ends, however it ends, and one an
+# earlier run left goes before it starts: the import run counts the logins Settings lists. The
+# app has stopped by then, as Chrome keeps the file open while it runs.
+forget_login() {
+  python3 -I - "$profile_dir/Default/Login Data" << 'PY'
+import os, sqlite3, sys
+if os.path.exists(sys.argv[1]):
+    db = sqlite3.connect(sys.argv[1])
+    db.execute("delete from logins where username_value = 'check@example.test'"
+               " and signon_realm like 'http://localhost:%'")
+    db.commit()
+PY
+}
+forget_login
+trap 'cleanup; forget_login' EXIT
 agents_file="$(dirname "$saved")/Agents"
 token=$(python3 -I -c 'import secrets; print(secrets.token_hex(32))')
 printf '{"on":true,"agents":[{"client":"mcp-client","token":"%s"}]}' "$token" > "$agents_file"
@@ -465,6 +480,8 @@ if [ "$driven" = 1 ]; then
   expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 fi
 quit
+forget_login
+trap cleanup EXIT
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
