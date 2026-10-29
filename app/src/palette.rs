@@ -239,19 +239,17 @@ impl Palette {
         }
     }
 
-    /// The accent under the pointer, and pressed: moved away from its label in OKLab lightness,
-    /// darker under Paper and lighter under Ink, so the label reads more, never less.
+    /// The accent under the pointer, darker, as every filled button goes.
     pub fn accent_hovered(&self) -> Hsla {
-        self.accent_moved(ACCENT_HOVERED)
+        let Rgba { r, g, b, a } = self.accent;
+        Rgba { r: r * ACCENT_HOVERED, g: g * ACCENT_HOVERED, b: b * ACCENT_HOVERED, a }.into()
     }
 
+    /// The accent pressed: moved away from its label in OKLab lightness, darker under Paper and
+    /// lighter under Ink, so the label reads more, never less.
     pub fn accent_pressed(&self) -> Hsla {
-        self.accent_moved(ACCENT_PRESSED)
-    }
-
-    fn accent_moved(&self, by: f32) -> Hsla {
         let [l, a, b] = theme::oklab(self.accent);
-        let away = if self.accent_label == rgb(INK) { by } else { -by };
+        let away = if self.accent_label == rgb(INK) { ACCENT_PRESSED } else { -ACCENT_PRESSED };
         in_gamut((l + away).clamp(0., 1.), a, b).into()
     }
 
