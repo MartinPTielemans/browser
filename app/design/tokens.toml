@@ -512,10 +512,10 @@ intensity-span = 0.55
 # A Space swatch's ring, a hairline.
 ring = 1.0
 # The accent under the pointer, each channel at this, darker as every filled button goes (the
-# owner, 2026-10-26); pressed (#319), this much OKLab lightness further from its label, so the
-# label reads more on it; and a text selection, the accent at this.
+# owner, 2026-10-26); pressed, each channel at this, a step darker again, whatever the label (the
+# owner, #707); and a text selection, the accent at this.
 accent-hovered = 0.9
-accent-pressed = 0.08
+accent-pressed = 0.8
 selection = 0.28
 # One ladder of states for every control whose states Arc wasn't recorded with, but the accent's
 # (#318): pressed, under the pointer, selected, and selected under the pointer. They're the
