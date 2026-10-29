@@ -552,6 +552,18 @@ pub fn copy_from_bar(text: &str, cx: &mut App) {
     }
 }
 
+/// ⇧⌘C in the link preview copies its page's address, not the tab's under it, as Arc's Peek
+/// does, with the toast ⇧⌘C shows.
+pub fn copy_url_of_preview(url: &str, cx: &mut App) {
+    let url = clean_link(url);
+    let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) else {
+        return;
+    };
+    if !url.is_empty() {
+        shell.update(cx, |shell, cx| shell.copy(&url, "Copied Current URL", cx)).ok();
+    }
+}
+
 /// Runs `command`, whose row in the command bar was chosen, once the bar has gone.
 pub fn run_from_bar(command: Command, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {

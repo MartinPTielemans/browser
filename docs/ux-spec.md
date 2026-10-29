@@ -968,7 +968,7 @@ Ardia's docs record nothing of Arc's Peek. Everything about it is in the capture
 - its geometry, backdrop and buttons;
 - how it opens, closes and expands into a tab.
 
-It floats over the page, so it is a child window (decision 4).
+It floats over the page, so it is a child window (decision 4). While it's open, ⇧⌘C copies its page's address, not the tab's under it, with ⇧⌘C's toast (Arc's Copy Link copies the Peek's URL).
 
 ### Little Arc
 
