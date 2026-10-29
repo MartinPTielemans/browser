@@ -11,7 +11,8 @@
 #endif
 
 #if defined(BROWSER_CORE_OFFERS_WIDEVINE)
-#include "base/containers/contains.h"
+#include <algorithm>
+
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
@@ -88,7 +89,7 @@ class Downloader : public component_updater::ServiceObserver {
     SessionChanged();
     Set(BC_WIDEVINE_DOWNLOADING);
     // Removing it unregistered it, and a component's registration reads its folder first.
-    if (base::Contains(updater->GetComponentIDs(), kComponentId)) {
+    if (std::ranges::contains(updater->GetComponentIDs(), kComponentId)) {
       Update();
     } else {
       component_updater::RegisterWidevineCdmComponent(
