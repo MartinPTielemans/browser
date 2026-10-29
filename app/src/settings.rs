@@ -389,17 +389,19 @@ impl account::Host for CoreAccount {
         message: String,
         detail: String,
         action: &'static str,
+        on_return: dialog::Return,
         confirmed: Box<dyn FnOnce(&mut App)>,
         window: &mut Window,
         cx: &mut App,
     ) {
         #[cfg(target_os = "linux")]
-        dialog::ask_in(&self.dialog, message, detail, action, confirmed, window, cx);
+        dialog::ask_in(&self.dialog, message, detail, action, on_return, confirmed, window, cx);
         #[cfg(not(target_os = "linux"))]
         {
             let _ = window;
+            let returns = on_return == dialog::Return::Action;
             cx.spawn(async move |cx| {
-                if crate::ask(&message, &detail, &[action, "Cancel"]) == 0 {
+                if crate::ask(&message, &detail, &[action, "Cancel"], returns) == 0 {
                     cx.update(confirmed).ok();
                 }
             })
@@ -1214,6 +1216,7 @@ impl Settings {
             message,
             detail.into(),
             "Delete",
+            dialog::Return::Action,
             Box::new(move |_| {
                 unsafe { bc::bc_profile_delete(profile) };
             }),
@@ -1224,7 +1227,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, detail, &["Delete", "Cancel"]) == 0 {
+                if crate::ask(&message, detail, &["Delete", "Cancel"], true) == 0 {
                     unsafe { bc::bc_profile_delete(profile) };
                 }
             })
@@ -1394,6 +1397,7 @@ impl Settings {
             message,
             detail,
             "Remove",
+            dialog::Return::Action,
             Box::new(move |_| crate::remove_login(profile, &login)),
             window,
             cx,
@@ -1402,7 +1406,7 @@ impl Settings {
         {
             let _ = window;
             cx.spawn(async move |_, _| {
-                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"], true) == 0 {
                     crate::remove_login(profile, &login);
                 }
             })

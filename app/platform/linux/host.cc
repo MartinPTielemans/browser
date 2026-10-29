@@ -450,7 +450,8 @@ void host_focus(void* view) {}
 
 // Nothing asks: Chromium's loop can't wait here for an answer, so Settings asks in a dialog of its
 // own (settings.rs).
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   return -1;
 }
 

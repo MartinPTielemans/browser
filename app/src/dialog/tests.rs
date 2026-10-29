@@ -122,7 +122,7 @@ fn asking_to_quit(cx: &mut TestAppContext) -> Asking {
             )),
             fields: Vec::new(),
             check: None,
-            return_cancels: false,
+            on_return: Return::Action,
         };
         pose(question, Box::new(move |_| quit.0.borrow_mut().push("quit".into())), cx);
     });
@@ -169,7 +169,7 @@ fn add_extension(action: &str, host: &Rc<Recorder>, cx: &mut App) {
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: false,
+        on_return: Return::Action,
     };
     let host = host.clone();
     let answered = Box::new(move |yes, _: &mut App| {
@@ -359,7 +359,7 @@ fn page_question(fields: Vec<Field>, check: Option<&'static str>) -> Question {
         also: None,
         fields,
         check: check.map(Into::into),
-        return_cancels: false,
+        on_return: Return::Action,
     }
 }
 
@@ -461,7 +461,7 @@ fn a_pages_question_taken_back_leaves_untold(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_checkbox_answers_with_a_click(cx: &mut TestAppContext) {
     let mut question = page_question(Vec::new(), Some("Always allow"));
-    question.return_cancels = true;
+    question.on_return = Return::Cancel;
     let mut dialog = Asking::page(question, cx);
     dialog.cx.cx.update(|cx| {
         let window = cx.global::<DialogWindow>().0;
@@ -495,6 +495,7 @@ impl Render for Covered {
 
 #[gpui::test]
 fn a_windows_own_dialog_covers_it_until_it_has_gone(cx: &mut TestAppContext) {
+    let on_return = std::cell::Cell::new(Return::Action);
     let host = Rc::new(Recorder::default());
     let (view, cx) = cx.add_window_view(|_, cx| Covered {
         dialog: in_window(host.clone(), cx),
@@ -506,7 +507,9 @@ fn a_windows_own_dialog_covers_it_until_it_has_gone(cx: &mut TestAppContext) {
         let delete = Box::new(move |_: &mut App| deleted.0.borrow_mut().push("delete".into()));
         cx.update(|window, cx| {
             let dialog = view.read(cx).dialog.clone();
-            ask_in(&dialog, "Delete “Work”?".into(), String::new(), "Delete", delete, window, cx);
+            let delete_work = ("Delete “Work”?".into(), String::new(), "Delete");
+            let (message, detail, action) = delete_work;
+            ask_in(&dialog, message, detail, action, on_return.get(), delete, window, cx);
         });
         cx.run_until_parked();
     };
@@ -526,4 +529,17 @@ fn a_windows_own_dialog_covers_it_until_it_has_gone(cx: &mut TestAppContext) {
     cx.executor().advance_clock(Duration::from_secs_f32(MOVE));
     cx.run_until_parked();
     assert_eq!(host.0.take(), ["show", "hide", "delete"]);
+
+    // One that only a click answers: ↩ does nothing, and escape still cancels.
+    on_return.set(Return::Nothing);
+    ask(cx);
+    cx.simulate_keystrokes("enter");
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["show"]);
+    cx.update(|_, cx| assert!(cover(&view.read(cx).dialog, cx).is_some(), "it's still asking"));
+    cx.simulate_keystrokes("escape");
+    cx.executor().advance_clock(Duration::from_secs_f32(MOVE));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["hide"]);
 }

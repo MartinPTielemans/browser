@@ -281,6 +281,7 @@ mod platform {
             detail: *const c_char,
             buttons: *const *const c_char,
             count: usize,
+            returns: bool,
         ) -> i32;
         pub fn host_add_dialog(dialog_view: *mut c_void);
         pub fn host_show_dialog(ui_view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
@@ -1897,7 +1898,10 @@ impl Browser for Engine {
             also: None,
             fields,
             check: (!asked.check.is_empty()).then(|| asked.check.clone()),
-            return_cancels: asked.kind == shell::DialogKind::OpenApp,
+            on_return: match asked.kind == shell::DialogKind::OpenApp {
+                true => dialog::Return::Cancel,
+                false => dialog::Return::Action,
+            },
         };
         let window = self.window;
         let kind = asked.kind;
@@ -2542,17 +2546,18 @@ impl Browser for Engine {
             )),
             fields: Vec::new(),
             check: None,
-            return_cancels: false,
+            on_return: dialog::Return::Action,
         };
         dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
     }
 }
 
-/// Asks `message` in an alert with `buttons`, the first the default, and returns the index of the
-/// one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert closes, so
-/// it's called in a task. Linux has no alert, and its loop can't wait for one (settings.rs).
+/// Asks `message` in an alert with `buttons`, the first the default if `returns`, and returns the
+/// index of the one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert
+/// closes, so it's called in a task. Linux has no alert, and its loop can't wait for one
+/// (settings.rs).
 #[cfg(not(target_os = "linux"))]
-fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
+fn ask(message: &str, detail: &str, buttons: &[&str], returns: bool) -> usize {
     let text = |text: &str| CString::new(text).unwrap_or_default();
     let (message, detail) = (text(message), text(detail));
     let buttons: Vec<CString> = buttons.iter().map(|button| text(button)).collect();
@@ -2563,6 +2568,7 @@ fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
             detail.as_ptr(),
             pointers.as_ptr(),
             pointers.len(),
+            returns,
         )
     };
     usize::try_from(chosen).unwrap_or(usize::MAX)
@@ -4315,7 +4321,7 @@ unsafe extern "C" fn window_extension_question(
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: false,
+        on_return: dialog::Return::Action,
     };
     let mut asked = false;
     if window == front().0 {

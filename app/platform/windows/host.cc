@@ -1829,7 +1829,8 @@ HRESULT CALLBACK AlertEvent(HWND hwnd, UINT event, WPARAM, LPARAM, LONG_PTR text
 
 extern "C" {
 
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   std::wstring title = Wide(message), text = Wide(detail);
   std::vector<std::wstring> labels;
   std::vector<TASKDIALOG_BUTTON> task_buttons;
@@ -1854,7 +1855,11 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   config.pszContent = text.c_str();
   config.cButtons = static_cast<UINT>(task_buttons.size());
   config.pButtons = task_buttons.data();
+  // A task dialog always has a default, so return chooses Cancel where it can't choose the first.
   config.nDefaultButton = task_buttons.empty() ? 0 : task_buttons[0].nButtonID;
+  if (!returns && cancel >= 0) {
+    config.nDefaultButton = IDCANCEL;
+  }
   std::string texts = std::string(message ? message : "") + ", " + (detail ? detail : "");
   g_alert_buttons.clear();
   for (const TASKDIALOG_BUTTON& button : task_buttons) {

@@ -17,7 +17,7 @@ use gpui::{
     SharedString, Window, actions, canvas, div, prelude::*, px, rgb, svg,
 };
 
-use crate::dialog::{Question, Tone};
+use crate::dialog::{Question, Return, Tone};
 use crate::settings_rows::{Look, button, group};
 use crate::text_input::TextInput;
 use crate::tokens::settings::{
@@ -107,12 +107,13 @@ pub trait Host {
     fn remove_device(&self, id: &str);
     fn copy(&self, text: &str);
     /// Asks `message`, with `detail` under it, and calls `confirmed` if the user chooses `action`,
-    /// in red.
+    /// in red, ↩ answering `on_return`.
     fn confirm(
         &self,
         message: String,
         detail: String,
         action: &'static str,
+        on_return: Return,
         confirmed: Box<dyn FnOnce(&mut App)>,
         window: &mut Window,
         cx: &mut App,
@@ -183,7 +184,7 @@ pub fn pairing_question(pairing: &Pairing) -> Question {
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: true,
+        on_return: Return::Cancel,
     }
 }
 
@@ -393,6 +394,7 @@ impl Account {
             "This is the account's only device. To sync again, you'll need your recovery words."
                 .into(),
             "Sign Out",
+            Return::Action,
             Box::new(move |_| host.sign_out()),
             window,
             cx,
@@ -409,6 +411,9 @@ impl Account {
              device stays, and syncs again under new recovery words. Your old words stop working."
                 .into(),
             "Erase and Start Over",
+            // It erases every device's synced data, which nothing brings back, so only a click
+            // does.
+            Return::Nothing,
             Box::new(move |_| host.start_over()),
             window,
             cx,
@@ -423,6 +428,7 @@ impl Account {
             "Show your recovery words?".into(),
             "Anyone who sees them can read what you sync, passwords too.".into(),
             "Show",
+            Return::Action,
             Box::new(move |cx| {
                 account
                     .update(cx, |account, cx| {

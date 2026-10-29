@@ -425,10 +425,11 @@ void host_hide_link_target(double fade);
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 
-// Asks |message| in an alert, with |detail| under it and the |count| |buttons|, the first the
-// default and a "Cancel" one taking escape, and returns the index of the one chosen once it
-// closes.
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count);
+// Asks |message| in an alert, with |detail| under it and the |count| |buttons|, a "Cancel" one
+// taking escape, and returns the index of the one chosen once it closes. The first is the default,
+// which return chooses, if |returns|; otherwise only a click chooses it, for one nothing undoes.
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns);
 
 // Shows the close, minimize and zoom buttons of |ui_view|'s window, or hides them, as Arc does
 // while its sidebar is hidden.

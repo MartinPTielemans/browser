@@ -3838,12 +3838,16 @@ bool host_close_other_window(void) {
   return true;
 }
 
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool returns) {
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = @(message);
   alert.informativeText = @(detail);
   for (size_t i = 0; i < count; ++i) {
     [alert addButtonWithTitle:@(buttons[i])];
+  }
+  if (!returns && count > 0) {
+    alert.buttons.firstObject.keyEquivalent = @"";
   }
   g_alert = alert;
   fprintf(stderr, "browser: alert shown %s\n", message);

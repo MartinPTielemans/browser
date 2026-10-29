@@ -102,9 +102,20 @@ pub struct Question {
     pub fields: Vec<Field>,
     /// A checkbox under them, by its label, such as "Always allow…".
     pub check: Option<SharedString>,
-    /// ↩ cancels, and the action takes a click, as for a page opening an app, so a key press the
-    /// page timed can't choose it, as Chrome has it.
-    pub return_cancels: bool,
+    /// What ↩ answers.
+    pub on_return: Return,
+}
+
+/// What ↩ answers in a dialog.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Return {
+    /// The action, whose button carries the ↩ chip.
+    Action,
+    /// Cancel, the action taking a click, as for a page opening an app, so a key press the page
+    /// timed can't choose it, as Chrome has it.
+    Cancel,
+    /// Nothing, the action taking a click, for one nothing can undo that reaches past this device.
+    Nothing,
 }
 
 /// A field in a dialog.
@@ -343,17 +354,19 @@ pub fn in_window<V: 'static>(host: Rc<dyn Host>, cx: &mut Context<V>) -> Entity<
     dialog
 }
 
-/// Asks as `ask` does, in `dialog`, a window's own (`in_window`), which has the keyboard.
+/// Asks as `ask` does, in `dialog`, a window's own (`in_window`), which has the keyboard, with ↩
+/// answering `on_return`.
 pub fn ask_in(
     dialog: &Entity<Dialog>,
     message: String,
     detail: String,
     action: &'static str,
+    on_return: Return,
     confirmed: Box<dyn FnOnce(&mut App)>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let question = destructive(message, detail, action);
+    let question = Question { on_return, ..destructive(message, detail, action) };
     dialog.update(cx, |dialog, cx| dialog.pose(question, confirmed, window, cx));
 }
 
@@ -406,7 +419,7 @@ fn destructive(message: String, detail: String, action: &'static str) -> Questio
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: false,
+        on_return: Return::Action,
     }
 }
 
@@ -645,7 +658,7 @@ impl Dialog {
         }
     }
 
-    /// The user pressed ↩: the action, unless it takes a click.
+    /// The user pressed ↩: what the question says it answers.
     fn confirm(&mut self, cx: &mut Context<Self>) {
         let Some(asked) = &self.asked else {
             return;
@@ -654,9 +667,10 @@ impl Dialog {
         if asked.fields.iter().any(|field| field.read(cx).composing()) {
             return;
         }
-        match asked.question.return_cancels {
-            true => self.answer(Answer::Cancel, cx),
-            false => self.answer(Answer::Action, cx),
+        match asked.question.on_return {
+            Return::Action => self.answer(Answer::Action, cx),
+            Return::Cancel => self.answer(Answer::Cancel, cx),
+            Return::Nothing => {}
         }
     }
 
@@ -866,7 +880,7 @@ impl Render for Dialog {
                     )
                 }
             };
-        let return_chip = (!question.return_cancels).then(|| {
+        let return_chip = (question.on_return == Return::Action).then(|| {
             chip()
                 .w(px(RETURN_WIDTH))
                 .border_1()
@@ -882,7 +896,9 @@ impl Render for Dialog {
         let action = (!question.action.is_empty()).then(|| {
             button("dialog-confirm", question.action.clone(), div().children(return_chip))
                 // Without its chip, its label is as far in from each side.
-                .when(question.return_cancels, |button| button.gap_0().pr(px(LABEL_X)))
+                .when(question.on_return != Return::Action, |button| {
+                    button.gap_0().pr(px(LABEL_X))
+                })
             .bg(fill)
             .hover(move |style| style.bg(hovered))
             .active(move |style| style.bg(pressed))

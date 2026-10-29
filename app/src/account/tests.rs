@@ -3,7 +3,9 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use gpui::{App, Entity, Modifiers, TestAppContext, VisualTestContext, Window};
+use gpui::{App, Entity, Modifiers, TestAppContext, VisualTestContext, Window, size};
+
+use crate::dialog;
 
 use super::*;
 
@@ -20,6 +22,8 @@ struct Recorder {
     refuse: Cell<bool>,
     /// The question asked, and what confirming it does, until a test answers.
     asked: RefCell<Option<(String, Box<dyn FnOnce(&mut App)>)>>,
+    /// Where it asks instead, as Settings does on Linux, for a test that answers with keys.
+    dialog: RefCell<Option<Entity<dialog::Dialog>>>,
 }
 
 impl Recorder {
@@ -83,15 +87,42 @@ impl Host for Recorder {
     fn confirm(
         &self,
         message: String,
-        _: String,
+        detail: String,
         action: &'static str,
+        on_return: Return,
         confirmed: Box<dyn FnOnce(&mut App)>,
-        _: &mut Window,
-        _: &mut App,
+        window: &mut Window,
+        cx: &mut App,
     ) {
         self.record(format!("ask {message} {action}"));
-        *self.asked.borrow_mut() = Some((message, confirmed));
+        match self.dialog.borrow().clone() {
+            Some(dialog) => {
+                dialog::ask_in(&dialog, message, detail, action, on_return, confirmed, window, cx)
+            }
+            None => *self.asked.borrow_mut() = Some((message, confirmed)),
+        }
     }
+}
+
+/// The Account tab under the dialog it asks in, as Settings draws it on Linux.
+struct Page {
+    account: Entity<Account>,
+    dialog: Entity<dialog::Dialog>,
+}
+
+impl Render for Page {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(self.account.clone()).children(dialog::cover(&self.dialog, cx))
+    }
+}
+
+/// The dialog's window, which is the tab's own.
+struct InWindow;
+
+impl dialog::Host for InWindow {
+    fn show(&self, _: Option<Bounds<Pixels>>) {}
+
+    fn hide(&self) {}
 }
 
 struct Shown<'a> {
@@ -313,6 +344,51 @@ fn start_over_asks_then_shows_new_words(cx: &mut TestAppContext) {
     assert!(tab.account.read_with(tab.cx, |account, _| account.entering.is_none()));
 }
 
+/// ↩ in Start over's question does nothing, as erasing every device's synced data takes a click:
+/// the core is never asked to start over, and the account stays as it was until escape cancels.
+#[gpui::test]
+fn return_never_starts_over(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        crate::text_input::bind_keys(cx);
+        bind_keys(cx);
+    });
+    let host = Rc::new(Recorder::default());
+    let core = host.clone();
+    let (page, cx) = cx.add_window_view(|_, cx| {
+        let dialog = dialog::in_window(Rc::new(InWindow), cx);
+        *core.dialog.borrow_mut() = Some(dialog.clone());
+        Page { account: cx.new(|cx| Account::new(core, cx)), dialog }
+    });
+    cx.simulate_resize(size(px(684.), px(650.)));
+    let account = page.read_with(cx, |page, _| page.account.clone());
+    let mut tab = Shown { account, cx, host };
+    tab.set(state(Status::NeedsSecret));
+    tab.click("use-words");
+    tab.host.take();
+    tab.click("start-over");
+    let asked = "ask Erase your synced data and start over? Erase and Start Over";
+    assert_eq!(tab.host.take(), [asked]);
+    let asking = |tab: &mut Shown| {
+        let page = page.clone();
+        tab.cx.update(|_, cx| dialog::cover(&page.read(cx).dialog, cx).is_some())
+    };
+    assert!(asking(&mut tab));
+
+    tab.keys("enter");
+    tab.cx.executor().advance_clock(Duration::from_secs(1));
+    tab.cx.run_until_parked();
+    assert!(tab.host.take().is_empty(), "↩ never starts over");
+    assert!(asking(&mut tab), "the question stays for a click");
+    let now = tab.account.read_with(tab.cx, |account, _| account.state().clone());
+    assert_eq!(now, state(Status::NeedsSecret));
+
+    tab.keys("escape");
+    tab.cx.executor().advance_clock(Duration::from_secs(1));
+    tab.cx.run_until_parked();
+    assert!(!asking(&mut tab));
+    assert!(tab.host.take().is_empty());
+}
+
 /// Back from the field goes back to waiting for another device, which the user asks for again.
 #[gpui::test]
 fn back_from_the_words(cx: &mut TestAppContext) {
@@ -399,7 +475,7 @@ fn the_other_device_asks_with_the_code() {
     assert_eq!(question.message.as_ref(), "Add Pixel 9 (Android)?");
     assert_eq!(question.detail.as_ref(), "Check it shows 312 568.");
     assert_eq!((question.action.as_ref(), question.cancel.as_ref()), ("Add", "Not me"));
-    assert!(question.return_cancels);
+    assert_eq!(question.on_return, Return::Cancel);
     let unnamed = Pairing { os: "".into(), ..pairing };
     assert_eq!(pairing_question(&unnamed).message.as_ref(), "Add Pixel 9?");
     assert_eq!(grouped("007"), "007");

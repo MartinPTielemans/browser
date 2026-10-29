@@ -1827,10 +1827,11 @@ impl account::Host for PreviewAccount {
         message: String,
         detail: String,
         action: &'static str,
+        on_return: dialog::Return,
         confirmed: Box<dyn FnOnce(&mut App)>,
         window: &mut gpui::Window,
         cx: &mut App,
     ) {
-        dialog::ask_in(&self.dialog, message, detail, action, confirmed, window, cx);
+        dialog::ask_in(&self.dialog, message, detail, action, on_return, confirmed, window, cx);
     }
 }
