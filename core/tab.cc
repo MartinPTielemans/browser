@@ -965,9 +965,13 @@ void Tab::SetPageColor(SkColor color) {
 
 void Tab::ShowOnPageColor() {
   // The core's error page has no background of its own (//browser_core/error_page.cc), so it sits
-  // on the colour the pane shows before a page draws, as the app's cards sit on theirs. Every other
-  // page keeps Chrome's white under it.
-  const std::optional<SkColor> color = net_error_ ? page_color_ : std::nullopt;
+  // on the colour the pane shows before a page draws, as the app's cards sit on theirs. So does the
+  // empty document a tab shows until its first page commits, as one a page opened waits for an
+  // answer, which off the Mac draws white over the pane. Every other page keeps Chrome's white.
+  const content::NavigationEntry* entry =
+      web_contents() ? web_contents()->GetController().GetLastCommittedEntry() : nullptr;
+  const bool empty = !entry || entry->IsInitialEntry();
+  const std::optional<SkColor> color = net_error_ || empty ? page_color_ : std::nullopt;
   if (web_contents() && color != shown_on_) {
     shown_on_ = color;
     web_contents()->SetPageBaseBackgroundColor(color);
