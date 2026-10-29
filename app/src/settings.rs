@@ -327,6 +327,8 @@ pub struct Settings {
     passwords_profile: Option<u64>,
     /// Each profile's logins, as the core last told them.
     logins: HashMap<u64, Vec<Login>>,
+    /// Each profile's saved addresses and cards, as the core last told them.
+    autofill: HashMap<u64, Vec<Saved>>,
     /// The profiles whose logins were asked for since the Passwords tab showed.
     asked: HashSet<u64>,
     /// Made when the tab first shows, so the other browsers' files are read only once the user
@@ -406,6 +408,19 @@ struct Profile {
     deletable: bool,
     /// Whether one of the user's Spaces is in it, for Clear Browsing Data's tab.
     users_space: bool,
+}
+
+/// An address or a card a profile keeps, as the Passwords tab lists it. A card's number stays in
+/// the core.
+#[derive(Clone)]
+pub struct Saved {
+    /// An address's name, or its email; a card's nickname, or the name on it.
+    pub title: SharedString,
+    /// An address's first line and city; a card's network and expiry.
+    pub detail: SharedString,
+    pub card: bool,
+    /// The core's name for it.
+    pub key: SharedString,
 }
 
 /// A site the user turned ad blocking off on, as General lists it.
@@ -554,6 +569,20 @@ pub fn logins_changed(profile: u64, logins: Vec<Login>, cx: &mut App) {
     if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
         let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
             settings.logins.insert(profile, logins);
+            cx.notify();
+        };
+        window.update(cx, changed).ok();
+    }
+}
+
+/// The profile's saved addresses and cards, which the Passwords tab asked the core for.
+pub fn autofill_changed(profile: u64, saved: Vec<Saved>, cx: &mut App) {
+    // check.sh waits for this line, which names nothing saved.
+    let cards = saved.iter().filter(|each| each.card).count();
+    log!("browser: autofill {profile}: {} addresses, {cards} cards", saved.len() - cards);
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.autofill.insert(profile, saved);
             cx.notify();
         };
         window.update(cx, changed).ok();
@@ -716,6 +745,7 @@ fn open(cx: &mut App) {
                 popup_texts: Rc::default(),
                 passwords_profile: None,
                 logins: HashMap::new(),
+                autofill: HashMap::new(),
                 asked: HashSet::new(),
                 import: None,
             }
@@ -1406,11 +1436,14 @@ impl Settings {
             return div().into_any_element();
         };
         // None until the core has loaded the profile, which has no logins to read before then.
-        let mut offers = false;
-        let read = unsafe { bc::bc_profile_offers_passwords(profile, &mut offers) };
-        let offers = read.then_some(offers);
-        if offers.is_some() && self.asked.insert(profile) {
+        let offers = |what| {
+            let mut offers = false;
+            unsafe { bc::bc_profile_offers_to_save(profile, what, &mut offers) }.then_some(offers)
+        };
+        let passwords = offers(bc::BC_SAVE_PASSWORDS as i32);
+        if passwords.is_some() && self.asked.insert(profile) {
             unsafe { bc::bc_profile_read_logins(profile) };
+            unsafe { bc::bc_profile_read_autofill(profile) };
         }
         let logins = self.logins.get(&profile).cloned().unwrap_or_default();
         // As the Shortcuts tab's headers, the first at the top unless the pop-up is over it.
@@ -1452,6 +1485,49 @@ impl Settings {
                 )
                 .child(remove.ml(px(PADDING)))
         };
+        // An address or a card as a login's row: its title over its detail, and Remove.
+        let autofill = self.autofill.get(&profile).cloned().unwrap_or_default();
+        let saved_row = |index: usize, saved: &Saved, cx: &mut Context<Self>| {
+            let icon = if saved.card { "icons/credit-card.svg" } else { "icons/map-pin.svg" };
+            let saved = saved.clone();
+            let remove = button(&RowLook::settings(), ("remove-autofill", index), "Remove");
+            let remove = remove.on_click(cx.listener({
+                let saved = saved.clone();
+                move |settings, _, window, cx| {
+                    settings.remove_autofill(profile, saved.clone(), window, cx)
+                }
+            }));
+            div()
+                .h(px(PROFILE_ROW))
+                .px(px(PADDING))
+                .flex()
+                .items_center()
+                .child(tile(icon, PASSWORD_TILE))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().child(saved.title.clone()))
+                        .when(!saved.detail.is_empty(), |text| {
+                            text.child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(USERNAME_SIZE))
+                                    .text_color(rgb(DETAIL))
+                                    .child(saved.detail.clone()),
+                            )
+                        }),
+                )
+                .child(remove.ml(px(PADDING)))
+        };
+        let (cards, addresses): (Vec<_>, Vec<_>) =
+            autofill.iter().enumerate().partition(|(_, saved)| saved.card);
+        let addresses: Vec<gpui::Div> =
+            addresses.into_iter().map(|(index, saved)| saved_row(index, saved, cx)).collect();
+        let cards: Vec<gpui::Div> =
+            cards.into_iter().map(|(index, saved)| saved_row(index, saved, cx)).collect();
         let (saved, never): (Vec<_>, Vec<_>) =
             logins.iter().enumerate().partition(|(_, login)| !login.never);
         let saved: Vec<gpui::Div> =
@@ -1486,14 +1562,21 @@ impl Settings {
             let icon = Some(("icons/user.svg", PROFILE_TILE));
             row(icon, "Profile", popup.into_any_element())
         });
-        let offer = offers.map(|offers| {
-            let set = move |offer, _: &mut App| unsafe {
-                bc::bc_profile_set_offers_passwords(profile, offer);
-            };
-            let offer = self.toggle("offer to save passwords", offers, set, accent, cx);
-            row(None, "Offer to save passwords", offer)
+        // Chrome's words for each, as its settings pages have them.
+        let switches = [
+            (bc::BC_SAVE_PASSWORDS, "offer to save passwords", "Offer to save passwords"),
+            (bc::BC_SAVE_ADDRESSES, "save and fill addresses", "Save and fill addresses"),
+            (bc::BC_SAVE_CARDS, "save and fill payment methods", "Save and fill payment methods"),
+        ];
+        let switches = switches.map(|(what, name, title)| {
+            offers(what as i32).map(|on| {
+                let set = move |offer, _: &mut App| unsafe {
+                    bc::bc_profile_set_offers_to_save(profile, what as i32, offer);
+                };
+                row(None, title, self.toggle(name, on, set, accent, cx))
+            })
         });
-        let settings = [chooser, offer].into_iter().flatten().collect::<Vec<_>>();
+        let settings = [chooser].into_iter().chain(switches).flatten().collect::<Vec<_>>();
         let first = settings.is_empty();
         div()
             .when(!first, |tab| tab.child(group(&RowLook::settings(), settings)))
@@ -1501,6 +1584,13 @@ impl Settings {
             .child(group(&RowLook::settings(), saved))
             .when(!never.is_empty(), |tab| {
                 tab.child(header("Never Saved", false)).child(group(&RowLook::settings(), never))
+            })
+            // Each only while it has one, as Chrome offers to save them as forms are filled.
+            .when(!addresses.is_empty(), |tab| {
+                tab.child(header("Addresses", false)).child(group(&RowLook::settings(), addresses))
+            })
+            .when(!cards.is_empty(), |tab| {
+                tab.child(header("Payment Methods", false)).child(group(&RowLook::settings(), cards))
             })
             .into_any_element()
     }
@@ -1562,6 +1652,48 @@ impl Settings {
             cx.spawn(async move |_, _| {
                 if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
                     crate::remove_login(profile, &login);
+                }
+            })
+            .detach();
+        }
+    }
+
+    /// Removes a saved address or card once the user confirms, as a login, as nothing brings it
+    /// back.
+    fn remove_autofill(
+        &mut self,
+        profile: u64,
+        saved: Saved,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let message = match saved.card {
+            true => format!("Remove the card “{}”?", saved.title),
+            false => format!("Remove the address for “{}”?", saved.title),
+        };
+        let detail = format!("{} won't fill it in again.", env!("APP_NAME"));
+        let remove = move || {
+            // check.sh waits for this line, which names nothing saved.
+            log!("browser: remove {} {profile}", if saved.card { "card" } else { "address" });
+            let key = CString::new(saved.key.as_str()).unwrap_or_default();
+            unsafe { bc::bc_profile_remove_autofill(profile, key.as_ptr()) };
+        };
+        #[cfg(target_os = "linux")]
+        dialog::ask_in(
+            &self.dialog,
+            message,
+            detail,
+            "Remove",
+            Box::new(move |_| remove()),
+            window,
+            cx,
+        );
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = window;
+            cx.spawn(async move |_, _| {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                    remove();
                 }
             })
             .detach();

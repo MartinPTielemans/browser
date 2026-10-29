@@ -4932,6 +4932,31 @@ fn logins(logins: *const bc::bc_login, count: usize) -> Vec<passwords::Login> {
         .collect()
 }
 
+/// The profile's saved addresses and cards, which Settings asked the core for.
+unsafe extern "C" fn profile_autofill_changed(
+    _: *mut c_void,
+    profile: bc::bc_id,
+    entries: *const bc::bc_autofill_entry,
+    count: usize,
+) {
+    let string = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let entries = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(entries, count) },
+    };
+    let saved: Vec<settings::Saved> = (entries.iter())
+        .map(|entry| settings::Saved {
+            title: string(entry.title),
+            detail: string(entry.detail),
+            card: entry.card,
+            key: string(entry.key),
+        })
+        .collect();
+    update_app(|cx| settings::autofill_changed(profile, saved, cx));
+}
+
 /// The profile's logins, which Settings asked the core for.
 unsafe extern "C" fn profile_logins_changed(
     _: *mut c_void,
@@ -5395,6 +5420,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_offer_changed: Some(tab_offer_changed),
         tab_passwords_changed: Some(tab_passwords_changed),
         profile_logins_changed: Some(profile_logins_changed),
+        profile_autofill_changed: Some(profile_autofill_changed),
         passwords_imported: Some(passwords_imported),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),
