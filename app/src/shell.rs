@@ -2624,8 +2624,9 @@ impl Shell {
             || self.opened.is_some()
             || self.settle.is_some();
         if !moving && std::mem::take(&mut self.putting_back) {
-            // check.sh waits for this line before it presses a row or tile Escape put back: a press
-            // hits the frame drawn, which has them sliding home until now.
+            // check.sh waits for this line before it presses a row or tile put back, by Escape or
+            // by a drop where it was: a press hits the frame drawn, which has it sliding home until
+            // now.
             log!("browser: drag put back");
         }
         moving
