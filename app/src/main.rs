@@ -400,6 +400,9 @@ const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 /// Where Add Extension… goes, as Dia's does.
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
 
+/// Chrome's Clear browsing data dialog, over its settings page, in the profile of the tab's Space.
+const CLEAR_BROWSING_DATA: &str = "chrome://settings/clearBrowserData";
+
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
 actions!(browser, [CheckForUpdates]);
 
@@ -2084,6 +2087,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://settings/searchEngines");
     }
 
+    fn clear_browsing_data(&self, _: &mut App) {
+        open_tab(self.window, CLEAR_BROWSING_DATA);
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -2884,6 +2891,33 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     // AppKit hands over the links that launched the browser all at once, so the first window
     // needn't wait for it to finish.
     finished_launching();
+}
+
+/// Opens Chrome's Clear browsing data dialog for `profile`, as Arc's Settings › Profiles does, in
+/// the regular window in front, showing a Space of the profile first if it shows another's. Returns
+/// whether it did: not for a profile none of the user's Spaces is in, as its tabs would have none.
+pub fn clear_browsing_data(profile: u64) -> bool {
+    let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned())
+    else {
+        return false;
+    };
+    let users = |space: bc::bc_id| {
+        let theirs = unsafe { bc::bc_space_profile(space) } == profile;
+        theirs && name(bc::bc_space_agent, space).is_empty()
+    };
+    let shown = unsafe { bc::bc_window_space(window.id) };
+    let Some(space) = std::iter::once(shown).chain(ids(bc::bc_spaces)).find(|&space| users(space))
+    else {
+        return false;
+    };
+    if space != shown {
+        unsafe { bc::bc_window_show_space(window.id, space) };
+    }
+    open_tab(window.id, CLEAR_BROWSING_DATA);
+    unsafe { platform::host_activate(window.ui_view) };
+    // check.sh reads this line.
+    log!("browser: clear browsing data of profile {profile} in space {space}");
+    true
 }
 
 /// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
@@ -3854,6 +3888,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("View History", Command::ViewHistory),
                 item("View Archive…", Command::ViewArchive),
                 item("Clear Archive", Command::ClearArchive),
+                MenuItem::separator(),
+                item("Clear Browsing Data…", Command::ClearBrowsingData),
             ],
         ),
         menu(

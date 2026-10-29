@@ -97,6 +97,7 @@ pub(super) struct Recorder {
     pub(super) bar_open: Cell<bool>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
+    pub(super) clear_browsing_data: Cell<usize>,
     /// The tabs the command bar was given to list each time the window showed another Space.
     pub(super) followed_tabs: RefCell<Vec<Vec<u64>>>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
@@ -533,6 +534,10 @@ impl Browser for Recorder {
 
     fn site_search_settings(&self, _: &mut App) {
         self.site_search_settings.set(self.site_search_settings.get() + 1);
+    }
+
+    fn clear_browsing_data(&self, _: &mut App) {
+        self.clear_browsing_data.set(self.clear_browsing_data.get() + 1);
     }
 
     fn close_other_window(&self, _: &mut App) -> bool {
