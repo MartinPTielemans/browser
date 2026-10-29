@@ -52,6 +52,8 @@ cleanup() {
   [ -z "${server:-}" ] || kill "$server" 2>/dev/null || true
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
+  # A check VM that a run turned light or dark goes back to the appearance it had.
+  [ -z "${dark_mode:-}" ] || appearance "$dark_mode" || true
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -112,6 +114,10 @@ quit_app() {
   else
     osascript -e 'tell application id "dev.browser.app" to quit'
   fi
+}
+# Turns the Mac's appearance dark (true) or light (false), as System Settings › Appearance does.
+appearance() {
+  osascript -e "tell application \"System Events\" to tell appearance preferences to set dark mode to $1"
 }
 quit() {
   quit_app

@@ -8,7 +8,8 @@
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
 # Every run but load and crash needs Browser to be the active app, and window and find take it
-# full screen for a moment.
+# full screen for a moment. In a check VM it turns the Mac's appearance dark for the runs, which
+# read the window's dark look, and puts back the one it had after.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
 # another; BROWSER_DISPLAY=main opens it on the main display.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -131,6 +132,15 @@ with open(sys.argv[1], "w") as f:
 ' "$(dirname "$saved")/Local State"
 . check/lib.sh
 trap cleanup EXIT
+# The window follows the Mac's appearance and the runs read its dark look, so a check VM runs dark,
+# and cleanup puts back the appearance it had. The owner's Mac keeps its own.
+if [ "$(uname)" = Darwin ] && [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
+  dark_mode=$(osascript -e 'tell application "System Events" to tell appearance preferences to get dark mode') || {
+    echo "FAIL: System Events didn't say the Mac's appearance: allow the check to control it" >&2
+    exit 1
+  }
+  appearance true
+fi
 # The runs send the app's driver its commands through it.
 mkfifo "$out/drive"
 for run in ${*:-$runs}; do
