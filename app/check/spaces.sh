@@ -627,6 +627,8 @@ at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
 knob=$(echo "$at" | awk '{ print $1 + 13 + 192.8, $2 + 452 }')
 washed=$(echo "$at" | awk '{ print $1 + 13 + 100, $2 + 452 }')
 send press $knob
+expect '^browser: theme picker handles 1 drawn, intensity held$' \
+  "the wave's knob wasn't drawn held as it was pressed"
 send dragto $washed
 send release $washed
 # The pointer lands on a whole point, and the card's left needn't be one, so the drag ends a little

@@ -161,8 +161,9 @@ struct Editing {
     pressed: Option<Target>,
     /// Whether a frame of it has been drawn on screen since it opened.
     drawn: bool,
-    /// How many colour handles the last frame drew at rest, and which one it drew held.
-    drawn_handles: Option<(usize, Option<usize>)>,
+    /// How many colour handles the last frame drew at rest, and what it drew held: a handle, the
+    /// wave's knob or the dial's, its grab left out.
+    drawn_handles: Option<(usize, Option<Drag>)>,
     /// What it draws with: the Space's palette as it opened, which holds while the user drags
     /// through themes that would change it.
     palette: Palette,
@@ -568,16 +569,16 @@ impl Editing {
         }
     }
 
-    /// Logs the colour handles as they're drawn at rest, and the one held. GPUI draws no frame
-    /// between a press and the next mouse event, and only a frame drawn while a handle is held
-    /// listens for the drag's moves, so check.sh waits for these lines before it presses and
+    /// Logs the colour handles as they're drawn at rest, and what's held. GPUI draws no frame
+    /// between a press and the next mouse event, and only a frame drawn while a handle or a knob is
+    /// held listens for the drag's moves, so check.sh waits for these lines before it presses and
     /// before it drags.
     fn log_handles(&mut self) {
         let gliding = self.glide.is_some_and(|(.., start)| start.elapsed().as_secs_f32() < GLIDE);
-        let held = match self.drag {
-            Some(Drag::Handle(index, ..)) => Some(index),
-            _ => None,
-        };
+        let held = self.drag.map(|drag| match drag {
+            Drag::Handle(index, ..) => Drag::Handle(index, 0., 0.),
+            knob => knob,
+        });
         let handles = self.theme.filter(|_| self.open && self.drawn && !gliding);
         let handles = handles.map(|theme| (theme.count, held));
         if handles.is_none() || handles == self.drawn_handles {
@@ -586,7 +587,13 @@ impl Editing {
         self.drawn_handles = handles;
         if let Some((count, held)) = handles {
             match held {
-                Some(index) => log!("browser: theme picker handles {count} drawn, {index} held"),
+                Some(Drag::Handle(index, ..)) => {
+                    log!("browser: theme picker handles {count} drawn, {index} held")
+                }
+                Some(Drag::Intensity) => {
+                    log!("browser: theme picker handles {count} drawn, intensity held")
+                }
+                Some(Drag::Grain) => log!("browser: theme picker handles {count} drawn, grain held"),
                 None => log!("browser: theme picker handles {count} drawn"),
             }
         }
