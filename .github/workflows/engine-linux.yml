@@ -20,10 +20,12 @@ on:
       - engine/linux/**
       - .github/workflows/engine-linux.yml
 
-# One engine build on the machine at a time, and one that started finishes. Of the runs waiting,
-# only the newest is kept, so a burst of merges builds once.
+# One build per branch waits, the newest, so a burst of merges to main builds once, and one that
+# started finishes. Branches don't share it, or each dispatch would cancel another branch's waiting
+# build. The runner takes one job at a time, which keeps builds of the one tree in
+# $ILO_ENGINE_ROOT/linux, and its disk, to one at a time, as it does beside the Windows engine.
 concurrency:
-  group: ilo-engine
+  group: engine-linux-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
