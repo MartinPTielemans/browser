@@ -432,6 +432,7 @@ impl Shell {
         let favorite = matches!(to, Place::Favorite(_));
         if drag.to == drag.from && (favorite || drag.depth == drag.from_depth) {
             self.settle_drag();
+            self.putting_back = true;
         } else {
             drag.dropped = true;
             match to {

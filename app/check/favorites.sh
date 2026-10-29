@@ -585,7 +585,8 @@ send dragto 100 200
 send dragto 114 112
 none_since '^browser: drag shape tile$' || fail "with 12 favorites, a row dragged over the tiles turned into a tile"
 send release 114 112
-# Over the tiles it's still over its own place, so it goes back there.
+# Over the tiles it's still over its own place, so it goes back there, which moves nothing in the
+# browser and logs only the put-back.
 expect "^browser: \(dragged $r to \(pinned\|today\) \|drag put back\$\)" \
   "the row dragged over the 12 tiles didn't drop back in the list"
 none_since "^browser: dragged $r to favorites" || fail "with 12 favorites, a row dropped on the tiles became the 13th"
