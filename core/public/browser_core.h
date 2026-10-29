@@ -736,8 +736,9 @@ typedef struct bc_host {
 // Windows and Linux, where the sandbox needs Chromium's own executable to start every process
 // (chrome.exe, and chrome through its zygote): there the app is BC_APP_LIBRARY, beside it, and the
 // core calls its BC_APP_ENTRY in the browser process, as Chromium starts, for what the app would
-// pass bc_main. It returns the callbacks, which it keeps for as long as the process runs, and sets
-// |argc| and |argv|.
+// pass bc_main. |argc| and |argv| come in as the arguments the process was given, which there the
+// app can't read itself once Chromium has written its process title over them, and the entry sets
+// them to the switches. It returns the callbacks, which it keeps for as long as the process runs.
 BC_EXPORT int bc_main(int argc, const char** argv, const bc_host* host);
 
 #if defined(_WIN32)
