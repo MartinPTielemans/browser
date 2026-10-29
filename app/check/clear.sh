@@ -309,6 +309,8 @@ expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T after Clear didn't
 expect "^browser: today [0-9][0-9]* $e\$" \
   "⇧⌘T after Clear didn't reopen the top tab: Today is \"$(today)\""
 t=$(today | cut -d' ' -f1)
+# It shows the tab it reopened once the page has drawn, which a slow renderer leaves for after ⌘Z.
+expect "^browser: selected $t\( in .*\)\{0,1\}\$" "⇧⌘T after Clear didn't show the tab it reopened"
 send key z cmd
 expect '^browser: command undo via ui$' "⌘Z with the UI focused didn't run"
 expect "^browser: today $t $e [0-9][0-9]*\$" \
