@@ -64,6 +64,8 @@ source_set("browser_core") {
     "archive.h",
     "auto_archive.cc",
     "auto_archive.h",
+    "autofill_menu.cc",
+    "autofill_menu.h",
     "browser_window_stand_in.cc",
     "browser_window_stand_in.h",
     "capture.cc",
