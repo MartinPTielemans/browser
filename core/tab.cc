@@ -59,6 +59,8 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_user_data.h"
+#include "content/public/browser/web_contents_view_delegate.h"
+#include "content/public/common/drop_data.h"
 #include "content/public/common/result_codes.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
@@ -222,6 +224,29 @@ void Tab::LinkTargetChanged(BrowserWindowInterface* browser,
   if (Window::ForBrowser(browser)) {
     Get(IdOf(source))->ReportLinkTarget(url);
   }
+}
+
+// static
+bool Tab::LinkDragged(content::WebContents* contents,
+                      content::PageLinkDrag phase,
+                      const content::DropData& data,
+                      const gfx::PointF& point) {
+  Tab* tab = FromWebContents(contents);
+  if (!tab || !Host().tab_link_dragged) {
+    return false;
+  }
+  if (phase == content::PageLinkDrag::kLeft) {
+    Host().tab_link_dragged(Host().context, tab->id_, BC_LINK_DRAG_LEFT, "", 0, 0);
+    return false;
+  }
+  // Only a web page's link opens in a pane: one that isn't is left to the page.
+  if (data.url_infos.empty() || !data.url_infos.front().url.SchemeIsHTTPOrHTTPS()) {
+    return false;
+  }
+  const int dragged =
+      phase == content::PageLinkDrag::kDrop ? BC_LINK_DRAG_DROP : BC_LINK_DRAG_OVER;
+  return Host().tab_link_dragged(Host().context, tab->id_, dragged,
+                                 data.url_infos.front().url.spec().c_str(), point.x(), point.y());
 }
 
 // static

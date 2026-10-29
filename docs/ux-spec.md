@@ -743,6 +743,7 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
   - A split has one orientation, so a page alone has all four targets, a split side by side the left and right ones, and a stacked split the top and bottom ones. Let go on the top or bottom one, a page alone stacks with the tab (Arc).
   - The top and bottom targets are the side ones turned, each as long as 0.28 of the card's width at rest, 0.45 grown and 0.51 under the tab, so they fit between the side targets, and their centre leans toward the pointer's y.
   - Targets are at the card's sides only, not at each pane's. Favorites, folders and split rows get none, and neither does a tab of the split shown or a split that is full.
+  - **A link dragged over the page** (Arc help): the same targets come at once, from the page or from another app, with the system's picture of the link under the pointer, not the window's. On a target the drag is the browser's and the page doesn't see it; off them the page has it, so a field or a drop zone in the page still takes the link. Let go on one, the link opens in a new tab joining the page shown on that side, focused. Only an http or https link, and only while the page shown has room for another pane. The core takes the drag through a hook in Chromium's drag destinations (`engine/patches/ours/chromium-core-page-link-drag.patch`).
 
 ### Settings
 

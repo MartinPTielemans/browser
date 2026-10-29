@@ -30,6 +30,8 @@ class BrowserWindowInterface;
 class Profile;
 namespace content {
 class RenderWidgetHost;
+struct DropData;
+enum class PageLinkDrag;
 }
 
 namespace browser_core {
@@ -64,6 +66,12 @@ class Tab : public content::WebContentsObserver,
   static void LinkTargetChanged(BrowserWindowInterface* browser,
                                 content::WebContents* source,
                                 const GURL& url);
+  // The hook for a link dragged over a page (content::SetPageLinkDragHandler): tells the app of a
+  // web link dragged over a tab's page, and answers whether the app takes it there.
+  static bool LinkDragged(content::WebContents* contents,
+                          content::PageLinkDrag phase,
+                          const content::DropData& data,
+                          const gfx::PointF& point);
   // Every tab's page, of the tabs that have one.
   static std::vector<content::WebContents*> Pages();
   // The view a window shows for |contents|'s page: its system page's, else its own.
