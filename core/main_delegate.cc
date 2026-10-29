@@ -33,6 +33,7 @@
 #include "browser_core/session.h"
 #include "browser_core/sign_in_dialog.h"
 #include "browser_core/sync.h"
+#include "browser_core/sync_spaces.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -244,6 +245,7 @@ void Install(const bc_host& host) {
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
   sync::Install();
+  sync_spaces::Install();
   SetUpAdBlock();
 }
 

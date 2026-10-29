@@ -29,6 +29,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
 #include "browser_core/space.h"
+#include "browser_core/sync_spaces.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "chrome/browser/lifetime/application_lifetime_desktop.h"
@@ -825,6 +826,7 @@ void SessionChanged() {
   if (g_saver) {
     g_saver->Changed();
   }
+  sync_spaces::Changed();
 }
 
 void KeepSession() {

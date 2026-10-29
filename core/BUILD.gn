@@ -4,6 +4,7 @@
 
 import("//build/config/sanitizers/sanitizers.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
+import("//third_party/protobuf/proto_library.gni")
 
 # What a page tells the core about the key system it asks for. Blink's encrypted media module calls
 # it (engine/patches/ours/chromium-drm-request.patch), so it has a Blink variant.
@@ -20,6 +21,11 @@ source_set("error_page") {
     "error_page.h",
   ]
   deps = [ "//base" ]
+}
+
+# What the Spaces sync type's entities hold (sync_spaces.cc).
+proto_library("sync_spaces_proto") {
+  sources = [ "sync_spaces.proto" ]
 }
 
 config("exports") {
@@ -140,6 +146,8 @@ source_set("browser_core") {
     "sync_pairing.h",
     "sync_relay.cc",
     "sync_relay.h",
+    "sync_spaces.cc",
+    "sync_spaces.h",
     "sync_words.cc",
     "sync_words.h",
     "sync_words_list.cc",
@@ -248,6 +256,7 @@ source_set("browser_core") {
     "//components/sync",
     "//components/sync/invalidations",
     "//components/sync/protocol",
+    ":sync_spaces_proto",
     "//components/sync_device_info",
     "//components/tabs:public",
     "//components/url_formatter",
