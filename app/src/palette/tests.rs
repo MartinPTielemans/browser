@@ -376,19 +376,38 @@ fn every_theme_of_a_coarse_sweep_reads() {
     assert_eq!(sweep(&themes), Vec::<String>::new());
 }
 
-/// A control under the pointer or pressed keeps its label at least as legible as at rest (#319).
+/// A control pressed keeps its label at least as legible as at rest (#319).
 #[test]
-fn a_hovered_or_pressed_accent_reads_more_under_its_label() {
+fn a_pressed_accent_reads_more_under_its_label() {
     let themes = grid(&[0., 60., 120., 180., 240., 300.], &[0.4, 1.], &[0.2, 0.45, 0.8], &[0.5]);
     for theme in themes.iter().map(Some).chain([None]) {
         let palette = Palette::of(theme);
         let at_rest = contrast(palette.accent_label, palette.accent);
-        for moved in [palette.accent_hovered(), palette.accent_pressed()] {
-            let moved = quantized(moved.to_rgb());
-            assert_ne!(moved, palette.accent, "{theme:?}");
-            assert!(contrast(palette.accent_label, moved) >= at_rest - 0.01, "{theme:?}");
+        let pressed = quantized(palette.accent_pressed().to_rgb());
+        assert_ne!(pressed, palette.accent, "{theme:?}");
+        assert!(contrast(palette.accent_label, pressed) >= at_rest - 0.01, "{theme:?}");
+    }
+}
+
+/// A filled button under the pointer goes 0.9 darker, whatever its label (the owner, 2026-10-26):
+/// the dialog's OK on ilo green from #57B97A to #4EA76E, not lighter.
+#[test]
+fn a_hovered_accent_goes_darker() {
+    let themes = grid(&[0., 60., 120., 180., 240., 300.], &[0.4, 1.], &[0.2, 0.45, 0.8], &[0.5]);
+    for theme in themes.iter().map(Some).chain([None]) {
+        let palette = Palette::of(theme);
+        let hovered = palette.accent_hovered().to_rgb();
+        for (rest, hovered) in [
+            (palette.accent.r, hovered.r),
+            (palette.accent.g, hovered.g),
+            (palette.accent.b, hovered.b),
+        ] {
+            assert!((hovered - rest * 0.9).abs() < 0.005, "{theme:?}");
         }
     }
+    let green = Palette::of(None);
+    assert_eq!(hex(green.accent), 0x57b97a);
+    assert_eq!(hex(green.accent_hovered().to_rgb()), 0x4ea76e);
 }
 
 /// The find bar's caret is ilo green on its dark fill, whatever the Space's theme.

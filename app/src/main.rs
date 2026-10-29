@@ -365,7 +365,7 @@ mod platform {
         #[cfg(not(target_os = "linux"))]
         pub fn host_show_hover_card(ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64);
         #[cfg(not(target_os = "linux"))]
-        pub fn host_hide_hover_card(fade: f64);
+        pub fn host_hide_hover_card();
         #[cfg(not(target_os = "linux"))]
         pub fn host_watch_memory_pressure(pressed: extern "C" fn());
         pub fn host_add_link_target(
@@ -1530,12 +1530,12 @@ impl hover_card::Host for CardHost {
     }
 
     fn hide(&self) {
-        unsafe { platform::host_hide_hover_card(tooltip::FADE_OUT.as_secs_f64()) };
+        unsafe { platform::host_hide_hover_card() };
     }
 }
 
-/// The window lost the keyboard, the app stopped being the active one, or a press, a scroll or a
-/// key landed outside the card.
+/// The window lost the keyboard, the app stopped being the active one, or a press or a scroll
+/// landed outside the card.
 #[cfg(not(target_os = "linux"))]
 extern "C" fn card_away() {
     update_app(hover_card::close);
@@ -2399,6 +2399,10 @@ impl Browser for Engine {
         with_overlays(move |cx| command_bar::show(editing, tabs, field, cx), cx);
     }
 
+    fn search_tabs(&self, tabs: Vec<BarTab>, cx: &mut App) {
+        with_overlays(move |cx| command_bar::show_tabs(tabs, cx), cx);
+    }
+
     fn command_bar_open(&self, cx: &App) -> bool {
         command_bar::is_open(cx)
     }
@@ -2664,6 +2668,8 @@ unsafe extern "C" fn tab_key_before_page(
     if held_escape::keeps_from_page(unsafe { &*key }) {
         return true;
     }
+    // Any key ends the hover card, as in Dia, the page's as the UI's.
+    update_app(hover_card::close);
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
@@ -3813,6 +3819,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "Tabs",
             vec![
                 item("New Tab…", Command::NewTab),
+                item("Search Tabs…", Command::SearchTabs),
                 item(bar.pin_title(), Command::TogglePin),
                 item("New Folder…", Command::NewFolder),
                 MenuItem::separator(),

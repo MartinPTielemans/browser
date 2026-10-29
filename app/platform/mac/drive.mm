@@ -121,7 +121,7 @@
 //                                         <agent> and the name <name>, as agent code will once
 //                                         there is some, logging "browser: made space <space> for
 //                                         agent <agent>"
-//   agentmayact <agent> <tab> [action]    logs whether the agent may do the action, "act" if none,
+//   agentmayact <agent> <tab> [action]    logs whether the agent may do the action, "navigate" if none,
 //                                         to the tab, as "browser: agent <agent> may act on
 //                                         <tab>: <0|1>", and if not "browser: agent <agent>
 //                                         refused <tab>: <reason>"
@@ -1352,7 +1352,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     std::string what;
     if (!(words >> what)) {
-      what = "act";
+      what = "navigate";
     }
     char reason[256];
     const bool may = bc_agent_may_act(agent.c_str(), tab, what.c_str(), reason, sizeof reason);

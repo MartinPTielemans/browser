@@ -91,6 +91,8 @@ pub(super) struct Recorder {
     pub(super) site_controls_extensions: RefCell<Vec<Vec<SharedString>>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
+    /// Each time the shell opened Search Tabs: the tabs it lists, in order.
+    pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
     pub(super) bar_open: Cell<bool>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
@@ -764,6 +766,11 @@ impl Browser for Recorder {
         _: &mut App,
     ) {
         self.command_bars.borrow_mut().push(field);
+        self.bar_open.set(true);
+    }
+
+    fn search_tabs(&self, tabs: Vec<BarTab>, _: &mut App) {
+        self.searched_tabs.borrow_mut().push(tabs.iter().map(|tab| tab.tab).collect());
         self.bar_open.set(true);
     }
 
