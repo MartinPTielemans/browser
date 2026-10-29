@@ -122,8 +122,9 @@ impl Look {
 /// window on screen or taking it off can draw it, which would need the menu while it's held.
 pub trait Host {
     /// Puts the menu's window over the browser window it's for at `frame` in that window's
-    /// content, as it draws now, with the keyboard.
-    fn show(&self, frame: Bounds<Pixels>);
+    /// content, as it draws now, with the keyboard. `panels` are its levels' panels in it, from its
+    /// top left, open or not: the rest is their shadows' room, which a click goes through.
+    fn show(&self, frame: Bounds<Pixels>, panels: &[Bounds<Pixels>]);
     /// Takes it away, and gives the keyboard back to what had it.
     fn hide(&self);
 }
@@ -818,6 +819,9 @@ pub fn show(request: Request, cx: &mut App) {
         // check.sh waits for this line before it chooses.
         log!("browser: menu shown {}", described(&request.items));
         let frame = layout.frame;
+        let panels: Vec<_> = (layout.levels.iter())
+            .map(|level| Bounds::new(level.bounds.origin - frame.origin, level.bounds.size))
+            .collect();
         let origin = menu.fixed.unwrap_or(frame.origin);
         menu.shown = Some(Shown {
             tracking: Tracking::new(request.items, layout, request.at),
@@ -830,7 +834,7 @@ pub fn show(request: Request, cx: &mut App) {
         window.focus(&menu.focus, cx);
         // After a hide that `close` asked for, so the new menu stays.
         let host = menu.host.clone();
-        cx.defer(move |_| host.show(frame));
+        cx.defer(move |_| host.show(frame, &panels));
         cx.notify();
     });
 }

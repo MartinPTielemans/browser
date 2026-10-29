@@ -368,11 +368,14 @@ fn the_log_names_the_items_as_the_systems_menus_did() {
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<&'static str>>,
+    /// Each window the menu asked for, and its panels in it.
+    shown: RefCell<Vec<(Bounds<Pixels>, Vec<Bounds<Pixels>>)>>,
 }
 
 impl super::Host for Recorder {
-    fn show(&self, _: Bounds<Pixels>) {
+    fn show(&self, frame: Bounds<Pixels>, panels: &[Bounds<Pixels>]) {
         self.calls.borrow_mut().push("show");
+        self.shown.borrow_mut().push((frame, panels.to_vec()));
     }
 
     fn hide(&self) {
@@ -397,6 +400,29 @@ fn show_menu(cx: &mut VisualTestContext) -> Rc<Cell<Option<Option<usize>>>> {
     });
     cx.run_until_parked();
     chosen
+}
+
+/// The menu's window takes the pointer on its panels, the submenu's too before it opens, and lets
+/// it through the room round them that their shadows fade out in, so a click just outside a panel
+/// lands on the page under it.
+#[gpui::test]
+fn the_menu_takes_the_pointer_on_its_panels_and_not_in_their_shadows(cx: &mut TestAppContext) {
+    let host = Rc::new(Recorder::default());
+    let window = cx.update(|cx| super::open(host.clone(), cx)).expect("no window for the menu");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    show_menu(cx);
+    let shown = host.shown.borrow();
+    let (frame, panels) = &shown[0];
+    assert_eq!(panels.len(), 2, "the tab menu and its Move to submenu: {panels:?}");
+    let reach = crate::elevation::Level::Popover.reach();
+    let window = Bounds::new(point(px(0.), px(0.)), frame.size);
+    for panel in panels {
+        assert!(window.contains(&panel.origin) && window.contains(&panel.bottom_right()), "{panel:?}");
+    }
+    // The root's top left is where the menu opened, the shadow's room from the window's edges.
+    assert_eq!(frame.origin + panels[0].origin, at(100., 100.));
+    assert!(f32::from(panels[0].origin.x) >= reach.sides && f32::from(panels[0].origin.y) >= reach.above);
 }
 
 /// The menu in its window, driven the ways the host drives it: keys through the window, pointer

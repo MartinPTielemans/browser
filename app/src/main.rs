@@ -836,7 +836,12 @@ thread_local! {
 struct MenuHost;
 
 impl menu::Host for MenuHost {
-    fn show(&self, frame: Bounds<Pixels>) {
+    fn show(&self, frame: Bounds<Pixels>, panels: &[Bounds<Pixels>]) {
+        // Linux's window takes the pointer on the panels alone, as its host can shape it.
+        #[cfg(target_os = "linux")]
+        menu_window::take_pointer_on(panels);
+        #[cfg(not(target_os = "linux"))]
+        let _ = panels;
         let (ui_view, in_reveal) = MENU_OVER.get();
         let (left, top) = (f64::from(frame.origin.x), f64::from(frame.origin.y));
         let (width, height) = (f64::from(frame.size.width), f64::from(frame.size.height));

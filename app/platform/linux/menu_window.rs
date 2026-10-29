@@ -40,6 +40,14 @@ pub extern "C" fn host_add_menu_window(
     MENU.set(Some(Box::leak(Box::new(Menu { view, dismissed }))));
 }
 
+/// The menu's window takes the pointer on its `panels`, from its top left, and lets it through to
+/// the browser window in their shadows' room round them, where a press is outside the menu.
+pub(crate) fn take_pointer_on(panels: &[Bounds<Pixels>]) {
+    if let Some(menu) = MENU.get() {
+        gpui_linux::set_overlay_pointer(menu.view, Some(panels));
+    }
+}
+
 /// Shows the menu's window at `left`, `top`, `width`, `height` in the content of `ui_view`'s
 /// browser window, with its keyboard, or moves it there as a submenu opens.
 #[unsafe(no_mangle)]

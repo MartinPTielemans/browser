@@ -1570,7 +1570,7 @@ fn preview_page_menu(
 struct PreviewMenu;
 
 impl menu::Host for PreviewMenu {
-    fn show(&self, _: Bounds<Pixels>) {}
+    fn show(&self, _: Bounds<Pixels>, _: &[Bounds<Pixels>]) {}
 
     fn hide(&self) {}
 }
