@@ -2945,7 +2945,13 @@ extern "C" fn dragged(
         .iter()
         .map(|item| (unsafe { CStr::from_ptr(item.url) }.to_string_lossy(), item.file))
         .collect();
-    let urls = shell::dropped_urls(items.iter().map(|(url, file)| (url.as_ref(), *file)));
+    let items = items.iter().map(|(url, file)| (url.as_ref(), *file));
+    let search = |text: &str| {
+        url_for(text, |text, url, capacity| unsafe {
+            bc::bc_search_url(std::ptr::null(), text, url, capacity)
+        })
+    };
+    let urls = shell::dropped_urls(items, search);
     let position = point(px(x as f32), px(y as f32));
     let answer = update_window(window_with_view(ui_view), |shell, cx| match phase {
         platform::DRAG_OVER => !urls.is_empty() && shell.drag_in(position, cx),

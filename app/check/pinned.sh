@@ -12,7 +12,8 @@
 # dragged left comes out, a folder drags as a row, and a click closes and opens it. Launched again,
 # the app brings it back closed, a double-click renames it, and Delete Folder in its menu leaves its
 # tab where it was. Links and files dragged onto the list from the page or another app open as tabs
-# where the pointer lets go, and dragged text that isn't a web link doesn't.
+# where the pointer lets go, and dragged text that isn't a link opens a search for it there, but a
+# link that isn't a web link doesn't open.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -439,6 +440,16 @@ send dragover 100 300 text "javascript:document.title='dropped'"
 expect '^browser: drag over HostUIView refused$' "the list took a javascript: URL dragged as text"
 send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
+# Other text, let go under the dropped link's row, centred at 332, is searched for there with the
+# default engine, its spaces run together.
+send dragdrop 100 345 text "dogs  and   cats"
+expect '^browser: dropped 1 in today 2$' "the dropped text wasn't taken under the dropped link"
+expect_lists "$e $c" "$t $d [0-9][0-9]*" "after dropping text"
+s=$(today | cut -d' ' -f3)
+expect "^browser: selected $s\$" "the dropped text's search didn't show"
+expect "^browser: loaded $s https://duckduckgo.com/?q=dogs+and+cats" \
+  "the dropped text didn't load a search for it: $(grep "^browser: loaded $s " "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/dropped-text.png" || fail "no window to capture"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, text that isn't a link opens a search for it there, and a link that isn't a web link doesn't open. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/dropped-text.png, $out/command-bar-commands.png"
