@@ -1,9 +1,10 @@
 # ⇧⌘2 from the page opens capture mode over it, with the keyboard, and the pointer over an element
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
 # that box to a pasteboard of the run's own and shows the toast with Save and Share. Save to
-# Library, the menu's first row, saves it into the profile's Media and says so. Escape and a second
-# ⇧⌘2 leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
-# picture of the whole long page, past its view.
+# Library, the menu's first row, saves it into the profile's Media and says so, and the Library's
+# Media shows it first and opens it in a tab. Escape and a second ⇧⌘2 leave capture mode and give
+# the page the keyboard back. File › Capture Full Page copies a picture of the whole long page,
+# past its view.
 
 # A page longer than any view, with a box at a known place in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
@@ -95,6 +96,19 @@ esac
 [ -s "$library" ] || fail "Save to Library's $library is empty"
 expect '^browser: toast settled$' "Save to Library's toast didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/capture-library.png" || fail "no window to capture"
+
+# Window › View Media… opens the Library on Media, the capture its first tile, as the newest. A
+# click on the tile, under the first heading, opens it in a tab and closes the Library.
+send menu "$(cased 'View Media…')"
+expect '^browser: command view-media via ui$' "Window › View Media… didn't run"
+expect '^browser: library section media$' "View Media… didn't open the Library on Media"
+expect '^browser: library captures [1-9][0-9]*$' "Media didn't list the capture saved"
+expect '^browser: library shown$' "the Library didn't settle open on Media"
+../tools/window-screenshot.sh "$pid" "$out/library-media.png" || fail "no window to capture"
+# Rows from 112 + 8 across and 56 + 27 down, the heading over them; tiles 93.7 square.
+send click $((112 + 8 + 47)) $((56 + 27 + 47))
+expect "^browser: open media $library\$" "a click on the capture's tile didn't open it"
+expect '^browser: library hidden$' "opening the capture didn't close the Library"
 rm -f "$library"
 
 # Escape leaves, and so does ⇧⌘2 again, from capture mode's own window.
@@ -128,4 +142,6 @@ expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
 
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full. Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png"
+echo "ok: capture. The box's picture is $size, the full page's $full." \
+  "Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png," \
+  "$out/library-media.png"

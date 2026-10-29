@@ -106,7 +106,7 @@ pub use keys::{
     Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable,
     recorded, reserved, user_keys, view_binding, written_as,
 };
-pub use library::{Archived, Download, DownloadAction, DownloadState};
+pub use library::{Archived, Captured, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
 pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
@@ -1101,7 +1101,10 @@ pub struct Shell {
     download_press: Option<(u64, Point<Pixels>, bool)>,
     /// The drag of a download's file from the Library closed it, to come back if nothing takes it.
     library_dragged: bool,
-    /// The previews asked for the recent downloads' files, and the rows over the Library button.
+    /// The captures saved to the Library, newest first.
+    captures: Vec<Captured>,
+    /// The previews asked for the recent downloads' files and the Library's media, by download, or
+    /// by `library::capture_id`, and the rows over the Library button.
     download_previews: HashMap<u64, Option<FilePreview>>,
     recent_downloads: RecentDownloads,
     /// Every download a report has listed, whether one has come, and the new download's icon on its
@@ -1321,6 +1324,7 @@ impl Shell {
             download_icons: HashMap::new(),
             download_press: None,
             library_dragged: false,
+            captures: Vec::new(),
             download_previews: HashMap::new(),
             recent_downloads: RecentDownloads::default(),
             downloads_seen: HashSet::new(),
@@ -1425,6 +1429,7 @@ impl Shell {
         shell.page_favicons = from.page_favicons.clone();
         shell.downloads = from.downloads.clone();
         shell.download_icons = from.download_icons.clone();
+        shell.captures = from.captures.clone();
         shell.download_previews = from.download_previews.clone();
         shell.downloads_seen = from.downloads_seen.clone();
         shell.downloads_read = from.downloads_read;

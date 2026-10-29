@@ -236,7 +236,8 @@ impl Browser for Recorder {
         self.moves.set(self.moves.get() + 1);
     }
 
-    fn open_at(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
+    fn open_at(&self, urls: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
+        self.record(format!("open {}", urls.join(" ")));
         Default::default()
     }
 
@@ -378,6 +379,10 @@ impl Browser for Recorder {
 
     fn file_preview(&self, download: u64, _: &str, _: &mut App) {
         self.record(format!("file preview {download}"))
+    }
+
+    fn list_captures(&self, _: &mut App) {
+        self.record("list captures".into())
     }
 
     fn trash(&self, _: &str, _: &mut App) -> bool {

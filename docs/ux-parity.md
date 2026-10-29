@@ -247,7 +247,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Clear Archive | MVP | Archive menu; asks first | Arc 1.170.0 menus |
 | [ ] | Clear Archive from the Archived Tabs section | MVP | a right-click on the section offers it alone, dimmed while the archive is empty; asks first, and ⌘Z brings the tabs back. To tick: `./check.sh clear`'s `archive-section-menu.png`, the menu over the section | Arc help centre |
 | [x] | Library's Spaces | MVP | 216 + 264 a Space wide, no search; a card per Space with its sidebar rows at the sidebar's metrics, a brush for its menu, a blue + for a new Space; a click shows the Space | Arc 1.170.0 cap (one Space); Arc 1.170 rec (three Spaces) |
-| [ ] | Library's other sections | MVP | Downloads, Spaces and Archived Tabs done; Media, Easels & Notes as each feature lands. Not built: Media waits on capture's Save to Library, Easels and Notes on features no phase has; the owner says whether they're MVP | Arc 1.170.0 cap |
+| [ ] | Library's other sections | MVP | Media, Downloads, Spaces and Archived Tabs done; Easels & Notes as their feature lands. Not built: Easels and Notes wait on features no phase has; the owner says whether they're MVP | Arc 1.170.0 cap |
+| [ ] | Library's Media | MVP | the Library's captures and downloaded images and videos, newest first under day headings, three square tiles a row; a click opens the file in a tab (*interim*); Window › View Media…. Built (`library.rs`, `list_captures`). To tick: `./check.sh capture`'s `library-media.png`, with its `open media` line | Arc 1.170.0 cap, ours |
 | [x] | Archive filter, row hover and menu | MVP | ours: the sidebar's hover plate, and a menu of Restore Tab, Copy URL and Delete from Archive; Arc's Filter left out *interim*; Arc's: measure | — |
 
 ## Profiles

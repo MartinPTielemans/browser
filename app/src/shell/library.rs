@@ -1,15 +1,19 @@
 //! The Library, which slides in from the left over the sidebar and pushes the card right without
-//! resizing it (Arc): a column of its sections, Downloads, Spaces and Archived Tabs so far, and
-//! beside it the section's list, newest first under day headings, with a search field over it, or
-//! for Spaces a card for each (docs/ux-spec.md › Archive and Downloads).
+//! resizing it (Arc): a column of its sections, Media, Downloads, Spaces and Archived Tabs so far,
+//! and beside it the section's list, newest first under day headings, with a search field over it,
+//! or for Spaces a card for each (docs/ux-spec.md › Archive and Downloads).
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
+    time::Instant,
+};
 
 use gpui::{
     AnyElement, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight, Hsla,
     Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, linear_color_stop,
-    linear_gradient, list,
+    ObjectFit, Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, img,
+    linear_color_stop, linear_gradient, list,
     prelude::*, px, relative, svg,
 };
 
@@ -132,6 +136,17 @@ use crate::tokens::shell::library::ARCHIVED_RIGHT;
 use crate::tokens::shell::library::ARCHIVED_FAVICON_X;
 use crate::tokens::shell::library::ARCHIVED_TEXT_X;
 use crate::tokens::shell::library::ARCHIVED_RADIUS;
+use crate::tokens::shell::library::MEDIA_GAP;
+use crate::tokens::shell::library::MEDIA_RADIUS;
+/// Media's tiles a row, and each one's side, as the rows' width holds them.
+const MEDIA_COLUMNS: usize = 3;
+const MEDIA_TILE: f32 = (ARCHIVE_WIDTH - ARCHIVED_LEFT - ARCHIVED_RIGHT
+    - (MEDIA_COLUMNS as f32 - 1.) * MEDIA_GAP)
+    / MEDIA_COLUMNS as f32;
+/// The file's own icon in a tile without a picture of it.
+const MEDIA_ICON: f32 = 32.;
+/// Set in the preview ids of captures, which downloads' ids never reach.
+const CAPTURE_BIT: u64 = 1 << 63;
 /// Rows laid out past the list's ends, so a scroll doesn't show them late.
 const ARCHIVE_OVERDRAW: f32 = 300.;
 use crate::tokens::shell::library::PROGRESS_HEIGHT;
@@ -155,6 +170,34 @@ pub struct Archived {
     pub title: SharedString,
     /// When it was archived, in milliseconds since the Unix epoch.
     pub archived: f64,
+}
+
+/// A capture saved to the Library, as the browser lists them.
+#[derive(Clone)]
+pub struct Captured {
+    pub path: SharedString,
+    pub name: SharedString,
+    /// When it was saved, in milliseconds since the Unix epoch.
+    pub saved: f64,
+}
+
+/// The id a capture's preview is asked and kept by: from its path, so each window's is the same.
+pub(super) fn capture_id(path: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    CAPTURE_BIT | hasher.finish()
+}
+
+/// Whether a file is an image, a video, or neither, by its name, as the Library's Media lists the
+/// first two.
+fn is_video(name: &str) -> Option<bool> {
+    let extension = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    match extension.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "heic" | "heif" | "bmp" | "tif"
+        | "tiff" | "svg" => Some(false),
+        "mp4" | "m4v" | "mov" | "webm" | "mkv" | "ogv" => Some(true),
+        _ => None,
+    }
 }
 
 /// Where a download is.
@@ -269,6 +312,7 @@ fn download_menu_items(
 /// A section of the Library.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Section {
+    Media,
     Downloads,
     Spaces,
     Archive,
@@ -277,6 +321,7 @@ pub(super) enum Section {
 impl Section {
     fn name(self) -> &'static str {
         match self {
+            Section::Media => "media",
             Section::Downloads => "downloads",
             Section::Spaces => "spaces",
             Section::Archive => "archive",
@@ -328,6 +373,17 @@ enum Item {
     Tab(usize),
     /// The download at this index of `Shell::downloads`.
     Download(usize),
+    /// A row of Media's tiles, from its left.
+    Media([Option<Medium>; MEDIA_COLUMNS]),
+}
+
+/// A tile of the Library's Media.
+#[derive(Clone, Copy, PartialEq)]
+enum Medium {
+    /// The capture at this index of `Shell::captures`.
+    Capture(usize),
+    /// The download at this index of `Shell::downloads`, an image or video.
+    Download(usize),
 }
 
 impl Shell {
@@ -355,13 +411,15 @@ impl Shell {
             log!("browser: downloads {}", downloads.len());
         }
         self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
-        self.download_previews.retain(|id, _| downloads.iter().any(|each| each.id == *id));
+        self.download_previews.retain(|id, _| {
+            id & CAPTURE_BIT != 0 || downloads.iter().any(|each| each.id == *id)
+        });
         let bar = bar_drawn(&self.downloads);
         let flying = self.flight.as_ref().map(|flight| flight.id);
         self.fly_new_download(&downloads, cx);
         self.downloads = downloads;
         self.recent_downloads_changed(cx);
-        if self.section == Section::Downloads {
+        if matches!(self.section, Section::Downloads | Section::Media) {
             self.filter(true, cx);
         }
         // A download changes about twice a second, and shows only in its list, the footer's bar
@@ -370,6 +428,17 @@ impl Shell {
         let flying = self.flight.as_ref().map(|flight| flight.id) != flying;
         if listed || flying || bar_drawn(&self.downloads) != bar {
             cx.notify();
+        }
+    }
+
+    /// The captures saved to the Library changed, all of them, newest first.
+    pub fn set_captures(&mut self, captures: Vec<Captured>, cx: &mut Context<Self>) {
+        self.download_previews.retain(|id, _| {
+            id & CAPTURE_BIT == 0 || captures.iter().any(|each| capture_id(&each.path) == *id)
+        });
+        self.captures = captures;
+        if self.section == Section::Media {
+            self.filter(true, cx);
         }
     }
 
@@ -588,6 +657,7 @@ impl Shell {
         }
         self.section = section;
         let placeholder = match section {
+            Section::Media => "Search Media…",
             Section::Downloads => "Search Downloads…",
             Section::Spaces => "",
             Section::Archive => "Search Archive…",
@@ -608,6 +678,9 @@ impl Shell {
         });
         // check.sh waits for these lines.
         log!("browser: library section {}", section.name());
+        if section == Section::Media {
+            self.browser.list_captures(cx);
+        }
         if section == Section::Spaces {
             let (count, width) = (self.spaces.len(), self.section_width(section));
             log!("browser: library spaces {count} wide {width}");
@@ -670,8 +743,8 @@ impl Shell {
         }
     }
 
-    /// Lists the archived tabs or downloads the search finds, under their headings. With `changed`
-    /// false, only if the search did.
+    /// Lists the archived tabs, downloads or media the search finds, under their headings. With
+    /// `changed` false, only if the search did.
     fn filter(&mut self, changed: bool, cx: &mut Context<Self>) {
         let Some(library) = &mut self.library else {
             return;
@@ -692,6 +765,22 @@ impl Shell {
                 .filter(|(_, each)| query.is_empty() || found(&each.name) || found(&each.url))
                 .map(|(index, download)| (Item::Download(index), download.started))
                 .collect(),
+            Section::Media => {
+                let tile = |medium| Item::Media([Some(medium), None, None]);
+                let captures = (self.captures.iter().enumerate())
+                    .filter(|(_, each)| query.is_empty() || found(&each.name))
+                    .map(|(index, each)| (tile(Medium::Capture(index)), each.saved));
+                let downloads = (self.downloads.iter().enumerate())
+                    .filter(|(_, each)| {
+                        each.state == DownloadState::Done && !each.held && !each.path.is_empty()
+                    })
+                    .filter(|(_, each)| is_video(&each.name).is_some())
+                    .filter(|(_, each)| query.is_empty() || found(&each.name) || found(&each.url))
+                    .map(|(index, each)| (tile(Medium::Download(index)), each.started));
+                let mut media: Vec<_> = captures.chain(downloads).collect();
+                media.sort_by(|a, b| b.1.total_cmp(&a.1));
+                media
+            }
         };
         let starts = self.browser.day_starts();
         let mut items = Vec::new();
@@ -701,6 +790,14 @@ impl Shell {
             if heading != Some(day) {
                 heading = Some(day);
                 items.push(Item::Heading(HEADINGS[day]));
+            }
+            // A tile goes into the row before it, under the same heading, while it has room.
+            if let (Item::Media([Some(medium), ..]), Some(Item::Media(row))) =
+                (item, items.last_mut())
+                && let Some(free) = row.iter_mut().find(|slot| slot.is_none())
+            {
+                *free = Some(medium);
+                continue;
             }
             items.push(item);
         }
@@ -818,6 +915,7 @@ impl Shell {
             .gap(px(SECTION_GAP))
             // Arc's buttons sit 5 above the column's middle.
             .mb(px(10.))
+            .child(self.section_button(Section::Media, color, cx))
             .child(self.section_button(Section::Downloads, color, cx))
             .child(self.section_button(Section::Spaces, color, cx))
             .child(self.section_button(Section::Archive, color, cx));
@@ -913,6 +1011,10 @@ impl Shell {
                 (Section::Archive, false) => "No archived tabs match.",
                 (Section::Downloads, true) => "Files you download show here.",
                 (Section::Downloads, false) => "No downloads match.",
+                (Section::Media, true) => {
+                    "Captures you save and images and videos you download show here."
+                }
+                (Section::Media, false) => "No media match.",
             };
             div()
                 .size_full()
@@ -1237,6 +1339,7 @@ impl Shell {
             }
             Item::Tab(tab) => tab,
             Item::Download(download) => return self.download_item(download, cx),
+            Item::Media(row) => return self.media_row(row, cx),
         };
         let Some(tab) = self.archive.get(tab) else {
             return div().into_any_element();
@@ -1296,6 +1399,103 @@ impl Shell {
             .into_any_element()
     }
 
+    /// A row of Media's tiles: each a picture of its file, filling its square, or the file's icon,
+    /// with a video's glyph in its corner. A click opens the file in a tab.
+    fn media_row(
+        &mut self,
+        row: [Option<Medium>; MEDIA_COLUMNS],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let tiles: Vec<_> = row.iter().flatten().filter_map(|&medium| {
+            let (id, path, name) = match medium {
+                Medium::Capture(index) => self.captures.get(index).map(|each| {
+                    (capture_id(&each.path), each.path.clone(), each.name.clone())
+                }),
+                Medium::Download(index) => self.downloads.get(index).map(|each| {
+                    (each.id, each.path.clone(), each.name.clone())
+                }),
+            }?;
+            Some(self.media_tile(id, path, name, cx))
+        }).collect();
+        div()
+            .pl(px(ARCHIVED_LEFT))
+            .pr(px(ARCHIVED_RIGHT))
+            .pb(px(MEDIA_GAP))
+            .flex()
+            .gap(px(MEDIA_GAP))
+            .children(tiles)
+            .into_any_element()
+    }
+
+    fn media_tile(
+        &mut self,
+        id: u64,
+        path: SharedString,
+        name: SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        // Asked for once a tile first shows, as the archive's favicons are.
+        if !self.download_previews.contains_key(&id) {
+            self.download_previews.insert(id, None);
+            self.browser.file_preview(id, &path, cx);
+        }
+        let video = is_video(&name) == Some(true);
+        let picture = match self.download_previews.get(&id).cloned().flatten() {
+            Some(preview) if preview.photo => {
+                img(preview.image).size_full().object_fit(ObjectFit::Cover).into_any_element()
+            }
+            Some(preview) => img(preview.image).size(px(MEDIA_ICON)).into_any_element(),
+            None => svg()
+                .path(if video { "icons/video.svg" } else { "icons/image.svg" })
+                .size(px(MEDIA_ICON * 0.75))
+                .text_color(self.palette.text(SECONDARY))
+                .into_any_element(),
+        };
+        let shown = self.palette.plate(STATE_HOVERED);
+        div()
+            .id(("media", id))
+            .relative()
+            .flex_none()
+            .size(px(MEDIA_TILE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .overflow_hidden()
+            .rounded(px(MEDIA_RADIUS))
+            .bg(self.palette.plate(LIBRARY_PLATE))
+            .block_mouse_except_scroll()
+            .on_click(cx.listener(move |shell, _, _, cx| shell.open_media(&path, cx)))
+            .child(picture)
+            // Over the picture, which would hide a plate under it.
+            .child(
+                div()
+                    .id("plate")
+                    .absolute()
+                    .size_full()
+                    .hover(|style| style.bg(shown))
+                    .active(|style| style.bg(self.palette.plate(STATE_PRESSED))),
+            )
+            .children(video.then(|| {
+                svg()
+                    .path("icons/video.svg")
+                    .absolute()
+                    .left(px(6.))
+                    .bottom(px(6.))
+                    .size(px(14.))
+                    .text_color(Hsla::white())
+            }))
+            .into_any_element()
+    }
+
+    /// Opens a file of the Library's Media in a tab at the top of the Today tabs, where the page
+    /// shows a picture or plays a video, and closes the Library.
+    fn open_media(&mut self, path: &str, cx: &mut Context<Self>) {
+        // check.sh waits for this line.
+        log!("browser: open media {path}");
+        self.browser.open_at(&[file_url(path)], false, 0, 0, cx);
+        self.set_library(false, cx);
+    }
+
     /// A section's button in the column, which shows the section.
     fn section_button(
         &self,
@@ -1305,6 +1505,7 @@ impl Shell {
     ) -> impl IntoElement + use<> {
         let selected = section == self.section;
         let (glyph, label) = match section {
+            Section::Media => ("icons/image.svg", "Media"),
             Section::Downloads => ("icons/arrow-down-to-line.svg", "Downloads"),
             Section::Spaces => ("icons/spaces.svg", "Spaces"),
             Section::Archive => ("icons/archive.svg", "Archived Tabs"),
@@ -1684,6 +1885,20 @@ impl Shell {
     }
 }
 
+/// A `file:` URL for `path`, escaping what a URL can't hold as it is.
+fn file_url(path: &str) -> String {
+    let mut url = String::from("file://");
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                url.push(byte as char)
+            }
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
+}
+
 /// How far the running downloads have got in all, 0 to 1, or none while none runs. A held one,
 /// which Chrome keeps running until it's kept or deleted, and one whose size isn't known don't
 /// count, as they'd leave a bar that never moves.
@@ -1786,10 +2001,11 @@ mod rename_tests;
 #[cfg(test)]
 mod tests {
     use super::{
-        Archived, CARD_WIDTH, Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, Line,
-        Space, bar_drawn, card_x, download_menu_items, downloads_progress, library_band,
-        SECTION_WIDTH, SECTION_X, panel_at_rest, past_end, plus_x, receded_opacity,
-        spaces_width,
+        ARCHIVE_TOP, ARCHIVED_LEFT, Archived, CARD_WIDTH, COLUMN_WIDTH, Captured, Download,
+        DownloadAction, DownloadChoice, DownloadState, HEADING_BOTTOM, HEADING_HEIGHT, HEADING_TOP,
+        Item, LIBRARY_BAND, Line, MEDIA_TILE, Medium, SECTION_WIDTH, SECTION_X, Space, bar_drawn,
+        card_x, download_menu_items, downloads_progress, library_band, panel_at_rest, past_end,
+        plus_x, receded_opacity, spaces_width,
     };
     use std::rc::Rc;
 
@@ -1904,8 +2120,8 @@ mod tests {
         });
         cx.run_until_parked();
         let height = cx.update(|window, _| f32::from(window.viewport_size().height));
-        // The third button, the column's three centred 5 above its middle, 100 apart.
-        let section = point(px(SECTION_X + SECTION_WIDTH / 2.), px(height / 2. + 95.));
+        // The fourth button, the column's four centred 5 above its middle, 100 apart.
+        let section = point(px(SECTION_X + SECTION_WIDTH / 2.), px(height / 2. + 145.));
         let menu = |cx: &mut gpui::VisualTestContext| {
             cx.simulate_mouse_down(section, MouseButton::Right, Modifiers::none());
             cx.simulate_mouse_up(section, MouseButton::Right, Modifiers::none());
@@ -1917,6 +2133,65 @@ mod tests {
         shell.update(cx, |shell, cx| shell.set_archive(vec![tab], cx));
         assert_eq!(menu(cx), [("Clear Archive".into(), true)]);
         assert!(shell.read_with(cx, |shell, _| shell.library_open), "the Library closed");
+    }
+
+    /// Media tiles the captures and the downloaded images and videos together, newest first, three
+    /// a row under each day's heading. A click on one opens its file in a tab and closes the
+    /// Library.
+    #[gpui::test]
+    fn media_tiles_captures_and_downloaded_pictures(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        let file = |id, name: &str, state, started| Download {
+            id,
+            name: name.to_string().into(),
+            path: format!("/tmp/{name}").into(),
+            state,
+            started,
+            ..download(DownloadState::Done, false)
+        };
+        let downloads = vec![
+            file(1, "report.pdf", DownloadState::Done, 9.),
+            file(2, "my photo.jpg", DownloadState::Done, 8.),
+            file(3, "clip.mp4", DownloadState::Done, 6.),
+            file(4, "coming.png", DownloadState::Running, 5.),
+        ];
+        let capture = |name: &str, saved| Captured {
+            path: format!("/media/{name}").into(),
+            name: name.to_string().into(),
+            saved,
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_downloads(downloads, cx);
+            shell.section = Section::Media;
+            shell.set_library(true, cx);
+            shell.library_motion = None;
+            shell.sidebar_fade = None;
+        });
+        assert!(host.take().contains(&"list captures".to_string()));
+        let captures =
+            vec![capture("Capture 1.png", 7.), capture("Capture 2.png", 3.), capture("Old.png", -1.)];
+        shell.update(cx, |shell, cx| shell.set_captures(captures, cx));
+        let items = shell.read_with(cx, |shell, _| shell.library.as_ref().unwrap().items.clone());
+        let (download, capture) = (Medium::Download, Medium::Capture);
+        assert!(items == [
+            Item::Heading("Today"),
+            Item::Media([Some(download(1)), Some(capture(0)), Some(download(2))]),
+            Item::Media([Some(capture(1)), None, None]),
+            Item::Heading("Older"),
+            Item::Media([Some(capture(2)), None, None]),
+        ]);
+        cx.run_until_parked();
+        host.take();
+        // The first tile, under the first heading.
+        let top = ARCHIVE_TOP + HEADING_TOP + HEADING_HEIGHT + HEADING_BOTTOM;
+        let left = COLUMN_WIDTH + ARCHIVED_LEFT;
+        let first = point(px(left + MEDIA_TILE / 2.), px(top + MEDIA_TILE / 2.));
+        cx.simulate_click(first, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().contains(&"open file:///tmp/my%20photo.jpg".to_string()));
+        assert!(!shell.read_with(cx, |shell, _| shell.library_open), "the Library stayed open");
     }
 
     /// Past its end, the Library gives about as far as the Space pages do past theirs on a short
