@@ -79,6 +79,8 @@
 //   state                                 nothing, for the done line's report
 //   title                                 logs the key window's title, as "browser: key window
 //                                         titled <title>", such as a window of Chrome's
+//   pasteboard                            logs the text on the run's pasteboard, which stands in
+//                                         for the clipboard, as "browser: pasteboard text <text>"
 //   front                                 logs which of the app's windows other apps take for
 //                                         the one in front, as "browser: front <first>, main
 //                                         <window>, key <window>, ax focused <window>, ax main
@@ -817,6 +819,23 @@ void OrderFrontCharacterPalette(id, SEL, id) {
   fprintf(stderr, "browser: character palette shown\n");
 }
 
+// The run's pasteboard, which stands in for the clipboard, so a page's or DevTools' copy and paste
+// never touch the owner's. Chromium asks for the clipboard both ways.
+NSPasteboard* g_pasteboard;
+IMP g_pasteboard_with_name;
+
+NSPasteboard* GeneralPasteboard(id, SEL) {
+  return g_pasteboard;
+}
+
+NSPasteboard* PasteboardWithName(id self, SEL selector, NSPasteboardName name) {
+  if ([name isEqualToString:NSPasteboardNameGeneral]) {
+    return g_pasteboard;
+  }
+  return ((NSPasteboard * (*)(id, SEL, NSPasteboardName)) g_pasteboard_with_name)(self, selector,
+                                                                                  name);
+}
+
 // Frames are in points from the content view's bottom-left corner. A plain NSView and the core's
 // window view only hold others, so the views in them are listed instead.
 void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
@@ -1423,6 +1442,12 @@ bool Run(const std::string& line, void (^done)(void)) {
     done();
     return true;
   }
+  if (action == "pasteboard") {
+    fprintf(stderr, "browser: pasteboard text %s\n",
+            [g_pasteboard stringForType:NSPasteboardTypeString].UTF8String ?: "");
+    done();
+    return true;
+  }
   if (action == "backdrop") {
     std::string grey;
     if (!(words >> grey)) {
@@ -1650,6 +1675,12 @@ void drive_start(void) {
   method_setImplementation(class_getInstanceMethod(NSApplication.class,
                                                    @selector(orderFrontCharacterPalette:)),
                            (IMP)OrderFrontCharacterPalette);
+  g_pasteboard = [NSPasteboard pasteboardWithUniqueName];
+  method_setImplementation(class_getClassMethod(NSPasteboard.class, @selector(generalPasteboard)),
+                           (IMP)GeneralPasteboard);
+  g_pasteboard_with_name = method_setImplementation(
+      class_getClassMethod(NSPasteboard.class, @selector(pasteboardWithName:)),
+      (IMP)PasteboardWithName);
   // A window leaving full screen tells AppKit it has before the desktop's Space slides back, and
   // until it has, the window server still orders the window over the others and drops clicks.
   [NSWorkspace.sharedWorkspace.notificationCenter
