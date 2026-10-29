@@ -1363,13 +1363,17 @@ impl command_bar::Host for Bar {
     }
 
     fn typed_url(&self, text: &str) -> Option<String> {
-        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        let window = front().0;
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(window, text, url, capacity) })
     }
 
     fn search_url(&self, site: Option<&str>, text: &str) -> Option<String> {
         let site = site.map(CString::new).transpose().ok()?;
         let site = site.as_ref().map_or(std::ptr::null(), |site| site.as_ptr());
-        url_for(text, |text, url, capacity| unsafe { bc::bc_search_url(site, text, url, capacity) })
+        let window = front().0;
+        url_for(text, |text, url, capacity| unsafe {
+            bc::bc_search_url(window, site, text, url, capacity)
+        })
     }
 
     fn page_favicon(&self, url: &str) {
@@ -1807,7 +1811,8 @@ impl Browser for Engine {
     }
 
     fn typed_url(&self, text: &str) -> Option<String> {
-        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        let window = self.window;
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(window, text, url, capacity) })
     }
 
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {

@@ -1060,6 +1060,22 @@ BC_EXPORT bool bc_profile_offers_passwords(bc_id profile, bool* offers);
 // Has the profile offer to save passwords, or not, and returns whether it will: not for a profile
 // that isn't loaded, or one a policy sets.
 BC_EXPORT bool bc_profile_set_offers_passwords(bc_id profile, bool offer);
+// Copies the search engines the user picks the profile's default from, each "keyword\tname" on a
+// line of its own, UTF-8, into |engines| as bc_space_name does. Nothing for a profile that isn't
+// loaded, until its engines have, or while a policy or an extension picks its default.
+BC_EXPORT size_t bc_profile_search_engines(bc_id profile, char* engines, size_t capacity);
+// Copies the keyword of the profile's default search engine, which the command bar searches with in
+// its Spaces, into |keyword| as bc_space_name does.
+BC_EXPORT size_t bc_profile_search_engine(bc_id profile, char* keyword, size_t capacity);
+// Makes the engine of |keyword|, one of bc_profile_search_engines, the profile's default, and
+// returns whether it did.
+BC_EXPORT bool bc_profile_set_search_engine(bc_id profile, const char* keyword);
+// How long, in seconds, a Today tab in the profile's Spaces that no window shows waits before it
+// goes in the archive, or 0 for a profile that isn't loaded.
+BC_EXPORT double bc_profile_archive_after(bc_id profile);
+// Sets it, and returns whether it did: not for a profile that isn't loaded or a time that isn't
+// positive. The tabs that have waited that long go in the archive at once.
+BC_EXPORT bool bc_profile_set_archive_after(bc_id profile, double seconds);
 
 // A page of another browser's history, for bc_profile_add_history. Strings are UTF-8.
 typedef struct bc_history_page {
@@ -1387,9 +1403,9 @@ BC_EXPORT bc_id bc_archive_remove(bc_id archived);
 // archive_changed. Returns how many tabs it put back, or 0 if that removal is gone.
 BC_EXPORT size_t bc_archive_undo_remove(bc_id removal);
 
-// How long, in seconds, a Today tab no window shows waits before it goes in the archive: 12 hours,
-// else the time the user chose. Setting it archives at once the tabs that have waited that long.
-// The core keeps it with the Spaces.
+// How long, in seconds, a Today tab no window shows waits before it goes in the archive in a new
+// profile: 12 hours, else the time the user chose. Each profile takes it the first time it's used,
+// then keeps its own (bc_profile_archive_after), as Arc's do. The core keeps it with the Spaces.
 BC_EXPORT double bc_archive_after(void);
 BC_EXPORT void bc_set_archive_after(double seconds);
 
@@ -1499,14 +1515,19 @@ BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url, bool when_shown);
 
 // Copies up to |capacity| bytes of the URL Chrome's address bar goes to for |text| typed in it into
 // |url|, UTF-8 and ending in a NUL, and returns the URL's length without it: the page |text| names,
-// else a search for it with the default search engine, DuckDuckGo until the user picks another.
-// Returns 0 if |text| names neither.
-BC_EXPORT size_t bc_typed_url(const char* text, char* url, size_t capacity);
+// else a search for it with the default search engine of the profile |window| shows, DuckDuckGo
+// until the user picks another. With no window, the profile the core started with. Returns 0 if
+// |text| names neither.
+BC_EXPORT size_t bc_typed_url(bc_id window, const char* text, char* url, size_t capacity);
 
 // As bc_typed_url, the URL of a search for |text| with the search engine whose keyword is
 // |keyword|, or the default one if that's null, even when |text| names a page. Returns 0 if there's
 // no such engine.
-BC_EXPORT size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity);
+BC_EXPORT size_t bc_search_url(bc_id window,
+                               const char* keyword,
+                               const char* text,
+                               char* url,
+                               size_t capacity);
 
 // Link previews: a page over the window, from a link the user clicked in a pinned tab or a
 // favorite, which the user closes or keeps as a tab. The user's: agents get none, as a preview takes
