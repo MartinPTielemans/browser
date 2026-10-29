@@ -788,6 +788,12 @@ impl Browser for Recorder {
         self.record(format!("passwords {space}"));
     }
 
+    /// As a page with no form field that has the keyboard.
+    fn autofill(&self, tab: u64, kind: super::AutoFill, _: &mut App) -> bool {
+        self.record(format!("autofill {tab} {kind:?}"));
+        false
+    }
+
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}

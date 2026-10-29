@@ -1622,6 +1622,17 @@ BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
 // BC_PASSWORDS_OFFER. The user's: agents get none, as the offer names the user's login.
 BC_EXPORT void bc_tab_show_offer(bc_id tab);
 
+// What Edit › AutoFill fills in: a saved address, a saved login, or a saved card.
+#define BC_AUTOFILL_CONTACT 0
+#define BC_AUTOFILL_PASSWORDS 1
+#define BC_AUTOFILL_CARD 2
+
+// Opens Chrome's dropdown of |kind|, a BC_AUTOFILL_ value, at the form field that has the keyboard
+// in the tab's page, as the field's own click or Chrome's context menu would. Returns false if no
+// form field there has it, and the app opens the settings instead. The user's: agents get none, as
+// the dropdown lists the user's logins, addresses and cards.
+BC_EXPORT bool bc_tab_autofill(bc_id tab, int kind);
+
 // Closes the page menu tab_page_menu showed for |tab|, after running its row with |command|, as
 // Chrome's menu runs the row the user chose, or none with 0. Does nothing if the tab's menu isn't
 // open. The user's: agents get none, as they have no page menu.

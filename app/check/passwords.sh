@@ -9,8 +9,9 @@
 # in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
 # All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
 # browser window's dialog and removes it, which Settings hears. Typing a password shows Blink's eye
-# in its field, and the one filled in has none. Each run has a profile of its own, which no other
-# run or the owner's copy reaches.
+# in its field, and the one filled in has none. Edit › AutoFill › Passwords… opens Chrome's dropdown
+# at the field with the keyboard, and with none, Settings' Passwords. Each run has a profile of its
+# own, which no other run or the owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty.
 serve
@@ -170,6 +171,16 @@ send key escape
 send key tab
 ../tools/window-screenshot.sh "$pid" "$out/password-filled-reveal.png" ||
   fail "no window to capture"
+# Edit › AutoFill › Passwords… opens Chrome's dropdown at the field that has the keyboard, once
+# escape has closed the one the click opened.
+send click 600 60
+send key escape
+send menu "AutoFill › Passwords…"
+expect "^browser: autofill $tab 1 opened\$" \
+  "Edit › AutoFill › Passwords… didn't open the dropdown at the username field"
+../tools/window-screenshot.sh "$pid" "$out/autofill-menu-passwords.png" ||
+  fail "no window to capture"
+send key escape
 # With the password cleared, a click in the username field shows Chrome's dropdown under it, where
 # down previews the saved login and return fills it in again.
 send click 600 60
@@ -279,6 +290,17 @@ send key return
 expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
   "return didn't remove the login"
 expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
+
+# With no form field that has the keyboard, Edit › AutoFill opens Settings' Passwords.
+go_from_bar "${site#http://}welcome.html"
+expect "^browser: title $tab welcome\$" "the welcome page didn't load"
+send menu "AutoFill › Contact…"
+expect "^browser: autofill $tab 0 no field\$" \
+  "Edit › AutoFill › Contact… found a field on the welcome page"
+expect '^browser: settings tab Passwords$' \
+  "Edit › AutoFill › Contact… with no field didn't show Settings' Passwords tab"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 exec 3>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows (the eye in password-reveal, none in password-filled-reveal): $out/password-reveal.png, $out/password-filled-reveal.png, $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; Edit › AutoFill › Passwords… opens the dropdown at the focused field, and with none, Settings' Passwords. Windows (the eye in password-reveal, none in password-filled-reveal): $out/password-reveal.png, $out/password-filled-reveal.png, $out/autofill-menu-passwords.png, $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"

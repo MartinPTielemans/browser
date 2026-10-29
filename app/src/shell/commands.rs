@@ -159,7 +159,18 @@ pub enum Command {
     KeyboardShortcuts,
     /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
     Passwords,
+    /// Opens Chrome's dropdown at the field that has the keyboard in the selected tab's page, else
+    /// the Settings window on its Passwords tab, as Edit › AutoFill's items do.
+    AutoFill(AutoFill),
     Quit,
+}
+
+/// What Edit › AutoFill fills in.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum AutoFill {
+    Contact,
+    Passwords,
+    Card,
 }
 
 /// The browser's shortcuts (docs/ux-spec.md › Keyboard): the keystroke, with modifiers in the order
@@ -607,6 +618,9 @@ impl Command {
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::Passwords => "passwords",
+            Command::AutoFill(AutoFill::Contact) => "autofill-contact",
+            Command::AutoFill(AutoFill::Passwords) => "autofill-passwords",
+            Command::AutoFill(AutoFill::Card) => "autofill-card",
             Command::Quit => "quit",
         }
     }
@@ -798,6 +812,12 @@ impl Shell {
             Command::Settings => return self.browser.settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
+            Command::AutoFill(kind) => {
+                if !self.browser.autofill(self.selected, kind, cx) {
+                    self.browser.passwords(self.space, cx);
+                }
+                return;
+            }
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
                 if !self.url(self.selected).starts_with("chrome://history") {
