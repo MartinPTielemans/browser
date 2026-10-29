@@ -45,7 +45,7 @@ expect '^browser: menu bar Spaces: .*Claude Code' "the Spaces menu didn't list t
 grep -q "^browser: agent space $first " "$log" && fail "the user's Space is an agent's"
 send agentmayact claude-code "$user_tab"
 expect "^browser: agent claude-code may act on $user_tab: 0\$" "the agent may act on the user's tab"
-expect "^browser: agent activity claude-code $user_tab act refused: The tab isn't in the agent's own Space.\$" \
+expect "^browser: agent activity claude-code $user_tab navigate refused: The tab isn't in the agent's own Space.\$" \
   "the refusal didn't reach the activity log"
 send click $page_point
 driven=$active
@@ -54,6 +54,21 @@ if [ "$driven" = 1 ]; then
   expect "^browser: space $agent\( in .*\)\{0,1\}\$" "⌃2 didn't show the agent's Space"
   open_from_bar example.com
   agent_tab=$tab
+  # Even in its own Space, the core refuses an agent ad blocking, passwords and DevTools, and any
+  # action agents don't have, each with why in the activity log, and none starts a session.
+  refused() {
+    send agentmayact claude-code "$agent_tab" "$1"
+    expect "^browser: agent claude-code may act on $agent_tab: 0\$" "the agent may $1 in its own Space"
+    expect "^browser: agent activity claude-code $agent_tab $1 refused: $2\$" \
+      "the $1 refusal didn't reach the activity log"
+  }
+  before=$step
+  refused ad_blocking "Agents can't change ad blocking. It's the user's, in Site Controls."
+  refused passwords "Agents never read passwords, cookies or autofill data."
+  refused devtools "Agents get no DevTools or debugging port."
+  refused run_script 'Agents have no action "run_script".'
+  sed -n "/^browser: drive $before: /,\$p" "$log" | grep -q "^browser: agent claude-code at work" &&
+    fail "a refused action started the agent's session"
   send agentmayact claude-code "$agent_tab"
   expect "^browser: agent claude-code may act on $agent_tab: 1\$" \
     "the agent may not act on a tab of its own Space"
@@ -121,7 +136,7 @@ if [ "$driven" = 1 ]; then
 fi
 quit
 if [ "$driven" = 1 ]; then
-  echo "ok: $made; an agent's Space shows and switches as the user's, keeps the user's tabs out, clears its mark as each session ends, and comes back the agent's"
+  echo "ok: $made; an agent's Space shows and switches as the user's, keeps the user's tabs out, refuses an agent ad blocking, passwords, DevTools and any action agents lack, with why in the activity log, clears its mark as each session ends, and comes back the agent's"
 else
   echo "ok: $made; an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
 fi

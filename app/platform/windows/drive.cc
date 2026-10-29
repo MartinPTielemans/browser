@@ -1068,7 +1068,7 @@ bool Run(const std::string& line) {
     }
     std::string what;
     if (!(words >> what)) {
-      what = "act";
+      what = "navigate";
     }
     char reason[256];
     const bool may = bc_agent_may_act(agent.c_str(), tab, what.c_str(), reason, sizeof reason);
