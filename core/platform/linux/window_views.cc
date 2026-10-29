@@ -506,12 +506,20 @@ class WindowViews : public views::WidgetObserver,
         return;
       }
       const bool in = focus->opcode == x11::FocusEvent::In;
+      if (focus->detail != x11::NotifyDetail::Inferior) {
+        retook_ = false;
+      }
       switch (focus->detail) {
         // Out: GPUI took the input focus into the UI's window, as it does on a click. In: it came
         // back up to the window's own, as a window manager focusing the window may move it, which
-        // while the keys are the UI's would leave them with neither (#593).
+        // while the keys are the UI's would leave them with neither (#593). That's taken back once
+        // until the focus next leaves or enters the window: wlroots 0.17's Xwayland puts it back
+        // up each time, and the two would go on without end (#628).
         case x11::NotifyDetail::Inferior:
-          if (!in || ui_has_keyboard_) {
+          if (!in) {
+            UITakesKeyboard();
+          } else if (ui_has_keyboard_ && !retook_) {
+            retook_ = true;
             UITakesKeyboard();
           }
           break;
@@ -585,6 +593,9 @@ class WindowViews : public views::WidgetObserver,
   double corner_radius_ = 0;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // Whether the core took the input focus back down to the UI's window since the focus last left or
+  // entered the window.
+  bool retook_ = false;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
