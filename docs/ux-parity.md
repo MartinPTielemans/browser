@@ -175,6 +175,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows: where ↩ / ⌃↩ go, in a new window made as ⌘N makes one (from a private window, a private one), showing the page; a command or sum as ↩, over a new pane as ↩ *interim*; whether Arc opens a window, Little Arc or Peek: measure | Chrome |
 | [x] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms), with every key typed and a composition, from the page or the UI; a page that keeps the shortcut gets them after. The checks type, never paste | Ardia P§7 |
 | [x] | Click outside | MVP | closes and still acts | AGENTS.md |
+| [ ] | ⌘T and ⌘L close it, ↩ reloads, copy keeps https:// | MVP | ⌘T or ⌘L again closes an open bar, whichever opened it; ↩ on the URL as ⌘L opened it reloads the page; a copied address keeps https://. Built, and checked by `cargo test`; ours, the URL is shown whole, so the copy has its scheme already. To tick: a driven check on the Mac, from the bar and from the page, not written yet | Arc's help centre |
 | [x] | Switch to Tab rows | MVP | across windows, never the current tab: a tab another window shows live brings that window forward, key, rather than taking its page, as Chrome's does *interim*; whether Arc raises or moves: measure | Dia, O |
 | [x] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
 | [x] | Commands | MVP | found by name, with their shortcuts; one whose name starts with what's typed comes first | Arc 1.170.0 cap |

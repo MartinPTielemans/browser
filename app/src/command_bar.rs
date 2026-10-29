@@ -238,6 +238,8 @@ pub trait Host {
     /// loading `url` in it. The user's: agents get none, as it opens a window (decision 8).
     fn open_window(&self, url: &str, cx: &mut App);
     fn navigate(&self, tab: u64, url: &str);
+    /// Loads `tab`'s page again, as ↩ does on the URL the bar opened on (Arc).
+    fn reload(&self, tab: u64);
     fn select(&self, tab: u64);
     /// The browser window that shows `tab`'s page live (`bc_tab_window`), if it's another than
     /// the one the bar shows over.
@@ -1056,6 +1058,17 @@ impl CommandBar {
             // check.sh reads these lines.
             log!("browser: command bar typed {text}");
         }
+        // On the URL it opened on, as Arc's does, ↩ loads the page again rather than going to it.
+        if let Target::Tab(tab) = self.target
+            && !self.page.is_empty()
+            && text == self.page
+            && self.chosen().is_none_or(|row| row.url == self.page)
+        {
+            // check.sh reads this line.
+            log!("browser: command bar reloads tab {tab}");
+            self.close();
+            return self.host.reload(tab);
+        }
         // Before anything is typed, that's one of the Space's tabs.
         if self.chosen().is_some() {
             self.take(self.selected, cx);
@@ -1321,6 +1334,17 @@ impl CommandBar {
     fn close(&self) {
         self.open.set(false);
         self.host.hide();
+    }
+
+    /// ⌘T or ⌘L, which open the bar, close it again, as Arc's do, whichever opened it. The browser's
+    /// other shortcuts go on to the browser.
+    fn shortcut(&mut self, run: &shell::Run, _: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(run.0, shell::Command::NewTab | shell::Command::EditUrl) {
+            return cx.propagate();
+        }
+        // check.sh reads this line.
+        log!("browser: command bar closes again on {}", run.0.name());
+        self.host.dismiss();
     }
 
     /// Esc leaves the site search first, then the bar.
@@ -1623,6 +1647,7 @@ impl Render for CommandBar {
                 .on_action(cx.listener(Self::paste_and_search))
                 .on_action(cx.listener(Self::remove))
                 .on_action(cx.listener(Self::dismiss))
+                .on_action(cx.listener(Self::shortcut))
                 .on_action(cx.listener(Self::enter_site_or_next))
                 .on_action(cx.listener(Self::leave_site_or_previous))
                 .capture_action(cx.listener(Self::backspace))

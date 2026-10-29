@@ -65,6 +65,10 @@ impl Host for Recorder {
         self.record(format!("navigate {tab} {url}"));
     }
 
+    fn reload(&self, tab: u64) {
+        self.record(format!("reload {tab}"));
+    }
+
     fn select(&self, tab: u64) {
         self.record(format!("select {tab}"));
     }
@@ -245,6 +249,12 @@ impl Bar {
     fn edit(&mut self, url: &str, field: Option<Bounds<Pixels>>) {
         let editing = Some((1, SharedString::from(url.to_string())));
         self.cx.cx.update(|cx| show(editing, Vec::new(), field, cx));
+        self.cx.run_until_parked();
+    }
+
+    /// The browser's shortcut for `command`, pressed while the bar has the keyboard.
+    fn run(&mut self, command: shell::Command) {
+        self.cx.dispatch_action(shell::Run(command));
         self.cx.run_until_parked();
     }
 
@@ -1130,6 +1140,58 @@ fn a_click_on_the_url_field_opens_the_bar_over_it_and_cmd_l_centred(cx: &mut Tes
     bar.edit("https://example.com/", None);
     assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 20"]);
     assert!(!bar.over_field());
+}
+
+/// ⌘T or ⌘L closes the bar, whichever opened it, as Arc's do, and the browser's other shortcuts go
+/// on to the browser.
+#[gpui::test]
+fn cmd_t_or_cmd_l_closes_the_open_bar(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    let browser: Rc<RefCell<Vec<shell::Command>>> = Rc::default();
+    let ran = browser.clone();
+    bar.cx.cx.update(|cx| {
+        cx.on_action(move |run: &shell::Run, _| ran.borrow_mut().push(run.0));
+    });
+    bar.type_text("ex");
+    bar.run(shell::Command::NewTab);
+    assert_eq!(bar.calls(), ["dismiss"]);
+    bar.edit("https://example.com/", None);
+    bar.run(shell::Command::EditUrl);
+    bar.run(shell::Command::NewTab);
+    assert_eq!(bar.calls(), ["dismiss", "dismiss"]);
+    bar.run(shell::Command::CopyUrl);
+    assert_eq!(bar.calls(), Vec::<String>::new());
+    assert_eq!(*browser.borrow(), [shell::Command::CopyUrl]);
+}
+
+/// ↩ on the URL ⌘L opened the bar on loads the page again, as Arc's does; typed over, it goes
+/// where the text names.
+#[gpui::test]
+fn return_on_the_url_it_opened_on_reloads(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.edit("https://example.com/", None);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["hide", "reload 1"]);
+    bar.edit("https://example.com/", None);
+    bar.type_text("example.org");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["navigate 1 https://example.org/", "hide"]);
+    // A new tab's bar has no page to load again.
+    let mut bar = Bar::new(cx);
+    bar.type_text("example.com");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
+}
+
+/// The URL the bar opens on is the page's whole address, so a copy of it keeps its https://, as
+/// Arc's does.
+#[gpui::test]
+fn a_copied_address_keeps_its_scheme(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.edit("https://example.com/a?b=1", None);
+    bar.cx.dispatch_action(text_input::Copy);
+    let copied = bar.cx.read_from_clipboard().and_then(|item| item.text());
+    assert_eq!(copied.as_deref(), Some("https://example.com/a?b=1"));
 }
 
 /// The core's rows for `text`: its search row, then a page for each of `hosts`.

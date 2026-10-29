@@ -581,6 +581,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 - In a split view's new pane the panel moves right to 70 in from the card's right edge, which puts its field at x 719 where ⌘T's is at 426 (Arc cap).
 - ⇧⌘A opens Search Tabs, as Dia's and Chrome's do (Arc 1.170.0 has none). Ours is the command bar, centred, listing only the open tabs but the one shown, the Space shown's first; typing keeps those it names, as the bar's Switch to Tab row does, and ↩ switches to one, in any Space or window.
 - Open and close are one frame, for ⌘T, ⌘L and the click alike (Arc rec 120 fps, 3 runs, ⌘T; Arc 1.170 rec). Over the field the panel shows already grown, as Arc's does; Dia's grow out of the URL field isn't ours.
+- ⌘T or ⌘L while the bar shows closes it as Esc does, whichever of them opened it (Arc's help centre). The browser's other shortcuts go on to the browser.
 
 **Panel** (Arc 1.170.0 cap, ax, 1512 × 949 window)
 
@@ -673,7 +674,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 
 | Key | Action | Source |
 |---|---|---|
-| ↩ | open where the bar shows pages: a new tab for ⌘T, the tab for ⌘L | Chrome |
+| ↩ | open where the bar shows pages: a new tab for ⌘T, the tab for ⌘L. On the URL ⌘L or the click opened it on, as it opened, it loads the page again rather than going to it (Arc's help centre) | Chrome, Arc |
 | ⌘↩ | a tab behind the one shown, at the top of Today, which loads once first shown; the bar stays open. A command runs as for ↩ | Arc 1.170.0 cap |
 | ⌥↩ | a new pane on the right of the page, in a split view | Arc 1.170.0 cap |
 | ⇧↩ | where ↩ goes, in a new window made as ⌘N makes one, a private one from a private window. A command runs as for ↩, and over a new pane it's ↩ (*interim*; whether Arc opens a window, Little Arc or Peek: measure) | Chrome |
@@ -689,6 +690,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 - A click anywhere outside the panel, or another window or app taking focus, closes it like Esc; the click still does its own thing.
 - **URLs** (Chrome's `AutocompleteInput::Parse`). A dotted host without a scheme goes to https, falling back to http. Single labels, localhost, IP addresses and `.local` hosts go to http.
 - A right-click in a text field shows Cut, Copy, Paste and Select All. In the command bar's field it adds Paste and Go and Paste and Search, which go where ↩ and ⇧⌘↩ would for the copied text, a line break in it read as a space. Nothing reads the clipboard until one is chosen, so they're there whatever it holds, and macOS never sees an app read it unasked.
+- The field holds the page's whole address, its scheme too, so a copy of the URL keeps its https://, as Arc's adds it (Arc's help centre).
 - Copy URL, as a link or as Markdown, leaves out the utm_ parameters and the click IDs ad and mail services add, such as fbclid and gclid (Dia; the list is ours, in `app/src/shell/clean_link.rs`).
 
 ### New tab

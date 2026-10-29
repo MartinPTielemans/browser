@@ -630,7 +630,7 @@ impl Command {
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = browser, no_json)]
-pub(super) struct Run(pub(super) Command);
+pub struct Run(pub Command);
 
 actions!(space_form, [CreateSpace]);
 actions!(space_name, [KeepName, CancelName]);
