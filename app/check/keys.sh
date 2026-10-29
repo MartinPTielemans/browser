@@ -15,8 +15,9 @@
 # while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
 # history page from the page and the UI. A page whose renderer crashes leaves the browser running,
 # and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
-# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. ⌘T as the window
-# comes on screen, before the overlays' windows are made, makes them and opens the bar.
+# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
+# Settings' About tab. ⌘T as the window comes on screen, before the overlays' windows are made,
+# makes them and opens the bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -290,7 +291,7 @@ in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 # the next keys pressed.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 429 60
+send clickkey 401 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 581 159
 expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"
@@ -330,6 +331,10 @@ expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
 send clickkey 537 159
 expect '^browser: shortcut new-tab cmd-t$' "↺ didn't give New Tab ⌘T back"
+# The app menu's About opens Settings on its About tab: the version, the engine's and the credits.
+send menu About $app_name
+expect '^browser: settings tab About$' "About $app_name didn't show Settings' About tab"
+../tools/window-screenshot.sh "$pid" "$out/about.png" || fail "no window to capture"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
@@ -441,5 +446,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png, $out/about.png"
 echo "$launch_bar"
