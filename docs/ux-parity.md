@@ -394,6 +394,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Automatic checks | MVP | every 8 h (Ardia). Built: `SUScheduledCheckInterval` 28800. The updates run reads Sparkle's next check, 8 h from the last; needs its Mac run | Ardia |
 | [ ] | No install during full screen | MVP | waits. Built: `platform/mac/updates.mm` holds a scheduled check's update while a window is full screen and shows it once none is. The updates run checks both; needs its Mac run | Ardia P§24 |
 | [ ] | Release notes after an update | MVP | first launch. Built: `platform/mac/updates.mm` keeps the notes for `host_take_update_notes`. Not checked: only a prod build opens them, for https notes, and an update needs a signed app to install, so the updates run checks only the alert's notes | Ardia P§24 |
+| [ ] | Minimum macOS | MVP | 15 (Sequoia), the owner's call; Arc: 13. Built: `build.sh` sets `LSMinimumSystemVersion`, which generate_appcast puts in the feed's entry; README.md and release.yml's notes name it. To tick: `plutil -extract LSMinimumSystemVersion raw build/Browser.app/Contents/Info.plist` reads 15.0, and the next appcast's entry has `sparkle:minimumSystemVersion` | Arc help, #678 |
 | [ ] | Feed URL is a default service URL | MVP | forks can change it. Built: `branding/update-feed`, which `build.sh` puts in the prod build; the updates run's build checks a feed of its own the same way. No run reads the product's | principle 2 |
 
 ## Keyboard
