@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
@@ -131,6 +132,9 @@ struct Slot {
   bool bottom_corners_only = false;
 };
 
+// The pages and DevTools a window shows once it changes, which move between its slots unhidden.
+using Staying = std::vector<aura::Window*>;
+
 // |size| with round corners of |radius|, as the rows X's shape extension takes.
 std::vector<gfx::Rect> RoundShape(const gfx::Size& size, double radius, bool bottom_only) {
   std::vector<gfx::Rect> rects;
@@ -206,16 +210,22 @@ class WindowViews : public views::WidgetObserver,
     return slot.holder.get();
   }
 
-  // Takes |view| out of whichever slot holds it, so closing a slot never deletes a page.
-  static void Detach(aura::Window* view) {
-    if (view && view->parent()) {
-      view->parent()->RemoveChild(view);
+  // Takes |view| out of |holder| if it's there, so closing a slot never deletes a page, and hides
+  // it unless it's |staying| in the window. A page out of every window that's never hidden still
+  // counts as visible, so its tab would go on drawing and running its timers and never unload;
+  // Chromium's views hide a page they let go of too (NativeViewHostAura).
+  static void Detach(aura::Window* holder, aura::Window* view, const Staying& staying) {
+    if (holder && view && view->parent() == holder) {
+      holder->RemoveChild(view);
+      if (!base::Contains(staying, view)) {
+        view->Hide();
+      }
     }
   }
 
-  void Empty(Slot& slot) {
-    Detach(slot.page);
-    Detach(slot.devtools);
+  void Empty(Slot& slot, const Staying& staying = {}) {
+    Detach(slot.holder.get(), slot.page, staying);
+    Detach(slot.holder.get(), slot.devtools, staying);
     slot.page = nullptr;
     slot.devtools = nullptr;
     if (slot.holder) {
@@ -561,7 +571,9 @@ gfx::Insets InsetsOf(const gfx::Rect& frame, const gfx::Size& window) {
 // Puts |view| in |parent| if it isn't there, and shows it unless |hidden|.
 void Hold(aura::Window* parent, aura::Window* view, bool hidden) {
   if (view->parent() != parent) {
-    WindowViews::Detach(view);
+    if (view->parent()) {
+      view->parent()->RemoveChild(view);
+    }
     parent->AddChild(view);
   }
   if (hidden) {
@@ -572,12 +584,15 @@ void Hold(aura::Window* parent, aura::Window* view, bool hidden) {
 }
 
 // Empties |holder| of all but |keep| and |keep_too|.
-void DetachOthers(aura::Window* holder, aura::Window* keep, aura::Window* keep_too) {
+void DetachOthers(aura::Window* holder,
+                  aura::Window* keep,
+                  aura::Window* keep_too,
+                  const Staying& staying) {
   // A copy, as Detach changes the list; its raw_ptrs convert one at a time.
   const aura::Window::Windows& children = holder->children();
   for (aura::Window* child : std::vector<aura::Window*>(children.begin(), children.end())) {
     if (child != keep && child != keep_too) {
-      WindowViews::Detach(child);
+      WindowViews::Detach(holder, child, staying);
     }
   }
 }
@@ -613,10 +628,21 @@ void ShowPages(views::Widget* widget,
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = ContentSizeOf(widget);
 
+  Staying staying;
+  for (const Pane& pane : panes) {
+    staying.push_back(pane.page);
+    if (pane.devtools) {
+      staying.push_back(pane.devtools->view);
+    }
+  }
+  if (side_panel) {
+    staying.push_back(side_panel->page);
+  }
+
   std::vector<Slot>& slots = views->panes();
   // Pages that stay in the same pane keep their slot.
   for (size_t i = panes.size(); i < slots.size(); ++i) {
-    views->Empty(slots[i]);
+    views->Empty(slots[i], staying);
   }
   if (slots.size() < panes.size()) {
     slots.resize(panes.size());
@@ -626,7 +652,7 @@ void ShowPages(views::Widget* widget,
     Slot& slot = slots[i];
     aura::Window* holder = views->HolderFor(slot);
     aura::Window* devtools = pane.devtools ? pane.devtools->view : nullptr;
-    DetachOthers(holder, pane.page, devtools);
+    DetachOthers(holder, pane.page, devtools, staying);
     if (devtools) {
       Hold(holder, devtools, hidden);
       slot.page_in_devtools = pane.devtools->page_frame;
@@ -652,14 +678,14 @@ void ShowPages(views::Widget* widget,
   Slot& panel = views->side_panel();
   if (side_panel) {
     aura::Window* holder = views->HolderFor(panel);
-    DetachOthers(holder, side_panel->page, nullptr);
+    DetachOthers(holder, side_panel->page, nullptr, staying);
     Hold(holder, side_panel->page, hidden);
     panel.page = side_panel->page;
     panel.insets = InsetsOf(side_panel->frame, size);
     panel.bottom_corners_only = true;
     hidden ? holder->Hide() : holder->Show();
   } else {
-    views->Empty(panel);
+    views->Empty(panel, staying);
   }
   views->LayOut();
   views->ShowThrough();
