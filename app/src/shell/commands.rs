@@ -392,26 +392,30 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
 }
 
 /// The commands of BAR_COMMANDS that match `typed`, best first and then in the table's order, at
-/// most BAR_ROWS, each with the name `named` gives it now, leaving out those it gives none.
+/// most BAR_ROWS, each with the name `named` gives it now, leaving out those it gives none. With
+/// nothing typed, as the command bar's commands-only list starts, it's all of them in the table's
+/// order.
 pub fn find_commands(
     typed: &str,
     keys: &UserKeys,
     mut named: impl FnMut(&'static str, Command) -> Option<&'static str>,
 ) -> Vec<BarCommand> {
     let typed = typed.trim().to_lowercase();
-    if typed.is_empty() {
-        return Vec::new();
-    }
     let mut found: Vec<(Match, &'static str, Command)> = (BAR_COMMANDS.iter())
         .zip(LOWERCASE_NAMES.iter())
         .filter_map(|(&(name, command, keywords), lowercase)| {
-            let matched = match_of(lowercase, keywords, &typed)?;
+            let matched = match typed.is_empty() {
+                true => Match::Letters,
+                false => match_of(lowercase, keywords, &typed)?,
+            };
             Some((matched, named(name, command)?, command))
         })
         .collect();
     // Stable, so equals keep the table's order.
     found.sort_by_key(|&(matched, ..)| std::cmp::Reverse(matched));
-    found.truncate(BAR_ROWS);
+    if !typed.is_empty() {
+        found.truncate(BAR_ROWS);
+    }
     (found.into_iter())
         .map(|(matched, name, command)| BarCommand {
             name: name.into(),

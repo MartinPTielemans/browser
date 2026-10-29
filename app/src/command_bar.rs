@@ -82,6 +82,9 @@ use crate::tokens::text;
 pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 /// What its input says for Search Tabs (ours, after the command's name).
 const TABS_PLACEHOLDER: &str = "Search Tabs…";
+/// What its input says, and its chip, while it lists only commands (ours).
+const COMMANDS_PLACEHOLDER: &str = "Search Commands…";
+const COMMANDS_CHIP: &str = "Commands";
 
 /// One of the core's suggestions for what's typed.
 #[derive(Default)]
@@ -317,6 +320,9 @@ pub struct CommandBar {
     page: String,
     /// The site search the bar is in, if any.
     site: Option<Site>,
+    /// While it lists only commands, as after Tab in an empty field or "/ " typed (Arc), what
+    /// leaving puts back before what's typed: nothing after Tab, "/ " after "/ ".
+    commands: Option<&'static str>,
     /// The rows' favicons by page, asked for as they first show. None until one comes.
     favicons: HashMap<String, Option<Arc<Image>>>,
     /// The Space's tabs it lists before anything is typed.
@@ -426,6 +432,7 @@ pub fn open_at(
                 over_field: false,
                 page: String::new(),
                 site: None,
+                commands: None,
                 favicons: HashMap::new(),
                 tabs: Vec::new(),
                 scroll: ScrollHandle::new(),
@@ -535,6 +542,7 @@ fn reset(
                 bar.host.page_favicon(&bar.page);
             }
             bar.site_left(cx);
+            bar.commands = None;
             let placeholder = match target {
                 Target::Tabs => TABS_PLACEHOLDER,
                 _ => PLACEHOLDER_TEXT,
@@ -615,7 +623,9 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
     window
         .update(cx, |bar, window, cx| {
             // Older text's come after the bar has asked about newer, and Search Tabs asks for none.
-            if text != bar.request() || matches!(bar.target, Target::Tabs) {
+            // The commands-only list asks for none either.
+            if text != bar.request() || matches!(bar.target, Target::Tabs) || bar.commands.is_some()
+            {
                 return;
             }
             // check.sh reads these lines.
@@ -728,11 +738,19 @@ impl CommandBar {
         if matches!(self.target, Target::Tabs) {
             return self.name_tabs(text, window, cx);
         }
+        if self.commands.is_some() {
+            return self.list_commands(text, window, cx);
+        }
         // Chrome completes only typing at the end: not a deletion, a paste, or with the caret
         // elsewhere, and not in a site search.
         let deleted = text.len() < length && selection.start <= start;
         let typing = !deleted && !input.pasted() && selection == (text.len()..text.len());
         let complete = typing && self.site.is_none();
+        // "/ " typed lists only the commands, as Arc's bar does.
+        let slashed = typing && self.asked == "/" && text.strip_suffix([' ', '\u{3000}']) == Some("/");
+        if slashed && self.site.is_none() && self.lists_commands() {
+            return self.enter_commands("/ ", window, cx);
+        }
         // A space typed after the keyword the first row hints enters its engine's site search, or
         // an ideographic one, as Japanese input types, as in Chrome.
         let hint = self.rows.first().filter(|row| {
@@ -785,6 +803,67 @@ impl CommandBar {
         log!("browser: command bar finds tabs \"{typed}\": {}", ids.join(" "));
         self.asked = text.clone();
         self.set_rows(text, rows, window, cx);
+    }
+
+    /// Whether the bar lists commands: not over a new pane or for Search Tabs.
+    fn lists_commands(&self) -> bool {
+        matches!(self.target, Target::NewTab | Target::Tab(_))
+    }
+
+    /// Lists only the commands, entered by Tab in an empty field or by `by`, "/ ", typed, as
+    /// Arc's bar does after Tab right after ⌘T.
+    fn enter_commands(&mut self, by: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        // check.sh reads this line.
+        log!("browser: command bar lists commands by {}", if by.is_empty() { "tab" } else { "slash" });
+        self.commands = Some(by);
+        self.completion.clear();
+        let placeholder = COMMANDS_PLACEHOLDER.into();
+        self.input.update(cx, |input, cx| input.set_placeholder(placeholder, cx));
+        self.input.update(cx, |input, cx| input.set_text(SharedString::default(), 0, window, cx));
+        self.list_commands(String::new(), window, cx);
+    }
+
+    /// Lists the commands that match `text`, or with nothing typed every one that does something
+    /// now.
+    fn list_commands(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let rows: Vec<Suggestion> =
+            self.host.commands(&text, cx).into_iter().map(Suggestion::from).collect();
+        // check.sh reads this line.
+        let names: Vec<&str> = rows.iter().map(|row| row.text.as_ref()).collect();
+        log!("browser: command bar commands only \"{text}\": {}", names.join(", "));
+        self.asked = text.clone();
+        self.set_rows(text, rows, window, cx);
+    }
+
+    /// Leaves the commands-only list, if it shows, putting back what entered it before what was
+    /// typed, with the caret after it, as the site search puts its keyword back. Returns whether
+    /// it showed.
+    fn leave_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(by) = self.commands.take() else {
+            return false;
+        };
+        // check.sh reads this line.
+        log!("browser: command bar leaves commands");
+        self.input.update(cx, |input, cx| input.set_placeholder(PLACEHOLDER_TEXT.into(), cx));
+        let text = format!("{by}{}", self.input.read(cx).text());
+        self.input.update(cx, |input, cx| input.set_text(text.clone().into(), by.len(), window, cx));
+        self.ask_for(text, window, cx);
+        true
+    }
+
+    /// Lists the rows for `text` in the input from the start: the Space's tabs for none, else the
+    /// core's suggestions once they come, and none until then.
+    fn ask_for(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.asked = text;
+        self.asked_at = Instant::now();
+        self.complete = false;
+        self.completion.clear();
+        let rows = if self.asked.is_empty() { self.tab_rows() } else { Vec::new() };
+        self.set_rows(String::new(), rows, window, cx);
+        if !self.asked.is_empty() {
+            let site = self.site.as_ref().map(|site| site.keyword.as_str());
+            self.host.suggest(site, &self.asked, false);
+        }
     }
 
     /// What the core was last asked for, as its suggestions name it: what was typed, after the
@@ -844,7 +923,12 @@ impl CommandBar {
 
     /// Tab: enters the site search the selected row hints, keeping what was typed after its first
     /// word, the keyword, as Chrome does. Else it selects the next row.
+    /// In an empty field, it lists only the commands, as Arc's does.
     fn enter_site_or_next(&mut self, _: &EnterSite, window: &mut Window, cx: &mut Context<Self>) {
+        let empty = self.input.read(cx).text().is_empty();
+        if empty && self.site.is_none() && self.commands.is_none() && self.lists_commands() {
+            return self.enter_commands("", window, cx);
+        }
         let hint = self.chosen().filter(|row| !row.keyword.is_empty() && self.site.is_none());
         let Some((keyword, name)) = hint.map(|row| (row.keyword.clone(), row.site.clone())) else {
             return self.select_next(true, window, cx);
@@ -854,37 +938,40 @@ impl CommandBar {
         self.enter_site(keyword, name, query.to_string(), true, window, cx);
     }
 
-    /// ⇧Tab: leaves the site search, else selects the row before.
+    /// ⇧Tab: leaves the site search or the commands-only list, else selects the row before.
     fn leave_site_or_previous(
         &mut self,
         _: &LeaveSite,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.leave_site(window, cx) {
+        if !self.leave_site(window, cx) && !self.leave_commands(window, cx) {
             self.select_next(false, window, cx);
         }
     }
 
-    /// ⌫ with the caret at the start of a site search's input leaves it.
+    /// ⌫ with the caret at the start of a site search's input, or the commands-only list's,
+    /// leaves it.
     fn backspace(
         &mut self,
         _: &text_input::Backspace,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.site.is_some() && self.input.read(cx).selection() == (0..0) {
-            self.leave_site(window, cx);
+        if self.input.read(cx).selection() == (0..0)
+            && (self.leave_site(window, cx) || self.leave_commands(window, cx))
+        {
             cx.stop_propagation();
         }
     }
 
     /// Where ↩ goes for `text` before its suggestions come: the page it names, else a search for
     /// it, or in a site search, a search with that site's engine.
-    /// None for Search Tabs, which goes nowhere but its tabs.
+    /// None for Search Tabs, which goes nowhere but its tabs, and the commands-only list, which
+    /// runs only its commands.
     fn typed_url(&self, text: &str) -> Option<String> {
         match &self.site {
-            _ if matches!(self.target, Target::Tabs) => None,
+            _ if matches!(self.target, Target::Tabs) || self.commands.is_some() => None,
             Some(site) => self.host.search_url(Some(&site.keyword), text),
             None => self.host.typed_url(text),
         }
@@ -939,7 +1026,8 @@ impl CommandBar {
     /// what's typed, then those whose name or keyword does before the core's other rows; the rest
     /// after them. A site completing what's typed puts them all after. None over a new pane.
     fn with_commands(&self, text: &str, rows: Vec<Suggestion>, cx: &App) -> Vec<Suggestion> {
-        if matches!(self.target, Target::Beside(_)) {
+        // Nothing but spaces typed would list every command, as the commands-only list does.
+        if matches!(self.target, Target::Beside(_)) || text.trim().is_empty() {
             return rows;
         }
         let commands = self.host.commands(text, cx);
@@ -1096,7 +1184,7 @@ impl CommandBar {
     /// Paste and Search: searches for the clipboard's text, even if it names a page, as ⇧⌘↩
     /// does for what's typed.
     fn paste_and_search(&mut self, _: &PasteAndSearch, _: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.target, Target::Tabs) {
+        if matches!(self.target, Target::Tabs) || self.commands.is_some() {
             return;
         }
         let site = self.site.as_ref().map(|site| site.keyword.as_str());
@@ -1169,7 +1257,8 @@ impl CommandBar {
     fn dot_com(&self, cx: &App) -> Option<String> {
         let typed = self.typed(cx);
         let word = !typed.is_empty() && typed.chars().all(|c| c.is_alphanumeric() || c == '-');
-        let word = word && self.site.is_none() && !matches!(self.target, Target::Tabs);
+        let word = word && self.site.is_none() && self.commands.is_none();
+        let word = word && !matches!(self.target, Target::Tabs);
         word.then(|| self.host.typed_url(&format!("www.{typed}.com"))).flatten()
     }
 
@@ -1198,7 +1287,7 @@ impl CommandBar {
     /// ⇧⌘↩: searches for what was typed, even if it names a page, where ↩ goes (Dia). Search Tabs
     /// searches only its tabs.
     fn search(&mut self, _: &Search, _: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.target, Target::Tabs) {
+        if matches!(self.target, Target::Tabs) || self.commands.is_some() {
             return;
         }
         let typed = self.typed(cx);
@@ -1389,9 +1478,9 @@ impl CommandBar {
         self.host.dismiss();
     }
 
-    /// Esc leaves the site search first, then the bar.
+    /// Esc leaves the site search or the commands-only list first, then the bar.
     fn dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.leave_site(window, cx) {
+        if !self.leave_site(window, cx) && !self.leave_commands(window, cx) {
             self.host.dismiss();
         }
     }
@@ -1440,7 +1529,17 @@ impl CommandBar {
         let row = self.chosen().filter(|_| !self.asked.is_empty());
         match row.and_then(|row| self.glyph(row, size, color)) {
             Some(icon) => icon,
+            None if self.commands.is_some() => glyph(COMMAND_GLYPH, size, color),
             None => glyph("icons/search.svg", size, color),
+        }
+    }
+
+    /// What the chip before the input names: the site search's engine, or the commands-only list.
+    fn mode_name(&self) -> Option<SharedString> {
+        match (&self.site, self.commands) {
+            (Some(site), _) => Some(site.name.clone()),
+            (None, Some(_)) => Some(COMMANDS_CHIP.into()),
+            (None, None) => None,
         }
     }
 
@@ -1729,7 +1828,7 @@ impl Render for CommandBar {
                         .text_size(px(text_size))
                         .line_height(px(23.))
                         .child(self.input_icon(cx))
-                        .when_some(self.site.as_ref(), |line, site| {
+                        .when_some(self.mode_name(), |line, name| {
                             line.child(
                                 div()
                                     .flex_none()
@@ -1738,7 +1837,7 @@ impl Render for CommandBar {
                                     .rounded(px(CHIP_RADIUS))
                                     .bg(palette.plate(CHIP))
                                     .text_size(px(text::BODY))
-                                    .child(site.name.clone()),
+                                    .child(name),
                             )
                         })
                         .child(div().flex_1().min_w_0().child(self.input.clone()))
