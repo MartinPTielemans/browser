@@ -12,7 +12,7 @@ ilo is also built to be the browser AI agents work in. Claude Code, Codex or any
 
 | OS | How | State |
 |---|---|---|
-| macOS, Apple silicon | A signed, notarized DMG: open it and drag ilo into Applications. It updates itself. | 0.1.0 |
+| macOS 15 (Sequoia) or later, Apple silicon | A signed, notarized DMG: open it and drag ilo into Applications. It updates itself. | 0.1.0 |
 | Windows | winget and the Microsoft Store | coming |
 | Linux | A Flatpak: `flatpak install --user ilo.flatpak`, then start ilo from your apps. | 0.1.0 |
 
