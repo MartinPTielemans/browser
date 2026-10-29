@@ -704,6 +704,55 @@ mod tests {
         assert!(!shell.read_with(&cx, |shell, _| shell.sidebar_hidden));
     }
 
+    /// ⌃D in a text field of the UI deletes forward, as in any Mac field, and toggles nothing;
+    /// with the UI's keyboard anywhere else it toggles Developer Mode.
+    #[gpui::test]
+    fn ctrl_d_deletes_forward_in_a_field_and_toggles_developer_mode_elsewhere(
+        cx: &mut TestAppContext,
+    ) {
+        use gpui::Focusable;
+
+        use crate::text_input::TextInput;
+
+        struct Field(FocusHandle, gpui::Entity<TextInput>);
+
+        impl Render for Field {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().key_context(KEY_CONTEXT).track_focus(&self.0).size_full().child(self.1.clone())
+            }
+        }
+
+        let ran: Rc<RefCell<Vec<Command>>> = Rc::default();
+        let runs = ran.clone();
+        cx.update(|cx| {
+            crate::text_input::bind_keys(cx);
+            cx.bind_keys(key_bindings(cx));
+            cx.on_action(move |run: &Run, _| runs.borrow_mut().push(run.0));
+        });
+        let window = cx.update(|cx| {
+            cx.open_window(Default::default(), |window, cx| {
+                cx.new(|cx| {
+                    let input = cx.new(|cx| TextInput::new("", cx));
+                    input.update(cx, |input, cx| input.set_text("ab".into(), 1, window, cx));
+                    window.focus(&input.read(cx).focus_handle(cx), cx);
+                    Field(cx.focus_handle(), input)
+                })
+            })
+        });
+        let window = window.unwrap();
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_keystrokes("ctrl-d");
+        let field = window.update(&mut cx, |field, _, _| field.1.clone()).unwrap();
+        assert_eq!(field.read_with(&cx, |input, _| input.text().to_string()), "a");
+        assert_eq!(ran.take(), []);
+
+        window
+            .update(&mut cx, |field, window, cx| window.focus(&field.0, cx))
+            .unwrap();
+        cx.simulate_keystrokes("ctrl-d");
+        assert_eq!(ran.take(), [Command::ToggleDeveloperMode]);
+    }
+
     fn keys(keys: &[&str]) -> Vec<String> {
         keys.iter().map(|key| key.to_string()).collect()
     }
@@ -779,12 +828,18 @@ mod tests {
     }
 
     /// Every default key has a way to press it off the Mac that reads back as it, and no two
-    /// commands share one.
+    /// commands share one, but a key that would be one of Chrome's Alt keys, as ⌃D Alt+D, which
+    /// has none.
     #[test]
     fn the_shortcuts_keep_their_keys_off_the_mac() {
         let mut taken: Vec<(String, Command)> = Vec::new();
         for &(key, command, _) in SHORTCUTS {
             let pressed = pressed_off_the_mac(key);
+            let alt = key.replacen("ctrl-", "alt-", 1);
+            if !key.contains("cmd-") && CHROME_ALT_KEYS.iter().any(|&(chrome, _)| chrome == alt) {
+                assert!(pressed.is_empty(), "{key} takes Chrome's key");
+                continue;
+            }
             assert_eq!(pressed.first().map(|first| written_off_the_mac(first)).as_deref(), Some(key));
             for each in pressed {
                 match taken.iter().find(|(other, _)| *other == each) {
