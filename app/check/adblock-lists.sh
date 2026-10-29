@@ -93,7 +93,6 @@ else
     sleep 0.1
   done
   refetched_at="$(($(date +%s) - launched))"
-first=$(fetches)
   [ "$(fetches)" -gt "$first" ] ||
     fail "the stale list wasn't fetched again within 60 s of the launch"
   # Whole seconds, so 36 is the earliest the 37 s can read.
