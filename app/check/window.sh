@@ -175,16 +175,21 @@ send key w cmd
 expect_tabs "$first" "$first" "after closing the tab of the page that hasn't come"
 send click $page_point
 
-# 300 trackpad events of 10 points, 8 ms apart.
-send scroll $page_point 10 300
+# 300 trackpad events of 10 points, 8 ms apart. X11's events carry no distance, so the Linux driver
+# turns the wheel, which Chromium scrolls 120 points a notch there: 25 notches.
+scroll="10 300"
+[ "$(uname)" = Linux ] && scroll="1 25"
+send scroll $page_point $scroll
 expect '^browser: title [0-9]* frames' "scrolling didn't move the page"
 timing=$(grep -m1 '^browser: title [0-9]* frames' "$log" | sed 's/^browser: title [0-9]* //')
 echo "$timing" | grep -q ' scrolled 3000$' || fail "the page didn't scroll by exactly 3000 points: $timing"
 frames=$(echo "$timing" | sed 's/^frames \([0-9]*\) .*/\1/')
 slow=$(echo "$timing" | sed 's/.* slow \([0-9]*\) .*/\1/')
 # A VM's display runs at 60 Hz and its frames come when the host gives it time, so only a Mac's own
-# screen can judge the scroll, and a VM reports it.
-if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
+# screen can judge the scroll, and a VM reports it, as Linux's headless session does.
+if [ "$(uname)" = Linux ]; then
+  timing="$timing, in a headless session, not judged"
+elif [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   timing="$timing, in a VM, not judged"
 elif [ $((slow * 100)) -gt "$frames" ]; then
   fail "more than 1% of frames took longer than 1/60 s: $timing"
