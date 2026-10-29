@@ -8,6 +8,7 @@ use std::{
 
 use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
+    point,
 };
 
 use super::{
@@ -79,6 +80,8 @@ pub enum Command {
     CopyMarkdownLink,
     /// Opens the web link on the clipboard as a new tab.
     PasteUrlAsTab,
+    /// Shares the selected tab's page through the system's share sheet.
+    Share,
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
@@ -300,6 +303,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Copy URL", Command::CopyUrl, &["link"]),
     ("Copy URL as Markdown", Command::CopyMarkdownLink, &["link"]),
     ("Paste URL as New Tab", Command::PasteUrlAsTab, &["clipboard", "open"]),
+    ("Share…", Command::Share, &["send"]),
     ("New Window", Command::NewWindow, &["duplicate", "copy"]),
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
@@ -597,6 +601,7 @@ impl Command {
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::PasteUrlAsTab => "paste-url-as-tab",
+            Command::Share => "share",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
             Command::CapturePortion => "capture",
@@ -829,6 +834,7 @@ impl Shell {
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
             Command::PasteUrlAsTab => return self.paste_url_as_tab(cx),
+            Command::Share => return self.share_page(cx),
             Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
@@ -1038,13 +1044,38 @@ impl Shell {
     /// does. The clipboard is read only now, and text that isn't one http(s) link opens nothing,
     /// as a drop of it doesn't. No agent path: the clipboard is the user's.
     fn paste_url_as_tab(&mut self, cx: &mut Context<Self>) {
+        if let Some(urls) = self.pasted_urls(cx) {
+            self.browser.open_at(&urls, false, 0, 0, cx);
+        }
+    }
+
+    /// The clipboard's web link, read now, as one URL to open, or None for anything else.
+    pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
         let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
         let urls = dropped_urls([(text.trim(), false)]);
         if urls.is_empty() {
             // check.sh reads this line.
-            return log!("browser: pasted no URL");
+            log!("browser: pasted no URL");
         }
-        self.browser.open_at(&urls, false, 0, 0, cx);
+        Some(urls).filter(|urls| !urls.is_empty())
+    }
+
+    /// File › Share… and the command bar's Share…: the system's share sheet for the page shown,
+    /// as Site Controls' Share tile opens it, hanging from the URL field, else from the page's top.
+    fn share_page(&mut self, cx: &mut Context<Self>) {
+        let link = clean_link(&self.url(self.selected));
+        if link.is_empty() || !self.browser.has_share_sheet() {
+            return;
+        }
+        let at = match self.url_field_bounds() {
+            Some(field) => point(field.center().x, field.bottom()) + self.sidebar_origin.get(),
+            None => {
+                let page = self.page_frame(self.viewport).0;
+                point(page.center().x, page.top())
+            }
+        };
+        let title = self.title(self.selected);
+        self.browser.show_share_sheet(self.selected, &link, &title, at, cx);
     }
 
     /// The text to copy and the toast to say so with.
@@ -1193,6 +1224,9 @@ impl Shell {
             Command::FavoriteTab => {
                 let tab = self.selected;
                 tab != 0 && !self.favorites.contains(&tab) && self.has_room_for(tab)
+            }
+            Command::Share => {
+                self.browser.has_share_sheet() && !clean_link(&self.url(self.selected)).is_empty()
             }
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
             Command::RenameTab => {
@@ -1520,14 +1554,16 @@ mod tests {
     /// opens nothing, as a drop of it doesn't.
     #[gpui::test]
     fn paste_url_as_new_tab_opens_only_a_web_link(cx: &mut gpui::TestAppContext) {
-        let (shell, host) = crate::shell::drag::detents::shell_with(cx, &[], &[2], Default::default());
+        let shell_with = crate::shell::drag::detents::shell_with;
+        let (shell, host) = shell_with(cx, &[], &[2], Default::default());
         let paste = |text: &str, cx: &mut gpui::TestAppContext| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.into()));
             host.take();
             shell.update(cx, |shell, cx| shell.run(Command::PasteUrlAsTab, "page", cx));
             host.take().into_iter().filter(|call| call.starts_with("open ")).collect::<Vec<_>>()
         };
-        assert_eq!(paste(" https://example.com/a?b \n", cx), ["open https://example.com/a?b false 0 0"]);
+        let opened = paste(" https://example.com/a?b \n", cx);
+        assert_eq!(opened, ["open https://example.com/a?b false 0 0"]);
         for text in ["javascript:alert(1)", "file:///etc/passwd", "some words", ""] {
             assert!(paste(text, cx).is_empty(), "{text:?} opened a tab");
         }

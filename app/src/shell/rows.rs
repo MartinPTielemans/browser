@@ -1560,7 +1560,10 @@ mod tests {
             let folds = calls.into_iter().filter(|call| call.starts_with("folder open"));
             (folds.collect::<Vec<_>>(), shell.read_with(cx, |shell, _| shell.folding))
         };
-        assert_eq!(folds(Command::ExpandFolders, cx), (vec!["folder open 22 true".into()], Some(true)));
+        assert_eq!(
+            folds(Command::ExpandFolders, cx),
+            (vec!["folder open 22 true".into()], Some(true))
+        );
         assert_eq!(
             folds(Command::CollapseFolders, cx),
             (vec!["folder open 20 false".into()], Some(false))
