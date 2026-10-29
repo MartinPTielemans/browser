@@ -57,6 +57,7 @@ mod fly_in;
 mod footer;
 mod keys;
 mod header;
+mod history;
 mod hover_cards;
 mod library;
 mod link;
@@ -106,6 +107,7 @@ pub use keys::{
     Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable,
     recorded, reserved, user_keys, view_binding, written_as,
 };
+pub use history::HistoryPage;
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
@@ -1054,6 +1056,12 @@ pub struct Shell {
     reveal_wait: Option<Task<()>>,
     /// The Copy URL button shows a checkmark until this one-shot timer ends.
     url_copied: Option<Task<()>>,
+    /// The tab, direction and place of the history menu asked for, until its pages come.
+    history_asked: Option<(u64, bool, Point<Pixels>)>,
+    /// Back or forward held, until it's held for HOLD (history.rs) and lists the history.
+    nav_hold: Option<Task<()>>,
+    /// Whether the last press on back or forward was held for its menu, so its click goes.
+    nav_held: bool,
     /// The tabs the switches since the last quiet moment hid, whose hover cards' pictures are
     /// taken once they've been quiet a while, and that wait.
     card_hidden: Vec<u64>,
@@ -1298,6 +1306,9 @@ impl Shell {
             reveal_motion: None,
             reveal_wait: None,
             url_copied: None,
+            history_asked: None,
+            nav_hold: None,
+            nav_held: false,
             card_hidden: Vec::new(),
             card_wait: None,
             drawn_copied: "shows link",

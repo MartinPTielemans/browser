@@ -1,7 +1,9 @@
 //! The sidebar's menus, a Space's, a tab's, a favorite's, a folder's and the plus
 //! button's, and what their items do.
 
-use gpui::{Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
+use std::sync::Arc;
+
+use gpui::{Context, Hsla, Image, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
     Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
@@ -52,6 +54,9 @@ pub struct MenuEntry {
     pub over: bool,
     /// The Space it stands for, whose swatch goes before its title.
     pub swatch: Option<Swatch>,
+    /// Whether it stands for a page, whose favicon goes before its title, or a globe without one.
+    pub page: bool,
+    pub favicon: Option<Arc<Image>>,
 }
 
 impl MenuEntry {
@@ -80,6 +85,8 @@ impl MenuEntry {
             destructive: false,
             over: false,
             swatch: None,
+            page: false,
+            favicon: None,
         }
     }
 
@@ -102,6 +109,11 @@ impl MenuEntry {
 
     fn swatch(self, swatch: Swatch) -> Self {
         MenuEntry { swatch: Some(swatch), ..self }
+    }
+
+    /// For a page with `favicon`.
+    pub(super) fn page(self, favicon: Option<Arc<Image>>) -> Self {
+        MenuEntry { page: true, favicon, ..self }
     }
 
     /// Shows the shortcut that runs `command`.

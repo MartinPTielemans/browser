@@ -253,6 +253,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // top of Today for a pinned tab, where a pinned tab's links open, and in the Space the window
   // shows for a favorite. Shows it, and its page loads. Returns its id, or 0.
   bc_id Duplicate(bc_id tab);
+  // Opens a copy of |tab| where Duplicate would, not shown, at the page |offset| from its own in
+  // its history, which loads once it's shown. Returns its id, or 0 if there's no page there.
+  bc_id OpenHistory(bc_id tab, int offset);
 
   // Lists the command bar's suggestions for |text|, from |profile|, in |keyword|'s site search
   // unless it's empty. See bc_window_suggest.

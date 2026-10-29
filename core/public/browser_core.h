@@ -131,6 +131,21 @@ typedef struct bc_suggestion {
   const char* site;
 } bc_suggestion;
 
+// A page in a tab's history, which bc_tab_history lists, as Chrome's back and forward buttons'
+// menu does. Strings are UTF-8.
+typedef struct bc_history_entry {
+  // How far it is from the tab's page, for bc_tab_go_to_history and bc_tab_open_history: -1 is
+  // the page back goes to, 1 the one forward goes to.
+  int offset;
+  const char* url;
+  // Its page's title, or "" if it had none.
+  const char* title;
+  // The favicon the profile's history has for it, else for its host: a PNG |favicon_size| bytes
+  // long, 32 pixels square for 16 points at 2×, or null and 0.
+  const uint8_t* favicon;
+  size_t favicon_size;
+} bc_history_entry;
+
 // One of the archive's tabs: a Today tab that closed, as Arc's Library lists them.
 typedef struct bc_archived_tab {
   // For bc_window_restore_archived.
@@ -476,6 +491,10 @@ typedef struct bc_host {
   // 2×, or null and 0 once a page that has none has loaded. While a page loads, the tab keeps the
   // favicon it had until the new page's arrives.
   void (*tab_favicon_changed)(void* context, bc_id tab, const uint8_t* png, size_t size);
+  // The pages bc_tab_history asked for, back from the tab's or, if |forward|, forward of it,
+  // nearest first, |count| of them.
+  void (*tab_history)(void* context, bc_id tab, bool forward, const bc_history_entry* entries,
+                      size_t count);
   // The tab's page went full screen, as a video's full-screen button takes it, or came back. Show
   // it filling its window while it's full screen. The window goes full screen with it unless it
   // already was, and comes back with it if it went for it, after this call either way, so the
@@ -1437,6 +1456,22 @@ BC_EXPORT void bc_tab_navigate(bc_id tab, const char* url);
 // Goes back, or forward, in the tab's history, if it has a page that way.
 BC_EXPORT void bc_tab_go_back(bc_id tab);
 BC_EXPORT void bc_tab_go_forward(bc_id tab);
+
+// Lists the pages back from the tab's, or forward of it if |forward|, nearest first, up to the
+// six each side Chrome's sessions keep, so bc_tab_open_history can open any of them. None while
+// the system's engine shows the tab's page, whose history is WebKit's. Then tab_history, once
+// their favicons are found.
+BC_EXPORT void bc_tab_history(bc_id tab, bool forward);
+
+// Goes to the page |offset| from the tab's in its history, as bc_tab_history numbers them, if it
+// has one there: what picking it from the back or forward button's menu does.
+BC_EXPORT void bc_tab_go_to_history(bc_id tab, int offset);
+
+// Opens a copy of the tab, with its history, at the page |offset| from its own, as
+// bc_tab_history numbers them, or 0 for its page again: what ⌘-click on back, forward or reload
+// does. It goes where bc_tab_duplicate's would, without showing, and its page loads once it's
+// shown. Returns its id, or 0 if the tab has no page there. Then space_changed.
+BC_EXPORT bc_id bc_tab_open_history(bc_id tab, int offset);
 
 // Loads the tab's page again. |bypass_cache| fetches all of it from the network, as a force reload
 // does. A hung page's renderer is ended first, as Chrome's Exit page does, with every page it

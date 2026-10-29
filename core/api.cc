@@ -1064,6 +1064,23 @@ void bc_tab_go_forward(bc_id id) {
   }
 }
 
+void bc_tab_history(bc_id id, bool forward) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ListHistory(forward);
+  }
+}
+
+void bc_tab_go_to_history(bc_id id, int offset) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
+    browser_core::Tab::FromWebContents(contents)->GoToOffset(offset);
+  }
+}
+
+bc_id bc_tab_open_history(bc_id id, int offset) {
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  return window ? window->OpenHistory(id, offset) : 0;
+}
+
 void bc_tab_reload(bc_id id, bool bypass_cache) {
   if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->Reload(bypass_cache);
