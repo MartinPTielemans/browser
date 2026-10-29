@@ -215,6 +215,29 @@ fn dragging_another_handle_places_its_colour_alone(cx: &mut TestAppContext) {
     assert_eq!((theme.count, theme.places), (2, None));
 }
 
+/// The handles are drawn at rest, then held from the press's own frame, which is the first to
+/// listen for the drag's moves, and at rest again once let go (check.sh waits for each).
+#[gpui::test]
+fn a_held_handle_is_drawn_held_before_it_drags(cx: &mut TestAppContext) {
+    let start = Theme::at(0.5, 0.).with_count(3);
+    let mut picker = Picker::new(Some(start), cx);
+    let drawn = |picker: &mut Picker| {
+        let editing = picker.window.read_with(&picker.cx.cx, |picker, _| {
+            picker.editing.as_ref().and_then(|editing| editing.drawn_handles)
+        });
+        editing.unwrap()
+    };
+    assert_eq!(drawn(&mut picker), Some((3, None)));
+    let (x, y) = Picker::in_field(start.handle(2).0, start.handle(2).1);
+    let left = MouseButton::Left;
+    picker.cx.simulate_mouse_down(Picker::at(x, y), left, Modifiers::none());
+    picker.cx.run_until_parked();
+    assert_eq!(drawn(&mut picker), Some((3, Some(2))));
+    picker.cx.simulate_mouse_up(Picker::at(x, y), left, Modifiers::none());
+    picker.cx.run_until_parked();
+    assert_eq!(drawn(&mut picker), Some((3, None)));
+}
+
 #[gpui::test]
 fn plus_and_minus_add_and_take_colours_from_one_to_three(cx: &mut TestAppContext) {
     let mut picker = Picker::new(Some(Theme::at(0.5, 0.)), cx);

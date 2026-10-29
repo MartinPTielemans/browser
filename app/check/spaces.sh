@@ -641,12 +641,15 @@ send clickkey 211.5 316.5
 expect "^browser: themed space $first x=-0.619[0-9] y=-0.242[0-9] colors=2 " "+ didn't add a second colour"
 send clickkey 211.5 316.5
 expect "^browser: themed space $first x=-0.619[0-9] y=-0.242[0-9] colors=3 " "+ didn't add a third colour"
+# Pressed before its frame is drawn, a handle wouldn't follow the drag's moves.
+expect '^browser: theme picker handles 3 drawn$' "the picker didn't draw the three colours at rest"
 # The blue is 201.4° round and 0.665 out, so the third is at 51.4°, (0.415, 0.519) in the field,
 # whose middle is 178.5 from the card's top and 13 + 178.5 from its left, at 170 a unit. Dragged
 # to (0.3, -0.55), it's 97.2° on from the blue and 0.038 nearer the middle.
 third=$(echo "$at" | awk '{ print $1 + 13 + 178.5 + 170 * 0.415, $2 + 178.5 + 170 * 0.519 }')
 placed=$(echo "$at" | awk '{ print $1 + 13 + 178.5 + 170 * 0.3, $2 + 178.5 - 170 * 0.55 }')
 send press $third
+expect '^browser: theme picker handles 3 drawn, 2 held$' "the third colour wasn't drawn held as it was pressed"
 send dragto $placed
 send release $placed
 alone="x=-0.619[0-9] y=-0.242[0-9] colors=3 .* places=150.00,0.0000,9[6-8]\.[0-9]*,-0.0[2-5][0-9]*"
