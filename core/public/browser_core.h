@@ -1333,7 +1333,8 @@ BC_EXPORT void bc_set_ad_blocking(bool on);
 // or answers it.
 //
 // The host of the collector the app named with --crash-upload-url, or nothing without one, when
-// nothing is sent and Settings doesn't offer to. Copied as bc_profile_name copies a name.
+// nothing is sent and Settings doesn't offer to. Nothing on Windows too, where Crashpad writes them
+// in the default folder other Chromiums share. Copied as bc_profile_name copies a name.
 BC_EXPORT size_t bc_crash_reports_collector(char* host, size_t capacity);
 // Whether the user has Send Crash Reports on and there's a collector.
 BC_EXPORT bool bc_send_crash_reports(void);

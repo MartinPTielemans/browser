@@ -86,10 +86,24 @@ constexpr net::NetworkTrafficAnnotationTag kCrashReport =
           "Off unless the user turns it on, or says to send one report."
       })");
 
+// Where Crashpad writes the reports, if that's the profile's folder, as PlaceReports has it. On
+// Windows chrome_elf starts Crashpad before the core runs, in Chromium's default folder, which any
+// other Chromium on the machine shares, so the core offers, sends and deletes none of those.
+std::optional<base::FilePath> ProfilesReports() {
+  std::optional<base::FilePath> written = crash_reporter::GetCrashpadDatabasePath();
+  base::FilePath profiles;
+  if (!written || !base::PathService::Get(chrome::DIR_CRASH_DUMPS, &profiles) ||
+      *written != profiles) {
+    return std::nullopt;
+  }
+  return written;
+}
+
+// Without the profile's own reports there's no collector, as in a build that names none.
 const GURL& Collector() {
   static const base::NoDestructor<GURL> collector([] {
     GURL url(base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(kCollector));
-    return url.is_valid() && url.SchemeIsHTTPOrHTTPS() ? url : GURL();
+    return url.is_valid() && url.SchemeIsHTTPOrHTTPS() && ProfilesReports() ? url : GURL();
   }());
   return *collector;
 }
@@ -104,9 +118,10 @@ scoped_refptr<base::SequencedTaskRunner> Reports() {
   return *reports;
 }
 
-// The Crashpad database the handler writes, as another reader of it, as Chrome's crashes page is.
+// The Crashpad database the handler writes, if it's the profile's, as another reader of it, as
+// Chrome's crashes page is.
 std::unique_ptr<CrashReportDatabase> OpenReports() {
-  std::optional<base::FilePath> path = crash_reporter::GetCrashpadDatabasePath();
+  std::optional<base::FilePath> path = ProfilesReports();
   return path ? CrashReportDatabase::InitializeWithoutCreating(*path) : nullptr;
 }
 
