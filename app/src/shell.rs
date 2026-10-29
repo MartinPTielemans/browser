@@ -954,6 +954,9 @@ pub struct Shell {
     /// The frames the favorites' tiles and the folders' plates were last drawn in, in the window,
     /// for their tooltips to hang from.
     tip_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// A closed folder whose row lost the hover with the pointer last seen on it, so its preview
+    /// hasn't heard it left: the next move off the row tells it.
+    preview_row: Option<u64>,
     /// How long each frame drawn while the Spaces' pages moved took the sidebar, in ms, for the
     /// settle's log.
     paging_frames: Rc<RefCell<Vec<f32>>>,
@@ -1286,6 +1289,7 @@ impl Shell {
             list_scroll: ScrollHandle::new(),
             sidebar_origin: Rc::default(),
             tip_frames: Rc::default(),
+            preview_row: None,
             paging_frames: Rc::default(),
             #[cfg(test)]
             beside_frames: Rc::default(),
@@ -2564,6 +2568,7 @@ impl Shell {
                         moved
                             .update(cx, |shell, cx| {
                                 shell.pointer_moved(cx);
+                                shell.off_preview_row(event.position, cx);
                                 shell.sidebar_hover(over, cx)
                             })
                             .ok();
