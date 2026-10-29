@@ -8,8 +8,8 @@
 // overlays.rs's, the find bar and the offer are panels.rs's, ilo's menus are menu_window.rs's, the
 // HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's, the Site
 // Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's, Settings is
-// settings_window.rs's, as GPUI's Linux platform shows them, and the window buttons, which the UI
-// draws, are window_buttons.rs's.
+// settings_window.rs's, as GPUI's Linux platform shows them, the shadows under the overlays and the
+// Site Controls are shadows.rs's, and the window buttons, which the UI draws, are window_buttons.rs's.
 
 #include "../host.h"
 
@@ -402,15 +402,8 @@ void host_window_closed(void* ui_view) {
   }
 }
 
-// shortcut: overlays don't shrink or cast a shadow on Linux yet (overlays.rs).
+// shortcut: overlays don't shrink on Linux yet (overlays.rs).
 void host_set_overlay_shrink(int overlay) {}
-
-void host_set_overlay_elevation(int overlay,
-                                float outline_opacity,
-                                double outline_radius,
-                                float shadow_opacity,
-                                double shadow_radius,
-                                double shadow_drop) {}
 
 bool host_can_draw_emoji(const char*) {
   return true;

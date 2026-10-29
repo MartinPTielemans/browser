@@ -68,6 +68,9 @@ mod reveal_window;
 #[path = "../platform/linux/settings_window.rs"]
 mod settings_window;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/shadows.rs"]
+mod shadows;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/system.rs"]
 mod system;
 #[cfg(target_os = "linux")]
