@@ -1,10 +1,11 @@
 #!/bin/bash
 # Downloads the prebuilt engine, checked against its hash, into .deps/prebuilt, and prints the
-# path of its Chromium.app, or on Linux and Windows its Chromium directory. On the Mac it's the one
-# prebuilt.ini names, which publish.sh makes. On Linux and Windows it's the newest engine-linux or
-# engine-windows release built from a commit in this checkout's history, which
-# .github/workflows/engine-linux.yml and engine-windows-cross.yml make. It exits with 2 when no
-# engine fits this checkout, which CI takes for a reason to skip, and 1 on any other failure.
+# path of its Chromium.app, or on Linux and Windows its Chromium directory. It's the newest
+# engine-mac, engine-linux or engine-windows release built from a commit in this checkout's
+# history, which .github/workflows/engine-mac.yml, engine-linux.yml and engine-windows-cross.yml
+# make. On the Mac with none, it's the one prebuilt.ini names, which publish.sh makes. It exits
+# with 2 when no engine fits this checkout, which CI takes for a reason to skip, and 1 on any
+# other failure.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -17,24 +18,13 @@ none() {
   exit 2
 }
 
-case $(uname -sm) in
-"Darwin arm64")
-  [ -e prebuilt.ini ] || none "no prebuilt engine is published yet. Build one with engine/build.sh."
-  commit=$(git config -f prebuilt.ini prebuilt.commit)
-  url=$(git config -f prebuilt.ini prebuilt.url)
-  sha256=$(git config -f prebuilt.ini prebuilt.sha256)
-  app=Chromium.app
-  sha256sum() { shasum -a 256 "$@"; }
-  ;;
-"Linux x86_64" | MINGW*" x86_64")
-  case $(uname -s) in
-  Linux) platform=linux asset=Chromium-linux-x64.tar.xz ;;
-  *) platform=windows asset=Chromium-windows-x64.zip ;;
-  esac
+# The release engine-<platform>-<commit> built from the nearest commit in this history, into
+# commit, url and sha256, if there's one.
+tagged() {
+  local platform=$1 asset=$2 repo tagged distance best=
   repo=$(git config -f prebuilt.ini prebuilt.url | sed -E 's#^(https://github.com/[^/]+/[^/]+)/.*#\1#')
-  # The release's tag is on the commit it was built from. The nearest one in this history wins.
   commit=
-  best=
+  # The release's tag is on the commit it was built from.
   while read -r tagged _; do
     git merge-base --is-ancestor "$tagged" HEAD 2>/dev/null || continue
     distance=$(git rev-list --count "$tagged..HEAD")
@@ -43,10 +33,29 @@ case $(uname -sm) in
       best=$distance
     fi
   done < <(git ls-remote --tags "$repo.git" "refs/tags/engine-$platform-*")
-  [ -n "$commit" ] ||
-    none "no prebuilt $platform engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or run the engine-$platform workflow."
+  [ -n "$commit" ] || return 1
   url=$repo/releases/download/engine-$platform-${commit:0:12}/$asset
   sha256=$(curl -fsSL "$url.sha256") || none "the release engine-$platform-${commit:0:12} has no engine yet."
+}
+
+case $(uname -sm) in
+"Darwin arm64")
+  [ -e prebuilt.ini ] || none "no prebuilt engine is published yet. Build one with engine/build.sh."
+  if ! tagged mac Chromium-arm64.tar.xz; then
+    commit=$(git config -f prebuilt.ini prebuilt.commit)
+    url=$(git config -f prebuilt.ini prebuilt.url)
+    sha256=$(git config -f prebuilt.ini prebuilt.sha256)
+  fi
+  app=Chromium.app
+  sha256sum() { shasum -a 256 "$@"; }
+  ;;
+"Linux x86_64" | MINGW*" x86_64")
+  case $(uname -s) in
+  Linux) platform=linux asset=Chromium-linux-x64.tar.xz ;;
+  *) platform=windows asset=Chromium-windows-x64.zip ;;
+  esac
+  tagged "$platform" "$asset" ||
+    none "no prebuilt $platform engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or run the engine-$platform workflow."
   app=Chromium
   ;;
 *) fail "there's a prebuilt engine for Macs with Apple silicon, x86-64 Linux and x64 Windows only." ;;

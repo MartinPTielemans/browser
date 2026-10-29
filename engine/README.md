@@ -2,7 +2,7 @@
 
 Chromium built as Chrome's framework (`//chrome:chrome_framework`), from ungoogled-chromium plus our patch series. `./setup.sh` prepares the tree in `.deps/src`, and `./build.sh` builds `Chromium.app`, with the framework in it, in `.deps/src/out/Release`. `./setup.sh dev` and `./build.sh dev` do the same for the dev build in `.deps/src/out/Dev`, which has no link-time optimization, so its framework relinks much faster, and checks Chromium's DCHECKs. Work on the core uses it.
 
-Work that doesn't change the core needs no build: `./fetch.sh` downloads the prebuilt engine `prebuilt.ini` names, and the app uses it when there's no local build. `./publish.sh` makes one from the committed tree and uploads it as a GitHub release named after its commit, which is its source. A prebuilt engine has its commit's core, so `fetch.sh` refuses it once `core/public/browser_core.h` has changed; publish a new one with the API change.
+Work that doesn't change the core needs no build: `./fetch.sh` downloads the prebuilt engine, and the app uses it when there's no local build. That's the newest `engine-mac-<commit>` release built from the checkout's history, which `.github/workflows/engine-mac.yml` makes on GitHub's free macOS runners, or with none, the one `prebuilt.ini` names, which `./publish.sh` makes from the committed tree on a Mac. Each is a GitHub release named after its commit, which is its source. A prebuilt engine has its commit's core, so `fetch.sh` refuses it once `core/public/browser_core.h` has changed; publish a new one with the API change.
 
 ## Layout
 
