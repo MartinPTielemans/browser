@@ -854,13 +854,17 @@ impl Shell {
             }
             // In window full screen ⎋ stops a load, and otherwise a second press or a held key
             // leaves, as Arc's does, or the first unless the user left ⎋ to both. The page's
-            // presses were counted before it had them.
+            // presses were counted before it had them, except with Prefer Websites, where one the
+            // page didn't keep leaves.
             Command::Stop if self.full_screen && !self.page_fullscreen => {
                 if self.page(self.selected).loading {
                     return self.browser.stop(self.selected, cx);
                 }
-                let first = user_keys(cx).escape_priority() != EscapePriority::Both;
-                if from != "page" && (first || self.escape_again()) {
+                let priority = user_keys(cx).escape_priority();
+                let first = priority != EscapePriority::Both;
+                if (from == "page" && priority == EscapePriority::Websites)
+                    || (from != "page" && (first || self.escape_again()))
+                {
                     return self.browser.press_window_button(WindowButton::Zoom, cx);
                 }
                 return;
@@ -1031,7 +1035,7 @@ impl Shell {
     /// ⎋ is going down in the page, which has it first, as in Arc: in window full screen a second
     /// press soon after the first, or a held key's repeat, leaves it instead. Returns whether it
     /// did, and the page doesn't get the key. Given to the browser in Settings › Shortcuts, the
-    /// first press leaves; left to websites, the page has every press.
+    /// first press leaves; left to websites, the page has it, and it leaves only if the page hands it back.
     pub fn escape_before_page(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.full_screen || self.page_fullscreen {
             return false;
