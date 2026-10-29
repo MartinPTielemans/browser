@@ -948,6 +948,12 @@ impl Browser for Fake {
 
     fn press_window_button(&self, _: WindowButton, _: &mut App) {}
 
+    fn can_stay_on_top(&self) -> bool {
+        false
+    }
+
+    fn set_on_top(&self, _: bool, _: &mut App) {}
+
     // The preview's window is GPUI's own, which GPUI moves.
     fn start_window_move(&self, _: &mut App) {}
 

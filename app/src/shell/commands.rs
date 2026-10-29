@@ -33,6 +33,9 @@ pub enum Command {
     NewPrivateWindow,
     /// Closes the window, its tabs going to the window in front of the others.
     CloseWindow,
+    /// Keeps the window over other apps' windows, or lets it go back among them, as Arc's Window ›
+    /// Stay On Top does.
+    StayOnTop,
     EditUrl,
     CloseTab,
     /// Reopens the Today tab closed last.
@@ -302,6 +305,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
     ("Close Window", Command::CloseWindow, &[]),
+    ("Stay On Top", Command::StayOnTop, &["float", "always on top", "keep window on top"]),
     ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
     ("Find…", Command::Find, &[]),
     ("Site Controls", Command::SiteControls, &["permissions"]),
@@ -571,6 +575,7 @@ impl Command {
             Command::SearchTabs => "search-tabs",
             Command::NewWindow => "new-window",
             Command::NewPrivateWindow => "new-private-window",
+            Command::StayOnTop => "stay-on-top",
             Command::CloseWindow => "close-window",
             Command::EditUrl => "edit-url",
             Command::CloseTab => "close-tab",
@@ -784,6 +789,7 @@ impl Shell {
             }
             Command::NewWindow => return self.browser.new_window(cx),
             Command::NewPrivateWindow => return self.browser.new_private_window(cx),
+            Command::StayOnTop => return self.toggle_on_top(cx),
             Command::CloseWindow => {
                 // As ⌘W does, from a window of Chrome's it closes that one.
                 if !self.browser.close_other_window(cx) {
@@ -1026,6 +1032,20 @@ impl Shell {
         true
     }
 
+    /// Keeps the window over other apps' windows, or lets it go back among them, and the Window
+    /// menu's item says which.
+    fn toggle_on_top(&mut self, cx: &mut Context<Self>) {
+        if !self.browser.can_stay_on_top() {
+            return;
+        }
+        let on_top = !self.on_top;
+        self.browser.set_on_top(on_top, cx);
+        // check.sh waits for this line.
+        log!("browser: window on top {on_top}");
+        self.on_top = on_top;
+        self.update_menus(cx);
+    }
+
     /// Whether ⎋ went down in window full screen a moment ago, and counts this press for the next.
     fn escape_again(&mut self) -> bool {
         let now = Instant::now();
@@ -1211,6 +1231,7 @@ impl Shell {
             Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
+            Command::StayOnTop => self.browser.can_stay_on_top(),
             Command::NewFolder
             | Command::SearchTabs
             | Command::ReopenClosedTab

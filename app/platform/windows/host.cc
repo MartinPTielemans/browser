@@ -1984,6 +1984,20 @@ void host_dock_dot(bool colored, uint32_t color) {
   }
 }
 
+bool host_can_stay_on_top(void) {
+  return true;
+}
+
+// A topmost window's owned windows, its overlays, are topmost with it, over it.
+void host_set_on_top(void* ui_view, bool on_top) {
+  HWND root = Root(ui_view);
+  SetWindowPos(root, on_top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: window topmost %d\n",
+          (GetWindowLongPtrW(root, GWL_EXSTYLE) & WS_EX_TOPMOST) ? 1 : 0);
+}
+
 // interim: a jump list's tasks start a second process, whose command line reaches Chrome's startup
 // and not the app (#669).
 void host_set_dock_menu(const char* const* titles, size_t count) {}
