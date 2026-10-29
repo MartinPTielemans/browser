@@ -4,7 +4,8 @@
 //! native view, so it's a window of its own that the host shows over all of the browser window,
 //! as its child, with the keyboard. What it asks of its window goes through `Host`. It also asks
 //! Chrome's questions, such as whether to add an extension, which wait their turn behind the
-//! dialog that shows and which Chrome can take back, and a page's own, such as its alert(), over
+//! dialog that shows and which Chrome can take back, the account's, such as whether to add a
+//! device, which wait and go the same way, and a page's own, such as its alert(), over
 //! its tab's card alone, which come and go with the tab (docs/ux-spec.md › Page dialogs).
 
 use std::{
@@ -204,8 +205,17 @@ enum Source {
     User,
     /// Chrome's, such as adding an extension, which Chrome can take back.
     Chrome,
+    /// The account's, such as adding a device to it, which the core can take back, as Chrome's.
+    Account,
     /// A page's, over its tab's card, which goes when the tab does.
     Page,
+}
+
+impl Source {
+    /// Its action grants something, so it works only after the dialog's moment on screen.
+    fn grants(self) -> bool {
+        matches!(self, Source::Chrome | Source::Account)
+    }
 }
 
 /// A question to show, and what's told of its answer once the dialog has gone.
@@ -260,6 +270,8 @@ pub struct Dialog {
     asked: Option<Asked>,
     /// Chrome's question, waiting for the dialog that shows to go.
     next: Option<Request>,
+    /// The account's, waiting the same way, after Chrome's.
+    next_account: Option<Request>,
     /// A page's, waiting the same way, after Chrome's.
     next_page: Option<Request>,
 }
@@ -411,21 +423,49 @@ pub fn pose(question: Question, confirmed: Box<dyn FnOnce(&mut App)>, cx: &mut A
 /// that hasn't been answered, and calls `answered` with the answer once the dialog has gone.
 /// With no dialog to ask in, it's answered no at once, so that Chrome isn't left waiting.
 pub fn ask_chrome(question: Question, answered: Box<dyn FnOnce(bool, &mut App)>, cx: &mut App) {
+    ask_granting(Source::Chrome, question, answered, cx);
+}
+
+/// Takes back Chrome's question, unanswered: the dialog leaves if it shows it, and nothing is
+/// told of an answer.
+pub fn withdraw_chrome(cx: &mut App) {
+    withdraw_granting(Source::Chrome, cx);
+}
+
+/// Asks the account's `question`, such as whether to add a device to it, as Chrome's are asked,
+/// with its moment on screen before its action works. Chrome's and the account's wait for each
+/// other, and neither takes the other's place.
+pub fn ask_account(question: Question, answered: Box<dyn FnOnce(bool, &mut App)>, cx: &mut App) {
+    ask_granting(Source::Account, question, answered, cx);
+}
+
+/// Takes back the account's question, unanswered, as `withdraw_chrome` does Chrome's.
+pub fn withdraw_account(cx: &mut App) {
+    withdraw_granting(Source::Account, cx);
+}
+
+/// Asks a question that grants something, Chrome's or the account's, once the dialog that shows
+/// has gone, in place of any from `source` that hasn't been answered.
+fn ask_granting(
+    source: Source,
+    question: Question,
+    answered: Box<dyn FnOnce(bool, &mut App)>,
+    cx: &mut App,
+) {
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         answered(false, cx);
         return;
     };
     let answered = Box::new(move |reply: Reply, cx: &mut App| answered(reply.accept, cx));
-    let mut request =
-        Some(Request { question, source: Source::Chrome, over: None, page: None, answered });
+    let mut request = Some(Request { question, source, over: None, page: None, answered });
     window
         .update(cx, |dialog, window, cx| {
-            dialog.withdraw(Source::Chrome, cx);
+            dialog.withdraw(source, cx);
             let request = request.take().expect("asked once");
-            if dialog.asked.is_some() {
-                dialog.next = Some(request);
-            } else {
-                dialog.show(request, window, cx);
+            match (dialog.asked.is_some(), source) {
+                (false, _) => dialog.show(request, window, cx),
+                (true, Source::Account) => dialog.next_account = Some(request),
+                (true, _) => dialog.next = Some(request),
             }
         })
         .ok();
@@ -434,13 +474,11 @@ pub fn ask_chrome(question: Question, answered: Box<dyn FnOnce(bool, &mut App)>,
     }
 }
 
-/// Takes back Chrome's question, unanswered: the dialog leaves if it shows it, and nothing is
-/// told of an answer.
-pub fn withdraw_chrome(cx: &mut App) {
+fn withdraw_granting(source: Source, cx: &mut App) {
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
     };
-    window.update(cx, |dialog, _, cx| dialog.withdraw(Source::Chrome, cx)).ok();
+    window.update(cx, |dialog, _, cx| dialog.withdraw(source, cx)).ok();
 }
 
 /// Asks a page's `question`, the dialog `id` of `tab`, over its tab's card, `over` in the window
@@ -496,7 +534,14 @@ pub fn withdraw_page(cx: &mut App) {
 
 impl Dialog {
     fn new(host: Rc<dyn Host>, cx: &mut Context<Self>) -> Self {
-        Dialog { host, focus: cx.focus_handle(), asked: None, next: None, next_page: None }
+        Dialog {
+            host,
+            focus: cx.focus_handle(),
+            asked: None,
+            next: None,
+            next_account: None,
+            next_page: None,
+        }
     }
 
     fn pose(
@@ -566,6 +611,7 @@ impl Dialog {
     fn withdraw(&mut self, source: Source, cx: &mut Context<Self>) {
         match source {
             Source::Page => self.next_page = None,
+            Source::Account => self.next_account = None,
             _ => self.next = None,
         }
         let Some(asked) = &mut self.asked else {
@@ -620,7 +666,7 @@ impl Dialog {
         let Some(asked) = &mut self.asked else {
             return;
         };
-        let unsettled = asked.source == Source::Chrome && !asked.settling.settled(cx);
+        let unsettled = asked.source.grants() && !asked.settling.settled(cx);
         if asked.answered_at.is_some()
             || (answer == Answer::Action && (asked.question.action.is_empty() || unsettled))
         {
@@ -681,7 +727,8 @@ impl Dialog {
     }
 }
 
-/// Shows Chrome's question that waits, else a page's, if no other dialog has come up first.
+/// Shows Chrome's question that waits, else the account's, else a page's, if no other dialog has
+/// come up first.
 fn show_next(cx: &mut App) {
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
@@ -689,7 +736,9 @@ fn show_next(cx: &mut App) {
     window
         .update(cx, |dialog, window, cx| {
             if dialog.asked.is_none()
-                && let Some(request) = dialog.next.take().or_else(|| dialog.next_page.take())
+                && let Some(request) = (dialog.next.take())
+                    .or_else(|| dialog.next_account.take())
+                    .or_else(|| dialog.next_page.take())
             {
                 dialog.show(request, window, cx);
             }
@@ -743,7 +792,7 @@ impl Render for Dialog {
         // GPUI draw it, so the motion starts there rather than skip its start.
         if asked.shown.is_none() && window.is_visible() {
             asked.shown = Some(Instant::now());
-            if asked.source == Source::Chrome {
+            if asked.source.grants() {
                 asked.settling.start("dialog".into(), cx);
             }
         }

@@ -586,6 +586,11 @@ chip-gap = 6.0
 profile-row = 40.0
 # Ours, for the Passwords tab: a login's username under its site, a size down, in its row.
 username-size = 11.0
+# Ours, for the Account tab: the recovery words down 4 columns, each after its number in the
+# detail grey, in a column as wide as "24" and a gap, with 6 between the rows.
+words-columns = 4
+word-number = 24.0
+word-gap = 6.0
 bar = 0x282a2a
 bar-line = 0x303131
 background = 0x202222

@@ -19,8 +19,9 @@ use std::{
 
 use browser::window_frames::{self, Frame};
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_preview,
-    link_target, log, menu, offer, passwords, site_controls, theme_picker, toast, tooltip, zoom_hud,
+    account, capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker,
+    link_preview, link_target, log, menu, offer, passwords, site_controls, theme_picker, toast,
+    tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -4510,6 +4511,93 @@ unsafe extern "C" fn profile_logins_changed(
     update_app(|cx| settings::logins_changed(profile, list, cx));
 }
 
+/// A string the core passed, for as long as the app keeps it.
+fn core_text(text: *const c_char) -> SharedString {
+    match text.is_null() {
+        true => SharedString::default(),
+        false => unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into(),
+    }
+}
+
+/// The browser's account, for Settings. Never logged here: the email is the user's.
+unsafe extern "C" fn sync_changed(_: *mut c_void, state: *const bc::bc_sync_state) {
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return;
+    };
+    let status = match state.status as u32 {
+        bc::BC_SYNC_SIGNING_IN => account::Status::SigningIn,
+        bc::BC_SYNC_FIRST_DEVICE => account::Status::FirstDevice,
+        bc::BC_SYNC_NEEDS_SECRET => account::Status::NeedsSecret,
+        bc::BC_SYNC_PAIRING => account::Status::Pairing,
+        bc::BC_SYNC_ON => account::Status::On,
+        _ => account::Status::SignedOut,
+    };
+    let problem = match state.problem as u32 {
+        bc::BC_SYNC_PROBLEM_WRONG_WORDS => Some(account::Problem::WrongWords),
+        bc::BC_SYNC_PROBLEM_DECLINED => Some(account::Problem::Declined),
+        bc::BC_SYNC_PROBLEM_EXPIRED => Some(account::Problem::Expired),
+        bc::BC_SYNC_PROBLEM_REMOVED => Some(account::Problem::Removed),
+        bc::BC_SYNC_PROBLEM_SERVER => Some(account::Problem::Server),
+        _ => None,
+    };
+    let state = account::State {
+        status,
+        problem,
+        server: core_text(state.server),
+        default_server: state.default_server,
+        email: core_text(state.email),
+        code: core_text(state.code),
+    };
+    update_app_later(move |cx| settings::sync_changed(state, cx));
+}
+
+/// Another device asks to be added to the account: the dialog asks over the front window, or
+/// leaves once the request has ended unanswered.
+unsafe extern "C" fn sync_pairing_asked(_: *mut c_void, pairing: *const bc::bc_sync_pairing) {
+    let Some(pairing) = (unsafe { pairing.as_ref() }) else {
+        // check.sh waits for this line.
+        log!("browser: pairing withdrawn");
+        update_app_later(dialog::withdraw_account);
+        return;
+    };
+    let pairing = account::Pairing {
+        id: core_text(pairing.id),
+        name: core_text(pairing.name),
+        os: core_text(pairing.os),
+        code: core_text(pairing.code),
+    };
+    // check.sh waits for this line.
+    log!("browser: pairing asked");
+    update_app_later(move |cx| {
+        let id = CString::new(pairing.id.as_str()).unwrap_or_default();
+        let answered = Box::new(move |add, _: &mut App| unsafe {
+            bc::bc_sync_answer_pairing(id.as_ptr(), add)
+        });
+        dialog::ask_account(account::pairing_question(&pairing), answered, cx);
+    });
+}
+
+/// The account's devices, which Settings asked the core for.
+unsafe extern "C" fn sync_devices_changed(
+    _: *mut c_void,
+    devices: *const bc::bc_sync_device,
+    count: usize,
+) {
+    let devices = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(devices, count) },
+    };
+    let devices = (devices.iter())
+        .map(|device| account::Device {
+            id: core_text(device.id),
+            name: core_text(device.name),
+            os: core_text(device.os),
+            current: device.current,
+        })
+        .collect();
+    update_app_later(move |cx| settings::devices_changed(devices, cx));
+}
+
 /// What came of a passwords file the import gave the core. Never logged: the counts are the
 /// user's.
 unsafe extern "C" fn passwords_imported(
@@ -4958,6 +5046,9 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
+        sync_changed: Some(sync_changed),
+        sync_pairing_asked: Some(sync_pairing_asked),
+        sync_devices_changed: Some(sync_devices_changed),
         ..Default::default()
     };
     (args, host)

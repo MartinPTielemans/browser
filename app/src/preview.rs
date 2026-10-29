@@ -9,6 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use browser::account::{self, Account};
 use browser::import::sources::{Os, Roots};
 use browser::log;
 use browser::shell::{
@@ -1185,6 +1186,13 @@ fn main() {
         browser::face::register(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
+        // PREVIEW_ACCOUNT=signed-out, words, waiting or signed-in shows Settings › Account in that
+        // state, alone; =approve shows another device's request over the browser window.
+        let account = std::env::var("PREVIEW_ACCOUNT").ok();
+        if let Some(state) = account.as_deref().filter(|state| *state != "approve") {
+            preview_account(state, cx);
+            return;
+        }
         // PREVIEW_SIZE=<width>x<height> opens the window at that size.
         let (width, height) = std::env::var("PREVIEW_SIZE")
             .ok()
@@ -1406,6 +1414,18 @@ fn main() {
             let top = y as f32 + command_bar::centered_top(height as f32);
             let at = point(px(left as f32), px(top));
             preview_bar(&mode, at, cx);
+        }
+        if account.as_deref() == Some("approve") {
+            if !DIALOG_OPEN.replace(true) {
+                dialog::open_at(Rc::new(PreviewDialog), bounds, true, cx);
+            }
+            let pairing = account::Pairing {
+                id: "2".into(),
+                name: "MacBook Air".into(),
+                os: "macOS".into(),
+                code: "312568".into(),
+            };
+            dialog::ask_account(account::pairing_question(&pairing), Box::new(|_, _| {}), cx);
         }
         // PREVIEW_ICON_PICKER=<emoji, or empty> shows the icon picker for a Space with that icon.
         if let Ok(icon) = std::env::var("PREVIEW_ICON_PICKER") {
@@ -1688,5 +1708,115 @@ fn preview_site() -> Site {
         system_engine: None,
         logins: Vec::new(),
         ad_blocking: Some(true),
+    }
+}
+
+/// Settings › Account alone, framed as Settings frames a tab, in a window of Settings' size.
+fn preview_account(state: &str, cx: &mut App) {
+    use account::{Device, State, Status};
+    use browser::tokens::settings::{HEIGHT, WIDTH};
+    account::bind_keys(cx);
+    let (mut x, mut y) = (0., 0.);
+    unsafe { host_centered(WIDTH as f64, HEIGHT as f64, &mut x, &mut y) };
+    let bounds = Bounds::new(point(px(x as f32), px(y as f32)), size(px(WIDTH), px(HEIGHT)));
+    let status = match state {
+        "words" => Status::FirstDevice,
+        "waiting" => Status::Pairing,
+        "signed-in" => Status::On,
+        _ => Status::SignedOut,
+    };
+    let state = State {
+        status,
+        problem: None,
+        server: "https://sync.ilo.app".into(),
+        default_server: true,
+        email: "sam@example.com".into(),
+        code: if status == Status::Pairing { "312568".into() } else { "".into() },
+    };
+    let device = |id: &str, name: &str, os: &str, current| Device {
+        id: id.to_string().into(),
+        name: name.to_string().into(),
+        os: os.to_string().into(),
+        current,
+    };
+    let devices = vec![
+        device("1", "Sam's MacBook Pro", "macOS", true),
+        device("2", "MacBook Air", "macOS", false),
+        device("3", "ThinkPad X1", "Linux", false),
+    ];
+    let options =
+        WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+    let opened = cx.open_window(options, |window, cx| {
+        let account = cx.new(|cx| {
+            let mut account = Account::new(Rc::new(PreviewAccount), cx);
+            account.set_state(state, cx);
+            if status == Status::On {
+                account.set_devices(devices, cx);
+            }
+            account
+        });
+        window.focus(&account.focus_handle(cx), cx);
+        cx.new(|_| AccountPage(account))
+    });
+    if let Err(error) = opened {
+        log!("preview: couldn't open the account's window: {error}");
+    }
+}
+
+/// The account's view on Settings' background, in from its sides as Settings' tabs are.
+struct AccountPage(gpui::Entity<Account>);
+
+impl gpui::Render for AccountPage {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        _: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        use browser::tokens::settings::{BACKGROUND, FIRST, SIDE, TEXT};
+        use browser::tokens::text;
+        use gpui::{ParentElement, Styled, div, rgb};
+        div()
+            .size_full()
+            .bg(rgb(BACKGROUND))
+            .font_family(browser::face::UI)
+            .text_size(px(text::BODY))
+            .text_color(rgb(TEXT))
+            .px(px(SIDE))
+            .py(px(FIRST))
+            .child(self.0.clone())
+    }
+}
+
+/// A made-up account: its recovery words are made-up words, and it asks nothing of a server.
+struct PreviewAccount;
+
+impl account::Host for PreviewAccount {
+    fn set_server(&self, _: &str) -> bool {
+        true
+    }
+    fn sign_in(&self) {}
+    fn cancel(&self) {}
+    fn sign_out(&self) {}
+    fn recovery_words(&self) -> String {
+        "harbor velvet nominee orbit quarter skill tumble canyon effort glide lunar prize \
+         answer bridge cotton dwarf frozen hollow island jacket kitten ladder mango noble"
+            .into()
+    }
+    fn enter_recovery_words(&self, _: &str) -> bool {
+        true
+    }
+    fn request_pairing(&self) {}
+    fn read_devices(&self) {}
+    fn remove_device(&self, _: &str) {}
+    fn copy(&self, _: &str) {}
+    fn confirm(
+        &self,
+        _: String,
+        _: String,
+        _: &'static str,
+        _: Box<dyn FnOnce(&mut App)>,
+        _: &mut gpui::Window,
+        _: &mut App,
+    ) {
     }
 }

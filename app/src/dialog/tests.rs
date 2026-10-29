@@ -280,6 +280,53 @@ fn with_no_dialog_chrome_hears_no_at_once(cx: &mut TestAppContext) {
     assert_eq!(host.0.take(), ["no"]);
 }
 
+/// The account's question whether to add a device, which records the answer on `host`.
+fn add_device(host: &Rc<Recorder>, cx: &mut App) {
+    let pairing = crate::account::Pairing {
+        id: "p".into(),
+        name: "Pixel 9".into(),
+        os: "Android".into(),
+        code: "312568".into(),
+    };
+    let host = host.clone();
+    let answered = Box::new(move |yes, _: &mut App| {
+        host.0.borrow_mut().push(if yes { "add" } else { "not me" }.into());
+    });
+    ask_account(crate::account::pairing_question(&pairing), answered, cx);
+}
+
+/// Another device asks to be added while Chrome asks about an extension: it waits its turn, and
+/// neither takes the other's place. ↩ is Not me, even once it has settled, so a key meant for the
+/// page can't add a device: Add takes a click.
+#[gpui::test]
+fn the_accounts_question_waits_for_chromes_and_return_is_not_me(cx: &mut TestAppContext) {
+    let mut dialog = Asking::chrome("Add extension", cx);
+    let host = dialog.host.clone();
+    dialog.cx.cx.update(|cx| add_device(&host, cx));
+    assert_eq!(dialog.calls(), ["show"]);
+    dialog.settle();
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["hide", "yes", "show"]);
+    dialog.settle();
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["hide", "not me"]);
+}
+
+/// The core takes the account's question back, as another device took the request: it leaves
+/// untold, and Chrome's waiting behind it comes up.
+#[gpui::test]
+fn the_account_takes_its_question_back(cx: &mut TestAppContext) {
+    let (cx, host) = opened(cx);
+    let mut dialog = Asking { cx, host };
+    let host = dialog.host.clone();
+    dialog.cx.cx.update(|cx| add_device(&host, cx));
+    dialog.cx.cx.update(|cx| add_extension("Add extension", &host, cx));
+    dialog.cx.cx.update(withdraw_account);
+    assert_eq!(dialog.calls(), ["show", "hide", "show"]);
+    dialog.keys("escape");
+    assert_eq!(dialog.calls(), ["hide", "no"]);
+}
+
 /// A page's question, over its tab's card at `x`, which records its answer, with what was typed,
 /// on `host`.
 fn ask_from_page(

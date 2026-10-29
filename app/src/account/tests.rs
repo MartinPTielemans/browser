@@ -1,0 +1,393 @@
+//! Settings › Account, driven as the user does, on a host that records what it asks of the core.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use gpui::{App, Entity, Modifiers, TestAppContext, VisualTestContext, Window};
+
+use super::*;
+
+/// 24 words, as the core gives them: lowercase, one space between them.
+const WORDS: &str = "abandon ability able about above absent absorb abstract absurd abuse access \
+                     accident account accuse achieve acid acoustic acquire across act action \
+                     actor actress actual";
+
+/// The core, as the view asks it, recording each call.
+#[derive(Default)]
+struct Recorder {
+    calls: RefCell<Vec<String>>,
+    /// What set_server and enter_recovery_words answer.
+    refuse: Cell<bool>,
+    /// The question asked, and what confirming it does, until a test answers.
+    asked: RefCell<Option<(String, Box<dyn FnOnce(&mut App)>)>>,
+}
+
+impl Recorder {
+    fn record(&self, call: impl Into<String>) {
+        self.calls.borrow_mut().push(call.into());
+    }
+
+    fn take(&self) -> Vec<String> {
+        self.calls.take()
+    }
+}
+
+impl Host for Recorder {
+    fn set_server(&self, server: &str) -> bool {
+        self.record(format!("server {server}"));
+        !self.refuse.get()
+    }
+
+    fn sign_in(&self) {
+        self.record("sign in");
+    }
+
+    fn cancel(&self) {
+        self.record("cancel");
+    }
+
+    fn sign_out(&self) {
+        self.record("sign out");
+    }
+
+    fn recovery_words(&self) -> String {
+        self.record("recovery words");
+        WORDS.into()
+    }
+
+    fn enter_recovery_words(&self, words: &str) -> bool {
+        self.record(format!("words {}", words.split_whitespace().count()));
+        !self.refuse.get()
+    }
+
+    fn request_pairing(&self) {
+        self.record("request pairing");
+    }
+
+    fn read_devices(&self) {
+        self.record("read devices");
+    }
+
+    fn remove_device(&self, id: &str) {
+        self.record(format!("remove {id}"));
+    }
+
+    fn copy(&self, text: &str) {
+        self.record(format!("copy {}", text.split(' ').count()));
+    }
+
+    fn confirm(
+        &self,
+        message: String,
+        _: String,
+        action: &'static str,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        _: &mut Window,
+        _: &mut App,
+    ) {
+        self.record(format!("ask {message} {action}"));
+        *self.asked.borrow_mut() = Some((message, confirmed));
+    }
+}
+
+struct Shown<'a> {
+    account: Entity<Account>,
+    cx: &'a mut VisualTestContext,
+    host: Rc<Recorder>,
+}
+
+/// The Account tab, drawn, as the core says it is in `state`.
+fn shown(state: State, cx: &mut TestAppContext) -> Shown<'_> {
+    cx.update(|cx| {
+        crate::text_input::bind_keys(cx);
+        bind_keys(cx);
+    });
+    let host = Rc::new(Recorder::default());
+    let core = host.clone();
+    let (account, cx) = cx.add_window_view(|_, cx| Account::new(core, cx));
+    account.update(cx, |account, cx| account.set_state(state, cx));
+    cx.run_until_parked();
+    Shown { account, cx, host }
+}
+
+fn state(status: Status) -> State {
+    State {
+        status,
+        server: "https://sync.example.org".into(),
+        default_server: true,
+        email: "ada@example.org".into(),
+        ..State::default()
+    }
+}
+
+fn device(id: &str, current: bool) -> Device {
+    Device { id: id.into(), name: format!("Device {id}").into(), os: "macOS".into(), current }
+}
+
+impl Shown<'_> {
+    fn set(&mut self, state: State) {
+        self.account.update(self.cx, |account, cx| account.set_state(state, cx));
+        self.cx.run_until_parked();
+    }
+
+    fn set_devices(&mut self, devices: Vec<Device>) {
+        self.account.update(self.cx, |account, cx| account.set_devices(devices, cx));
+        self.cx.run_until_parked();
+    }
+
+    fn drawn(&mut self, name: &str) -> bool {
+        self.account.read_with(self.cx, |account, _| account.drawn(name)).is_some()
+    }
+
+    /// Clicks the button named `name`, which must be drawn.
+    fn click(&mut self, name: &str) {
+        let bounds = self.account.read_with(self.cx, |account, _| account.drawn(name));
+        let bounds = bounds.unwrap_or_else(|| panic!("no {name} drawn"));
+        self.cx.simulate_click(bounds.center(), Modifiers::none());
+        self.cx.run_until_parked();
+    }
+
+    fn keys(&mut self, keys: &str) {
+        self.cx.simulate_keystrokes(keys);
+        self.cx.run_until_parked();
+    }
+
+    fn type_text(&mut self, text: &str) {
+        self.cx.simulate_input(text);
+        self.cx.run_until_parked();
+    }
+
+    /// Answers the question asked with its action.
+    fn confirm(&mut self) {
+        let (_, confirmed) = self.host.asked.take().expect("nothing was asked");
+        self.cx.update(|_, cx| confirmed(cx));
+        self.cx.run_until_parked();
+    }
+
+    fn showing_words(&mut self) -> bool {
+        self.account.read_with(self.cx, |account, _| account.words.is_some())
+    }
+}
+
+/// Signed out, Sign In opens the sign-in window, and while it's open Cancel closes it.
+#[gpui::test]
+fn sign_in_and_cancel(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::SignedOut), cx);
+    tab.click("sign-in");
+    assert_eq!(tab.host.take(), ["sign in"]);
+    tab.set(state(Status::SigningIn));
+    assert!(!tab.drawn("sign-in") && !tab.drawn("change-server"));
+    tab.click("cancel");
+    assert_eq!(tab.host.take(), ["cancel"]);
+    tab.set(state(Status::SignedOut));
+    assert!(tab.drawn("sign-in"));
+}
+
+/// Change… shows the server's address in a field, all selected: ↩ keeps what's typed over it,
+/// unless the core won't take it, and escape leaves it as it was.
+#[gpui::test]
+fn change_takes_the_servers_address(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::SignedOut), cx);
+    tab.click("change-server");
+    tab.host.refuse.set(true);
+    tab.type_text("ftp://example.org");
+    tab.keys("enter");
+    assert_eq!(tab.host.take(), ["server ftp://example.org"]);
+    let refused = tab.account.read_with(tab.cx, |account, _| account.server.as_ref().map(|f| f.refused));
+    assert_eq!(refused, Some(true), "the field stays, saying so");
+
+    tab.keys("escape");
+    assert!(tab.account.read_with(tab.cx, |account, _| account.server.is_none()));
+    assert!(tab.host.take().is_empty());
+
+    tab.host.refuse.set(false);
+    tab.click("change-server");
+    tab.type_text("https://ilo.example.net");
+    tab.keys("enter");
+    assert_eq!(tab.host.take(), ["server https://ilo.example.net"]);
+    assert!(tab.account.read_with(tab.cx, |account, _| account.server.is_none()));
+}
+
+/// The account's first device shows its words once, made as the tab shows them, with Copy and
+/// Done, and then it's signed in, listing its devices.
+#[gpui::test]
+fn the_first_device_shows_its_words_once(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::FirstDevice), cx);
+    assert_eq!(tab.host.take(), ["recovery words"]);
+    assert!(tab.showing_words());
+    // Making them turned sync on; the words stay until Done.
+    tab.set(state(Status::On));
+    assert!(tab.showing_words());
+    tab.click("copy");
+    assert_eq!(tab.host.take(), ["copy 24"]);
+    tab.click("done");
+    assert!(!tab.showing_words());
+    assert_eq!(tab.host.take(), ["read devices"]);
+    assert!(tab.drawn("sign-out") && tab.drawn("show-words"));
+}
+
+/// A new device asks the others to add it once, by itself, and shows the code once one answers.
+/// Cancel takes the request back, and it asks again only when the user does.
+#[gpui::test]
+fn a_new_device_asks_once_and_cancel_takes_it_back(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::NeedsSecret), cx);
+    assert_eq!(tab.host.take(), ["request pairing"]);
+    tab.set(state(Status::Pairing));
+    tab.set(State { code: "312568".into(), ..state(Status::Pairing) });
+    assert!(tab.drawn("cancel") && tab.drawn("use-words") && tab.drawn("sign-out"));
+    tab.click("cancel");
+    assert_eq!(tab.host.take(), ["cancel"]);
+    tab.set(state(Status::NeedsSecret));
+    assert!(tab.host.take().is_empty(), "it doesn't ask again by itself");
+    tab.click("ask-again");
+    assert_eq!(tab.host.take(), ["request pairing"]);
+
+    // Declined, it says so, and waits for the user too.
+    tab.set(state(Status::Pairing));
+    tab.set(State { problem: Some(Problem::Declined), ..state(Status::NeedsSecret) });
+    assert!(tab.host.take().is_empty());
+    assert!(tab.drawn("ask-again"));
+}
+
+/// A device signed in after a problem, such as one removed and signing in again, still asks once.
+#[gpui::test]
+fn signing_in_again_asks_again(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::NeedsSecret), cx);
+    assert_eq!(tab.host.take(), ["request pairing"]);
+    tab.set(State { problem: Some(Problem::Removed), ..state(Status::SignedOut) });
+    tab.set(state(Status::SigningIn));
+    tab.set(state(Status::NeedsSecret));
+    assert_eq!(tab.host.take(), ["request pairing"]);
+}
+
+/// Use Recovery Words Instead takes the request back and shows a field for them: words that
+/// aren't 24 of the list stay, saying so, and words for another account too, until the core
+/// takes them.
+#[gpui::test]
+fn the_recovery_words_instead(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::NeedsSecret), cx);
+    tab.set(state(Status::Pairing));
+    tab.host.take();
+    tab.click("use-words");
+    assert_eq!(tab.host.take(), ["cancel"]);
+    tab.set(state(Status::NeedsSecret));
+    assert!(tab.host.take().is_empty(), "it doesn't ask the other devices while they're typed");
+
+    tab.host.refuse.set(true);
+    tab.type_text("abandon ability");
+    tab.keys("enter");
+    assert_eq!(tab.host.take(), ["words 2"]);
+    let refused = tab.account.read_with(tab.cx, |account, _| account.entering.as_ref().map(|f| f.refused));
+    assert_eq!(refused, Some(true));
+
+    tab.host.refuse.set(false);
+    tab.keys("cmd-a");
+    tab.type_text(WORDS);
+    tab.click("continue");
+    assert_eq!(tab.host.take(), ["words 24"]);
+    tab.set(State { problem: Some(Problem::WrongWords), ..state(Status::NeedsSecret) });
+    assert!(tab.drawn("continue"), "the field stays for the words to be fixed");
+    tab.set(state(Status::On));
+    assert!(tab.account.read_with(tab.cx, |account, _| account.entering.is_none()));
+    assert_eq!(tab.host.take(), ["read devices"]);
+}
+
+/// Back from the field goes back to waiting for another device, which the user asks for again.
+#[gpui::test]
+fn back_from_the_words(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::NeedsSecret), cx);
+    tab.click("use-words");
+    tab.click("back");
+    assert!(tab.drawn("ask-again"));
+    assert_eq!(tab.host.take(), ["request pairing"]);
+}
+
+/// Signed in, the devices are listed, this one marked and the others with Remove.
+#[gpui::test]
+fn the_devices_and_remove(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::On), cx);
+    assert_eq!(tab.host.take(), ["read devices"]);
+    tab.set_devices(vec![device("this", true), device("phone", false)]);
+    assert!(!tab.drawn("remove this"));
+    tab.click("remove phone");
+    assert_eq!(tab.host.take(), ["remove phone"]);
+}
+
+/// Show Recovery Words… asks first, as anyone who sees them can read what syncs.
+#[gpui::test]
+fn show_recovery_words_asks_first(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::On), cx);
+    tab.host.take();
+    tab.click("show-words");
+    assert_eq!(tab.host.take(), ["ask Show your recovery words? Show"]);
+    assert!(!tab.showing_words());
+    tab.confirm();
+    assert_eq!(tab.host.take(), ["recovery words"]);
+    assert!(tab.showing_words());
+    tab.click("done");
+    assert!(tab.drawn("show-words"));
+}
+
+/// Sign Out asks first only on the account's only device, whose words are then the only way back
+/// to what it synced.
+#[gpui::test]
+fn sign_out_asks_only_on_the_only_device(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::On), cx);
+    tab.set_devices(vec![device("this", true), device("phone", false)]);
+    tab.host.take();
+    tab.click("sign-out");
+    assert_eq!(tab.host.take(), ["sign out"]);
+
+    tab.set_devices(vec![device("this", true)]);
+    tab.click("sign-out");
+    assert_eq!(tab.host.take(), ["ask Sign out of ada@example.org? Sign Out"]);
+    tab.confirm();
+    assert_eq!(tab.host.take(), ["sign out"]);
+}
+
+/// Every state has its way out, drawn: Sign In, Cancel, Sign Out, Done.
+#[gpui::test]
+fn every_state_has_its_way_out(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::SignedOut), cx);
+    let ways = [
+        (state(Status::SignedOut), "sign-in"),
+        (state(Status::SigningIn), "cancel"),
+        (state(Status::NeedsSecret), "sign-out"),
+        (state(Status::Pairing), "cancel"),
+        (state(Status::On), "sign-out"),
+        (state(Status::FirstDevice), "done"),
+    ];
+    for (state, way) in ways {
+        let status = state.status;
+        tab.set(state);
+        assert!(tab.drawn(way), "{status:?} has no {way}");
+    }
+}
+
+/// The dialog on the other device names the device and its system, and the code as this one
+/// shows it, in two threes.
+#[test]
+fn the_other_device_asks_with_the_code() {
+    let pairing = Pairing {
+        id: "p".into(),
+        name: "Pixel 9".into(),
+        os: "Android".into(),
+        code: "312568".into(),
+    };
+    let question = pairing_question(&pairing);
+    assert_eq!(question.message.as_ref(), "Add Pixel 9 (Android)?");
+    assert_eq!(question.detail.as_ref(), "Check it shows 312 568.");
+    assert_eq!((question.action.as_ref(), question.cancel.as_ref()), ("Add", "Not me"));
+    assert!(question.return_cancels);
+    let unnamed = Pairing { os: "".into(), ..pairing };
+    assert_eq!(pairing_question(&unnamed).message.as_ref(), "Add Pixel 9?");
+    assert_eq!(grouped("007"), "007");
+}
+
+/// A server of the user's is named by its host, the build's own by the app's name.
+#[test]
+fn the_server_is_named_by_its_host() {
+    assert_eq!(host_of("https://sync.example.org/"), "sync.example.org");
+    assert_eq!(host_of("http://127.0.0.1:8080/x?y"), "127.0.0.1:8080");
+    assert_eq!(host_of("sync.example.org"), "sync.example.org");
+}
