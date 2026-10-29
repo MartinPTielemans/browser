@@ -79,6 +79,8 @@ pub(super) struct Recorder {
     /// What the menu bar was last asked to show, and the window's title.
     pub(super) menu_bar: RefCell<MenuBar>,
     pub(super) window_title: RefCell<String>,
+    /// Whether it was last asked to draw the window's material light.
+    pub(super) window_light: Cell<Option<bool>>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
     /// The system has a share sheet of its own.
@@ -637,6 +639,10 @@ impl Browser for Recorder {
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
+
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        self.window_light.set(Some(light));
+    }
 
     fn page_moving(&self, moving: bool, _: &mut App) {
         self.page_events.borrow_mut().push(if moving { "moving" } else { "still" });

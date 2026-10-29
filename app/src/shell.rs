@@ -23,7 +23,7 @@ use crate::{
     passwords::Key,
     space_icon::{GLYPHS, SpaceIcon},
     text_input::{self, TextInput},
-    palette::Palette,
+    palette::{Palette, Tone},
     theme::Theme,
 };
 
@@ -371,7 +371,6 @@ use crate::tokens::shell::CANCEL_BOTTOM;
 use crate::tokens::shell::CANCEL_HEIGHT;
 
 use crate::tokens::shell::PRIVATE_SHADE;
-use crate::tokens::shell::CARD;
 use crate::tokens::shell::TITLE;
 use crate::tokens::shell::UNSELECTED_TITLE;
 use crate::tokens::shell::SELECTED;
@@ -1175,7 +1174,15 @@ pub struct Shell {
     /// What the chrome draws with, for the Space shown (palette.rs), and each theme's, worked
     /// out once.
     palette: Palette,
-    palettes: RefCell<Vec<(Option<Theme>, Palette)>>,
+    palettes: RefCell<Vec<((Option<Theme>, Tone), Palette)>>,
+    /// The system's appearance as the window last drew, which a Space without a theme, or with an
+    /// automatic one, follows; the preview's own where it forces one; and the watch that draws
+    /// the window again once the system's changes.
+    system_tone: Tone,
+    forced_tone: Option<Tone>,
+    appearance_watch: Option<Subscription>,
+    /// Whether the host was last asked to draw the material light.
+    window_light: Option<bool>,
     /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
     /// picker, or a Space's theme picker; and when it was asked for.
     picker_pending: Option<(Pending, Instant)>,
@@ -1366,6 +1373,10 @@ impl Shell {
             background_pressed: false,
             palette: Palette::default(),
             palettes: RefCell::default(),
+            system_tone: Tone::Dark,
+            forced_tone: None,
+            appearance_watch: None,
+            window_light: None,
             private: false,
         }
     }
@@ -2607,6 +2618,7 @@ impl Focusable for Shell {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.a11y = window.is_a11y_active();
+        self.watch_appearance(window, cx);
         self.full_screen_step("drawn", window.viewport_size());
         // check.sh reads this line. It comes as the rows are drawn, so a click it sends next goes
         // to what's drawn.
@@ -2761,7 +2773,7 @@ impl Render for Shell {
         }
         // A page shows the card until its first frame, never white (Ardia). Not while the sidebar
         // pages between Spaces, whose colours cross-fade at every step.
-        let page_color = packed(self.window_fill().blend(rgba(CARD).into()));
+        let page_color = packed(self.window_fill().blend(self.palette.page.into()));
         if self.pages().len() == 1 && self.page_color != Some(page_color) {
             self.page_color = Some(page_color);
             self.browser.set_page_color(page_color, cx);
@@ -2904,13 +2916,13 @@ impl Shell {
             .zip(&panes)
             .map(|(bounds, &tab)| {
                 let focused = split && tab == self.selected;
-                card(bounds).when(focused, |card| card.shadow(vec![glow.clone()]))
+                card(bounds, self.palette.page).when(focused, |card| card.shadow(vec![glow.clone()]))
             })
             .collect();
         if let Some(with) = self.adding_pane {
             let count = self.panes(with).len() + 1;
             let (full, _) = self.card_frames(self.viewport);
-            cards.push(card(pane_frames(full, count, self.stacked(with), &[])[count - 1]));
+            cards.push(card(pane_frames(full, count, self.stacked(with), &[])[count - 1], self.palette.page));
         }
         cards
     }
@@ -3343,8 +3355,8 @@ fn packed(color: Hsla) -> u32 {
     channel(color.r) << 16 | channel(color.g) << 8 | channel(color.b)
 }
 
-/// A card at `bounds` in the window.
-fn card(bounds: Bounds<Pixels>) -> gpui::Div {
+/// A card at `bounds` in the window, of `fill`.
+fn card(bounds: Bounds<Pixels>, fill: Rgba) -> gpui::Div {
     div()
         .absolute()
         .left(bounds.left())
@@ -3352,7 +3364,7 @@ fn card(bounds: Bounds<Pixels>) -> gpui::Div {
         .w(bounds.size.width)
         .h(bounds.size.height)
         .rounded(px(CARD_RADIUS))
-        .bg(rgba(CARD))
+        .bg(fill)
 }
 
 /// `way`, but past `low` or `high` only a little further, on the Space pages' rubber band.
