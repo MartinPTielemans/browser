@@ -220,6 +220,8 @@ pub(super) struct Onboarding {
     settled: bool,
     /// Keys in this window go on from a step, while the flow shows.
     keys: Option<gpui::Subscription>,
+    /// The flow has given the window's keyboard to the UI.
+    keyboard: bool,
     /// Wakes the window at the intro's end, which holds still until then.
     hold: Option<gpui::Task<()>>,
 }
@@ -274,6 +276,7 @@ impl Shell {
             }),
             settled: false,
             keys: None,
+            keyboard: false,
             hold: None,
         });
         cx.notify();
@@ -410,6 +413,13 @@ impl Shell {
                     shell.onboarding_key(&event.keystroke, cx);
                 }
             }));
+        }
+        // A window that opens with no page gives its keyboard to Chromium's view, so the flow's
+        // keys would never reach it. By the flow's first frame on screen the window is key, and
+        // the keyboard stays the UI's. Deferred, as AppKit tells GPUI the change at once.
+        if window.is_visible() && !std::mem::replace(&mut onboarding.keyboard, true) {
+            let browser = self.browser.clone();
+            cx.defer(move |cx| browser.focus_ui(cx));
         }
         let still = cx.reduce_motion();
         let elapsed = onboarding.since.elapsed().as_secs_f32();

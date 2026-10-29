@@ -605,7 +605,9 @@ impl Browser for Recorder {
     ) {
     }
 
-    fn focus_ui(&self, _: &mut App) {}
+    fn focus_ui(&self, _: &mut App) {
+        self.record("focus ui".into())
+    }
 
     fn focus_page(&self, _: &mut App) {
         self.record("focus page".into())

@@ -98,6 +98,22 @@ fn a_normal_window_has_no_flow(cx: &mut TestAppContext) {
     assert_eq!(step(&shell, cx), None);
 }
 
+/// A window that opens with no page has given its keyboard to Chromium's view, so the flow takes
+/// it for the UI as it comes on screen, and only then, or each frame would take it from the import
+/// view's own controls.
+#[gpui::test]
+fn the_flow_takes_the_keyboard_as_it_shows(cx: &mut TestAppContext) {
+    let (shell, cx, host) = first_window(cx);
+    host.take();
+    started(&shell, cx);
+    let taken = |calls: Vec<String>| calls.iter().filter(|call| *call == "focus ui").count();
+    assert_eq!(taken(host.take()), 1, "the flow's first frame takes it");
+    later(&shell, cx, 0.5);
+    cx.simulate_keystrokes("a");
+    later(&shell, cx, STEP_MOTION);
+    assert_eq!(taken(host.take()), 0, "the frames and steps after leave it");
+}
+
 /// Any key skips the intro to the first step, and so does a click anywhere.
 #[gpui::test]
 fn any_key_or_click_skips_the_intro(cx: &mut TestAppContext) {
