@@ -30,6 +30,10 @@ class LoginHandler;
 class Profile;
 struct NavigateParams;
 
+namespace autofill {
+class AutofillBubbleHandler;
+}
+
 namespace content {
 class RenderFrameHost;
 class RenderWidgetHost;
@@ -107,6 +111,11 @@ extern void (*g_browser_core_populate_frame_binders)(
 // login's password, in place of Chrome's bubble, which hangs from a toolbar the core's windows
 // don't have.
 extern void (*g_browser_core_password_prompt)(content::WebContents* contents, bool show);
+// chrome/browser/ui/autofill/address_bubbles_controller.cc: the autofill bubble handler of the
+// window showing |web_contents|, which Chrome finds by a BrowserView the core's windows don't have.
+// Null leaves it to Chrome's.
+extern autofill::AutofillBubbleHandler* (*g_browser_core_autofill_bubble_handler)(
+    content::WebContents* web_contents);
 // components/password_manager/core/browser/password_generation_frame_helper.cc: Chrome generates
 // passwords on new-password fields with no Google account to sync them to.
 extern bool g_browser_core_generates_passwords;

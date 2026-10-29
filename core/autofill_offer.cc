@@ -18,11 +18,14 @@
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
 #include "chrome/browser/ui/autofill/autofill_bubble_base.h"
+#include "chrome/browser/ui/autofill/autofill_bubble_handler.h"
 #include "chrome/browser/ui/autofill/payments/save_card_bubble_controller.h"
 #include "chrome/browser/ui/autofill/save_address_bubble_controller.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "components/autofill/core/browser/data_model/payments/credit_card.h"
 #include "components/autofill/core/browser/foundations/autofill_client.h"
 #include "components/autofill/core/browser/ui/payments/payments_ui_closed_reasons.h"
+#include "components/tabs/public/tab_interface.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/web_contents.h"
 #include "url/origin.h"
@@ -205,6 +208,14 @@ autofill::AutofillBubbleBase* AutofillOffer::SaveCard(
     autofill::SaveCardBubbleController* controller) {
   const bc_id tab = Tab::IdOf(contents);
   return Open(tab, std::make_unique<Offer>(tab, controller));
+}
+
+// static
+autofill::AutofillBubbleHandler* AutofillOffer::HandlerFor(content::WebContents* contents) {
+  tabs::TabInterface* tab = tabs::TabInterface::MaybeGetFromContents(contents);
+  BrowserWindowInterface* browser = tab ? tab->GetBrowserWindowInterface() : nullptr;
+  return browser ? autofill::AutofillBubbleHandler::Get(browser->GetUnownedUserDataHost())
+                 : nullptr;
 }
 
 // static
