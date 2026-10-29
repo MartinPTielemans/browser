@@ -182,20 +182,26 @@ grep -q '^browser: command find via page$' "$log" && fail "the page kept ⌘F, b
 grep -q '^browser: command \(back\|forward\) via page$' "$log" && fail "⌘← or ⌘→ in the page's text field went back or forward"
 
 # The driver's scripted input method stands in for Japanese input, which is system-wide.
-send ime on
-send type nihongo
-expect '^browser: title [0-9]* value abcdnihongo$' "the page didn't show the composition"
-send key space
-expect '^browser: title [0-9]* value abcd日本語$' "the page didn't show the conversion"
-send key return
-send ime off
+composed=日本語
+if [ "$(uname)" = Linux ]; then
+  echo "skip: composing in a page: the Linux driver types plain keys there; check/ime.sh covers it with a real input method."
+  composed=
+else
+  send ime on
+  send type nihongo
+  expect '^browser: title [0-9]* value abcdnihongo$' "the page didn't show the composition"
+  send key space
+  expect '^browser: title [0-9]* value abcd日本語$' "the page didn't show the conversion"
+  send key return
+  send ime off
+fi
 send type x
-expect '^browser: title [0-9]* value abcd日本語x$' "return in the page did more than commit: $(grep '^browser: title' "$log" | tail -1)"
+expect "^browser: title [0-9]* value abcd${composed}x\$" "return in the page did more than commit: $(grep '^browser: title' "$log" | tail -1)"
 # The Edit menu's Undo, Redo and Select All reach the focused page, which does them itself.
 send key z cmd
-expect '^browser: title [0-9]* value abcd日本語$' "⌘Z in the page's text field didn't undo"
+expect "^browser: title [0-9]* value abcd$composed\$" "⌘Z in the page's text field didn't undo"
 send key z cmd shift
-expect '^browser: title [0-9]* value abcd日本語x$' "⇧⌘Z in the page's text field didn't redo"
+expect "^browser: title [0-9]* value abcd${composed}x\$" "⇧⌘Z in the page's text field didn't redo"
 send key a cmd
 send type y
 expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
