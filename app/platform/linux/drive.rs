@@ -802,6 +802,16 @@ fn pages(id: bc::bc_id, height: f64) -> Option<String> {
     Some(views.collect())
 }
 
+/// The ring the core draws inside a split view's focused page, over the pages, as the Mac's driver
+/// lists its view: from the content's bottom-left corner, as the pages are.
+fn ring(id: bc::bc_id, height: f64) -> Option<String> {
+    let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+    unsafe { bc::bc_window_focus_ring(id, &mut frame) }.then_some(())?;
+    let bc::bc_rect { x, y, width, height: high } = frame;
+    let y = height - (y + high);
+    Some(format!(", BrowserCoreFocusRing {x:.0},{y:.0} {width:.0}x{high:.0}"))
+}
+
 /// `window`'s frame in points, from the root's top-left corner: x, y, width and height.
 fn frame(window: xproto::Window) -> Option<[f64; 4]> {
     let x = server()?;
@@ -1123,8 +1133,9 @@ fn run_command(line: &str) -> Option<()> {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
             let pages = pages(browser.id, height).unwrap_or_default();
+            let ring = ring(browser.id, height).unwrap_or_default();
             log!(
-                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}"
+                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}{ring}"
             );
             log!("browser: layout buttons hidden hidden hidden");
             let [left, top, ..] = frame(browser.window)?;

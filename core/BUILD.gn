@@ -297,7 +297,18 @@ source_set("browser_core") {
     }
   }
   if (is_win || is_linux) {
-    sources += [ "platform/app_library.h" ]
+    sources += [
+      "platform/app_library.h",
+      "platform/focus_ring_aura.cc",
+      "platform/focus_ring_aura.h",
+    ]
+    deps += [
+      "//cc/paint",
+      "//skia",
+      "//ui/aura",
+      "//ui/compositor",
+      "//ui/gfx",
+    ]
   }
   if (is_win) {
     sources += [
