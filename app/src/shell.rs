@@ -376,8 +376,6 @@ use crate::tokens::shell::CANCEL_HEIGHT;
 use crate::tokens::shell::PRIVATE_SHADE;
 use crate::tokens::shell::TITLE;
 use crate::tokens::shell::UNSELECTED_TITLE;
-use crate::tokens::shell::SELECTED;
-use crate::tokens::shell::SELECTED_HOVERED;
 use crate::tokens::shell::HOVERED;
 use crate::tokens::shell::PRESSED;
 use crate::tokens::shell::SECONDARY;
@@ -3723,8 +3721,8 @@ fn split_plate(segments: impl IntoIterator<Item = impl IntoElement>) -> gpui::Di
 
 /// The selected tab's plate, at `opacity` while it fades in.
 fn selected_plate(palette: &Palette, plate: gpui::Div, opacity: f32, hover: f32) -> gpui::Div {
-    let (rest, under) = (palette.plate(SELECTED), palette.plate(SELECTED_HOVERED));
-    plate.bg(Hsla { a: (rest.a + (under.a - rest.a) * hover) * opacity, ..rest })
+    let fill = palette.selected(hover);
+    plate.bg(fill.opacity(fill.a * opacity)).shadow(palette.selected_shadow(opacity))
 }
 
 /// A tab row's title, cut off at the row's trailing edge.

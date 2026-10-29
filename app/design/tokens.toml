@@ -541,6 +541,14 @@ state-pressed = 0.065
 state-hovered = 0.12
 state-selected = 0.2
 state-selected-hovered = 0.36
+# On a light window the tab shown lies on white 0.85 over a black 0.20 shadow rather than on a plate
+# of Ink (Arc's light `TabCellBackgroundCurrent`). Ours, as Arc's light rows aren't recorded: the
+# shadow 1 down and blurred 2, and the plate white 1 under the pointer.
+light-selected = 0.85
+light-selected-hovered = 1.0
+light-selected-shadow = 0.2
+light-selected-shadow-y = 1.0
+light-selected-shadow-blur = 2.0
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
