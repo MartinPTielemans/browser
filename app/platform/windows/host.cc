@@ -8,6 +8,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <dwmapi.h>
+#include <dwrite.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -122,6 +123,11 @@ struct Floating {
   HWND hwnd = nullptr;
   // Clicks go through it to the browser window under it.
   bool mouse_through = false;
+  // Where it takes clicks, in points from its top left, or all of it with no width: clicks on the
+  // margin round the plate, which holds its shadow, go through.
+  double plate_x = 0, plate_y = 0, plate_width = 0, plate_height = 0;
+  // Or a margin of this many points on every side.
+  double margin = 0;
   // Called after the event, when the user leaves it for a window that isn't its own.
   void (*dismissed)(void) = nullptr;
   // Set while the host hides it, so that isn't the user leaving it.
@@ -166,13 +172,32 @@ Menu g_menu;
 HHOOK g_menu_mouse_hook = nullptr;
 HHOOK g_menu_key_hook = nullptr;
 
+// Whether the point on screen in a hit test's |lparam| is on |floating|'s plate.
+bool OnPlate(const Floating& floating, LPARAM lparam) {
+  if (floating.plate_width <= 0 && floating.margin <= 0) {
+    return true;
+  }
+  RECT rect{};
+  GetWindowRect(floating.hwnd, &rect);
+  const double scale = Scale(floating.hwnd);
+  const double x = (static_cast<short>(LOWORD(lparam)) - rect.left) / scale;
+  const double y = (static_cast<short>(HIWORD(lparam)) - rect.top) / scale;
+  if (floating.plate_width > 0) {
+    return x >= floating.plate_x && x < floating.plate_x + floating.plate_width &&
+           y >= floating.plate_y && y < floating.plate_y + floating.plate_height;
+  }
+  const double width = (rect.right - rect.left) / scale, height = (rect.bottom - rect.top) / scale;
+  return x >= floating.margin && x < width - floating.margin && y >= floating.margin &&
+         y < height - floating.margin;
+}
+
 LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
                               UINT_PTR, DWORD_PTR data) {
   auto* floating = reinterpret_cast<Floating*>(data);
   switch (message) {
     case WM_NCHITTEST:
       // To the browser window under it, which is on this thread.
-      if (floating->mouse_through) {
+      if (floating->mouse_through || !OnPlate(*floating, lparam)) {
         return HTTRANSPARENT;
       }
       break;
@@ -487,6 +512,8 @@ LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 
 // Closes ilo's menu, or takes its keyboard back, as the front window changes (defined below).
 void MenuForegroundChanged(HWND root, bool ours);
+// Ends the hover card if it shows, as its browser window stops being in front (defined below).
+void CardAway();
 
 // The watchers, which Windows tells of each window that comes to the front.
 void (*g_key_window_changed)(void*) = nullptr;
@@ -506,6 +533,7 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
     g_resigning_active();
   }
   MenuForegroundChanged(GetAncestor(hwnd, GA_ROOT), ours);
+  CardAway();
   g_active = ours;
   if (ours && g_key_window_changed) {
     if (void* ui_view = UiViewOf(GetAncestor(hwnd, GA_ROOT))) {
@@ -540,7 +568,9 @@ Floating g_toast;
 Floating g_tooltip;
 double g_tooltip_margin = 0;
 Floating g_card;
-double g_card_margin = 0;
+void (*g_card_away)(void) = nullptr;
+// While the card shows, the presses and scrolls on the app's windows, which end it off the card.
+HHOOK g_card_hook = nullptr;
 Floating g_link_target;
 double g_link_margin = 0;
 void (*g_link_pointer)(double, double) = nullptr;
@@ -555,6 +585,41 @@ bool g_settings_placed = false;
 
 // While the link target or a reveal shows, the pointer's moves over the app's windows.
 HHOOK g_mouse_hook = nullptr;
+
+// The pointer stops being watched for the card once it's gone, so an idle browser isn't woken.
+void StopCardHook() {
+  if (g_card_hook) {
+    UnhookWindowsHookEx(g_card_hook);
+    g_card_hook = nullptr;
+  }
+}
+
+void CardAway() {
+  if (g_card_away && g_card.hwnd && IsWindowVisible(g_card.hwnd)) {
+    void (*away)(void) = g_card_away;
+    Later([away] { away(); });
+  }
+}
+
+// A press or a scroll anywhere but the card ends it, and still goes where it was aimed.
+LRESULT CALLBACK CardMouse(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION) {
+    switch (wparam) {
+      case WM_LBUTTONDOWN:
+      case WM_RBUTTONDOWN:
+      case WM_MBUTTONDOWN:
+      case WM_NCLBUTTONDOWN:
+      case WM_NCRBUTTONDOWN:
+      case WM_MOUSEWHEEL:
+      case WM_MOUSEHWHEEL:
+        if (reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->hwnd != g_card.hwnd) {
+          CardAway();
+        }
+        break;
+    }
+  }
+  return CallNextHookEx(nullptr, code, wparam, lparam);
+}
 
 // The pointer at |point| on screen, for the link target and the reveals.
 void PointerMoved(POINT point) {
@@ -1211,6 +1276,18 @@ void host_set_window_title(void* ui_view, const char* title) {
   SetWindowTextW(Root(ui_view), Wide(title).c_str());
 }
 
+// Windows draws no material under the UI, so its title bar, which has the window's buttons, is
+// what follows: light or dark, as the window's colours are.
+void host_set_window_light(void* ui_view, bool light) {
+  const BOOL dark = !light;
+  DwmSetWindowAttribute(Root(ui_view), DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark);
+}
+
+// Each window's title bar follows its own colours already (host_set_window_light), and Windows'
+// message boxes follow only the system's setting. Pages' prefers-color-scheme follows Chromium's
+// native theme, which only the core can set on Windows; until then they follow the system.
+void host_set_app_appearance(int) {}
+
 void host_activate(void* ui_view) {
   HWND root = Root(ui_view);
   if (IsIconic(root)) {
@@ -1352,10 +1429,71 @@ void host_set_overlay_height(int overlay, double height) {
   Resize(g_overlays[overlay], height);
 }
 
-// shortcut: Segoe UI Emoji is taken to draw every emoji; check with DirectWrite's glyphs when an
-// older Windows shows blanks in the icon picker.
-bool host_can_draw_emoji(const char*) {
-  return true;
+// Segoe UI Emoji draws |emoji| as the one emoji it is if DirectWrite shapes it to one glyph the
+// font has, as emoji.mm asks of Apple's font. Windows draws no flags, so a flag shapes to its two
+// letters and is left out, as is a sequence newer than the font.
+bool host_can_draw_emoji(const char* emoji) {
+  static ComPtr<IDWriteFontFace> face;
+  static ComPtr<IDWriteTextAnalyzer> analyzer;
+  static const bool ready = [] {
+    ComPtr<IDWriteFactory> factory;
+    ComPtr<IDWriteFontCollection> fonts;
+    ComPtr<IDWriteFontFamily> family;
+    ComPtr<IDWriteFont> font;
+    UINT32 index = 0;
+    BOOL exists = FALSE;
+    return SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                         reinterpret_cast<IUnknown**>(factory.GetAddressOf()))) &&
+           SUCCEEDED(factory->GetSystemFontCollection(&fonts)) &&
+           SUCCEEDED(fonts->FindFamilyName(L"Segoe UI Emoji", &index, &exists)) && exists &&
+           SUCCEEDED(fonts->GetFontFamily(index, &family)) &&
+           SUCCEEDED(family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL,
+                                                  DWRITE_FONT_STRETCH_NORMAL,
+                                                  DWRITE_FONT_STYLE_NORMAL, &font)) &&
+           SUCCEEDED(font->CreateFontFace(&face)) &&
+           SUCCEEDED(factory->CreateTextAnalyzer(&analyzer));
+  }();
+  if (!ready) {
+    // Without DirectWrite's answer, every emoji is taken to draw, as before it asked.
+    return true;
+  }
+  // Whether |text| shapes to one glyph the font has.
+  auto one_glyph = [](const std::wstring& text) {
+    if (text.empty()) {
+      return false;
+    }
+    const UINT32 length = static_cast<UINT32>(text.size());
+    const UINT32 most = length * 3 / 2 + 16;
+    std::vector<UINT16> clusters(length);
+    std::vector<DWRITE_SHAPING_TEXT_PROPERTIES> text_props(length);
+    std::vector<UINT16> glyphs(most);
+    std::vector<DWRITE_SHAPING_GLYPH_PROPERTIES> glyph_props(most);
+    UINT32 count = 0;
+    // Emoji are in Unicode's Common script, which shapes with the font's default features.
+    const DWRITE_SCRIPT_ANALYSIS script{};
+    if (FAILED(analyzer->GetGlyphs(text.c_str(), length, face.Get(), FALSE, FALSE, &script,
+                                   nullptr, nullptr, nullptr, nullptr, 0, most, clusters.data(),
+                                   text_props.data(), glyphs.data(), glyph_props.data(),
+                                   &count))) {
+      return false;
+    }
+    UINT32 drawn = 0;
+    for (UINT32 i = 0; i < count; ++i) {
+      if (glyphs[i] == 0) {
+        return false;
+      }
+      // A joiner left over shapes to a zero-width glyph, which isn't drawn.
+      drawn += glyph_props[i].isZeroWidthSpace ? 0 : 1;
+    }
+    return drawn == 1;
+  };
+  // A font may have no glyph for the variation selectors, which only ask for the emoji's look.
+  std::wstring text = Wide(emoji);
+  if (one_glyph(text)) {
+    return true;
+  }
+  std::erase_if(text, [](wchar_t unit) { return unit == 0xFE0F || unit == 0xFE0E; });
+  return one_glyph(text);
 }
 
 void host_hide_overlay(int overlay) {
@@ -1619,8 +1757,12 @@ void host_toast_takes_clicks(bool takes) {
   g_toast.mouse_through = !takes;
 }
 
-// shortcut: while it takes clicks, its whole window does, the margin round the plate included.
-void host_set_toast_plate(double, double, double, double) {}
+void host_set_toast_plate(double x, double y, double width, double height) {
+  g_toast.plate_x = x;
+  g_toast.plate_y = y;
+  g_toast.plate_width = width;
+  g_toast.plate_height = height;
+}
 
 void host_show_toast(void* ui_view) {
   double content_width, content_height, width, height;
@@ -1647,26 +1789,42 @@ void host_hide_tooltip(double) {
   Hide(g_tooltip);
 }
 
-// shortcut: the card takes clicks over its whole window, the margin round the plate included, and
-// ends only as the pointer leaves it or the UI ends it, as a key does.
-void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
+void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
   Adopt(g_card, card_view, false, nullptr);
   // A click on its buttons leaves the keyboard where it was.
   SetWindowLongPtrW(g_card.hwnd, GWL_EXSTYLE,
                     GetWindowLongPtrW(g_card.hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
-  g_card_margin = margin;
+  g_card.margin = margin;
+  g_card_away = away;
 }
 
 void host_show_hover_card(void* ui_view, double left, double top, double, double) {
-  Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
+  Show(g_card, ui_view, left - g_card.margin, top - g_card.margin, -1, -1, false);
+  if (!g_card_hook) {
+    g_card_hook = SetWindowsHookExW(WH_MOUSE, CardMouse, nullptr, GetCurrentThreadId());
+  }
 }
 
 void host_hide_hover_card(void) {
   Hide(g_card);
+  StopCardHook();
 }
 
-// shortcut: the pictures stay until their tabs unload or close.
-void host_watch_memory_pressure(void (*)(void)) {}
+// Windows' low-memory notification stays signalled for as long as memory is low, so after each
+// call it waits a minute before it looks again, where the Mac hears each change of level. While
+// memory isn't low the thread waits without waking.
+void host_watch_memory_pressure(void (*pressed)(void)) {
+  HANDLE low = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+  if (!low) {
+    return;
+  }
+  std::thread([low, pressed] {
+    while (WaitForSingleObject(low, INFINITE) == WAIT_OBJECT_0) {
+      Later([pressed] { pressed(); });
+      Sleep(60 * 1000);
+    }
+  }).detach();
+}
 
 void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {
   Adopt(g_link_target, link_view, true, nullptr);
