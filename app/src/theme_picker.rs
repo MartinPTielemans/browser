@@ -161,6 +161,8 @@ struct Editing {
     pressed: Option<Target>,
     /// Whether a frame of it has been drawn on screen since it opened.
     drawn: bool,
+    /// How many colour handles the last frame drew at rest, and which one it drew held.
+    drawn_handles: Option<(usize, Option<usize>)>,
     /// What it draws with: the Space's palette as it opened, which holds while the user drags
     /// through themes that would change it.
     palette: Palette,
@@ -284,6 +286,7 @@ pub fn show(
                 glide: None,
                 pressed: None,
                 drawn: false,
+                drawn_handles: None,
                 // The picker is a dark sheet over a dark or a light window, as the icon picker is.
                 palette: Palette::of(theme.as_ref(), Tone::Dark),
             });
@@ -565,6 +568,30 @@ impl Editing {
         }
     }
 
+    /// Logs the colour handles as they're drawn at rest, and the one held. GPUI draws no frame
+    /// between a press and the next mouse event, and only a frame drawn while a handle is held
+    /// listens for the drag's moves, so check.sh waits for these lines before it presses and
+    /// before it drags.
+    fn log_handles(&mut self) {
+        let gliding = self.glide.is_some_and(|(.., start)| start.elapsed().as_secs_f32() < GLIDE);
+        let held = match self.drag {
+            Some(Drag::Handle(index, ..)) => Some(index),
+            _ => None,
+        };
+        let handles = self.theme.filter(|_| self.open && self.drawn && !gliding);
+        let handles = handles.map(|theme| (theme.count, held));
+        if handles.is_none() || handles == self.drawn_handles {
+            return;
+        }
+        self.drawn_handles = handles;
+        if let Some((count, held)) = handles {
+            match held {
+                Some(index) => log!("browser: theme picker handles {count} drawn, {index} held"),
+                None => log!("browser: theme picker handles {count} drawn"),
+            }
+        }
+    }
+
     /// Whether a handle's growth or the second's glide is still under way.
     fn moving(&self) -> bool {
         let press = self.press.is_some_and(|(.., start, _)| start.elapsed().as_secs_f32() < PRESS);
@@ -724,6 +751,7 @@ impl Render for ThemePicker {
                 window.request_animation_frame();
             }
         }
+        editing.log_handles();
         let editing = &*editing;
         let theme = editing.theme;
         let palette = editing.palette;
