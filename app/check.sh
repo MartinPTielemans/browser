@@ -104,10 +104,7 @@ launch_frame="$(dirname "$saved")/launch-frame"
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
 # extensions pinned. The profile keeps the clear run's answers to its sites' questions, and how
-# often it dismissed them, for sites whose ports a later run may get, and a failed clear run the
-# site it kept for Safari's engine, whose pages would then open there, and the clear run the site
-# whose protected-video note it closed, which would never show it again, and a failed one the
-# listed host it turned off.
+# often it dismissed them, for sites whose ports a later run may get.
 prefs="$profile_dir/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
@@ -122,10 +119,6 @@ prefs.setdefault("extensions", {})["pinned_extensions"] = []
 exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
 for kind in ("window_placement", "permission_autoblocking_data"):
     exceptions.pop(kind, None)
-engine = prefs.get("browser_core", {}).get("system_engine", {})
-engine.pop("sites", None)
-engine.pop("closed_notes", None)
-engine.pop("listed_off", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"
@@ -160,5 +153,8 @@ check_profile_dir=$profile_dir
 for run in ${*:-$runs}; do
   profile_dir=$check_profile_dir
   only_default
+  # The windows and clear runs keep 127.0.0.1 for Safari's engine, whose pages would then open there
+  # in a later run if one failed, and clear the note it closed and the listed host it turned off.
+  forget_engine_sites
   . "check/$run.sh"
 done
