@@ -322,6 +322,9 @@ pub struct ImportView {
     /// The step last drawn. A click before a step draws lands on the one before it, so check.sh
     /// waits for the line each one logs.
     drawn: Option<&'static str>,
+    /// Whether the end's line saying the passwords file is deleted is yet to draw. It moves Done
+    /// up a line, so the line is logged as it draws, as a step is.
+    deleted_undrawn: bool,
     /// The system it runs on, for where the browsers it names export their passwords.
     os: Os,
 }
@@ -355,6 +358,7 @@ impl ImportView {
             switched: None,
             passwords_file: None,
             drawn: None,
+            deleted_undrawn: false,
             os: roots.os,
         }
     }
@@ -612,9 +616,8 @@ impl ImportView {
         };
         let name = file_name(&file);
         let said = match std::fs::remove_file(&file) {
-            // check.sh waits for this line.
             Ok(()) => {
-                log!("browser: import deleted the passwords file");
+                self.deleted_undrawn = true;
                 format!("{said} {name} is deleted.")
             }
             Err(error) => format!("{said} {name} couldn't be deleted: {error}."),
@@ -925,6 +928,10 @@ impl Render for ImportView {
         if self.drawn != Some(step) {
             self.drawn = Some(step);
             log!("browser: import drawn {step}");
+        }
+        // check.sh waits for this line, and clicks Done where it now is.
+        if std::mem::take(&mut self.deleted_undrawn) {
+            log!("browser: import deleted the passwords file");
         }
         let look = self.look;
         let content = match &self.step {
