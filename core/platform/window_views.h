@@ -68,6 +68,12 @@ void ShowPages(views::Widget* widget,
                uint32_t ring_color,
                std::optional<SidePanelPage> side_panel);
 
+// Keeps the pages shown in |widget|'s window where they are as it resizes, until ShowPages lays
+// them out again: for a page going full screen, or back, which the app lays out once, at the
+// window's new size. On the Mac, where the app hears of a resize before the pages are laid out at
+// it, and on Windows so far, it does nothing.
+void HoldPagesForResize(views::Widget* widget);
+
 // Hides the pages shown, their DevTools and the side panel, in place, for a window out of sight, so
 // Chromium counts them hidden. ShowPages shows them again.
 void HidePages(views::Widget* widget);

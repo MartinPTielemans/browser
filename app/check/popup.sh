@@ -190,7 +190,11 @@ post rightclick $page_point
 expect '^browser: menu shown Back' "the page didn't show its menu again after a dismiss"
 menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 # No tab came before it, and none after.
-page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, View Page Source, Inspect"
+if windows || [ "$(uname)" = Linux ]; then
+  page_items="Back (disabled), Forward (disabled), Reload, Save as…, Print…, View page source, Inspect"
+else
+  page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, View Page Source, Inspect"
+fi
 [ "$menu" = "$page_items" ] ||
   fail "the page's menu is $menu"
 ../tools/window-screenshot.sh "$pid" "$out/page-menu.png" || fail "no window to capture"
@@ -201,20 +205,25 @@ send click $page_point
 ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
 page_shortcut p print
 print_preview ⌘P print-key.png
-# A text field's menu has what Chrome gives it on the Mac, its Language Settings for spelling and
-# its Writing Direction submenu, and Select All selects the field's text, which typing then
-# replaces. The check chooses nothing that uses the pasteboard.
+# A text field's menu has what Chrome gives it, its Language Settings for spelling and its Writing
+# Direction submenu, and Select All selects the field's text, which typing then replaces. The check
+# chooses nothing that uses the pasteboard.
+if windows || [ "$(uname)" = Linux ]; then
+  select_all='Select all' languages='Language settings'
+else
+  select_all='Select All' languages='Language Settings'
+fi
 send click 300 250
 post rightclick 300 250
-expect '^browser: menu shown .*Select All' \
+expect "^browser: menu shown .*$select_all" \
   "a right-click in the page's text field didn't show its menu"
 menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 case "$menu" in
-*"Paste"*"Select All"*"Language Settings"*"Writing Direction › Default"*"Inspect") ;;
-*) fail "the text field's menu lacks Paste, Select All, Language Settings, Writing Direction or Inspect, in that order: $menu" ;;
+*"Paste"*"$select_all"*"$languages"*"Writing Direction › Default"*"Inspect") ;;
+*) fail "the text field's menu lacks Paste, $select_all, $languages, Writing Direction or Inspect, in that order: $menu" ;;
 esac
 ../tools/window-screenshot.sh "$pid" "$out/field-page-menu.png" || fail "no window to capture"
-send choose Select All
+send choose "$select_all"
 send type ok
 expect "^browser: title $opener ok\$" \
   "Select All in the field's menu didn't select its text for typing to replace"

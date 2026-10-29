@@ -56,6 +56,13 @@ pub extern "C" fn host_hide_reveal(ui_view: *mut c_void) {
     }
 }
 
+/// The reveals' views that show, for the test driver's layout.
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    REVEALS.with_borrow(|all| {
+        (all.iter()).filter(|&&(.., shown)| shown).map(|&(_, view, _)| view).collect()
+    })
+}
+
 /// `ui_view`'s window's content changed size: its reveal stays as tall.
 pub(crate) fn place(ui_view: *mut c_void) {
     let view = REVEALS.with_borrow(|all| {

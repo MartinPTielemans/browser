@@ -28,11 +28,13 @@
 #include "build/build_config.h"
 #include "chrome/browser/after_startup_task_utils.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/crash/core/app/crashpad.h"
+#include "components/prefs/pref_service.h"
 #include "net/base/mime_util.h"
 #include "net/http/http_response_headers.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
@@ -86,10 +88,24 @@ constexpr net::NetworkTrafficAnnotationTag kCrashReport =
           "Off unless the user turns it on, or says to send one report."
       })");
 
+// Where Crashpad writes the reports, if that's the profile's folder, as PlaceReports has it. On
+// Windows chrome_elf starts Crashpad before the core runs, in Chromium's default folder, which any
+// other Chromium on the machine shares, so the core offers, sends and deletes none of those.
+std::optional<base::FilePath> ProfilesReports() {
+  std::optional<base::FilePath> written = crash_reporter::GetCrashpadDatabasePath();
+  base::FilePath profiles;
+  if (!written || !base::PathService::Get(chrome::DIR_CRASH_DUMPS, &profiles) ||
+      *written != profiles) {
+    return std::nullopt;
+  }
+  return written;
+}
+
+// Without the profile's own reports there's no collector, as in a build that names none.
 const GURL& Collector() {
   static const base::NoDestructor<GURL> collector([] {
     GURL url(base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(kCollector));
-    return url.is_valid() && url.SchemeIsHTTPOrHTTPS() ? url : GURL();
+    return url.is_valid() && url.SchemeIsHTTPOrHTTPS() && ProfilesReports() ? url : GURL();
   }());
   return *collector;
 }
@@ -104,9 +120,10 @@ scoped_refptr<base::SequencedTaskRunner> Reports() {
   return *reports;
 }
 
-// The Crashpad database the handler writes, as another reader of it, as Chrome's crashes page is.
+// The Crashpad database the handler writes, if it's the profile's, as another reader of it, as
+// Chrome's crashes page is.
 std::unique_ptr<CrashReportDatabase> OpenReports() {
-  std::optional<base::FilePath> path = crash_reporter::GetCrashpadDatabasePath();
+  std::optional<base::FilePath> path = ProfilesReports();
   return path ? CrashReportDatabase::InitializeWithoutCreating(*path) : nullptr;
 }
 
@@ -304,8 +321,12 @@ bool HandlerReady() {
 #endif
 }
 
+// Whether a profile's crashed mark is on disk (ProfileStarted).
+bool g_marked = false;
+
 void CrashOnceReady() {
-  if (!HandlerReady()) {
+  // Not before the mark: without it the next launch would offer nothing, and the check says so.
+  if (!HandlerReady() || !g_marked) {
     // Only with the test's switch, so no other launch wakes for this.
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, base::BindOnce(&CrashOnceReady), base::Milliseconds(50));
@@ -328,6 +349,14 @@ void PlaceReports() {
     base::PathService::Override(chrome::DIR_CRASH_DUMPS,
                                 profiles.Append(FILE_PATH_LITERAL("Crashpad")));
   }
+}
+
+void ProfileStarted(Profile* profile) {
+  if (!Collector().is_valid() || profile->IsOffTheRecord()) {
+    return;
+  }
+  // Chrome copies the prefs here and writes them on its file sequence.
+  profile->GetPrefs()->CommitPendingWrite(base::BindOnce([] { g_marked = true; }));
 }
 
 void LeaveOutPages() {

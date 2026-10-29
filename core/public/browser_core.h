@@ -898,10 +898,12 @@ BC_EXPORT size_t bc_space_agent(bc_id space, char* agent, size_t capacity);
 // bc_space_name does, or an empty string for the user's own Space.
 BC_EXPORT size_t bc_space_agent_name(bc_id space, char* name, size_t capacity);
 
-// Whether the agent with the id |agent| may do |action| to |tab|: only if the tab is in that
-// agent's own Space, and Chromium shows its page, not the system's engine, where the browser can't
-// keep an agent's rules. Agent code calls it once for each call an agent makes on a tab, before
-// acting. If refused, copies why into |reason| as bc_space_name does, else an empty string. Either
+// Whether the agent with the id |agent| may do |action| to |tab|: only if |action| is one agents
+// may do, the tab is in that agent's own Space, and Chromium shows its page, not the system's
+// engine, where the browser can't keep an agent's rules. Agents may back, click, close_tab,
+// forward, hand_off, navigate, press_key, read_page, screenshot, scroll, select_option, snapshot
+// and type; ad_blocking, devtools, passwords and any other action are refused. Agent code calls it
+// once for each call an agent makes on a tab, before acting. If refused, copies why into |reason| as bc_space_name does, else an empty string. Either
 // way, then agent_activity, for the activity log.
 BC_EXPORT bool bc_agent_may_act(const char* agent,
                                 bc_id tab,
@@ -1333,7 +1335,8 @@ BC_EXPORT void bc_set_ad_blocking(bool on);
 // or answers it.
 //
 // The host of the collector the app named with --crash-upload-url, or nothing without one, when
-// nothing is sent and Settings doesn't offer to. Copied as bc_profile_name copies a name.
+// nothing is sent and Settings doesn't offer to. Nothing on Windows too, where Crashpad writes them
+// in the default folder other Chromiums share. Copied as bc_profile_name copies a name.
 BC_EXPORT size_t bc_crash_reports_collector(char* host, size_t capacity);
 // Whether the user has Send Crash Reports on and there's a collector.
 BC_EXPORT bool bc_send_crash_reports(void);

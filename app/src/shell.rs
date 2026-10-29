@@ -109,7 +109,7 @@ pub use keys::{
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
-pub use page_menu::PageMenuItem;
+pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
 pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
@@ -2194,9 +2194,15 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
+        // shell hears of Chromium's as it resizes.
+        let full_screen = match cfg!(target_os = "linux") {
+            true => self.full_screen,
+            false => window.is_fullscreen(),
+        };
         let window_resizes = match fullscreen {
-            true => !window.is_fullscreen(),
-            false => self.window_for_page && window.is_fullscreen(),
+            true => !full_screen,
+            false => self.window_for_page && full_screen,
         };
         self.window_for_page = fullscreen && window_resizes;
         self.page_held = window_resizes.then(|| window.viewport_size());

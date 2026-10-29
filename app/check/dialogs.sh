@@ -1,10 +1,11 @@
 # A page's own dialogs ask with the browser's dialog over the tab's card, in Chrome's words, each
 # captured while it's up: alert(), confirm() and prompt() from the served page's keys. ↩ answers
 # OK, with what was typed in a prompt, and Esc Cancel, and the page puts the answer in its title.
-# An alert goes with its tab and comes back with it. Leaving a page whose beforeunload handler
-# asks says "Leave site?": Esc stays and ↩ leaves. A site's HTTP sign-in asks for a username and
-# password: Esc shows the page the site sends without them, and ↩ signs in, with the password in
-# no log. A link to another app asks first, and ↩ there opens nothing.
+# The confirm's Cancel and OK are captured with the pointer on each. An alert goes with its tab
+# and comes back with it. Leaving a page whose beforeunload handler asks says "Leave site?": Esc
+# stays and ↩ leaves. A site's HTTP sign-in asks for a username and password: Esc shows the page
+# the site sends without them, and ↩ signs in, with the password in no log. A link to another app
+# asks first, and ↩ there opens nothing.
 
 serve
 log="$out/dialogs.log"
@@ -45,6 +46,25 @@ answer return accept alerted
 ask c Confirm confirm
 answer escape cancel "confirm false"
 ask c Confirm confirm-again
+# Under the pointer Cancel, a text button, brightens, and OK, a filled one, darkens, each captured,
+# and the pointer goes back where it was, off them, before ↩ answers.
+for button in cancel confirm; do
+  expect "^browser: dialog $button at " "the confirm's $button button didn't say where it's drawn"
+done
+button_at() {
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep "^browser: dialog $1 at " | tail -1 |
+    sed 's/.* at //'
+}
+cancel_at=$(button_at cancel)
+confirm_at=$(button_at confirm)
+send move $cancel_at
+expect '^browser: dialog hover cancel$' "the pointer on Cancel didn't hover it"
+../tools/window-screenshot.sh "$pid" "$out/dialog-cancel-hovered.png" || fail "no window to capture"
+send move $confirm_at
+expect '^browser: dialog hover confirm$' "the pointer on OK didn't hover it"
+../tools/window-screenshot.sh "$pid" "$out/dialog-confirm-hovered.png" || fail "no window to capture"
+send move $page_point
+expect '^browser: dialog hover none$' "the pointer leaving OK left it hovered"
 answer return accept "confirm true"
 # The prompt's field holds the page's default, selected, so typing takes its place.
 ask p Prompt prompt
@@ -119,6 +139,6 @@ grep -v '^browser: drive ' "$log" | grep -q lovelace && fail "the password reach
 exec 3>&-
 quit
 echo "ok: a page's alert, confirm and prompt ask over its card, answer with ↩ and Esc, and an alert"
-echo "  comes back with its tab. Leave site? stays with Esc and leaves with ↩. A site's sign-in"
-echo "  cancels with Esc and signs in with ↩, and the password reaches no log. A link to Maps asks,"
-echo "  and ↩ opens nothing."
+echo "  comes back with its tab. The confirm's Cancel and OK show the pointer on them. Leave site?"
+echo "  stays with Esc and leaves with ↩. A site's sign-in cancels with Esc and signs in with ↩, and"
+echo "  the password reaches no log. A link to Maps asks, and ↩ opens nothing."

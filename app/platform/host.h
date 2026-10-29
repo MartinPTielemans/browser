@@ -390,9 +390,9 @@ void host_hide_tooltip(double fade);
 // Makes the window of |card_view| the hover card's, a sidebar tab's, which floats over a browser
 // window as its child when shown and never takes the keyboard. Only its plate takes the mouse, for
 // its buttons; the margin round it lets the mouse through. It starts hidden. |away| is called when
-// that browser window stops being key, the app stops being active, or a press, a scroll or a key
-// lands anywhere but the card, which still goes where it was aimed. The window reaches |margin|
-// points past the plate on every side, for its shadow.
+// that browser window stops being key, the app stops being active, or a press or a scroll lands
+// anywhere but the card, which still goes where it was aimed. The UI ends it on a key itself. The
+// window reaches |margin| points past the plate on every side, for its shadow.
 void host_add_hover_card(void* card_view, double margin, void (*away)(void));
 
 // Shows the hover card's window as the UI draws it now, or moves it, with its plate's top left at
@@ -400,8 +400,9 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void));
 // placed it inside the window.
 void host_show_hover_card(void* ui_view, double left, double top, double width, double height);
 
-// Fades the hover card's window out over |fade| seconds, then hides it.
-void host_hide_hover_card(double fade);
+// Hides the hover card's window at once. The UI draws its motion in and out, so the window stays
+// opaque.
+void host_hide_hover_card(void);
 
 // Calls |pressed| each time the system says it's short of memory, for the UI to let go of what it
 // can do without, such as the hover cards' pictures.

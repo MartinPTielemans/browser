@@ -70,7 +70,9 @@ expect "^browser: download landed $d\$" "the new download's icon didn't land"
 # download over the finished one.
 check_layout "with a download running"
 send move 24 $((height - 25))
-expect '^browser: tooltip shown View Library ⇧⌘L$' \
+library_keys=⇧⌘L
+[ "$(uname)" = Darwin ] || library_keys=Ctrl+Shift+L
+expect "^browser: tooltip shown View Library $library_keys\$" \
   "with a download running, the Library button didn't name itself View Library"
 expect '^browser: recent downloads shown 2$' \
   "with a download running, resting on the Library button didn't show it and the finished one"

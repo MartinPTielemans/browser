@@ -383,6 +383,9 @@ pub trait Browser {
         field: Option<Bounds<Pixels>>,
         cx: &mut App,
     );
+    /// Opens the command bar centred for Search Tabs, listing only `tabs` and filtering them by
+    /// what's typed, to switch to one.
+    fn search_tabs(&self, tabs: Vec<BarTab>, cx: &mut App);
     /// Whether the command bar shows, which stays true through a click outside it until the app
     /// calls `Shell::command_bar_dismissed`, so a click on what opens it can tell it has closed it.
     fn command_bar_open(&self, cx: &App) -> bool;

@@ -123,13 +123,18 @@ expect "^browser: title $b cookie none\$" \
   tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/profile-space.png" || fail "no window to capture"
 # Held partway back, the first profile's Space comes in beside this one's whole: its URL field
-# with the tab it would show, its favorite and its rows at its offset, as this one's go out.
-post swipe 110 500 10 0 10 1500
-await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
-../tools/window-screenshot.sh "$pid" "$out/profile-swipe.png" || fail "no window to capture"
-await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
-none_since '^browser: space [0-9]' || fail "a swipe let go short of halfway showed another Space"
-expect "^browser: settled space $second\$" "the Space's page didn't settle back"
+# with the tab it would show, its favorite and its rows at its offset, as this one's go out. X11
+# sends a touchpad's scrolling with no start or end, so two fingers never page there (#554).
+if [ "$(uname)" = Linux ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  echo "skip: two fingers held partway between two profiles' Spaces: X11 sends no touch phases (#554)."
+else
+  post swipe 110 500 10 0 10 1500
+  await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
+  ../tools/window-screenshot.sh "$pid" "$out/profile-swipe.png" || fail "no window to capture"
+  await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
+  none_since '^browser: space [0-9]' || fail "a swipe let go short of halfway showed another Space"
+  expect "^browser: settled space $second\$" "the Space's page didn't settle back"
+fi
 # Its menu, with a tab, can't change its profile.
 post rightclick $name_point
 expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, Profile › Default (disabled), \
@@ -333,13 +338,25 @@ send key return
 expect "^browser: renamed profile $spare spare 日本語\$" \
   "the new profile wasn't named: $(grep '^browser: renamed profile' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-profiles.png" || fail "no window to capture"
+# Settings asks in an alert, and off the Mac, which has none, in its dialog, where escape cancels
+# and return deletes.
+asks=alert
+[ "$(uname)" = Linux ] && asks=dialog
+settings_answer() {
+  if [ "$asks" = dialog ]; then
+    expect '^browser: dialog settled$' "Settings' dialog didn't settle"
+    case $1 in Cancel) send key escape ;; *) send key return ;; esac
+  else
+    send choose "$1"
+  fi
+}
 post clickkey 578 211
-expect '^browser: alert shown Delete “spare 日本語”?$' "Delete in Settings didn't ask first"
-send choose Cancel
+expect "^browser: $asks shown Delete “spare 日本語”?\$" "Delete in Settings didn't ask first"
+settings_answer Cancel
 none_since '^browser: removed profile' || fail "Cancel deleted the profile"
 post clickkey 578 211
-expect '^browser: alert shown Delete “spare 日本語”?$' "Delete in Settings didn't ask again"
-send choose Delete
+expect "^browser: $asks shown Delete “spare 日本語”?\$" "Delete in Settings didn't ask again"
+settings_answer Delete
 expect "^browser: removed profile $spare spare 日本語\$" "Delete in Settings didn't delete it"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
