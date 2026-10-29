@@ -19,7 +19,8 @@
 # sidebar's edge drags its width between 164 and 500, stopping at them, and dragged on past half the
 # narrowest it hides the sidebar, keeping its width; a double-click on it puts the width back. A
 # page that hasn't drawn yet shows the card's colour, not white. In a check VM, the sidebar over grey
-# backdrops is Dia's composite, dark and then light, with the Mac's appearance.
+# backdrops is Dia's composite, dark and then light, with the Mac's appearance, and View ›
+# Appearance turns the light window dark and back.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -671,7 +672,7 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   for pass in "dark 0:24 20:32 60:45 255:104" "light 0:137 20:146 60:165 255:243"; do
     tone=${pass%% *}
     if [ "$tone" = light ]; then
-      light_shots=", $out/light.png, $out/light-menu.png"
+      light_shots=", $out/light.png, $out/light-menu.png, $out/appearance-dark.png"
       appearance false || fail "System Events didn't turn the Mac light"
       expect '^browser: window light true$' "the window didn't turn light with the Mac"
       ../tools/window-screenshot.sh "$pid" "$out/light.png" || fail "no window to capture"
@@ -723,6 +724,13 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
     done
   done
   send backdrop off
+  # View › Appearance stands in for the Mac's: Dark turns the window dark while the Mac is light,
+  # and Automatic gives it the Mac's light again.
+  send menu "Appearance › Dark"
+  expect '^browser: window light false$' "View › Appearance › Dark didn't turn the window dark"
+  ../tools/window-screenshot.sh "$pid" "$out/appearance-dark.png" || fail "no window to capture"
+  send menu "Appearance › Automatic"
+  expect '^browser: window light true$' "View › Appearance › Automatic didn't give back the Mac's light"
   appearance true || fail "System Events didn't turn the Mac dark again"
   expect '^browser: window light false$' "the window didn't turn dark again with the Mac"
   [ -z "$off" ] || fail "the sidebar isn't Dia's composite within 3 levels over grey${off%,}: $material"
