@@ -454,7 +454,7 @@ expect "^browser: loaded $s https://duckduckgo.com/?q=dogs+and+cats" \
 ../tools/window-screenshot.sh "$pid" "$out/dropped-text.png" || fail "no window to capture"
 
 # The chevron after the Space's name, there while the pointer is over the sidebar, collapses the
-# pinned rows as it's pressed, and the name turns bold: they fold away, but for the tab shown's, as
+# pinned rows as it's pressed, and the name lights: they fold away, but for the tab shown's, as
 # a closed folder's do, and ⌘1–⌘9 count Today's tabs first. The command bar's Expand Pinned Tabs
 # brings them back, and View › Collapse Pinned Tabs folds them again.
 # The middle of the chevron the app last drew for pinned rows open or shut ($1).
