@@ -1,8 +1,10 @@
 # ⇧⌘2 from the page opens capture mode over it, with the keyboard, and the pointer over an element
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
 # that box to a pasteboard of the run's own and shows the toast with Save and Share. Escape and a
-# second ⇧⌘2 leave capture mode and give the page the keyboard back. File › Capture Full Page copies
-# a picture of the whole long page, past its view.
+# second ⇧⌘2 leave capture mode and give the page the keyboard back. A drag takes the rectangle
+# dragged, and a click away from its menu leaves; so do a click outside capture mode's window and
+# the window resizing. File › Capture Full Page copies a picture of the whole long page, past its
+# view.
 
 # A page longer than any view, with a box at a known place in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
@@ -58,11 +60,11 @@ send click $(in_page 442 266)
 expect '^browser: capture run copy$' "the menu's Copy didn't run"
 expect '^browser: tab [0-9]* captured [0-9]*: [0-9]*x[0-9]*, [0-9]* bytes$' \
   "Copy didn't get a picture of the box"
-size=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: tab [0-9]* captured ' |
+box=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: tab [0-9]* captured ' |
   sed 's/.*: \([0-9]*x[0-9]*\),.*/\1/')
-case "$size" in
+case "$box" in
   200x100 | 400x200) ;;
-  *) fail "the picture of the 200 by 100 box is $size" ;;
+  *) fail "the picture of the 200 by 100 box is $box" ;;
 esac
 expect '^browser: pasteboard png [0-9]* bytes, private$' \
   "Copy didn't copy the PNG to the run's pasteboard"
@@ -87,6 +89,33 @@ expect '^browser: capture left (toggle)$' "a second ⇧⌘2 didn't leave capture
 send state
 in_browser RenderWidgetHostViewCocoa "after a second ⇧⌘2"
 
+# A drag from 100, 100 to 250, 180 in the page takes that rectangle, and a click away from its
+# menu leaves.
+capture_mode page
+send press $(in_page 100 100)
+send dragto $(in_page 175 140)
+send dragto $(in_page 250 180)
+send release $(in_page 250 180)
+expect '^browser: capture chose 100 100 150 80$' \
+  "a drag didn't take the rectangle dragged: $(grep '^browser: capture chose' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/capture-dragged.png" || fail "no window to capture"
+send click $(in_page 500 400)
+expect '^browser: capture left (click)$' "a click away from the menu didn't leave capture mode"
+# A click outside capture mode's window, on the sidebar under Today's one row, leaves too.
+capture_mode page
+send click 100 $(echo "$frame" | awk '{ print $2 + $4 / 2 }')
+expect '^browser: capture left (dismissed)$' "a click on the sidebar didn't leave capture mode"
+expect '^browser: capture hidden$' "capture mode's window didn't hide after a click outside it"
+# And so does the window resizing.
+send layout
+size=$(grep '^browser: layout content' "$log" | tail -1 |
+  sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+capture_mode page
+send resize $(($(echo "$size" | cut -d' ' -f1) - 40)) $(echo "$size" | cut -d' ' -f2)
+expect '^browser: capture left (dismissed)$' "the window resizing didn't leave capture mode"
+expect '^browser: capture hidden$' "capture mode's window didn't hide as the window resized"
+send resize $size
+
 # The whole page, beyond its view: at least its 6000 points high.
 send menu "Capture Full Page"
 expect '^browser: command capture-full-page via ui$' "File › Capture Full Page didn't run"
@@ -104,4 +133,4 @@ expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
 
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full. Windows: $out/capture-element.png, $out/capture-chosen.png"
+echo "ok: capture. The box's picture is $box, the full page's $full; a drag takes its rectangle, and a click away from its menu, a click outside it and the window resizing leave. Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-dragged.png"
