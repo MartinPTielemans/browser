@@ -1182,8 +1182,24 @@ impl CommandBar {
         // check.sh reads these lines.
         if let Some(command) = row.command {
             log!("browser: command bar runs {}", row.text);
-            self.close();
-            shell::run_from_bar(command, cx);
+            use shell::Command::{AddSplit, EditUrl, NewTab};
+            if !matches!(command, NewTab | EditUrl | AddSplit) {
+                self.close();
+                shell::run_from_bar(command, cx);
+                return;
+            }
+            // One that opens the bar again, such as Add Split View over its pane, runs once the
+            // bar is done with the key, as it updates the bar's window, which this is in. The bar
+            // moves there without going, as hidden and shown at once it would lose the keyboard
+            // to the page on X11, and goes only if it didn't open.
+            self.open.set(false);
+            let host = self.host.clone();
+            cx.defer(move |cx| {
+                shell::run_from_bar(command, cx);
+                if !is_open(cx) {
+                    host.hide();
+                }
+            });
             return;
         }
         match (row.tab, self.target) {

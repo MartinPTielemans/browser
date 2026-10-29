@@ -75,6 +75,15 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 read_pages
 [ "$pages" = "$whole" ] || fail "escape didn't give the page its frame back: $pages"
+# From the command bar, which moves over the pane without going, keeping the keyboard, so escape
+# still closes it.
+bar_command add-split "Add Split View" "add split"
+expect '^browser: command bar at ' "Add Split View from the command bar didn't open the bar there"
+read_pages
+[ "$pages" = "WebContentsViewCocoa $left" ] ||
+  fail "Add Split View from the command bar didn't narrow the page to $left but to $pages"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # ⌥-click on "+ New Tab" adds one too, as Dia's does.
 send click 100 154 alt
 expect '^browser: command add-split via sidebar$' \
