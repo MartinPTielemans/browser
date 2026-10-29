@@ -376,11 +376,12 @@ impl Tooltip {
     }
 }
 
-/// How the log names `tip`: its text, then its keys as a menu shows them.
+/// How the log names `tip`: its text, then its keys as a menu shows them, Ctrl+Shift+L off the Mac.
 fn label(tip: &Tip) -> String {
+    let joint = if crate::shell::OFF_THE_MAC { "+" } else { "" };
     match tip.keys.is_empty() {
         true => tip.text.to_string(),
-        false => format!("{} {}", tip.text, tip.keys.concat()),
+        false => format!("{} {}", tip.text, tip.keys.join(joint)),
     }
 }
 
