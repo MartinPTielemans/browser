@@ -1190,8 +1190,9 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
             // Arc's "clear": the best command above the search row, others whose names start
             // with it under it, and a weaker one after the suggestions.
             let (cache, cookies) = (Command::ClearCacheAndRefresh, Command::ClearCookiesAndRefresh);
+            let clear_keys = shell::keystroke_label("shift-cmd-k");
             let rows = vec![
-                command("Clear Today", Command::Clear, Some("⇧⌘K"), Match::Name),
+                command("Clear Today", Command::Clear, Some(&clear_keys), Match::Name),
                 search("clear"),
                 command("Clear Cache and Refresh", cache, None, Match::Name),
                 command("Clear Cookies and Refresh", cookies, None, Match::Name),

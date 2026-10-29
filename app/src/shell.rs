@@ -96,8 +96,8 @@ pub use favorites::FavoritesScope;
 pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
-    KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label,
-    Run, menu_item, pane_added, run_from_bar, shown_tab,
+    KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, key_name,
+    keystroke_label, Run, menu_item, pane_added, run_from_bar, shown_tab,
 };
 pub use drag::dropped_urls;
 pub use drm_note::PlayReady;
@@ -2362,7 +2362,8 @@ impl Shell {
     fn delete_space_now(&mut self, space: u64, cx: &mut Context<Self>) {
         if self.browser.delete_space(space, cx) {
             self.keep(What::DELETE_SPACE, Some(Edit::UndoDeleteSpace(space)), cx);
-            self.browser.toast("Space deleted! Use", Some(("⌘Z", "to undo.")), DELETED_TIME, cx);
+            let undo = keystroke_label("cmd-z");
+            self.browser.toast("Space deleted! Use", Some((&undo, "to undo.")), DELETED_TIME, cx);
         }
     }
 

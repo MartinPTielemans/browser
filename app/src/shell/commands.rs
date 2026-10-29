@@ -488,41 +488,55 @@ pub fn keystroke_label(keystroke: &str) -> String {
 pub fn keystroke_keys(keystroke: &str) -> Vec<String> {
     match super::keys::OFF_THE_MAC {
         true => (super::keys::pressed_as(keystroke).first())
-            .map(|pressed| keys_named(pressed, ["Ctrl", "Alt", "Shift", "Super"]))
+            .map(|pressed| keys_named(pressed, true))
             .unwrap_or_default(),
-        false => keys_named(keystroke, ["⌃", "⌥", "⇧", "⌘"]),
+        false => keys_named(keystroke, false),
     }
 }
 
-/// The keys of `keystroke`, with its ctrl, alt, shift and cmd named `names`.
-fn keys_named(keystroke: &str, names: [&str; 4]) -> Vec<String> {
+/// The keys of `keystroke`, its modifiers and key named as on the Mac, or `off_the_mac` in words.
+fn keys_named(keystroke: &str, off_the_mac: bool) -> Vec<String> {
+    let names = match off_the_mac {
+        true => ["Ctrl", "Alt", "Shift", "Super"],
+        false => ["⌃", "⌥", "⇧", "⌘"],
+    };
     let mut rest = keystroke;
     let mut keys = Vec::new();
-    for (modifier, glyph) in ["ctrl-", "alt-", "shift-", "cmd-"].into_iter().zip(names) {
+    for (modifier, name) in ["ctrl-", "alt-", "shift-", "cmd-"].into_iter().zip(names) {
         if let Some(after) = rest.strip_prefix(modifier) {
-            keys.push(glyph.to_string());
+            keys.push(name.to_string());
             rest = after;
         }
     }
-    let key = match rest {
-        "enter" => "↩".to_string(),
-        "escape" => "⎋".to_string(),
-        "up" => "↑".to_string(),
-        "down" => "↓".to_string(),
-        "left" => "←".to_string(),
-        "right" => "→".to_string(),
-        "tab" => "⇥".to_string(),
-        "backspace" => "⌫".to_string(),
-        "delete" => "⌦".to_string(),
-        "space" => "Space".to_string(),
-        "pageup" => "⇞".to_string(),
-        "pagedown" => "⇟".to_string(),
-        "home" => "↖".to_string(),
-        "end" => "↘".to_string(),
-        key => key.to_uppercase(),
-    };
-    keys.push(key);
+    keys.push(key_name(rest, off_the_mac));
     keys
+}
+
+/// How a menu names `key`, a binding's key such as "enter": by its symbol on the Mac, as macOS
+/// does, and `off_the_mac` by Chrome's word for it on Linux and Windows, where the UI's font has no
+/// keyboard symbols (#772).
+pub fn key_name(key: &str, off_the_mac: bool) -> String {
+    let (symbol, word) = match key {
+        "enter" => ("↩", "Enter"),
+        "escape" => ("⎋", "Esc"),
+        "up" => ("↑", "Up Arrow"),
+        "down" => ("↓", "Down Arrow"),
+        "left" => ("←", "Left Arrow"),
+        "right" => ("→", "Right Arrow"),
+        "tab" => ("⇥", "Tab"),
+        "backspace" => ("⌫", "Backspace"),
+        "delete" => ("⌦", "Del"),
+        "space" => ("Space", "Space"),
+        "pageup" => ("⇞", "Page Up"),
+        "pagedown" => ("⇟", "Page Down"),
+        "home" => ("↖", "Home"),
+        "end" => ("↘", "End"),
+        key => return key.to_uppercase(),
+    };
+    match off_the_mac {
+        true => word.into(),
+        false => symbol.into(),
+    }
 }
 
 /// Copies `text`, a sum's result chosen in the command bar, once the bar has gone, and says so in
@@ -1319,6 +1333,22 @@ mod tests {
         }
         assert_eq!(keys.label(Command::SelectSpace(0)).as_deref(), Some("⌃1"));
         assert_eq!(keys.label(Command::SelectSpace(9)), None);
+    }
+
+    /// Off the Mac, keys are named in Chrome's words, as the UI's font there has no keyboard
+    /// symbols; the Mac keeps its symbols (#772).
+    #[test]
+    fn keys_are_named_in_words_off_the_mac() {
+        assert_eq!(keys_named("shift-cmd-k", false), ["⇧", "⌘", "K"]);
+        assert_eq!(keys_named("ctrl-shift-k", true), ["Ctrl", "Shift", "K"]);
+        assert_eq!(keys_named("escape", false), ["⎋"]);
+        assert_eq!(keys_named("escape", true), ["Esc"]);
+        assert_eq!(keys_named("alt-left", true), ["Alt", "Left Arrow"]);
+        assert_eq!(keys_named("ctrl-alt-backspace", true), ["Ctrl", "Alt", "Backspace"]);
+        assert_eq!(keys_named("ctrl-pagedown", true), ["Ctrl", "Page Down"]);
+        assert_eq!(key_name("enter", false), "↩");
+        assert_eq!(key_name("enter", true), "Enter");
+        assert_eq!(key_name("delete", true), "Del");
     }
 
     /// ⌘Y is a page's to keep, as Chrome's is, unlike the reserved keys.

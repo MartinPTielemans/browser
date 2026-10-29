@@ -639,7 +639,7 @@ impl Shell {
             let picked = self.onboarding.as_ref().and_then(|onboarding| onboarding.picked);
             swatch_row(picked, colors, cx)
         });
-        let chip = |keys: &'static str, fill: Rgba| {
+        let chip = |keys: String, fill: Rgba| {
             div()
                 .h(px(CHIP_HEIGHT))
                 .px(px(CHIP_INSET))
@@ -682,7 +682,10 @@ impl Shell {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|shell, _, _, cx| shell.onboarding_continue("button", cx)))
                     .child(button)
-                    .child(chip("↩", with_alpha(PAPER, CHIP)))
+                    .child(chip(
+                        super::key_name("enter", super::OFF_THE_MAC),
+                        with_alpha(PAPER, CHIP),
+                    ))
         });
         layer.child(
             div()
