@@ -64,6 +64,8 @@ class UITextInput : public ui::TextInputClient {
   void SetTextEditCommandForNextKeyEvent(ui::TextEditCommand command) override;
   ukm::SourceId GetClientSourceForMetrics() const override;
   bool ShouldDoLearning() override;
+  void GetActiveTextInputControlLayoutBounds(std::optional<gfx::Rect>* control_bounds,
+                                             std::optional<gfx::Rect>* selection_bounds) override;
   bool SetCompositionFromExistingText(const gfx::Range& range,
                                       const std::vector<ui::ImeTextSpan>& spans) override;
 
