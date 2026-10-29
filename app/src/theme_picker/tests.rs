@@ -198,14 +198,21 @@ fn dragging_a_handle_moves_every_colour_and_keeps_them_on_letting_go(cx: &mut Te
 }
 
 #[gpui::test]
-fn a_secondary_handle_drags_the_set_round(cx: &mut TestAppContext) {
-    let mut picker = Picker::new(Some(Theme::at(0.5, 0.).with_count(2)), cx);
-    // The complement is at (-0.5, 0); dragged to (0, -0.5), the main colour goes to (0, 0.5).
-    let (x, y) = Picker::in_field(-0.5, 0.);
-    let (to_x, to_y) = Picker::in_field(0., -0.5);
-    picker.drag((x, y), (to_x, to_y));
+fn dragging_another_handle_places_its_colour_alone(cx: &mut TestAppContext) {
+    let start = Theme::at(0.5, 0.).with_count(3);
+    let mut picker = Picker::new(Some(start), cx);
+    let (hx, hy) = start.handle(2);
+    picker.drag(Picker::in_field(hx, hy), Picker::in_field(0., -0.3));
     let theme = picker.theme().unwrap();
-    assert!(close((theme.x, theme.y), (0., 0.5)), "at {}, {}", theme.x, theme.y);
+    assert!(close(theme.handle(2), (0., -0.3)), "the third at {:?}", theme.handle(2));
+    assert!(close((theme.x, theme.y), (0.5, 0.)), "the main one moved, to {}, {}", theme.x, theme.y);
+    assert!(close(theme.handle(1), start.handle(1)), "the second moved");
+    assert_eq!(theme.colors()[2], theme::color_at(0., -0.3, 1.));
+    assert_eq!(picker.handed_on(), vec![false, true]);
+    // − puts the second back at the main one's complement, the third gone.
+    picker.click(REMOVE_X, COUNT_Y);
+    let theme = picker.theme().unwrap();
+    assert_eq!((theme.count, theme.places), (2, None));
 }
 
 #[gpui::test]
