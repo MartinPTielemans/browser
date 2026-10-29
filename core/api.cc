@@ -1553,9 +1553,7 @@ bool bc_window_is_full_screen(bc_id id) {
 }
 
 void bc_window_toggle_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
   if (views::Widget* widget = OpenWidget(id)) {
     widget->SetFullscreen(!widget->IsFullscreen());
   }
-#endif
 }

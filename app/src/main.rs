@@ -2232,6 +2232,10 @@ impl Browser for Engine {
         cfg!(target_os = "linux") && unsafe { bc::bc_window_is_full_screen(self.window) }
     }
 
+    fn toggle_full_screen(&self, _: &mut App) {
+        unsafe { bc::bc_window_toggle_full_screen(self.window) };
+    }
+
     fn show_reveal(&self, width: f32, _: &mut App) {
         unsafe { platform::host_show_reveal(self.ui_view, width.into()) };
     }
@@ -3750,10 +3754,12 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Restore Last Closed Tab", Command::ReopenClosedTab),
                 MenuItem::separator(),
                 item("Open Command Bar", Command::EditUrl),
+                item("New Profile", Command::NewProfile),
                 MenuItem::separator(),
                 item("Close Window", Command::CloseWindow),
                 item("Archive Tab", Command::CloseTab),
                 MenuItem::separator(),
+                item("Share…", Command::Share),
                 item("Capture…", Command::CapturePortion),
                 item("Capture Full Page", Command::CaptureFullPage),
                 item("Save Page As", Command::SavePage),
@@ -3826,6 +3832,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "Spaces",
             [
                 item("New Space…", Command::NewSpace),
+                item("Edit Theme…", Command::EditTheme),
                 item("Rename Space", Command::RenameSpace),
             ]
             .into_iter()

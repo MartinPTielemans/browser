@@ -7,7 +7,7 @@ use std::{collections::HashMap, rc::Rc};
 use gpui::{App, AppContext, Entity, TestAppContext};
 
 use crate::shell::{
-    Archived, Command, Folders, Shell, Split,
+    Archived, Command, Folders, Page, Shell, Split,
     recorder::Recorder,
     undo::{Prop, Value},
 };
@@ -835,4 +835,37 @@ fn ctrl_shift_and_a_number_focus_that_pane(cx: &mut TestAppContext) {
     shell.update(cx, |shell, cx| shell.set_selected(12, cx));
     shell.update(cx, |shell, cx| shell.run(Command::FocusPane(3), "ui", cx));
     assert!(!host.take().iter().any(|call| call.starts_with("select ")));
+}
+
+/// Mute All Tabs mutes each of the window's tabs not muted yet, silent ones too.
+#[gpui::test]
+fn mute_all_tabs_mutes_each_tab(cx: &mut TestAppContext) {
+    let (shell, host) = window(cx, vec![10], vec![11, 12, 13], Folders::default(), Vec::new());
+    shell.update(cx, |shell, cx| {
+        shell.set_page(10, Page { audible: true, ..Page::default() }, cx);
+        shell.set_page(11, Page { audible: true, muted: true, ..Page::default() }, cx);
+        shell.set_page(12, Page::default(), cx);
+        shell.set_page(13, Page { audible: true, ..Page::default() }, cx);
+        assert!(shell.offers(Command::MuteAllTabs));
+    });
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::MuteAllTabs, "ui", cx));
+    let mut muted: Vec<String> =
+        host.take().into_iter().filter(|call| call.starts_with("muted ")).collect();
+    muted.sort();
+    assert_eq!(muted, ["muted 10 true", "muted 12 true", "muted 13 true"]);
+}
+
+/// New Profile opens the New Space form for a Space in a new profile, named as Chrome numbers
+/// them.
+#[gpui::test]
+fn new_profile_makes_a_space_in_a_new_profile(cx: &mut TestAppContext) {
+    let (shell, host) = window(cx, Vec::new(), vec![10], Folders::default(), Vec::new());
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::NewProfile, "menu", cx));
+    let calls = host.take();
+    let profile = calls.iter().position(|call| call.starts_with("create profile Profile "));
+    let moved = calls.iter().position(|call| call == "space 0 profile 7");
+    assert!(profile.is_some() && profile < moved, "{calls:?}");
+    assert!(shell.read_with(cx, |shell, _| shell.form.is_some()));
 }

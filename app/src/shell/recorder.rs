@@ -293,7 +293,13 @@ impl Browser for Recorder {
         self.record(format!("back to pinned url {tab}"))
     }
 
-    fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
+    fn set_muted(&self, tab: u64, muted: bool, _: &mut App) {
+        self.record(format!("muted {tab} {muted}"));
+    }
+
+    fn toggle_full_screen(&self, _: &mut App) {
+        self.record("full screen".into());
+    }
 
     fn clear(&self, _: &mut App) -> u64 {
         let id = self.core.ticket();
@@ -583,10 +589,13 @@ impl Browser for Recorder {
         self.record(format!("space theme {space} {theme}"))
     }
 
-    fn set_space_profile(&self, _: u64, _: u64, _: &mut App) {}
+    fn set_space_profile(&self, space: u64, profile: u64, _: &mut App) {
+        self.record(format!("space {space} profile {profile}"));
+    }
 
-    fn create_profile(&self, _: &str, _: &mut App) -> u64 {
-        Default::default()
+    fn create_profile(&self, name: &str, _: &mut App) -> u64 {
+        self.record(format!("create profile {name}"));
+        7
     }
 
     // The import's made-up Arc, so the first launch has a browser to import from, unless a test

@@ -60,6 +60,8 @@ pub enum Command {
     BackToPinnedUrl,
     /// Mutes the selected tab, or unmutes it.
     ToggleMute,
+    /// Mutes each of the window's tabs.
+    MuteAllTabs,
     /// Closes the Today tabs of the Space shown, but the one shown.
     Clear,
     /// Undoes the last thing the user did that lost or moved something (`Shell::undo`).
@@ -72,6 +74,8 @@ pub enum Command {
     CopyMarkdownLink,
     /// Copies the page's selection as a Markdown quote, with the link to the page under it.
     CopyUrlAsQuote,
+    /// Opens the system's share sheet for the selected tab's page.
+    Share,
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
@@ -118,6 +122,10 @@ pub enum Command {
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
+    /// Opens the theme picker for the Space shown, as its menu's Edit Theme Color… does.
+    EditTheme,
+    /// Opens the New Space form for a Space in a new profile.
+    NewProfile,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
@@ -126,6 +134,8 @@ pub enum Command {
     PreviousSpace,
     /// Hides the docked sidebar, or shows it.
     ToggleSidebar,
+    /// Puts the window full screen, or takes it out.
+    ToggleFullScreen,
     /// Opens the Library, or closes it.
     ViewLibrary,
     /// Opens the Library on the archive.
@@ -165,6 +175,8 @@ pub enum Command {
     Passwords,
     /// Plays a new profile's first launch again.
     Welcome,
+    /// Closes the command bar, as ⎋ does there.
+    Exit,
     Quit,
 }
 
@@ -307,9 +319,11 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("New Folder…", Command::NewFolder, &[]),
     ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
     ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
+    ("Mute All Tabs", Command::MuteAllTabs, &["sound", "audio"]),
     ("Copy URL", Command::CopyUrl, &["link"]),
     ("Copy URL as Markdown", Command::CopyMarkdownLink, &["link"]),
     ("Copy URL as Quote", Command::CopyUrlAsQuote, &["link", "selection"]),
+    ("Share…", Command::Share, &["send"]),
     ("New Window", Command::NewWindow, &["duplicate", "copy"]),
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
@@ -337,6 +351,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
+    ("Enter Full Screen", Command::ToggleFullScreen, &["toggle", "exit full screen"]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
     ("Save Page As", Command::SavePage, &[]),
@@ -350,6 +365,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
+    ("Edit Theme…", Command::EditTheme, &["color", "colour"]),
+    ("New Profile", Command::NewProfile, &[]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
     ("Previous Space", Command::PreviousSpace, &[]),
@@ -362,6 +379,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
+    ("Exit", Command::Exit, &["escape"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
 
@@ -443,7 +461,11 @@ pub fn find_commands(
         .map(|(matched, name, command)| BarCommand {
             name: name.into(),
             command,
-            shortcut: keys.label(command).map(Into::into),
+            // ⎋ closes the bar, outside the keys a user binds.
+            shortcut: match command {
+                Command::Exit => Some(keystroke_label("escape").into()),
+                _ => keys.label(command).map(Into::into),
+            },
             matched,
         })
         .collect()
@@ -584,12 +606,14 @@ impl Command {
             Command::RevealTab => "reveal-tab",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::ToggleMute => "toggle-mute",
+            Command::MuteAllTabs => "mute-all-tabs",
             Command::Clear => "clear",
             Command::Undo => "undo",
             Command::Redo => "redo",
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::CopyUrlAsQuote => "copy-url-as-quote",
+            Command::Share => "share",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
             Command::CapturePortion => "capture",
@@ -618,11 +642,14 @@ impl Command {
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
+            Command::EditTheme => "edit-theme",
+            Command::NewProfile => "new-profile",
             Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
             Command::ToggleSidebar => "toggle-sidebar",
+            Command::ToggleFullScreen => "toggle-full-screen",
             Command::ViewLibrary => "view-library",
             Command::ViewArchive => "view-archive",
             Command::ClearArchive => "clear-archive",
@@ -644,6 +671,7 @@ impl Command {
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
+            Command::Exit => "exit",
             Command::Quit => "quit",
         }
     }
@@ -790,6 +818,7 @@ impl Shell {
             Command::RevealTab => return self.reveal_tab(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
+            Command::MuteAllTabs => return self.mute_all(cx),
             Command::Clear => return self.clear(cx),
             Command::Undo => {
                 self.undo(cx);
@@ -802,6 +831,7 @@ impl Shell {
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
             Command::CopyUrlAsQuote => return self.copy_quote(cx),
+            Command::Share => return self.share(cx),
             Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
@@ -844,6 +874,8 @@ impl Shell {
                 }
                 return;
             }
+            // The bar closed before it ran.
+            Command::Exit => return,
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
             Command::CloseSplitPane | Command::SeparatePane => {
@@ -894,12 +926,15 @@ impl Shell {
                 return;
             }
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::ToggleFullScreen => return self.browser.toggle_full_screen(cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
+            Command::EditTheme => return self.edit_space_theme(self.space, cx),
+            Command::NewProfile => return self.new_profile_space(cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
@@ -1046,6 +1081,29 @@ impl Shell {
         }
     }
 
+    /// Mutes each of the window's tabs, those silent now too, so none starts playing aloud (ours:
+    /// Arc's isn't recorded beyond its name).
+    fn mute_all(&mut self, cx: &mut Context<Self>) {
+        let unmuted: Vec<u64> =
+            (self.tabs.iter()).filter(|(_, tab)| !tab.page.muted).map(|(&tab, _)| tab).collect();
+        for tab in unmuted {
+            self.browser.set_muted(tab, true, cx);
+        }
+    }
+
+    /// Opens the share sheet for the selected tab's page, hanging from the page's top edge, as
+    /// a key, the menu bar and the command bar have no button to hang it from (ours).
+    fn share(&mut self, cx: &mut Context<Self>) {
+        let link = clean_link(&self.url(self.selected));
+        if self.selected == 0 || link.is_empty() {
+            return;
+        }
+        let (frame, _) = self.page_frame(self.viewport);
+        let at = gpui::point(frame.center().x, frame.top());
+        let title = self.title(self.selected);
+        self.browser.show_share_sheet(self.selected, &link, &title, at, cx);
+    }
+
     /// A click on the URL field's Copy URL button: copies with the toast, as Arc's does, and
     /// shows a checkmark in the glyph's place for `COPIED_TIME`.
     pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
@@ -1162,6 +1220,8 @@ impl Shell {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
             Command::Clear => !self.today().is_empty(),
+            Command::MuteAllTabs => self.tabs.values().any(|tab| !tab.page.muted),
+            Command::Share => self.browser.has_share_sheet() && !clean_link(&page.url).is_empty(),
             Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
             Command::RenameTab => {
@@ -1177,8 +1237,11 @@ impl Shell {
             | Command::NewPrivateWindow
             | Command::CloseWindow
             | Command::ToggleSidebar
+            | Command::ToggleFullScreen
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
+            | Command::NewProfile
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
@@ -1189,6 +1252,7 @@ impl Shell {
             | Command::KeyboardShortcuts
             | Command::Passwords
             | Command::Welcome
+            | Command::Exit
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -1202,6 +1266,7 @@ impl Shell {
         }
         match command {
             Command::TogglePin if self.pinned().contains(&self.selected) => Some("Unpin Tab"),
+            Command::ToggleFullScreen if self.full_screen => Some("Exit Full Screen"),
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
@@ -1224,6 +1289,8 @@ fn private_runs(command: Command) -> bool {
             | Command::BackToPinnedUrl
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
+            | Command::NewProfile
             | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
             | Command::NextSpace

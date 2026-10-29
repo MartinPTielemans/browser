@@ -395,6 +395,15 @@ impl Shell {
     }
 
     /// Makes a profile, named as Chrome numbers them, and puts the empty Space in it.
+    /// File › New Profile: the New Space form, for a Space in a new profile, which its Profile row
+    /// shows (ours: Arc's isn't recorded).
+    pub(super) fn new_profile_space(&mut self, cx: &mut Context<Self>) {
+        self.new_space(cx);
+        if let Some(space) = self.form.as_ref().map(|form| form.space) {
+            self.new_profile(space, cx);
+        }
+    }
+
     fn new_profile(&mut self, space: u64, cx: &mut Context<Self>) {
         let names: Vec<SharedString> = self.profiles.iter().map(|(_, name)| name.clone()).collect();
         let name = new_profile_name(&names);
