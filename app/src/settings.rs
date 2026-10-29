@@ -553,11 +553,15 @@ fn open(cx: &mut App) {
             #[cfg(target_os = "linux")]
             let dialog = {
                 let dialog = dialog::in_window(Rc::new(InWindow), cx);
-                // Settings takes the keyboard back from the dialog once it has gone.
-                cx.observe_in(&dialog, window, |settings: &mut Settings, _, window, cx| {
-                    if window.focused(cx).is_none() {
+                // Settings takes the keyboard back from the dialog once it has gone, as the
+                // dialog's focus still counts as focused then, though nothing draws it.
+                let mut asked = false;
+                cx.observe_in(&dialog, window, move |settings: &mut Settings, dialog, window, cx| {
+                    let asks = dialog::asks(&dialog, cx);
+                    if asked && !asks {
                         window.focus(&settings.focus, cx);
                     }
+                    asked = asks;
                 })
                 .detach();
                 dialog

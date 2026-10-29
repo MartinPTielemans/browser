@@ -352,10 +352,15 @@ pub fn ask_in(
     dialog.update(cx, |dialog, cx| dialog.pose(question, confirmed, window, cx));
 }
 
+/// Whether a window's own `dialog` is asking, or leaving after the answer.
+pub fn asks(dialog: &Entity<Dialog>, cx: &App) -> bool {
+    dialog.read(cx).asked.is_some()
+}
+
 /// What a window draws over all of its content while its own `dialog` asks: the dialog, which
 /// takes every click, as the window waits for the answer.
 pub fn cover(dialog: &Entity<Dialog>, cx: &App) -> Option<AnyElement> {
-    dialog.read(cx).asked.is_some().then(|| {
+    asks(dialog, cx).then(|| {
         div()
             .id("dialog-cover")
             .absolute()
