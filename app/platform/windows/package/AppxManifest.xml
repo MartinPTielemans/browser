@@ -7,6 +7,8 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   IgnorableNamespaces="uap rescap">
   <Identity Name="@IDENTITY_NAME@" Publisher="@PUBLISHER@" Version="@VERSION@"
     ProcessorArchitecture="x64" />
@@ -38,6 +40,20 @@
         <uap:Extension Category="windows.protocol">
           <uap:Protocol Name="https" />
         </uap:Extension>
+        <!-- A click on a notification starts the engine's notification helper, which hands it to
+             ilo: the CLSID is the engine's toast_activator_clsid
+             (engine/patches/ours/chromium-windows-app-names.patch), as ilo.iss registers it. -->
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation
+            ToastActivatorCLSID="BF0AC29E-6375-476D-946E-0EBEB1F03DD4" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="notification_helper.exe" DisplayName="@NAME@">
+              <com:Class Id="BF0AC29E-6375-476D-946E-0EBEB1F03DD4" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>
