@@ -175,6 +175,9 @@ struct Settings {
 // The user's settings. Call SessionChanged after changing them.
 Settings& UserSettings();
 
+// Whether the settings the last launch saved have been read, so UserSettings holds the user's.
+bool SettingsRead();
+
 // Puts the favorites and Spaces the last launch saved in |window|, which shows what the front
 // window showed (RestoreSavedWindow), unless there are Spaces already. Returns whether it did.
 bool RestoreSession(Window& window);

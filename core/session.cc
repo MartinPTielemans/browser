@@ -26,6 +26,7 @@
 #include "base/values.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/archive.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
 #include "browser_core/space.h"
@@ -281,6 +282,9 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
 }
 
 namespace {
+
+// Set once Saver::OnRead has put the user's settings in place, or found none.
+bool g_settings_read = false;
 
 Saved Collect() {
   Saved saved;
@@ -800,6 +804,9 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
       UserSettings() = saved->settings;
       LoadedWindows() = std::exchange(saved->windows, {});
     }
+    g_settings_read = true;
+    // Old downloads wait for the interval just read.
+    ScheduleAutoArchive();
     // The profile the browser started in loaded before the settings were read.
     ApplyAdBlocking();
     // The profiles the Spaces and favorites are in load before they come back.
@@ -858,6 +865,10 @@ void FlushSession() {
 Settings& UserSettings() {
   static Settings settings;
   return settings;
+}
+
+bool SettingsRead() {
+  return g_settings_read;
 }
 
 double SavedSidebarWidth() {

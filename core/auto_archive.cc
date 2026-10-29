@@ -13,6 +13,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/wall_clock_timer.h"
+#include "browser_core/downloads.h"
 #include "browser_core/host.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
@@ -91,6 +92,9 @@ void ArchiveDue() {
   for (bc_id id : due) {
     Window::CloseTab(id);
   }
+  if (SettingsRead()) {
+    RemoveOldDownloads(ArchiveAfter());
+  }
   if (!due.empty() && !g_archived) {
     g_archived = true;
     if (!UserSettings().archive_noted) {
@@ -107,6 +111,14 @@ void Schedule() {
     const base::Time due = tab->last_seen() + ArchiveAfter();
     next = next ? std::min(*next, due) : due;
   });
+  // Not until the user's interval is read, as it may be longer than the 12 hours before it.
+  std::optional<base::Time> download;
+  if (SettingsRead()) {
+    download = NextOldDownload(ArchiveAfter());
+  }
+  if (download) {
+    next = std::min(next.value_or(base::Time::Max()), *download);
+  }
   if (next) {
     Timer().Start(FROM_HERE, *next, base::BindOnce(&ArchiveDue));
   } else {
