@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 
+#include "base/base64url.h"
+#include "base/hash/sha1.h"
 #include "components/sync/protocol/entity_data.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/password_specifics.pb.h"
@@ -109,6 +111,39 @@ TEST(SyncGuardTest, NamesNothing) {
   info.mutable_device_info()->set_client_name("laptop");
   device.push_back(Change("laptop", info));
   EXPECT_TRUE(SyncCommitIsCiphertext(syncer::DEVICE_INFO, device));
+}
+
+// browser#640: a password's client tag, which the server sees, tells it neither the site nor the
+// username, and only the account's devices agree on it.
+TEST(SyncGuardTest, PasswordTagsAreKeyed) {
+  const std::string tag = "https%3A//example.test/|username|alice|password|https://example.test/";
+  SyncSecret secret;
+  secret.fill(0x33);
+  SyncSecret other;
+  other.fill(0x44);
+
+  SetSyncPasswordTagKey(std::nullopt);
+  const std::string unkeyed = SyncPasswordTag(tag);
+  EXPECT_NE(unkeyed, tag);
+  EXPECT_EQ(SyncPasswordTag(tag), unkeyed);
+
+  SetSyncPasswordTagKey(secret);
+  const std::string keyed = SyncPasswordTag(tag);
+  EXPECT_EQ(keyed.find("example"), std::string::npos);
+  EXPECT_EQ(keyed.find("alice"), std::string::npos);
+  EXPECT_NE(keyed, unkeyed);
+  EXPECT_NE(keyed, SyncPasswordTag(tag + "x"));
+  std::string sha1;
+  base::Base64UrlEncode(base::SHA1HashString(tag), base::Base64UrlEncodePolicy::OMIT_PADDING,
+                        &sha1);
+  EXPECT_NE(keyed, sha1);
+
+  SetSyncPasswordTagKey(other);
+  EXPECT_NE(SyncPasswordTag(tag), keyed);
+  SetSyncPasswordTagKey(secret);
+  EXPECT_EQ(SyncPasswordTag(tag), keyed);
+  SetSyncPasswordTagKey(std::nullopt);
+  EXPECT_EQ(SyncPasswordTag(tag), unkeyed);
 }
 
 }  // namespace

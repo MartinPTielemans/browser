@@ -216,6 +216,10 @@ extern bool (*g_browser_core_sync_hold_commit)(syncer::DataType type,
 extern void (*g_browser_core_sync_check_commit)(syncer::DataType type,
                                                 const syncer::CommitRequestDataList& commit);
 
+// components/password_manager/core/browser/sync/password_proto_utils.cc: a password's client tag,
+// from Chromium's, on the password store's sequence.
+extern std::string (*g_browser_core_sync_password_tag)(const std::string& tag);
+
 // chrome/browser/sync/sync_service_factory.cc: the controllers of the core's own data types for
 // |profile|'s sync, such as ILO_SPACE's, after Chrome's.
 extern std::vector<std::unique_ptr<syncer::DataTypeController>> (*g_browser_core_sync_controllers)(

@@ -559,7 +559,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     if (status == BC_SYNC_FIRST_DEVICE) {
       SyncSecret secret;
       crypto::RandBytes(secret);
-      secret_ = secret;
+      SetSecret(secret);
       problem_ = BC_SYNC_PROBLEM_NONE;
       Save();
       UseSecret();
@@ -805,6 +805,12 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     Host().sync_changed(Host().context, &state);
   }
 
+  // The secret, which also keys passwords' client tags (sync_guard.h).
+  void SetSecret(const std::optional<SyncSecret>& secret) {
+    secret_ = secret;
+    SetSyncPasswordTagKey(secret);
+  }
+
   // Storage.
 
   void GotEncryptor(scoped_refptr<os_crypt_async::Encryptor> encryptor) {
@@ -850,8 +856,9 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
       }
       const std::string secret = Decrypt(root->FindString("secret"));
       if (SignedIn() && secret.size() == SyncSecret().size()) {
-        secret_.emplace();
-        std::ranges::copy(secret, secret_->begin());
+        SyncSecret kept;
+        std::ranges::copy(secret, kept.begin());
+        SetSecret(kept);
       }
     }
     loaded_ = true;
@@ -1127,7 +1134,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     starting_over_ = false;
     refresh_.clear();
     access_.clear();
-    secret_.reset();
+    SetSecret(std::nullopt);
     email_.clear();
     account_.clear();
     device_.clear();
@@ -1171,7 +1178,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     if (*passphrase) {
       // The account's data was started over with another secret since this device kept it.
       if (settings->IsPassphraseRequired() && !settings->SetDecryptionPassphrase(words)) {
-        secret_.reset();
+        SetSecret(std::nullopt);
         Save();
         return;
       }
@@ -1200,7 +1207,7 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
       Notify();
       return;
     }
-    secret_ = secret;
+    SetSecret(secret);
     Save();
     UseSecret();
     Notify();
@@ -1595,6 +1602,7 @@ void Install() {
     CHECK(SyncCommitIsCiphertext(type, commit))
         << "plaintext in a commit of " << syncer::DataTypeToDebugString(type);
   };
+  g_browser_core_sync_password_tag = &SyncPasswordTag;
 }
 
 void Start() {

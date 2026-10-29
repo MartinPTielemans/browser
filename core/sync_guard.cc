@@ -1,10 +1,19 @@
 #include "browser_core/sync_guard.h"
 
 #include <algorithm>
+#include <array>
+#include <string_view>
 
+#include "base/base64url.h"
+#include "base/no_destructor.h"
+#include "base/synchronization/lock.h"
 #include "components/sync/protocol/entity_data.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/password_specifics.pb.h"
+#include "crypto/hash.h"
+#include "crypto/hmac.h"
+#include "crypto/kdf.h"
+#include "crypto/random.h"
 
 namespace browser_core {
 
@@ -34,6 +43,18 @@ bool Ciphertext(syncer::DataType type, const sync_pb::EntitySpecifics& specifics
   return rest.ByteSizeLong() == 0;
 }
 
+struct TagKey {
+  base::Lock lock;
+  std::optional<std::array<uint8_t, 32>> key;
+  // For when there's no secret.
+  const std::array<uint8_t, 32> random = crypto::RandBytesAsArray<32>();
+};
+
+TagKey& Key() {
+  static base::NoDestructor<TagKey> key;
+  return *key;
+}
+
 }  // namespace
 
 bool HoldSyncCommit(syncer::DataType type, bool encrypted, syncer::PassphraseType passphrase) {
@@ -55,6 +76,31 @@ bool SyncCommitIsCiphertext(syncer::DataType type, const syncer::CommitRequestDa
     return (entity.name.empty() || entity.name == "encrypted") &&
            (entity.is_deleted() || Ciphertext(type, entity.specifics));
   });
+}
+
+void SetSyncPasswordTagKey(const std::optional<SyncSecret>& secret) {
+  std::optional<std::array<uint8_t, 32>> key;
+  if (secret) {
+    constexpr std::string_view kInfo = "ilo sync client tags v1";
+    key = crypto::kdf::Hkdf<32>(crypto::hash::kSha256, *secret, base::span<const uint8_t>(),
+                                base::as_byte_span(kInfo));
+  }
+  TagKey& tag_key = Key();
+  base::AutoLock lock(tag_key.lock);
+  tag_key.key = key;
+}
+
+std::string SyncPasswordTag(const std::string& tag) {
+  std::array<uint8_t, 32> key;
+  {
+    TagKey& tag_key = Key();
+    base::AutoLock lock(tag_key.lock);
+    key = tag_key.key.value_or(tag_key.random);
+  }
+  std::string out;
+  base::Base64UrlEncode(crypto::hmac::SignSha256(key, base::as_byte_span(tag)),
+                        base::Base64UrlEncodePolicy::OMIT_PADDING, &out);
+  return out;
 }
 
 }  // namespace browser_core

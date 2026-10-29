@@ -5,6 +5,10 @@
 #ifndef BROWSER_CORE_SYNC_GUARD_H_
 #define BROWSER_CORE_SYNC_GUARD_H_
 
+#include <optional>
+#include <string>
+
+#include "browser_core/sync_words.h"
 #include "components/sync/base/data_type.h"
 #include "components/sync/base/passphrase_enums.h"
 #include "components/sync/engine/commit_and_get_updates_types.h"
@@ -21,6 +25,15 @@ bool HoldSyncCommit(syncer::DataType type, bool encrypted, syncer::PassphraseTyp
 // encrypted it, if |type| is one Chromium can encrypt: named "encrypted" or not at all, with
 // specifics that hold ciphertext only.
 bool SyncCommitIsCiphertext(syncer::DataType type, const syncer::CommitRequestDataList& commit);
+
+// Gives the account's secret, which keys passwords' client tags, or takes it away.
+void SetSyncPasswordTagKey(const std::optional<SyncSecret>& secret);
+
+// A password's client tag, from Chromium's (its site and username, which the server would see
+// hashed without a key): HMAC-SHA256 of it, keyed with HKDF(secret, "ilo sync client tags v1"),
+// so only the account's devices can tell which site and username it is. With no secret, a key
+// made for this run, so nothing the server could test guesses against goes up.
+std::string SyncPasswordTag(const std::string& tag);
 
 }  // namespace browser_core
 
