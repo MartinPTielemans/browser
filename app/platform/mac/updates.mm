@@ -22,6 +22,10 @@ constexpr int64_t kInstallWait = 15;
 NSString* const kNotes = @"UpdateNotes";
 // The designated requirement Chromium last read its cookie key under.
 NSString* const kKeySignature = @"KeychainKeySignature";
+// The launches that tried to make the cookie key's item again under a signature, and failed. Each
+// try may have macOS ask, so a failure is tried again on only a few launches.
+NSString* const kKeyTries = @"KeychainKeyTries";
+constexpr NSInteger kKeyTriesLimit = 3;
 
 void Log(NSString* line) {
   fprintf(stderr, "browser: %s\n", line.UTF8String);
@@ -81,16 +85,33 @@ OSStatus AddKey(NSDictionary* item, NSData* key) {
   return SecItemAdd((__bridge CFDictionaryRef)attributes, nullptr);
 }
 
+// Whether |item| holds |key|, read back.
+OSStatus ReadBack(NSDictionary* item, NSData* key) {
+  NSData* held = nil;
+  OSStatus status = CopyKey(item, &held);
+  return status == errSecSuccess && ![held isEqual:key] ? errSecIO : status;
+}
+
 // Reads the cookie key as Chromium will, so macOS asks for it now if it's going to. A launch that
-// stopped while the item was made again left the key in the spare, which goes back first.
-OSStatus ReadKey(NSString* name, NSData** key) {
+// stopped while the item was made again left the key in the spare, which goes back first. Not
+// found means neither has it: with the spare there, Chromium would make a new key and lose the
+// profile's cookies and passwords, so a spare that can't be read or put back leaves both as they
+// are. |stranded| says the key is in the spare and couldn't be put back.
+OSStatus ReadKey(NSString* name, NSData** key, bool* stranded) {
+  *stranded = false;
   OSStatus status = CopyKey(KeyItem(name), key);
-  if (status == errSecItemNotFound && CopyKey(KeyItem(name, kSpare), key) == errSecSuccess) {
-    status = AddKey(KeyItem(name), *key);
-    Log([NSString stringWithFormat:@"the cookie key came back from its spare: %d", (int)status]);
-    // Not found would let Chromium make a new key, and lose the profile's cookies and passwords.
-    if (status == errSecItemNotFound) status = errSecIO;
+  if (status != errSecItemNotFound) return status;
+  OSStatus spare = CopyKey(KeyItem(name, kSpare), key);
+  if (spare == errSecItemNotFound) return status;
+  if (spare != errSecSuccess) {
+    Log([NSString stringWithFormat:@"the cookie key's spare couldn't be read: %d", (int)spare]);
+    return spare;
   }
+  status = AddKey(KeyItem(name), *key);
+  if (status == errSecSuccess) status = ReadBack(KeyItem(name), *key);
+  Log([NSString stringWithFormat:@"the cookie key came back from its spare: %d", (int)status]);
+  if (status == errSecItemNotFound) status = errSecIO;
+  *stranded = status != errSecSuccess;
   return status;
 }
 
@@ -99,18 +120,23 @@ OSStatus ReadKey(NSString* name, NSData** key) {
 // (tools/requirement.sh), every build the team signs reads it after that, whichever of its
 // identities signed it, and the move from Apple Development to Developer ID asks nothing. Changing
 // the item's access in place would ask for the keychain's password; making it again doesn't.
+// Each step waits for the one before to read back, so one of the two always holds the key, and
+// success means the item does.
 OSStatus Regrant(NSString* name, NSData* key) {
   NSDictionary* spare = KeyItem(name, kSpare);
   SecItemDelete((__bridge CFDictionaryRef)spare);
   OSStatus status = AddKey(spare, key);
-  if (status != errSecSuccess) return status;
-  status = SecItemDelete((__bridge CFDictionaryRef)KeyItem(name));
-  if (status == errSecSuccess) status = AddKey(KeyItem(name), key);
-  // The spare stays only while the item lacks the key.
-  NSData* kept = nil;
-  if (CopyKey(KeyItem(name), &kept) == errSecSuccess && [kept isEqual:key]) {
+  if (status == errSecSuccess) status = ReadBack(spare, key);
+  if (status == errSecSuccess) status = SecItemDelete((__bridge CFDictionaryRef)KeyItem(name));
+  if (status != errSecSuccess) {
+    // The item is as it was.
     SecItemDelete((__bridge CFDictionaryRef)spare);
+    return status;
   }
+  status = AddKey(KeyItem(name), key);
+  if (status == errSecSuccess) status = ReadBack(KeyItem(name), key);
+  // Otherwise the spare stays, for ReadKey to put back.
+  if (status == errSecSuccess) SecItemDelete((__bridge CFDictionaryRef)spare);
   return status;
 }
 
@@ -349,30 +375,58 @@ bool host_keep_keychain_key(void) {
   if (name.length == 0 || !signature || [[defaults stringForKey:kKeySignature] isEqual:signature]) {
     return true;
   }
+  auto done = ^{
+    [defaults setObject:signature forKey:kKeySignature];
+    [defaults removeObjectForKey:kKeyTries];
+  };
+  NSInteger tries = [[defaults dictionaryForKey:kKeyTries][signature] integerValue];
   for (;;) {
     NSData* key = nil;
-    OSStatus status = ReadKey(name, &key);
+    bool stranded = false;
+    OSStatus status = ReadKey(name, &key, &stranded);
     // Not there: a first launch, and Chromium makes one.
     if (status == errSecItemNotFound) {
-      [defaults setObject:signature forKey:kKeySignature];
+      done();
+      return true;
+    }
+    if (status == errSecSuccess && tries >= kKeyTriesLimit) {
+      Log([NSString stringWithFormat:@"the cookie key is left as it is, after %d tries to regrant it",
+                                     (int)tries]);
+      // The item holds the key, so a spare a try left is only a copy.
+      SecItemDelete((__bridge CFDictionaryRef)KeyItem(name, kSpare));
+      done();
       return true;
     }
     if (status == errSecSuccess) {
+      // Counted first, so a launch that stops partway counts too.
+      [defaults setObject:@{signature : @(++tries)} forKey:kKeyTries];
       OSStatus regranted = Regrant(name, key);
       Log([NSString stringWithFormat:@"the cookie key regranted to %@: %d", signature, (int)regranted]);
-      // Where it couldn't be, the item still has the key, unless it's only in the spare.
-      if (regranted == errSecSuccess) [defaults setObject:signature forKey:kKeySignature];
-      status = ReadKey(name, &key);
+      if (regranted == errSecSuccess) {
+        done();
+        return true;
+      }
+      // The item still has the key, or the spare does, which goes back.
+      status = ReadKey(name, &key, &stranded);
       if (status == errSecSuccess) return true;
     }
     Log([NSString stringWithFormat:@"the cookie key couldn't be read: %d", (int)status]);
     // AppKit isn't up before Chromium starts, so the alert is the system's.
     NSString* title = [NSString stringWithFormat:@"%@ needs its key in your Keychain", name];
-    NSString* message = [NSString
-        stringWithFormat:@"%@ keeps the key to your cookies and saved passwords in your Keychain, as "
-                         @"\"%@ Safe Storage\". Without it, websites would sign you out. When macOS "
-                         @"asks, enter your password and choose Always Allow.",
-                         name, name];
+    NSString* message =
+        stranded
+            ? [NSString stringWithFormat:@"%@ keeps the key to your cookies and saved passwords in "
+                                         @"your Keychain. It couldn't put the key back as \"%@ "
+                                         @"Safe Storage\", and keeps it as \"%@ Safe Storage "
+                                         @"(moving)\" until it can. Without it, websites would "
+                                         @"sign you out. Make sure your login keychain is "
+                                         @"unlocked in Keychain Access, then try again.",
+                                         name, name, name]
+            : [NSString stringWithFormat:@"%@ keeps the key to your cookies and saved passwords in "
+                                         @"your Keychain, as \"%@ Safe Storage\". Without it, "
+                                         @"websites would sign you out. When macOS asks, enter "
+                                         @"your password and choose Always Allow.",
+                                         name, name];
     CFOptionFlags response = kCFUserNotificationOtherResponse;
     CFUserNotificationDisplayAlert(0, kCFUserNotificationCautionAlertLevel, nullptr, nullptr,
                                    nullptr, (__bridge CFStringRef)title,
