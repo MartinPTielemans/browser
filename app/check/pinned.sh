@@ -181,14 +181,14 @@ expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once s
 # from the window's (site.sh).
 link_point="430 130"
 # Away from it by its page's link.
-away() {
+link_away() {
   send click $link_point
   expect "^browser: loaded $c ${site}notes.txt\$" "the page's link didn't load in the pinned tab"
   expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
 }
 # Away from it, then back with ⌘↩ from side $1, which a click gives the keyboard.
-away_and_back() {
-  away
+link_away_and_back() {
+  link_away
   if [ "$1" = ui ]; then
     send click $sidebar_point
   else
@@ -199,8 +199,8 @@ away_and_back() {
   expect "^browser: loaded $c $site\$" "⌘↩ with the $1 focused didn't load the pinned URL"
   expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
 }
-away_and_back page
-away_and_back ui
+link_away_and_back page
+link_away_and_back ui
 # An address typed into it opens in a tab it opened, at the top of Today, shown, and the pinned tab
 # keeps its page. Closing that tab shows the pinned one again, its opener.
 go_from_bar example.com
@@ -214,7 +214,7 @@ none_since "^browser: loaded $c " || fail "the address typed into the pinned tab
 send key w cmd
 expect "^browser: tab $typed closed\$" "⌘W didn't close the tab the pinned tab opened"
 expect "^browser: selected $c\( in .*\)\{0,1\}\$" "closing the tab the pinned tab opened didn't show the pinned tab"
-away
+link_away
 # The quit leaves Today's tab shown, so the pinned tab comes back unloaded.
 switch "2 cmd" "$a"
 # Its favicon under the pointer offers the way back.
