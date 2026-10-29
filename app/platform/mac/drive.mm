@@ -81,10 +81,12 @@
 //                                         titled <title>", such as a window of Chrome's
 //   pasteboard                            logs the text on the run's pasteboard, which stands in
 //                                         for the clipboard, as "browser: pasteboard text <text>"
-//   savepanel <path>                      saves at <path> through the save panel the app shows,
-//                                         as the user would pick it there, once it shows, logging
+//   savepanel <path>                      picks <path> in the save panel the app began, once it
+//                                         has, through the panel's completion handler, logging
 //                                         "browser: save panel answered", or "browser: no save
-//                                         panel" if none shows within 5 s
+//                                         panel" if none begins within 5 s. The driver keeps each
+//                                         save panel the app begins off screen, logging "browser:
+//                                         save panel offers <name> in <folder>"
 //   front                                 logs which of the app's windows other apps take for
 //                                         the one in front, as "browser: front <first>, main
 //                                         <window>, key <window>, ax focused <window>, ax main
@@ -828,20 +830,66 @@ void OrderFrontCharacterPalette(id, SEL, id) {
 NSPasteboard* g_pasteboard;
 IMP g_pasteboard_with_name;
 
-// Saves at |path| through the save panel showing, as the user would pick it there, once it shows,
-// which may be a moment after the app asked for it: for up to 5 s.
+// The save panel the app began and its completion handler, which the driver answers as the user
+// would pick in it. A save panel runs out of process, where its -ok: raises "not implemented" and
+// its window can't be driven, so the driver keeps it off screen and ends it the way the panel
+// itself does, through the handler, with the URL it says the user picked.
+NSSavePanel* g_save_panel;
+void (^g_save_panel_done)(NSModalResponse);
+NSURL* g_save_panel_url;
+IMP g_save_panel_class;
+IMP g_begin_panel;
+IMP g_panel_url;
+
+void BeginPanel(NSSavePanel* self, SEL selector, void (^done)(NSModalResponse)) {
+  // An open panel, such as the import's, is the user's to answer as before.
+  if ([self isKindOfClass:NSOpenPanel.class]) {
+    ((void (*)(id, SEL, void (^)(NSModalResponse)))g_begin_panel)(self, selector, done);
+    return;
+  }
+  g_save_panel = self;
+  g_save_panel_done = done;
+  fprintf(stderr, "browser: save panel offers %s in %s\n",
+          self.nameFieldStringValue.UTF8String ?: "", self.directoryURL.path.UTF8String ?: "");
+}
+
+NSURL* PanelURL(NSSavePanel* self, SEL selector) {
+  if (self == g_save_panel && g_save_panel_url) {
+    return g_save_panel_url;
+  }
+  return ((NSURL * (*)(id, SEL)) g_panel_url)(self, selector);
+}
+
+// The panel's class may be one AppKit picks for it, so it's hooked as the app makes its first.
+NSSavePanel* SavePanel(id self, SEL selector) {
+  NSSavePanel* panel = ((NSSavePanel * (*)(id, SEL)) g_save_panel_class)(self, selector);
+  Class kind = object_getClass(panel);
+  IMP begin = method_setImplementation(
+      class_getInstanceMethod(kind, @selector(beginWithCompletionHandler:)), (IMP)BeginPanel);
+  if (begin != (IMP)BeginPanel) {
+    g_begin_panel = begin;
+  }
+  IMP url = method_setImplementation(class_getInstanceMethod(kind, @selector(URL)), (IMP)PanelURL);
+  if (url != (IMP)PanelURL) {
+    g_panel_url = url;
+  }
+  return panel;
+}
+
+// Picks |path| in the save panel the app began, once it has, which may be a moment after the app
+// asked for it: for up to 5 s.
 void AnswerSavePanel(NSString* path, int tries, void (^done)(void)) {
-  for (NSWindow* window in NSApp.windows) {
-    if ([window isKindOfClass:NSSavePanel.class] && window.visible) {
-      NSSavePanel* panel = (NSSavePanel*)window;
-      panel.directoryURL = [NSURL fileURLWithPath:path.stringByDeletingLastPathComponent
-                                      isDirectory:YES];
-      panel.nameFieldStringValue = path.lastPathComponent;
-      [panel ok:nil];
-      fprintf(stderr, "browser: save panel answered\n");
-      done();
-      return;
-    }
+  if (g_save_panel_done) {
+    void (^answer)(NSModalResponse) = g_save_panel_done;
+    g_save_panel_done = nil;
+    g_save_panel_url = [NSURL fileURLWithPath:path isDirectory:NO];
+    fprintf(stderr, "browser: save panel answered\n");
+    // The app's handler reads the panel's URL as it runs.
+    answer(NSModalResponseOK);
+    g_save_panel = nil;
+    g_save_panel_url = nil;
+    done();
+    return;
   }
   if (tries == 0) {
     fprintf(stderr, "browser: no save panel\n");
@@ -1715,6 +1763,8 @@ void drive_start(void) {
   g_pasteboard_with_name = method_setImplementation(
       class_getClassMethod(NSPasteboard.class, @selector(pasteboardWithName:)),
       (IMP)PasteboardWithName);
+  g_save_panel_class = method_setImplementation(
+      class_getClassMethod(NSSavePanel.class, @selector(savePanel)), (IMP)SavePanel);
   // A window leaving full screen tells AppKit it has before the desktop's Space slides back, and
   // until it has, the window server still orders the window over the others and drops clicks.
   [NSWorkspace.sharedWorkspace.notificationCenter

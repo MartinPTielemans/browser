@@ -373,6 +373,8 @@ expect '^browser: trace save panel shown$' "Stop didn't ask where to save the tr
 if [ "$(uname)" = Darwin ]; then
   rm -f "$out/trace.json"
   send savepanel "$out/trace.json"
+  grep -q "^browser: save panel offers .* Trace\.json in $HOME" "$log" ||
+    fail "the save panel didn't offer the trace's name in Downloads or the home folder"
   expect '^browser: save panel answered$' "no save panel showed for the trace"
   expect "^browser: trace saved $out/trace.json\$" "the trace wasn't saved where it was picked"
   python3 -I -c '
