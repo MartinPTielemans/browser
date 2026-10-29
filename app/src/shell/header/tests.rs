@@ -4,7 +4,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AppContext, Bounds, Entity, Modifiers, TestAppContext, VisualTestContext, point, px, size,
+    AppContext, Bounds, Entity, Modifiers, MouseButton, NavigationDirection, TestAppContext,
+    VisualTestContext, point, px, size,
 };
 
 use crate::{
@@ -153,6 +154,34 @@ fn a_press_with_no_move_before_it_puts_the_pointer_over_the_sidebar(cx: &mut Tes
     // A press on the page leaves the sidebar's hover where it is.
     cx.simulate_click(point(px(600.), px(400.)), Modifiers::none());
     assert!(!tools(&shell, cx).0);
+}
+
+/// A mouse's back and forward buttons over the sidebar go back and forward in the selected tab,
+/// as over Chrome's toolbar, and do nothing where its page can't.
+#[gpui::test]
+fn mouse_back_and_forward_over_the_sidebar_go_back_and_forward(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    let mut page = Page { url: "https://example.org/".into(), ..Page::default() };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![10, 11], Vec::new(), Folders::default(), cx);
+        shell.set_selected(10, cx);
+    });
+    let mut press = |page: &Page, direction| {
+        shell.update(cx, |shell, cx| shell.set_page(10, page.clone(), cx));
+        cx.run_until_parked();
+        host.take();
+        let button = MouseButton::Navigate(direction);
+        cx.simulate_mouse_down(point(px(100.), px(300.)), button, Modifiers::none());
+        cx.run_until_parked();
+        host.take().into_iter().filter(|call| call.ends_with(" 10")).collect::<Vec<_>>()
+    };
+    assert!(press(&page, NavigationDirection::Back).is_empty());
+    assert!(press(&page, NavigationDirection::Forward).is_empty());
+    page.can_go_back = true;
+    assert_eq!(press(&page, NavigationDirection::Back), ["back 10"]);
+    assert!(press(&page, NavigationDirection::Forward).is_empty());
+    page.can_go_forward = true;
+    assert_eq!(press(&page, NavigationDirection::Forward), ["forward 10"]);
 }
 
 /// Whether the pointer is over the sidebar and Clear and the URL field's buttons show, once the
