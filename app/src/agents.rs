@@ -116,6 +116,11 @@ pub trait Browser {
     fn make_agent_space(&self, agent: &str, name: &str, cx: &mut App) -> u64;
     /// The tabs of `space`, pinned first, then Today's.
     fn space_tabs(&self, space: u64, cx: &App) -> Vec<TabInfo>;
+    /// The tabs of `space`, in `space_tabs`' order, without their titles: what a window's menu asks
+    /// for while it builds, when the window's titles can't be read.
+    fn space_tab_ids(&self, space: u64, cx: &App) -> Vec<u64> {
+        self.space_tabs(space, cx).into_iter().map(|tab| tab.id).collect()
+    }
     /// `tab`'s title and URL.
     fn tab(&self, tab: u64, cx: &App) -> TabInfo;
     /// Asks the core whether the agent may do `action` to `tab` (bc_agent_may_act): nothing, or
@@ -998,7 +1003,7 @@ impl Agents {
         if space == 0 {
             return Vec::new();
         }
-        let tabs = self.browser.space_tabs(space, cx).into_iter().map(|tab| tab.id);
+        let tabs = self.browser.space_tab_ids(space, cx).into_iter();
         tabs.filter(|tab| !self.held.contains_key(tab)).collect()
     }
 
