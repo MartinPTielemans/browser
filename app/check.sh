@@ -4,13 +4,14 @@
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites cards extensions adblock adblock-lists windows private capture passwords
-#   links preview access trouble dialogs crash import quit onboarding passkeys mcp
+#   links launch preview access trouble dialogs crash import quit onboarding passkeys mcp
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
 # Updates runs only when named too, until it passes on the Mac.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
-# take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
-# build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
+# take it full screen for a moment. Launch is Linux's alone so far, and updates and passkeys the
+# Mac's: updates makes build/Updates.app, a copy with Sparkle and a feed of its own (build.sh
+# updates).
 # In a check VM the check turns the Mac's appearance dark for the runs, which read the window's
 # dark look, and puts back the one it had after.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
@@ -54,7 +55,7 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
-runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
+runs="$runs links launch preview access trouble dialogs crash import quit onboarding passkeys mcp"
 named="store adblock-live updates"
 for run in "$@"; do
   case " $runs $named " in
