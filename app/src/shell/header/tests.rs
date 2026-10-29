@@ -317,3 +317,20 @@ fn the_key_brings_the_offer_back_or_opens_the_site_controls(cx: &mut TestAppCont
     assert!(host.site_controls.take().is_empty(), "a press where the key was opened them");
     assert!(!host.take().iter().any(|call| call.starts_with("show offer")));
 }
+
+/// The URL field says the page's host, and its whole URL while it's in Developer Mode.
+#[gpui::test]
+fn the_url_field_shows_the_whole_url_in_developer_mode(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+    let url = "http://localhost:3000/app?tab=2#top";
+    let mut words = |developer_mode| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: url.into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+            shell.set_selected(1, cx);
+            shell.url_field_words(url).0.to_string()
+        })
+    };
+    assert_eq!(words(false), "localhost");
+    assert_eq!(words(true), url);
+}
