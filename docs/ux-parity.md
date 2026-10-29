@@ -294,7 +294,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Fill dropdown | MVP | Chrome's, under the field. The passwords run checks it fills a saved login in; unverified until that runs | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
-| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
+| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Blink's PasswordReveal, on from the core; the passwords run captures the eye (password-reveal) and its absence on a filled password (password-filled-reveal). Unverified until that runs | Dia |
 | [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: Chrome's page should do it in a tab, unverified | Chrome |
 | [ ] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. Not started: unverified, probably works | Chrome |
 | [ ] | No agent path | MVP | agents never read or fill these. Holds today, since no call returns them and there is no MCP server; ticks with its allowlist test | decision 8 |

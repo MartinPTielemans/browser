@@ -8,8 +8,9 @@
 # and escape there declines. On another site, Never answers, and that site's Site Controls list it
 # in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
 # All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
-# browser window's dialog and removes it, which Settings hears. Each run has a profile of its own,
-# which no other run or the owner's copy reaches.
+# browser window's dialog and removes it, which Settings hears. Typing a password shows Blink's eye
+# in its field, and the one filled in has none. Each run has a profile of its own, which no other
+# run or the owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty.
 serve
@@ -75,6 +76,11 @@ check_offer() {
     fail "$1: the offer is at $child in a window $content wide"
 }
 
+# Typing a password into the empty field shows Blink's eye at its right.
+send key tab
+send type hunter2.check
+../tools/window-screenshot.sh "$pid" "$out/password-reveal.png" || fail "no window to capture"
+send click 600 60
 log_in hunter2.check
 offered save
 check_offer "after the login"
@@ -157,6 +163,13 @@ expect '^browser: command site-controls via key$' \
 expect '^browser: site controls settled$' "the Site Controls the key opened didn't settle"
 send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls the key opened"
+# The password filled in has no eye with the keyboard in its field, as Blink shows one only for a
+# password typed into an empty field.
+send click 600 60
+send key escape
+send key tab
+../tools/window-screenshot.sh "$pid" "$out/password-filled-reveal.png" ||
+  fail "no window to capture"
 # With the password cleared, a click in the username field shows Chrome's dropdown under it, where
 # down previews the saved login and return fills it in again.
 send click 600 60
@@ -268,4 +281,4 @@ expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
 expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
 exec 3>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows (the eye in password-reveal, none in password-filled-reveal): $out/password-reveal.png, $out/password-filled-reveal.png, $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"

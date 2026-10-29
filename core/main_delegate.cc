@@ -50,6 +50,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
@@ -305,11 +306,14 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     command_line->AppendSwitch(switches::kNoFirstRun);
     command_line->AppendSwitch(switches::kNoDefaultBrowserCheck);
     // A pinned tab the user closes unloads in place, keeping its tab and the id the app knows it by.
-    // Chrome's own discards, under memory pressure, then keep theirs too.
+    // Chrome's own discards, under memory pressure, then keep theirs too. A page's password field
+    // shows an eye once the user types in it, as Dia's does; Blink hides it for a password set by
+    // script or filled in by the password manager.
     std::string features = command_line->GetSwitchValueASCII(switches::kEnableFeatures);
     features += features.empty() ? "" : ",";
     command_line->AppendSwitchASCII(switches::kEnableFeatures,
-                                    features + features::kWebContentsDiscard.name);
+                                    features + features::kWebContentsDiscard.name + "," +
+                                        blink::features::kPasswordReveal.name);
 #if BUILDFLAG(IS_MAC)
     platform::NameKeychainItem();
 #endif
