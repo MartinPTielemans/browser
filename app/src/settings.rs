@@ -1420,7 +1420,8 @@ impl Settings {
         let items: Vec<MenuEntry> = (notes::SERVICES.iter().enumerate())
             .map(|(index, &(_, title, _))| {
                 let on = index == chosen;
-                MenuEntry { checked: on, over: on, ..MenuEntry::new(title, true) }
+                // A service's name, as written, as Google Docs keeps its capital off the Mac too.
+                MenuEntry { checked: on, over: on, ..MenuEntry::named(title, true) }
             })
             .collect();
         let settings = cx.weak_entity();
