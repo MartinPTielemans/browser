@@ -1951,8 +1951,8 @@ bc_id Window::OpenHistory(bc_id tab, int offset) {
   if (!id) {
     return 0;
   }
-  auto at = std::ranges::find(space->today(), tab);
-  space->AddAt(id, at == space->today().end() ? 0 : at - space->today().begin() + 1);
+  // Opened behind by |tab|, so it goes under it and closing it goes back there, as a link's does.
+  space->Add(id, tab, /*foreground=*/false);
   return id;
 }
 
