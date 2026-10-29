@@ -282,6 +282,8 @@ enum Popup {
 pub struct Settings {
     tab: Tab,
     focus: FocusHandle,
+    /// It was asked to show, and logs the tab it draws next.
+    shown: bool,
     /// Which switch last changed, and when, for its knob's slide.
     switched: Option<(&'static str, Instant)>,
     /// The pop-up menu that is open, whose button shows pressed.
@@ -444,25 +446,30 @@ pub fn show_import(cx: &mut App) {
 }
 
 fn show_on(tab: Tab, cx: &mut App) {
-    show(cx);
-    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
-        let show = |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
-            settings.show_tab(tab, window, cx)
-        };
-        window.update(cx, show).ok();
-    }
+    cx.defer(move |cx| {
+        show_now(cx);
+        if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+            let show = |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
+                settings.show_tab(tab, window, cx)
+            };
+            window.update(cx, show).ok();
+        }
+    });
 }
 
 /// Shows the Settings window on its Passwords tab, with `profile`'s logins, or those it showed.
 pub fn show_passwords(profile: Option<u64>, cx: &mut App) {
-    show(cx);
-    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
-        let show = move |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
-            settings.passwords_profile = profile.or(settings.passwords_profile);
-            settings.show_tab(Tab::Passwords, window, cx)
-        };
-        window.update(cx, show).ok();
-    }
+    cx.defer(move |cx| {
+        show_now(cx);
+        if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+            let show =
+                move |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
+                    settings.passwords_profile = profile.or(settings.passwords_profile);
+                    settings.show_tab(Tab::Passwords, window, cx)
+                };
+            window.update(cx, show).ok();
+        }
+    });
 }
 
 /// The profile's logins, which the Passwords tab asked the core for, as they are now.
@@ -480,6 +487,13 @@ pub fn logins_changed(profile: u64, logins: Vec<Login>, cx: &mut App) {
 
 /// Shows the Settings window, opening it the first time, or brings it to the front.
 pub fn show(cx: &mut App) {
+    cx.defer(show_now);
+}
+
+/// Shows it now, which can't be from inside its own window's update: a command from the menu bar
+/// while Settings is the key window runs in one, where reading the window panics and updating it
+/// does nothing.
+fn show_now(cx: &mut App) {
     if !cx.has_global::<SettingsWindow>() {
         open(cx);
     }
@@ -489,6 +503,7 @@ pub fn show(cx: &mut App) {
     window
         .update(cx, |settings, window, cx| {
             window.focus(&settings.focus, cx);
+            settings.shown = true;
             cx.notify();
         })
         .ok();
@@ -591,6 +606,7 @@ fn open(cx: &mut App) {
                 widevine,
                 tab: Tab::General,
                 focus: cx.focus_handle(),
+                shown: false,
                 switched: None,
                 choosing: None,
                 renaming: None,
@@ -1797,6 +1813,10 @@ impl Render for Settings {
         let frameless = matches!(window.window_decorations(), gpui::Decorations::Client { .. });
         if self.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE) {
             window.request_animation_frame();
+        }
+        if std::mem::take(&mut self.shown) {
+            // check.sh waits for this line, the tab each show draws, whichever window was key.
+            log!("browser: settings drew {}", self.tab.name());
         }
         let content = match self.tab {
             Tab::General => {
