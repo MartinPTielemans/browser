@@ -196,13 +196,18 @@ switch "2 cmd" "$c"
 none_since '^browser: list scrolled' || fail "showing a tab in view scrolled the list"
 send resize $size
 expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
-# ⌘, from the page opens Settings on General. Its switch turns the warning before quitting off, the
-# menu of its pop-up button sets how long Today tabs wait for the archive, the switch on its
-# Advanced tab turns the haptics off, and ⌘W hides it.
+# ⌘, from the page opens Settings on General, and the browser window behind it, no longer the main
+# one, dims its header's glyphs with its material. Its switch turns the warning before quitting
+# off, the menu of its pop-up button sets how long Today tabs wait for the archive, the switch on
+# its Advanced tab turns the haptics off, and ⌘W hides it.
 send click $page_point
 send key , cmd
 expect '^browser: command settings via page$' "⌘, from the page didn't run Settings"
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+# Windows' and X11's windows don't go inactive yet (host_watch_window_active).
+if [ "$active" = 1 ] && [ "$(uname)" = Darwin ]; then
+  expect '^browser: window active false$' "the browser window behind Settings didn't go inactive"
+fi
 ../tools/window-screenshot.sh "$pid" "$out/settings.png" || fail "no window to capture"
 send clickkey 592 126
 expect '^browser: warn before quitting off$' "a click on Warn before quitting didn't turn it off"
@@ -223,6 +228,9 @@ expect '^browser: haptics off$' "a click on the haptics switch didn't turn them 
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 none_since '^browser: command close-tab' || fail "⌘W in Settings closed a tab"
+if [ "$active" = 1 ] && [ "$(uname)" = Darwin ]; then
+  expect '^browser: window active true$' "the browser window didn't come back active after Settings"
+fi
 # The quit leaves the favorite shown.
 send click $tile
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
@@ -479,4 +487,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: dialog shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Windows: $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, with the browser window behind it inactive, its header's glyphs dimmed, and active again once Settings hides, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Windows: $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"

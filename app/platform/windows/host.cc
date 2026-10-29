@@ -1224,6 +1224,10 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   WatchForeground();
 }
 
+// shortcut: the windows stay active, as nothing yet tells which one is in front with its overlays
+// over it; the header's glyphs don't dim.
+void host_watch_window_active(void (*)(void*, bool)) {}
+
 // shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
 void host_watch_full_screen(void (*)(void*, bool)) {}
 

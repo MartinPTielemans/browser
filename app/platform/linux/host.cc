@@ -99,6 +99,7 @@ uint64_t WindowOf(void* ui_view) {
 }
 
 void (*g_key_window_changed)(void* ui_view);
+void (*g_window_active_changed)(void* ui_view, bool active);
 void (*g_became_active)(void);
 void (*g_resigning_active)(void);
 
@@ -293,6 +294,9 @@ void host_window_active(void* ui_view, bool active, bool whole_window) {
     ActiveWindows().erase(ui_view);
   }
   CheckAppActive();
+  if (g_window_active_changed) {
+    Later([ui_view, active] { g_window_active_changed(ui_view, active); });
+  }
 }
 
 void host_capture_name(char* name, size_t capacity) {
@@ -348,6 +352,13 @@ void host_activate(void* ui_view) {
 // The app reports each browser window GPUI's window in it hears become active (host_window_active).
 void host_watch_key_window(void (*changed)(void* ui_view)) {
   g_key_window_changed = changed;
+}
+
+// The app reports each browser window GPUI hears the whole of (host_window_active). On X11, where it
+// hears only its own, the window stays active, as GPUI can't tell the page's keyboard from another
+// app's.
+void host_watch_window_active(void (*changed)(void* ui_view, bool active)) {
+  g_window_active_changed = changed;
 }
 
 // shortcut: nothing says when the browser window goes full screen, as the window manager's own
