@@ -34,9 +34,15 @@ hook "    ninja_commandline.append('chrome')
     ninja_commandline.append('chromedriver')
     ninja_commandline.append('mini_installer')" \
 "    if os.environ.get('ILO_CORE_ONLY'):
-        # Only the core's own objects: a source file's name with ^ builds what it compiles to.
-        ninja_commandline += ['../../' + p.relative_to(source_tree).as_posix() + '^'
-                              for p in (source_tree / 'browser_core').rglob('*.cc')]
+        # Only the core's own objects, those its BUILD.gn has on Windows, as ninja knows no other.
+        graph = subprocess.run(ninja_commandline + ['-t', 'targets', 'all'],
+                               capture_output=True, text=True, check=True).stdout
+        targets = [line.split(': ')[0] for line in graph.splitlines()]
+        core = [t for t in targets if t.startswith('obj/browser_core/') and t.endswith('.obj')]
+        # With no target, ninja would build its default, the whole browser.
+        if not core:
+            raise RuntimeError('ninja has no objects of the core')
+        ninja_commandline += core
     else:
         ninja_commandline.append('chrome')"
 hook "        subprocess.run([sys.executable, 'package.py', '--cpu-arch', '32bit' if args.x86 else 'arm' if args.arm else '64bit'])" \
