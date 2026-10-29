@@ -624,6 +624,12 @@ impl Browser for Fake {
 
     fn go_forward(&self, _: u64, _: &mut App) {}
 
+    fn tab_history(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn go_to_history(&self, _: u64, _: i32, _: &mut App) {}
+
+    fn open_history(&self, _: u64, _: i32, _: &mut App) {}
+
     fn reload(&self, _: u64, _: bool, _: &mut App) {}
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}

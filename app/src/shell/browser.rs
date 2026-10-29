@@ -138,6 +138,13 @@ pub trait Browser {
     fn day_starts(&self) -> [f64; 4];
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
+    /// Lists the pages back from `tab`'s, or forward of it, and calls `Shell::show_history`.
+    fn tab_history(&self, tab: u64, forward: bool, cx: &mut App);
+    /// Goes to the page `offset` from `tab`'s in its history, as `tab_history` numbers them.
+    fn go_to_history(&self, tab: u64, offset: i32, cx: &mut App);
+    /// Opens a copy of `tab` at the page `offset` from its own, or 0 for its page again, under it
+    /// and not shown.
+    fn open_history(&self, tab: u64, offset: i32, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
     /// Deletes the cookies, or else the cache, the profile keeps for the site of the tab's page,
     /// then reloads it.

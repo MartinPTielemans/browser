@@ -44,6 +44,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
 | [ ] | Nav glyphs | MVP | white 0.60; dimmed as disabled ones in an inactive window; reload turns to stop while loading. Built: 0.60 and stop, `./check.sh history`'s `history.png` and `loading.png`. Not built: dimmed in an inactive window, as no view reads the window's active state; next, the header's glyphs take the disabled 0.26 while GPUI's window isn't active, captured in `./check.sh favorites`' `settings.png` | Arc 1.170.0 cap |
 | [x] | Disabled nav glyph | MVP | white 0.26 against 0.60; reload too with no page | Arc 1.170.0 cap |
+| [ ] | Back and forward's history | MVP | right-click or a 0.5 s hold *interim* on back or forward: the tab's pages that way, nearest first, up to six, with favicons, at the pointer; picking one goes there. Built, with the core's bc_tab_history uncompiled; to tick, a capture of the menu over a tab with history | Arc help centre, Chrome |
+| [ ] | ⌘-click or middle-click on back, forward, reload | MVP | the result in a background tab under the tab, loading once shown. Built, with the core's bc_tab_open_history uncompiled; to tick, a run that ⌘-clicks back and sees the new tab's row at the page back goes to | Arc help centre, Chrome |
 | [x] | Nav glyph size | MVP | sidebar 18.5 × 14.5, back and forward 14.5 × 12, reload 14 across; 1.75 pt strokes | Arc 1.170.0 cap |
 | [x] | URL field top | MVP | 46 below the window top | Arc 1.170.0 cap |
 | [x] | URL field size, radius, fill, font | MVP | 36 tall, 8 in, radius 12, white 0.10; text 13 pt, white 0.60 | Arc 1.170.0 cap |

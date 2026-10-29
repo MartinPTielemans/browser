@@ -1910,6 +1910,18 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_go_forward(tab) };
     }
 
+    fn tab_history(&self, tab: u64, forward: bool, _: &mut App) {
+        unsafe { bc::bc_tab_history(tab, forward) };
+    }
+
+    fn go_to_history(&self, tab: u64, offset: i32, _: &mut App) {
+        unsafe { bc::bc_tab_go_to_history(tab, offset) };
+    }
+
+    fn open_history(&self, tab: u64, offset: i32, _: &mut App) {
+        unsafe { bc::bc_tab_open_history(tab, offset) };
+    }
+
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
         unsafe { bc::bc_tab_reload(tab, bypass_cache) };
     }
@@ -4569,6 +4581,34 @@ unsafe extern "C" fn tab_favicon_changed(
     update_shells(|shell, cx| shell.set_favicon(tab, favicon.clone(), cx));
 }
 
+unsafe extern "C" fn tab_history(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    forward: bool,
+    entries: *const bc::bc_history_entry,
+    count: usize,
+) {
+    let entries = match count {
+        0 => &[][..],
+        _ => unsafe { std::slice::from_raw_parts(entries, count) },
+    };
+    let text = |text: *const c_char| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let pages: Vec<_> = (entries.iter())
+        .map(|entry| shell::HistoryPage {
+            offset: entry.offset,
+            url: text(entry.url).into(),
+            title: text(entry.title).into(),
+            favicon: (!entry.favicon.is_null()).then(|| {
+                let png = unsafe { std::slice::from_raw_parts(entry.favicon, entry.favicon_size) };
+                Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))
+            }),
+        })
+        .collect();
+    let way = if forward { "forward" } else { "back" };
+    log!("browser: history {tab} {way} {}", pages.len());
+    update_shells(|shell, cx| shell.show_history(tab, forward, pages.clone(), cx));
+}
+
 unsafe extern "C" fn archive_changed(
     _: *mut c_void,
     tabs: *const bc::bc_archived_tab,
@@ -5425,6 +5465,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_state_changed: Some(tab_state_changed),
         tab_title_changed: Some(tab_title_changed),
         tab_favicon_changed: Some(tab_favicon_changed),
+        tab_history: Some(tab_history),
         archive_changed: Some(archive_changed),
         page_favicon: Some(page_favicon),
         downloads_changed: Some(downloads_changed),

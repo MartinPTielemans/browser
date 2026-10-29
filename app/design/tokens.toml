@@ -435,6 +435,9 @@ pressed = 0x1614_0f2e
 # A Space's swatch in Move to (#320), before its name: its gradient, ringed by the palette's rule
 # for a swatch's ring (palette.rs) against the panel.
 swatch = 10.0
+# A page's favicon before its title in the back and forward buttons' menu of the tab's history
+# (#675), as Arc's and Chrome's show them: the engine's 16 pt favicon.
+favicon = 16.0
 
 [offer]
 width = 320.0

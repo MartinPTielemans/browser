@@ -7,8 +7,9 @@ use crate::command_bar::PLACEHOLDER_TEXT;
 use crate::site_controls::Place;
 
 use gpui::{
-    Bounds, Context, DispatchPhase, Div, Hsla, MouseButton, MouseDownEvent, NavigationDirection,
-    Pixels, SharedString, Stateful, Window, canvas, div, point, prelude::*, px, size, svg,
+    Bounds, ClickEvent, Context, DispatchPhase, Div, Hsla, MouseButton, MouseDownEvent, MouseUpEvent,
+    NavigationDirection, Pixels, SharedString, Stateful, Window, canvas, div, point, prelude::*, px,
+    size, svg,
 };
 
 use super::{
@@ -77,14 +78,43 @@ impl Shell {
                 }
             })
         });
+        // Back and forward list the tab's history that way, held or right-clicked (history.rs).
+        let lists = matches!(command, Command::Back | Command::Forward);
         // A dimmed one names itself too, as the system's tooltips do.
         self.with_tooltip(button, command, TipSide::Under, cx)
             .when(enabled, |button| {
                 button
                     .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
-                    .on_click(cx.listener(move |shell, _, _, cx| {
-                        shell.run(command, "sidebar", cx)
+                    .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                        shell.click_nav(command, event.modifiers(), cx)
                     }))
+                    .on_aux_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                        if let ClickEvent::Mouse(click) = event
+                            && click.up.button == MouseButton::Middle
+                        {
+                            shell.open_history(command, cx)
+                        }
+                    }))
+            })
+            .when(enabled && lists, |button| {
+                let release = |shell: &mut Shell, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Shell>| {
+                    shell.release_nav()
+                };
+                button
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.press_nav(command, event.position, cx)
+                        }),
+                    )
+                    .on_mouse_up(MouseButton::Left, cx.listener(release))
+                    .on_mouse_up_out(MouseButton::Left, cx.listener(release))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.ask_history(command == Command::Forward, event.position, cx)
+                        }),
+                    )
             })
             .child(glyph)
     }
