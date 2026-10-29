@@ -1,15 +1,15 @@
-# A tab in a call says so on its row, as Chrome's tab strip does: the camera while its page uses
-# the camera, the microphone alone, or the screen while it shares a screen, a window or a tab, and
-# the tab it shares shows the screen too. While it shares a tab, another tab's menu has Share This
-# Tab Instead, which moves the share there. The marks go once the call ends. A call floats in
-# Picture in Picture while its tab is hidden, and comes back with it, unless its Site Controls block
-# that, or Settings turns it off for the sites they don't allow. A tab playing music out of
-# sight has a player at the sidebar's foot, whose button pauses it, whose click shows the tab, and
-# whose × puts it away. View › Cast… and the page menu's Cast… open the tab's Cast card, and ×
-# closes it. Chromium's fake camera and microphone stand in for real ones, and the share takes the
-# tab titled Shared without its picker; the question for the camera is answered with Allow, as the
-# user would, since the fake question Chromium can put in its place never tells the browser what's
-# captured.
+# A tab in a call says so on its row, as Chrome's tab strip does: the camera while its page uses the
+# camera, the microphone alone, or the screen while it shares a screen, a window or a tab, and the
+# tab it shares shows the screen too. While it shares a tab, another tab's menu has Share This Tab
+# Instead, which moves the share there. The marks go once the call ends. A call floats in Picture in
+# Picture while its tab is hidden, and comes back with it, unless its Site Controls block that, or
+# Settings turns it off for the sites they don't allow. A tab playing music out of sight has a
+# player at the sidebar's foot, whose button pauses it, whose click shows the tab, and whose × puts
+# it away. View › Cast… and the page menu's Cast… open the tab's Cast card, and × closes it. A
+# video's page menu floats it in Picture in Picture. Chromium's fake camera and microphone stand in
+# for real ones, and the share takes the tab titled Shared without its picker; the question for the
+# camera is answered with Allow, as the user would, since the fake question Chromium can put in its
+# place never tells the browser what's captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
@@ -305,7 +305,43 @@ EOF
 else
   echo "skip: the Cast card on $(uname). Chrome looking for devices would ask for the network."
 fi
+
+# A video's page menu has Chrome's Picture in Picture, which floats the video; "x" in the page
+# brings it back. The video plays a canvas's colours, with no sound.
+printf '%s' '<title>loading</title><body style="margin:0;background:#333">
+<video id=v muted autoplay style="width:100vw;height:100vh"></video>
+<script>
+const canvas = Object.assign(document.createElement("canvas"), {width: 320, height: 180});
+const paint = canvas.getContext("2d");
+const frame = time => {
+  paint.fillStyle = `hsl(${time / 20 % 360} 50% 40%)`;
+  paint.fillRect(0, 0, 320, 180);
+  requestAnimationFrame(frame);
+};
+requestAnimationFrame(frame);
+v.srcObject = canvas.captureStream();
+v.onplaying = () => document.title = "playing";
+v.onenterpictureinpicture = () => document.title = "floating";
+v.onleavepictureinpicture = () => document.title = "landed";
+onkeydown = e => e.key == "x" && document.exitPictureInPicture();
+</script>' > "$out/site/video.html"
+send key t cmd
+expect '^browser: command bar shown$' "the command bar didn't open for the video"
+send type "${site}video.html"
+send key return
+expect "^browser: loaded [0-9]* ${site}video.html\$" "the video's page didn't load"
+v=$(grep "^browser: loaded [0-9]* ${site}video.html\$" "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: title $v playing\$" "the video didn't play"
+post rightclick $page_point
+expect "^browser: menu shown .*$(cased 'Picture in Picture')" \
+  "the video's menu had no Picture in Picture"
+../tools/window-screenshot.sh "$pid" "$out/video-menu.png" || fail "no window to capture"
+send choose "$(cased 'Picture in Picture')"
+expect "^browser: title $v floating\$" "the video menu's Picture in Picture didn't float the video"
+send click $page_point
+send key x
+expect "^browser: title $v landed\$" "the floating video didn't come back"
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture."
