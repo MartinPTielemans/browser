@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use super::{
-    COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
+    COPIED_TIME, ESCAPE_AGAIN, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
@@ -829,12 +829,16 @@ impl Shell {
             Command::ClearCookiesAndRefresh => {
                 return self.browser.clear_site(self.selected, true, cx);
             }
-            // Escape leaves full screen when there's no load to stop, as the note there says.
+            // In window full screen ⎋ stops a load, and otherwise a second press or a held key
+            // leaves, as Arc's does. The page's presses were counted before it had them.
             Command::Stop if self.full_screen && !self.page_fullscreen => {
-                if !self.page(self.selected).loading {
+                if self.page(self.selected).loading {
+                    return self.browser.stop(self.selected, cx);
+                }
+                if from != "page" && self.escape_again() {
                     return self.browser.press_window_button(WindowButton::Zoom, cx);
                 }
-                return self.browser.stop(self.selected, cx);
+                return;
             }
             Command::Stop => return self.browser.stop(self.selected, cx),
             Command::ActualSize => return self.browser.zoom(self.selected, 0, cx),
@@ -998,6 +1002,26 @@ impl Shell {
 
     /// Runs `command` for a key the page didn't keep, and returns whether it was used. With
     /// nothing to undo or redo, ⌘Z and ⇧⌘Z go on, for the Edit menu to give the page.
+    /// ⎋ is going down in the page, which has it first, as in Arc: in window full screen a second
+    /// press soon after the first, or a held key's repeat, leaves it instead. Returns whether it
+    /// did, and the page doesn't get the key.
+    pub fn escape_before_page(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.full_screen || self.page_fullscreen || !self.escape_again() {
+            return false;
+        }
+        log!("browser: command stop via page");
+        self.browser.press_window_button(WindowButton::Zoom, cx);
+        true
+    }
+
+    /// Whether ⎋ went down in window full screen a moment ago, and counts this press for the next.
+    fn escape_again(&mut self) -> bool {
+        let now = Instant::now();
+        let again = self.escaped.is_some_and(|then| now - then < ESCAPE_AGAIN);
+        self.escaped = (!again).then_some(now);
+        again
+    }
+
     pub fn run_for_page(&mut self, command: Command, cx: &mut Context<Self>) -> bool {
         self.hide_hover(cx);
         let done = match command {

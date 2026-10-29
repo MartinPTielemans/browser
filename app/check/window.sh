@@ -7,7 +7,7 @@
 # again after. A full-screen window's display going away keeps the window and the page together,
 # both full screen or both out, and escape and the page's full screen work after; going away while
 # the page takes the window full screen leaves both windowed. The footer's menu
-# flips up at the screen's bottom in full screen.
+# flips up at the screen's bottom in full screen, and a second escape leaves it.
 # The command bar opens in full screen and keeps the keyboard when a page commits under it, then
 # gives the keyboard to the new page, and scrolling a long page doesn't stutter. Dragging the
 # window's background moves the window, and the buttons, URL field and rows keep their presses. A
@@ -246,8 +246,14 @@ expect '^browser: menu closed$' "escape didn't close the +'s menu in full screen
 send click $page_point
 send state
 in_browser RenderWidgetHostViewCocoa "after a click on the page under the closed +'s menu"
-send fullscreen
-expect '^browser: window left full screen$' "the window didn't leave full screen"
+# ⎋ goes to the page first, which hands it back, and a second press soon after leaves full screen,
+# as Arc's does.
+send key escape
+expect '^browser: command stop via page$' "escape in full screen didn't come back from the page"
+send key escape
+sed -n "/^browser: drive $((step - 1)): /,/^browser: drive $step: /p" "$log" |
+  grep -q '^browser: full screen exit will ' && fail "the first escape took the window out of full screen"
+expect '^browser: window left full screen$' "a second escape didn't take the window out of full screen"
 check_layout "after full screen"
 check_buttons "after full screen"
 

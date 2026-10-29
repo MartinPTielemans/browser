@@ -8,7 +8,7 @@ use gpui::{
     AppContext, Bounds, Entity, Pixels, Size, TestAppContext, VisualTestContext, point, px, size,
 };
 
-use crate::shell::{Command, Folders, Shell, recorder::Recorder};
+use crate::shell::{Command, ESCAPE_AGAIN, Folders, Shell, recorder::Recorder};
 
 /// Spaces 1 and 2, with tabs 10 and 20, Space 1 shown.
 fn two_spaces(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
@@ -51,18 +51,48 @@ fn the_note_shows_again_for_each_space_in_full_screen(cx: &mut TestAppContext) {
     assert!(notes(&host).is_empty());
 }
 
+const ZOOM: &str = "window button zoom";
+
 #[gpui::test]
-fn escape_leaves_full_screen_when_nothing_loads(cx: &mut TestAppContext) {
+fn a_second_escape_leaves_full_screen(cx: &mut TestAppContext) {
     let (shell, host) = two_spaces(cx);
     shell.update(cx, |shell, cx| shell.set_full_screen(true, cx));
     host.take();
     shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
-    assert_eq!(host.take(), ["window button zoom"]);
+    assert!(!host.take().contains(&ZOOM.to_string()), "one press left full screen");
+    shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
+    assert_eq!(host.take(), [ZOOM]);
+
+    // Pressed again too late, it counts as a first press.
+    shell.update(cx, |shell, cx| {
+        shell.run(Command::Stop, "ui", cx);
+        shell.escaped = shell.escaped.map(|then| then - ESCAPE_AGAIN);
+        shell.run(Command::Stop, "ui", cx);
+    });
+    assert!(!host.take().contains(&ZOOM.to_string()), "a slow second press left full screen");
+
     shell.update(cx, |shell, cx| {
         shell.set_full_screen(false, cx);
         shell.run(Command::Stop, "ui", cx);
+        shell.run(Command::Stop, "ui", cx);
     });
-    assert!(!host.take().contains(&"window button zoom".to_string()));
+    assert!(!host.take().contains(&ZOOM.to_string()));
+}
+
+/// The page has the first press, and the browser takes the second before the page can.
+#[gpui::test]
+fn the_page_has_the_first_escape(cx: &mut TestAppContext) {
+    let (shell, host) = two_spaces(cx);
+    shell.update(cx, |shell, cx| shell.set_full_screen(true, cx));
+    host.take();
+    let first = shell.update(cx, |shell, cx| shell.escape_before_page(cx));
+    assert!(!first, "the browser took the page's first ⎋");
+    // The page didn't use it, and hands it back.
+    shell.update(cx, |shell, cx| shell.run(Command::Stop, "page", cx));
+    assert!(!host.take().contains(&ZOOM.to_string()), "one press left full screen");
+    let second = shell.update(cx, |shell, cx| shell.escape_before_page(cx));
+    assert!(second, "the browser left the second ⎋ to the page");
+    assert_eq!(host.take(), [ZOOM]);
 }
 
 const WINDOWED: Size<Pixels> = size(px(1000.), px(700.));
