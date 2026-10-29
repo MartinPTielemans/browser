@@ -8,6 +8,12 @@
 # picture. ⌘Q keeps the sidebar's picture, which both the launch without a link and the one with it
 # show. Reports the launch times from the process's start, without a link and with one.
 
+# Off the Mac the core hears no links from other apps: its hook is in Chrome's app controller,
+# which only the Mac has.
+if [ "$(uname)" = Linux ]; then
+  echo "skip: links from other apps: Linux's core passes another launch's links to no tab yet"
+  exit 0
+fi
 serve
 log="$out/links.log"
 step=0
