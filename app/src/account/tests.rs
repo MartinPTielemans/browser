@@ -60,6 +60,10 @@ impl Host for Recorder {
         !self.refuse.get()
     }
 
+    fn start_over(&self) {
+        self.record("start over");
+    }
+
     fn request_pairing(&self) {
         self.record("request pairing");
     }
@@ -290,6 +294,22 @@ fn the_recovery_words_instead(cx: &mut TestAppContext) {
     tab.set(state(Status::On));
     assert!(tab.account.read_with(tab.cx, |account, _| account.entering.is_none()));
     assert_eq!(tab.host.take(), ["read devices"]);
+}
+
+/// Someone with neither another device nor the words starts over from where the words are typed,
+/// once they confirm, and the account's first device again shows its new words.
+#[gpui::test]
+fn start_over_asks_then_shows_new_words(cx: &mut TestAppContext) {
+    let mut tab = shown(state(Status::NeedsSecret), cx);
+    tab.click("use-words");
+    tab.host.take();
+    tab.click("start-over");
+    assert_eq!(tab.host.take(), ["ask Start sync over? Start Over"], "nothing goes until confirmed");
+    tab.confirm();
+    assert_eq!(tab.host.take(), ["start over"]);
+    tab.set(state(Status::FirstDevice));
+    assert!(tab.showing_words());
+    assert!(tab.account.read_with(tab.cx, |account, _| account.entering.is_none()));
 }
 
 /// Back from the field goes back to waiting for another device, which the user asks for again.

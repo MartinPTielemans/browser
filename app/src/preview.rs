@@ -1805,6 +1805,7 @@ impl account::Host for PreviewAccount {
     fn enter_recovery_words(&self, _: &str) -> bool {
         true
     }
+    fn start_over(&self) {}
     fn request_pairing(&self) {}
     fn read_devices(&self) {}
     fn remove_device(&self, _: &str) {}

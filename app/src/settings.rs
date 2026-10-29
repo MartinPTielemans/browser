@@ -361,6 +361,10 @@ impl account::Host for CoreAccount {
         unsafe { bc::bc_sync_enter_recovery_words(words.as_ptr()) }
     }
 
+    fn start_over(&self) {
+        unsafe { bc::bc_sync_start_over() }
+    }
+
     fn request_pairing(&self) {
         unsafe { bc::bc_sync_request_pairing() };
     }

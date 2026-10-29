@@ -100,6 +100,8 @@ pub trait Host {
     fn recovery_words(&self) -> String;
     /// False if `words` aren't 24 words of the list.
     fn enter_recovery_words(&self, words: &str) -> bool;
+    /// Deletes what the account syncs on the server and makes this its first device again.
+    fn start_over(&self);
     fn request_pairing(&self);
     fn read_devices(&self);
     fn remove_device(&self, id: &str);
@@ -232,6 +234,7 @@ impl Account {
                 self.entering = None;
                 self.words = None;
             }
+            Status::FirstDevice => self.entering = None,
             Status::On if matches!(was, Status::NeedsSecret | Status::Pairing) => {
                 self.entering = None;
             }
@@ -396,6 +399,22 @@ impl Account {
         );
     }
 
+    /// Starts the account over, once the user confirms, for someone with neither another device
+    /// nor the words: the core then makes new words, which show as on a first device.
+    fn start_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let host = self.host.clone();
+        self.host.confirm(
+            "Start sync over?".into(),
+            "This deletes your synced data on the server and starts sync again. What's on this \
+             device stays."
+                .into(),
+            "Start Over",
+            Box::new(move |_| host.start_over()),
+            window,
+            cx,
+        );
+    }
+
     /// Shows the words again, once the user confirms, as anyone who sees them can read what
     /// syncs.
     fn show_recovery_words(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -435,6 +454,24 @@ impl Account {
             .on_click(cx.listener(move |account, _, window, cx| clicked(account, window, cx)))
     }
 
+    /// A quiet link in a line of small grey text, brightening under the pointer, that records where
+    /// it's drawn, by `name`.
+    fn link(
+        &self,
+        name: &'static str,
+        title: &'static str,
+        cx: &mut Context<Self>,
+        clicked: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(name)
+            .relative()
+            .hover(|link| link.text_color(rgb(TEXT)))
+            .child(title)
+            .child(self.place(name.into()))
+            .on_click(cx.listener(move |account, _, window, cx| clicked(account, window, cx)))
+    }
+
     /// Records where what it's in is drawn, by `name`.
     fn place(&self, name: String) -> impl IntoElement + use<> {
         let drawn = self.drawn.clone();
@@ -471,17 +508,9 @@ impl Account {
                     .text_color(rgb(DETAIL))
                     .child(format!("Server: {name} · "))
                     .when(!signing_in, |row| {
-                        row.child(
-                            div()
-                                .id("change-server")
-                                .relative()
-                                .hover(|link| link.text_color(rgb(TEXT)))
-                                .child("Change…")
-                                .child(self.place("change-server".into()))
-                                .on_click(cx.listener(|account, _, _, cx| {
-                                    account.change_server(cx)
-                                })),
-                        )
+                        row.child(self.link("change-server", "Change…", cx, |account, _, cx| {
+                            account.change_server(cx)
+                        }))
                     })
             }
         };
@@ -601,6 +630,18 @@ impl Account {
                         }))
                         .child(self.button("continue", "Continue", cx, |account, _, cx| {
                             account.keep_words(cx)
+                        })),
+                )
+                .child(
+                    div()
+                        .mt(px(BUTTONS_TOP))
+                        .pl(px(PADDING))
+                        .flex()
+                        .text_size(px(text::SMALL))
+                        .text_color(rgb(DETAIL))
+                        .child("Lost your devices and words? ")
+                        .child(self.link("start-over", "Start over…", cx, |account, window, cx| {
+                            account.start_over(window, cx)
                         })),
                 );
         }
