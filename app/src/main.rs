@@ -2396,6 +2396,10 @@ impl Browser for Engine {
         with_overlays(move |cx| command_bar::show(editing, tabs, field, cx), cx);
     }
 
+    fn search_tabs(&self, tabs: Vec<BarTab>, cx: &mut App) {
+        with_overlays(move |cx| command_bar::show_tabs(tabs, cx), cx);
+    }
+
     fn command_bar_open(&self, cx: &App) -> bool {
         command_bar::is_open(cx)
     }
@@ -3810,6 +3814,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "Tabs",
             vec![
                 item("New Tab…", Command::NewTab),
+                item("Search Tabs…", Command::SearchTabs),
                 item(bar.pin_title(), Command::TogglePin),
                 item("New Folder…", Command::NewFolder),
                 MenuItem::separator(),

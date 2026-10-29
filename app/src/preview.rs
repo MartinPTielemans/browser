@@ -696,6 +696,9 @@ impl Browser for Fake {
         });
     }
 
+    // No command bar here, as for a new tab.
+    fn search_tabs(&self, _: Vec<BarTab>, _: &mut App) {}
+
     // The made-up pages have nothing to find.
     fn find(&self, _: u64, _: &mut App) {}
 

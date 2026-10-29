@@ -4,7 +4,8 @@
 # one shown, and well-known sites under them. An open tab whose name the typing starts is the first
 # row. ↩ or a click on a tab's row shows that tab without opening one. Typing at the end completes
 # the text to the first row's page, and ↩ goes there. ⌘L opens the bar centred and a click on the
-# URL field over the field. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs. ⌃Tab, with the page or the
+# URL field over the field. ⇧⌘A opens it for Search Tabs, listing the open tabs alone, which typing
+# filters, and ↩ switches to the one left. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs. ⌃Tab, with the page or the
 # UI focused, shows the tab shown before, and with ⌃ held goes on back through the tabs in the order
 # they were shown, and ⌃⇧Tab the other way, until ⌃ goes up or a click. A tab a page opens goes
 # under it and closing it goes back there, and ⌘W otherwise shows the tab below, or above at the
@@ -158,6 +159,27 @@ send key return
 expect "^browser: command bar switch to tab $b\$" "↩ didn't switch to the tab the completion's page is open in"
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" "↩ on the completion didn't show its tab"
 [ "$(today)" = "$c $b $a" ] || fail "switching to the completion's tab changed Today to \"$(today)\""
+# ⇧⌘A opens Search Tabs on the Space's tabs but the one shown, $1 and $2, those shown last first.
+# "exa" names only $1, at example.com or example.org, where ↩ switches to it. It reaches the
+# browser via $3, the page or the UI, which has the keyboard.
+search_tabs() {
+  send key a shift cmd
+  expect "^browser: command search-tabs via $3\$" "⇧⌘A with $3 focused didn't run Search Tabs"
+  expect "^browser: command bar searches tabs $1 $2\$" \
+    "Search Tabs didn't list tabs $1 and $2: $(grep '^browser: command bar searches tabs' "$log" | tail -1)"
+  expect '^browser: command bar shown$' "⇧⌘A didn't show the command bar"
+  send type exa
+  expect "^browser: command bar finds tabs \"exa\": $1\$" \
+    "Search Tabs didn't keep tab $1 alone for \"exa\": $(grep '^browser: command bar finds tabs' "$log" | tail -1)"
+  [ "$1" != "$c" ] || ../tools/window-screenshot.sh "$pid" "$out/search-tabs.png" || fail "no window to capture"
+  send key return
+  expect "^browser: command bar switch to tab $1\$" "↩ in Search Tabs didn't switch to tab $1"
+  expect "^browser: selected $1\( in .*\)\{0,1\}\$" "↩ in Search Tabs didn't show tab $1"
+  [ "$(today)" = "$c $b $a" ] || fail "Search Tabs changed Today to \"$(today)\""
+}
+send click $page_point
+search_tabs "$c" "$a" page
+search_tabs "$b" "$a" '[a-z]*'
 # A click on the URL field opens the bar on the tab's URL over the field, as Arc's does: 350 wide,
 # its left at the field's and its top 2 above the field's, where ⌘L's is centred.
 send click 100 64
@@ -647,6 +669,6 @@ chrome_ms=$(echo "$spans" | grep -v incomplete | summary)
 [ -n "$chrome_ms" ] || fail "the trace has no finished tab switches"
 # grep -c finds none in a run where no switch was cut off, and exits 1 then.
 chrome_ms="$chrome_ms, $(echo "$spans" | grep -c incomplete || true) incomplete, not counted"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, ⇧⌘A lists the open tabs alone, typing filters them and ↩ switches, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/search-tabs.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"

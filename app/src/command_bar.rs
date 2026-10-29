@@ -80,6 +80,8 @@ use crate::tokens::command_bar::ARROW_TILE;
 use crate::tokens::command_bar::CHIP_RADIUS;
 use crate::tokens::text;
 pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
+/// What its input says for Search Tabs (ours, after the command's name).
+const TABS_PLACEHOLDER: &str = "Search Tabs…";
 
 /// One of the core's suggestions for what's typed.
 #[derive(Default)]
@@ -164,6 +166,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ReopenClosedTab => "icons/undo-2.svg",
         Command::CopyUrl | Command::CopyMarkdownLink => "icons/link.svg",
         Command::Find => "icons/text-search.svg",
+        Command::SearchTabs => "icons/search.svg",
         Command::SiteControls => "icons/sliders-horizontal.svg",
         Command::Back => "icons/arrow-left.svg",
         Command::Forward => "icons/arrow-right.svg",
@@ -279,6 +282,8 @@ enum Target {
     Tab(u64),
     /// A new tab, in a split view with this one, on its right.
     Beside(u64),
+    /// None: Search Tabs only switches to one of its tabs.
+    Tabs,
 }
 
 pub struct CommandBar {
@@ -464,6 +469,18 @@ pub fn show(
     }
 }
 
+/// Shows the command bar centred and empty for Search Tabs, listing `tabs` alone, as many as it
+/// lists rows, and then those that what's typed names.
+pub fn show_tabs(tabs: Vec<shell::BarTab>, cx: &mut App) {
+    // check.sh reads these lines.
+    let ids: Vec<String> =
+        tabs.iter().take(shell::BAR_ROWS).map(|tab| tab.tab.to_string()).collect();
+    log!("browser: command bar searches tabs {}", ids.join(" "));
+    if let Some(host) = reset(Target::Tabs, SharedString::default(), tabs, false, cx) {
+        host.show(true, 0., ABOVE_MIDDLE, WIDTH, RADIUS);
+    }
+}
+
 /// Shows the command bar, empty, over `pane`, a split view's new pane in the card at `card`, for
 /// a page to show there beside `with`. It's centred over the pane, as far into the card as it
 /// needs to be, and as far down the pane as it opens down the window for a new tab.
@@ -511,6 +528,11 @@ fn reset(
                 bar.host.page_favicon(&bar.page);
             }
             bar.site_left(cx);
+            let placeholder = match target {
+                Target::Tabs => TABS_PLACEHOLDER,
+                _ => PLACEHOLDER_TEXT,
+            };
+            bar.input.update(cx, |input, cx| input.set_placeholder(placeholder.into(), cx));
             bar.asked = text.to_string();
             bar.complete = false;
             bar.completion.clear();
@@ -585,8 +607,8 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
     };
     window
         .update(cx, |bar, window, cx| {
-            // Older text's come after the bar has asked about newer.
-            if text != bar.request() {
+            // Older text's come after the bar has asked about newer, and Search Tabs asks for none.
+            if text != bar.request() || matches!(bar.target, Target::Tabs) {
                 return;
             }
             // check.sh reads these lines.
@@ -696,6 +718,9 @@ impl CommandBar {
         {
             return;
         }
+        if matches!(self.target, Target::Tabs) {
+            return self.name_tabs(text, window, cx);
+        }
         // Chrome completes only typing at the end: not a deletion, a paste, or with the caret
         // elsewhere, and not in a site search.
         let deleted = text.len() < length && selection.start <= start;
@@ -736,6 +761,23 @@ impl CommandBar {
         self.show_completion(completion, window, cx);
         let site = self.site.as_ref().map(|site| site.keyword.as_str());
         self.host.suggest(site, &self.asked, complete);
+    }
+
+    /// Lists the tabs a word of whose title or site starts with `text`, in their order, or with
+    /// nothing typed all of them, as many as the bar lists rows.
+    fn name_tabs(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = text.trim().to_lowercase();
+        let rows: Vec<Suggestion> = (self.tabs.iter())
+            .filter(|tab| typed.is_empty() || names_tab(tab, &typed))
+            .take(shell::BAR_ROWS)
+            .cloned()
+            .map(Suggestion::from)
+            .collect();
+        // check.sh reads this line.
+        let ids: Vec<String> = rows.iter().map(|row| row.tab.to_string()).collect();
+        log!("browser: command bar finds tabs \"{typed}\": {}", ids.join(" "));
+        self.asked = text.clone();
+        self.set_rows(text, rows, window, cx);
     }
 
     /// What the core was last asked for, as its suggestions name it: what was typed, after the
@@ -832,8 +874,10 @@ impl CommandBar {
 
     /// Where ↩ goes for `text` before its suggestions come: the page it names, else a search for
     /// it, or in a site search, a search with that site's engine.
+    /// None for Search Tabs, which goes nowhere but its tabs.
     fn typed_url(&self, text: &str) -> Option<String> {
         match &self.site {
+            _ if matches!(self.target, Target::Tabs) => None,
             Some(site) => self.host.search_url(Some(&site.keyword), text),
             None => self.host.typed_url(text),
         }
@@ -1034,6 +1078,9 @@ impl CommandBar {
     /// Paste and Search: searches for the clipboard's text, even if it names a page, as ⇧⌘↩
     /// does for what's typed.
     fn paste_and_search(&mut self, _: &PasteAndSearch, _: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.target, Target::Tabs) {
+            return;
+        }
         let site = self.site.as_ref().map(|site| site.keyword.as_str());
         if let Some(url) = pasted(cx).and_then(|text| self.host.search_url(site, &text)) {
             self.go_to(&url, cx);
@@ -1062,12 +1109,12 @@ impl CommandBar {
         }
     }
 
-    /// Whether ↩'s row is a command or a sum, or the bar is over a new pane, where the keys that
-    /// open a page elsewhere take what ↩ takes.
+    /// Whether ↩'s row is a command or a sum, or the bar is over a new pane or for Search Tabs,
+    /// where the keys that open a page elsewhere take what ↩ takes.
     fn takes_in_place(&self) -> bool {
         let command =
             self.chosen().is_some_and(|row| row.command.is_some() || row.result.is_some());
-        command || matches!(self.target, Target::Beside(_))
+        command || matches!(self.target, Target::Beside(_) | Target::Tabs)
     }
 
     /// The page ↩ goes to: its row's, a tab's row's too, else the one what's typed names.
@@ -1104,7 +1151,7 @@ impl CommandBar {
     fn dot_com(&self, cx: &App) -> Option<String> {
         let typed = self.typed(cx);
         let word = !typed.is_empty() && typed.chars().all(|c| c.is_alphanumeric() || c == '-');
-        let word = word && self.site.is_none();
+        let word = word && self.site.is_none() && !matches!(self.target, Target::Tabs);
         word.then(|| self.host.typed_url(&format!("www.{typed}.com"))).flatten()
     }
 
@@ -1130,8 +1177,12 @@ impl CommandBar {
         }
     }
 
-    /// ⇧⌘↩: searches for what was typed, even if it names a page, where ↩ goes (Dia).
+    /// ⇧⌘↩: searches for what was typed, even if it names a page, where ↩ goes (Dia). Search Tabs
+    /// searches only its tabs.
     fn search(&mut self, _: &Search, _: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.target, Target::Tabs) {
+            return;
+        }
         let typed = self.typed(cx);
         let site = self.site.as_ref().map(|site| site.keyword.as_str());
         if let Some(url) = self.host.search_url(site, &typed).filter(|_| !typed.is_empty()) {
@@ -1151,11 +1202,12 @@ impl CommandBar {
     }
 
     /// ⌥↩: goes where ↩ would, in a new tab in a split view with the tab shown, or the tab the
-    /// bar edits, on its right (Arc).
+    /// bar edits, on its right (Arc). For Search Tabs it's ↩.
     fn go_beside(&mut self, _: &GoBeside, window: &mut Window, cx: &mut Context<Self>) {
         let with = match self.target {
             Target::Tab(tab) | Target::Beside(tab) => tab,
             Target::NewTab => shell::shown_tab(cx),
+            Target::Tabs => 0,
         };
         if with != 0 {
             self.target = Target::Beside(with);
@@ -1166,7 +1218,7 @@ impl CommandBar {
     /// Shows `url` where the bar shows the page chosen.
     fn show_page(&self, url: &str, cx: &mut App) {
         match self.target {
-            Target::NewTab => self.host.open_tab(url, false),
+            Target::NewTab | Target::Tabs => self.host.open_tab(url, false),
             Target::Tab(tab) => self.host.navigate(tab, url),
             Target::Beside(with) => self.host.open_split(url, with, cx),
         }
@@ -1190,8 +1242,8 @@ impl CommandBar {
         // check.sh reads these lines.
         if let Some(command) = row.command {
             log!("browser: command bar runs {}", row.text);
-            use shell::Command::{AddSplit, EditUrl, NewTab};
-            if !matches!(command, NewTab | EditUrl | AddSplit) {
+            use shell::Command::{AddSplit, EditUrl, NewTab, SearchTabs};
+            if !matches!(command, NewTab | SearchTabs | EditUrl | AddSplit) {
                 self.close();
                 shell::run_from_bar(command, cx);
                 return;
@@ -1301,9 +1353,14 @@ impl CommandBar {
         }
     }
 
-    /// The Space's tabs, as rows, which the bar lists before anything is typed.
+    /// The Space's tabs, as rows, which the bar lists before anything is typed, and for Search
+    /// Tabs as many as it lists rows.
     fn tab_rows(&self) -> Vec<Suggestion> {
-        self.tabs.iter().take(shell::BAR_TABS_SHOWN).cloned().map(Suggestion::from).collect()
+        let shown = match self.target {
+            Target::Tabs => shell::BAR_ROWS,
+            _ => shell::BAR_TABS_SHOWN,
+        };
+        self.tabs.iter().take(shown).cloned().map(Suggestion::from).collect()
     }
 
     /// The input's icon: the search glyph, or once something is typed, the selected row's, as
