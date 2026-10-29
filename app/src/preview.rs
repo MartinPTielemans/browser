@@ -1069,6 +1069,7 @@ impl command_bar::Host for PreviewBar {
     fn open_tab(&self, _: &str, _: bool) {}
     fn open_window(&self, _: &str, _: &mut App) {}
     fn navigate(&self, _: u64, _: &str) {}
+    fn reload(&self, _: u64) {}
     fn select(&self, _: u64) {}
     fn tab_window(&self, _: u64) -> Option<u64> {
         None

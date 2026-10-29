@@ -1362,6 +1362,10 @@ impl command_bar::Host for Bar {
         }
     }
 
+    fn reload(&self, tab: u64) {
+        unsafe { bc::bc_tab_reload(tab, false) };
+    }
+
     fn select(&self, tab: u64) {
         unsafe { bc::bc_window_select(front().0, tab) };
     }
