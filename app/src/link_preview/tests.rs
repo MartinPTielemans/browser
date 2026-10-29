@@ -244,6 +244,35 @@ fn redo_closes_it_over_its_tab(cx: &mut TestAppContext) {
     assert_eq!(shown.calls(), ["release", "hide", "close 7", &format!("{CLOSED} undone")]);
 }
 
+/// A call's link opens as a tab, and the same sites' other pages preview.
+#[test]
+fn meeting_links_are_known_by_site_and_path() {
+    for url in [
+        "https://meet.google.com/abc-defg-hij",
+        "http://meet.google.com:8080/abc-defg-hij?authuser=1",
+        "https://us02web.zoom.us/j/123456789?pwd=x",
+        "https://zoom.us/my/someone",
+        "https://teams.microsoft.com/l/meetup-join/19%3ameeting/0",
+        "https://teams.live.com/meet/9876",
+        "https://acme.webex.com/meet/someone",
+        "https://whereby.com/room",
+        "https://meet.jit.si/SomeRoom",
+    ] {
+        assert!(is_meeting(url), "{url}");
+    }
+    for url in [
+        "https://meet.google.com/",
+        "https://zoom.us/pricing",
+        "https://teams.microsoft.com/",
+        "https://www.webex.com/pricing",
+        "https://example.com/meet.google.com/abc",
+        "https://notzoom.us/j/1",
+        "https://www.google.com/search?q=meet.google.com",
+    ] {
+        assert!(!is_meeting(url), "{url}");
+    }
+}
+
 /// A second link's preview takes the place of the first, whose page closes at once.
 #[gpui::test]
 fn a_second_preview_takes_the_firsts_place(cx: &mut TestAppContext) {
