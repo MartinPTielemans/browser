@@ -322,7 +322,10 @@ source_set("browser_core") {
       "platform/win/keyboard.cc",
       "platform/win/window_views.cc",
     ]
-    deps += [ "//ui/base/ime" ]
+    deps += [
+      "//chrome/installer/util:with_no_strings",
+      "//ui/base/ime",
+    ]
   } else {
     sources += [ "platform/native_hosts_posix.cc" ]
   }
