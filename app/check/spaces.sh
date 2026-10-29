@@ -14,7 +14,9 @@
 # shows New Tab before them; an emoji committed after Change Icon…
 # is the Space's icon, in its dot's place, until Remove Icon. Rename, the Spaces
 # menu's too, and a double-click on the name, turn it into a field, where a right-click shows the
-# field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs,
+# field's menu, return keeps the name and escape cancels. A Library card's brush opens the theme
+# picker, which makes the Space light and dark, and a click on the card's name makes it a field in
+# the card, the Library staying open. Delete asks first for a Space with tabs,
 # in a dialog that a click around cancels and return confirms, and the Space goes once the dialog
 # has, which a toast says. ⌘Z brings it back where it was, with its name and tabs. Its tabs close
 # with it and reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space
@@ -297,22 +299,66 @@ expect "^browser: library resized $spaces_wide\$" "the Library didn't settle at 
 # A right-click on the second card, 404 in and half its 240 wide, shows that Space's menu, with
 # the colour it was given, and leaves the Library open on the Space shown.
 post rightclick 524 $((${content#*x} / 2))
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
   "a right-click on the second Space's card didn't show its menu"
 none_since '^browser: library space ' || fail "a right-click on a card showed its Space"
 send dismiss
+# The card's field is 8 in from its sides and 36 tall around the middle of its name's row, 33
+# down. Its brush, 4 in from the field's end, opens the theme picker for the Space, where the
+# second gets its light and its dark appearance in turn, and then automatic again. The window
+# stays dark whatever the appearance until the app has a light look (docs/ux-spec.md › Themes), so
+# one capture shows the card's field. The Library opens again with ⇧⌘L. $1 is the appearance and
+# $2 its button's x in the picker's window, which holds the 13 wide arrow left of the card.
+card_y=$((48 + 33))
+appear() {
+  send click $((404 + 240 - 8 - 4 - 14)) $card_y
+  expect "^browser: theme picker for $second\$" "the second card's brush didn't open the theme picker"
+  expect '^browser: library hidden$' "the brush's theme picker didn't close the Library"
+  expect '^browser: theme picker drawn$' "the brush's theme picker didn't draw itself on screen"
+  send clickkey $2 49
+  expect "^browser: themed space $second .* appearance=$1\$" "the picker didn't make the Space $1"
+  send key escape
+  expect '^browser: theme picker hidden$' "escape didn't hide the brush's theme picker"
+}
+# A click on the second card's name, past its icon's slot, makes the name a field there with the
+# keyboard, leaving the Library open and the Space where it was, and escape puts the name back.
+# $1 is the capture's name.
+rename_card() {
+  send key l cmd shift
+  expect '^browser: library shown$' "⇧⌘L didn't open the Library again"
+  send click $((404 + 8 + 6 + 24 + 6 + 20)) $card_y
+  expect "^browser: rename space $second in library\$" "a click on the card's name didn't edit it"
+  none_since '^browser: library space ' || fail "a click on a card's name showed its Space"
+  none_since '^browser: library hidden$' || fail "a click on a card's name closed the Library"
+  send type play
+  ../tools/window-screenshot.sh "$pid" "$out/$1" || fail "no window to capture"
+  send key escape
+  expect '^browser: rename cancelled$' "escape didn't put the card's name back"
+  none_since '^browser: renamed space ' || fail "escape in a card's name renamed the Space"
+  none_since '^browser: library hidden$' || fail "escape in a card's name closed the Library"
+}
+appear light 191.3
+send key l cmd shift
+expect '^browser: library shown$' "⇧⌘L didn't open the Library again"
+appear dark 231.7
+rename_card library-rename.png
+appear automatic 150.9
+send key 1 ctrl
+expect "^browser: space $first in " "⌃1 didn't show the first Space after the card's theme"
+send key l cmd shift
+expect '^browser: library shown$' "⇧⌘L didn't open the Library again"
 library_to "wheel $swipe_point -1" wheel hidden
 
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
 post rightclick $(row 0)
-expect "^browser: menu shown Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1 (checked), Move to › reading 日本語, Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)\$" "the tab's menu didn't offer the other Space"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1 (checked), Move to › reading 日本語, Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" "the tab's menu didn't offer the other Space"
 send choose reading 日本語
 expect '^browser: command move-to-space via tab menu$' "Move to didn't run"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to didn't show the tab's new Space"
 expect_tabs "$a $b" "$a" "after Move to"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 post rightclick $(row 0)
-expect "^browser: menu shown Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1, Move to › reading 日本語 (checked), Move to › New Space…, Archive Tab, Archive Tabs Below\$" "the moved tab's menu didn't offer the first Space"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1, Move to › reading 日本語 (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "the moved tab's menu didn't offer the first Space"
 send choose Space 1
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
 expect_tabs "$a" "$a" "after moving the tab back"
@@ -343,7 +389,7 @@ post key 2 ctrl
 slide=$step
 expect_soon "^browser: space $second in " "⌃2 didn't show the second Space"
 post rightclick 12 $(row 0 | cut -d' ' -f2)
-expect '^browser: menu shown Copy Link, ' "a right-click while the second Space's rows slid in showed no menu"
+expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click while the second Space's rows slid in showed no menu"
 # Settled before the menu showed, and the press came too late to be a test of the slide.
 sed -n "/^browser: drive $slide: /,\$p" "$log" |
   awk '/^browser: settled space/ { late = 1 } /^browser: menu shown/ { exit late }' ||
@@ -380,7 +426,7 @@ none_since '^browser: create space' || fail "return with no name named the Space
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 # The footer's + offers New Space… and New Folder…, 8 in from the sidebar's edge.
 post click 204 $((${content#*x} - 25))
-expect '^browser: menu shown New Space…, New Folder…$' \
+expect "^browser: menu shown $(cased 'New Space…, New Folder…')\$" \
   "the footer's + didn't offer New Space… and New Folder…"
 send choose New Space…
 expect '^browser: command new-space via footer$' "New Space… in the +'s menu didn't run"
@@ -441,10 +487,10 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 # A right-click on the sidebar's empty space, three rows under the Space's one Today row, shows
 # New Tab and the Space's menu, and New Tab opens the command bar, as ⌘T does.
 post rightclick $(row 3)
-expect "^browser: menu shown New Tab, Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "New Tab, Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "a right-click under the Space's rows didn't show New Tab and the Space's menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-empty-menu.png" || fail "no window to capture"
-send choose New Tab
+send choose "$(cased 'New Tab')"
 expect '^browser: command new-tab via sidebar$' "New Tab in the empty space's menu didn't run new-tab"
 expect '^browser: command bar shown$' "New Tab in the empty space's menu didn't open the command bar"
 send key escape
@@ -453,7 +499,7 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar New 
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "a right-click on the Space's name didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
 send choose Rename Space
@@ -467,10 +513,10 @@ send doubleclick $name_point
 expect "^browser: rename space $first\$" "a double-click on the Space's name didn't open its field"
 # A right-click in the field shows the field's menu, not the Space's, and the field stays.
 post rightclick $name_point
-expect '^browser: menu shown Cut, Copy, Paste, Select All$' \
+expect "^browser: menu shown $(cased 'Cut, Copy, Paste, Select All')\$" \
   "a right-click in the name's field didn't show the field's menu"
 none_since '^browser: menu shown Rename Space' || fail "the right-click showed the Space's menu too"
-send choose Select All
+send choose "$(cased 'Select All')"
 send type gone
 send key escape
 expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
@@ -486,9 +532,9 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # its clicks go to the key window, in points from its top left. Escape closes it with no change,
 # and the menu offers Remove Icon only once there is an icon.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "a right-click on the Space's name didn't offer Change Icon…"
-send choose Change Icon…
+send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for $first on icon\$" "Change Icon… didn't open the icon picker"
 expect '^browser: icon picker shown$' "the icon picker didn't show"
 at=$(grep '^browser: icon picker at' "$log" | tail -1 | cut -d' ' -f5-)
@@ -499,9 +545,9 @@ send key escape
 expect '^browser: icon picker hidden$' "escape didn't close the icon picker"
 none_since '^browser: iconed space' || fail "escape in the icon picker gave the Space an icon"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "a right-click on the Space's name offered Remove Icon without an icon"
-send choose Change Icon…
+send choose "$(cased 'Change Icon…')"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
 ../tools/window-screenshot.sh "$pid" "$out/space-icon-picker.png" || fail "no window to capture"
 # A click on a glyph is the Space's icon at once and closes the picker: the bolt, fifth in the first
@@ -529,9 +575,9 @@ expect '^browser: icon picker hidden$' "an emoji picked on the Emoji tab didn't 
 # For a Space with an emoji, the picker opens on the Emoji tab, and its trash, after Emoji | Icon,
 # takes the icon away.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
-Delete Space\$" "a right-click on the Space's name didn't offer Remove Icon"
-send choose Change Icon…
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
+Delete Space")\$" "a right-click on the Space's name didn't offer Remove Icon"
+send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for $first on emoji\$" \
   "Change Icon… didn't open the picker on the Emoji tab for a Space with an emoji"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
@@ -541,26 +587,26 @@ expect "^browser: iconed space $first none\$" "the icon picker's trash didn't ta
 expect '^browser: icon picker hidden$' "the icon picker's trash didn't close it"
 # Remove Icon in the menu does the same.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "the Space's menu offered Remove Icon after the trash"
-send choose Change Icon…
+send choose "$(cased 'Change Icon…')"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
 send clickkey 151.75 76.25
 expect "^browser: iconed space $first glyph:bolt\$" \
   "a click on a glyph didn't become the Space's icon"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
-Delete Space\$" "a right-click on the Space's name didn't offer Remove Icon"
-send choose Remove Icon
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
+Delete Space")\$" "a right-click on the Space's name didn't offer Remove Icon"
+send choose "$(cased 'Remove Icon')"
 expect "^browser: iconed space $first none\$" "Remove Icon didn't take the Space's icon away"
 # Edit Theme Color… in the Space's menu opens the theme picker too. A swatch is the Space's colour,
 # its own hex, at its hue and lightness in the field, and the wave's knob dragged left washes the
 # window's colours out, the window following as it goes; the core keeps the theme once it's let go.
 # A click outside the picker closes it.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "a right-click on the Space's name didn't offer Edit Theme Color…"
-send choose Edit Theme Color…
+send choose "$(cased 'Edit Theme Color…')"
 expect "^browser: theme picker for $first\$" "Edit Theme Color… didn't open the theme picker"
 expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
 expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
@@ -589,15 +635,15 @@ expect '^browser: theme picker hidden$' "a click outside the theme picker didn't
 # Remove Theme Color, offered once the Space has a colour, takes its theme and colour away, and the
 # menu offers it no more.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
   "a right-click on the Space's name didn't offer Remove Theme Color"
-send choose Remove Theme Color
+send choose "$(cased 'Remove Theme Color')"
 expect "^browser: colored space $first none\$" \
   "Remove Theme Color didn't take the Space's colour away"
 expect "^browser: themed space $first none\$" \
   "Remove Theme Color didn't take the Space's theme away"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
   "the Space's menu offered Remove Theme Color without a colour"
 send choose Rename Space
 send key escape
@@ -606,7 +652,7 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # Return deletes the Space once the dialog has gone. Its tabs close with it, and ⇧⌘T reopens them
 # here.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "Delete Space didn't ask first"
@@ -618,7 +664,7 @@ send state
 [ "$key" = BrowserCoreNSWindow ] || fail "the window didn't get the keyboard back: $key has it"
 none_since '^browser: spaces' || fail "a click around the dialog deleted the Space"
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog settled$' "Delete Space didn't ask again"
@@ -643,7 +689,7 @@ expect "^browser: loaded [0-9]* https://example.com/\$" "the Space came back wit
 expect "^browser: settled space $second\$" "the Space ⌘Z brought back didn't settle"
 # Deleted again, its tab reopens here with ⇧⌘T, and ⌘Z brings back the Space without it.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "the Space came back without its name"
@@ -674,7 +720,7 @@ other=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
 send window 1
 post rightclick 131 $dots_y
 # ⌘Z brought the Space back with its theme.
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $empty_profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $empty_profile, Delete Space")\$" \
   "a right-click on a dot in the first window didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete in the first window didn't delete the Space"
@@ -698,7 +744,7 @@ expect "^browser: window closed $other\$" "⇧⌘W didn't close the second windo
 send window 1
 # Empty, it goes without asking, and says so too.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, Change Icon…, $themed, $empty_profile, Delete Space\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $empty_profile, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete didn't delete the empty Space"
@@ -706,8 +752,8 @@ none_since '^browser: dialog shown' || fail "deleting an empty Space asked first
 expect "$deleted" "the toast didn't say the empty Space went"
 # The last Space can't go.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, \
-Delete Space (disabled)\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Delete Space (disabled)")\$" \
   "the last Space's menu offered Delete"
 send choose Rename Space
 send key escape
@@ -744,5 +790,5 @@ paged=$(sed -n '/^browser: paged frames /s/[^0-9.][^0-9.]*/ /gp' "$log" | sort -
   awk '{ n += $1; m[NR] = $2; if ($3 > x) x = $3 }
     END { if (NR) printf "%d page changes, %d frames, median %.2f ms, max %.2f ms",
       NR, n, m[int((NR + 1) / 2)], x }')
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name, dot or Library card shows Rename, Change Icon…, Edit Theme Color… and Delete, and one on the sidebar's empty space New Tab before them, which opens the command bar; the theme picker, from the form's row and the menu, gives a Space its colours from its field, a swatch's own, + and the wave, the window taking them as they're made, and Remove Theme Color, offered once it has one, takes them away; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. A page behind another tab, in a Space not shown, in a minimized window or a hidden app is hidden and runs no animation frames, and is visible once back. Paging, the sidebar a frame: ${paged:-not logged}. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-empty-menu.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name, dot or Library card shows Rename, Change Icon…, Edit Theme Color… and Delete, and one on the sidebar's empty space New Tab before them, which opens the command bar; the theme picker, from the form's row and the menu, gives a Space its colours from its field, a swatch's own, + and the wave, the window taking them as they're made, and Remove Theme Color, offered once it has one, takes them away; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels; a Library card's brush opens the theme picker, which makes the Space light and dark, and a click on the card's name edits it in the card with the Library left open. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. A page behind another tab, in a Space not shown, in a minimized window or a hidden app is hidden and runs no animation frames, and is visible once back. Paging, the sidebar a frame: ${paged:-not logged}. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/library-rename.png, $out/new-space-pull.png, $out/space-empty-menu.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/theme-picker.png, $out/space-theme.png, $out/new-space.png, $out/spaces.png"

@@ -236,6 +236,8 @@ struct Fake {
     spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
+    /// The onboarding's two switches, both offered and off to begin with.
+    opt_ins: Cell<(bool, bool)>,
 }
 
 impl Fake {
@@ -1016,6 +1018,27 @@ impl Browser for Fake {
     // The preview has one window.
     fn new_window(&self, _: &mut App) {}
 
+    // So the onboarding shows its step for it.
+    fn is_default_browser(&self) -> bool {
+        false
+    }
+
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        Some(self.opt_ins.get().0)
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        self.opt_ins.set((on, self.opt_ins.get().1));
+    }
+
+    fn agents(&self, _: &App) -> Option<bool> {
+        Some(self.opt_ins.get().1)
+    }
+
+    fn set_agents(&self, on: bool, _: &mut App) {
+        self.opt_ins.set((self.opt_ins.get().0, on));
+    }
+
     fn new_private_window(&self, _: &mut App) {}
 
     fn close_window(&self, cx: &mut App) {
@@ -1267,13 +1290,17 @@ fn main() {
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
+                    opt_ins: Cell::new((false, false)),
                 });
                 browser.report_archive(cx);
                 browser.report_downloads(cx);
                 // PREVIEW_EMPTY=1 shows no page, as a fresh ⌘N window does; =reading does so in the
                 // second Space, for its colour, and =private in a private window with no tabs.
-                // PREVIEW_WELCOME=1 shows no page with the first run's welcome.
-                let welcome = std::env::var_os("PREVIEW_WELCOME").is_some();
+                // PREVIEW_WELCOME=1 shows no page with the first run's welcome, and
+                // PREVIEW_ONBOARDING=1, =light or =dark the onboarding over it first.
+                let onboarding = std::env::var("PREVIEW_ONBOARDING").ok();
+                let welcome =
+                    std::env::var_os("PREVIEW_WELCOME").is_some() || onboarding.is_some();
                 let empty = std::env::var("PREVIEW_EMPTY").ok().or(welcome.then(|| "1".into()));
                 let mut shell = match empty.as_deref() {
                     Some("private") => {
@@ -1375,6 +1402,9 @@ fn main() {
                 if welcome {
                     shell.set_welcome(cx);
                 }
+                if let Some(appearance) = &onboarding {
+                    shell.start_onboarding(Some(appearance), cx);
+                }
                 shell
             });
             window.focus(&shell.focus_handle(cx), cx);
@@ -1383,13 +1413,19 @@ fn main() {
         let shell_window = window.as_ref().ok().copied();
         match window {
             // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads or =spaces opens
-            // it there.
+            // it there; =rename opens its Spaces with the first card's name in its field.
             Ok(window) if std::env::var_os("PREVIEW_LIBRARY").is_some() => {
                 window
-                    .update(cx, |shell, _, cx| match std::env::var("PREVIEW_LIBRARY").as_deref() {
-                        Ok("downloads") => shell.run(Command::ViewDownloads, "preview", cx),
-                        Ok("spaces") => shell.show_spaces(cx),
-                        _ => shell.run(Command::ViewLibrary, "preview", cx),
+                    .update(cx, |shell, window, cx| {
+                        match std::env::var("PREVIEW_LIBRARY").as_deref() {
+                            Ok("downloads") => shell.run(Command::ViewDownloads, "preview", cx),
+                            Ok("spaces") => shell.show_spaces(cx),
+                            Ok("rename") => {
+                                shell.show_spaces(cx);
+                                shell.preview_rename_card(window, cx);
+                            }
+                            _ => shell.run(Command::ViewLibrary, "preview", cx),
+                        }
                     })
                     .ok();
             }

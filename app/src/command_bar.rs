@@ -338,19 +338,27 @@ pub fn open_at(
     show: bool,
     cx: &mut App,
 ) -> Option<WindowHandle<CommandBar>> {
+    // Off the Mac ⌃ and ⌥ are both Alt, and Alt+↩ is ⌥↩'s, near Chrome's Alt+Enter, which opens a
+    // tab, so ⌃↩ has no key there.
+    if !crate::shell::OFF_THE_MAC {
+        cx.bind_keys([KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar"))]);
+    }
+    let key = |key, action| crate::shell::view_binding(key, action, "CommandBar", cx);
+    let mac_keys = [
+        key("alt-enter", Box::new(GoBeside)),
+        key("cmd-enter", Box::new(GoBehind)),
+        key("ctrl-shift-enter", Box::new(GoDotComWindow)),
+        key("shift-cmd-enter", Box::new(Search)),
+        key("ctrl-n", Box::new(Next)),
+        key("ctrl-p", Box::new(Previous)),
+    ];
+    cx.bind_keys(mac_keys);
     cx.bind_keys([
         KeyBinding::new("enter", Go, Some("CommandBar")),
-        KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
-        KeyBinding::new("cmd-enter", GoBehind, Some("CommandBar")),
-        KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar")),
         KeyBinding::new("shift-enter", GoWindow, Some("CommandBar")),
-        KeyBinding::new("ctrl-shift-enter", GoDotComWindow, Some("CommandBar")),
-        KeyBinding::new("shift-cmd-enter", Search, Some("CommandBar")),
         KeyBinding::new("escape", Dismiss, Some("CommandBar")),
         KeyBinding::new("down", Next, Some("CommandBar")),
         KeyBinding::new("up", Previous, Some("CommandBar")),
-        KeyBinding::new("ctrl-n", Next, Some("CommandBar")),
-        KeyBinding::new("ctrl-p", Previous, Some("CommandBar")),
         KeyBinding::new("tab", EnterSite, Some("CommandBar")),
         KeyBinding::new("shift-tab", LeaveSite, Some("CommandBar")),
         KeyBinding::new("pageup", First, Some("CommandBar")),

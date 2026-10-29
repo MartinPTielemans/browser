@@ -81,7 +81,7 @@ else
     # ilo's menu is the app's window in front, and reads as a menu: a menu item for each row, a
     # separator between groups, and Move to saying it opens a submenu, which → opens.
     post rightclick $(row 0)
-    expect '^browser: menu shown Copy Link, ' "a right-click on the tab didn't show its menu"
+    expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click on the tab didn't show its menu"
     expect '^browser: menu window at ' "the tab's menu didn't open its window"
     size=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f6)
     windows="$out/access-menu-windows.txt"

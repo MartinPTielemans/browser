@@ -305,6 +305,14 @@ pub trait Browser {
     /// Shows `tab`'s page in Safari's engine, in the tab, and has its profile keep the site for it.
     /// The user's: agents get none.
     fn use_system_engine(&self, _tab: u64, _cx: &mut App) {}
+    /// Where Google's Widevine module is, which the core offers on Linux alone.
+    fn widevine(&self) -> crate::widevine::Widevine {
+        crate::widevine::Widevine::None
+    }
+    /// Downloads Google's Widevine module from Google. The user's yes: agents get none.
+    fn download_widevine(&self, _cx: &mut App) {}
+    /// Quits and starts again, bringing back the windows and their Spaces.
+    fn restart(&self, _cx: &mut App) {}
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;
@@ -427,6 +435,33 @@ pub trait Browser {
     fn quit(&self, cx: &mut App);
     /// Opens another window on the same Spaces, after this one's draw.
     fn new_window(&self, cx: &mut App);
+    /// new_window, with a new profile's first launch playing in the new window, which shows no
+    /// page.
+    fn welcome_window(&self, _cx: &mut App) {}
+    /// Whether the system opens http and https links with the browser, which the onboarding asks
+    /// only as it starts, to leave out its step for it.
+    fn is_default_browser(&self) -> bool {
+        true
+    }
+    /// Asks the system to make the browser the default, which asks the user first.
+    fn make_default_browser(&self, _cx: &mut App) {}
+    /// The system it runs on, which sets the default browser its own way.
+    fn os(&self) -> crate::default_browser::Os {
+        crate::default_browser::Os::current()
+    }
+
+    /// Whether crash reports are sent, as Settings' switch has it, or None while there's no
+    /// collector to send them to, when neither Settings nor the first launch offers it.
+    fn crash_reports(&self, _cx: &App) -> Option<bool> {
+        None
+    }
+    fn set_crash_reports(&self, _on: bool, _cx: &mut App) {}
+    /// Whether agents may use the browser, as Settings' switch has it, or None in a build without
+    /// the agents' server.
+    fn agents(&self, _cx: &App) -> Option<bool> {
+        None
+    }
+    fn set_agents(&self, _on: bool, _cx: &mut App) {}
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);

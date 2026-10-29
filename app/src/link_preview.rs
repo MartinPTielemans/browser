@@ -275,10 +275,11 @@ impl LinkPreviewWindow {
 /// Opens the preview's window, hidden, for `host` to show over a browser window, ahead of time as
 /// the dialog's is.
 pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<LinkPreview>> {
+    let key = |key, action| crate::shell::view_binding(key, action, "LinkPreview", cx);
+    let mac_keys = [key("cmd-w", Box::new(Close)), key("cmd-enter", Box::new(Keep))];
+    cx.bind_keys(mac_keys);
     cx.bind_keys([
         KeyBinding::new("escape", Close, Some("LinkPreview")),
-        KeyBinding::new("cmd-w", Close, Some("LinkPreview")),
-        KeyBinding::new("cmd-enter", Keep, Some("LinkPreview")),
     ]);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(

@@ -20,6 +20,7 @@ use std::{
 #[cfg(target_os = "linux")]
 use browser::flatpak;
 use browser::window_frames::{self, Frame};
+use browser::widevine::Widevine;
 use browser::{
     capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_preview,
     link_target, log, menu, offer, passwords, site_controls, theme_picker, toast, tooltip, zoom_hud,
@@ -2274,6 +2275,20 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_close_media_note(tab) };
     }
 
+    fn widevine(&self) -> Widevine {
+        Widevine::from_core(unsafe { bc::bc_widevine() })
+    }
+
+    fn download_widevine(&self, _: &mut App) {
+        unsafe { bc::bc_widevine_download() };
+    }
+
+    fn restart(&self, cx: &mut App) {
+        // As Quit does: once the shell that asked is done, and before Chromium's posted quit.
+        cx.defer(save_launch_picture);
+        unsafe { bc::bc_restart() };
+    }
+
     fn share_services(&self, url: &str) -> Vec<SharedString> {
         unsafe extern "C" fn each(context: *mut c_void, name: *const c_char) {
             let names = unsafe { &mut *(context as *mut Vec<SharedString>) };
@@ -2471,6 +2486,15 @@ impl Browser for Engine {
         settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
     }
 
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        let offered = !settings::crash_reports_collector().is_empty();
+        offered.then(|| unsafe { bc::bc_send_crash_reports() })
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        settings::set_send_crash_reports(on);
+    }
+
     fn new_window(&self, cx: &mut App) {
         let id = self.window;
         // Outside the shell's update, as the new window's shell reads this one's.
@@ -2482,6 +2506,33 @@ impl Browser for Engine {
             });
             if from.is_some() {
                 open_window(from, None, cx);
+            }
+        });
+    }
+
+    fn is_default_browser(&self) -> bool {
+        unsafe { platform::host_is_default_browser() }
+    }
+
+    fn make_default_browser(&self, _: &mut App) {
+        unsafe { platform::host_make_default_browser(settings::default_browser_answered) };
+    }
+
+    fn welcome_window(&self, cx: &mut App) {
+        let id = self.window;
+        cx.defer(move |cx| {
+            let from = WINDOWS.with_borrow(|windows| {
+                let this = windows.iter().find(|w| w.id == id && !w.private);
+                this.or_else(|| windows.iter().find(|w| !w.private)).cloned()
+            });
+            let Some(window) = from.and_then(|from| open_window(Some(from), None, cx)) else {
+                return;
+            };
+            let shell = WINDOWS.with_borrow(|windows| {
+                windows.iter().find(|w| w.id == window).and_then(|w| w.shell.upgrade())
+            });
+            if let Some(shell) = shell {
+                shell.update(cx, |shell, cx| shell.start_onboarding(None, cx));
             }
         });
     }
@@ -2784,7 +2835,10 @@ fn open_saved_windows(cx: &mut App) {
 /// Shows the Spaces as the user left them in `window`, else a first Space, and says whether it
 /// brought them back. A page given in BROWSER_URL, and the links from other apps that launched the
 /// browser, open on top either way, in this window, the one in front. With nothing to bring back
-/// and nothing to open, it's the first run, and `shell` shows the welcome on the empty card.
+/// and nothing to open, it's a new profile's first run: `shell` plays the onboarding, then shows
+/// the welcome on the empty card. This is its only way in at launch, so a launch that brings Spaces
+/// back never reads more than `restored` for it. check.sh sets BROWSER_ONBOARDING to "skip" for
+/// every run but the onboarding run's, which sets "light" or "dark".
 fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -> bool {
     let start = Instant::now();
     let restored = unsafe { bc::bc_window_restore(window) };
@@ -2801,7 +2855,15 @@ fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -
     match std::env::var("BROWSER_URL") {
         Ok(url) => open_tab(window, &url),
         Err(_) if !restored && links.is_empty() => {
-            shell.update(cx, |shell, _, cx| shell.set_welcome(cx)).ok();
+            let onboarding = std::env::var("BROWSER_ONBOARDING").ok();
+            shell
+                .update(cx, |shell, _, cx| {
+                    shell.set_welcome(cx);
+                    if onboarding.as_deref() != Some("skip") {
+                        shell.start_onboarding(onboarding.as_deref(), cx);
+                    }
+                })
+                .ok();
         }
         Err(_) => {}
     }
@@ -3839,6 +3901,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
         menu(
             "Help",
             vec![
+                item(concat!("Welcome to ", env!("APP_NAME")), Command::Welcome),
                 item("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
@@ -4888,6 +4951,21 @@ unsafe extern "C" fn tab_media_unsupported(
     update_shells(|shell, cx| shell.set_media_unsupported(tab, &key_system, cx));
 }
 
+/// Google's Widevine module moved along: the notes that offer it and Settings' row say where to.
+/// Later, as the user's yes in a note or Settings calls back from inside their update.
+unsafe extern "C" fn widevine_changed(_: *mut c_void, state: c_int) {
+    // check-widevine.sh reads this line.
+    log!("browser: widevine state {}", Widevine::from_core(state).name());
+    update_app_later(|cx| {
+        let shells: Vec<_> = WINDOWS
+            .with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
+        for shell in shells {
+            shell.update(cx, |_, cx| cx.notify()).ok();
+        }
+        settings::check_widevine(cx);
+    });
+}
+
 unsafe extern "C" fn window_suggestions(
     _: *mut c_void,
     window: bc::bc_id,
@@ -4995,9 +5073,11 @@ fn profile_dir() -> String {
     })
 }
 
-/// What the app gives the core to start with: Chromium's switches, and the callbacks.
-fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
-    let mut args: Vec<String> = std::env::args().take(1).collect();
+/// What the app gives the core to start with: Chromium's switches, from the arguments the process
+/// was `given`, and the callbacks.
+fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
+    let mut given = given.into_iter();
+    let mut args: Vec<String> = given.next().into_iter().collect();
     let profile = profile_dir();
     args.extend([
         format!("--user-data-dir={profile}"),
@@ -5040,7 +5120,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
-    args.extend(std::env::args().skip(1).filter(|arg| {
+    args.extend(given.filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
     }));
     let args: Vec<CString> = args
@@ -5096,6 +5176,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
         tab_media_unsupported: Some(tab_media_unsupported),
+        widevine_changed: Some(widevine_changed),
         tab_page_menu: Some(tab_page_menu),
         tab_offer_changed: Some(tab_offer_changed),
         tab_passwords_changed: Some(tab_passwords_changed),
@@ -5138,7 +5219,7 @@ fn main() {
         }
         unsafe { platform::host_take_update_notes(update_notes) };
     }
-    let (args, host) = switches_and_host();
+    let (args, host) = switches_and_host(std::env::args().collect());
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
     std::process::exit(code);
@@ -5198,7 +5279,16 @@ fn main() {
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn bc_app_host(argc: *mut c_int, argv: *mut *const *const c_char) -> *const bc::bc_host {
-    let (args, host) = switches_and_host();
+    // The arguments the process was given, from the core: Chromium on Linux has written its process
+    // title over the ones std::env::args reads, joining each to the next (#605).
+    let given = match unsafe { (*argc, *argv) } {
+        (count, given) if count > 0 && !given.is_null() => {
+            unsafe { std::slice::from_raw_parts(given, count as usize) }
+        }
+        _ => &[],
+    };
+    let given = (given.iter()).map(|&arg| unsafe { CStr::from_ptr(arg) }.to_string_lossy().into());
+    let (args, host) = switches_and_host(given.collect());
     let pointers: Vec<*const c_char> = args.leak().iter().map(|arg| arg.as_ptr()).collect();
     unsafe {
         *argc = pointers.len() as c_int;

@@ -160,6 +160,19 @@ fn pressed_off_the_mac(key: &str) -> Vec<String> {
     std::iter::once(pressed).chain(chrome.map(|&(chrome, _)| chrome.to_string())).collect()
 }
 
+/// A binding of `key`, written the Mac's way, to `action` while `context` has the keyboard, in a
+/// view of the UI's own such as the command bar, as this platform presses it: off the Mac, Ctrl
+/// for ⌘ and Alt for ⌃ or ⌥.
+pub fn view_binding(key: &str, action: Box<dyn Action>, context: &str, cx: &App) -> KeyBinding {
+    let ([ctrl, alt, shift, cmd], rest) = held(key);
+    let pressed = match OFF_THE_MAC {
+        true => written([cmd, ctrl || alt, shift, false], rest),
+        false => key.to_string(),
+    };
+    let context = KeyBindingContextPredicate::parse(context).ok().map(std::rc::Rc::new);
+    KeyBinding::load(&pressed, action, context, false, None, cx).expect("a valid key")
+}
+
 /// A key the core names (bc_key) as a keystroke in GPUI's terms, with the modifiers in the order
 /// SHORTCUTS writes them, and Ctrl as ⌘ off the Mac. With ⌘ held, a layout that isn't Latin, such
 /// as Hebrew, has its shortcuts by the key's place on the user's Latin layout, `latin_key`, as the

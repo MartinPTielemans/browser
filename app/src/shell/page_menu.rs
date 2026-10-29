@@ -26,7 +26,7 @@ fn entries(items: &[PageMenuItem]) -> Vec<MenuEntry> {
         .map(|(at, item)| MenuEntry {
             parent: item.parent.filter(|&parent| parent < at),
             checked: item.checked,
-            ..MenuEntry::new(item.title.clone(), item.enabled && !item.title.is_empty())
+            ..MenuEntry::named(item.title.clone(), item.enabled && !item.title.is_empty())
         })
         .collect()
 }

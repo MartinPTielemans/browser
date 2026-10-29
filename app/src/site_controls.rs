@@ -752,7 +752,7 @@ fn lock_label(site: &Site) -> SharedString {
 
 /// The "…" menu: Arc's, without Boost's items.
 fn more_items() -> Vec<(MenuEntry, Option<Run>)> {
-    let item = |title: &str, run: Run| (MenuEntry::new(title.to_string(), true), Some(run));
+    let item = |title: &'static str, run: Run| (MenuEntry::new(title, true), Some(run));
     vec![
         item("Clear Cache", Run::Command(Command::ClearCacheAndRefresh)),
         item("Clear Cookies", Run::Command(Command::ClearCookiesAndRefresh)),
@@ -880,8 +880,8 @@ impl SiteControls {
             return;
         };
         let items = [
-            MenuEntry { checked: on, ..MenuEntry::new("On".to_string(), true) },
-            MenuEntry { checked: !on, ..MenuEntry::new("Off".to_string(), true) },
+            MenuEntry { checked: on, ..MenuEntry::new("On", true) },
+            MenuEntry { checked: !on, ..MenuEntry::new("Off", true) },
         ];
         let panel = cx.weak_entity();
         let chosen = Box::new(move |chosen: Option<usize>, cx: &mut App| {
