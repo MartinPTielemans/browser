@@ -173,7 +173,7 @@ Arc's note at the window's top right, saying what was just done where the result
 | Little Arc / open it in the main window | ⌥⌘N / ⌘O | — | with Little Arc: ⌥⌘N / ⌘O (⌘O stays Open File in main windows) |
 | Switch Space 1–9 / next / previous | ⌃1–⌃9 / ⌥⌘→ / ⌥⌘← (menus) | ⌃1–⌃9 (profiles) | Arc's |
 | Next / previous tab | ⌥⌘↓ / ⌥⌘↑ (menus) | ⇧⌘] / ⇧⌘[, ⌥⌘→ / ⌥⌘←, ⌥⌘↓ / ⌥⌘↑ | Arc's |
-| Select tab 1–8 / last | ⌘1–⌘8 / ⌘9, pinned tabs first, counting those in an open folder (ax) | ⌘1–⌘8 / ⌘9 in sidebar order | Dia's |
+| Select tab 1–8 / last | ⌘1–⌘8 / ⌘9, pinned tabs first, counting those in an open folder (ax) | ⌘1–⌘8 / ⌘9 in sidebar order; Settings › Shortcuts' Ninth Tab, with no key, takes ⌘9 for the ninth tab when the user gives it, as Arc's Settings chooses the ninth or the last | Dia's |
 | Tab used last, then further back | ⌃Tab (rec) | ⌃Tab / ⌃⇧Tab (switcher) | ⌃Tab / ⌃⇧Tab, no switcher |
 | Search tabs | none: Arc has no Search Tabs (menus, bar, Settings › Shortcuts) | ⇧⌘A | ⇧⌘A, with Search Tabs |
 | Split: add pane / close pane / focus next / previous | ⌃+ / ⌃⇧- (menus) / none; its ⌃⇧] / ⌃⇧[ switch to the next or previous split view, and ⌃⇧1–⌃⇧4 to one (Settings › Shortcuts) | ⌃⇧= / — / ⌃⇧] / ⌃⇧[ | Arc's; focus Dia's, *interim* |
