@@ -2802,8 +2802,7 @@ impl Render for Shell {
             && self.sidebar_motion.is_none()
             && self.library.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
-        let own_buttons = (DRAWS_WINDOW_BUTTONS && self.window_buttons && !self.full_screen)
-            .then(|| self.window_buttons(cx));
+        let own_buttons = self.draws_own_window_buttons().then(|| self.window_buttons(cx));
         self.breath.arm(cx);
         div()
             .key_context(KEY_CONTEXT)
@@ -3268,6 +3267,11 @@ impl Shell {
             .into_any_element();
         self.breath.arm(cx);
         panel
+    }
+
+    /// Whether the UI draws the window's own buttons, where nothing else does, at `WINDOW_BUTTONS`.
+    pub fn draws_own_window_buttons(&self) -> bool {
+        DRAWS_WINDOW_BUTTONS && self.window_buttons && !self.full_screen
     }
 
     /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
