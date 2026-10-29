@@ -129,9 +129,10 @@ engine.pop("listed_off", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"
-# Each run starts in the one profile, Default: Chrome deletes the others a failed run left at its
-# next launch.
-python3 -I -c '
+# Each run starts in the one profile, Default: Chrome deletes the others, which a run before made,
+# as import's Work, or a failed run left, at its next launch.
+only_default() {
+  python3 -I -c '
 import json, os, sys
 if not os.path.exists(sys.argv[1]):
     sys.exit()
@@ -148,10 +149,12 @@ deleted.extend(name for name in left if name not in deleted)
 with open(sys.argv[1], "w") as f:
     json.dump(local, f)
 ' "$(dirname "$saved")/Local State"
+}
 . check/lib.sh
 trap cleanup EXIT
 # The runs send the app's driver its commands through it.
 mkfifo "$out/drive"
 for run in ${*:-$runs}; do
+  only_default
   . "check/$run.sh"
 done
