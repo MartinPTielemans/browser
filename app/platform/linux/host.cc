@@ -486,10 +486,6 @@ bool host_trash(const char* path) {
   return access(path, F_OK) != 0 && errno == ENOENT;
 }
 
-bool host_drag_file(const char* path, void (*ended)(bool taken)) {
-  return false;
-}
-
 // shortcut: no file previews yet; the downloads list shows its generic icon.
 void host_file_preview(const char*,
                        uint64_t id,
