@@ -98,7 +98,7 @@ fn the_page_has_the_first_escape(cx: &mut TestAppContext) {
 }
 
 /// Given the browser in Settings › Shortcuts, one ⎋ leaves, from the page or the UI, and the page
-/// never sees it. Left to websites, the page has every press, and only the UI's leaves. Outside
+/// never sees it. Left to websites, the page has it first, and one it keeps never leaves. Outside
 /// full screen it's the page's.
 #[gpui::test]
 fn the_browser_can_have_the_first_escape(cx: &mut TestAppContext) {
@@ -113,10 +113,11 @@ fn the_browser_can_have_the_first_escape(cx: &mut TestAppContext) {
     assert_eq!(host.take(), [ZOOM]);
     for _ in 0..2 {
         assert!(!press(EscapePriority::Websites, cx), "the browser took the website's ⎋");
-        // The page's ⎋ handed back doesn't leave either.
-        shell.update(cx, |shell, cx| shell.run(Command::Stop, "page", cx));
     }
     assert!(!host.take().contains(&ZOOM.to_string()), "the website's ⎋ left full screen");
+    // One the page didn't keep comes back and leaves, as from the UI.
+    shell.update(cx, |shell, cx| shell.run(Command::Stop, "page", cx));
+    assert_eq!(host.take(), [ZOOM]);
     shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
     assert_eq!(host.take(), [ZOOM]);
 
