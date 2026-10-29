@@ -34,7 +34,7 @@ jobs:
         working-directory: app
     env:
       # The runs that pass on X11 so far.
-      LINUX_RUNS: tabs window find agents spaces crash profiles private quit pinned dialogs
+      LINUX_RUNS: tabs window find agents spaces crash profiles private quit pinned dialogs history
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
