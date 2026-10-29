@@ -240,7 +240,14 @@ impl Browser for Recorder {
         self.moves.set(self.moves.get() + 1);
     }
 
-    fn open_at(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) -> u64 {
+    fn open_at(
+        &self,
+        urls: &[String],
+        pinned: bool,
+        folder: u64,
+        index: usize,
+        _: &mut App,
+    ) -> u64 {
         self.record(format!("open {} {pinned} {folder} {index}", urls.join(" ")));
         Default::default()
     }
@@ -691,7 +698,9 @@ impl Browser for Recorder {
 
     fn watch_control(&self, _: &mut App) {}
 
-    fn copy(&self, _: &str, _: &mut App) {}
+    fn copy(&self, text: &str, _: &mut App) {
+        self.record(format!("copy {text}"))
+    }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         self.share_services.borrow().clone()
