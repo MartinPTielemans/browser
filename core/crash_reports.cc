@@ -244,7 +244,8 @@ void Sent(int round,
   Reports()->PostTaskAndReply(FROM_HERE, base::BindOnce(&Delete, uuid), base::BindOnce(&SendNext));
 }
 
-// The minidump alone, as a Breakpad collector takes it, which Sentry's minidump endpoint is. Crashpad's handler would add the minidump's annotations as fields, which the
+// The minidump alone, as a Breakpad collector takes it, which GlitchTip's and Sentry's minidump
+// endpoints are. Crashpad's handler would add the minidump's annotations as fields, which the
 // minidump has anyway. `asked`, it's the one report the user said to send.
 void Send(int round, bool asked, std::optional<Unsent> report) {
   if (round != g_round) {
