@@ -2,22 +2,22 @@
 # beside it, never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile
 # named Work as Arc's Local State names it, their pinned tabs and folders, and its favorites; from
 # Chrome and from Firefox their bookmarks as a Space named after each and their history, which the
-# core adds, with Chrome's open tabs, but for the one a bookmark pins, as that Space's Today tabs.
-# Run again, each adds nothing. Then a passwords file, made up here, comes in through
-# Chrome's password importer: the view says how many came in, deletes the file when asked, and a
-# second file with a login's password changed says it conflicted and kept the saved one. Settings'
-# Passwords tab lists what came in, and the app menu's Import from Other Browsers… shows Import
-# again. With the sidebar hidden, Arc's Spaces say so in a toast. Each step is captured. Arc has no
-# Linux build, so off the Mac the fixture's Arc isn't found, its steps are left out, and Chrome and
-# Firefox are where Linux keeps them.
+# core adds, with Chrome's open tabs, but for the one a bookmark pins, as that Space's Today tabs,
+# and its saved address, which the core adds too, never its card. Run again, each adds nothing.
+# Then a passwords file, made up here, comes in through Chrome's password importer: the view says
+# how many came in, deletes the file when asked, and a second file with a login's password changed
+# says it conflicted and kept the saved one. Settings' Passwords tab lists what came in, and the
+# app menu's Import from Other Browsers… shows Import again. With the sidebar hidden, Arc's Spaces
+# say so in a toast. Each step is captured. Arc has no Linux build, so off the Mac the fixture's
+# Arc isn't found, its steps are left out, and Chrome and Firefox are where Linux keeps them.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
 log="$out/import.log"
 step=0
 rm -f "$saved"
-# A copy of the fixture's home, with Chrome's History and Firefox's places.sqlite written as SQLite
-# here rather than kept in the repo as binary files.
+# A copy of the fixture's home, with Chrome's History and Web Data and Firefox's places.sqlite
+# written as SQLite here rather than kept in the repo as binary files.
 home="$out/import-home"
 rm -rf "$home"
 cp -R src/import/fixture "$home"
@@ -66,6 +66,15 @@ sqlite3 "$chrome/Default/History" "
   INSERT INTO urls(url, title, visit_count, typed_count, last_visit_time) VALUES
     ('https://history-one.example.org/', 'One', 3, 1, $now - 3600000000),
     ('https://history-two.example.org/', 'Two', 1, 0, $now - 7200000000);"
+# Chrome's saved address, field by field as Chromium's FieldType numbers (full name, city, country)
+# with each typed by the user, and a made-up card beside it, which the import never reads.
+sqlite3 "$chrome/Default/Web Data" "
+  CREATE TABLE address_type_tokens(guid VARCHAR, type INTEGER, value VARCHAR,
+    verification_status INTEGER DEFAULT 0, observations BLOB);
+  INSERT INTO address_type_tokens(guid, type, value, verification_status) VALUES
+    ('a', 7, 'Check Example', 4), ('a', 33, 'Utrecht', 4), ('a', 36, 'NL', 4);
+  CREATE TABLE credit_cards(guid VARCHAR, card_number_encrypted BLOB);
+  INSERT INTO credit_cards VALUES ('card', x'763130');"
 mkdir -p "$firefox/Profiles/x.default-release"
 printf '[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/x.default-release\n' \
   > "$firefox/profiles.ini"
@@ -138,9 +147,9 @@ if [ -n "$arc" ]; then
   expect '^browser: import pick Arc$' "Import… on Arc's row didn't show what comes from it"
   expect '^browser: import drawn pick$' "Arc's choices didn't draw"
   ../tools/window-screenshot.sh "$pid" "$out/import-pick.png" || fail "no window to capture"
-  # Arc's four choices: Spaces, Favorites, History and Extensions.
-  send clickkey 590 319
-  expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 0 open tabs, 3 favorites, 0 pages$' \
+  # Arc's five choices: Spaces, Favorites, History, Addresses and Extensions.
+  send clickkey 590 356
+  expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 0 open tabs, 3 favorites, 0 pages, 0 addresses$' \
     "Import didn't plan Arc's 2 Spaces, 6 pinned tabs and 3 favorites"
   expect '^browser: added profile [0-9]* Work$' "Arc's Work profile didn't come in"
   await '^browser: import done: 2 Spaces, 6 pinned tabs and 3 favorites came in from Arc\.$' ||
@@ -162,8 +171,8 @@ if [ -n "$arc" ]; then
   send clickkey 575 134
   expect '^browser: import pick Arc$' "Import… didn't show Arc's choices again"
   expect '^browser: import drawn pick$' "Arc's choices didn't draw"
-  send clickkey 590 319
-  expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 open tabs, 0 favorites, 0 pages$' \
+  send clickkey 590 356
+  expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 open tabs, 0 favorites, 0 pages, 0 addresses$' \
     "the second import would add something again"
   expect '^browser: import done: Everything from Arc is here already\.$' "the second import said it added something"
   ../tools/window-screenshot.sh "$pid" "$out/import-again.png" || fail "no window to capture"
@@ -171,16 +180,19 @@ if [ -n "$arc" ]; then
   send clickkey 590 145
   expect '^browser: import drawn list$' "Done didn't go back to the list"
 fi
-# Chrome, the row after Arc's, brings its bookmarks, open tab and history, which the core adds.
+# Chrome, the row after Arc's, brings its bookmarks, open tab, history and address, which the
+# core adds.
 send clickkey 575 $chrome_row
 expect '^browser: import pick Chrome$' "Import… on Chrome's row didn't show what comes from it"
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
-# Chrome's four choices: Bookmarks, Open tabs, History and Extensions, then Choose folders.
-send clickkey 590 344
-expect '^browser: import from Chrome: 1 Spaces, 3 pinned tabs, 1 open tabs, 0 favorites, 2 pages$' \
-  "Import didn't plan Chrome's bookmarks, open tab and history"
+# Chrome's five choices: Bookmarks, Open tabs, History, Addresses and Extensions, then Choose
+# folders.
+send clickkey 590 381
+expect '^browser: import from Chrome: 1 Spaces, 3 pinned tabs, 1 open tabs, 0 favorites, 2 pages, 1 addresses$' \
+  "Import didn't plan Chrome's bookmarks, open tab, history and address"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Chrome's 2 pages"
-expect '^browser: import done: 1 Space, 3 pinned tabs, 1 open tab and 2 pages of history came in from Chrome\.$' \
+await '^browser: addresses added 1 to profile [0-9]*$' || fail "the core didn't add Chrome's address"
+expect '^browser: import done: 1 Space, 3 pinned tabs, 1 open tab, 2 pages of history and 1 address came in from Chrome\.$' \
   "the import didn't say what came from Chrome"
 ../tools/window-screenshot.sh "$pid" "$out/import-chrome.png" || fail "no window to capture"
 expect '^browser: import drawn done$' "the import's end didn't draw"
@@ -189,8 +201,9 @@ expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 $chrome_row
 expect '^browser: import pick Chrome$' "Import… didn't show Chrome's choices again"
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
-send clickkey 590 344
+send clickkey 590 381
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
+await '^browser: addresses added 0 to profile [0-9]*$' || fail "the core added Chrome's address again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
 # Firefox, Chrome's next row, brings its toolbar's bookmark, its menu's in a folder, and its history.
@@ -201,7 +214,7 @@ send clickkey 575 $firefox_row
 expect '^browser: import pick Firefox$' "Import… on Firefox's row didn't show what comes from it"
 expect '^browser: import drawn pick$' "Firefox's choices didn't draw"
 send clickkey 590 270
-expect '^browser: import from Firefox: 1 Spaces, 2 pinned tabs, 0 open tabs, 0 favorites, 2 pages$' \
+expect '^browser: import from Firefox: 1 Spaces, 2 pinned tabs, 0 open tabs, 0 favorites, 2 pages, 0 addresses$' \
   "Import didn't plan Firefox's bookmarks and history"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Firefox's 2 pages"
 expect '^browser: import done: 1 Space, 2 pinned tabs and 2 pages of history came in from Firefox\.$' \
@@ -269,7 +282,8 @@ quit
 [ -n "$arc" ] || echo "skip: import's Arc steps. Arc has no Linux build, so it's never found there."
 echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
-echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
+echo "  Firefox their bookmarks as a Space and their history, with Chrome's open tab and address; and"
+echo "  a second import of each adds nothing."
 echo "  A passwords file comes in, says how many, and is deleted when asked; a second one says its"
 echo "  changed login conflicted and kept the saved one; Settings' Passwords tab lists the three,"
 echo "  and the app menu's Import from Other Browsers… shows Import again."

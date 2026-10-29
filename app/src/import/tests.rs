@@ -15,7 +15,7 @@ use super::chromium;
 use super::extensions::{self, Extension};
 use super::session;
 use super::suggested;
-use super::found::{Found, FromProfile, Node, Page, Tab};
+use super::found::{Address, Field, Found, FromProfile, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
 use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
@@ -454,7 +454,7 @@ struct Browser {
     roots: Option<Roots>,
     state: RefCell<State>,
     waiting: RefCell<Vec<Box<dyn FnOnce(&mut App)>>>,
-    /// History the core is adding: how many pages were new, and what waits to hear it.
+    /// History and addresses the core is adding: how many were new, and what waits to hear it.
     adding: RefCell<Vec<(usize, Box<dyn FnOnce(usize, &mut App)>)>>,
     /// What waits for the app to come back to the front.
     active: RefCell<Vec<Box<dyn FnOnce(&mut App)>>>,
@@ -476,6 +476,8 @@ struct State {
     unloaded: Vec<u64>,
     /// Each page in a profile's history: its URL and last visit.
     history: Vec<(u64, String, i64)>,
+    /// Each profile's saved addresses.
+    addresses: Vec<(u64, Address)>,
     /// How many times the import showed System Settings' Full Disk Access.
     asked_access: usize,
     /// The Web Store pages the import opened, for the user to add an extension.
@@ -585,7 +587,7 @@ impl Browser {
         then(passwords, cx);
     }
 
-    /// The core has added the history it was given.
+    /// The core has added the history and addresses it was given.
     fn added(&self, cx: &mut App) {
         for (added, then) in self.adding.take() {
             then(added, cx);
@@ -720,6 +722,28 @@ impl Host for Browser {
                     .history
                     .push((profile, page.url.clone(), page.last_visit)),
             }
+            added += 1;
+        }
+        self.adding.borrow_mut().push((added, then));
+        true
+    }
+
+    /// As the core does: an address the profile has, or one with nothing in it, is skipped.
+    fn add_addresses(
+        &self,
+        profile: u64,
+        addresses: &[Address],
+        then: Box<dyn FnOnce(usize, &mut App)>,
+    ) -> bool {
+        let mut state = self.state.borrow_mut();
+        let mut added = 0;
+        for address in addresses {
+            let had = (state.addresses.iter())
+                .any(|(each, had)| *each == profile && had == address);
+            if address.fields.is_empty() || had {
+                continue;
+            }
+            state.addresses.push((profile, address.clone()));
             added += 1;
         }
         self.adding.borrow_mut().push((added, then));
@@ -1134,7 +1158,7 @@ fn history_is_the_last_90_days_of_pages() {
 }
 
 /// Chrome on Linux, as the tests make it: `profiles` by folder and name, each with a short bar, two
-/// tabs open, one of them a bookmark's, and two pages of history.
+/// tabs open, one of them a bookmark's, two pages of history and an address.
 fn chrome(name: &str, profiles: &[(&str, &str)], now: SystemTime) -> PathBuf {
     let home = home(name);
     let chrome = home.join(".config/google-chrome");
@@ -1177,8 +1201,91 @@ fn chrome(name: &str, profiles: &[(&str, &str)], now: SystemTime) -> PathBuf {
                 ("https://news.example.com/", Some("News"), 1, 0, 120, false),
             ],
         );
+        web_data(
+            &profile.join("Web Data"),
+            "address_type_tokens",
+            &[("a", NAME_FULL, "Ada Lovelace", 4), ("a", CITY, "London", 4)],
+        );
     }
     home
+}
+
+const NAME_FULL: i32 = 7;
+const CITY: i32 = 33;
+const COUNTRY: i32 = 36;
+
+/// A Web Data file with each of `fields` of an address in `table`: its address's guid, then its
+/// FieldType, value and VerificationStatus, as Chromium keeps them. Cards are in a table of their
+/// own, encrypted, which the import never reads.
+fn web_data(path: &Path, table: &str, fields: &[(&str, i32, &str, i32)]) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS {table} (guid VARCHAR, type INTEGER, value VARCHAR, \
+         verification_status INTEGER DEFAULT 0, observations BLOB);
+         CREATE TABLE IF NOT EXISTS credit_cards (guid VARCHAR, card_number_encrypted BLOB);
+         INSERT INTO credit_cards VALUES ('card', x'763130');"
+    ))
+    .unwrap();
+    for (guid, kind, value, status) in fields {
+        db.execute(
+            &format!(
+                "INSERT INTO {table} (guid, type, value, verification_status) \
+                 VALUES (?1, ?2, ?3, ?4)"
+            ),
+            rusqlite::params![guid, kind, value, status],
+        )
+        .unwrap();
+    }
+}
+
+fn address(fields: &[(i32, &str, i32)]) -> Address {
+    Address {
+        fields: (fields.iter())
+            .map(|&(kind, value, status)| Field {
+                kind,
+                value: value.into(),
+                status,
+            })
+            .collect(),
+    }
+}
+
+/// The addresses a profile saved come field by field, its own and its account's, from the table
+/// the Web Data of its version has, with what's empty left out.
+#[test]
+fn a_profiles_addresses_come_from_its_web_data() {
+    let home = home("web-data");
+    let now = home.join("Web Data");
+    web_data(
+        &now,
+        "address_type_tokens",
+        &[
+            ("b", CITY, "Paris", 4),
+            ("a", COUNTRY, "GB", 0),
+            ("a", CITY, "London", 4),
+            ("a", NAME_FULL, "", 4),
+            ("c", NAME_FULL, "", 4),
+        ],
+    );
+    assert_eq!(
+        chromium::addresses(&now).unwrap(),
+        [
+            address(&[(CITY, "London", 4), (COUNTRY, "GB", 0)]),
+            address(&[(CITY, "Paris", 4)]),
+        ]
+    );
+    // Before version 134, the user's own and their account's were apart.
+    let old = home.join("Old Web Data");
+    web_data(&old, "local_addresses_type_tokens", &[("a", CITY, "Oslo", 2)]);
+    web_data(&old, "contact_info_type_tokens", &[("b", CITY, "Rome", 3)]);
+    assert_eq!(
+        chromium::addresses(&old).unwrap(),
+        [
+            address(&[(CITY, "Oslo", 2)]),
+            address(&[(CITY, "Rome", 3)])
+        ]
+    );
+    fs::remove_dir_all(home).unwrap();
 }
 
 const SET_TAB_WINDOW: u8 = 0;
@@ -1336,7 +1443,13 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
     let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
     assert_eq!(
         read::kinds(source),
-        [Kind::Bookmarks, Kind::OpenTabs, Kind::History, Kind::Extensions]
+        [
+            Kind::Bookmarks,
+            Kind::OpenTabs,
+            Kind::History,
+            Kind::Addresses,
+            Kind::Extensions,
+        ]
     );
     let found = read::read(source, &[Kind::Bookmarks], now).unwrap();
     let spaces: Vec<_> = (found.spaces.iter())
@@ -1349,16 +1462,18 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
             ("Chrome – Work", &FromProfile::Custom("Profile 1".into()))
         ]
     );
-    assert!(found.history.is_empty());
+    assert!(found.history.is_empty() && found.addresses.is_empty());
     let found = read::read(source, &[Kind::History], now).unwrap();
     assert!(found.spaces.is_empty());
     assert_eq!(found.history.len(), 2);
+    let found = read::read(source, &[Kind::Addresses], now).unwrap();
+    assert_eq!(found.addresses.len(), 2);
     fs::remove_dir_all(home).unwrap();
 }
 
 /// Chrome's bookmarks come in as a Space named Chrome in the profile the browser started with,
-/// and its history once the core has added it, by as many pages as were new. Again, the core
-/// finds every page there, and nothing new came.
+/// and its history and addresses once the core has added them, by as many as were new. Again, the
+/// core finds every one there, and nothing new came.
 #[gpui::test]
 fn chromes_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
     let home = chrome("chrome-view", &[("Default", "Me")], SystemTime::now());
@@ -1379,14 +1494,15 @@ fn chromes_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
         })
     };
     import(cx);
-    // The history is still going in.
+    // The history and addresses are still going in.
     view.read_with(cx, |view, _| {
         assert_eq!(view.running().as_deref(), Some("Importing from Chrome…"))
     });
     cx.update(|cx| browser.added(cx));
     assert_eq!(
         said(cx),
-        "1 Space, 3 pinned tabs, 1 open tab and 2 pages of history came in from Chrome."
+        "1 Space, 3 pinned tabs, 1 open tab, 2 pages of history and 1 address came in from \
+         Chrome."
     );
     let chrome = &browser.spaces()[1];
     assert_eq!((chrome.name.as_str(), chrome.profile), ("Chrome", 1));
@@ -1402,6 +1518,7 @@ fn chromes_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
     cx.update(|cx| browser.added(cx));
     assert_eq!(said(cx), "Everything from Chrome is here already.");
     assert_eq!(browser.state.borrow().history.len(), 2);
+    assert_eq!(browser.state.borrow().addresses.len(), 1);
     fs::remove_dir_all(home).unwrap();
 }
 
@@ -2173,8 +2290,8 @@ fn chromes_extensions_are_listed_to_add_and_keep_their_pins(cx: &mut TestAppCont
         };
         assert_eq!(
             said.as_ref(),
-            "1 Space, 3 pinned tabs and 2 pages of history came in from Chrome, with 2 \
-             extensions to add from the Chrome Web Store."
+            "1 Space, 3 pinned tabs, 1 open tab, 2 pages of history and 1 address came in \
+             from Chrome, with 2 extensions to add from the Chrome Web Store."
         );
     });
     let ids = || -> Vec<String> {
