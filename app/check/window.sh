@@ -222,8 +222,11 @@ case "$width" in
 esac
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
-# Once there, it says how to leave, at the card's top right, as Arc's does.
-expect '^browser: toast shown To exit full screen, press ⎋.$' "full screen didn't say how to leave"
+# Once there, it says how to leave, at the card's top right, as Arc's does, in Chrome's words off the
+# Mac (#772).
+note='To exit full screen, press ⎋\.'
+{ windows || [ "$(uname)" = Linux ]; } && note='Press Esc to exit full screen'
+expect "^browser: toast shown $note\$" "full screen didn't say how to leave"
 expect '^browser: toast settled$' "the note on leaving full screen didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/fullscreen-note.png" || fail "no window to capture"
 check_layout "in full screen"

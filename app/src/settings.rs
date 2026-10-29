@@ -169,7 +169,23 @@ impl Tab {
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
 enum Keys {
     Of(Command),
-    Text(&'static str),
+    /// Keys no command holds, which can't be changed: a binding's keystroke.
+    Fixed(&'static str),
+    /// A run of them, from the first keystroke to the last.
+    Span(&'static str, &'static str),
+}
+
+impl Keys {
+    /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
+    fn fixed(&self) -> Option<String> {
+        match *self {
+            Keys::Of(_) => None,
+            Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
+            Keys::Span(first, last) => {
+                Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
+            }
+        }
+    }
 }
 
 /// The Shortcuts tab, in the menus' order and names.
@@ -188,7 +204,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
-            ("Tabs 1 to 8", Keys::Text("⌘1 – ⌘8")),
+            ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -228,7 +244,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
-            ("Spaces 1 to 9", Keys::Text("⌃1 – ⌃9")),
+            ("Spaces 1 to 9", Keys::Span("ctrl-1", "ctrl-9")),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
@@ -276,9 +292,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Settings", Keys::Of(Command::Settings)),
             ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
             // main.rs binds these.
-            (concat!("Hide ", env!("APP_NAME")), Keys::Text("⌘H")),
-            ("Hide Others", Keys::Text("⌥⌘H")),
-            ("Minimize", Keys::Text("⌘M")),
+            (concat!("Hide ", env!("APP_NAME")), Keys::Fixed("cmd-h")),
+            ("Hide Others", Keys::Fixed("alt-cmd-h")),
+            ("Minimize", Keys::Fixed("cmd-m")),
             (concat!("Quit ", env!("APP_NAME")), Keys::Of(Command::Quit)),
         ],
     ),
@@ -1666,9 +1682,10 @@ impl Settings {
                 .iter()
                 .filter(|(name, _)| found.contains(name))
                 .map(|(name, keys)| {
-                    let control = match keys {
-                        Keys::Of(command) => self.shortcut(*command, accent, cx),
-                        Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                    let control = match (keys, keys.fixed()) {
+                        (Keys::Of(command), _) => self.shortcut(*command, accent, cx),
+                        (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
+                            .into_any_element(),
                     };
                     row(None, *name, control)
                 })
@@ -2050,6 +2067,8 @@ fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
 /// Why keys weren't given to a command, as its row says it.
 fn refusal(refused: Refused) -> String {
     let holder = match refused {
+        // Off the Mac ⌘ is pressed as Ctrl and ⌃ as Alt.
+        Refused::Plain if shell::OFF_THE_MAC => return "Add Ctrl or Alt".into(),
         Refused::Plain => return "Add ⌘ or ⌃".into(),
         Refused::Taken(Holder::System(name)) => name,
         Refused::Taken(Holder::Command(command)) => command_name(command),
@@ -2086,7 +2105,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
-            Keys::Text(text) => Some(text.to_string()),
+            _ => keys.fixed(),
         };
         shell::shortcut_found(typed, name, label.as_deref())
     });
