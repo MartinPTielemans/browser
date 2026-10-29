@@ -82,6 +82,23 @@ fn back_in_or_put_back_it_leaves_the_other_window(cx: &mut TestAppContext) {
 }
 
 /// In full screen the window covers its display, so a row stays in the list at its edge.
+/// ⎋ taken before any view has it, as from a page in Safari's engine, puts a dragged-out row back,
+/// and with no drag going it leaves the key alone.
+#[gpui::test]
+fn escape_before_any_view_puts_a_dragged_row_back(cx: &mut TestAppContext) {
+    let (shell, host, cx) = window(cx, &[1, 2, 3]);
+    assert!(!shell.update(cx, |shell, cx| shell.escape_drag(cx)), "it took ⎋ with no drag");
+    let y = press(&shell, cx, 1);
+    drag_to(&shell, cx, X, y + 60.);
+    drag_to(&shell, cx, -20., y + 60.);
+    host.take();
+    assert!(shell.update(cx, |shell, cx| shell.escape_drag(cx)));
+    let calls = host.take();
+    assert!(calls.contains(&"drag out 1 none".to_string()), "the drag wasn't put back: {calls:?}");
+    assert!(shell.read_with(cx, |shell, _| shell.drag.is_none()));
+    assert!(!shell.update(cx, |shell, cx| shell.escape_drag(cx)), "it took a second ⎋");
+}
+
 #[gpui::test]
 fn a_full_screen_window_keeps_its_rows(cx: &mut TestAppContext) {
     let (shell, host, cx) = window(cx, &[1, 2, 3]);

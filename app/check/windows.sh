@@ -520,7 +520,7 @@ send dragto $(there "$last")
 expect "^browser: dragged $other out\$" "a row dragged onto the other window didn't come out"
 before=$(today)
 send key escape
-expect '^browser: command stop via ' "escape didn't reach the UI with the page focused"
+expect '^browser: command stop via ' "escape didn't reach the browser with the page focused"
 send release $(there "$last")
 none_since '^browser: dropped tab ' || fail "the tab put back with escape dropped in the other window"
 none_since "^browser: window $fifth shows $other\$" || fail "the tab put back with escape moved its page"

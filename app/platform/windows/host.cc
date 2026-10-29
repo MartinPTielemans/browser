@@ -1969,6 +1969,9 @@ void host_detent(void) {}
 // gives each window's taskbar button its overlay once the windows are up.
 void host_dock_dot_launch(const char*) {}
 
+// The pages here are Chromium's, which hand back the keys they don't keep, and GPUI binds the UI's.
+void host_watch_escape(bool (*)(void)) {}
+
 // Gives each browser window's taskbar button an overlay dot in |color| (0xRRGGBB), or ilo's green
 // without |colored|, the counterpart of the Mac's Dock dot. One colour for the app, as the Dock has
 // one icon; the taskbar makes its own copy, so the icon is freed after.

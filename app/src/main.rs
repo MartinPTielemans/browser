@@ -242,6 +242,7 @@ mod platform {
         pub fn host_dock_dot_launch(profile_dir: *const c_char);
         pub fn host_dock_dot(colored: bool, color: u32);
         pub fn host_watch_control(released: extern "C" fn());
+        pub fn host_watch_escape(pressed: extern "C" fn() -> bool);
         pub fn host_take_drops(
             dragged: extern "C" fn(
                 ui_view: *mut c_void,
@@ -3128,6 +3129,21 @@ fn open_window_for(
 }
 
 /// The shell of the window `id`, if it's open.
+/// ⎋ went down, before any view has it: a row being dragged goes back, whichever window it's from
+/// and whichever view has the keyboard. Returns whether one did, and the key goes no further.
+extern "C" fn escape_pressed() -> bool {
+    let mut cancelled = false;
+    update_app(|cx| {
+        let shells = WINDOWS.with_borrow(|windows| {
+            windows.iter().map(|window| window.shell.clone()).collect::<Vec<_>>()
+        });
+        cancelled = shells
+            .into_iter()
+            .any(|shell| shell.update(cx, |shell, cx| shell.escape_drag(cx)).unwrap_or(false));
+    });
+    cancelled
+}
+
 fn shell_of(id: bc::bc_id) -> Option<WeakEntity<Shell>> {
     WINDOWS.with_borrow(|windows| {
         windows.iter().find(|window| window.id == id).map(|window| window.shell.clone())
@@ -3838,6 +3854,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
         // check.sh reads this line, as launches are timed from it.
         log!("browser: started at {:.1} ms", unsafe { platform::host_since_launch() });
         dock_dot::open(Rc::new(DockDot), cx);
+        unsafe { platform::host_watch_escape(escape_pressed) };
         open_window(None, None, cx);
     });
     // On Chromium's Wayland display, GPUI's windows and their surfaces are on a display Chromium

@@ -10,7 +10,7 @@ use gpui::{
 };
 
 use super::{
-    Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, HeldRow, NAME_HEIGHT, Opened, PLATE_HEIGHT,
+    Closing, Command, Curve, DRAG_START, Drag, FOLDER_INDENT, HeldRow, NAME_HEIGHT, Opened, PLATE_HEIGHT,
     PLATE_INSET, PLATE_RADIUS, PRESS_SCALE, PRESS_TIME, Place, ROW_HEIGHT, ROW_PITCH, Shape, Shell,
     Slot, TILE_HEIGHT, TILE_RADIUS, slots,
 };
@@ -629,7 +629,7 @@ impl Shell {
 
     /// Puts the tab the pointer drags back where it was, and returns whether there was one.
     pub(super) fn cancel_drag(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.dropped && !drag.held) {
+        if !self.drag_cancellable() {
             return false;
         }
         // The release that ends the drag isn't a click.
@@ -641,6 +641,20 @@ impl Shell {
         self.putting_back = true;
         cx.notify();
         true
+    }
+
+    /// ⎋ went down before any view had it: a row being dragged goes back, as escape puts it back
+    /// from the UI or a page of Chromium's. Returns whether it did.
+    pub fn escape_drag(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.drag_cancellable() {
+            return false;
+        }
+        self.run(Command::Stop, "key", cx);
+        true
+    }
+
+    fn drag_cancellable(&self) -> bool {
+        self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.dropped && !drag.held)
     }
 
     /// Ends a drag that moves nothing in the browser: the rows and tiles settle from where they're
