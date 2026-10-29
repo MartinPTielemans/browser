@@ -73,6 +73,9 @@ jobs:
             "$ILO_ENGINE_ROOT/linux/src/out/Default/.ninja_log")
           gb=$(awk '{ printf "%.1f", $1 / 1048576 }' "$peak")
           echo "chrome's last link: $link s, at most $gb GB" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The core's logic that needs no browser (core/BUILD.gn, browser_core_unittests).
+      - name: Test the core
+        run: '"$ILO_ENGINE_ROOT/linux/src/out/Default/browser_core_unittests"'
       - name: Package
         run: engine/linux/package.sh "$ILO_ENGINE_ROOT/linux" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz"
       # A release named after the commit, which holds the engine's source. fetch.sh takes the
