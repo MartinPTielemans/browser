@@ -157,6 +157,14 @@ mod platform {
             width: *mut f64,
             height: *mut f64,
         );
+        pub fn host_grow_window(
+            ui_view: *mut c_void,
+            x: f64,
+            y: f64,
+            width: f64,
+            height: f64,
+            seconds: f64,
+        );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
         pub fn host_set_window_light(ui_view: *mut c_void, light: bool);
         pub fn host_set_app_appearance(appearance: c_int);
@@ -1790,11 +1798,11 @@ impl Browser for Engine {
         let Some((window, at, shell)) =
             under.and_then(|(window, at)| Some((window, at, shell_of(window)?)))
         else {
-            return open_window_for(self.window, self.ui_view, tab, position, cx);
+            return open_window_for(self.window, self.ui_view, tab, position, None, cx);
         };
         let place = shell.update(cx, |shell, cx| shell.drop_tab_in(tab, at, cx)).ok().flatten();
         let Some((pinned, folder, index)) = place else {
-            return open_window_for(self.window, self.ui_view, tab, position, cx);
+            return open_window_for(self.window, self.ui_view, tab, position, None, cx);
         };
         let Some(ui_view) = WINDOWS.with_borrow(|windows| {
             windows.iter().find(|open| open.id == window).map(|open| open.ui_view)
@@ -1816,6 +1824,11 @@ impl Browser for Engine {
             platform::host_activate(ui_view);
         })
         .detach();
+    }
+
+    fn open_tab_window(&self, tab: u64, picture: Bounds<Pixels>, seconds: f32, cx: &mut App) {
+        let grow = Some((picture, seconds));
+        open_window_for(self.window, self.ui_view, tab, picture.center(), grow, cx);
     }
 
     fn show_drop_targets(&self, shown: bool, cx: &mut App) {
@@ -3067,18 +3080,30 @@ fn window_under(
 
 /// Opens a window for `tab`, dragged out of window `from`, with `ui_view`, and let go at `position`
 /// there, away from any list: as ⌘N's, as big as `from`, centred on the pointer and kept on screen
-/// where the platform says where windows are, showing the tab's page, live.
+/// where the platform says where windows are, showing the tab's page, live. With `grow`, it grows
+/// out of those bounds in `from` over those seconds.
 fn open_window_for(
     from: bc::bc_id,
     ui_view: *mut c_void,
     tab: u64,
     position: Point<Pixels>,
+    grow: Option<(Bounds<Pixels>, f32)>,
     cx: &mut App,
 ) {
-    let frame = window_frame(ui_view).and_then(|frame| {
+    let source = window_frame(ui_view);
+    let frame = source.and_then(|frame| {
         let x = frame.x + f64::from(position.x) - frame.width / 2.;
         let y = frame.y + f64::from(position.y) - frame.height / 2.;
         placed(bc::bc_rect { x, y, ..frame })
+    });
+    let grow = source.zip(grow).map(|(frame, (bounds, seconds))| {
+        let start = bc::bc_rect {
+            x: frame.x + f64::from(bounds.origin.x),
+            y: frame.y + f64::from(bounds.origin.y),
+            width: f64::from(bounds.size.width),
+            height: f64::from(bounds.size.height),
+        };
+        (start, f64::from(seconds))
     });
     // Outside the shell's update, as the new window's shell reads this one's.
     cx.defer(move |cx| {
@@ -3092,6 +3117,13 @@ fn open_window_for(
         // check.sh waits for this line.
         log!("browser: tab {tab} opened in window {window}");
         unsafe { bc::bc_window_select(window, tab) };
+        let ui_view = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|open| open.id == window).map(|open| open.ui_view)
+        });
+        if let Some(((start, seconds), ui_view)) = grow.zip(ui_view) {
+            let bc::bc_rect { x, y, width, height } = start;
+            unsafe { platform::host_grow_window(ui_view, x, y, width, height, seconds) };
+        }
     });
 }
 

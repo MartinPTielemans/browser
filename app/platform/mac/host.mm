@@ -1496,6 +1496,31 @@ void host_cascaded(void* ui_view, double* x, double* y, double* width, double* h
   *height = NSHeight(frame);
 }
 
+void host_grow_window(void* ui_view, double x, double y, double width, double height,
+                      double seconds) {
+  Browser* browser = BrowserWithView(ui_view);
+  NSWindow* window = browser ? browser->window : nil;
+  if (!window || (window.styleMask & NSWindowStyleMaskFullScreen) || seconds <= 0) {
+    return;
+  }
+  const NSRect to = window.frame;
+  const NSRect from = NSMakeRect(x, NSHeight(NSScreen.screens.firstObject.frame) - y - height,
+                                 width, height);
+  // Before the window draws again, so it's never seen at its own size first.
+  [window setFrame:from display:NO];
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = seconds;
+        context.timingFunction =
+            [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        [window.animator setFrame:to display:YES];
+      }
+      completionHandler:^{
+        // check.sh waits for this line.
+        fprintf(stderr, "browser: window grew\n");
+      }];
+}
+
 void host_set_window_title(void* ui_view, const char* title) {
   Browser* browser = BrowserWithView(ui_view);
   if (browser && browser->window) {

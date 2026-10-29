@@ -316,6 +316,12 @@ impl Browser for Recorder {
         self.record(format!("drop out {tab} {x} {y}"))
     }
 
+    fn open_tab_window(&self, tab: u64, picture: Bounds<Pixels>, seconds: f32, _: &mut App) {
+        let (x, y) = (f32::from(picture.origin.x), f32::from(picture.origin.y));
+        let (width, height) = (f32::from(picture.size.width), f32::from(picture.size.height));
+        self.record(format!("open window {tab} {x} {y} {width} {height} {seconds}"))
+    }
+
     fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
         self.record(format!("back to pinned url {tab}"))
     }

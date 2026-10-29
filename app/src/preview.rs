@@ -949,6 +949,8 @@ impl Browser for Fake {
 
     fn drop_tab_out(&self, _: u64, _: Point<Pixels>, _: &mut App) {}
 
+    fn open_tab_window(&self, _: u64, _: Bounds<Pixels>, _: f32, _: &mut App) {}
+
     fn show_window_buttons(&self, _: bool, _: &mut App) {}
 
     fn press_window_button(&self, _: WindowButton, _: &mut App) {}
