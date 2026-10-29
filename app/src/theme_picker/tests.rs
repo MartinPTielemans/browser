@@ -216,7 +216,8 @@ fn dragging_another_handle_places_its_colour_alone(cx: &mut TestAppContext) {
 }
 
 /// The handles are drawn at rest, then held from the press's own frame, which is the first to
-/// listen for the drag's moves, and at rest again once let go (check.sh waits for each).
+/// listen for the drag's moves, and at rest again once let go, and the wave's knob is drawn held the
+/// same way (check.sh waits for each).
 #[gpui::test]
 fn a_held_handle_is_drawn_held_before_it_drags(cx: &mut TestAppContext) {
     let start = Theme::at(0.5, 0.).with_count(3);
@@ -232,10 +233,15 @@ fn a_held_handle_is_drawn_held_before_it_drags(cx: &mut TestAppContext) {
     let left = MouseButton::Left;
     picker.cx.simulate_mouse_down(Picker::at(x, y), left, Modifiers::none());
     picker.cx.run_until_parked();
-    assert_eq!(drawn(&mut picker), Some((3, Some(2))));
+    assert_eq!(drawn(&mut picker), Some((3, Some(Drag::Handle(2, 0., 0.)))));
     picker.cx.simulate_mouse_up(Picker::at(x, y), left, Modifiers::none());
     picker.cx.run_until_parked();
     assert_eq!(drawn(&mut picker), Some((3, None)));
+    // The wave's knob, likewise.
+    let knob = Picker::at(knob_x(DEFAULT_INTENSITY), SLIDER_Y);
+    picker.cx.simulate_mouse_down(knob, left, Modifiers::none());
+    picker.cx.run_until_parked();
+    assert_eq!(drawn(&mut picker), Some((3, Some(Drag::Intensity))));
 }
 
 #[gpui::test]
