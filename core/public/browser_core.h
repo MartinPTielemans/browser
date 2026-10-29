@@ -1967,6 +1967,15 @@ BC_EXPORT size_t bc_sync_recovery_words(char* words, size_t capacity);
 // the account's data, or BC_SYNC_NEEDS_SECRET with BC_SYNC_PROBLEM_WRONG_WORDS.
 BC_EXPORT bool bc_sync_enter_recovery_words(const char* words);
 
+// Starts the account over for a user with neither another device nor the recovery words, with
+// BC_SYNC_NEEDS_SECRET, or BC_SYNC_PAIRING, whose request it takes back: it deletes everything the
+// account keeps on the server, its synced data and the devices it knows (Chromium's
+// ClearServerData), and makes this the account's first device again. What this device has stays,
+// and syncs up again under the new secret. Then sync_changed, with BC_SYNC_FIRST_DEVICE, whose
+// bc_sync_recovery_words makes the new secret and its words, or with the status it had and
+// BC_SYNC_PROBLEM_SERVER if the server couldn't do it. Does nothing in any other status.
+BC_EXPORT void bc_sync_start_over(void);
+
 // Asks the account's other devices, through the server, to add this one, with BC_SYNC_NEEDS_SECRET:
 // it sends a commitment to a key made for it, with this device's name and system (protocol.md,
 // Pairing). Then sync_changed with BC_SYNC_PAIRING, again with its code once a device answers, then
