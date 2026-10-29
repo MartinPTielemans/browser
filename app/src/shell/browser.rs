@@ -68,6 +68,9 @@ pub trait Browser {
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
+    /// Opens a tab loading `url` in a split view with `with`, at its left end if `left`, else its
+    /// right end, stacking a new split if `stacked`, and shows it there.
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, cx: &mut App);
     /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
     /// hides it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);
