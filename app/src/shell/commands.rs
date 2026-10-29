@@ -270,6 +270,11 @@ const HIDE_SIDEBAR: &str = "Hide Sidebar";
 const DEVELOPER_MODE_ON: &str = "Turn on Developer Mode for this site";
 const DEVELOPER_MODE_OFF: &str = "Turn off Developer Mode for this site";
 
+/// What turns Developer Mode the other way, for a page in it or not.
+pub(super) fn developer_mode_title(on: bool) -> &'static str {
+    if on { DEVELOPER_MODE_OFF } else { DEVELOPER_MODE_ON }
+}
+
 /// The commands the command bar finds, with the words besides their names' that find them, in
 /// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
 /// (docs/ux-spec.md › Command bar › Commands). Among equal matches, the first here comes first.
@@ -1115,6 +1120,14 @@ impl Shell {
         self.browser.capture(self.selected, pane, radius, full_page, cx);
     }
 
+    /// Whether `tab`'s page is in Developer Mode, or None where the user can't change it: a page
+    /// that isn't http(s), or a private window.
+    pub(super) fn developer_mode(&self, tab: u64) -> Option<bool> {
+        let page = self.page(tab);
+        let web = page.url.starts_with("http://") || page.url.starts_with("https://");
+        (tab != 0 && web && !self.private).then_some(page.developer_mode)
+    }
+
     /// Whether `command` would do something now, for the command bar to offer it.
     pub(super) fn offers(&self, command: Command) -> bool {
         if self.private && !private_runs(command) {
@@ -1127,11 +1140,10 @@ impl Shell {
             Command::Forward => page.can_go_forward,
             Command::Stop => page.loading,
             // Only a web page has a site to clear, or to show in Developer Mode.
-            Command::ClearCacheAndRefresh
-            | Command::ClearCookiesAndRefresh
-            | Command::ToggleDeveloperMode => {
+            Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
+            Command::ToggleDeveloperMode => self.developer_mode(self.selected).is_some(),
             Command::BackToPinnedUrl => page.away_from_pinned_url,
             Command::CloseSplitPane
             | Command::SeparatePane
@@ -1191,7 +1203,7 @@ impl Shell {
             }
             Command::ToggleDeveloperMode => {
                 let on = self.page(self.selected).developer_mode;
-                (name == if on { DEVELOPER_MODE_OFF } else { DEVELOPER_MODE_ON }).then_some(name)
+                (name == developer_mode_title(on)).then_some(name)
             }
             _ => Some(name),
         }

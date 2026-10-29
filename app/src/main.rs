@@ -3795,7 +3795,12 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                         item("Developer Tools", Command::DevTools),
                         item("Inspect Elements", Command::InspectElements),
                         item("JavaScript Console", Command::JavaScriptConsole),
-                    ],
+                    ]
+                    .into_iter()
+                    .chain(bar.developer_mode_title().into_iter().flat_map(|title| {
+                        [MenuItem::separator(), item(title, Command::ToggleDeveloperMode)]
+                    }))
+                    .collect(),
                 )),
                 MenuItem::separator(),
                 item("Expand Current Split", Command::ExpandSplit),
