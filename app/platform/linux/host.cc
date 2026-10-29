@@ -464,8 +464,6 @@ bool host_close_other_window(void) {
 
 void host_detent(void) {}
 
-void host_watch_control(void (*released)(void)) {}
-
 void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y, const host_dragged* items, size_t count)) {}
 
 bool host_trash(const char* path) {
