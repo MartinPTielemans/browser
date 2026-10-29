@@ -329,7 +329,7 @@ impl Browser for Fake {
     }
 
     // Under the tab, with its title and page, as the core does.
-    fn duplicate(&self, tab: u64, cx: &mut App) {
+    fn duplicate(&self, tab: u64, cx: &mut App) -> u64 {
         let copy = self.next_id.get();
         self.next_id.set(copy + 1);
         self.later(cx, move |shell, cx| {
@@ -341,6 +341,7 @@ impl Browser for Fake {
             set_today(shell, today, cx);
             shell.set_selected(copy, cx);
         });
+        copy
     }
 
     // The made-up tabs stay in their Space.

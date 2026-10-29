@@ -1661,8 +1661,8 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_close_below(tab) };
     }
 
-    fn duplicate(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_duplicate(tab) };
+    fn duplicate(&self, tab: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_tab_duplicate(tab) }
     }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {

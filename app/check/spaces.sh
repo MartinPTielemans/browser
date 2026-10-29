@@ -431,10 +431,10 @@ expect "^browser: space $third in " "the window didn't show the third Space"
 send key return
 none_since '^browser: create space' || fail "return with no name named the Space"
 show_space "key 1 ctrl" select-space ui "$first" "$a"
-# The footer's + offers New Space… and New Folder…, 8 in from the sidebar's edge.
+# The footer's + offers New Space…, New Folder… and New Split View, 8 in from the sidebar's edge.
 post click 204 $((${content#*x} - 25))
-expect "^browser: menu shown $(cased 'New Space…, New Folder…')\$" \
-  "the footer's + didn't offer New Space… and New Folder…"
+expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View')\$" \
+  "the footer's + didn't offer New Space…, New Folder… and New Split View"
 send choose New Space…
 expect '^browser: command new-space via footer$' "New Space… in the +'s menu didn't run"
 expect "^browser: space $third in " "New Space didn't show the form already open"
