@@ -97,7 +97,7 @@ pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowBut
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label,
-    Run, menu_item, pane_added, run_from_bar, shown_tab,
+    Run, menu_item, pane_added, run_from_bar, shown_tab, with_named_rows,
 };
 pub use drag::dropped_urls;
 pub use extensions::{

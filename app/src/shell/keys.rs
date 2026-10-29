@@ -77,6 +77,9 @@ pub fn rebindable(command: Command) -> bool {
             | Command::RecentTabBack
             | Command::SelectTab(_)
             | Command::SelectSpace(_)
+            | Command::MoveToSpace(_)
+            | Command::PinToSpace(_)
+            | Command::OpenFolder(_)
     )
 }
 

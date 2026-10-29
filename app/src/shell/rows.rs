@@ -40,6 +40,21 @@ pub(super) const CLEAR_TIP: &str = "Clear unpinned tabs in this space";
 
 impl Shell {
     /// Closes every folder of the Space shown, all on one fold.
+    /// Opens `folder` of the Space shown, with the folders it's in, and scrolls the sidebar to it,
+    /// as the command bar's Open does.
+    pub(super) fn open_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
+        let Some(space) = self.shown_space() else {
+            return;
+        };
+        let folders = std::iter::once(folder).chain(space.holders(folder));
+        let shut: Vec<u64> = folders.filter(|&each| !space.is_open(each)).collect();
+        for &each in &shut {
+            self.browser.set_folder_open(each, true, cx);
+        }
+        self.revealing = (!shut.is_empty()).then_some(folder);
+        self.scroll_to_row(folder);
+    }
+
     pub(super) fn collapse_folders(&mut self, cx: &mut Context<Self>) {
         let Some(space) = self.shown_space() else {
             return;

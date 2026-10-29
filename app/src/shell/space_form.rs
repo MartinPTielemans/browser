@@ -88,7 +88,7 @@ impl Shell {
         let (space, tab) = (form.space, form.tab);
         self.browser.rename_space(space, &name, cx);
         if let Some(tab) = tab {
-            self.move_to_space(tab, space, cx);
+            self.move_to_space(tab, space, false, cx);
         }
         self.leaving_form = self.form.take().map(|form| (form, Instant::now()));
         window.focus(&self.focus_handle, cx);

@@ -258,7 +258,9 @@ impl Browser for Recorder {
         self.edit(format!("rename folder {folder} {name}"));
     }
 
-    fn set_folder_open(&self, _: u64, _: bool, _: &mut App) {}
+    fn set_folder_open(&self, folder: u64, open: bool, _: &mut App) {
+        self.record(format!("folder {folder} open {open}"));
+    }
 
     fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
         self.edit(format!("move folder {folder} {to} {index}"));
