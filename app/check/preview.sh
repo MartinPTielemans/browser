@@ -19,8 +19,15 @@ A link to another site</a>
 <div id=press style=\"position:fixed;left:0;top:40%;width:100%;height:60%;font:24px system-ui\">
 Presses count here</div>
 <script>
-// With ?meeting, the link is a Google Meet call's, whose host the run maps to its own server.
-if (location.search == \"?meeting\") document.querySelector(\"a\").href = \"http://meet.google.com/ilo-check-call\";
+// M makes the link a Google Meet call's, whose host the run maps to its own server, and M again
+// the other site's: a pinned tab's address typed in opens a new tab, so the page changes it.
+const link = document.querySelector(\"a\");
+onkeydown = (event) => {
+  if (event.key != \"m\") return;
+  const meeting = link.href == \"$target\";
+  link.href = meeting ? \"http://meet.google.com/ilo-check-call\" : \"$target\";
+  document.title = meeting ? \"meeting link\" : \"site link\";
+};
 let presses = 0;
 press.onmousedown = () => document.title = \"pressed \" + ++presses;
 requestAnimationFrame(() => requestAnimationFrame(() => document.title = \"ready\"));
@@ -180,15 +187,14 @@ expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the pinned row did
 
 # A call's link skips the preview and opens as a tab at the top of Today in the Space shown, which
 # it shows, and the pinned tab stays on its page.
-at_page() {
-  send key l cmd
-  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
-  send type "$1"
-  send key return
-  expect "^browser: loaded $a $1\$" "the pinned tab didn't load $1"
-  expect "^browser: title $a ready\$" "$1 didn't draw in the pinned tab"
+# M in the page turns its link from one to the other, once a click has given the page the keys.
+link_to() {
+  send click $page_point
+  expect "^browser: title $a pressed [0-9]*\$" "a click on the test page's lower part didn't reach it"
+  send key m
+  expect "^browser: title $a $1 link\$" "M in the page didn't make its link the $1's"
 }
-at_page "${site}preview.html?meeting"
+link_to meeting
 send click $link_point
 expect "^browser: meeting link from $a opens as a tab\$" "a click on a Meet link didn't skip the preview"
 expect '^browser: today [1-9]' "the Meet link didn't open at the top of Today: Today is \"$(today)\""
@@ -200,7 +206,7 @@ grep -q "^browser: loaded $a http://meet.google.com" "$log" && fail "the Meet li
 away
 send click $(pinned_row 0)
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the pinned row didn't show its tab"
-at_page "${site}preview.html"
+link_to site
 
 # With the switch in Settings › Advanced off, the link goes in the pinned tab.
 send click $page_point
