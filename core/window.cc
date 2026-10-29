@@ -2331,6 +2331,23 @@ void Window::LeaveFullScreen() {
     platform::HoldPagesForResize(widget_.get());
   }
 #if !BUILDFLAG(IS_MAC)
+  // The page hears it's out before the window resizes, as on the Mac. Each Browser found again:
+  // the controller's calls reach code that may change them.
+  std::vector<Profile*> profiles;
+  for (const auto& [profile, held] : browsers_) {
+    profiles.push_back(profile);
+  }
+  base::WeakPtr<Window> letting_go = weak_factory_.GetWeakPtr();
+  for (Profile* profile : profiles) {
+    const auto held = browsers_.find(profile);
+    if (held == browsers_.end()) {
+      continue;
+    }
+    static_cast<BrowserWindowStandIn*>(held->second.browser->GetWindow())->LetGoOfPage();
+    if (!letting_go) {
+      return;
+    }
+  }
   // Off the Mac the window is out as SetFullscreen returns. The window manager's own way out has
   // taken it out already, which Chromium's X11 window ignores, still counting itself full screen.
   if (widget_->IsFullscreen()) {
@@ -2346,7 +2363,7 @@ void Window::LeaveFullScreen() {
   // page's own exit meanwhile, so a window AppKit took out (its green button, ⌃⌘F, its display
   // going) without finishing kept the page full screen in a window that wasn't. On the Mac Chrome
   // lets go of the page before leaving when it asks itself, so only the window's own exit gets
-  // here with one; off the Mac it lets go here, as it hears the window is out.
+  // here with one; off the Mac the stand-ins have let go of it above.
   for (const auto& [profile, held] : browsers_) {
     ExclusiveAccessManager* manager = ExclusiveAccessManager::From(held.browser);
     FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;

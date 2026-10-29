@@ -323,6 +323,24 @@ void BrowserWindowStandIn::SetBrowser(BrowserWindowInterface* browser) {
   }
 }
 
+void BrowserWindowStandIn::LetGoOfPage() {
+  ExclusiveAccessManager* manager = browser_ ? ExclusiveAccessManager::From(browser_) : nullptr;
+  FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+  if (!controller || !controller->IsWindowFullscreenForTabOrPending()) {
+    return;
+  }
+  // Off the Mac the controller lets go of the page only once it hears the window is out, after the
+  // window has resized. A page its tab switch had hidden by then never heard it was out: it kept
+  // its full screen, and stopped drawing or taking input when shown again. Told the window is out
+  // now, the controller lets go first, as it does on the Mac (ExitFullscreenModeInternal).
+  base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
+  letting_go_ = true;
+  controller->WindowFullscreenStateChanged();
+  if (alive) {
+    letting_go_ = false;
+  }
+}
+
 void BrowserWindowStandIn::DeleteBrowserWindow() {
   delete this;
 }
@@ -344,7 +362,7 @@ bool BrowserWindowStandIn::IsMinimized() const {
 }
 
 bool BrowserWindowStandIn::IsFullscreen() const {
-  return widget() && widget()->IsFullscreen();
+  return !letting_go_ && widget() && widget()->IsFullscreen();
 }
 
 gfx::NativeWindow BrowserWindowStandIn::GetNativeWindow() const {
