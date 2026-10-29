@@ -191,6 +191,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
             ("Clear Today", Keys::Of(Command::Clear)),
+            ("Reset all tabs in this Space", Keys::Of(Command::ResetSpaceTabs)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
             ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
