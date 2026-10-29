@@ -736,7 +736,7 @@ impl Shell {
     fn copy_link(&mut self, tab: u64, cx: &mut Context<Self>) {
         let link = clean_link(&self.page(tab).url);
         if !link.is_empty() {
-            self.copy(&link, "Copied Current URL", cx);
+            self.copy_page(tab, &link, cx);
         }
     }
 

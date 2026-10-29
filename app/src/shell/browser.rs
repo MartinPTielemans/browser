@@ -341,6 +341,13 @@ pub trait Browser {
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);
+    /// Shows `text` in the toast for `time` with a share button after it, which opens the system's
+    /// share sheet for the page at `url`, titled `title`, as Arc's Copied Current URL does. Where
+    /// the system has no share sheet, the toast has no button.
+    fn toast_share(&self, text: &str, url: &str, title: &str, time: Duration, cx: &mut App) {
+        let _ = (url, title);
+        self.toast(text, None, time, cx);
+    }
     /// Shows `text` in the toast with an Undo button and ⌘Z's chip after it, which runs `undo` as
     /// the key does, for `time` and for as long as the pointer is over it.
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App);

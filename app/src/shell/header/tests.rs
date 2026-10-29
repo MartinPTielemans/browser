@@ -270,6 +270,12 @@ fn copy_url_shows_the_toast_and_the_checkmark(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.simulate_click(point(px(178.), px(64.)), Modifiers::none());
     assert_eq!(host.toasts.take(), ["Copied Current URL"]);
+    // With Arc's share button, for the page without its tracking parameters.
+    let calls = host.take();
+    let shares: Vec<&String> =
+        calls.iter().filter(|call| call.starts_with("toast share")).collect();
+    assert_eq!(shares.len(), 1);
+    assert!(shares[0].starts_with("toast share https://example.org/ "), "{shares:?}");
     assert!(host.command_bars.take().is_empty());
     assert!(shell.read_with(cx, |shell, _| shell.url_copied.is_some()));
 }
