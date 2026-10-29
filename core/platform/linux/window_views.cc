@@ -36,6 +36,7 @@
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/gfx/x/atom_cache.h"
 #include "ui/gfx/x/connection.h"
 #include "ui/gfx/x/event.h"
 #include "ui/gfx/x/event_observer.h"
@@ -198,6 +199,7 @@ class WindowViews : public views::WidgetObserver,
   Slot& side_panel() { return side_panel_; }
   FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  bool held() const { return held_; }
   void set_held(bool held) { held_ = held; }
   UITextInput& ui_text_input() { return ui_text_input_; }
 
@@ -500,8 +502,38 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // The window manager's state for the window changed. A full screen it ended itself, by its own
+  // key, Chromium's X11 window ignores, keeping its own (X11Window::OnXWindowStateChanged), so the
+  // window leaves here, the one way every exit takes (Window::LeaveFullScreen).
+  void WindowManagerStateChanged() {
+    std::vector<x11::Atom> states;
+    x11::Connection::Get()->GetArrayProperty(window(), x11::GetAtom("_NET_WM_STATE"), &states);
+    const bool full_screen =
+        std::ranges::contains(states, x11::GetAtom("_NET_WM_STATE_FULLSCREEN"));
+    // Only once the window manager has had it full screen: until it takes Chromium's request, the
+    // window's state lacks it.
+    const bool ended = window_manager_full_screen_ && !full_screen;
+    window_manager_full_screen_ = full_screen;
+    if (!ended || !widget_->IsFullscreen()) {
+      return;
+    }
+    for (Window* each : Window::All()) {
+      if (each->widget() == widget_) {
+        // Its resize runs the app, which may close the window, and this with it.
+        each->LeaveFullScreen();
+        return;
+      }
+    }
+  }
+
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
+    if (auto* property = event.As<x11::PropertyNotifyEvent>()) {
+      if (property->window == window() && property->atom == x11::GetAtom("_NET_WM_STATE")) {
+        WindowManagerStateChanged();
+      }
+      return;
+    }
     if (auto* focus = event.As<x11::FocusEvent>()) {
       // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
@@ -588,6 +620,8 @@ class WindowViews : public views::WidgetObserver,
   double corner_radius_ = 0;
   // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
   bool held_ = false;
+  // Whether the window manager's state for the window last said full screen.
+  bool window_manager_full_screen_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
   x11::Window ui_main_ = x11::Window::None;
@@ -749,6 +783,11 @@ void HoldPagesForResize(views::Widget* widget) {
   if (WindowViews* views = ViewsOf(widget)) {
     views->set_held(true);
   }
+}
+
+bool PagesHeldForResize(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  return views && views->held();
 }
 
 void HidePages(views::Widget* widget) {

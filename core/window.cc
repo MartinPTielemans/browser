@@ -985,7 +985,7 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind)
                                    views::Widget::InitParams::TYPE_WINDOW);
   params.delegate = delegate_.get();
   params.native_widget = platform::NewNativeWidget(
-      widget_.get(), base::BindRepeating(&Window::LeavingFullScreen, weak_factory_.GetWeakPtr()));
+      widget_.get(), base::BindRepeating(&Window::LeaveFullScreen, weak_factory_.GetWeakPtr()));
   params.bounds = bounds;
   params.name = "BrowserCoreWindow";
 #if BUILDFLAG(IS_LINUX)
@@ -1151,6 +1151,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   const bc_id freed = left && Picturing(left) ? left : 0;
   PasswordOffer::Moving moving(freed);
   HoldPictured();
+  // A full-screen page's tab leaving takes the window out with it, within ActivateTabAt.
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
@@ -1168,8 +1169,11 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
     g_left_size = focused_frame_.size();
   }
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
-  // new page takes it.
-  LayOutPage();
+  // new page takes it. Not at a frame for a window that has just left full screen, whose pages
+  // wait for its new size: the app lays them out once it has it (LeaveFullScreen).
+  if (!platform::PagesHeldForResize(widget_.get())) {
+    LayOutPage();
+  }
   if (freed) {
     LogHandover("giver let go", Handing(id_, freed));
   }
@@ -2234,11 +2238,29 @@ void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
   platform::HidePages(widget_.get());
 }
 
-void Window::LeavingFullScreen() {
+void Window::LeaveFullScreen() {
+  // The app lays a page leaving out once, at the window's new size, which off the Mac it hears of
+  // after the window has resized.
+  if (FullScreenForPage()) {
+    platform::HoldPagesForResize(widget_.get());
+  }
+#if !BUILDFLAG(IS_MAC)
+  // Off the Mac the window is out as SetFullscreen returns. The window manager's own way out has
+  // taken it out already, which Chromium's X11 window ignores, still counting itself full screen.
+  if (widget_->IsFullscreen()) {
+    base::WeakPtr<Window> alive = weak_factory_.GetWeakPtr();
+    widget_->SetFullscreen(false);
+    // The window's resize runs the app, which may close it.
+    if (!alive) {
+      return;
+    }
+  }
+#endif
   // Chrome's controller keeps a page full screen until it hears the window is out, ignoring the
   // page's own exit meanwhile, so a window AppKit took out (its green button, ⌃⌘F, its display
-  // going) without finishing kept the page full screen in a window that wasn't. Chrome lets go of
-  // the page before leaving when it asks itself, so only the window's own exit gets here with one.
+  // going) without finishing kept the page full screen in a window that wasn't. On the Mac Chrome
+  // lets go of the page before leaving when it asks itself, so only the window's own exit gets
+  // here with one; off the Mac it lets go here, as it hears the window is out.
   for (const auto& [profile, held] : browsers_) {
     ExclusiveAccessManager* manager = ExclusiveAccessManager::From(held.browser);
     FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
