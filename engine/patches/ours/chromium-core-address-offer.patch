@@ -1,0 +1,25 @@
+Lets the core offer to save an address with the app's prompt (//browser_core/autofill_offer.h):
+Chrome, once the user saves one, looks for an iOS promo through the window's BrowserView, which
+the core's windows don't have.
+
+--- a/chrome/browser/ui/autofill/address_bubbles_controller.cc
++++ b/chrome/browser/ui/autofill/address_bubbles_controller.cc
+@@ -312,10 +312,15 @@
+ }
+ 
+ void AddressBubblesController::MaybeShowIOSDektopAddressPromo() {
+-  BrowserWindowInterface* browser =
++  BrowserView* view =
+       BrowserWindow::FindBrowserWindowWithWebContents(web_contents())
+-          ->AsBrowserView()
+-          ->browser();
++          ->AsBrowserView();
++  // browser_core: the core's windows have no BrowserView, and offer no iOS
++  // promo (//browser_core/autofill_offer.h).
++  if (!view) {
++    return;
++  }
++  BrowserWindowInterface* browser = view->browser();
+ 
+   // Verify if user is eligible for iOS promo, and attempt showing if they are.
+   ios_promos_utils::VerifyIOSPromoEligibility(
