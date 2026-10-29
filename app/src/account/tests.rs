@@ -519,8 +519,9 @@ fn every_state_has_its_way_out(cx: &mut TestAppContext) {
     }
 }
 
-/// The dialog on the other device names the device and its system, and the code as this one
-/// shows it, in two threes.
+/// The dialog on the other device goes by when the request came, gives the device's name and
+/// system only as its own word, and asks the user to match the code on the device in front of
+/// them, in two threes (browser#642).
 #[test]
 fn the_other_device_asks_with_the_code() {
     let pairing = Pairing {
@@ -528,15 +529,41 @@ fn the_other_device_asks_with_the_code() {
         name: "Pixel 9".into(),
         os: "Android".into(),
         code: "312568".into(),
+        asked: "15:04".into(),
     };
     let question = pairing_question(&pairing);
-    assert_eq!(question.message.as_ref(), "Add Pixel 9 (Android)?");
-    assert_eq!(question.detail.as_ref(), "Check it shows 312 568.");
+    assert_eq!(question.message.as_ref(), "Add the device that asked at 15:04?");
+    assert_eq!(
+        question.detail.as_ref(),
+        "It calls itself “Pixel 9” on Android, which nothing checks. Add it only if the device in \
+         front of you shows 312 568."
+    );
     assert_eq!((question.action.as_ref(), question.cancel.as_ref()), ("Add", "Not me"));
     assert_eq!(question.on_return, Return::Cancel);
-    let unnamed = Pairing { os: "".into(), ..pairing };
-    assert_eq!(pairing_question(&unnamed).message.as_ref(), "Add Pixel 9?");
+    let unnamed = Pairing { name: "".into(), os: "".into(), ..pairing.clone() };
+    assert_eq!(
+        pairing_question(&unnamed).detail.as_ref(),
+        "Add it only if the device in front of you shows 312 568."
+    );
     assert_eq!(grouped("007"), "007");
+
+    // A name can't pass for the dialog's own words, with lines of its own or at length.
+    let forged = Pairing { name: "MacBook\nIt's yours. Add it".into(), os: "".into(), ..pairing };
+    assert_eq!(
+        pairing_question(&forged).detail.as_ref(),
+        "It calls itself “MacBook It's yours. Add it”, which nothing checks. Add it only if the \
+         device in front of you shows 312 568."
+    );
+    assert_eq!(given(&"a".repeat(60)).chars().count(), 40);
+}
+
+/// The time of day by the user's calendar, whichever day it is.
+#[test]
+fn the_clock_reads_the_users_day() {
+    let today = 1_700_000_000_000.;
+    assert_eq!(clock(today + (15. * 60. + 4.) * 60_000. + 59_000., today), "15:04");
+    assert_eq!(clock(today, today), "00:00");
+    assert_eq!(clock(today - 60_000., today), "23:59");
 }
 
 /// A server of the user's is named by its host, the build's own by the app's name.

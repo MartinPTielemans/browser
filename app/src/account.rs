@@ -89,9 +89,12 @@ pub struct Device {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Pairing {
     pub id: SharedString,
+    /// The device's name and system, as it gives them: anyone who signed in can say anything.
     pub name: SharedString,
     pub os: SharedString,
     pub code: SharedString,
+    /// When it asked, by this device's clock, as `clock` gives it.
+    pub asked: SharedString,
 }
 
 /// What the view asks of the core, and of the window it's in.
@@ -175,17 +178,24 @@ pub fn grouped(code: &str) -> String {
     }
 }
 
-/// What the dialog over the window asks when another device asks to be added. ↩ is Not me and
-/// Add takes a click, so a key meant for the page can't add a device.
+/// What the dialog over the window asks when another device asks to be added. It goes by what
+/// this device knows, when the request came, and gives the name and system only as the device's
+/// own word, since anyone signed in to the account can call itself anything (browser#642). The
+/// code is the check. ↩ is Not me and Add takes a click, so a key meant for the page can't add a
+/// device.
 pub fn pairing_question(pairing: &Pairing) -> Question {
-    let device = match pairing.os.is_empty() {
-        true => pairing.name.to_string(),
-        false => format!("{} ({})", pairing.name, pairing.os),
+    let name = given(&pairing.name);
+    let said = match (name.is_empty(), given(&pairing.os)) {
+        (true, os) if os.is_empty() => String::new(),
+        (true, os) => format!("It says it runs {os}, which nothing checks. "),
+        (false, os) if os.is_empty() => format!("It calls itself “{name}”, which nothing checks. "),
+        (false, os) => format!("It calls itself “{name}” on {os}, which nothing checks. "),
     };
+    let code = grouped(&pairing.code);
     Question {
         icon: None,
-        message: format!("Add {device}?").into(),
-        detail: format!("Check it shows {}.", grouped(&pairing.code)).into(),
+        message: format!("Add the device that asked at {}?", pairing.asked).into(),
+        detail: format!("{said}Add it only if the device in front of you shows {code}.").into(),
         list: Vec::new(),
         action: "Add".into(),
         cancel: "Not me".into(),
@@ -195,6 +205,25 @@ pub fn pairing_question(pairing: &Pairing) -> Question {
         check: None,
         on_return: Return::Cancel,
     }
+}
+
+/// What a device says of itself, as one short line: no breaks to fake a line of the dialog's own,
+/// and no more than a name needs.
+fn given(text: &str) -> String {
+    const LONGEST: usize = 40;
+    let line: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    match line.chars().count() > LONGEST {
+        true => format!("{}…", line.chars().take(LONGEST - 1).collect::<String>()),
+        false => line,
+    }
+}
+
+/// The time of day `at` is, in milliseconds since the Unix epoch, as "15:04", with `today` the
+/// start of today in the user's calendar. Off by an hour after a clock change, the day it changes.
+pub fn clock(at: f64, today: f64) -> String {
+    let minutes = ((at - today) / 60_000.).floor().rem_euclid(24. * 60.) as u32;
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
 /// What the view says of a problem, by where the account is.

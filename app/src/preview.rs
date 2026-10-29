@@ -1425,6 +1425,7 @@ fn main() {
                 name: "MacBook Air".into(),
                 os: "macOS".into(),
                 code: "312568".into(),
+                asked: "15:04".into(),
             };
             dialog::ask_account(account::pairing_question(&pairing), Box::new(|_, _| {}), cx);
         }

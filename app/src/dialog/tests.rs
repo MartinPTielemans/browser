@@ -287,6 +287,7 @@ fn add_device(host: &Rc<Recorder>, cx: &mut App) {
         name: "Pixel 9".into(),
         os: "Android".into(),
         code: "312568".into(),
+        asked: "15:04".into(),
     };
     let host = host.clone();
     let answered = Box::new(move |yes, _: &mut App| {
