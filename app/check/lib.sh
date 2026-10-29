@@ -37,8 +37,9 @@ swatch_x() { echo "$1" | awk '{ print 13 + 60.5 + 29.5 * $1 }'; }
 # Its profiles, in the one the check starts with, for a Space with tabs and an empty one.
 profile=$(cased "Profile › Default (checked), Profile › New Profile (disabled)")
 empty_profile=$(cased "Profile › Default (checked), Profile › New Profile")
-# The product's name, which the app's menus and alerts use.
+# The product's name, which the app's menus and alerts use, and the dev build's id.
 app_name=$(cat branding/name)
+app_id=dev.browser.app
 # The KeyboardEvent property a page reads ⌘ from, which off the Mac is pressed with Ctrl (keys.rs).
 cmd_key=metaKey
 { windows || [ "$(uname)" = Linux ]; } && cmd_key=ctrlKey
@@ -52,6 +53,9 @@ cleanup() {
   [ -z "${server:-}" ] || kill "$server" 2>/dev/null || true
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
+  [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  # A run's temp dir, such as the updates run's with its key.
+  [ -z "${scratch:-}" ] || rm -rf "$scratch"
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -110,7 +114,7 @@ quit_app() {
   elif [ "$(uname)" = Linux ]; then
     kill -INT "$pid"
   else
-    osascript -e 'tell application id "dev.browser.app" to quit'
+    osascript -e "tell application id \"$app_id\" to quit"
   fi
 }
 quit() {
@@ -189,6 +193,24 @@ page_shortcut() {
 # What the sidebar last logged of $1, "sidebar hovered" or "sidebar tools": 1 or shown, 0 or hidden,
 # or nothing before its first change.
 last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
+# Records the window to $out/$1.mp4 for $2 seconds, for the parity rows whose target moves: it
+# returns once frames are being written, so the motion driven next is in it, and recorded waits
+# for the file.
+record() {
+  recording="$out/$1.mp4"
+  ../tools/window-record.sh "$pid" "$2" "$recording" > "$out/$1-record.log" 2>&1 &
+  recorder=$!
+  for _ in $(seq 300); do
+    grep -q '^recording$' "$out/$1-record.log" && return 0
+    kill -0 "$recorder" 2> /dev/null ||
+      fail "the window's recording didn't start: $(tail -1 "$out/$1-record.log")"
+    sleep 0.1
+  done
+  fail "the window's recording didn't start in 30 s"
+}
+recorded() {
+  wait "$recorder" || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
+}
 # The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
 # where the sidebar last saw the pointer depends on the steps before. This moves it to the page and
 # waits until the sidebar has seen it go and its tools have faded out, whether or not this move was
@@ -302,7 +324,8 @@ space() {
 
 # The pinned tabs the app last showed, top to bottom.
 pinned() {
-  grep '^browser: pinned' "$log" | tail -1 | sed 's/^browser: pinned *//'
+  grep '^browser: pinned' "$log" | grep -v '^browser: pinned extensions ' | tail -1 |
+    sed 's/^browser: pinned *//'
 }
 # Waits for the app to show the pinned tabs $1 over Today $2. $3 says what went wrong if it doesn't.
 expect_lists() {

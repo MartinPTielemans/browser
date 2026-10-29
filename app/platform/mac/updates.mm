@@ -232,6 +232,34 @@ bool SignedLikeThisApp(NSURL* app) {
   return NO;
 }
 
+- (void)updater:(SPUUpdater*)updater didFindValidUpdate:(SUAppcastItem*)item {
+  Log([NSString stringWithFormat:@"update %@ found", item.versionString]);
+}
+
+// A check that finds no update says why, with Sparkle's reason (SPUNoUpdateFoundReason) and the
+// newest build the feed has, as Sparkle is only loaded, not linked, its keys are spelled out here.
+- (void)updaterDidNotFindUpdate:(SPUUpdater*)updater error:(NSError*)error {
+  SUAppcastItem* latest = error.userInfo[@"SULatestAppcastItemFound"];
+  Log([NSString stringWithFormat:@"update none: reason %@, feed's newest %@, running %@",
+                                 error.userInfo[@"SUNoUpdateFoundReason"],
+                                 latest.versionString ?: @"none",
+                                 [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"]]);
+}
+
+// Any other end to a check, such as a feed that doesn't parse, with what Sparkle says went wrong.
+- (void)updater:(SPUUpdater*)updater didAbortWithError:(NSError*)error {
+  // SUNoUpdateError, which updaterDidNotFindUpdate:error: has told.
+  if (error.code == 1001) return;
+  NSError* cause = error.userInfo[NSUnderlyingErrorKey];
+  Log([NSString stringWithFormat:@"update failed: %@ %ld, %@%@", error.domain, (long)error.code,
+                                 error.localizedDescription,
+                                 cause ? [@" " stringByAppendingString:cause.description] : @""]);
+}
+
+- (void)updater:(SPUUpdater*)updater willScheduleUpdateCheckAfterDelay:(NSTimeInterval)delay {
+  Log([NSString stringWithFormat:@"update check in %.0f s", delay]);
+}
+
 - (void)updater:(SPUUpdater*)updater willInstallUpdate:(SUAppcastItem*)item {
   [self keepNotes:item];
 }
@@ -268,6 +296,22 @@ bool SignedLikeThisApp(NSURL* app) {
                                         forUpdate:(SUAppcastItem*)update
                                             state:(SPUUserUpdateState*)state {
   self.waiting = !handleShowingUpdate;
+  NSString* outcome = handleShowingUpdate ? @"shown" : @"held in full screen";
+  Log([NSString stringWithFormat:@"update %@ %@", update.versionString, outcome]);
+}
+
+- (void)standardUserDriverDidReceiveUserAttentionForUpdate:(SUAppcastItem*)update {
+  Log([NSString stringWithFormat:@"update %@ alert has the keyboard", update.versionString]);
+}
+
+// The notes the alert shows, as they are: the log has their first line.
+- (NSAttributedString*)standardUserDriverWillShowReleaseNotesText:(NSAttributedString*)notes
+                                                        forUpdate:(SUAppcastItem*)update
+                                         withBundleDisplayVersion:(NSString*)displayVersion
+                                                    bundleVersion:(NSString*)version {
+  NSString* first = [notes.string componentsSeparatedByString:@"\n"].firstObject;
+  Log([NSString stringWithFormat:@"update %@ notes %@", update.versionString, first]);
+  return nil;
 }
 
 - (void)standardUserDriverWillFinishUpdateSession {
@@ -279,6 +323,7 @@ bool SignedLikeThisApp(NSURL* app) {
   dispatch_async(dispatch_get_main_queue(), ^{
     if (!self.waiting || AnyFullScreen()) return;
     self.waiting = NO;
+    Log(@"update shown after full screen");
     [self.controller checkForUpdates:nil];
   });
 }

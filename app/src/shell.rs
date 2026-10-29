@@ -109,7 +109,7 @@ pub use keys::{
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
-pub use page_menu::PageMenuItem;
+pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
 pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
@@ -2252,12 +2252,21 @@ impl Shell {
     }
 
     /// The window's bounds changed, as they do when it's maximized or restored: the third button
-    /// shows which it would do next.
+    /// shows which it would do next. They change as it goes full screen or comes back too, which
+    /// on Linux nothing else says.
     pub fn bounds_changed(&mut self, cx: &mut Context<Self>) {
         let maximized = self.browser.window_maximized();
         if maximized != std::mem::replace(&mut self.maximized, maximized) {
             // The check waits for this line.
             log!("browser: window maximized {maximized}");
+            cx.notify();
+        }
+        let full_screen = self.browser.window_full_screen();
+        if full_screen != self.full_screen {
+            // check.sh waits for this line, which the Mac's driver writes.
+            let way = if full_screen { "entered" } else { "left" };
+            log!("browser: window {way} full screen");
+            self.set_full_screen(full_screen, cx);
             cx.notify();
         }
     }

@@ -70,8 +70,12 @@ post key f cmd
 send type apple
 expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
 expect '^browser: find bar shown$' "⌘F didn't open the find bar"
-expect '^browser: held [0-9]* key events for GPUIPanel$' \
-  "the keys typed right after ⌘F didn't wait for the find bar"
+# Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
+# it has the input focus, so there what the bar finds is the proof.
+if [ "$(uname)" != Linux ]; then
+  expect '^browser: held [0-9]* key events for GPUIPanel$' \
+    "the keys typed right after ⌘F didn't wait for the find bar"
+fi
 expect_find "$first" "open 1 of 3 apple" "typing right after ⌘F didn't find in the page"
 send state
 in_find_bar "after ⌘F"

@@ -912,6 +912,10 @@ impl Browser for Fake {
         false
     }
 
+    fn window_full_screen(&self) -> bool {
+        false
+    }
+
     // The reveal's window is the app's, over the page, which the preview has neither of.
     fn show_reveal(&self, _: f32, _: &mut App) {}
 
@@ -1533,72 +1537,6 @@ async fn press_keys(window: gpui::AnyWindowHandle, keys: Vec<String>, cx: &mut g
     }
 }
 
-/// A made-up page menu of `kind`, as Chrome builds it on the Mac once the core has taken out what
-/// Arc's leaves out.
-fn page_menu(kind: &str) -> Vec<shell::PageMenuItem> {
-    let row = |command: i32, title: &str| shell::PageMenuItem {
-        command,
-        title: title.to_string().into(),
-        parent: None,
-        enabled: true,
-        checked: false,
-    };
-    let line = || row(0, "");
-    let under =
-        |parent: usize, item: shell::PageMenuItem| shell::PageMenuItem { parent: Some(parent), ..item };
-    let inspect = [line(), row(26500, "Inspect")];
-    let mut items = match kind {
-        "image" => vec![
-            row(50120, "Open Image in New Tab"),
-            row(50121, "Save Image As…"),
-            row(50122, "Copy Image"),
-            row(50123, "Copy Image Address"),
-        ],
-        "text" => vec![
-            row(50160, "Look Up “ilo”"),
-            line(),
-            row(50150, "Copy"),
-            row(50151, "Search DuckDuckGo for “ilo”"),
-            row(35003, "Print…"),
-            line(),
-            row(50170, "Speech"),
-            under(6, row(50171, "Start Speaking")),
-            under(6, shell::PageMenuItem { enabled: false, ..row(50172, "Stop Speaking") }),
-        ],
-        "field" => vec![
-            row(41000, "receive"),
-            row(41001, "relieve"),
-            row(41100, "Add to Dictionary"),
-            row(41101, "Language Settings"),
-            line(),
-            shell::PageMenuItem { enabled: false, ..row(50151, "Cut") },
-            shell::PageMenuItem { enabled: false, ..row(50150, "Copy") },
-            row(50152, "Paste"),
-            row(50153, "Paste and Match Style"),
-            row(50154, "Select All"),
-            row(50180, "Writing Direction"),
-            under(10, shell::PageMenuItem { checked: true, ..row(50181, "Default") }),
-            under(10, row(50182, "Left to Right")),
-            under(10, row(50183, "Right to Left")),
-            line(),
-            row(50170, "Speech"),
-            under(15, row(50171, "Start Speaking")),
-            under(15, shell::PageMenuItem { enabled: false, ..row(50172, "Stop Speaking") }),
-        ],
-        _ => vec![
-            row(50100, "Open Link in New Tab"),
-            row(50101, "Open Link in New Window"),
-            row(50105, "Open Link in Split View"),
-            row(50102, "Open Link in Incognito Window"),
-            line(),
-            row(50103, "Save Link As…"),
-            row(50104, "Copy Link Address"),
-        ],
-    };
-    items.extend(inspect);
-    items
-}
-
 fn preview_page_menu(
     shell: gpui::WindowHandle<Shell>,
     bounds: Bounds<Pixels>,
@@ -1615,7 +1553,9 @@ fn preview_page_menu(
     cx.spawn(async move |cx| {
         cx.background_executor().timer(Duration::from_millis(500)).await;
         let at = point(px(x), px(y));
-        shell.update(cx, |shell, _, cx| shell.show_page_menu(1, page_menu(&kind), at, cx)).ok();
+        // In this system's case, as its Chromium writes the menu.
+        let items = shell::made_up_page_menu(&kind, cfg!(target_os = "macos"));
+        shell.update(cx, |shell, _, cx| shell.show_page_menu(1, items, at, cx)).ok();
         press_keys(window, keys, cx).await;
     })
     .detach();

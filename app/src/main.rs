@@ -2221,6 +2221,10 @@ impl Browser for Engine {
         cfg!(target_os = "linux") && unsafe { bc::bc_window_is_maximized(self.window) }
     }
 
+    fn window_full_screen(&self) -> bool {
+        cfg!(target_os = "linux") && unsafe { bc::bc_window_is_full_screen(self.window) }
+    }
+
     fn show_reveal(&self, width: f32, _: &mut App) {
         unsafe { platform::host_show_reveal(self.ui_view, width.into()) };
     }
