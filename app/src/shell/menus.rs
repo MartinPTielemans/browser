@@ -847,6 +847,7 @@ mod tests {
             ("Back to Pinned URL", "Back to pinned URL"),
             ("In Each Profile's Spaces", "In each profile's Spaces"),
             ("Duplicate", "Duplicate"),
+            ("Show in Folder", "Show in folder"),
         ];
         for (title, sentence) in cases {
             assert_eq!(sentence_case(title), sentence);
