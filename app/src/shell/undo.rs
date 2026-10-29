@@ -38,6 +38,10 @@ impl What {
     pub const CLOSE_TABS: What = What::said("Close Tabs", "Tabs Closed");
     pub const PIN: What = What::quiet("Pin Tab");
     pub const UNPIN: What = What::quiet("Unpin Tab");
+    pub const PIN_TABS: What = What::quiet("Pin Tabs");
+    pub const UNPIN_TABS: What = What::quiet("Unpin Tabs");
+    pub const MOVE_TABS_TO_SPACE: What = What::said("Move to Space", "Tabs Moved to Space");
+    pub const NEW_FOLDER: What = What::quiet("New Folder");
     pub const ADD_FAVORITE: What = What::quiet("Add to Favorites");
     pub const REMOVE_FAVORITE: What = What::said("Remove from Favorites", "Removed from Favorites");
     pub const MOVE_TAB: What = What::quiet("Move Tab");
@@ -163,6 +167,8 @@ pub(super) enum Edit {
     },
     /// Takes the archived tab out of the archive, or all of them.
     Archive(Option<u64>),
+    /// Several steps the user took as one, such as pinning the rows chosen, each undone in turn.
+    Many(Vec<Edit>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -175,6 +181,10 @@ pub(super) struct Entry {
 pub(super) struct History {
     undo: Vec<Entry>,
     redo: Vec<Entry>,
+    /// A `Many` step's parts still to do and the steps that undo those done, which a new id made
+    /// on the way reaches too.
+    todo: Vec<Edit>,
+    done: Vec<Edit>,
 }
 
 impl History {
@@ -188,6 +198,9 @@ impl History {
     fn rekey(&mut self, from: u64, to: u64) {
         for entry in self.undo.iter_mut().chain(&mut self.redo) {
             entry.edit.rekey(from, to);
+        }
+        for edit in self.todo.iter_mut().chain(&mut self.done) {
+            edit.rekey(from, to);
         }
     }
 }
@@ -236,6 +249,20 @@ impl Edit {
             | Edit::DeleteSpace(_)
             | Edit::UndoArchive { .. }
             | Edit::Archive(_) => {}
+            Edit::Many(edits) => edits.iter_mut().for_each(|edit| edit.rekey(from, to)),
+        }
+    }
+
+    /// Where a part of a `Many` step goes among the others: a folder made again first, the
+    /// moves down each list, and a folder deleted last.
+    fn order(&self) -> (u8, usize) {
+        match self {
+            Edit::Restore(_) => (0, 0),
+            Edit::Put { spot, .. } => match spot.at {
+                At::Favorite(index) | At::Pinned { index, .. } | At::Today(index) => (1, index),
+            },
+            Edit::Delete(_) => (2, 0),
+            _ => (1, 0),
         }
     }
 
@@ -336,6 +363,23 @@ impl Edit {
                     None => shell.browser.clear_archive(cx),
                 };
                 (removal != 0).then_some(Edit::UndoArchive { removal, id })
+            }
+            Edit::Many(mut edits) => {
+                // The core reports the lists once the calls have returned, so every part's spot
+                // is from the lists as they were before any of them, and each goes back in place
+                // only once the ones above it in its list have.
+                edits.sort_by_key(Edit::order);
+                edits.reverse();
+                let todo = std::mem::replace(&mut shell.history.todo, edits);
+                let done = std::mem::take(&mut shell.history.done);
+                while let Some(edit) = shell.history.todo.pop() {
+                    if let Some(back) = edit.apply(shell, cx) {
+                        shell.history.done.push(back);
+                    }
+                }
+                shell.history.todo = todo;
+                let back = std::mem::replace(&mut shell.history.done, done);
+                (!back.is_empty()).then_some(Edit::Many(back))
             }
         }
     }
@@ -628,7 +672,7 @@ impl Shell {
     }
 
     /// The step that puts `tab` where it is now, with the URL it goes back to.
-    fn put_back(&self, tab: u64) -> Option<Edit> {
+    pub(super) fn put_back(&self, tab: u64) -> Option<Edit> {
         let spot = self.spot_of(tab)?;
         let url = self.browser.pinned_url(tab);
         Some(Edit::Put { tab, spot, url })
