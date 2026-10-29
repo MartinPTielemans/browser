@@ -71,6 +71,26 @@ expect '^browser: link target window shown$' "the plate's window didn't come on 
 send move $page_point
 expect '^browser: link target none$' "the pointer leaving the link didn't report it"
 expect '^browser: link target hidden$' "the plate stayed after the pointer left the link"
+# A long address shows cut in the middle, and whole once the pointer has rested on its link for
+# 1.5 s, as wide as the card lets it be.
+long_point="430 330"
+long="http://127.0.0.1:$port/notes.txt?the-whole-address-shows-once-the-pointer-has-rested-on-the-link-for-a-moment-as-in-arc"
+send move $long_point
+expect "^browser: link target $long\$" "the pointer on the long link reported no address"
+expect '^browser: link target drawn [0-9]* .*…' "the long link's address didn't show cut in its plate"
+expect "^browser: link target whole $long\$" "resting on the long link didn't show its whole address"
+expect "^browser: link target drawn [0-9]* $long\$" "the plate didn't draw the whole address"
+# The cut plate's window came on screen first, so this waits for one shown after the whole drew.
+shown_whole() {
+  sed -n "/^browser: drive $step: /,\$p" "$log" | sed -n "\\|^browser: link target drawn [0-9]* $long\$|,\$p" |
+    grep -q '^browser: link target window shown$'
+}
+for _ in $(seq 100); do shown_whole && break; sleep 0.1; done
+shown_whole || fail "the whole address's plate didn't come on screen"
+../tools/window-screenshot.sh "$pid" "$out/link-target-whole.png" || fail "no window to capture"
+send move $page_point
+expect '^browser: link target none$' "the pointer leaving the long link didn't report it"
+expect '^browser: link target hidden$' "the whole address stayed after the pointer left the link"
 # Clear Cache and Refresh, from the View menu, and Clear Cookies and Refresh, from the command bar,
 # delete the page's site's cache and cookies and load the page again.
 send key k

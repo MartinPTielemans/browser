@@ -26,6 +26,9 @@ pub const DELAY: Duration = Duration::from_millis(150);
 /// How soon after the plate went the next link's shows at once, as the pointer crosses from one
 /// link to the next.
 pub const GRACE: Duration = Duration::from_millis(400);
+/// Arc's: with the pointer this long on one link, the plate shows the whole address, as wide as the
+/// card lets it be.
+pub const REST: Duration = Duration::from_millis(1500);
 /// It shows in a frame, as a hover fill does, and fades out over this, so the gap between two
 /// links that touch isn't a flicker.
 pub const FADE_IN: Duration = Duration::ZERO;
@@ -33,7 +36,9 @@ pub const FADE_OUT: Duration = Duration::from_millis(120);
 pub use crate::tokens::link_target::HEIGHT;
 pub use crate::tokens::link_target::MARGIN;
 pub use crate::tokens::link_target::NEAR;
-/// Its window, wide enough for the longest address, which elides past it.
+/// How wide a plate is at most until the pointer rests on its link.
+pub use crate::tokens::link_target::MAX_WIDTH;
+/// Its window, wide enough for the whole address in the widest card.
 pub use crate::tokens::link_target::WINDOW_WIDTH;
 pub const WINDOW_HEIGHT: f32 = HEIGHT;
 use crate::tokens::link_target::PAD_X;
@@ -206,6 +211,8 @@ pub struct LinkTarget {
     shown: bool,
     /// What the window draws, which stays as it fades out after the plate went.
     drawn: Option<Plate>,
+    /// What it drew last, so its log says each plate once.
+    logged: Option<Plate>,
     pending: Option<Pending>,
     /// The one-shot timer a plate waits on. Dropping it cancels it.
     wait: Option<Task<()>>,
@@ -251,6 +258,7 @@ pub fn open(
             look: Box::new(look),
             shown: false,
             drawn: None,
+            logged: None,
             pending: None,
             wait: None,
             went: None,
@@ -343,6 +351,11 @@ impl Render for LinkTarget {
         let Some(plate) = self.drawn.clone() else {
             return root;
         };
+        if self.logged.as_ref() != Some(&plate) {
+            // check.sh reads this line.
+            log!("browser: link target drawn {:.0} {}", plate.width, plate.text());
+            self.logged = Some(plate.clone());
+        }
         let (fill, palette) = (self.look)(cx);
         let text = div()
             .absolute()

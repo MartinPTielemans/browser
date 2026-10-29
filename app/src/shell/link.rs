@@ -2,7 +2,7 @@
 //! › Link target). The core reports the link of a tab's page; the shell keeps it for the tab the
 //! window shows and says where the plate goes, and the plate's window draws it (`crate::link_target`).
 
-use gpui::{Context, WindowTextSystem};
+use gpui::{Context, Task, WindowTextSystem};
 
 use super::Shell;
 use crate::link_target::{self, Plate, Side, Target};
@@ -12,8 +12,12 @@ use crate::tokens::shell::link::MIN_WIDTH;
 /// The link the plate shows.
 pub(super) struct Link {
     tab: u64,
+    target: Target,
     plate: Plate,
     side: Side,
+    /// The one-shot timer that shows the whole address once the pointer has rested on the link.
+    /// Dropping it cancels it.
+    rest: Option<Task<()>>,
 }
 
 impl Shell {
@@ -30,17 +34,53 @@ impl Shell {
         if self.page_fullscreen || self.library.is_some() || !self.shows(tab) {
             return;
         }
+        // The same link again leaves its plate, and its rest, as they are.
+        if self.link.as_ref().is_some_and(|link| link.tab == tab && link.target == target) {
+            self.show_link(cx);
+            return;
+        }
         let (card, _) = self.card_frames(self.viewport);
         // Half the card at most, so the pointer has room beside it.
-        let max = (f32::from(card.size.width) / 2.).clamp(MIN_WIDTH, link_target::WINDOW_WIDTH);
+        let max = (f32::from(card.size.width) / 2.).clamp(MIN_WIDTH, link_target::MAX_WIDTH);
+        let plate = self.link_plate(&target, max, cx);
+        // It stays on the side it moved to while the pointer is on links, and starts on the left.
+        let side = self.link.take().map_or(Side::Left, |link| link.side);
+        let rest = cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(link_target::REST).await;
+            shell.update(cx, |shell, cx| shell.link_rested(cx)).ok();
+        });
+        self.link = Some(Link { tab, target, plate, side, rest: Some(rest) });
+        self.show_link(cx);
+    }
+
+    /// The plate for `target` in at most `max` wide.
+    fn link_plate(&mut self, target: &Target, max: f32, cx: &mut Context<Self>) -> Plate {
         let system = self
             .link_system
             .get_or_insert_with(|| WindowTextSystem::new(cx.text_system().clone()));
         let system: &WindowTextSystem = system;
-        let plate = link_target::plate(&target, max, |text| link_target::text_width(text, system));
-        // It stays on the side it moved to while the pointer is on links, and starts on the left.
-        let side = self.link.take().map_or(Side::Left, |link| link.side);
-        self.link = Some(Link { tab, plate, side });
+        link_target::plate(target, max, |text| link_target::text_width(text, system))
+    }
+
+    /// The pointer has rested on the link: its plate shows the whole address, the card's width at
+    /// most.
+    fn link_rested(&mut self, cx: &mut Context<Self>) {
+        let (card, _) = self.card_frames(self.viewport);
+        let max = (f32::from(card.size.width) - 2. * link_target::MARGIN)
+            .clamp(MIN_WIDTH, link_target::WINDOW_WIDTH);
+        let Some(target) = self.link.as_mut().map(|link| {
+            link.rest = None;
+            link.target.clone()
+        }) else {
+            return;
+        };
+        let plate = self.link_plate(&target, max, cx);
+        let Some(link) = self.link.as_mut().filter(|link| link.plate != plate) else {
+            return;
+        };
+        // check.sh reads this line.
+        log!("browser: link target whole {}", plate.text());
+        link.plate = plate;
         self.show_link(cx);
     }
 

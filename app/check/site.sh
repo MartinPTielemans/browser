@@ -1,7 +1,8 @@
 # The check's web server, which serve in lib.sh starts for the runs that load its pages. Its
 # page's text field, along its bottom, puts what's in it in the title, and an unseen link in its
 # top-left 40 points goes to a text file, and so does another, 200 by 40 points, 100 in from the page's
-# left and top, which the link target's plate shows the address of. "d" typed in the page downloads a file, "q" the same
+# left and top, which the link target's plate shows the address of, and one as big 300 down, whose
+# address is too long for the plate until the pointer rests on it. "d" typed in the page downloads a file, "q" the same
 # file as another, "s" one that takes longer than the run to come, and "k" opens the cookie page,
 # once a check, as later runs type in it too. A click in its top right 480 by 140 points puts
 # "corner" in the title. "x" and "z" each open check.crx, an extension the
@@ -19,6 +20,7 @@ printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <a id=k href="clear.html"></a><a id=x href="check.crx"></a><a id=z href="check.crx?again"></a>
 <a href="notes.txt" style="position:fixed;left:0;top:0;width:40px;height:40px"></a>
 <a href="notes.txt" style="position:fixed;left:100px;top:100px;width:200px;height:40px"></a>
+<a href="notes.txt?the-whole-address-shows-once-the-pointer-has-rested-on-the-link-for-a-moment-as-in-arc" style="position:fixed;left:100px;top:300px;width:200px;height:40px"></a>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;

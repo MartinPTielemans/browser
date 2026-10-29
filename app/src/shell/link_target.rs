@@ -6,7 +6,7 @@ use std::rc::Rc;
 use gpui::{Entity, TestAppContext, VisualTestContext, point, px, size};
 
 use crate::{
-    link_target::Target,
+    link_target::{self, Target},
     shell::{Folders, Shell, recorder::Recorder},
 };
 
@@ -122,4 +122,32 @@ fn a_new_link_keeps_the_side_and_leaving_it_forgets_it(cx: &mut TestAppContext) 
     shell.update(cx, |shell, cx| shell.link_target_changed(10, Some(target()), cx));
     let calls = plates(&host);
     assert_eq!(calls.last().map(String::as_str), Some("link target example.com/docs left"));
+}
+
+#[gpui::test]
+fn resting_on_a_link_shows_its_whole_address(cx: &mut TestAppContext) {
+    let (shell, host, cx) = window(cx);
+    let path = "/the-whole-address-shows-once-the-pointer-has-rested-on-the-link".repeat(2);
+    let long = Target { text: format!("example.com{path}").into(), domain: 0..11 };
+    shell.update(cx, |shell, cx| shell.link_target_changed(10, Some(long.clone()), cx));
+    let cut = plates(&host);
+    assert!(cut.len() == 1 && cut[0].contains('…'), "a long address showed whole at once: {cut:?}");
+
+    // The pointer moving on the same link leaves its rest running.
+    cx.executor().advance_clock(link_target::REST / 2);
+    shell.update(cx, |shell, cx| shell.link_target_changed(10, Some(long.clone()), cx));
+    cx.executor().advance_clock(link_target::REST / 2);
+    cx.run_until_parked();
+    let whole = format!("link target {} left", long.text);
+    assert_eq!(plates(&host).last(), Some(&whole), "resting on the link didn't show it whole");
+
+    // The next link starts cut again, and one the pointer leaves before its rest stays cut.
+    shell.update(cx, |shell, cx| shell.link_target_changed(10, Some(target()), cx));
+    shell.update(cx, |shell, cx| shell.link_target_changed(10, Some(long.clone()), cx));
+    assert!(plates(&host).last().is_some_and(|plate| plate.contains('…')));
+    cx.executor().advance_clock(link_target::REST / 2);
+    shell.update(cx, |shell, cx| shell.link_target_changed(10, None, cx));
+    cx.executor().advance_clock(link_target::REST);
+    cx.run_until_parked();
+    assert_eq!(plates(&host), ["link target none"]);
 }
