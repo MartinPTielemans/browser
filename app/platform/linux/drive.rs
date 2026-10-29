@@ -178,8 +178,6 @@ thread_local! {
     static MADE: RefCell<Vec<(bc::bc_id, xproto::Window)>> = const { RefCell::new(Vec::new()) };
     /// The window command's, from 0.
     static DRIVEN: Cell<usize> = const { Cell::new(0) };
-    /// The driven window's frame when the X server's own pointer was last parked in it.
-    static PARKED: Cell<Option<[f64; 4]>> = const { Cell::new(None) };
     /// The window a press went to, which gets the drag's events until the release, as the X
     /// server's grab of the pointer does.
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
@@ -1038,30 +1036,7 @@ fn run(line: &str) -> bool {
     run_command(line).is_some()
 }
 
-/// Parks the X server's own pointer in the driven window's right margin, beside the card, where no
-/// page ever is, again whenever the window has moved or changed size. Where the server starts it,
-/// mid screen, a page that maps as a tab shows comes under it, and the server tells GPUI the
-/// pointer left, which ends the hover the driver's events gave it. Over the window, rather than
-/// off it, the window still gets the keyboard back when one over it closes.
-fn park() -> Option<()> {
-    let browser = driven()?;
-    let frame = frame(browser.window)?;
-    if PARKED.replace(Some(frame)) == Some(frame) {
-        return Some(());
-    }
-    let [_, _, width, height] = frame;
-    let margin = f64::from(browser::tokens::shell::CARD_INSET) / 2.;
-    let at = target_in(browser.window, width - margin, height / 2.)?;
-    let x = server()?;
-    let (connection, root) = &*x;
-    connection
-        .warp_pointer(x11rb::NONE, *root, 0, 0, 0, 0, at.root_x, at.root_y)
-        .ok()?;
-    connection.flush().ok()
-}
-
 fn run_command(line: &str) -> Option<()> {
-    park();
     let mut words = line.split_whitespace();
     let action = words.next()?;
     // What follows the command's name, for those that take text.
