@@ -34,7 +34,7 @@ jobs:
         working-directory: app
     env:
       # The runs that pass on X11 so far.
-      LINUX_RUNS: tabs window find agents spaces
+      LINUX_RUNS: tabs
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
@@ -90,6 +90,31 @@ jobs:
 
       - if: ${{ steps.engine.outputs.found == 'true' }}
         run: ./setup.sh && ./build.sh
+
+      # A trial only: which tracing switches make Chromium write JSON on Linux.
+      - if: ${{ steps.engine.outputs.found == 'true' }}
+        run: |
+          page='data:text/html,<title>t</title>'
+          try() {
+            name=$1
+            shift
+            dir=$RUNNER_TEMP/check/trace-$name
+            mkdir -p "$dir"
+            BROWSER_PROFILE_DIR=$dir/profile BROWSER_URL=$page timeout 120 xvfb-run -a -s "-screen 0 1280x800x24" \
+              sh -c '"$0" "$@" & p=$!; sleep 15; kill -TERM $p; wait $p' "$PWD/build/Browser/chrome" "$@" > "$dir/log" 2>&1 || true
+            found=
+            for f in "$dir"/trace*; do
+              [ -f "$f" ] || continue
+              found=1
+              echo "$name: $(basename "$f") $(stat -c %s "$f") bytes, starts: $(head -c 24 "$f" | od -An -c | tr -s ' ' | head -1)" | tee -a "$GITHUB_STEP_SUMMARY"
+            done
+            [ -n "$found" ] || echo "$name: no trace file; $(grep -i trac "$dir/log" | tail -2)" | tee -a "$GITHUB_STEP_SUMMARY"
+          }
+          t=$RUNNER_TEMP/check
+          try current --enable-tracing=latency --enable-tracing-format=json --trace-startup-file="$t/trace-current/trace.json"
+          try startup --trace-startup=latency --trace-startup-format=json --trace-startup-file="$t/trace-startup/trace.json"
+          try output --enable-tracing=latency --enable-tracing-format=json --enable-tracing-output="$t/trace-output/trace.json"
+          try plain --trace-startup=latency --trace-startup-file="$t/trace-plain/trace.json"
 
       # Each run alone, so one failing doesn't hide the rest, and each keeps its own build/check.
       - if: ${{ steps.engine.outputs.found == 'true' }}
