@@ -405,6 +405,7 @@ std::optional<std::string> ToJson(const Saved& saved) {
                                .Set("pinned", std::move(pinned))
                                .Set("today", to_list(space.today))
                                .Set("shown", space.shown);
+    WriteNode(space.node, dict);
     if (space.shown_favorite >= 0) {
       dict.Set("shown_favorite", space.shown_favorite);
     }
