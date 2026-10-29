@@ -75,6 +75,10 @@
 #include "ui/views/widget/widget.h"
 #endif
 
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+#include "browser_core/platform/focus_ring_aura.h"
+#endif
+
 namespace {
 
 gfx::Rect ToRect(bc_rect rect) {
@@ -210,6 +214,22 @@ void bc_window_ui_takes_keyboard(bc_id id) {
 bool bc_window_keyboard_is_ui(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
   return browser_core::platform::KeyboardIsUI(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
+bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> ring =
+      widget ? browser_core::platform::FocusRingFrame(widget) : std::nullopt;
+  if (!ring) {
+    return false;
+  }
+  *frame = {static_cast<double>(ring->x()), static_cast<double>(ring->y()),
+            static_cast<double>(ring->width()), static_cast<double>(ring->height())};
+  return true;
 #else
   return false;
 #endif
