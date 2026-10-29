@@ -583,6 +583,13 @@ typedef struct bc_host {
                        size_t size,
                        int width,
                        int height);
+  // A ⇧⌘-drag on the tab's page, ⇧⌃ off the Mac, which the page doesn't get, for capture mode to
+  // capture what's dragged: BC_CAPTURE_DRAG_BEGAN where the button went down, once the pointer has
+  // moved 4 pt, then BC_CAPTURE_DRAG_MOVED where it is at each move, then BC_CAPTURE_DRAG_ENDED
+  // where it went up, in points from the top-left of the page's view. A ⇧⌘-click is the page's.
+  // Not over a frame of another site's, or for a page in the system's engine. The user's: agents
+  // get none, as Capture is.
+  void (*tab_capture_drag)(void* context, bc_id tab, int phase, double x, double y);
   // The user chose Open Link in New Window or Open Link in Incognito Window in the page menu of a
   // tab in |window|. Open |url| in a window as ⌘N's, or with |private_window| in a private one in
   // |profile|'s session, as ⇧⌘N's. A link from a private window asks for a private one either way,
@@ -1685,6 +1692,11 @@ BC_EXPORT void bc_tab_read_text(bc_id tab, uint64_t request);
 // Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the
 // page's DevTools, so a page that isn't being captured pays nothing.
 BC_EXPORT void bc_tab_capture_end(bc_id tab);
+
+// What tab_capture_drag says of a ⇧⌘-drag on a page: it began, it moved, or it ended.
+#define BC_CAPTURE_DRAG_BEGAN 0
+#define BC_CAPTURE_DRAG_MOVED 1
+#define BC_CAPTURE_DRAG_ENDED 2
 
 // Answers to the question tab_permission_asked put: the site may, now and whenever it asks again;
 // it may not, now or again; or not now, and it may ask again.

@@ -1,7 +1,8 @@
 # ⇧⌘2 from the page opens capture mode over it, with the keyboard, and the pointer over an element
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
 # that box to a pasteboard of the run's own and shows the toast with Save and Share. Escape and a
-# second ⇧⌘2 leave capture mode and give the page the keyboard back. File › Capture Full Page copies
+# second ⇧⌘2 leave capture mode and give the page the keyboard back. A ⇧⌘-drag on the page starts
+# capture mode with the rectangle dragged, and letting go chooses it. File › Capture Full Page copies
 # a picture of the whole long page, past its view.
 
 # A page longer than any view, with a box at a known place in it.
@@ -87,6 +88,24 @@ expect '^browser: capture left (toggle)$' "a second ⇧⌘2 didn't leave capture
 send state
 in_browser RenderWidgetHostViewCocoa "after a second ⇧⌘2"
 
+# A ⇧⌘-drag on the page, without ⇧⌘2, starts capture mode once it's past 4 pt, with the rectangle
+# dragged from the press, and letting go chooses it. The page gets none of the drag.
+send press $(in_page 100 100) cmd shift
+send dragto $(in_page 103 102) cmd shift
+sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: capture started$' &&
+  fail "a ⇧⌘-drag under 4 pt started capture mode"
+send dragto $(in_page 150 130) cmd shift
+expect '^browser: capture started$' "a ⇧⌘-drag on the page didn't start capture mode"
+expect '^browser: capture shown at ' "a ⇧⌘-drag on the page didn't show capture mode"
+send dragto $(in_page 300 250) cmd shift
+send release $(in_page 300 250) cmd shift
+chose=$(grep '^browser: capture chose' "$log" | tail -1)
+expect '^browser: capture chose 100 100 200 150$' \
+  "letting go of a ⇧⌘-drag didn't choose the rectangle dragged: $chose"
+../tools/window-screenshot.sh "$pid" "$out/capture-dragged.png" || fail "no window to capture"
+send key escape
+expect '^browser: capture left (escape)$' "escape didn't leave capture mode after a ⇧⌘-drag"
+
 # The whole page, beyond its view: at least its 6000 points high.
 send menu "Capture Full Page"
 expect '^browser: command capture-full-page via ui$' "File › Capture Full Page didn't run"
@@ -104,4 +123,4 @@ expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
 
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full. Windows: $out/capture-element.png, $out/capture-chosen.png"
+echo "ok: capture. The box's picture is $size, the full page's $full. Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-dragged.png"

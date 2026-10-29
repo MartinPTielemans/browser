@@ -7,7 +7,8 @@ use std::{
 };
 
 use gpui::{
-    Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
+    Action, App, Bounds, Context, Global, Image, KeyBinding, MenuItem, Pixels, SharedString,
+    WeakEntity, actions,
 };
 
 use crate::theme::Appearance;
@@ -1136,15 +1137,22 @@ impl Shell {
 
     /// Starts capture mode over the focused page, or with `full_page` captures all of it.
     fn capture(&mut self, full_page: bool, cx: &mut Context<Self>) {
-        if self.selected == 0 {
-            return;
+        if let Some((pane, radius)) = self.capture_frame(self.selected) {
+            self.browser.capture(self.selected, pane, radius, full_page, cx);
+        }
+    }
+
+    /// Where `tab`'s page is in the window's content, its pane's in a split, and the radius of its
+    /// corners, for capture mode to cover it; none if the window doesn't show it.
+    pub fn capture_frame(&self, tab: u64) -> Option<(Bounds<Pixels>, f32)> {
+        if !self.shows(tab) {
+            return None;
         }
         let (frame, radius) = self.page_frame(self.viewport);
         let panes = self.panes(self.selected);
-        let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
+        let index = panes.iter().position(|&pane| pane == tab).unwrap_or(0);
         let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
-        let pane = pane_frames(frame, panes.len(), stacked, &shares)[focused];
-        self.browser.capture(self.selected, pane, radius, full_page, cx);
+        Some((pane_frames(frame, panes.len(), stacked, &shares)[index], radius))
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.

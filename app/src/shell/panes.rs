@@ -459,6 +459,20 @@ mod tests {
         }
     }
 
+    /// A ⇧⌘-drag on the page of a split's other pane has capture mode cover that pane, not the
+    /// focused one's, and a tab the window doesn't show gets none.
+    #[gpui::test]
+    fn capture_covers_the_pane_dragged_on(cx: &mut TestAppContext) {
+        let (shell, _) = split_of(&[10, 11], 11, 0, 1200., cx);
+        shell.read_with(cx, |shell, _| {
+            let (frame, radius) = shell.page_frame(shell.viewport);
+            let panes = pane_frames(frame, 2, false, &[]);
+            assert_eq!(shell.capture_frame(10), Some((panes[0], radius)));
+            assert_eq!(shell.capture_frame(11), Some((panes[1], radius)));
+            assert_eq!(shell.capture_frame(12), None);
+        });
+    }
+
     /// Dragging the gap asks for the widths it was dragged to, which the core takes instead of the
     /// flag, and a double-click on it asks for even ones: the ways out.
     #[gpui::test]

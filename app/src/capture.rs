@@ -281,22 +281,46 @@ pub fn start(tab: u64, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
         if capture.session.is_some() {
             return capture.leave("toggle", window, cx);
         }
-        let request = capture.request();
-        capture.session = Some(Session {
-            tab,
-            frame,
-            radius,
-            snapshot_request: request,
-            snapshot: None,
-            hover: None,
-            press: None,
-            drag: None,
-            chosen: None,
-            pending: None,
-        });
-        // check.sh reads this line.
-        log!("browser: capture started");
-        capture.host.capture(tab, request, false, None);
+        capture.begin(tab, frame, radius, None);
+    });
+}
+
+/// A ⇧⌘-drag on `tab`'s page, which the core kept from the page, began at `from`: capture mode
+/// starts over the page, at `frame` with corners of `radius`, with the rectangle dragged from
+/// there, as a drag in it does.
+pub fn drag_began(
+    tab: u64,
+    frame: Bounds<Pixels>,
+    radius: f32,
+    from: Point<Pixels>,
+    cx: &mut App,
+) {
+    update(cx, |capture, window, cx| {
+        capture.leave("drag", window, cx);
+        capture.begin(tab, frame, radius, Some(from));
+    });
+}
+
+/// The pointer of a ⇧⌘-drag on `tab`'s page moved to `at`.
+pub fn drag_moved(tab: u64, at: Point<Pixels>, cx: &mut App) {
+    update(cx, |capture, _, cx| {
+        if capture.session.as_ref().is_some_and(|session| session.tab == tab) {
+            capture.moved(at, cx);
+        }
+    });
+}
+
+/// A ⇧⌘-drag on `tab`'s page ended: the rectangle dragged is chosen, and the menu shows at it, or
+/// with none, as a drag along a line gives, capture mode leaves.
+pub fn drag_ended(tab: u64, cx: &mut App) {
+    update(cx, |capture, window, cx| {
+        if capture.session.as_ref().is_none_or(|session| session.tab != tab) {
+            return;
+        }
+        capture.released(cx);
+        if capture.session.as_ref().is_some_and(|session| session.chosen.is_none()) {
+            capture.leave("nothing dragged", window, cx);
+        }
     });
 }
 
@@ -392,6 +416,33 @@ impl Capture {
         self.requests
     }
 
+    /// Capture mode over `tab`'s page, once the core has a picture of it, with the button down at
+    /// `press` for a drag that began on the page.
+    fn begin(
+        &mut self,
+        tab: u64,
+        frame: Bounds<Pixels>,
+        radius: f32,
+        press: Option<Point<Pixels>>,
+    ) {
+        let request = self.request();
+        self.session = Some(Session {
+            tab,
+            frame,
+            radius,
+            snapshot_request: request,
+            snapshot: None,
+            hover: None,
+            press,
+            drag: None,
+            chosen: None,
+            pending: None,
+        });
+        // check.sh reads this line.
+        log!("browser: capture started");
+        self.host.capture(tab, request, false, None);
+    }
+
     fn captured(
         &mut self,
         tab: u64,
@@ -462,8 +513,13 @@ impl Capture {
         };
         session.snapshot = Some(snapshot);
         let frame = session.frame;
+        let chosen = session.chosen.is_some();
         window.focus(&self.focus, cx);
         self.host.show(frame);
+        // A drag on the page that ended before the picture came has its menu already.
+        if chosen {
+            self.host.camera(false);
+        }
         // check.sh reads this line.
         log!("browser: capture mode at {}", describe(frame));
         cx.notify();

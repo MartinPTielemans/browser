@@ -68,6 +68,8 @@ source_set("browser_core") {
     "browser_window_stand_in.h",
     "capture.cc",
     "capture.h",
+    "capture_gesture.cc",
+    "capture_gesture.h",
     "clear_site.cc",
     "clear_site.h",
     "crash_reports.cc",

@@ -15,8 +15,8 @@
 //! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
 //! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
-//! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
-//! them, cmd with Ctrl and alt with Alt. flags presses and lets
+//! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's, and a drag in steps',
+//! as Chrome reads them, cmd with Ctrl and alt with Alt. flags presses and lets
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
 //! commits its text to a field of the UI's, not a page's. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
@@ -1186,12 +1186,13 @@ fn run_command(line: &str) -> Option<()> {
                 Some(step) => (3, step),
                 None => (1, action),
             };
-            let held = button_mask(which);
+            let keys = click_modifiers(words);
+            let held = button_mask(which) | keys;
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
                 first_press(at, which, false);
-                return button(at, which, true, none);
+                return button(at, which, true, keys);
             }
             let to = target_in(driven()?.window, x, y)?;
             let to = match PRESSED.get() {

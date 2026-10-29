@@ -123,6 +123,23 @@ impl Mode {
         self.cx.run_until_parked();
     }
 
+    /// A ⇧⌘-drag on the page, which the core reports, from where its button went down.
+    fn drag_began(&mut self, x: f32, y: f32) {
+        let frame = Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.)));
+        self.cx.cx.update(|cx| drag_began(TAB, frame, 8., point(px(x), px(y)), cx));
+        self.cx.run_until_parked();
+    }
+
+    fn drag_moved(&mut self, x: f32, y: f32) {
+        self.cx.cx.update(|cx| drag_moved(TAB, point(px(x), px(y)), cx));
+        self.cx.run_until_parked();
+    }
+
+    fn drag_ended(&mut self) {
+        self.cx.cx.update(|cx| drag_ended(TAB, cx));
+        self.cx.run_until_parked();
+    }
+
     fn calls(&self) -> Vec<String> {
         self.host.0.take()
     }
@@ -218,6 +235,56 @@ fn a_press_that_barely_moves_is_a_click(cx: &mut TestAppContext) {
     let menu = point(50. - RING + MENU_LEFT, 60. - RING);
     mode.click(menu.x + MENU_WIDTH / 2., menu.y + row(Action::Copy));
     assert_eq!(mode.calls(), [format!("capture {TAB} 2 50 60 200 80")]);
+}
+
+/// A ⇧⌘-drag on the page starts capture mode with the rectangle dragged, without ⇧⌘2 first, and
+/// letting go chooses it, as a drag in capture mode does.
+#[gpui::test]
+fn a_drag_on_the_page_takes_the_rectangle_dragged(cx: &mut TestAppContext) {
+    let mut mode = Mode::new(cx);
+    mode.drag_began(100., 100.);
+    mode.drag_moved(200., 150.);
+    mode.captured(1);
+    assert_eq!(mode.calls(), [format!("capture {TAB} 1 view"), "show 0 0 800 600".into()]);
+    // The rectangle follows the pointer, which asks the core nothing as it goes.
+    mode.drag_moved(300., 250.);
+    mode.drag_ended();
+    assert_eq!(mode.calls(), ["camera false"]);
+    let menu = point(100. - RING + MENU_LEFT, 100. - RING);
+    mode.click(menu.x + MENU_WIDTH / 2., menu.y + row(Action::Copy));
+    assert_eq!(mode.calls(), [format!("capture {TAB} 2 100 100 200 150")]);
+    mode.captured(2);
+    let len = png().len();
+    assert_eq!(mode.calls(), ["hide".to_string(), format!("end {TAB}"), format!("copy {len}")]);
+}
+
+/// A quick drag can end before the picture of the page comes: capture mode shows with its menu
+/// at once, the pointer the arrow.
+#[gpui::test]
+fn a_drag_on_the_page_that_ends_first_shows_its_menu(cx: &mut TestAppContext) {
+    let mut mode = Mode::new(cx);
+    mode.drag_began(100., 100.);
+    mode.drag_moved(300., 250.);
+    mode.drag_ended();
+    assert_eq!(mode.calls(), [format!("capture {TAB} 1 view"), "camera false".into()]);
+    mode.captured(1);
+    assert_eq!(mode.calls(), ["show 0 0 800 600", "camera false"]);
+    let menu = point(100. - RING + MENU_LEFT, 100. - RING);
+    mode.click(menu.x + MENU_WIDTH / 2., menu.y + row(Action::Save));
+    assert_eq!(mode.calls(), [format!("capture {TAB} 2 100 100 200 150")]);
+}
+
+/// A drag along a line chooses nothing, so capture mode leaves rather than stay for a click.
+#[gpui::test]
+fn a_drag_on_the_page_along_a_line_leaves(cx: &mut TestAppContext) {
+    let mut mode = Mode::new(cx);
+    mode.drag_began(100., 100.);
+    mode.captured(1);
+    mode.drag_moved(300., 100.);
+    mode.drag_ended();
+    let left = ["hide".to_string(), format!("end {TAB}")];
+    let shown = [format!("capture {TAB} 1 view"), "show 0 0 800 600".into()];
+    assert_eq!(mode.calls(), [&shown[..], &left[..]].concat());
 }
 
 #[gpui::test]

@@ -1235,6 +1235,29 @@ unsafe extern "C" fn tab_captured(
     update_app_later(move |cx| capture::captured(tab, request, png, cx));
 }
 
+/// A ⇧⌘-drag on a tab's page, which the core kept from the page, for capture mode to take.
+unsafe extern "C" fn tab_capture_drag(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    phase: c_int,
+    x: f64,
+    y: f64,
+) {
+    let at = point(px(x as f32), px(y as f32));
+    update_app_later(move |cx| match phase as u32 {
+        bc::BC_CAPTURE_DRAG_BEGAN => {
+            let shell = tab_window(tab, cx).and_then(|window| window.shell.upgrade());
+            let Some((frame, radius)) = shell.and_then(|shell| shell.read(cx).capture_frame(tab))
+            else {
+                return;
+            };
+            with_overlays(move |cx| capture::drag_began(tab, frame, radius, at, cx), cx);
+        }
+        bc::BC_CAPTURE_DRAG_MOVED => capture::drag_moved(tab, at, cx),
+        _ => capture::drag_ended(tab, cx),
+    });
+}
+
 unsafe extern "C" fn tab_pictured(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -5317,6 +5340,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),
         tab_captured: Some(tab_captured),
+        tab_capture_drag: Some(tab_capture_drag),
         tab_pictured: Some(tab_pictured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
