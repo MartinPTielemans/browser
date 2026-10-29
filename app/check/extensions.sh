@@ -493,7 +493,7 @@ import hashlib, io, os, struct, subprocess, sys, zipfile
 
 source, crx = sys.argv[1], sys.argv[2]
 key = os.path.join(os.path.dirname(source), "key.pem")
-# Version 2 is signed with version 1's key, as its id is the key's.
+# Version 2 is signed with the key of version 1, as the id comes from the key.
 if not os.path.exists(key):
     subprocess.run(["openssl", "genrsa", "-out", key, "2048"], check=True, capture_output=True)
 public = subprocess.run(["openssl", "rsa", "-in", key, "-pubout", "-outform", "DER"],
