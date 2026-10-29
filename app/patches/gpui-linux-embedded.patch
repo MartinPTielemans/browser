@@ -23,7 +23,7 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git a/crates/gpui_linux/src/gpui_linux.rs b/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..93fd7500ce 100644
+index a5390e77f8..d1180be35c 100644
 --- a/crates/gpui_linux/src/gpui_linux.rs
 +++ b/crates/gpui_linux/src/gpui_linux.rs
 @@ -1,4 +1,16 @@
@@ -39,25 +39,31 @@ index a5390e77f8..93fd7500ce 100644
 +    linux_platform, move_overlay, new_host_window, overlay_size, overlays_blend,
 +    set_overlay_keyboard,
 +    set_overlay_menu, set_overlay_outline, set_overlay_panel, set_overlay_pointer, set_overlay_under,
-+    show_overlay, show_window, sync_display, take_overlay_keyboard, watch_control,
++    show_overlay, show_window, start_file_drag, sync_display, take_overlay_keyboard, watch_control,
 +    watch_embedder_swipes, watch_pointer_over,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{commit_embedded, compose_embedded, open_next_window_in_surface, resize_embedded};
 diff --git a/crates/gpui_linux/src/linux.rs b/crates/gpui_linux/src/linux.rs
-index e4da54b52b..ab5304b448 100644
+index e4da54b52b..0024e55973 100644
 --- a/crates/gpui_linux/src/linux.rs
 +++ b/crates/gpui_linux/src/linux.rs
-@@ -2,6 +2,7 @@ mod dispatcher;
+@@ -1,7 +1,9 @@
+ mod dispatcher;
  mod display_connection;
++mod file_drag;
  mod headless;
  mod keyboard;
 +mod overlay;
  mod platform;
  mod system_notifications;
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -18,11 +19,26 @@ pub use dispatcher::*;
+@@ -16,13 +18,30 @@ mod xdg_desktop_portal;
+ 
+ pub use dispatcher::*;
  pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
++pub(crate) use file_drag::file_drag_ended;
++pub use file_drag::start_file_drag;
  pub(crate) use headless::*;
  pub(crate) use keyboard::*;
 +pub use overlay::{
@@ -83,6 +89,57 @@ index e4da54b52b..ab5304b448 100644
  #[cfg(feature = "x11")]
  pub(crate) use x11::*;
  
+diff --git a/crates/gpui_linux/src/linux/file_drag.rs b/crates/gpui_linux/src/linux/file_drag.rs
+new file mode 100644
+index 0000000000..846d17431f
+--- /dev/null
++++ b/crates/gpui_linux/src/linux/file_drag.rs
+@@ -0,0 +1,45 @@
++//! The system's drag of a file out of an embedder's windows, as a browser hands a download to the
++//! file manager: XDND on X11 (x11/drag.rs), the data device's drag under Wayland. It starts from
++//! the press the left button holds.
++
++use std::{cell::RefCell, path::Path};
++
++use http_client::Url;
++
++#[allow(unused_imports)]
++use super::DisplayConnection;
++
++thread_local! {
++    static ENDED: RefCell<Option<Box<dyn FnOnce(bool)>>> = const { RefCell::new(None) };
++}
++
++/// Starts the system's drag of the file at `path`, a full path, while the left button is held
++/// after going down in one of GPUI's windows. Anywhere it's let go may take a copy. `ended` runs
++/// once it's let go, with whether something took it. Returns false, and `ended` never runs, if it
++/// didn't start.
++pub fn start_file_drag(path: &Path, ended: impl FnOnce(bool) + 'static) -> bool {
++    let Ok(url) = Url::from_file_path(path) else {
++        return false;
++    };
++    let uri_list = format!("{url}\r\n");
++    let started = super::platform::with_embedded_connection(|connection| match connection {
++        #[cfg(feature = "wayland")]
++        DisplayConnection::Wayland(_) => super::wayland::start_file_drag(uri_list),
++        #[cfg(feature = "x11")]
++        DisplayConnection::X11(x11) => x11.start_file_drag(uri_list),
++        #[allow(unreachable_patterns)]
++        _ => false,
++    });
++    if started == Some(true) {
++        ENDED.set(Some(Box::new(ended)));
++        return true;
++    }
++    false
++}
++
++/// The drag `start_file_drag` started was let go, and `taken` or not.
++pub(crate) fn file_drag_ended(taken: bool) {
++    if let Some(ended) = ENDED.take() {
++        ended(taken);
++    }
++}
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
 index 0000000000..eb7cea11ff
@@ -1322,7 +1379,7 @@ index cbc962bcff..4c439cadad 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git a/crates/gpui_linux/src/linux/wayland/client.rs b/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..b3af009144 100644
+index 2d40cf7fa9..459df30bc7 100644
 --- a/crates/gpui_linux/src/linux/wayland/client.rs
 +++ b/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -1979,7 +2036,26 @@ index 2d40cf7fa9..b3af009144 100644
  impl Dispatch<zwp_pointer_gesture_pinch_v1::ZwpPointerGesturePinchV1, ()>
      for WaylandClientStatePtr
  {
-@@ -3479,3 +3740,322 @@ mod tests {
+@@ -3061,7 +3322,7 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
+             }
+             (
+                 DataSourceKind::Drag,
+-                wl_data_source::Event::DndFinished | wl_data_source::Event::Cancelled,
++                event @ (wl_data_source::Event::DndFinished | wl_data_source::Event::Cancelled),
+             ) => {
+                 let Some(external_drag) = state.external_drag.take() else {
+                     return;
+@@ -3071,6 +3332,9 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
+                 let input = PlatformInput::FileDrop(FileDropEvent::Ended);
+                 drop(state);
+                 external_drag.window.handle_input(input);
++                // An embedder's (`start_file_drag`): finished once a target took it, cancelled
++                // where none would.
++                crate::linux::file_drag_ended(matches!(event, wl_data_source::Event::DndFinished));
+             }
+             _ => {}
+         }
+@@ -3479,3 +3743,353 @@ mod tests {
          );
      }
  }
@@ -2168,6 +2244,37 @@ index 2d40cf7fa9..b3af009144 100644
 +/// The size of the overlay window of the `view` surface.
 +pub(crate) fn overlay_size(view: *mut std::ffi::c_void) -> Option<Size<Pixels>> {
 +    Some(overlay_window(view)?.bounds_size())
++}
++
++/// Starts the data device's drag of `uri_list`, a `text/uri-list`, from the surface the left
++/// button is held in (`file_drag::start_file_drag`).
++pub(crate) fn start_file_drag(uri_list: String) -> bool {
++    let Some(client) = EMBEDDED_CLIENT.with_borrow(|client| client.as_ref()?.upgrade()) else {
++        return false;
++    };
++    let mut state = client.borrow_mut();
++    let Some(window) = state.mouse_focused_window.clone() else {
++        return false;
++    };
++    let (Some(manager), Some(device)) = (
++        state.globals.data_device_manager.as_ref(),
++        state.data_device.as_ref(),
++    ) else {
++        return false;
++    };
++    let serial = state.serial_tracker.get(SerialKind::MousePress);
++    let source = manager.create_data_source(&state.globals.qh, DataSourceKind::Drag);
++    source.offer(FILE_LIST_MIME_TYPE.to_string());
++    source.set_actions(DndAction::Copy);
++    device.start_drag(Some(&source), &window.surface(), None, serial.as_raw());
++    state.external_drag = Some(ExternalDrag {
++        source,
++        bytes: uri_list.into_bytes(),
++        window: window.clone(),
++    });
++    drop(state);
++    flush(&window);
++    true
 +}
 +
 +/// Whether Control is held in the embedder's surfaces, as their keys last said.
@@ -2881,18 +2988,28 @@ index 8d92234ef1..0236f2983b 100644
          if !state.active {
              return;
 diff --git a/crates/gpui_linux/src/linux/x11.rs b/crates/gpui_linux/src/linux/x11.rs
-index f9b9727330..c5cbca8677 100644
+index f9b9727330..4ced7b5779 100644
 --- a/crates/gpui_linux/src/linux/x11.rs
 +++ b/crates/gpui_linux/src/linux/x11.rs
-@@ -9,5 +9,6 @@ pub(crate) use client::*;
+@@ -1,6 +1,7 @@
+ mod client;
+ mod clipboard;
+ mod display;
++mod drag;
+ mod event;
+ mod window;
+ mod xim_handler;
+@@ -8,6 +9,8 @@ mod xim_handler;
+ pub(crate) use client::*;
  pub(crate) use clipboard::wait_for_clipboard_handovers;
  pub(crate) use display::*;
++pub(crate) use drag::FileDrag;
  pub(crate) use event::*;
 +pub use window::{drive_commit, drive_compose, marked_range, open_next_window_in};
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git a/crates/gpui_linux/src/linux/x11/client.rs b/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..e929119e35 100644
+index e21f019c64..cb33a4189f 100644
 --- a/crates/gpui_linux/src/linux/x11/client.rs
 +++ b/crates/gpui_linux/src/linux/x11/client.rs
 @@ -3,6 +3,7 @@ use ashpd::WindowIdentifier;
@@ -3068,7 +3185,17 @@ index e21f019c64..e929119e35 100644
  
      pub(crate) supports_xinput_gestures: bool,
  
-@@ -525,6 +638,7 @@ impl X11Connection {
+@@ -239,6 +352,9 @@ pub struct X11ClientState {
+     pub(crate) clipboard: Clipboard,
+     pub(crate) clipboard_item: Option<ClipboardItem>,
+     pub(crate) xdnd_state: Xdnd,
++    /// The window the left button last went down in, which a file's drag starts from.
++    pub(crate) pressed_window: Option<xproto::Window>,
++    pub(crate) file_drag: Option<super::FileDrag>,
+ }
+ 
+ #[derive(Clone)]
+@@ -525,6 +641,7 @@ impl X11Connection {
                  xcb_connection,
                  xkb_device_id,
                  client_side_decorations_supported,
@@ -3076,7 +3203,7 @@ index e21f019c64..e929119e35 100644
                  x_root_index,
                  resource_database,
                  atoms,
-@@ -548,6 +662,8 @@ impl X11Connection {
+@@ -548,12 +665,16 @@ impl X11Connection {
                  invisible_cursor_cache: None,
  
                  pointer_device_states,
@@ -3085,7 +3212,15 @@ index e21f019c64..e929119e35 100644
  
                  supports_xinput_gestures,
  
-@@ -879,8 +995,174 @@ impl X11Client {
+                 clipboard,
+                 clipboard_item: None,
+                 xdnd_state: Xdnd::default(),
++                pressed_window: None,
++                file_drag: None,
+             })
+         })));
+         // From here on, `Drop` removes whatever was registered if a later step fails.
+@@ -879,8 +1000,184 @@ impl X11Client {
              .map(|window_reference| window_reference.window.clone())
      }
  
@@ -3195,6 +3330,16 @@ index e21f019c64..e929119e35 100644
 +
      fn handle_event(&self, event: Event) -> Option<()> {
          match event {
++            // A file's drag has the pointer until it's let go (drag.rs).
++            Event::XinputMotion(event) if self.file_drag_held() => {
++                let (x, y) = ((event.root_x >> 16) as i16, (event.root_y >> 16) as i16);
++                self.file_drag_moved(x, y, event.time);
++            }
++            Event::XinputButtonRelease(event) if event.detail == 1 && self.file_drag_held() => {
++                self.file_drag_released(event.time);
++            }
++            Event::ClientMessage(event) if self.file_drag_message(&event) => {}
++            Event::SelectionRequest(event) => self.file_drag_selection(&event),
 +            // A core pointer event another client sent, as an embedder's test driver does to the
 +            // windows of the app it's in: GPUI selects XInput 2's, which no client can send, so the
 +            // core one stands in for the device's.
@@ -3260,7 +3405,7 @@ index e21f019c64..e929119e35 100644
              Event::UnmapNotify(event) => {
                  let mut state = self.0.borrow_mut();
                  if let Some(window_ref) = state.windows.get_mut(&event.window) {
-@@ -890,10 +1172,21 @@ impl X11Client {
+@@ -890,10 +1187,21 @@ impl X11Client {
              }
              Event::MapNotify(event) => {
                  let mut state = self.0.borrow_mut();
@@ -3284,7 +3429,7 @@ index e21f019c64..e929119e35 100644
              }
              Event::VisibilityNotify(event) => {
                  let mut state = self.0.borrow_mut();
-@@ -1044,6 +1337,48 @@ impl X11Client {
+@@ -1044,6 +1352,48 @@ impl X11Client {
                          height: event.height.into(),
                      },
                  };
@@ -3333,7 +3478,7 @@ index e21f019c64..e929119e35 100644
                  let window = self.get_window(event.window)?;
                  window
                      .set_bounds(bounds)
-@@ -1069,6 +1404,17 @@ impl X11Client {
+@@ -1069,6 +1419,17 @@ impl X11Client {
                  self.enable_ime();
              }
              Event::FocusOut(event) => {
@@ -3351,7 +3496,7 @@ index e21f019c64..e929119e35 100644
                  let window = self.get_window(event.event)?;
                  window.set_active(false);
                  let mut state = self.0.borrow_mut();
-@@ -1117,6 +1463,12 @@ impl X11Client {
+@@ -1117,6 +1478,12 @@ impl X11Client {
                  );
                  let modifiers = modifiers_from_xkb(&state.xkb);
                  let capslock = capslock_from_xkb(&state.xkb);
@@ -3364,7 +3509,7 @@ index e21f019c64..e929119e35 100644
                  if state.last_modifiers_changed_event == modifiers
                      && state.last_capslock_changed_event == capslock
                  {
-@@ -1230,6 +1582,13 @@ impl X11Client {
+@@ -1230,7 +1597,17 @@ impl X11Client {
              }
              Event::XinputButtonPress(event) => {
                  let window = self.get_window(event.event)?;
@@ -3376,9 +3521,13 @@ index e21f019c64..e929119e35 100644
 +                    crate::linux::overlay::control_changed(false);
 +                }
                  let mut state = self.0.borrow_mut();
++                if event.detail == 1 {
++                    state.pressed_window = Some(event.event);
++                }
  
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -1307,7 +1666,12 @@ impl X11Client {
+                 state.modifiers = modifiers;
+@@ -1307,7 +1684,12 @@ impl X11Client {
                      }
                  }
              }
@@ -3392,7 +3541,7 @@ index e21f019c64..e929119e35 100644
                  let window = self.get_window(event.event)?;
                  let mut state = self.0.borrow_mut();
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -1332,7 +1696,26 @@ impl X11Client {
+@@ -1332,7 +1714,26 @@ impl X11Client {
                      None => {}
                  }
              }
@@ -3420,7 +3569,7 @@ index e21f019c64..e929119e35 100644
                  let window = self.get_window(event.event)?;
                  let mut state = self.0.borrow_mut();
                  state.restore_cursor_after_hide();
-@@ -1384,12 +1767,8 @@ impl X11Client {
+@@ -1384,12 +1785,8 @@ impl X11Client {
                  if let Some(pointer) = state.pointer_device_states.get_mut(&event.sourceid) {
                      let scroll_delta = get_scroll_delta_and_update_state(pointer, &event);
                      drop(state);
@@ -3435,7 +3584,7 @@ index e21f019c64..e929119e35 100644
                      }
                  }
              }
-@@ -1413,9 +1792,15 @@ impl X11Client {
+@@ -1413,9 +1810,15 @@ impl X11Client {
                  );
                  let modifiers = modifiers_from_xinput_info(event.mods);
                  state.modifiers = modifiers;
@@ -3451,7 +3600,7 @@ index e21f019c64..e929119e35 100644
                  window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
                      pressed_button,
                      position,
-@@ -2052,6 +2437,9 @@ impl X11ClientState {
+@@ -2052,6 +2455,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -3461,7 +3610,7 @@ index e21f019c64..e929119e35 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2475,441 @@ impl X11ClientState {
+@@ -2087,6 +2493,441 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -3903,7 +4052,7 @@ index e21f019c64..e929119e35 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2246,10 +3069,35 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
+@@ -2246,10 +3087,35 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
      window.set_visibility(visibility);
  }
  
@@ -3939,7 +4088,7 @@ index e21f019c64..e929119e35 100644
  fn detect_compositor_gpu(
      xcb_connection: &XCBConnection,
      screen: &xproto::Screen,
-@@ -2465,6 +3313,20 @@ fn current_pointer_device_states(
+@@ -2465,6 +3331,20 @@ fn current_pointer_device_states(
      )
      .log_err()?;
  
@@ -3960,7 +4109,7 @@ index e21f019c64..e929119e35 100644
      let mut pointer_device_states = BTreeMap::new();
      pointer_device_states.extend(
          devices_query_result
-@@ -2498,6 +3360,8 @@ fn current_pointer_device_states(
+@@ -2498,6 +3378,8 @@ fn current_pointer_device_states(
                          PointerDeviceState {
                              horizontal: horizontal.unwrap_or_else(Default::default),
                              vertical: vertical.unwrap_or_else(Default::default),
@@ -3969,7 +4118,7 @@ index e21f019c64..e929119e35 100644
                          },
                      ))
                  }
-@@ -2539,10 +3403,12 @@ fn reset_pointer_device_scroll_positions(pointer: &mut PointerDeviceState) {
+@@ -2539,10 +3421,12 @@ fn reset_pointer_device_scroll_positions(pointer: &mut PointerDeviceState) {
  }
  
  /// Returns the scroll delta for a smooth scrolling motion event, or `None` if no scroll data is present.
@@ -3983,7 +4132,7 @@ index e21f019c64..e929119e35 100644
      let delta_x = get_axis_scroll_delta_and_update_state(event, &mut pointer.horizontal);
      let delta_y = get_axis_scroll_delta_and_update_state(event, &mut pointer.vertical);
      if delta_x.is_some() || delta_y.is_some() {
-@@ -2555,13 +3421,13 @@ fn get_scroll_delta_and_update_state(
+@@ -2555,13 +3439,13 @@ fn get_scroll_delta_and_update_state(
  fn get_axis_scroll_delta_and_update_state(
      event: &xinput::MotionEvent,
      axis: &mut ScrollAxisState,
@@ -4000,7 +4149,7 @@ index e21f019c64..e929119e35 100644
          axis.scroll_value = Some(new_scroll);
          delta_scroll
      } else {
-@@ -2570,6 +3436,35 @@ fn get_axis_scroll_delta_and_update_state(
+@@ -2570,6 +3454,35 @@ fn get_axis_scroll_delta_and_update_state(
      }
  }
  
@@ -4036,7 +4185,7 @@ index e21f019c64..e929119e35 100644
  fn make_scroll_wheel_event(
      position: Point<Pixels>,
      scroll_delta: Point<f32>,
-@@ -2620,6 +3515,11 @@ fn get_scale_factor(
+@@ -2620,6 +3533,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -4048,7 +4197,7 @@ index e21f019c64..e929119e35 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3798,130 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3816,130 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -4179,7 +4328,7 @@ index e21f019c64..e929119e35 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +4237,101 @@ mod tests {
+@@ -3213,3 +4255,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
@@ -4280,6 +4429,322 @@ index e21f019c64..e929119e35 100644
 +        }
 +    }
 +    points
++}
+diff --git a/crates/gpui_linux/src/linux/x11/drag.rs b/crates/gpui_linux/src/linux/x11/drag.rs
+new file mode 100644
+index 0000000000..84f66f7604
+--- /dev/null
++++ b/crates/gpui_linux/src/linux/x11/drag.rs
+@@ -0,0 +1,310 @@
++//! A file's drag out of GPUI's windows on X11, as XDND's source (freedesktop.org's XDND, version
++//! 5): the window the left button went down in owns `XdndSelection`, the pointer is grabbed until
++//! it's let go, and the top-level window under it that takes XDND hears where it is and, if it
++//! accepts the file there, gets it. GPUI is XDND's target in client.rs.
++
++use gpui_util::ResultExt as _;
++use x11rb::{
++    connection::Connection as _,
++    protocol::xproto::{
++        self, AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, GrabMode, PropMode,
++        SelectionNotifyEvent, SelectionRequestEvent,
++    },
++    xcb_ffi::XCBConnection,
++};
++
++use super::{X11Client, XcbAtoms};
++
++pub(crate) struct FileDrag {
++    /// GPUI's window it started in, which owns `XdndSelection` and hears from the targets.
++    window: xproto::Window,
++    uri_list: Vec<u8>,
++    /// Until it's let go.
++    held: bool,
++    /// The top-level window under the pointer that takes XDND, with its version.
++    target: Option<(xproto::Window, u32)>,
++    /// The target was told where the pointer is and hasn't answered, as XDND has the source wait
++    /// for before it says again.
++    asked: bool,
++    /// Where the pointer moved to on the root while the target hadn't answered, and when.
++    moved: Option<(i16, i16, u32)>,
++    accepted: bool,
++    /// Let go while the target hadn't answered, when.
++    released: Option<u32>,
++}
++
++impl X11Client {
++    /// Starts dragging `uri_list`, a `text/uri-list`, from the window the left button went down in,
++    /// which it's held in.
++    pub(crate) fn start_file_drag(&self, uri_list: String) -> bool {
++        let mut state = self.0.borrow_mut();
++        let Some(window) = state.pressed_window.filter(|_| state.file_drag.is_none()) else {
++            return false;
++        };
++        let xcb = state.xcb_connection.clone();
++        let root = xcb.setup().roots[state.x_root_index].root;
++        let owned = xcb.set_selection_owner(window, state.atoms.XdndSelection, x11rb::CURRENT_TIME);
++        if owned.log_err().is_none() {
++            return false;
++        }
++        // On the root, which a hold on the window the press went down in would lose as that window
++        // hides, as the downloads' window does when one of its files is dragged.
++        xcb.grab_pointer(
++            false,
++            root,
++            EventMask::POINTER_MOTION | EventMask::BUTTON_RELEASE,
++            GrabMode::ASYNC,
++            GrabMode::ASYNC,
++            x11rb::NONE,
++            x11rb::NONE,
++            x11rb::CURRENT_TIME,
++        )
++        .log_err();
++        xcb.flush().log_err();
++        state.file_drag = Some(FileDrag {
++            window,
++            uri_list: uri_list.into_bytes(),
++            held: true,
++            target: None,
++            asked: false,
++            moved: None,
++            accepted: false,
++            released: None,
++        });
++        true
++    }
++
++    pub(crate) fn file_drag_held(&self) -> bool {
++        (self.0.borrow().file_drag.as_ref()).is_some_and(|drag| drag.held)
++    }
++
++    /// The pointer moved to (x, y) on the root at `time`.
++    pub(crate) fn file_drag_moved(&self, x: i16, y: i16, time: u32) {
++        let mut state = self.0.borrow_mut();
++        let state = &mut *state;
++        let xcb = &state.xcb_connection;
++        let atoms = &state.atoms;
++        let Some(drag) = state.file_drag.as_mut() else {
++            return;
++        };
++        let root = xcb.setup().roots[state.x_root_index].root;
++        let target = xdnd_target(xcb, atoms, root, x, y);
++        if target.map(|(window, _)| window) != drag.target.map(|(window, _)| window) {
++            if let Some((window, _)) = drag.target.take() {
++                send(xcb, window, atoms.XdndLeave, [drag.window, 0, 0, 0, 0]);
++            }
++            (drag.asked, drag.accepted, drag.moved) = (false, false, None);
++            if let Some((window, version)) = target {
++                let version = version.min(5) << 24;
++                send(
++                    xcb,
++                    window,
++                    atoms.XdndEnter,
++                    [drag.window, version, atoms.TextUriList, 0, 0],
++                );
++                drag.target = target;
++            }
++        }
++        if drag.target.is_some() {
++            match drag.asked {
++                true => drag.moved = Some((x, y, time)),
++                false => ask(xcb, atoms, drag, x, y, time),
++            }
++        }
++        xcb.flush().log_err();
++    }
++
++    /// The left button was let go at `time`.
++    pub(crate) fn file_drag_released(&self, time: u32) {
++        let let_go = {
++            let mut state = self.0.borrow_mut();
++            let state = &mut *state;
++            let Some(drag) = state.file_drag.as_mut() else {
++                return;
++            };
++            drag.held = false;
++            state
++                .xcb_connection
++                .ungrab_pointer(x11rb::CURRENT_TIME)
++                .log_err();
++            state.xcb_connection.flush().log_err();
++            match drag.asked {
++                // Once it answers.
++                true => {
++                    drag.released = Some(time);
++                    false
++                }
++                false => true,
++            }
++        };
++        if let_go {
++            self.file_drag_let_go(time);
++        }
++    }
++
++    /// Drops the file on the target if it accepted it where the pointer was let go, or else ends
++    /// the drag with nothing taking it.
++    fn file_drag_let_go(&self, time: u32) {
++        {
++            let mut state = self.0.borrow_mut();
++            let state = &mut *state;
++            let (xcb, atoms) = (&state.xcb_connection, &state.atoms);
++            let Some(drag) = state.file_drag.as_mut() else {
++                return;
++            };
++            if let Some((window, _)) = drag.target {
++                // Until the target says it's finished with it.
++                if drag.accepted {
++                    send(xcb, window, atoms.XdndDrop, [drag.window, 0, time, 0, 0]);
++                    xcb.flush().log_err();
++                    return;
++                }
++                send(xcb, window, atoms.XdndLeave, [drag.window, 0, 0, 0, 0]);
++                xcb.flush().log_err();
++            }
++            state.file_drag = None;
++        }
++        crate::linux::file_drag_ended(false);
++    }
++
++    /// Handles `message` if it's the target's answer, XdndStatus or XdndFinished.
++    pub(crate) fn file_drag_message(&self, message: &ClientMessageEvent) -> bool {
++        let (let_go, ended) = {
++            let mut state = self.0.borrow_mut();
++            let state = &mut *state;
++            let (xcb, atoms) = (&state.xcb_connection, &state.atoms);
++            let Some(drag) = state.file_drag.as_mut() else {
++                return false;
++            };
++            let [from, flags, ..] = message.data.as_data32();
++            // One from a target the pointer has left is for nothing.
++            let from_target = drag.target.is_some_and(|(window, _)| window == from);
++            if message.type_ == atoms.XdndStatus {
++                let mut let_go = None;
++                if from_target && drag.asked {
++                    drag.asked = false;
++                    drag.accepted = flags & 1 == 1;
++                    let_go = drag.released.take();
++                    if let_go.is_none()
++                        && let Some((x, y, time)) = drag.moved.take()
++                    {
++                        ask(xcb, atoms, drag, x, y, time);
++                        xcb.flush().log_err();
++                    }
++                }
++                (let_go, None)
++            } else if message.type_ == atoms.XdndFinished {
++                let mut ended = None;
++                if from_target && !drag.held {
++                    let version = drag.target.map_or(0, |(_, version)| version);
++                    state.file_drag = None;
++                    // Before version 5, a target that finished took it.
++                    ended = Some(version < 5 || flags & 1 == 1);
++                }
++                (None, ended)
++            } else {
++                return false;
++            }
++        };
++        if let Some(time) = let_go {
++            self.file_drag_let_go(time);
++        }
++        if let Some(taken) = ended {
++            crate::linux::file_drag_ended(taken);
++        }
++        true
++    }
++
++    /// Answers a target's request for the dragged file, as `text/uri-list`.
++    pub(crate) fn file_drag_selection(&self, request: &SelectionRequestEvent) {
++        let state = self.0.borrow();
++        let (xcb, atoms) = (&state.xcb_connection, &state.atoms);
++        let Some(drag) = state.file_drag.as_ref() else {
++            return;
++        };
++        if request.owner != drag.window || request.selection != atoms.XdndSelection {
++            return;
++        }
++        // A requestor of before ICCCM 2 names no property.
++        let property = match request.property {
++            x11rb::NONE => request.target,
++            property => property,
++        };
++        let given = request.target == atoms.TextUriList
++            && (xcb.change_property(
++                PropMode::REPLACE,
++                request.requestor,
++                property,
++                atoms.TextUriList,
++                8,
++                drag.uri_list.len() as u32,
++                &drag.uri_list,
++            ))
++            .log_err()
++            .is_some();
++        let answer = SelectionNotifyEvent {
++            response_type: xproto::SELECTION_NOTIFY_EVENT,
++            sequence: 0,
++            time: request.time,
++            requestor: request.requestor,
++            selection: request.selection,
++            target: request.target,
++            property: if given { property } else { x11rb::NONE },
++        };
++        xcb.send_event(false, request.requestor, EventMask::NO_EVENT, answer)
++            .log_err();
++        xcb.flush().log_err();
++    }
++}
++
++/// Tells the target the pointer is at (x, y) on the root, at `time`, and that the file would be
++/// copied there.
++fn ask(xcb: &XCBConnection, atoms: &XcbAtoms, drag: &mut FileDrag, x: i16, y: i16, time: u32) {
++    let Some((window, _)) = drag.target else {
++        return;
++    };
++    let at = (x as u16 as u32) << 16 | y as u16 as u32;
++    send(
++        xcb,
++        window,
++        atoms.XdndPosition,
++        [drag.window, 0, at, time, atoms.XdndActionCopy],
++    );
++    drag.asked = true;
++}
++
++/// The window at (x, y) on `root` that takes XDND, with its version: the first one down from the
++/// root that says so, a top-level window, inside any window manager's frame.
++fn xdnd_target(
++    xcb: &XCBConnection,
++    atoms: &XcbAtoms,
++    root: xproto::Window,
++    x: i16,
++    y: i16,
++) -> Option<(xproto::Window, u32)> {
++    let mut window = root;
++    loop {
++        window = xcb
++            .translate_coordinates(root, window, x, y)
++            .ok()?
++            .reply()
++            .ok()?
++            .child;
++        if window == x11rb::NONE {
++            return None;
++        }
++        let aware = (xcb.get_property(false, window, atoms.XdndAware, AtomEnum::ATOM, 0, 1))
++            .ok()?
++            .reply()
++            .ok()?;
++        if let Some(version) = aware.value32().and_then(|mut values| values.next()) {
++            return Some((window, version));
++        }
++    }
++}
++
++fn send(xcb: &XCBConnection, to: xproto::Window, type_: xproto::Atom, data: [u32; 5]) {
++    let message = ClientMessageEvent::new(32, to, type_, data);
++    xcb.send_event(false, to, EventMask::NO_EVENT, message)
++        .log_err();
 +}
 diff --git a/crates/gpui_linux/src/linux/x11/window.rs b/crates/gpui_linux/src/linux/x11/window.rs
 index f6ee76ae8c..a017eca041 100644
