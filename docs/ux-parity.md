@@ -434,6 +434,9 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Link rules: routing | 4 | links from other apps: first rule matching URL text and/or sending app opens in its Space; else The Space in Front, a named Space or Little Arc; never an Agent Space or private window *interim* | Arc (Air Traffic Control), ours |
 | [ ] | Link rules: Settings › Links | 4 | rows of URL contains, From, → Space, −; + adds; drag reorders; a deleted Space's rule says No Space *interim*; measure Arc's | ours |
 | [ ] | Link rules: import | 4 | Arc's rules come in with its Spaces | ours |
+| [ ] | Mini Player at rest | 4 | 6 pt corners, 1 pt white 0.17 rim; appears ≈ 125 ms after the switch | Dia 1.50.1 rec |
+| [ ] | Mini Player hover | 4 | scrim black 0.35 over 200 ms; buttons 28 × 28 / 29 × 28, 12 in, white 0.09 / 0.13 | Dia 1.50.1 rec |
+| [ ] | Mini Player throw | 4 | > 350 pt/s or swipe delta > 6 pt; corner ±45°; 10 in; spring 0.9 s / ζ 0.9 | Dia 1.53.0 bin |
 | [ ] | Themes: rendering | 4 | OKLab 45° mix to 75 %; third colour top → bottom; alpha 0.2 + 0.55 × intensity; the automatic appearance turns a light colour's window light. Built, dark only: one colour keeps the Space gradient, intensity scales its alpha, two and three as Arc's rule *interim* | Arc 1.167 P§21, Arc 1.170 rec |
 | [ ] | Themes: texture | 4 | noise × strength (0.8 / 0.15 / 0.6 / 0.4), quarter when inactive; our own textures. Built: one grain of our own noise at 0.075 × the dial *interim* | Arc 1.167, Arc 1.170 rec |
 | [ ] | Themes: picker | 4 | card 357 × 509 at radius 20, arrow at the row; HSL field 340 with 1–3 handles (44 / 26, + 180°, + 150° / + 210°); appearance ×3, − +, 9 swatches, wave slider for intensity, 24-dot dial for grain; grows from the arrow, shrinks to it in 110 ms; the window follows each drag. *Interim*: swatch clicks (the swatch's own colour), < >, −, Remove Theme Color, the menu's anchor, appearance not drawn, translucency not offered | Arc 1.170 rec |
@@ -458,7 +461,4 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | PiP at rest | later | 6 pt corners, 1 pt white 0.17 rim; appears ≈ 125 ms after the switch | Dia 1.50.1 rec |
-| [ ] | PiP hover | later | scrim black 0.35 over 200 ms; buttons 28 × 28 / 29 × 28, 12 in, white 0.09 / 0.13 | Dia 1.50.1 rec |
-| [ ] | PiP throw | later | > 350 pt/s or swipe delta > 6 pt; corner ±45°; 10 in; spring 0.9 s / ζ 0.9 | Dia 1.53.0 bin |
 | [ ] | Swipe back/forward overlay | later | follows the system setting; scrollable carousels keep it | Dia P§8 |
