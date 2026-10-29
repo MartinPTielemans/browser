@@ -97,6 +97,19 @@ pub fn without_javascript(text: &str) -> &str {
 
 pub fn bind_keys(cx: &mut App) {
     let context = Some("TextInput");
+    let key = |key, action| crate::shell::view_binding(key, action, "TextInput", cx);
+    let mac_keys = [
+        key("cmd-a", Box::new(SelectAll)),
+        key("cmd-v", Box::new(Paste)),
+        key("cmd-c", Box::new(Copy)),
+        key("cmd-x", Box::new(Cut)),
+        // So the Edit menu shows them. The menu's Undo and Redo go to the first responder, which
+        // undoes for itself, as a page does.
+        key("cmd-z", Box::new(Undo)),
+        key("shift-cmd-z", Box::new(Redo)),
+        key("shift-cmd-v", Box::new(PasteAndMatchStyle)),
+    ];
+    cx.bind_keys(mac_keys);
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, context),
         KeyBinding::new("delete", Delete, context),
@@ -104,10 +117,6 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("right", Right, context),
         KeyBinding::new("shift-left", SelectLeft, context),
         KeyBinding::new("shift-right", SelectRight, context),
-        KeyBinding::new("cmd-a", SelectAll, context),
-        KeyBinding::new("cmd-v", Paste, context),
-        KeyBinding::new("cmd-c", Copy, context),
-        KeyBinding::new("cmd-x", Cut, context),
         KeyBinding::new("home", Home, context),
         KeyBinding::new("end", End, context),
         // As in any Mac text field, and ahead of the browser's back and forward.
@@ -117,11 +126,6 @@ pub fn bind_keys(cx: &mut App) {
         // Full Keyboard Access's, and Windows' and Linux's, way to a field's menu.
         KeyBinding::new("shift-f10", OpenMenu, context),
         KeyBinding::new("menu", OpenMenu, context),
-        // So the Edit menu shows them. The menu's Undo and Redo go to the first responder, which
-        // undoes for itself, as a page does.
-        KeyBinding::new("cmd-z", Undo, context),
-        KeyBinding::new("shift-cmd-z", Redo, context),
-        KeyBinding::new("shift-cmd-v", PasteAndMatchStyle, context),
     ]);
 }
 
