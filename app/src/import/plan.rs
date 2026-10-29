@@ -1,10 +1,11 @@
 //! What an import adds, worked out against what the browser has, so that running it again adds
 //! nothing: a Space joins the Space here with its name and profile, a folder the one with its name
 //! in the same place, and a tab or favorite whose URL is already there is skipped, as is an open
-//! tab whose URL the Space has among its pinned or Today tabs. History is added whole, and the
-//! core skips the pages it has (bc_profile_add_history).
+//! tab whose URL the Space has among its pinned or Today tabs. History and addresses are added
+//! whole, and the core skips the pages and addresses it has (bc_profile_add_history,
+//! bc_profile_add_addresses).
 
-use super::found::{Found, FromProfile, Node, Page, Tab};
+use super::found::{Address, Found, FromProfile, Node, Page, Tab};
 use crate::theme::Theme;
 
 /// What the browser has, as far as an import needs to know.
@@ -55,6 +56,8 @@ pub struct Plan {
     pub favorites: Vec<(ProfileRef, Tab)>,
     /// Each profile's history.
     pub history: Vec<(ProfileRef, Vec<Page>)>,
+    /// Each profile's addresses.
+    pub addresses: Vec<(ProfileRef, Vec<Address>)>,
 }
 
 /// How much a plan brings in.
@@ -68,6 +71,8 @@ pub struct Counts {
     pub favorites: usize,
     /// Pages of history, which may be here already.
     pub pages: usize,
+    /// Addresses, which may be here already.
+    pub addresses: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -107,6 +112,7 @@ impl Plan {
             && self.spaces.is_empty()
             && self.favorites.is_empty()
             && self.history.is_empty()
+            && self.addresses.is_empty()
     }
 
     pub fn counts(&self) -> Counts {
@@ -129,6 +135,7 @@ impl Plan {
             today: self.spaces.iter().map(|space| space.today.len()).sum(),
             favorites: self.favorites.len(),
             pages: self.history.iter().map(|(_, pages)| pages.len()).sum(),
+            addresses: (self.addresses.iter()).map(|(_, each)| each.len()).sum(),
         }
     }
 }
@@ -232,6 +239,10 @@ pub fn plan(found: &Found, names: &[(String, String)], existing: &Existing) -> P
     for (profile, pages) in &found.history {
         let profile = resolve(profile, &mut plan);
         plan.history.push((profile, pages.clone()));
+    }
+    for (profile, addresses) in &found.addresses {
+        let profile = resolve(profile, &mut plan);
+        plan.addresses.push((profile, addresses.clone()));
     }
     plan
 }

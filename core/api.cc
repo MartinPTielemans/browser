@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/address_import.h"
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
@@ -452,6 +453,11 @@ bool bc_profile_delete(bc_id profile) {
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
   return (pages || !count) &&
          browser_core::AddImportedHistory(LoadedProfile(profile), profile, pages, count);
+}
+
+bool bc_profile_add_addresses(bc_id profile, const bc_address* addresses, size_t count) {
+  return (addresses || !count) &&
+         browser_core::AddImportedAddresses(LoadedProfile(profile), profile, addresses, count);
 }
 
 size_t bc_spaces(bc_id* spaces, size_t capacity) {

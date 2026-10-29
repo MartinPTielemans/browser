@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::found::{Found, FromProfile, Node, Page, Space, Tab};
+use super::found::{Address, Found, FromProfile, Node, Page, Space, Tab};
 use super::sources::{Family, Profile, Source};
 use super::{chromium, firefox, safari};
 
@@ -32,6 +32,8 @@ pub enum Kind {
     /// Safari's Reading List, as a folder beside its bookmarks.
     ReadingList,
     History,
+    /// A Chromium-based browser's saved addresses, never its cards.
+    Addresses,
 }
 
 impl Kind {
@@ -41,6 +43,7 @@ impl Kind {
             Kind::Favorites => "Favorites",
             Kind::Bookmarks => "Bookmarks, as a Space's pinned tabs",
             Kind::OpenTabs => "Open tabs, as that Space's Today tabs",
+            Kind::Addresses => "Addresses",
             Kind::ReadingList => "Reading List, as a folder in that Space",
             Kind::History => "History",
         }
@@ -89,10 +92,15 @@ impl From<String> for ReadError {
 /// What can come from `source`: Arc's sidebar in place of its bookmarks, which it doesn't show.
 pub fn kinds(source: &Source) -> &'static [Kind] {
     if source.arc_sidebar().is_some() {
-        &[Kind::Spaces, Kind::Favorites, Kind::History]
+        &[Kind::Spaces, Kind::Favorites, Kind::History, Kind::Addresses]
     } else {
         match source.browser.family {
-            Family::Chromium => &[Kind::Bookmarks, Kind::OpenTabs, Kind::History],
+            Family::Chromium => &[
+                Kind::Bookmarks,
+                Kind::OpenTabs,
+                Kind::History,
+                Kind::Addresses,
+            ],
             Family::Firefox => &[Kind::Bookmarks, Kind::History],
             Family::Safari => &[Kind::Bookmarks, Kind::ReadingList, Kind::History],
         }
@@ -156,7 +164,10 @@ pub fn read(source: &Source, picked: &[Kind], now: SystemTime) -> Result<Found, 
             });
         }
         if !read.pages.is_empty() {
-            found.history.push((from, read.pages));
+            found.history.push((from.clone(), read.pages));
+        }
+        if !read.addresses.is_empty() {
+            found.addresses.push((from, read.addresses));
         }
     }
     Ok(found)
@@ -168,6 +179,7 @@ pub struct Read {
     pub pinned: Vec<Node>,
     pub today: Vec<Tab>,
     pub pages: Vec<Page>,
+    pub addresses: Vec<Address>,
 }
 
 /// The profile here that `profile`'s things go to: the one this browser started with for the
