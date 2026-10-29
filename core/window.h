@@ -66,8 +66,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // isn't key, as the windows a relaunch brings back after the first do.
   static Window* Open(const gfx::Rect& bounds, void* ui_view, bool behind = false);
   // A private window for |profile|'s off-the-record profile, showing a Space of its own
-  // (Space::CreateOffTheRecord). See bc_window_open_private. Null once Chromium is quitting.
+  // (Space::CreateOwn). See bc_window_open_private. Null once Chromium is quitting.
   static Window* OpenPrivate(const gfx::Rect& bounds, void* ui_view, Profile* profile);
+  // A Blank Window, showing a Space of its own in |profile| itself. See bc_window_open_blank.
+  static Window* OpenBlank(const gfx::Rect& bounds, void* ui_view, Profile* profile);
   static Window* FromId(bc_id id);
   // Every window, the most recently active first.
   static std::vector<Window*> All();
@@ -161,7 +163,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id space() const { return space_; }
   // The tab the window shows, or 0. In a split view, the one focused.
   bc_id selected() const { return selected_; }
-  // Whether it's a private window, which shows its own Space alone and is never saved.
+  // Whether it shows its own Space alone and is never saved, as a private or Blank Window does.
+  bool own_space() const { return own_space_; }
+  // Whether it's a private window, its own Space in the profile's off-the-record session.
   bool off_the_record() const { return off_the_record_; }
   // Whether its Browsers stay with no tabs left: a private window's does while the window is
   // open, as it holds the private session, which ends once the profile's last Browser has gone.
@@ -429,6 +433,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
+  bool own_space_ = false;
   bool off_the_record_ = false;
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;

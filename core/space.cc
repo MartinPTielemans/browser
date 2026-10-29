@@ -105,11 +105,12 @@ Space* Space::Create(std::string name, bc_id id, std::optional<Agent> agent) {
 }
 
 // static
-Space* Space::CreateOffTheRecord(std::string profile) {
+Space* Space::CreateOwn(std::string profile, bool off_the_record) {
   const bc_id id = NewId();
   Space* space = new Space(id, std::string(), std::nullopt);
   space->profile_ = std::move(profile);
-  space->off_the_record_ = true;
+  space->own_ = true;
+  space->off_the_record_ = off_the_record;
   Spaces()[id] = base::WrapUnique(space);
   return space;
 }
@@ -120,8 +121,8 @@ void Space::Delete(bc_id id) {
   if (it == Spaces().end()) {
     return;
   }
-  // The Spaces listed don't change with a private window's.
-  const bool listed = !it->second->off_the_record_;
+  // The Spaces listed don't change with a window's own.
+  const bool listed = !it->second->own_;
   Spaces().erase(it);
   if (listed) {
     ReportSpacesChanged();
@@ -138,7 +139,7 @@ Space* Space::FromId(bc_id id) {
 std::vector<Space*> Space::All() {
   std::vector<Space*> all;
   for (auto& [id, space] : Spaces()) {
-    if (!space->off_the_record_) {
+    if (!space->own_) {
       all.push_back(space.get());
     }
   }
@@ -314,7 +315,7 @@ void Space::SetPinnedUrl(bc_id tab, GURL url) {
 }
 
 void Space::Pin(bc_id tab, base::FunctionRef<GURL(bc_id)> url_of) {
-  if (!std::ranges::contains(today_, tab) || off_the_record_) {
+  if (!std::ranges::contains(today_, tab) || own_) {
     return;
   }
   for (bc_id pane : Panes(tab)) {
@@ -347,7 +348,7 @@ void Space::Move(bc_id tab,
                  base::FunctionRef<GURL(bc_id)> url_of) {
   const bool is_folder = IsFolder(tab);
   if ((!Has(tab) && !is_folder) || (is_folder && !pinned) || (folder && !IsFolder(folder)) ||
-      (pinned && off_the_record_) || (is_folder && Within(folder, tab))) {
+      (pinned && own_) || (is_folder && Within(folder, tab))) {
     return;
   }
   const bool was_pinned = IsPinned(tab) || is_folder;
@@ -398,7 +399,7 @@ void Space::Remove(bc_id tab) {
 }
 
 bc_id Space::AddFolder(std::string name, bc_id folder, size_t index) {
-  if (off_the_record_) {
+  if (own_) {
     return 0;
   }
   if (!IsFolder(folder)) {
