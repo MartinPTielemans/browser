@@ -1546,6 +1546,16 @@ void host_copy_png(const uint8_t* png, size_t size) {
   CloseClipboard();
 }
 
+void host_capture_name(char* name, size_t capacity) {
+  SYSTEMTIME now;
+  GetLocalTime(&now);
+  if (capacity && snprintf(name, capacity, "Capture %04d-%02d-%02d at %02d.%02d.%02d.png",
+                           now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+                           now.wSecond) < 0) {
+    name[0] = 0;
+  }
+}
+
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
   wchar_t path[MAX_PATH];
   SYSTEMTIME now;

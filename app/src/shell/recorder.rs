@@ -806,7 +806,15 @@ impl Browser for Recorder {
         self.site_controls_extensions.borrow_mut().push(ids);
     }
 
-    fn capture(&self, tab: u64, frame: Bounds<Pixels>, _: f32, full_page: bool, _: &mut App) {
+    fn capture(
+        &self,
+        tab: u64,
+        frame: Bounds<Pixels>,
+        _: f32,
+        full_page: bool,
+        _: bool,
+        _: &mut App,
+    ) {
         let (x, y) = (f32::from(frame.origin.x), f32::from(frame.origin.y));
         let (width, height) = (f32::from(frame.size.width), f32::from(frame.size.height));
         let what = if full_page { "full page" } else { "portion" };
