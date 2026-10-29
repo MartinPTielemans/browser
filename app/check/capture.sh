@@ -109,6 +109,8 @@ expect '^browser: library shown$' "the Library didn't settle open on Media"
 send click $((112 + 8 + 47)) $((56 + 27 + 47))
 expect "^browser: open media $library\$" "a click on the capture's tile didn't open it"
 expect '^browser: library hidden$' "opening the capture didn't close the Library"
+expect '^browser: loaded [0-9]* file://.*\.png$' "the capture's tab didn't load it"
+media=$(sed -n 's|^browser: loaded \([0-9]*\) file://.*\.png$|\1|p' "$log" | tail -1)
 
 # A right-click on the tile offers Open and Delete, which moves the capture to the Trash, as the
 # downloads' Move to Trash does, and out of Media.
@@ -124,6 +126,12 @@ expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Del
 [ ! -e "$library" ] || fail "Delete left $library where it was"
 send menu "$(cased 'View Media…')"
 expect '^browser: library hidden$' "View Media… didn't close the Library"
+# ⌘W closes the capture's tab, back to the long page, which a click gives the keyboard.
+send key w cmd
+expect "^browser: tab $media closed\$" "⌘W didn't close the capture's tab"
+send click $page_point
+send state
+in_browser RenderWidgetHostViewCocoa "after a click on the long page"
 
 # Escape leaves, and so does ⇧⌘2 again, from capture mode's own window.
 capture_mode page
