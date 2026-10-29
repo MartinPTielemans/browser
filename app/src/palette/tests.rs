@@ -376,17 +376,18 @@ fn every_theme_of_a_coarse_sweep_reads() {
     assert_eq!(sweep(&themes), Vec::<String>::new());
 }
 
-/// A control pressed keeps its label at least as legible as at rest (#319).
+/// A filled button pressed goes a step darker than under the pointer, whatever its label (the
+/// owner, #707): ilo green from #4EA76E to #469462, not lighter.
 #[test]
-fn a_pressed_accent_reads_more_under_its_label() {
+fn a_pressed_accent_goes_darker_than_hovered() {
     let themes = grid(&[0., 60., 120., 180., 240., 300.], &[0.4, 1.], &[0.2, 0.45, 0.8], &[0.5]);
     for theme in themes.iter().map(Some).chain([None]) {
         let palette = Palette::of(theme);
-        let at_rest = contrast(palette.accent_label, palette.accent);
-        let pressed = quantized(palette.accent_pressed().to_rgb());
-        assert_ne!(pressed, palette.accent, "{theme:?}");
-        assert!(contrast(palette.accent_label, pressed) >= at_rest - 0.01, "{theme:?}");
+        let [hovered, _, _] = crate::theme::oklab(palette.accent_hovered().to_rgb());
+        let [pressed, _, _] = crate::theme::oklab(palette.accent_pressed().to_rgb());
+        assert!(pressed < hovered, "{theme:?}");
     }
+    assert_eq!(hex(Palette::of(None).accent_pressed().to_rgb()), 0x469462);
 }
 
 /// A filled button under the pointer goes 0.9 darker, whatever its label (the owner, 2026-10-26):
