@@ -1085,6 +1085,13 @@ unsafe extern "C" fn tab_link_to_site(
         return false;
     };
     let url = unsafe { CStr::from_ptr(url) }.to_owned();
+    // A call's link opens as a tab of the Space shown, the one used last, as it outlasts a look.
+    if link_preview::is_meeting(&url.to_string_lossy()) {
+        // check.sh waits for this line.
+        log!("browser: meeting link from {tab} opens as a tab");
+        update_app_later(move |_| open_tab(window, &url.to_string_lossy()));
+        return true;
+    }
     // Outside the navigation that asked, which the core cancels once this returns.
     update_app_later(move |cx| {
         let preview = unsafe { bc::bc_tab_open_preview(tab, url.as_ptr()) };
