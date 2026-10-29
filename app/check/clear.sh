@@ -105,6 +105,20 @@ clear_point="200 185"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
+# Linux's driver takes the pointer to each click, where the Mac's posts the click alone and leaves
+# the sidebar hovered, so on Linux the pointer comes back over the URL field's button, which shows
+# only under it, before a click there.
+over_site_controls() {
+  [ "$(uname)" = Linux ] || return 0
+  send move $site_controls_point
+  for _ in $(seq 50); do
+    [ "$(grep '^browser: sidebar hovered ' "$log" | tail -1)" = 'browser: sidebar hovered 1' ] &&
+      [ "$(grep '^browser: sidebar tools ' "$log" | tail -1)" = 'browser: sidebar tools shown' ] &&
+      return 0
+    sleep 0.1
+  done
+  fail "the URL field's buttons didn't show under the pointer"
+}
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -607,12 +621,8 @@ expect '^browser: sidebar tools shown$' "the URL field's buttons didn't show und
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open after Share"
 # The button again closes them. On Linux the sidebar hears the pointer leave as they show, and its
-# buttons fade under it, so the pointer comes back over the button once they've gone.
-if [ "$(uname)" = Linux ]; then
-  expect '^browser: sidebar tools hidden$' "the URL field's buttons didn't fade as the Site Controls showed"
-  send move $site_controls_point
-  expect '^browser: sidebar tools shown$' "the URL field's buttons didn't show under the pointer again"
-fi
+# buttons fade under it.
+over_site_controls
 send click $site_controls_point
 expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave"
@@ -639,6 +649,7 @@ send key escape
 expect '^browser: site controls closing (escape)$' "escape didn't close the Site Controls"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave after escape"
 # Reset permissions sets the site back to asking, and a click outside closes them.
+over_site_controls
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
 send click 207 $(row_y $(listed | wc -l))
@@ -654,6 +665,7 @@ send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $r granted\$" "Allow didn't grant the page after the reset"
 # The footer's … menu is Arc's without Boost's items, and All Site Settings… opens Chrome's for the
 # site.
+over_site_controls
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open for their … menu"
 send click 298 $(footer_y)
