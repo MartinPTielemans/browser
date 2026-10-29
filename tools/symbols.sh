@@ -57,7 +57,8 @@ bin=$(mktemp -d)
 trap 'rm -rf "$bin"' EXIT
 cli=$bin/$asset
 curl -fsSL -o "$cli" "https://github.com/getsentry/sentry-cli/releases/download/$version/$asset"
-echo "$sha256  $cli" | shasum -a 256 -c --status ||
-  { echo "symbols: $asset doesn't match its sha256." >&2 && exit 1; }
+# shasum on the Mac, sha256sum on Linux and in Git Bash.
+if command -v sha256sum >/dev/null; then sum=$(sha256sum "$cli"); else sum=$(shasum -a 256 "$cli"); fi
+[ "${sum%% *}" = "$sha256" ] || { echo "symbols: $asset doesn't match its sha256." >&2 && exit 1; }
 chmod +x "$cli"
 "$cli" debug-files upload --wait "$@"
