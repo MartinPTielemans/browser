@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::found::{Found, FromProfile, Node, Space, Tab, opens_here};
-use crate::theme::{Appearance, MAX_COLORS, Theme};
+use crate::theme::{Appearance, MAX_COLORS, Texture, Theme};
 
 /// The sidebar `json` holds, or why it can't be read.
 pub fn parse(json: &str) -> Result<Found, String> {
@@ -267,9 +267,10 @@ fn window_appearance(value: Option<&Value>) -> Option<Appearance> {
 }
 
 /// One of Arc's looks: its first colour as our main one, as many colours as it has up to ours,
-/// counting a gradient's third, overlaid one, its intensity and its grain; and the appearance its
-/// `translucencyStyle` names, else automatic. Arc places its colours freely, where ours keep set
-/// angles from the main one, so only the first keeps its exact colour. A basic colour is one
+/// counting a gradient's third, overlaid one, its intensity, its grain and our texture for its;
+/// and the appearance its `translucencyStyle` names, else automatic. Arc places its colours
+/// freely, where ours keep set angles from the main one, so the second takes its place from the
+/// main one and the third comes exactly, as it lies over the other two. A basic colour is one
 /// colour with no grain.
 fn look(background: &Value) -> Option<(Theme, Appearance)> {
     let style = background.pointer("/style/color/_0")?;
@@ -305,12 +306,25 @@ fn look(background: &Value) -> Option<(Theme, Appearance)> {
         _ => Appearance::Automatic,
     };
     let theme = Theme::of_color(main).with_count(colors.len().min(MAX_COLORS));
+    let overlay = config.get("modifiers").and_then(|modifiers| modifiers.get("overlay"));
     let theme = Theme {
         intensity: factor("intensityFactor").unwrap_or(theme.intensity),
         grain: if basic { 0. } else { factor("noiseFactor").unwrap_or(0.) },
+        texture: overlay.and_then(Value::as_str).map_or(Texture::Noise, texture),
+        third: colors.get(2).copied().filter(|_| theme.count == MAX_COLORS),
         ..theme
     };
     Some((theme, appearance))
+}
+
+/// Ours for Arc's texture `name`; its grain, or one it doesn't have yet, as noise.
+fn texture(name: &str) -> Texture {
+    match name {
+        "sand" => Texture::Dust,
+        "denim" => Texture::Weave,
+        "tweed" => Texture::Fleck,
+        _ => Texture::Noise,
+    }
 }
 
 /// 0xRRGGBB of an Arc colour, its extended sRGB brought into sRGB.

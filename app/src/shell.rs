@@ -1180,11 +1180,13 @@ pub struct Shell {
     palettes: RefCell<Vec<((Option<Theme>, Tone), Palette)>>,
     /// The system's appearance as the window last drew, or the one View › Appearance chose in its
     /// place, which a Space without a theme, or with an automatic one, follows; the preview's own
-    /// where it forces one; and the watch that draws the window again once the system's changes.
+    /// where it forces one; whether the window is the active one, as its texture shows; and the
+    /// watches that draw the window again once either changes.
     system_tone: Tone,
     app_appearance: Appearance,
     forced_tone: Option<Tone>,
-    appearance_watch: Option<Subscription>,
+    window_active: bool,
+    window_watches: Vec<Subscription>,
     /// Whether the host was last asked to draw the material light.
     window_light: Option<bool>,
     /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
@@ -1381,7 +1383,8 @@ impl Shell {
             system_tone: Tone::Dark,
             app_appearance: Appearance::Automatic,
             forced_tone: None,
-            appearance_watch: None,
+            window_active: true,
+            window_watches: Vec::new(),
             window_light: None,
             private: false,
         }

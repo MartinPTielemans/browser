@@ -29,8 +29,11 @@
                                   { "red": 0.2, "green": 0.4, "blue": 0.8, "alpha": 1, "colorSpace": "extendedSRGB" },
                                   { "red": 1.1, "green": 0.5, "blue": -0.05, "alpha": 1, "colorSpace": "extendedSRGB" }
                                 ],
-                                "overlayColors": [],
-                                "modifiers": { "intensityFactor": 0.6, "noiseFactor": 0.3, "overlay": "base" },
+                                "overlayColors": [
+                                  { "red": 0, "green": 0, "blue": 0, "alpha": 0, "colorSpace": "extendedSRGB" },
+                                  { "red": 0.2, "green": 0.8, "blue": 0.6, "alpha": 1, "colorSpace": "extendedSRGB" }
+                                ],
+                                "modifiers": { "intensityFactor": 0.6, "noiseFactor": 0.3, "overlay": "sand" },
                                 "translucencyStyle": "bold",
                                 "wheel": { "analogous": {} }
                               }
