@@ -265,9 +265,9 @@ bar_command toggle-mute "Mute/Unmute Tab" mute
 expect "^browser: page $e audible 0 muted 1\$" "Mute/Unmute Tab didn't mute the middle tab"
 # With an icon, it comes back with it.
 post rightclick $(row 2)
-expect '^browser: menu shown .*, Change Icon…, Rename…, ' \
+expect "^browser: menu shown $(cased '.*, Change Icon…, Rename…, ')" \
   "a right-click on the middle Today row didn't offer Change Icon…"
-send choose Change Icon…
+send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for tab $e on emoji\$" \
   "Change Icon… didn't open the icon picker for the middle tab"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker under the middle tab"
@@ -317,7 +317,7 @@ none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"
 d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
-expect "^browser: menu shown Copy Link$share, Change Icon…, Remove Icon, Rename…, Unmute, Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below\$" "a right-click on a Today row didn't show Arc's tab menu"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Unmute, Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on a Today row didn't show Arc's tab menu"
 ../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
 send choose Duplicate
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate didn't run"
@@ -349,8 +349,8 @@ expect "^browser: menu bar Window: .*, Open Library…$maybe, View Downloads…"
   "Window has no Open Library… and View Downloads…"
 # Archive Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
-expect "^browser: menu shown Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below\$" "a right-click on the top Today row didn't show Arc's tab menu"
-send choose Archive Tabs Below
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on the top Today row didn't show Arc's tab menu"
+send choose "$(cased 'Archive Tabs Below')"
 expect '^browser: command close-tabs-below via tab menu$' "Archive Tabs Below didn't run"
 expect_lists "$a" "$t" "after Archive Tabs Below"
 expect "^browser: tab $e closed\$" "Archive Tabs Below didn't close the tab under the one right-clicked"
@@ -379,8 +379,8 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Archive Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
-send choose Unpin Tab
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on a pinned row didn't show its tab's menu"
+send choose "$(cased 'Unpin Tab')"
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
 
@@ -413,7 +413,7 @@ view=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layou
 ../tools/window-screenshot.sh "$pid" "$out/library.png" || fail "no window to capture"
 # A right-click on the archived tab shows its menu, whose Copy URL copies its URL.
 post rightclick 300 111
-expect '^browser: menu shown Restore Tab, Copy URL, Delete from Archive$' \
+expect "^browser: menu shown $(cased 'Restore Tab, Copy URL, Delete from Archive')\$" \
   "a right-click on the archived tab didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/archived-menu.png" || fail "no window to capture"
 send choose Copy URL
@@ -440,9 +440,9 @@ expect '^browser: library shown$' "Open Library… didn't open the Library"
 # Delete from Archive in a tab's menu takes it out, and the Library stays open.
 archived=$(grep '^browser: archive [0-9]* tabs$' "$log" | tail -1 | cut -d' ' -f3)
 post rightclick 300 111
-expect '^browser: menu shown Restore Tab, Copy URL, Delete from Archive$' \
+expect "^browser: menu shown $(cased 'Restore Tab, Copy URL, Delete from Archive')\$" \
   "a right-click on an archived tab didn't show its menu"
-send choose Delete from Archive
+send choose "$(cased 'Delete from Archive')"
 expect '^browser: remove archived [0-9][0-9]*$' "Delete from Archive didn't run"
 expect "^browser: archive $((archived - 1)) tabs\$" "Delete from Archive didn't take the tab out"
 none_since '^browser: library hidden$' || fail "Delete from Archive closed the Library"
@@ -628,9 +628,9 @@ expect "^browser: title $r granted\$" "Allow didn't grant the page after the res
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open for their … menu"
 send click 298 $(footer_y)
-more_menu='Clear Cache, Clear Cookies, Manage Extensions…, Add Extension…, All Site Settings…'
+more_menu=$(cased 'Clear Cache, Clear Cookies, Manage Extensions…, Add Extension…, All Site Settings…')
 expect "^browser: menu shown $more_menu\$" "the … menu didn't list Arc's items"
-send choose 'All Site Settings…'
+send choose "$(cased 'All Site Settings…')"
 expect '^browser: site controls run All Site Settings…$' "All Site Settings… didn't run"
 site_settings="chrome://settings/content/siteDetails?site=http%3A%2F%2Flocalhost%3A$port"
 expect "^browser: loaded [0-9]* $site_settings\$" "All Site Settings… didn't open them"

@@ -708,7 +708,7 @@ impl Settings {
         let scope = favorites_scope();
         let favorites = self.popup(
             Popup::Favorites,
-            scope.title().into(),
+            MenuEntry::label(scope.title()),
             FAVORITES_POPUP_WIDTH,
             cx.listener(move |settings, _, window, cx| {
                 settings.choose_favorites_scope(scope, window, cx)
@@ -1230,7 +1230,7 @@ impl Settings {
         let items: Vec<MenuEntry> = (names.iter().enumerate())
             .map(|(index, name)| {
                 let on = Some(index) == chosen;
-                MenuEntry { checked: on, over: on, ..MenuEntry::new(name.to_string(), true) }
+                MenuEntry { checked: on, over: on, ..MenuEntry::named(name.clone(), true) }
             })
             .collect();
         let settings = cx.weak_entity();

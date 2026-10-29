@@ -56,16 +56,16 @@ pub fn state(logins: &[Login]) -> Option<(SharedString, bool)> {
 
 /// The Passwords row's menu: Remove for each login, Never's way back, and every login in Settings.
 pub fn menu(logins: &[Login]) -> Vec<(MenuEntry, Option<Action>)> {
-    let item = |title: String, action: Action| (MenuEntry::new(title, true), Some(action));
+    let item = |entry: MenuEntry, action: Action| (entry, Some(action));
+    let remove = |login: &Login| MenuEntry::named(format!("Remove {}…", named(login)), true);
     let mut items: Vec<_> = (logins.iter().filter(|login| !login.never))
-        .map(|login| item(format!("Remove {}…", named(login)), Action::Remove(login.clone())))
+        .map(|login| item(remove(login), Action::Remove(login.clone())))
         .collect();
-    items.extend(
-        (logins.iter().filter(|login| login.never))
-            .map(|login| item("Offer to Save Passwords".into(), Action::Allow(login.clone()))),
-    );
+    items.extend((logins.iter().filter(|login| login.never)).map(|login| {
+        item(MenuEntry::new("Offer to Save Passwords", true), Action::Allow(login.clone()))
+    }));
     items.push((MenuEntry::line(), None));
-    items.push(item("All Passwords…".into(), Action::ShowAll));
+    items.push(item(MenuEntry::new("All Passwords…", true), Action::ShowAll));
     items
 }
 

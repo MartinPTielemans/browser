@@ -387,8 +387,8 @@ send key return
 expect "^browser: renamed folder $f later\$" "the folder didn't take the name typed over its old one"
 ../tools/window-screenshot.sh "$pid" "$out/folder-restored.png" || fail "no window to capture"
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown Rename Folder, Delete Folder$' "the folder's menu isn't Rename Folder, Delete Folder"
-send choose Delete Folder
+expect "^browser: menu shown $(cased 'Rename Folder, Delete Folder')\$" "the folder's menu isn't Rename Folder, Delete Folder"
+send choose "$(cased 'Delete Folder')"
 expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
 # The toast offers Undo; ⌘Z remakes the folder around its tab, under the name it had, and ⇧⌘Z

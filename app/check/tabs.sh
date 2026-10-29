@@ -175,11 +175,11 @@ at=$(grep '^browser: command bar at' "$log" | tail -1 | cut -d' ' -f5-)
 ../tools/window-screenshot.sh "$pid" "$out/url-field-bar.png" || fail "no window to capture"
 # The field's own menu is ilo's, and gives the keyboard back to the field.
 post rightclickkey 175 25
-expect '^browser: menu shown Cut[^,]*, Copy[^,]*, Paste, Paste and Go, Paste and Search, Select All$' \
+expect "^browser: menu shown $(cased 'Cut[^,]*, Copy[^,]*, Paste, Paste and Go, Paste and Search, Select All')\$" \
   "a right-click in the command bar's field didn't show its menu"
 expect '^browser: menu window at ' "the field's menu didn't open its window"
 none_since '^browser: command bar hidden$' || fail "the field's menu closed the command bar"
-send choose Select All
+send choose "$(cased 'Select All')"
 expect '^browser: menu window hidden$' "choosing Select All didn't close the field's menu"
 none_since '^browser: command bar hidden$' || fail "choosing in the field's menu closed the command bar"
 send key escape
@@ -188,11 +188,11 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # ilo's menu as #324 has it. The keys walk it past the line and the dimmed Mute, and typing selects
 # by a title's start.
 post rightclick $(row 0)
-expect '^browser: menu shown Copy Link, .*, Mute (disabled), .*, Duplicate, Move to › ' \
+expect "^browser: menu shown $(cased 'Copy Link, .*, Mute (disabled), .*, Duplicate, Move to › ')" \
   "a right-click on the top Today row didn't show its tab's menu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key down
-expect '^browser: menu highlights Copy Link at ' "↓ didn't highlight the menu's first item"
+expect "^browser: menu highlights $(cased 'Copy Link') at " "↓ didn't highlight the menu's first item"
 send key d
 expect '^browser: menu highlights Duplicate at ' "typing d didn't select Duplicate"
 send key escape
@@ -200,7 +200,7 @@ expect '^browser: menu closed$' "escape didn't close the menu"
 # m passes the dimmed Mute for Move to, → opens its submenu on its first item, and escape closes
 # only the submenu.
 post rightclick $(row 0)
-expect '^browser: menu shown Copy Link, ' "a right-click on the top Today row didn't show its menu"
+expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click on the top Today row didn't show its menu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key m
 expect '^browser: menu highlights Move to at ' "typing m didn't pass the dimmed Mute for Move to"
@@ -215,7 +215,7 @@ expect '^browser: menu closed$' "escape didn't close the menu after its submenu"
 # The safe triangle: on its way to the submenu, the pointer crosses the row under Move to without
 # taking the highlight, until it rests there.
 post rightclick $(row 0)
-expect '^browser: menu shown Copy Link, ' "a right-click on the top Today row didn't show its menu"
+expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click on the top Today row didn't show its menu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key m
 expect '^browser: menu highlights Move to at ' "typing m didn't select Move to"
@@ -241,15 +241,15 @@ expect '^browser: menu closed$' "escape didn't close the menu"
 # Press, drag and release: a right press opens the menu, and letting go on an item picks it.
 set -- $(row 0)
 send rightpress $1 $2
-expect '^browser: menu shown Copy Link, ' "a right press on the top Today row didn't show its menu"
+expect "^browser: menu shown $(cased 'Copy Link, ')" "a right press on the top Today row didn't show its menu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send rightdragto $(($1 + 60)) $(($2 + 16))
-expect '^browser: menu highlights Copy Link at ' "dragging onto Copy Link didn't highlight it"
+expect "^browser: menu highlights $(cased 'Copy Link') at " "dragging onto Copy Link didn't highlight it"
 send rightrelease $(($1 + 60)) $(($2 + 16))
-expect '^browser: menu chose Copy Link$' "letting go on Copy Link didn't pick it"
+expect "^browser: menu chose $(cased 'Copy Link')\$" "letting go on Copy Link didn't pick it"
 # A click outside closes the menu, and goes no further.
 post rightclick $(row 0)
-expect '^browser: menu shown Copy Link, ' "a right-click on the top Today row didn't show its menu"
+expect "^browser: menu shown $(cased 'Copy Link, ')" "a right-click on the top Today row didn't show its menu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send click $page_point
 expect '^browser: menu closed$' "a click outside didn't close the menu"
@@ -503,10 +503,10 @@ send type 8-3
 expect '^browser: command bar calculates "8-3": 5$' "the command bar didn't work out 8-3"
 post rightclickkey 200 27
 pastes='Paste, Paste and Go, Paste and Search'
-expect "^browser: menu shown Cut (disabled), Copy (disabled), $pastes, Select All\$" \
+expect "^browser: menu shown $(cased "Cut (disabled), Copy (disabled), $pastes, Select All")\$" \
   "a right-click in the command bar's field didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/field-menu.png" || fail "no window to capture"
-send choose Select All
+send choose "$(cased 'Select All')"
 send type 2+2
 expect '^browser: command bar calculates "2+2": 4$' \
   "Select All in the field's menu didn't select its text for typing to replace"
