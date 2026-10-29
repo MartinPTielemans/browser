@@ -4043,6 +4043,9 @@ fn give_host_appearance(appearance: Appearance) {
         Appearance::Dark => 2,
     };
     unsafe { platform::host_set_app_appearance(code) };
+    // The Mac's pages follow NSApp's appearance, which the host sets.
+    #[cfg(not(target_os = "macos"))]
+    unsafe { bc::bc_set_appearance(code) };
 }
 
 /// Spaces › Change Profile: the profiles the Space shown can be in, as its menu's Profile items

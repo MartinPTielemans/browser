@@ -20,7 +20,8 @@
 # narrowest it hides the sidebar, keeping its width; a double-click on it puts the width back. A
 # page that hasn't drawn yet shows the card's colour, not white. In a check VM, the sidebar over grey
 # backdrops is Dia's composite, dark and then light, with the Mac's appearance, and View ›
-# Appearance turns the light window dark and back.
+# Appearance turns the light window dark and back. View › Appearance gives a page its choice as
+# prefers-color-scheme, and Automatic the system's.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -743,7 +744,23 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   [ -z "$off" ] || fail "the sidebar isn't Dia's composite within 3 levels over grey${off%,}: $material"
   material="over grey ${material%; }"
 fi
+# View › Appearance gives the page its choice as prefers-color-scheme as it changes, and Automatic
+# gives back the system's. Each choice changes the scheme the one before gave, so the page says so.
+go_from_bar "${site#http://}scheme.html"
+await '^browser: title [0-9]* scheme ' || fail "the scheme page didn't say its scheme"
+system=$(grep '^browser: title [0-9]* scheme ' "$log" | tail -1 | sed 's/.* //')
+other=dark
+[ "$system" = light ] || other=light
+for choice in $other $system $other automatic; do
+  case $choice in
+  dark) item=Dark scheme=dark ;;
+  light) item=Light scheme=light ;;
+  *) item=Automatic scheme=$system ;;
+  esac
+  send menu "Appearance › $item"
+  expect "^browser: title [0-9]* scheme $scheme\$" "View › Appearance › $item didn't make the page's prefers-color-scheme $scheme"
+done
 exec 3>&-
 quit
 echo "edge: $edge"
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png${light_shots:-}"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). View › Appearance gives the page its choice as prefers-color-scheme, and Automatic the system's ($system). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png${light_shots:-}"

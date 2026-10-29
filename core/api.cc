@@ -73,6 +73,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
@@ -1000,6 +1001,15 @@ bool bc_haptics(void) {
 void bc_set_haptics(bool haptics) {
   browser_core::UserSettings().haptics = haptics;
   browser_core::SessionChanged();
+}
+
+void bc_set_appearance(int appearance) {
+  // Chromium's own override of the system's scheme, which every page's color provider follows.
+  using Scheme = ui::NativeTheme::PreferredColorScheme;
+  ui::NativeTheme::SetPreferredColorSchemeOverride(
+      appearance == 1   ? std::optional(Scheme::kLight)
+      : appearance == 2 ? std::optional(Scheme::kDark)
+                        : std::nullopt);
 }
 
 bool bc_link_previews(void) {
