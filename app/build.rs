@@ -37,9 +37,18 @@ fn main() {
                 .define("UNICODE", None)
                 .define("_UNICODE", None);
             // A release build updates itself with WinSparkle, given the key its updates are signed
-            // with, as build.sh gives the Mac's: what Info.plist holds there is defined here.
+            // with, as build.sh gives the Mac's: what Info.plist holds there is defined here. It's
+            // branding/update-key's unless UPDATE_PUBLIC_KEY is set, and a fork that empties the
+            // file builds a copy with no updater.
             println!("cargo:rerun-if-env-changed=UPDATE_PUBLIC_KEY");
-            let key = std::env::var("UPDATE_PUBLIC_KEY").unwrap_or_default();
+            let key_file = root.join("branding/update-key");
+            println!("cargo:rerun-if-changed={}", key_file.display());
+            let key = match std::env::var("UPDATE_PUBLIC_KEY") {
+                Ok(key) if !key.is_empty() => key,
+                _ => std::fs::read_to_string(&key_file)
+                    .map(|key| key.split_whitespace().collect())
+                    .unwrap_or_default(),
+            };
             if std::env::var_os("CARGO_FEATURE_PROD").is_some() && !key.is_empty() {
                 let feed = std::fs::read_to_string(root.join("branding/update-feed"))
                     .expect("no branding/update-feed");
