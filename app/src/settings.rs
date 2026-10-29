@@ -87,6 +87,7 @@ use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
 use browser::tokens::settings::CLIENT_TILE;
+use browser::tokens::settings::EXPORT_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 /// The chip's plate, as Paper's alpha, for the ladder to go over.
@@ -1584,6 +1585,22 @@ impl Settings {
         let widevine = self.widevine.read(cx).shown().then(|| {
             group(&RowLook::settings(), [self.widevine_row(cx)]).mt(px(BOX_GAP))
         });
+        let export = button(&RowLook::settings(), "export-spaces", "Export…")
+            .on_click(|_, _, cx| crate::export_spaces(cx));
+        let export = div()
+            .h(px(PROFILE_ROW))
+            .px(px(PADDING))
+            .flex()
+            .items_center()
+            .child(tile("icons/file.svg", EXPORT_TILE))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child("Export each Space's favorites and pinned tabs as Markdown"),
+            )
+            .child(div().flex_none().ml(px(PADDING)).child(export));
         div()
             .child(group(&RowLook::settings(), [
                 row(
@@ -1597,6 +1614,7 @@ impl Settings {
                     previews,
                 ),
             ]))
+            .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()

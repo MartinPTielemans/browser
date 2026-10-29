@@ -578,6 +578,33 @@ fn remove_login(profile: bc::bc_id, login: &passwords::Login) {
     unsafe { bc::bc_profile_remove_login(profile, key.as_ptr(), username.as_ptr(), login.never) };
 }
 
+/// Saves the Spaces' favorites and pinned tabs as a Markdown file of links where the user picks,
+/// for Settings' Export…. The user's alone, as Settings is.
+fn export_spaces(cx: &mut App) {
+    let Some(shell) = shell_with_view(front().1).upgrade() else {
+        return;
+    };
+    let (markdown, links) = shell.read(cx).links_markdown();
+    let save = move |path: std::path::PathBuf| match std::fs::write(&path, markdown) {
+        // check.sh reads this line.
+        Ok(()) => log!("browser: exported {links} links to {}", path.display()),
+        Err(error) => log!("couldn't export the Spaces to {}: {error}", path.display()),
+    };
+    // A check run names its file, as it can't drive the system's panel.
+    if let Some(file) = std::env::var_os("BROWSER_EXPORT_LINKS") {
+        return save(file.into());
+    }
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    let chosen = cx.prompt_for_new_path(&home, Some("Spaces.md"));
+    cx.foreground_executor()
+        .spawn(async move {
+            if let Ok(Ok(Some(path))) = chosen.await {
+                save(path);
+            }
+        })
+        .detach();
+}
+
 fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
     let core = unsafe { bc::bc_tab_window(tab) };
     WINDOWS.with_borrow(|windows| {

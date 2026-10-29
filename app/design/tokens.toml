@@ -635,6 +635,8 @@ password-tile = 0x8e8e93
 # client on the profiles' grey, as none is ours.
 agents-tile = 0x289054
 client-tile = 0x8e8e93
+# Ours: exporting the Spaces' links is a file, grey as the profiles' and passwords' tiles.
+export-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
