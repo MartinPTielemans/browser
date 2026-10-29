@@ -276,6 +276,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] || Desktop apps | MVP | native messaging hosts the browser's folders lack, from Chrome's, Chromium's, Edge's, Brave's, Arc's or Vivaldi's. Built (`core/platform/native_hosts_posix.cc`). Ticked on `./check.sh extensions`, whose extension hears a host only Chrome Beta's folder has, and its `native-host.png`, the page the answer opens | ours |
 | [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |
 | [x] | Site Controls | MVP | 238 wide, radius 17, beak 12.5, tiles 48 × 32 on 8 gaps; Share and the two captures; the extensions with + and Manage; Chrome's permissions as Arc's rows with More; the lock opens the certificate, … the menu; Boost items: with Boosts; motion *interim* | Arc 1.170.0 cap |
+| [ ] | Site Controls tile menu | MVP | right-click: Move to Top (dimmed on the first), Unpin or Pin, Options, Remove, Manage Extension; Move to Top pins it first, the panel staying; Remove asks first. Built (#702): `SiteControls::extension_menu`, and `Shell::move_to_top` pins the others again after it, as the core pins after the others; UI tests check the menu and that Remove closes the panel. To tick: `./check.sh extensions` on the Mac, which right-clicks Check Popup's tile, moves it to the top and back, logged as the grid draws, and asks to remove it, with `site-controls-move-to-top.png` and `site-controls-remove.png` | Arc |
 
 ## Ad blocking
 

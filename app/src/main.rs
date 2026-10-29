@@ -895,6 +895,9 @@ impl site_controls::Host for SiteControlsHost {
                 let profile = unsafe { bc::bc_tab_profile(tab) };
                 settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
             }
+            site_controls::Run::ExtensionItem(id, item) => {
+                window.shell.update(cx, |shell, cx| shell.extension_item(&id, item, cx)).ok();
+            }
         }
     }
 

@@ -505,7 +505,9 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn set_extension_pinned(&self, _: u64, _: &str, _: bool, _: &mut App) {}
+    fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, _: &mut App) {
+        self.record(format!("pin {profile} {id} {pinned}"));
+    }
 
     fn remove_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
         Default::default()
