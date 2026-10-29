@@ -448,20 +448,54 @@ echo "ok: an extension reaches a native messaging host that only Chrome Beta's f
 # An extension's .crx from the served page, which Chrome installs from off the Web Store with
 # ungoogled-chromium's flag, asking first. It's added in a profile of the launch's own, which the
 # check starts without, so no other run ever has it. Chrome takes a .crx signed with the key its id
-# comes from.
+# comes from. Its page asks for an optional permission on a click, and on "u" for its update, which
+# the served update manifest offers: version 2, which asks for one more permission, so Chrome turns
+# it off until the user turns it on again. Check Manager, unpacked, does that from its page.
 serve
 crx="$PWD/$out/install"
-mkdir -p "$crx/source" "$crx/profile/Default"
-cat > "$crx/source/manifest.json" << 'EOF'
+mkdir -p "$crx/source" "$crx/source2" "$crx/manager" "$crx/profile/Default"
+cat > "$crx/source/manifest.json" << EOF
 {"manifest_version": 3, "name": "Check Install", "version": "1", "permissions": ["tabs"],
- "host_permissions": ["https://example.org/*"]}
+ "host_permissions": ["https://example.org/*"], "optional_permissions": ["bookmarks"],
+ "update_url": "${site}updates.xml"}
 EOF
-installed=$(python3 -I -c '
+printf '%s' '<title>loading</title><body style="margin:0;height:100vh"><script src="ask.js"></script>' \
+  > "$crx/source/ask.html"
+printf '%s' 'requestAnimationFrame(() => setTimeout(() => document.title = "ask"));
+onclick = () => chrome.permissions.request({permissions: ["bookmarks"]}).then(
+  granted => document.title = granted ? "granted" : "refused");
+onkeydown = e => {
+  if (e.key == "u") {
+    chrome.runtime.requestUpdateCheck().then(result => document.title = "update " + result.status);
+  }
+};' > "$crx/source/ask.js"
+cp "$crx/source/ask.html" "$crx/source/ask.js" "$crx/source2/"
+sed 's/"version": "1", "permissions": \["tabs"\]/"version": "2", "permissions": ["tabs", "downloads"]/' \
+  "$crx/source/manifest.json" > "$crx/source2/manifest.json"
+cat > "$crx/manager/manifest.json" << 'EOF'
+{"manifest_version": 3, "name": "Check Manager", "version": "1", "permissions": ["management"]}
+EOF
+printf '%s' '<title>loading</title><body style="margin:0;height:100vh"><script src="manage.js"></script>' \
+  > "$crx/manager/manage.html"
+# Its id is found as the page loads, so the click's call is made while the click still counts as
+# the user's, which turning on an extension that asks for more needs.
+printf '%s' 'let install;
+chrome.management.getAll().then(all => {
+  install = all.find(each => each.name == "Check Install").id;
+  document.title = "manage";
+});
+onclick = () => chrome.management.setEnabled(install, true).then(
+  () => document.title = "enabled", error => document.title = "refused " + error.message);' \
+  > "$crx/manager/manage.js"
+make_crx() {
+  python3 -I -c '
 import hashlib, io, os, struct, subprocess, sys, zipfile
 
 source, crx = sys.argv[1], sys.argv[2]
 key = os.path.join(os.path.dirname(source), "key.pem")
-subprocess.run(["openssl", "genrsa", "-out", key, "2048"], check=True, capture_output=True)
+# Version 2 is signed with version 1's key, as its id is the key's.
+if not os.path.exists(key):
+    subprocess.run(["openssl", "genrsa", "-out", key, "2048"], check=True, capture_output=True)
 public = subprocess.run(["openssl", "rsa", "-in", key, "-pubout", "-outform", "DER"],
                         check=True, capture_output=True).stdout
 archive = io.BytesIO()
@@ -490,14 +524,23 @@ header = field(2, field(1, public) + field(2, signature)) + field(10000, signed)
 with open(crx, "wb") as f:
     f.write(b"Cr24" + struct.pack("<II", 3, len(header)) + header + archive)
 print("".join(chr(ord("a") + int(c, 16)) for c in crx_id.hex()))
-' "$crx/source" "$out/site/check.crx") || fail "couldn't make the check's .crx"
+' "$@"
+}
+installed=$(make_crx "$crx/source" "$out/site/check.crx") || fail "couldn't make the check's .crx"
+make_crx "$crx/source2" "$out/site/check2.crx" > /dev/null || fail "couldn't make its version 2"
+cat > "$out/site/updates.xml" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<gupdate xmlns="http://www.google.com/update2/response" protocol="2.0">
+  <app appid="$installed"><updatecheck codebase="${site}check2.crx" version="2"/></app>
+</gupdate>
+EOF
 printf '{"download": {"default_directory": "%s", "prompt_for_download": false}}' \
   "$PWD/$out/downloads" > "$crx/profile/Default/Preferences"
 log="$out/install.log"
 step=0
 BROWSER_DRIVE=1 BROWSER_URL="$site" BROWSER_PROFILE_DIR="$crx/profile" \
   "$browser" --extension-mime-request-handling=always-prompt-for-install \
-  < "$out/drive" > "$log" 2>&1 &
+  --load-extension="$crx/manager" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -530,6 +573,56 @@ send key return
 expect '^browser: dialog confirmed$' "return didn't confirm adding Check Install"
 expect "^browser: extensions menu.* $installed" "Check Install wasn't added"
 expect '^browser: extension question none$' "Chrome didn't hear the install was confirmed"
+# By name: Check Install, Check Manager, then the ad blocker.
+added=$(grep '^browser: extensions menu' "$log" | tail -1)
+[ "$(echo "$added" | cut -d' ' -f4)" = "$installed" ] ||
+  fail "the Extensions menu didn't list Check Install first: $added"
+manager=$(echo "$added" | cut -d' ' -f5)
+# Opens chrome-extension://$1 from ⌘T, in a tab of its own, and waits for its title to say $2.
+open_extension_page() {
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+  send type "chrome-extension://$1"
+  send key return
+  expect "^browser: loaded [0-9]* chrome-extension://$1\$" "chrome-extension://$1 didn't load"
+  await "^browser: title [0-9]* $2\$" || fail "chrome-extension://$1 didn't draw"
+}
+# A click on its page asks for the bookmarks, which Chrome asks the user with the same dialog.
+open_extension_page "$installed/ask.html" ask
+send click $page_point
+expect '^browser: dialog shown "Check Install" has requested additional permissions.$' \
+  "Check Install asking for more didn't ask the user"
+grep "^browser: extension question $installed asks " "$log" | tail -1 |
+  grep -q 'Read and change your bookmarks' ||
+  fail "the question didn't list the bookmarks' warning: $(grep 'extension question' "$log" | tail -1)"
+await '^browser: dialog settled$' || fail "the permissions dialog didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/extension-permissions.png" || fail "no window to capture"
+expect '^browser: dialog takes input$' "the permissions dialog never took input"
+send key return
+expect '^browser: dialog confirmed$' "return didn't grant Check Install the bookmarks"
+await '^browser: title [0-9]* granted$' || fail "Check Install didn't hear the bookmarks were granted"
+# Version 2 comes from the update manifest, and Chrome turns it off for the permission it adds.
+# The page takes the keyboard back with a click, which asks for nothing it has.
+send click $page_point
+send key u
+served 'GET /check2.crx' "Check Install's update didn't fetch version 2"
+await "^browser: extensions menu $manager $ublock\$" ||
+  fail "version 2 didn't turn Check Install off: $(grep '^browser: extensions' "$log" | tail -1)"
+# Check Manager turns it on, which Chrome asks the user first, listing what's new.
+open_extension_page "$manager/manage.html" manage
+send click $page_point
+expect '^browser: dialog shown The newest version of "Check Install" has been disabled' \
+  "turning Check Install on didn't ask the user"
+grep "^browser: extension question $installed asks " "$log" | tail -1 |
+  grep -q 'Manage your downloads' ||
+  fail "the question didn't list the downloads' warning: $(grep 'extension question' "$log" | tail -1)"
+await '^browser: dialog settled$' || fail "the re-enable dialog didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/extension-reenable.png" || fail "no window to capture"
+expect '^browser: dialog takes input$' "the re-enable dialog never took input"
+send key return
+expect '^browser: dialog confirmed$' "return didn't turn Check Install on"
+await '^browser: title [0-9]* enabled$' || fail "Check Manager didn't hear Check Install was on"
+expect "^browser: extensions menu $installed $manager $ublock\$" "Check Install didn't come back on"
 before=$(today)
 send menu "Add Extension…"
 expect '^browser: command add-extension via ui$' "Add Extension… didn't reach the UI"
@@ -537,4 +630,4 @@ expect "^browser: today [0-9]* $before\$" "Add Extension… didn't open a tab"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: a .crx from a page asks to be added with the browser's dialog, in Chrome's words, listing its warnings. Escape cancels it, return adds it, and Add Extension… opens a tab. Window: $out/extension-install.png"
+echo "ok: a .crx from a page asks to be added with the browser's dialog, in Chrome's words, listing its warnings. Escape cancels it, and return adds it. Its asking for more, and turning it back on after an update asking for more turned it off, ask with the same dialog, listing what's new, and return grants them. Add Extension… opens a tab. Windows: $out/extension-install.png, $out/extension-permissions.png, $out/extension-reenable.png"
