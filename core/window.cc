@@ -2371,7 +2371,15 @@ void Window::ShowActivated(base::WeakPtr<content::WebContents> contents) {
       contents.get() == shown_.get() || std::ranges::contains(panes_, Tab::IdOf(contents.get()))) {
     return;
   }
-  Select(Tab::IdOf(contents.get()));
+  // An agent's page never takes the user to the agent's Space: the core can't tell a click on its
+  // notification from the page focusing a tab by itself, so the window follows it only within the
+  // Space it shows.
+  const bc_id tab = Tab::IdOf(contents.get());
+  const Space* space = Space::Holding(tab);
+  if (space && space->agent() && space->id() != space_) {
+    return;
+  }
+  Select(tab);
 }
 
 void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with) {
