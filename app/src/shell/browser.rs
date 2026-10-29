@@ -65,6 +65,14 @@ pub trait Browser {
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
+    /// A tab dragged out of this window's list is at `position` in this window, past its edge, or
+    /// is back in it or put back (None): the list of the user's window under it, if one would take
+    /// it, marks where it would drop (`Shell::drag_tab_in`), and the one before stops.
+    fn drag_tab_out(&self, tab: u64, position: Option<Point<Pixels>>, cx: &mut App);
+    /// A tab dragged out of this window was let go at `position` in it: into the list of the
+    /// window under it, if that marked where (`Shell::drop_tab_in`), whose page moves there live
+    /// and which comes to the front. The user's: agents get none.
+    fn drop_tab_out(&self, tab: u64, position: Point<Pixels>, cx: &mut App);
     /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
     /// hides it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);

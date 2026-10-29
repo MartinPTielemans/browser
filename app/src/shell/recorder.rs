@@ -296,6 +296,18 @@ impl Browser for Recorder {
 
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
 
+    fn drag_tab_out(&self, tab: u64, position: Option<Point<Pixels>>, _: &mut App) {
+        match position {
+            Some(at) => self.record(format!("drag out {tab} {} {}", f32::from(at.x), f32::from(at.y))),
+            None => self.record(format!("drag out {tab} none")),
+        }
+    }
+
+    fn drop_tab_out(&self, tab: u64, position: Point<Pixels>, _: &mut App) {
+        let (x, y) = (f32::from(position.x), f32::from(position.y));
+        self.record(format!("drop out {tab} {x} {y}"))
+    }
+
     fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
         self.record(format!("back to pinned url {tab}"))
     }
