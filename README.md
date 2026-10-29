@@ -95,7 +95,7 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 |---|---|
 | `app/` | The browser: GPUI on the core's C API (`./setup.sh && ./build.sh`), and a preview of its UI without the engine (`cargo run --release --bin preview`) |
 | `core/` | Our C++ inside Chrome's framework (`//browser_core`), and its C API for the app |
-| `docs/` | Decisions, roadmap, UX spec and its parity checklist |
+| `docs/` | Decisions, roadmap, UX spec and its parity checklist, and where administrators put managed policies |
 | `engine/` | Chromium pins and the patch series |
 | `prototypes/arcish/agent.js` | What's left of the Electron prototype: its agent tools and their rules, the reference for agents |
 | `tools/` | Scripts for working on the repo |

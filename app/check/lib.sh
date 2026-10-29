@@ -47,8 +47,16 @@ cmd_key=metaKey
 page_point="600 400"
 sidebar_point="100 400"
 
-# After a failure, nothing the check started keeps running.
+# The policies run's policies, which it writes to the app's preferences, taken out again.
+forget_policies() {
+  for policy in ${policies:-}; do
+    defaults delete "$app_id" "$policy" 2>/dev/null || true
+  done
+  policies=
+}
+# After a failure, nothing the check started keeps running, and no policy outlives the check.
 cleanup() {
+  forget_policies
   # The servers may be gone already, and under set -e a failed kill would end the trap here.
   [ -z "${server:-}" ] || kill "$server" 2>/dev/null || true
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
