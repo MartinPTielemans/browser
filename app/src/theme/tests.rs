@@ -83,6 +83,7 @@ fn a_theme_survives_its_text() {
         intensity: 0.4,
         grain: 0.7,
         appearance: Appearance::Dark,
+        dark: None,
     };
     let back = Theme::parse(&theme.to_text()).unwrap();
     assert!((back.x - theme.x).abs() < 1e-3 && (back.y - theme.y).abs() < 1e-3);
@@ -93,6 +94,13 @@ fn a_theme_survives_its_text() {
     assert!(!Theme::at(0.5, 0.).to_text().contains("saturation"));
     assert_eq!(Theme::parse("x=0.5 y=0").unwrap().saturation, 1.);
     assert_eq!(Theme::parse(""), None);
+    // A dark look comes back with it, and a theme of one look says none.
+    let dark = Look { x: 0.1, y: -0.2, saturation: 0.5, count: 2, intensity: 0.3, grain: 0.9 };
+    let back = Theme::parse(&Theme { dark: Some(dark), ..theme }.to_text()).unwrap();
+    let got = back.dark.unwrap();
+    assert!((got.x - 0.1).abs() < 1e-3 && (got.y + 0.2).abs() < 1e-3 && got.count == 2);
+    assert!((got.intensity - 0.3).abs() < 1e-3 && (got.grain - 0.9).abs() < 1e-3 && (got.saturation - 0.5).abs() < 1e-3);
+    assert!(!theme.to_text().contains("dark="));
     assert_eq!(Theme::parse("colors=2"), None);
     let partial = Theme::parse("x=0.1 y=0.2 colors=7 grain=bad").unwrap();
     assert_eq!((partial.count, partial.grain, partial.intensity), (3, 0., DEFAULT_INTENSITY));
