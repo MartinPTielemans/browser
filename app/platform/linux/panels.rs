@@ -170,6 +170,13 @@ fn hide(kind: Kind, ui_view: *mut c_void) {
     }
 }
 
+/// The views of the panels that show, for the test driver (drive.rs).
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    PANELS.with_borrow(|panels| {
+        (panels.iter()).filter(|panel| panel.shown).map(|panel| panel.view).collect()
+    })
+}
+
 fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::FindBar => "find bar",
