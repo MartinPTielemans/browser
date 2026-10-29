@@ -553,6 +553,17 @@ impl Browser for Fake {
     // And no previews.
     fn file_preview(&self, _: u64, _: &str, _: &mut App) {}
 
+    // Nor videos.
+    fn open_video(&self, _: u64, _: &str, _: u32, _: &mut App) -> bool {
+        false
+    }
+
+    fn video_frame(&self, _: u64, _: &mut App) -> Option<Arc<gpui::RenderImage>> {
+        None
+    }
+
+    fn close_video(&self, _: u64, _: &mut App) {}
+
     // Nor captures.
     fn list_captures(&self, _: &mut App) {}
 
