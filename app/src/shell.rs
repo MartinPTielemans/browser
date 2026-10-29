@@ -759,6 +759,10 @@ struct Drag {
     /// Over the list, where the drop line is drawn, down from the list's top: in the gap it would
     /// go to, unless that's where it was. The rows stay where they are until it's let go.
     line: Option<f32>,
+    /// The tab whose row's middle the pointer is on, and the wait for it to rest there, after which
+    /// it's the tab the dragged one would join in a split view, as Arc's, in place of a gap.
+    resting: Option<(u64, Task<()>)>,
+    onto: Option<u64>,
     /// Let go, until the browser reports the lists it made.
     dropped: bool,
     /// Over the page, where it can join the page shown in a split view.
