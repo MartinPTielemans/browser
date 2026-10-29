@@ -419,6 +419,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
+| [ ] | Peek: Copy URL | 4 | ⇧⌘C in it copies its address. Built, and checked by `cargo test`; a step in `./check.sh preview` waits on a Mac run | Arc help |
 | [ ] | Peek: triggers | 4 | measure | — |
 | [ ] | Peek: geometry, backdrop, buttons | 4 | measure | — |
 | [ ] | Peek: open, close, expand motion | 4 | measure | — |
