@@ -626,7 +626,11 @@ impl Shell {
             let (t, to) = (start.elapsed().as_secs_f32(), self.section_width(self.section));
             match spring_to(t, from, to, 0., LIBRARY_RESPONSE, LIBRARY_DAMPING) {
                 Some(_) => window.request_animation_frame(),
-                None => self.library_resize = None,
+                None => {
+                    self.library_resize = None;
+                    // check.sh waits for this before it clicks a section's contents.
+                    log!("browser: library resized {to}");
+                }
             }
         }
         if self.library_motion.is_none() {
