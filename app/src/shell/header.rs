@@ -7,8 +7,8 @@ use crate::command_bar::PLACEHOLDER_TEXT;
 use crate::site_controls::Place;
 
 use gpui::{
-    Bounds, Context, Div, Hsla, MouseButton, Pixels, SharedString, Stateful, Window, canvas, div,
-    point, prelude::*, px, rgba, size, svg,
+    Bounds, Context, DispatchPhase, Div, Hsla, MouseButton, MouseDownEvent, NavigationDirection,
+    Pixels, SharedString, Stateful, Window, canvas, div, point, prelude::*, px, rgba, size, svg,
 };
 
 use super::{
@@ -182,6 +182,37 @@ impl Shell {
                 self.nav_button(x, icon, command, enabled, cx).into_any_element()
             })
             .collect()
+    }
+
+    /// A mouse's back and forward buttons anywhere over the UI go back and forward in the front
+    /// tab, as over Chrome's toolbar; over a page, the page takes them itself. The window hears
+    /// them, as the sidebar keeps its presses from what's under it.
+    pub(super) fn navigate_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let shell = cx.weak_entity();
+        canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
+                    let MouseButton::Navigate(direction) = event.button else { return };
+                    if phase != DispatchPhase::Bubble {
+                        return;
+                    }
+                    let command = match direction {
+                        NavigationDirection::Back => Command::Back,
+                        NavigationDirection::Forward => Command::Forward,
+                    };
+                    shell
+                        .update(cx, |shell, cx| {
+                            if shell.offers(command) {
+                                shell.run(command, "mouse", cx);
+                            }
+                        })
+                        .ok();
+                });
+            },
+        )
+        .absolute()
+        .size_0()
     }
 
     /// The URL field's box in the window, while the docked sidebar shows it.

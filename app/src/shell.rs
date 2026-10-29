@@ -2797,6 +2797,7 @@ impl Render for Shell {
             .children(over)
             .children(edge)
             .child(self.scroll_listener(true, cx))
+            .child(self.navigate_listener(cx))
     }
 }
 
