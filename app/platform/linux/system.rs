@@ -3,7 +3,7 @@
 //! swipes over the page, Control's release and a file's drag.
 
 use std::{
-    ffi::c_void,
+    ffi::{CStr, c_char, c_void},
     path::PathBuf,
 };
 
