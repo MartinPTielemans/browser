@@ -802,6 +802,21 @@ fn pages(id: bc::bc_id, height: f64) -> Option<String> {
     Some(views.collect())
 }
 
+/// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
+/// the Mac's driver gives AppKit's, or "hidden" for each.
+fn buttons(id: bc::bc_id) -> Option<String> {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
+    })?;
+    let cx = CX.with_borrow(Clone::clone)?;
+    let drawn = cx.update(|cx| Some(shell.upgrade()?.read(cx).draws_own_window_buttons()))?;
+    let each = browser::shell::WINDOW_BUTTONS.map(|(x, _)| match drawn {
+        true => format!("{x:.1},{:.1}", browser::tokens::shell::WINDOW_BUTTON_Y),
+        false => "hidden".to_string(),
+    });
+    Some(each.join(" "))
+}
+
 /// `window`'s frame in points, from the root's top-left corner: x, y, width and height.
 fn frame(window: xproto::Window) -> Option<[f64; 4]> {
     let x = server()?;
@@ -1126,7 +1141,7 @@ fn run_command(line: &str) -> Option<()> {
             log!(
                 "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}"
             );
-            log!("browser: layout buttons hidden hidden hidden");
+            log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
             let [left, top, ..] = frame(browser.window)?;
             for view in overlay_views() {
                 let [x, y, width, height] = frame(view as usize as u32)?;
