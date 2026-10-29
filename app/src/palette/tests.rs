@@ -44,7 +44,9 @@ fn failures(theme: Option<&Theme>, tone: Tone) -> Vec<String> {
         grounds.iter().map(|&at| contrast(over(at, color, color.a), at)).fold(f32::MAX, f32::min)
     };
     // The sidebar's text and glyphs (#320 rule 5's ladder).
-    check("selected title", on(palette.text(1.), &plated(SELECTED_PLATE)), TEXT);
+    let selected = Rgba::from(palette.selected(0.));
+    let selected: Vec<Rgba> = window.iter().map(|&at| over(at, selected, selected.a)).collect();
+    check("selected title", on(palette.text(1.), &selected), TEXT);
     check("unselected title", on(palette.text(0.78), &grained), TEXT);
     check("title on hovered plate", on(palette.text(0.78), &plated(HOVERED_PLATE)), TEXT);
     check("URL host on field", on(palette.text(0.62), &plated(FIELD_PLATE)), TEXT);

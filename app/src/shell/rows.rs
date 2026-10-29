@@ -17,7 +17,7 @@ use super::{
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
-    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
+    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
@@ -106,18 +106,18 @@ impl Shell {
             // folder's keeps its hover fill, as Arc's do. The held row says so, not GPUI's pressed
             // state, which outlives the release of a press that selected its row.
             .when(self.pressed(row) && !selected && dragging != Some(slot) && !folder, |plate| {
-                plate.bg(self.palette.plate(SELECTED))
+                plate.bg(self.palette.selected(0.)).shadow(self.palette.selected_shadow(1.))
             })
             .when(row == Row::NewTab && !selected, |plate| {
                 // GPUI keeps an element's pressed state only once a listener gives it a hitbox.
                 plate
                     .on_mouse_down(MouseButton::Left, |_, _, _| {})
-                    .group_active("row", |style| style.bg(self.palette.plate(SELECTED)))
+                    .group_active("row", |style| style.bg(self.palette.selected(0.)))
             })
             // A ghost covers the rows it passes, in the colours its row has in place.
             .when(ghost, |plate| {
-                let fill = if selected { SELECTED } else { HOVERED };
-                plate.bg(self.window_fill().blend(self.palette.plate(fill)))
+                let fill = if selected { self.palette.selected(0.) } else { self.palette.plate(HOVERED) };
+                plate.bg(self.window_fill().blend(fill))
             });
         let scale = match row {
             Row::Tab(tab) => self.press_scale(tab),
