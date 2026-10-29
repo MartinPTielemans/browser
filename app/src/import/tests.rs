@@ -1098,6 +1098,56 @@ fn chrome(name: &str, profiles: &[(&str, &str)], now: SystemTime) -> PathBuf {
     home
 }
 
+/// A Chrome profile's extensions from the Web Store come by name, their own or their default
+/// locale's, as tabs at their store pages; one from elsewhere, or with no manifest, stays out.
+#[test]
+fn chromes_store_extensions_come_as_their_store_pages() {
+    let home = home("chrome-extensions");
+    let store = r#""update_url": "https://clients2.google.com/service/update2/crx""#;
+    let extension = |id: &str, manifest: &str| {
+        write(
+            home.join(format!("Extensions/{id}/1.0_0/manifest.json")),
+            manifest,
+        );
+    };
+    extension("bbbb", &format!(r#"{{"name": "Zebra", {store}}}"#));
+    extension(
+        "aaaa",
+        &format!(r#"{{"name": "__MSG_appName__", "default_locale": "en", {store}}}"#),
+    );
+    write(
+        home.join("Extensions/aaaa/1.0_0/_locales/en/messages.json"),
+        r#"{"appname": {"message": "Apple"}}"#,
+    );
+    extension("cccc", r#"{"name": "Unpacked"}"#);
+    fs::create_dir_all(home.join("Extensions/dddd/1.0_0")).unwrap();
+    let tabs = chromium::extensions(&home);
+    let tabs: Vec<_> = tabs
+        .iter()
+        .map(|tab| (tab.name.as_str(), tab.url.as_str()))
+        .collect();
+    assert_eq!(
+        tabs,
+        [
+            ("Apple", "https://chromewebstore.google.com/detail/aaaa"),
+            ("Zebra", "https://chromewebstore.google.com/detail/bbbb"),
+        ]
+    );
+    let since = SystemTime::now();
+    let read = chromium::read(&home, &[Kind::Extensions], since).unwrap();
+    let folder = match &read.pinned[..] {
+        [Node::Folder { name, children }] => (name.as_str(), children.len()),
+        pinned => panic!("{pinned:?}"),
+    };
+    assert_eq!(folder, ("Extensions", 2));
+    assert!(
+        chromium::read(&home, &[Kind::Bookmarks], since)
+            .unwrap()
+            .pinned
+            .is_empty()
+    );
+}
+
 /// A browser with more than one profile gets a Space for each, named after the browser and the
 /// profile; what was left off doesn't come.
 #[test]
@@ -1109,7 +1159,10 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
         now,
     );
     let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
-    assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History]);
+    assert_eq!(
+        read::kinds(source),
+        [Kind::Bookmarks, Kind::Extensions, Kind::History]
+    );
     let found = read::read(source, &[Kind::Bookmarks], now).unwrap();
     let spaces: Vec<_> = (found.spaces.iter())
         .map(|space| (space.name.as_str(), &space.profile))

@@ -2,7 +2,8 @@
 # beside it, never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile
 # named Work as Arc's Local State names it, their pinned tabs and folders, and its favorites; from
 # Chrome and from Firefox their bookmarks as a Space named after each and their history, which the
-# core adds. Run again, each adds nothing. Then a passwords file, made up here, comes in through
+# core adds, and from Chrome its extension from the Web Store as a folder of its store page, not
+# installed. Run again, each adds nothing. Then a passwords file, made up here, comes in through
 # Chrome's password importer: the view says how many came in, deletes the file when asked, and a
 # second file with a login's password changed says it conflicted and kept the saved one. Settings'
 # Passwords tab lists what came in. Each step is captured.
@@ -30,6 +31,14 @@ cat > "$chrome/Default/Bookmarks" << 'EOF'
     {"type": "url", "name": "Docs", "url": "https://docs.example.org/"}]},
   "synced": {"type": "folder", "name": "Mobile bookmarks", "children": []}}, "version": 1}
 EOF
+# An extension from the Web Store, named in its default locale's messages, which comes as its store
+# page.
+store_extension="$chrome/Default/Extensions/abcdefghijklmnopabcdefghijklmnop/1.0_0"
+mkdir -p "$store_extension/_locales/en"
+printf '%s' '{"manifest_version": 3, "name": "__MSG_name__", "default_locale": "en", "version": "1.0",
+  "update_url": "https://clients2.google.com/service/update2/crx"}' > "$store_extension/manifest.json"
+printf '%s' '{"name": {"message": "Check Store Extension"}}' \
+  > "$store_extension/_locales/en/messages.json"
 command -v sqlite3 > /dev/null || fail "no sqlite3 to write Chrome's History with"
 # Chromium counts microseconds from 1601: an hour and two hours ago.
 now=$(( ($(date +%s) + 11644473600) * 1000000 ))
@@ -127,18 +136,20 @@ expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 favorites, 0 pages
   "the second import would add something again"
 expect '^browser: import done: Everything from Arc is here already\.$' "the second import said it added something"
 ../tools/window-screenshot.sh "$pid" "$out/import-again.png" || fail "no window to capture"
-# Chrome, the second row, brings its bookmarks and history, which the core adds.
+# Chrome, the second row, brings its bookmarks, its extension's store page and its history, which
+# the core adds. Its three choices are Bookmarks, Extensions and History.
 expect '^browser: import drawn done$' "the import's end didn't draw"
 send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 198
 expect '^browser: import pick Chrome$' "Import… on Chrome's row didn't show what comes from it"
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
-send clickkey 590 245
-expect '^browser: import from Chrome: 1 Spaces, 3 pinned tabs, 0 favorites, 2 pages$' \
-  "Import didn't plan Chrome's bookmarks and history"
+../tools/window-screenshot.sh "$pid" "$out/import-pick-chrome.png" || fail "no window to capture"
+send clickkey 590 282
+expect '^browser: import from Chrome: 1 Spaces, 4 pinned tabs, 0 favorites, 2 pages$' \
+  "Import didn't plan Chrome's bookmarks, its extension's store page and its history"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Chrome's 2 pages"
-expect '^browser: import done: 1 Space, 3 pinned tabs and 2 pages of history came in from Chrome\.$' \
+expect '^browser: import done: 1 Space, 4 pinned tabs and 2 pages of history came in from Chrome\.$' \
   "the import didn't say what came from Chrome"
 ../tools/window-screenshot.sh "$pid" "$out/import-chrome.png" || fail "no window to capture"
 expect '^browser: import drawn done$' "the import's end didn't draw"
@@ -147,7 +158,7 @@ expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 198
 expect '^browser: import pick Chrome$' "Import… didn't show Chrome's choices again"
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
-send clickkey 590 245
+send clickkey 590 282
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
@@ -218,9 +229,10 @@ expect '^browser: pinned [0-9]*\( [0-9]*\)\{6\}$' \
 quit
 echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
-echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
+echo "  Firefox their bookmarks as a Space and their history, and from Chrome its extension's store"
+echo "  page in an Extensions folder; and a second import of each adds nothing."
 echo "  A passwords file comes in, says how many, and is deleted when asked; a second one says its"
 echo "  changed login conflicted and kept the saved one; Settings' Passwords tab lists the three."
-echo "  Windows: $out/import-list.png, $out/import-pick.png, $out/import-done.png,"
+echo "  Windows: $out/import-list.png, $out/import-pick.png, $out/import-done.png, $out/import-pick-chrome.png,"
 echo "  $out/import-again.png, $out/import-chrome.png, $out/import-firefox.png,"
 echo "  $out/import-passwords.png, $out/import-passwords-conflict.png, $out/import-personal.png"
