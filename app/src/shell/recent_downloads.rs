@@ -12,7 +12,7 @@ use gpui::{
 };
 
 use super::{
-    Download, DownloadState, FOOTER_HEIGHT, NAV_SIZE, SECONDARY, Shell, library::of,
+    Download, DownloadState, FOOTER_HEIGHT, NAV_SIZE, SECONDARY, Section, Shell, library::of,
 };
 
 /// Ours: the rows wait half a second, so a pointer passing the button leaves them, and fade.
@@ -301,7 +301,8 @@ impl Shell {
     ) {
         if let Some(entry) = self.download_previews.get_mut(&id) {
             *entry = preview;
-            if self.recent_downloads.rows.iter().any(|(row, _)| *row == id) {
+            let in_media = self.library.is_some() && self.section == Section::Media;
+            if in_media || self.recent_downloads.rows.iter().any(|(row, _)| *row == id) {
                 cx.notify();
             }
         }

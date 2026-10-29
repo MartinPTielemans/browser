@@ -558,6 +558,9 @@ impl Browser for Fake {
     // And no previews.
     fn file_preview(&self, _: u64, _: &str, _: &mut App) {}
 
+    // Nor captures.
+    fn list_captures(&self, _: &mut App) {}
+
     // The made-up downloads have no files, so each is gone already and none drags.
     fn trash(&self, _: &str, _: &mut App) -> bool {
         true

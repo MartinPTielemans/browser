@@ -1210,25 +1210,17 @@ impl capture::Host for CaptureHost {
     }
 
     fn save_to_library(&self, png: &[u8]) {
-        let media = PathBuf::from(profile_dir()).join("Media");
-        let name = capture_name();
-        let png = png.to_vec();
-        // A picture of a whole screen is megabytes, too many to write on the main thread.
-        std::thread::spawn(move || {
-            // Two captures in a second each keep theirs, as the system's screenshots do.
-            let stem = name.trim_end_matches(".png");
-            let path = (1..)
-                .map(|n| match n {
-                    1 => media.join(&name),
-                    n => media.join(format!("{stem} ({n}).png")),
-                })
-                .find(|path| !path.exists())
-                .unwrap_or_default();
-            match std::fs::create_dir_all(&media).and_then(|_| std::fs::write(&path, png)) {
-                // check.sh reads this line.
-                Ok(()) => log!("browser: saved to library {}", path.display()),
-                Err(error) => log!("couldn't save to the library at {}: {error}", path.display()),
-            }
+        let (name, png) = (capture_name(), png.to_vec());
+        // After the update under way, which the capture's menu is in.
+        update_app_later(move |cx| {
+            // A picture of a whole screen is megabytes, too many to write on the main thread.
+            let saved = cx.background_spawn(async move { save_capture(&name, &png) });
+            cx.spawn(async move |cx| {
+                if saved.await {
+                    cx.update(list_captures);
+                }
+            })
+            .detach();
         });
     }
 
@@ -1246,6 +1238,61 @@ impl capture::Host for CaptureHost {
             platform::host_share_png(png.as_ptr(), png.len(), view, x, y, width, height, messages)
         };
     }
+}
+
+/// Where the Library's captures are.
+fn media_dir() -> PathBuf {
+    PathBuf::from(profile_dir()).join("Media")
+}
+
+/// Saves a capture into the Library as `name`, and says whether it did.
+fn save_capture(name: &str, png: &[u8]) -> bool {
+    let media = media_dir();
+    // Two captures in a second each keep theirs, as the system's screenshots do.
+    let stem = name.trim_end_matches(".png");
+    let path = (1..)
+        .map(|n| match n {
+            1 => media.join(name),
+            n => media.join(format!("{stem} ({n}).png")),
+        })
+        .find(|path| !path.exists())
+        .unwrap_or_default();
+    match std::fs::create_dir_all(&media).and_then(|_| std::fs::write(&path, png)) {
+        Ok(()) => {
+            // check.sh reads this line.
+            log!("browser: saved to library {}", path.display());
+            true
+        }
+        Err(error) => {
+            log!("couldn't save to the library at {}: {error}", path.display());
+            false
+        }
+    }
+}
+
+/// Lists the Library's captures, newest first, away from the main thread, for every window.
+fn list_captures(cx: &mut App) {
+    let listed = cx.background_spawn(async {
+        let entries = std::fs::read_dir(media_dir()).into_iter().flatten().flatten();
+        let mut captures: Vec<_> = entries
+            .filter_map(|entry| {
+                let modified = entry.metadata().ok()?.modified().ok()?;
+                let saved = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+                let name = entry.file_name().into_string().ok()?;
+                let path = entry.path().into_os_string().into_string().ok()?;
+                Some(shell::Captured { path: path.into(), name: name.into(), saved: saved as f64 })
+            })
+            .collect();
+        captures.sort_by(|a, b| b.saved.total_cmp(&a.saved));
+        captures
+    });
+    cx.spawn(async move |_| {
+        let captures = listed.await;
+        // check.sh reads this line.
+        log!("browser: library captures {}", captures.len());
+        update_shells(|shell, cx| shell.set_captures(captures.clone(), cx));
+    })
+    .detach();
 }
 
 /// A capture's file name, as the system names a screenshot.
@@ -1879,6 +1926,10 @@ impl Browser for Engine {
         if let Ok(path) = CString::new(path) {
             unsafe { platform::host_file_preview(path.as_ptr(), download, file_preview) };
         }
+    }
+
+    fn list_captures(&self, cx: &mut App) {
+        list_captures(cx);
     }
 
     fn trash(&self, path: &str, _: &mut App) -> bool {
@@ -4042,6 +4093,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 MenuItem::separator(),
                 item("Open Library…", Command::ViewLibrary),
                 item("View Downloads…", Command::ViewDownloads),
+                item("View Media…", Command::ViewMedia),
             ],
         ),
         menu(
