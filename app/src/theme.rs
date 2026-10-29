@@ -37,6 +37,11 @@ impl Appearance {
             Appearance::Dark => "dark",
         }
     }
+
+    /// The appearance `name` names, as `name` writes it.
+    pub fn named(name: &str) -> Option<Appearance> {
+        Appearance::ALL.into_iter().find(|each| each.name() == name)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -1510,6 +1510,13 @@ void host_set_window_light(void* ui_view, bool light) {
   }
 }
 
+void host_set_app_appearance(int appearance) {
+  // Chromium's pages follow NSApp's appearance, so prefers-color-scheme follows the choice too.
+  NSApp.appearance = appearance == 1   ? [NSAppearance appearanceNamed:NSAppearanceNameAqua]
+                     : appearance == 2 ? [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]
+                                       : nil;
+}
+
 void host_activate(void* ui_view) {
   Browser* browser = BrowserWithView(ui_view);
   NSWindow* window = browser ? browser->window : nil;

@@ -14,6 +14,7 @@ use browser::agents::{self, Agents, Client};
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
+use browser::theme::Appearance;
 use browser::import::ImportView;
 use browser::log;
 use browser::passwords::{self, Login};
@@ -230,6 +231,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
+            ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
+            ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
             ("View Library", Keys::Of(Command::ViewLibrary)),
             ("View Archive", Keys::Of(Command::ViewArchive)),
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
@@ -2096,6 +2100,23 @@ fn shortcuts_path() -> String {
 pub fn read_shortcuts(cx: &mut App) {
     let text = std::fs::read_to_string(shortcuts_path()).unwrap_or_default();
     cx.set_global(UserKeys::parse(&text));
+}
+
+/// Where View › Appearance's choice is kept, beside the keys.
+fn appearance_path() -> String {
+    format!("{}/Appearance", crate::profile_dir())
+}
+
+/// Reads View › Appearance's choice, automatic if there's none.
+pub fn read_appearance(cx: &mut App) {
+    let text = std::fs::read_to_string(appearance_path()).unwrap_or_default();
+    cx.set_global(shell::AppAppearance(Appearance::named(text.trim()).unwrap_or_default()));
+}
+
+pub fn save_appearance(appearance: Appearance) {
+    if let Err(error) = std::fs::write(appearance_path(), appearance.name()) {
+        log!("couldn't save the appearance: {error}");
+    }
 }
 
 fn save_shortcuts(cx: &App) {

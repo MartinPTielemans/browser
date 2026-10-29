@@ -5,8 +5,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    ColorSpace, Context, Hsla, Point, Rgba, canvas, div, linear_color_stop, linear_gradient, point,
-    prelude::*, px, rgb, size,
+    App, ColorSpace, Context, Global, Hsla, Point, Rgba, canvas, div, linear_color_stop,
+    linear_gradient, point, prelude::*, px, rgb, size,
 };
 
 use super::{
@@ -18,6 +18,18 @@ use crate::{
     theme::{self, Appearance, GRAIN_STRENGTH, GRAIN_TILE, Theme},
     theme_picker::{self, Changed},
 };
+
+/// The appearance View › Appearance chose for every window, which stands in for the system's
+/// where it isn't automatic. The user's preference: agents have no call to change it.
+#[derive(Clone, Copy, Default)]
+pub struct AppAppearance(pub Appearance);
+
+impl Global for AppAppearance {}
+
+/// The appearance View › Appearance has chosen.
+pub fn app_appearance(cx: &App) -> Appearance {
+    cx.try_global::<AppAppearance>().map_or(Appearance::Automatic, |chosen| chosen.0)
+}
 
 /// How many themes' palettes a window keeps, the least recently drawn going first: more than
 /// the Spaces whose swatches a frame draws, and the one the picker is making.
@@ -65,10 +77,27 @@ impl Shell {
             gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight => Tone::Light,
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => Tone::Dark,
         };
-        self.system_tone = self.forced_tone.unwrap_or(system);
+        self.app_appearance = app_appearance(cx);
+        let chosen = match self.app_appearance {
+            Appearance::Light => Some(Tone::Light),
+            Appearance::Dark => Some(Tone::Dark),
+            Appearance::Automatic => None,
+        };
+        self.system_tone = self.forced_tone.or(chosen).unwrap_or(system);
         if self.appearance_watch.is_none() {
             self.appearance_watch = Some(cx.observe_window_appearance(window, |_, _, cx| cx.notify()));
         }
+    }
+
+    /// Gives every window `appearance` in place of the system's, and keeps it for the next launch.
+    pub(super) fn set_app_appearance(&mut self, appearance: Appearance, cx: &mut Context<Self>) {
+        // check.sh waits for this line.
+        log!("browser: appearance {}", appearance.name());
+        cx.set_global(AppAppearance(appearance));
+        self.app_appearance = appearance;
+        self.browser.set_appearance(appearance, cx);
+        self.update_menus(cx);
+        cx.refresh_windows();
     }
 
     /// Draws the window as if the system's appearance were `tone`, as the preview does to show
