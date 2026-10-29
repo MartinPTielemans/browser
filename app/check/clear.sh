@@ -149,7 +149,8 @@ expect '^browser: copy url shows check$' "the URL field's checkmark didn't finis
 expect '^browser: copy url brings back link$' "the URL field's button kept its checkmark"
 expect '^browser: copy url shows link$' "the URL field's link didn't come all the way back"
 # A tab's row under the pointer has the row's hover fill, captured before its hover card's dwell.
-send move $(row 0)
+# The pinned tab's row above Today puts the top Today tab at row 1.
+send move $(row 1)
 expect '^browser: hover tab [0-9]* close ' "the pointer on the top tab's row didn't hover it"
 ../tools/window-screenshot.sh "$pid" "$out/row-hovered.png" || fail "no window to capture"
 send move $page_point
