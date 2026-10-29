@@ -248,9 +248,13 @@ fn with_folders(
 /// A point off every row, where the pointer is last seen as it leaves one.
 const OFF: Point<Pixels> = point(px(-100.), px(-100.));
 
-/// What the shell asks of the folder preview as the pointer comes onto `row`'s row.
+/// What the shell asks of the folder preview as the pointer moves onto `row`'s row.
 fn preview_on(shell: &gpui::Entity<Shell>, cx: &mut VisualTestContext, row: u64) {
-    shell.update(cx, |shell, cx| shell.folder_preview(Row::Tab(row), true, OFF, cx));
+    shell.update(cx, |shell, cx| {
+        let at = shell.tip_frames.borrow().get(&row).map_or(OFF, |frame| frame.center());
+        shell.pointer_to(at, cx);
+        shell.folder_preview(Row::Tab(row), true, cx)
+    });
     cx.run_until_parked();
 }
 
@@ -267,25 +271,30 @@ fn a_closed_folder_previews_the_tabs_in_it_and_in_its_folders(cx: &mut TestAppCo
     preview_on(&shell, cx, 9);
     preview_on(&shell, cx, 1);
     assert!(host.take().is_empty());
-    shell.update(cx, |shell, cx| shell.folder_preview(Row::Tab(5), false, OFF, cx));
+    shell.update(cx, |shell, cx| {
+        shell.pointer_to(OFF, cx);
+        shell.folder_preview(Row::Tab(5), false, cx)
+    });
     assert_eq!(host.take(), ["folder preview left 5"]);
 }
 
-/// A hover lost with the pointer last seen on the folder's row, as AppKit reports when the preview
-/// takes the keyboard, isn't the pointer leaving; its next move off the row is.
+/// A hover lost while the preview is open, with the pointer last moved onto the folder's row, isn't
+/// the pointer leaving: the browser window loses the hover with no move as the preview takes the
+/// keyboard, and GPUI may then say the pointer is wherever the system's cursor is. Its next move
+/// off the row is the leave.
 #[gpui::test]
 fn the_preview_hears_the_pointer_leave_only_once_it_moves_off_the_row(cx: &mut TestAppContext) {
     let (shell, cx, host) = with_folders(cx);
     preview_on(&shell, cx, 5);
     host.take();
     let row = shell.read_with(cx, |shell, _| shell.tip_frames.borrow()[&5]);
-    shell.update(cx, |shell, cx| shell.folder_preview(Row::Tab(5), false, row.center(), cx));
-    assert!(host.take().is_empty(), "a hover lost on the row let the preview go");
-    shell.update(cx, |shell, cx| shell.off_preview_row(row.center(), cx));
+    shell.update(cx, |shell, cx| shell.folder_preview(Row::Tab(5), false, cx));
+    assert!(host.take().is_empty(), "a hover none while the preview was open let it go");
+    shell.update(cx, |shell, cx| shell.pointer_to(row.center(), cx));
     assert!(host.take().is_empty(), "a move on the row let the preview go");
-    shell.update(cx, |shell, cx| shell.off_preview_row(OFF, cx));
+    shell.update(cx, |shell, cx| shell.pointer_to(OFF, cx));
     assert_eq!(host.take(), ["folder preview left 5"]);
-    shell.update(cx, |shell, cx| shell.off_preview_row(OFF, cx));
+    shell.update(cx, |shell, cx| shell.pointer_to(OFF, cx));
     assert!(host.take().is_empty(), "the preview heard the pointer leave twice");
 }
 

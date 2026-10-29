@@ -958,6 +958,10 @@ pub struct Shell {
     /// A closed folder whose row lost the hover with the pointer last seen on it, so its preview
     /// hasn't heard it left: the next move off the row tells it.
     preview_row: Option<u64>,
+    /// Where the last move or press in the window put the pointer. GPUI's own mouse position
+    /// becomes the system cursor's whenever the window moves or resizes, as it can when the
+    /// preview's window is put over it, with no move, which is never where a driven pointer is.
+    pointer_at: Point<Pixels>,
     /// How long each frame drawn while the Spaces' pages moved took the sidebar, in ms, for the
     /// settle's log.
     paging_frames: Rc<RefCell<Vec<f32>>>,
@@ -1291,6 +1295,7 @@ impl Shell {
             sidebar_origin: Rc::default(),
             tip_frames: Rc::default(),
             preview_row: None,
+            pointer_at: Point::default(),
             paging_frames: Rc::default(),
             #[cfg(test)]
             beside_frames: Rc::default(),
@@ -2569,7 +2574,7 @@ impl Shell {
                         moved
                             .update(cx, |shell, cx| {
                                 shell.pointer_moved(cx);
-                                shell.off_preview_row(event.position, cx);
+                                shell.pointer_to(event.position, cx);
                                 shell.sidebar_hover(over, cx)
                             })
                             .ok();
@@ -2582,6 +2587,7 @@ impl Shell {
                         pressed
                             .update(cx, |shell, cx| {
                                 shell.pointer_moved(cx);
+                                shell.pointer_to(event.position, cx);
                                 shell.sidebar_hover(over, cx)
                             })
                             .ok();
