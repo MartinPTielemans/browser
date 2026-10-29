@@ -2,11 +2,14 @@
 # uBlock Origin, in the framework, loads into every profile, listed last in the Extensions menu. A
 # filter given for the check, through the same managed settings the browser gives it its own,
 # blocks the served page's ad script and hides its ad, and it stays in the menu after uBlock Origin
-# reloads itself as it first starts. Its own lists take fbclid out of an address. The Site
-# Controls' Block ads and trackers turns that off for the site, reloading the page, which then
-# shows the ad, and on again. Off for the site, Settings lists it, and its Turn On turns it on
-# there again. Settings' Block ads and trackers turns it off in every profile, which takes it out of
-# the Extensions menu and the Site Controls, and on again. A private window blocks too.
+# reloads itself as it first starts. The run reports how long that first launch let requests
+# through. It pins as any extension, and its action's menu has no Remove. Its own lists take fbclid
+# out of an address. The Site Controls' Block ads and trackers turns that off for the site,
+# reloading the page, which then shows the ad, and on again. Off for the site, Settings lists it,
+# and its Turn On turns it on there again. Settings' Block ads and trackers turns it off in every
+# profile, which takes it out of the Extensions menu and the Site Controls, and on again. A private
+# window blocks too. The app ships the version ublock.ini pins, and launched again on the same
+# profile, it blocks there too, the run reporting whether it did on that launch's first page.
 
 # The served ad page: its title says whether its script ran and whether its ad shows. uBlock Origin
 # hides the ad from a stylesheet of its own, which the page can't hear arrive, so it looks again
@@ -37,9 +40,10 @@ rm -rf "$profile_dir"
 mkdir -p "$profile_dir"
 log="$out/adblock.log"
 step=0
+filters="$(printf '/check-ad.js\n127.0.0.1##.check-ad')"
+launched=$(python3 -I -c 'import time; print(time.time())')
 BROWSER_DRIVE=1 BROWSER_URL="$ads" BROWSER_PROFILE_DIR="$profile_dir" \
-  "$browser" --ad-block-filters="$(printf '/check-ad.js\n127.0.0.1##.check-ad')" \
-  < "$out/drive" > "$log" 2>&1 &
+  "$browser" --ad-block-filters="$filters" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -72,10 +76,31 @@ reload_until() {
 }
 blocked="ad script blocked, element hidden"
 reload_until "$blocked" "the check's filter didn't block the ad script and hide the ad"
+# How long the first launch let requests through, to the reload that found the ad blocked: the
+# spec's about 3 s, which this bounds from above by the reload's wait.
+first_block=$(python3 -I -c 'import sys, time; print("%.1f" % (time.time() - float(sys.argv[1])))' \
+  "$launched")
+reloads=$(grep -c "^browser: title $tab ad script " "$log" || true)
+echo "adblock: a new profile's first launch blocked within $first_block s, over $reloads loads"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-blocked.png" || fail "no window to capture"
 # It reloaded itself as it first started, and the core loaded it back into the menu.
 grep '^browser: extensions menu' "$log" | tail -1 | grep -q "$ublock\$" ||
   fail "uBlock Origin left the Extensions menu: $(grep '^browser: extensions menu' "$log" | tail -1)"
+# Pinnable as any extension, its action alone at the URL field's end, 3 in from the 228-wide
+# sidebar's field ending at 220, with the count of what it blocked on the page. Its menu has no
+# Remove, since Settings turns it off.
+send menu "Pin to URL Field › uBlock Origin"
+expect "^browser: pin extension $ublock\$" "Pin to URL Field › uBlock Origin didn't reach the UI"
+expect "^browser: extension actions $ublock\(:[0-9]*\)\{0,1\}\$" \
+  "the pinned uBlock Origin didn't show in the URL field"
+../tools/window-screenshot.sh "$pid" "$out/adblock-pinned.png" || fail "no window to capture"
+post rightclick 202 64
+expect '^browser: menu shown Unpin, Options, Manage Extension$' \
+  "a right-click on uBlock Origin's action didn't show its menu without Remove"
+send choose Unpin
+expect "^browser: unpin extension $ublock\$" "Unpin didn't unpin uBlock Origin"
+expect '^browser: extension actions $' "unpinned, uBlock Origin's action stayed in the URL field"
+send click $page_point
 
 # Its own lists take Facebook's click id out of an address before the page loads, and leave the
 # site's own parameters.
@@ -186,10 +211,40 @@ reload_until "$blocked" "the private window didn't block the ad"
 quit
 # Its housekeeping timers that re-armed themselves, waking an idle browser, as the app ships it
 # (#252): fetch-ublock.sh takes them out.
-ublock_js="$(echo "$app"/Contents/Frameworks/*Framework.framework)/Resources/ublock/js"
+if [ -d "$app/ublock" ]; then
+  ublock_js="$app/ublock/js"
+else
+  ublock_js="$(echo "$app"/Contents/Frameworks/*Framework.framework)/Resources/ublock/js"
+fi
 rearming=$(cat "$ublock_js/tab.js" "$ublock_js/traffic.js" | grep -cxF \
   -e '        gcTimer.on(30011);' -e '            this.gcTimer.on(gcPeriod);' \
   -e '        pageStoreJanitorTimer.on(pageStoreJanitorPeriod);' || true)
 [ "$rearming" = 0 ] || fail "uBlock Origin ships with $rearming timers that wake an idle browser"
 echo "adblock: uBlock Origin timers that wake an idle browser: $rearming"
-echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page, and Settings lists the site while it's off, with a Turn On that lets it block there again; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too, and uBlock Origin ships without the timers that woke an idle browser. Windows: $out/adblock-blocked.png, $out/adblock-off-for-site.png, $out/adblock-off-sites.png, $out/adblock-settings.png, $out/adblock-private.png"
+# The version ublock.ini pins, which fetch-ublock.sh checked against its sha256.
+pinned_version=$(git config -f ublock.ini ublock.version)
+shipped_version=$(sed -n 's/^ *"version": "\([^"]*\)",*$/\1/p' "$ublock_js/../manifest.json")
+[ "$shipped_version" = "$pinned_version" ] ||
+  fail "the app ships uBlock Origin $shipped_version, not ublock.ini's $pinned_version"
+
+# An existing profile blocks too: launched again on it, uBlock Origin reads the lists it kept. The
+# run reports whether that launch's first page was blocked before any reload.
+log="$out/adblock-again.log"
+step=0
+BROWSER_DRIVE=1 BROWSER_URL="$ads?again" BROWSER_PROFILE_DIR="$profile_dir" \
+  "$browser" --ad-block-filters="$filters" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await "^browser: loaded [0-9]* $ads?again\$" ||
+  fail "launched again, the app didn't load the ad page"
+tab=$(sed -n "s|^browser: loaded \([0-9]*\) $ads?again\$|\1|p" "$log" | head -1)
+await "^browser: title $tab ad script " || fail "launched again, the ad page didn't report"
+await "^browser: extensions menu .*$ublock\$" ||
+  fail "launched again, uBlock Origin wasn't in the menu: $(grep '^browser: extensions' "$log")"
+first_page=$(grep "^browser: title $tab ad script " "$log" | head -1 | cut -d' ' -f4-)
+echo "adblock: an existing profile's first page, before a reload: $first_page"
+send click $page_point
+reload_until "$blocked" "launched again on its profile, the page didn't block its ad"
+../tools/window-screenshot.sh "$pid" "$out/adblock-existing.png" || fail "no window to capture"
+quit
+echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page, and Settings lists the site while it's off, with a Turn On that lets it block there again; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too, and uBlock Origin ships at ublock.ini's $pinned_version without the timers that woke an idle browser. It pins at the URL field with no Remove in its menu, and launched again, the existing profile blocks (its first page: $first_page). The first launch blocked within $first_block s. Windows: $out/adblock-blocked.png, $out/adblock-pinned.png, $out/adblock-off-for-site.png, $out/adblock-off-sites.png, $out/adblock-settings.png, $out/adblock-private.png, $out/adblock-existing.png"
