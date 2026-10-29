@@ -190,18 +190,23 @@ impl Shell {
 }
 
 impl Shell {
-    /// A swipe across the window at `at`, as three fingers or a mouse's swipe button send one
-    /// where System Settings has them swipe between pages, goes back, or forward, in the history
-    /// of the page under it, as the toolbar's buttons do (Chrome). Taken only over a page.
-    pub fn swiped(&mut self, at: Point<Pixels>, back: bool, cx: &mut Context<Self>) -> bool {
+    /// The tabs whose pages show in the card, in their order, with where the core puts each.
+    pub fn shown_pages(&self) -> Vec<(u64, Bounds<Pixels>)> {
         if self.selected == 0 {
-            return false;
+            return Vec::new();
         }
         let panes = self.panes(self.selected);
         let (frame, _) = self.page_frame(self.viewport);
         let frames =
             pane_frames(frame, panes.len(), self.stacked(self.selected), &self.shares(self.selected));
-        let Some(tab) = panes.into_iter().zip(frames).find(|(_, frame)| frame.contains(&at))
+        panes.into_iter().zip(frames).collect()
+    }
+
+    /// A swipe across the window at `at`, as three fingers or a mouse's swipe button send one
+    /// where System Settings has them swipe between pages, goes back, or forward, in the history
+    /// of the page under it, as the toolbar's buttons do (Chrome). Taken only over a page.
+    pub fn swiped(&mut self, at: Point<Pixels>, back: bool, cx: &mut Context<Self>) -> bool {
+        let Some(tab) = self.shown_pages().into_iter().find(|(_, frame)| frame.contains(&at))
         else {
             return false;
         };

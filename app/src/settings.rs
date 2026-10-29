@@ -3,7 +3,7 @@
 //! Settings). It opens on ⌘, and hides when closed, keeping its place and its tab until the
 //! browser quits.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
@@ -473,6 +473,17 @@ pub fn check_default_browser(cx: &mut App) {
     log!("browser: default browser {}", if default { "yes" } else { "no" });
 }
 
+thread_local! {
+    /// The window's title, the name of the tab it shows.
+    static SHOWN_TAB: Cell<&'static str> = const { Cell::new("") };
+}
+
+/// The window's title, for a host that logs it as the Mac's reads it off the window.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn title() -> &'static str {
+    SHOWN_TAB.get()
+}
+
 fn open(cx: &mut App) {
     // ⌘W, pressed as Ctrl+W off the Mac, as the browser's own shortcuts are.
     let close = if crate::shell::OFF_THE_MAC { "ctrl-w" } else { "cmd-w" };
@@ -498,6 +509,7 @@ fn open(cx: &mut App) {
         is_minimizable: false,
         ..Default::default()
     };
+    SHOWN_TAB.set(Tab::General.name());
     let window = cx.open_window(options, |window, cx| {
         cx.new(|cx| {
             // Closing it hides it, so it opens again where the user left it.
@@ -606,6 +618,7 @@ impl Settings {
             self.show_import(cx);
         }
         window.set_window_title(tab.name());
+        SHOWN_TAB.set(tab.name());
         cx.notify();
     }
 

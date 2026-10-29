@@ -15,8 +15,8 @@
 //! rightrelease, move, scroll, wheel, key, keydown, keyup, flags, type, resize, place, order, layout,
 //! state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback and age. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
-//! cmd with Ctrl, ctrl with Alt and alt with both; flags presses and lets go of those keys, and
-//! the keys after it go with what it holds. scroll turns the wheel a notch for each event,
+//! cmd with Ctrl, ctrl with Alt and alt with both, and ⌃Tab as Ctrl+Tab. flags presses and lets
+//! go of those keys, the last key's among them, and the keys after it go with what it holds. scroll turns the wheel a notch for each event,
 //! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
 //! no alerts yet. The others, such as ime, insert, swipe, drags from other apps, full screen
 //! and displays, the driver can't do yet, and says so as drive.mm does.
@@ -47,7 +47,9 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
-use crate::{BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, platform};
+use crate::{
+    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, platform, settings_window,
+};
 
 unsafe extern "C" {
     // GLib's, from chrome, whose main loop is GLib's.
@@ -121,6 +123,8 @@ thread_local! {
     /// The modifiers the flags command holds, in an X state, which the keys go with until it lets
     /// them go.
     static FLAGS: Cell<u16> = const { Cell::new(0) };
+    /// The modifiers the last key went with.
+    static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The last click in each window: its time, place and button.
     static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
         RefCell::default();
@@ -231,9 +235,11 @@ fn within(
     false
 }
 
-/// The overlay or the browser window the X server's input focus is in, if it's the app's.
+/// The overlay, Settings or the browser window the X server's input focus is in, if it's the
+/// app's, with the focus, and Settings' window.
 enum Keyboard {
     Overlay(xproto::Window),
+    Settings(xproto::Window, xproto::Window),
     Browser(Browser, xproto::Window),
 }
 
@@ -246,6 +252,11 @@ fn keyboard_window() -> Option<Keyboard> {
             return Some(Keyboard::Overlay(focus));
         }
     }
+    if let Some(view) = settings_window::shown()
+        && within(connection, focus, view as usize as u32)
+    {
+        return Some(Keyboard::Settings(view as usize as u32, focus));
+    }
     let count = MADE.with_borrow(Vec::len).max(1);
     (0..count + WINDOWS.with_borrow(Vec::len))
         .filter_map(browser)
@@ -257,6 +268,7 @@ fn keyboard_window() -> Option<Keyboard> {
 fn keyboard() -> (&'static str, &'static str, bool) {
     match keyboard_window() {
         Some(Keyboard::Overlay(_)) => ("GPUIPanel", "GPUIView", true),
+        Some(Keyboard::Settings(..)) => ("GPUIWindow", "GPUIView", true),
         Some(Keyboard::Browser(browser, _)) => {
             match unsafe { bc::bc_window_keyboard_is_ui(browser.id) } {
                 true => ("BrowserCoreNSWindow", "AccessKitSubclassOfGPUIView", true),
@@ -344,11 +356,30 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
     })
 }
 
+/// How far the Mac's close button is in from its window's top-left corner, at most, in points.
+const CLOSE_CORNER: f64 = 26.;
+
+/// Asks `window` to close, as the window manager does for its close button.
+fn close(window: xproto::Window) -> Option<()> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let [protocols, delete] = ["WM_PROTOCOLS", "WM_DELETE_WINDOW"].map(|name| {
+        let atom = connection.intern_atom(false, name.as_bytes()).ok()?;
+        Some(atom.reply().ok()?.atom)
+    });
+    let data = [delete?, x11rb::CURRENT_TIME, 0, 0, 0];
+    let message = xproto::ClientMessageEvent::new(32, window, protocols?, data);
+    connection
+        .send_event(false, window, EventMask::NO_EVENT, message)
+        .ok()?;
+    connection.flush().ok()
+}
+
 /// The point (`x`, `y`) in points from the key window's top-left corner, such as the command
 /// bar's, or the driven browser window's.
 fn target_in_key(x: f64, y: f64) -> Option<Target> {
     match keyboard_window() {
-        Some(Keyboard::Overlay(window)) => target_in(window, x, y),
+        Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => target_in(window, x, y),
         _ => target_at(x, y),
     }
 }
@@ -568,6 +599,8 @@ fn key(key: &str, state: u16) -> Option<()> {
 fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     let (code, shift) = keycode(keysym(key)?)?;
     state |= FLAGS.get();
+    let modifiers = KeyButMask::CONTROL | KeyButMask::MOD1 | KeyButMask::SHIFT;
+    KEY_FLAGS.set(state & u16::from(modifiers));
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
@@ -581,7 +614,9 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
     // As the X server picks it: the window under the pointer when that's in the focus window, else
     // the focus window.
     let window = match keyboard_window() {
-        Some(Keyboard::Overlay(focus) | Keyboard::Browser(_, focus)) => (HOVERED.get())
+        Some(
+            Keyboard::Overlay(focus) | Keyboard::Settings(_, focus) | Keyboard::Browser(_, focus),
+        ) => (HOVERED.get())
             .map(|hovered| hovered.window)
             .filter(|&hovered| within(connection, hovered, focus))
             .unwrap_or(focus),
@@ -647,6 +682,25 @@ fn stacked() -> Option<Vec<Browser>> {
             })
             .collect(),
     )
+}
+
+/// The pages of browser window `id`, as drive.mm lists their views: from the bottom-left corner of
+/// content `height` high.
+/// shortcut: where the shell lays them out, which the core follows, with no radius. They're Aura's
+/// windows in Chromium's one X window, and no core call says where they are.
+fn pages(id: bc::bc_id, height: f64) -> Option<String> {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
+    })?;
+    let cx = CX.with_borrow(Clone::clone)?;
+    let pages = cx.update(|cx| Some(shell.upgrade()?.read(cx).shown_pages()))?;
+    let views = pages.into_iter().map(|(_, page)| {
+        let [x, bottom, width, high] =
+            [page.left(), page.bottom(), page.size.width, page.size.height].map(f32::from);
+        let y = height - f64::from(bottom);
+        format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}")
+    });
+    Some(views.collect())
 }
 
 /// `window`'s frame in points, from the root's top-left corner: x, y, width and height.
@@ -775,6 +829,13 @@ fn run_command(line: &str) -> Option<()> {
         }
         "clickkey" | "rightclickkey" | "doubleclickkey" => {
             let (x, y) = point(&mut words)?;
+            // Settings' close button is the window manager's off the Mac, in its title bar.
+            if action == "clickkey"
+                && x.max(y) < CLOSE_CORNER
+                && let Some(Keyboard::Settings(window, _)) = keyboard_window()
+            {
+                return close(window);
+            }
             let at = target_in_key(x, y)?;
             click(
                 at,
@@ -849,12 +910,21 @@ fn run_command(line: &str) -> Option<()> {
         }
         "key" => {
             let name = words.next()?;
-            key(name, modifiers(words))
+            let mut state = modifiers(words);
+            // ⌃Tab stays Ctrl+Tab, as keys.rs presses it, since Alt+Tab is the desktop's.
+            let (ctrl, alt) = (u16::from(KeyButMask::CONTROL), u16::from(KeyButMask::MOD1));
+            if name == "tab" && state & (ctrl | alt) == alt {
+                state ^= ctrl | alt;
+            }
+            key(name, state)
         }
         // Each modifier going down or up as its key does, the left one, in the state held before
         // it, as the X server reports a key.
+        // The modifiers the last key went with are held too, as the Mac's app takes them to be
+        // until the flags change, such as ⌃ through a ⌃Tab walk.
         "flags" => {
             let to = modifiers(words);
+            FLAGS.set(FLAGS.get() | KEY_FLAGS.take());
             let keys = [
                 (KeyButMask::CONTROL, 0xffe3),
                 (KeyButMask::MOD1, 0xffe9),
@@ -932,8 +1002,9 @@ fn run_command(line: &str) -> Option<()> {
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
+            let pages = pages(browser.id, height).unwrap_or_default();
             log!(
-                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}"
+                "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}"
             );
             log!("browser: layout buttons hidden hidden hidden");
             let [left, top, ..] = frame(browser.window)?;
@@ -954,7 +1025,7 @@ fn run_command(line: &str) -> Option<()> {
         "state" => Some(()),
         "title" => {
             let window = match keyboard_window()? {
-                Keyboard::Overlay(window) => window,
+                Keyboard::Overlay(window) | Keyboard::Settings(window, _) => window,
                 Keyboard::Browser(browser, _) => browser.window,
             };
             let title = text_property(window, "_NET_WM_NAME").unwrap_or_default();
