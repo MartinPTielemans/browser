@@ -24,19 +24,22 @@
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last. The page puts
 # "hidden" in its title as it hides, and "visible <n>" as it shows again, with the n animation
-# frames it ran while hidden, where Chrome runs none.
+# frames it ran while hidden, where Chrome runs none, and "in <ms>" from the first to the last.
 page='data:text/html,<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
-let frames = 0;
-const count = () => {
+let frames = 0, first = 0, last = 0;
+const count = (now) => {
   if (document.hidden) {
+    if (!frames) first = now;
     frames++;
+    last = now;
     requestAnimationFrame(count);
   }
 };
 document.onvisibilitychange = () => {
-  document.title = document.hidden ? "hidden" : "visible " + frames;
+  document.title = document.hidden ? "hidden"
+    : "visible " + frames + (frames ? " in " + Math.round(last - first) : "");
   if (document.hidden) {
     frames = 0;
     requestAnimationFrame(count);
@@ -175,17 +178,37 @@ show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 
 # A page out of sight is hidden, as in Chrome, and runs no animation frames: a tab behind the one
 # shown, and the tab a Space not shown shows. Back in sight, it's visible.
+#
+# But for the frames its hover card's picture draws. The tabs a switch hides are pictured once the
+# switches have been quiet for 0.4 s (shell/hover_cards.rs), and the core has a hidden page draw,
+# still hidden to it, until the copy answers (capture.cc), as Chrome does a background tab's
+# preview. That's one run of frames, 0.1 s at most, after the app pictured the tab, so a step
+# that keeps it hidden past 0.4 s sees one. Any other frame while hidden fails.
+ran_hidden() {
+  local seen
+  seen=$(awk -v a="$a" '
+    $0 == "browser: title " a " hidden" { pictured = 0 }
+    index($0, "browser: tab " a " pictured ") == 1 { pictured = 1 }
+    /^browser: handover picture copied / && index($0, "(tab " a ")") { pictured = 1 }
+    index($0, "browser: title " a " visible ") == 1 { title = substr($0, 17 + length(a)); was = pictured }
+    END { print was + 0, title }' "$log")
+  case $seen in
+  *" visible 0") ;;
+  "1 visible "*" in "[0-9] | "1 visible "*" in "[0-9][0-9]) ;;
+  *) fail "$1: $seen" ;;
+  esac
+}
 open_from_bar example.org
 expect "^browser: title $a hidden\$" "the tab behind the one shown isn't hidden"
 send key w cmd
 expect_tabs "$a" "$a" "after closing the tab over the page"
-expect "^browser: title $a visible 0\$" \
-  "the tab shown again isn't visible, or ran frames while hidden"
+expect "^browser: title $a visible " "the tab shown again isn't visible"
+ran_hidden "the tab shown again ran frames while hidden, other than its picture's"
 show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 expect "^browser: title $a hidden\$" "the tab in the Space not shown isn't hidden"
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
-expect "^browser: title $a visible 0\$" \
-  "the tab in the Space shown again isn't visible, or ran frames while hidden"
+expect "^browser: title $a visible " "the tab in the Space shown again isn't visible"
+ran_hidden "the tab in the Space shown again ran frames while hidden, other than its picture's"
 
 # Two fingers across the sidebar page between Spaces. A flick goes on to the next Space, a drag let
 # go still goes to the Space nearest its place, and past the last Space the pages come back. Fingers
@@ -694,8 +717,9 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # Today is the tab ⇧⌘T reopened over the page's.
 send click $(row 1)
 last_title=$(grep "^browser: title $a " "$log" | tail -1 | cut -d' ' -f4-)
-[ "$last_title" = "visible 0" ] ||
-  expect "^browser: title $a visible 0\$" "a click on the page's row didn't show it"
+[ "${last_title%% *}" = visible ] ||
+  expect "^browser: title $a visible " "a click on the page's row didn't show it"
+ran_hidden "the page shown by its row had run frames while hidden, other than its picture's"
 send minimize
 expect "^browser: title $a hidden\$" "the page in the minimized window isn't hidden"
 send minimize
