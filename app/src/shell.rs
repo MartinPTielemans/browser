@@ -1002,6 +1002,8 @@ pub struct Shell {
     link_system: Option<WindowTextSystem>,
     /// Whether the window is full screen, as macOS last told once its transition was over.
     full_screen: bool,
+    /// On Linux, whether the window is maximized, which its third button shows.
+    maximized: bool,
     /// Whether the window went full screen for the page, so it comes back with it.
     window_for_page: bool,
     /// While the window goes full screen with the page, or back: its content size before. The page
@@ -1252,6 +1254,7 @@ impl Shell {
             link: None,
             link_system: None,
             full_screen: false,
+            maximized: false,
             window_for_page: false,
             page_held: None,
             full_screen_timing: None,
@@ -2183,6 +2186,17 @@ impl Shell {
         self.full_screen = entered;
         if !entered || !self.page_fullscreen {
             self.browser.full_screen_note(entered, cx);
+        }
+    }
+
+    /// The window's bounds changed, as they do when it's maximized or restored: the third button
+    /// shows which it would do next.
+    pub fn bounds_changed(&mut self, cx: &mut Context<Self>) {
+        let maximized = self.browser.window_maximized();
+        if maximized != std::mem::replace(&mut self.maximized, maximized) {
+            // The check waits for this line.
+            log!("browser: window maximized {maximized}");
+            cx.notify();
         }
     }
 
@@ -3206,10 +3220,11 @@ impl Shell {
 
     /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
     fn window_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let zoom = if self.maximized { "icons/window-restore.svg" } else { ZOOM_GLYPH };
         let buttons = [
             (WindowButton::Close, "icons/window-close.svg"),
             (WindowButton::Minimize, "icons/window-minimize.svg"),
-            (WindowButton::Zoom, ZOOM_GLYPH),
+            (WindowButton::Zoom, zoom),
         ];
         let (first, _) = WINDOW_BUTTONS[0];
         let (second, _) = WINDOW_BUTTONS[1];

@@ -896,6 +896,10 @@ impl Browser for Fake {
     // The preview's window is GPUI's own, which GPUI moves.
     fn start_window_move(&self, _: &mut App) {}
 
+    fn window_maximized(&self) -> bool {
+        false
+    }
+
     // The reveal's window is the app's, over the page, which the preview has neither of.
     fn show_reveal(&self, _: f32, _: &mut App) {}
 

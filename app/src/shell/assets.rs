@@ -196,6 +196,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/window-full-screen.svg", include_bytes!("../../assets/icons/window-full-screen.svg")),
     ("icons/window-maximize.svg", include_bytes!("../../assets/icons/window-maximize.svg")),
     ("icons/window-minimize.svg", include_bytes!("../../assets/icons/window-minimize.svg")),
+    ("icons/window-restore.svg", include_bytes!("../../assets/icons/window-restore.svg")),
     ("icons/wrench.svg", include_bytes!("../../assets/icons/wrench.svg")),
     ("icons/x.svg", include_bytes!("../../assets/icons/x.svg")),
     ("icons/zap.svg", include_bytes!("../../assets/icons/zap.svg")),

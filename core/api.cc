@@ -1348,3 +1348,12 @@ void bc_window_start_move(bc_id id) {
   }
 #endif
 }
+
+bool bc_window_is_maximized(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  return window && window->widget() && window->widget()->IsMaximized();
+#else
+  return false;
+#endif
+}

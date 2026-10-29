@@ -267,6 +267,9 @@ pub trait Browser {
     /// On Linux, has the browser window follow the pointer, on a drag's first move over the
     /// window's background, as GPUI's own move can't: its window is inside the browser window.
     fn start_window_move(&self, cx: &mut App);
+    /// On Linux, whether the browser window is maximized, which the third window button the UI
+    /// draws shows. False on the Mac, where AppKit draws that button.
+    fn window_maximized(&self) -> bool;
     /// Shows the sidebar reveal's window over the page, `width` points wide from the browser
     /// window's left edge and as tall as it. It calls `Shell::pointer_at` as the pointer moves
     /// anywhere in the browser's windows until it's hidden.
