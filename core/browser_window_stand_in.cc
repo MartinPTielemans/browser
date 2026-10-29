@@ -33,8 +33,10 @@
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
+#include "ui/content_accelerators/accelerator_util.h"
 #include "ui/gfx/range/range.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/focus/focus_manager.h"
 #include "ui/views/widget/widget.h"
 
 namespace browser_core {
@@ -531,11 +533,20 @@ content::KeyboardEventProcessingResult BrowserWindowStandIn::PreHandleKeyboardEv
 }
 
 bool BrowserWindowStandIn::HandleKeyboardEvent(const input::NativeWebKeyboardEvent& event) {
+  views::Widget* widget = this->widget();
+  // A dialog over the page, as print preview off the Mac, sends here the keys its own page didn't
+  // use, and its accelerators come before the app's, as they come before the browser's in Chrome:
+  // Escape closes it rather than stopping the page under it.
+  if (event.GetType() == blink::WebInputEvent::Type::kRawKeyDown && widget &&
+      widget->GetFocusManager() &&
+      widget->GetFocusManager()->ProcessAccelerator(
+          ui::GetAcceleratorFromNativeWebKeyboardEvent(event))) {
+    return true;
+  }
   if (AskApp(Host().tab_key_unhandled, browser_, event)) {
     return true;
   }
   // As BrowserView does: what neither the page nor the app used goes to the window's menus.
-  views::Widget* widget = this->widget();
   return widget && widget->GetFocusManager() &&
          unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, widget->GetFocusManager());
 }

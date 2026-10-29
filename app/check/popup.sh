@@ -145,6 +145,27 @@ expect "^browser: loaded $made https://example.com/\$" \
 # has asked for it: waits for it, captures it in $out/$2 once it has drawn over before-print.png,
 # a capture of the window before, and closes it with escape.
 print_preview() {
+  # On Linux the dialog is an Aura window in Chromium's one X window, which the driver can't list,
+  # so the captures say it came and went.
+  if [ "$(uname)" = Linux ]; then
+    for _ in $(seq 50); do
+      ../tools/window-screenshot.sh "$pid" "$out/$2" || fail "no window to capture"
+      cmp -s "$out/before-print.png" "$out/$2" || break
+      sleep 0.1
+    done
+    cmp -s "$out/before-print.png" "$out/$2" && fail "$1 didn't show print preview"
+    for _ in $(seq 50); do
+      send key escape
+      ../tools/window-screenshot.sh "$pid" "$out/after-print.png" || fail "no window to capture"
+      cmp -s "$out/before-print.png" "$out/after-print.png" && break
+      sleep 0.1
+    done
+    cmp -s "$out/before-print.png" "$out/after-print.png" ||
+      fail "escape didn't close the print preview $1 showed"
+    print_skipped=1
+    rm "${out:?}/before-print.png" "${out:?}/after-print.png"
+    return
+  fi
   child=""
   for _ in $(seq 50); do
     send layout
@@ -191,6 +212,9 @@ expect '^browser: menu shown Back' "the page didn't show its menu again after a 
 menu=$(grep '^browser: menu shown' "$log" | tail -1 | cut -d' ' -f4-)
 # No tab came before it, and none after.
 page_items="Back (disabled), Forward (disabled), Reload, Save As…, Print…, View Page Source, Inspect"
+# Chromium's strings off the Mac are in sentence case, as Chrome's menus there are.
+[ "$(uname)" = Linux ] &&
+  page_items="Back (disabled), Forward (disabled), Reload, Save as…, Print…, View page source, Inspect"
 [ "$menu" = "$page_items" ] ||
   fail "the page's menu is $menu"
 ../tools/window-screenshot.sh "$pid" "$out/page-menu.png" || fail "no window to capture"
@@ -342,3 +366,5 @@ expect "^browser: today $page\$" "the popup's tab stayed in Today: $(today)"
 exec 3>&-
 quit
 echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do and shows in ilo's menu at the click, a dismiss leaves the page free to show the next, and a text field's has its spelling and writing direction items and a Select All that works. Open Link in New Tab opens tabs under the page, after the ones it opened and above the others, which load only once shown and come back after a quit unloaded, while a window the page makes behind loads at once, and closing one shows the nearest other tab the page opened. Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's, and closing it shows the tab it opened first. A sign-in popup keeps its opener through the identity site and back, sends the page what it got and closes itself, which the page sees, and the page shows again. Windows: $out/popup.png, $out/link-menu.png, $out/links-behind.png, $out/page-menu.png, $out/print.png, $out/print-key.png, $out/field-page-menu.png, $out/sign-in.png, $out/signed-in.png. The text field's menu: $(grep '^browser: menu shown .*Select All' "$log" | tail -1 | cut -d' ' -f4-)"
+[ -z "${print_skipped:-}" ] ||
+  echo "skip: where print preview is over the page, as Chromium draws it on Linux inside its own X window, out of the driver's sight."
