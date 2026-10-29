@@ -3,8 +3,9 @@
 # ⌘↩ keeps it as the top Today tab, shown, without loading it again. A click on the dim closes it,
 # and the page behind doesn't get the click. ⌘W with its page focused closes it, and not the tab
 # behind. ⌘Z reopens a closed one over its tab at its page, and so does ⇧⌘T while no tab has closed
-# since. A favorite's link opens it too. With the Settings switch off, the link goes in the pinned
-# tab. Reports how long the first preview took to draw its first frame.
+# since. A favorite's link opens it too. A call's link, such as Google Meet's, opens as a tab
+# instead. With the Settings switch off, the link goes in the pinned tab. Reports how long the
+# first preview took to draw its first frame.
 
 serve
 # The test page's top 40% is a link to the same server under another name, localhost, which is
@@ -18,6 +19,8 @@ A link to another site</a>
 <div id=press style=\"position:fixed;left:0;top:40%;width:100%;height:60%;font:24px system-ui\">
 Presses count here</div>
 <script>
+// With ?meeting, the link is a Google Meet call's, whose host the run maps to its own server.
+if (location.search == \"?meeting\") document.querySelector(\"a\").href = \"http://meet.google.com/ilo-check-call\";
 let presses = 0;
 press.onmousedown = () => document.title = \"pressed \" + ++presses;
 requestAnimationFrame(() => requestAnimationFrame(() => document.title = \"ready\"));
@@ -27,7 +30,9 @@ printf '%s' '<title>target</title><p style="font:24px system-ui">Another site</p
 log="$out/preview.log"
 step=0
 rm -f "$saved"
-BROWSER_DRIVE=1 BROWSER_URL="${site}preview.html" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+# Meet's host goes to the run's server, which speaks no TLS, so a call's link never reaches Google.
+BROWSER_DRIVE=1 BROWSER_URL="${site}preview.html" "$app/Contents/MacOS/Browser" \
+  --host-resolver-rules="MAP meet.google.com 127.0.0.1:$port" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -173,6 +178,30 @@ away
 send click 100 $(($(pinned_row 0 | cut -d' ' -f2) + 47))
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the pinned row didn't show its tab"
 
+# A call's link skips the preview and opens as a tab at the top of Today in the Space shown, which
+# it shows, and the pinned tab stays on its page.
+at_page() {
+  send key l cmd
+  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+  send type "$1"
+  send key return
+  expect "^browser: loaded $a $1\$" "the pinned tab didn't load $1"
+  expect "^browser: title $a ready\$" "$1 didn't draw in the pinned tab"
+}
+at_page "${site}preview.html?meeting"
+send click $link_point
+expect "^browser: meeting link from $a opens as a tab\$" "a click on a Meet link didn't skip the preview"
+expect '^browser: today [1-9]' "the Meet link didn't open at the top of Today: Today is \"$(today)\""
+m=$(today | cut -d' ' -f1)
+expect "^browser: selected $m\( in .*\)\{0,1\}\$" "the Meet link's tab didn't show"
+none_since '^browser: link preview [1-9]' || fail "the Meet link opened in a preview"
+../tools/window-screenshot.sh "$pid" "$out/preview-meeting.png" || fail "no window to capture"
+grep -q "^browser: loaded $a http://meet.google.com" "$log" && fail "the Meet link loaded in the pinned tab"
+away
+send click $(pinned_row 0)
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the pinned row didn't show its tab"
+at_page "${site}preview.html"
+
 # With the switch in Settings › Advanced off, the link goes in the pinned tab.
 send click $page_point
 expect "^browser: title $a pressed [0-9]*\$" "a click on the test page's lower part didn't reach it"
@@ -191,5 +220,5 @@ none_since '^browser: link preview ' || fail "with previews off, the link opened
 
 exec 3>&-
 quit
-echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png"
+echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. A Google Meet link opens as a tab of the Space shown instead. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png, $out/preview-meeting.png"
 echo "  The first preview's first frame came $first_frame after the click reached the UI."

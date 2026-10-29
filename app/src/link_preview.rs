@@ -93,6 +93,26 @@ pub fn key_action(keystroke: &str, reserved: bool) -> Option<KeyAction> {
     }
 }
 
+/// Whether `url` joins a call, which opens as a tab, not in a preview, as Arc's meeting links do:
+/// Google Meet's, Zoom's, Microsoft Teams', Webex's, Whereby's and Jitsi Meet's.
+pub fn is_meeting(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (host, path) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    let host = host.rsplit_once('@').map_or(host, |(_, host)| host);
+    let host = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
+    let on = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    let under = |paths: &[&str]| paths.iter().any(|each| path.starts_with(each));
+    let room = path.len() > 1;
+    match host.as_str() {
+        "meet.google.com" | "whereby.com" | "meet.jit.si" => room,
+        "teams.microsoft.com" => under(&["/l/meetup-join/", "/meet/"]),
+        "teams.live.com" => under(&["/meet/"]),
+        _ if on("zoom.us") => under(&["/j/", "/my/", "/w/", "/s/", "/wc/"]),
+        _ if on("webex.com") => under(&["/meet/", "/join/"]) || path.contains("j.php"),
+        _ => false,
+    }
+}
+
 /// The site a URL is on, as the header shows it: its host, without "www.".
 pub fn site_of(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
