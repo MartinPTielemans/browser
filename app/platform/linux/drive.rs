@@ -199,7 +199,7 @@ thread_local! {
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
     /// Whether the X server's keyboard has Control locked, for `hold_control`.
     static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
-    /// The last click in each window: its time, place and button.
+    /// The last press in each window, a click's or a drag's: its time, place and button.
     static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
         RefCell::default();
     /// The keysyms on each key, from the server's first keycode, and how many each key has.
@@ -597,9 +597,22 @@ fn motion(at: Target, state: u16) -> Option<()> {
 }
 
 /// A click of `which` (1 the left, 3 the right, 4 to 7 the wheel's) at `at`, the second of a
-/// double click with `again`. A first click waits until GPUI wouldn't count it with the last
-/// one, as the driver clicks faster than a hand does.
+/// double click with `again`.
 fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
+    first_press(at, which, again);
+    button(at, which, true, state)?;
+    button(
+        at,
+        which,
+        false,
+        state | button_mask(which),
+    )
+}
+
+/// Before a press of `which` at `at`: unless it's `again`, the second of a double click, waits
+/// until GPUI wouldn't count it with the last press there, as the driver presses faster than a
+/// hand does. A drag's press counts too, as GPUI counts it.
+fn first_press(at: Target, which: u8, again: bool) {
     if which <= 3 && !again {
         let last = LAST_CLICKS.with_borrow(|clicks| clicks.get(&at.window).copied());
         if let Some((then, last, last_which)) = last
@@ -617,13 +630,6 @@ fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
         let now = std::time::Instant::now();
         LAST_CLICKS.with_borrow_mut(|clicks| clicks.insert(at.window, (now, at, which)));
     }
-    button(at, which, true, state)?;
-    button(
-        at,
-        which,
-        false,
-        state | button_mask(which),
-    )
 }
 
 /// The Mac's modifiers named in `words`, cmd, shift, alt and ctrl, as an X state holds them on
@@ -1146,6 +1152,7 @@ fn run_command(line: &str) -> Option<()> {
                 ..target_in(driven()?.window, x2, y2)?
             };
             let to = relative_to(to, at.window)?;
+            first_press(at, 1, false);
             button(at, 1, true, none)?;
             motion(to, button_mask(1))?;
             button(to, 1, false, button_mask(1))
@@ -1160,6 +1167,7 @@ fn run_command(line: &str) -> Option<()> {
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
+                first_press(at, which, false);
                 return button(at, which, true, none);
             }
             let to = target_in(driven()?.window, x, y)?;
