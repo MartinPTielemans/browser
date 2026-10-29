@@ -58,7 +58,7 @@ The Mac's DMG is built only with these repository secrets:
 
 The Mac and Windows builds carry its public half from `app/branding/update-key`, or from an `UPDATE_PUBLIC_KEY` secret, which overrides the file when it's set.
 
-Crash reports' symbols go to the collector `app/branding/crash-reports` names only with the secret `SENTRY_AUTH_TOKEN`, an auth token that may upload debug files, and the variables `SENTRY_URL`, `SENTRY_ORG` and `SENTRY_PROJECT`, the collector's address, organization and project. With none of them the DMG is still built, and uploads no symbols.
+Crash reports' symbols go to the collector `app/branding/crash-reports` names only with the secret `SENTRY_AUTH_TOKEN`, an auth token that may upload debug files, and the variables `SENTRY_URL`, `SENTRY_ORG` and `SENTRY_PROJECT`, the collector's address, organization and project. Each OS's job uploads its own (`tools/symbols.sh`). With none of them the packages are still built, and no symbols are uploaded.
 
 The Windows packages are unsigned: the Store signs the MSIX, and winget takes the installer.
 
@@ -102,6 +102,6 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the other projects ilo uses and carries. The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name, the icon and the crash collector's URL, and recompile the icon with `app/icon.sh`. On Windows the engine has the name too, for its folders (`engine/patches/ours/chromium-windows-product-folder.patch`), so a fork builds its own Windows engine with its name there.
+GPL-3.0-or-later. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the other projects ilo uses and carries. The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name, the icon and the crash collector's URL, and recompile the icon with `app/icon.sh`. On Windows the engine has the name too, for its folders and the names it registers with Windows (`engine/patches/ours/chromium-windows-product-folder.patch`, `chromium-windows-app-names.patch`), so a fork builds its own Windows engine with its name there.
 
 Contributions use the [Developer Certificate of Origin](CONTRIBUTING.md#sign-off), not a CLA.

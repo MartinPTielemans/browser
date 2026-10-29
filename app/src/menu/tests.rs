@@ -658,7 +658,7 @@ fn contrast(a: u32, b: u32) -> f32 {
 #[test]
 fn every_label_reads_at_4_5_to_1_in_both_looks() {
     use super::{DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL, Highlight, PRESSED};
-    use crate::{palette::Palette, theme::{Appearance, Theme}};
+    use crate::{palette::{Palette, Tone}, theme::{Appearance, Theme}};
     for look in [Look { light: false, ..Look::dark() }, Look { light: true, ..Look::dark() }] {
         let palette = look.palette();
         let panel = palette.fill >> 8;
@@ -680,7 +680,7 @@ fn every_label_reads_at_4_5_to_1_in_both_looks() {
             let angle = step as f32 * std::f32::consts::TAU / 24.;
             for distance in [0., 0.35, 0.7, 1.] {
                 let theme = Theme { appearance, ..Theme::at(distance * angle.cos(), distance * angle.sin()) };
-                palettes.push(Palette::of(Some(&theme)));
+                palettes.extend([Tone::Dark, Tone::Light].map(|tone| Palette::of(Some(&theme), tone)));
             }
         }
     }

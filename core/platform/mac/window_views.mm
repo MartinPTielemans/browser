@@ -375,4 +375,8 @@ void StretchOnResize(content::RenderWidgetHostView* view, bool stretch) {
   content::SetStretchContentOnResize(view, stretch);
 }
 
+base::ScopedClosureRunner DrawUnseen(views::Widget*, gfx::NativeView) {
+  return base::ScopedClosureRunner();
+}
+
 }  // namespace browser_core::platform

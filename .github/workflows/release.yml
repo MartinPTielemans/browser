@@ -72,6 +72,17 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # Crash reports' symbols, which each OS's job uploads to the collector app/branding/crash-reports
+      # names (tools/symbols.sh). Optional: with none of these no symbols are uploaded, and with only
+      # some the release stops here rather than after its builds.
+      - name: Crash reports' symbols
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: tools/symbols.sh
+
       - uses: actions/upload-artifact@v4
         with:
           name: notes
@@ -109,10 +120,13 @@ jobs:
 
       # The installer's ilo updates itself with WinSparkle, from updates signed with the key whose
       # public half is app/branding/update-key, or the UPDATE_PUBLIC_KEY secret when it's set.
+      # With Cargo's release profile, which strips debuginfo, MSVC's linker writes no PDB, and
+      # Browser.pdb's public symbols are what name Browser.dll's functions in a crash report.
       - name: Browser.dll
         working-directory: app/windows
         env:
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
+          CARGO_PROFILE_RELEASE_STRIP: none
         run: |
           if [ -z "$UPDATE_PUBLIC_KEY" ] && [ -z "$(tr -d '[:space:]' < ../branding/update-key)" ]; then
             echo "::error::app/branding/update-key is empty, so ilo couldn't update itself (README.md › Releases)."
@@ -132,6 +146,16 @@ jobs:
           mv "$RUNNER_TEMP/packages/ilo-$version-x64.msix" "$RUNNER_TEMP/windows/ilo-windows-x64.msix"
           mv "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" "$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe"
 
+      # The engine's executables and libraries with their PDBs, from its release, and Browser.dll
+      # with its own.
+      - name: Crash reports' symbols
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: ../tools/symbols.sh .deps/engine windows/target/release/Browser.dll windows/target/release/Browser.pdb
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -141,6 +165,10 @@ jobs:
   linux:
     needs: version
     uses: ./.github/workflows/flatpak.yml
+    with:
+      symbols: true
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
   # The Linux build in ilo's Flatpak repository, which installs from GitHub update from, and the
   # release's Linux files from it (tools/flatpak-repo.sh). Its objects and deltas go to the R2 bucket
@@ -289,41 +317,6 @@ jobs:
             echo "::error::The Mac's DMG needs the repository secrets$missing (README.md › Releases). Without them it isn't built, and no unsigned DMG is uploaded."
             exit 1
           fi
-
-      # Crash reports' symbols, which tools/release.sh uploads with sentry-cli to the collector
-      # app/branding/crash-reports names. Optional: with none of these the release has no symbols
-      # uploaded, and with only some it stops here rather than after the build.
-      - name: Crash reports' symbols
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_URL: ${{ vars.SENTRY_URL }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-          version: 3.8.2
-          sha256: c80d92b6d34eb64fe7402f56cc7968fbb15aab1c763254ad428b55cc98ec7dcf
-        working-directory: .
-        run: |
-          missing=
-          for name in SENTRY_AUTH_TOKEN SENTRY_URL SENTRY_ORG SENTRY_PROJECT; do
-            [ -n "$(printenv "$name")" ] || missing="$missing $name"
-          done
-          case $missing in
-          '') ;;
-          ' SENTRY_AUTH_TOKEN SENTRY_URL SENTRY_ORG SENTRY_PROJECT')
-            echo "::notice::No crash collector is set up (README.md › Releases), so no symbols are uploaded."
-            exit 0
-            ;;
-          *)
-            echo "::error::Uploading crash reports' symbols needs$missing as well (README.md › Releases)."
-            exit 1
-            ;;
-          esac
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -fsSL -o "$RUNNER_TEMP/bin/sentry-cli" \
-            "https://github.com/getsentry/sentry-cli/releases/download/$version/sentry-cli-Darwin-arm64"
-          echo "$sha256  $RUNNER_TEMP/bin/sentry-cli" | shasum -a 256 -c -
-          chmod +x "$RUNNER_TEMP/bin/sentry-cli"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
         with:

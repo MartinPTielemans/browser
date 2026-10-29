@@ -1,6 +1,6 @@
 # The New Space form's Profile row makes a profile and puts the Space in it, and its Choose a Theme
 # row colours the Space. The Space's tabs open in the new profile, without the first profile's
-# cookies. While it's empty the Space's menu moves it between profiles, and with a tab it keeps its
+# cookies, from a command bar opened in the first profile's Space too, which follows the Space shown. While it's empty the Space's menu moves it between profiles, and with a tab it keeps its
 # own. The first Space keeps its cookie and its favorite, which shows only in the Spaces of its
 # profile, and a new Space made from a Space is in that Space's profile. After a relaunch each Space
 # is in its profile still. A tab moved to the other profile's Space loads there with that profile's
@@ -112,9 +112,21 @@ Profile › Profile 2, Profile › New Profile, Profile › Delete “Profile 2�
 send choose Profile 2
 expect "^browser: profiled space $second $work\$" "Profile 2 didn't take the Space again"
 expect '^browser: favorites $' "the first profile's favorite stayed in the other profile's Space"
+# The bar opened in the first profile's Space follows another Space shown while it's open, as
+# Arc's does: ⌃2 shows this one, the bar asks this profile again for what's typed, and ↩ opens the
+# page here, in this profile, never in the first one, whose cookie the page would find.
+send key 1 ctrl
+expect "^browser: space $first in " "⌃1 didn't show the first profile's Space"
 send key t cmd
-expect '^browser: command bar shown$' "⌘T in the new profile's Space didn't open the command bar"
+expect '^browser: command bar shown$' "⌘T in the first profile's Space didn't open the command bar"
 send type "$cookie_page"
+expect "^browser: command bar suggestions \"$cookie_page" "the command bar didn't suggest for the cookie page"
+send key 2 ctrl
+expect '^browser: command bar follows the Space$' "⌃2 with the command bar open didn't give it the Space"
+expect "^browser: space $second in " "⌃2 with the command bar open didn't show the new profile's Space"
+expect "^browser: command bar suggestions \"$cookie_page" \
+  "the command bar didn't ask the new profile again for what was typed"
+none_since '^browser: command bar hidden$' || fail "⌃2 closed the command bar"
 send key return
 expect '^browser: today [0-9][0-9]*$' "the cookie page didn't open in the new profile's Space"
 b=$(today)
@@ -249,7 +261,7 @@ go_from_bar "$away_page"
 expect "^browser: title $a away\$" "the favorite didn't go to another page"
 expect "^browser: page $a away 1\$" "the favorite away from its URL didn't say so"
 post rightclick $tile
-expect "^browser: menu shown $(cased 'Back to Favorite URL, Duplicate Tab, Remove from Favorites, ')" \
+expect "^browser: menu shown $(cased 'Back to Favorite URL, Replace Favorite URL with Current, Duplicate Tab, Remove from Favorites, ')" \
   "the favorite's menu didn't offer Remove from Favorites"
 send choose "$(cased 'Remove from Favorites')"
 expect '^browser: favorites $' "Remove from Favorites left the tile"
@@ -292,7 +304,7 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 [ "$(grep '^browser: favorites' "$log" | tail -1)" = "browser: favorites $twin" ] ||
   fail "the second profile didn't keep the twin as its own favorite: $(grep '^browser: favorites' "$log" | tail -1)"
 post rightclick $tile
-expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, ')" \
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, ')" \
   "the second profile's favorite's menu didn't offer Remove from Favorites"
 send choose "$(cased 'Remove from Favorites')"
 expect '^browser: favorites $' "Remove from Favorites left the second profile's tile"
@@ -306,7 +318,7 @@ expect "^browser: selected $d\( in .*\)\{0,1\}\$" "⌘W didn't show the second S
 # one.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 246 60
+send clickkey 190 60
 expect '^browser: settings tab Profiles$' "a click on Profiles didn't show its tab"
 send doubleclickkey 130 170
 expect "^browser: rename profile $work\$" "a double-click on Profile 2 didn't put it in a field"
@@ -339,13 +351,14 @@ expect "^browser: renamed profile $spare spare 日本語\$" \
   "the new profile wasn't named: $(grep '^browser: renamed profile' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-profiles.png" || fail "no window to capture"
 # Settings asks in an alert, and off the Mac, which has none, in its dialog, where escape cancels
-# and return deletes.
+# and return deletes. The dialog covers Settings, taking its clicks, until it has gone.
 asks=alert
 [ "$(uname)" = Linux ] && asks=dialog
 settings_answer() {
   if [ "$asks" = dialog ]; then
     expect '^browser: dialog settled$' "Settings' dialog didn't settle"
     case $1 in Cancel) send key escape ;; *) send key return ;; esac
+    expect '^browser: dialog hidden$' "Settings' dialog didn't go"
   else
     send choose "$1"
   fi
@@ -384,4 +397,4 @@ send key return
 expect "^browser: removed profile $work personal\$" "the profile wasn't deleted"
 exec 3>&-
 quit
-echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; held partway between two profiles' Spaces, each page has its own URL field and favorites; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; in Every Space a favorite has a twin in the other profile, which goes with it when it’s removed, comes back with ⌘Z, and goes back to the favorite’s URL in its own profile, and stays the other profile’s own favorite after; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-swipe.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"
+echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, from a command bar that followed it from the first profile's Space too, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; held partway between two profiles' Spaces, each page has its own URL field and favorites; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; in Every Space a favorite has a twin in the other profile, which goes with it when it’s removed, comes back with ⌘Z, and goes back to the favorite’s URL in its own profile, and stays the other profile’s own favorite after; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-swipe.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"

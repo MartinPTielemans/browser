@@ -1,7 +1,7 @@
 # The Mac's updates (docs/ux-spec.md › Updates), on a check build with Sparkle (build.sh updates)
 # that checks a feed the run serves, for updates signed with a key the run makes and deletes after.
 # Neither is ever the product's: the run never reads branding/update-feed or the owner's key.
-# The app menu has Check for Updates… first. Sparkle checks every 8 hours, from the last check.
+# The app menu has Check for Updates… under About. Sparkle checks every 8 hours, from the last check.
 # Check for Updates… finds the feed's update and shows it with its Markdown notes. A scheduled
 # check that finds one while a window is full screen holds it, and shows it with the keyboard once
 # the window leaves full screen.
@@ -67,16 +67,32 @@ updates_check() {
       "keyboard."
   else
     send menubar "$app_name"
-    expect "^browser: menu bar $app_name: Check for Updates…, Settings…" \
-      "the app menu doesn't start with Check for Updates…"
+    expect "^browser: menu bar $app_name: About $app_name, Check for Updates…, Settings…" \
+      "the app menu doesn't have Check for Updates… under About"
     post openmenu "$app_name"
-    expect "^browser: menu tracked Check for Updates…, Settings…" "the app menu didn't open"
+    expect "^browser: menu tracked About $app_name, Check for Updates…, Settings…" \
+      "the app menu didn't open"
     ../tools/window-screenshot.sh "$pid" "$out/updates-menu.png" all || fail "no window to capture"
     send dismiss
     send menu Check for Updates…
-    # Found, or Sparkle's reason it isn't: none, with the feed's newest build, or failed.
-    expect "^browser: update \($next found\|none:\|failed:\)" \
-      "Check for Updates… didn't end: no update found, none or failed"
+    # Found, or Sparkle's reason it isn't: none, with the feed's newest build, or failed. A check
+    # that ends in none of them says how far it got, and Sparkle's log, the app's main thread and
+    # the window say where it stopped.
+    outcome="^browser: update \($next found\|none:\|failed:\)"
+    for _ in $(seq 300); do
+      grep -q "$outcome" "$log" && break
+      sleep 0.1
+    done
+    if ! grep -q "$outcome" "$log"; then
+      /usr/bin/log show --last 5m --style compact \
+        --predicate 'subsystem == "org.sparkle-project.Sparkle"' > "$out/updates-sparkle.txt" 2>&1
+      sample "$pid" 3 -file "$out/updates-sample.txt" > /dev/null 2>&1
+      ../tools/window-screenshot.sh "$pid" "$out/updates-stalled.png" all
+      got=$(grep '^browser: update \(feed loaded\|cycle ended\|alert shows\)' "$log" | tr '\n' ';')
+      fail "Check for Updates… didn't end in 30 s: no update found, none or failed. Sparkle got to: \
+${got:-nothing logged}. Sparkle's log: $out/updates-sparkle.txt, the app's threads: \
+$out/updates-sample.txt, the window: $out/updates-stalled.png"
+    fi
     if ! grep -q "^browser: update $next found\$" "$log"; then
       # Sparkle's own log, which says more, such as an item it couldn't parse.
       /usr/bin/log show --last 5m --style compact \
@@ -125,7 +141,7 @@ updates_check() {
       fail "no window to capture"
     exec 3>&-
     quit
-    echo "ok: the check build's app menu starts with Check for Updates…, and Sparkle checks 8" \
+    echo "ok: the check build's app menu has Check for Updates… under About, and Sparkle checks 8" \
       "hours after the last check, in $interval s here. Check for Updates… found the run's" \
       "signed update and showed it with its Markdown notes. A check in full screen held its" \
       "update, which came with the keyboard once the window left full screen." \

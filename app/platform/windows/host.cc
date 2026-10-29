@@ -2082,9 +2082,9 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
-// shortcut: there's no Safari; protected video on Windows waits for WebView2 (decision 1).
 void host_open_full_disk_access(void) {}
 
+// There's no Safari: Windows plays protected video with Chromium's own PlayReady (decision 1).
 void host_open_in_safari(const char* url) {
   fprintf(stderr, "browser: no system engine for %s\n", url);
 }
