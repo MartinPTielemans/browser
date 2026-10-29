@@ -647,6 +647,11 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
     - The chip is the shortcut in 13 pt, at 24 tall, radius 6, white 0.08 and the dim text colour; on the selected row white with accent keys (Panel).
     - ↩ or a click runs the command. The bar closes first, as for a pick.
     - Not yet: Arc's commands we don't have, among them Mute All Tabs, Reveal Tab in Sidebar, Exit (⎋), Enter Full Screen, Collapse Pinned Tabs and Edit Theme…, and so their hidden words "hide" and "toggle".
+- **Commands only** (Arc's help centre). Tab in an empty field, or "/ " typed, lists only the commands, which what's typed next filters as it does the list's commands. Arc took away the hint for it in March 2024 and kept the key. Ours (*interim*, Arc's look unrecorded):
+  - With nothing typed it lists every command that does something now, in the table's order, scrolling past five; typed, the commands the bar would list for it, best first, with none of the core's rows. ↩ runs the one selected, and with none does nothing.
+  - "Commands" is a chip before the input, as a site search's engine is, the placeholder "Search Commands…" and the field's icon the command glyph until one is selected.
+  - ⌫ at the start, ⇧Tab or Esc leaves it, putting "/ " back before what's typed if that entered it, as a site search puts its keyword back, and the bar stays open.
+  - Not over a split's new pane or for Search Tabs, which list no commands; there Tab moves the selection.
 - Well-known sites that what's typed could start, such as YouTube for "you", fill the rows the profile's own leave, under them and never as row 0, so a new profile's list isn't bare. The list is built in and ranked by popularity alone (ours).
 - The row under the pointer has the hover plate and keeps it as the keys move the selection; ↩ takes the selection, and a click the row clicked (Arc 1.170 rec; Panel).
 
@@ -682,7 +687,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | ⌃↩ / ⌃⇧↩ | www.<word>.com for a word typed, else as ↩ / the same in a new window | Chrome |
 | ↑ ↓, ⌃N ⌃P | move, wrapping at the ends | Chrome |
 | ⇞ ⇟ | first / last row | Chrome |
-| Tab / ⇧Tab | enter site search when hinted, else the next row / previous row | Chrome |
+| Tab / ⇧Tab | enter site search when hinted, or in an empty field the commands-only list, else the next row / leave either, else the previous row | Chrome, Arc |
 | Esc | leave site search; otherwise close the panel, drop the typed text and give the page its focus back | Ardia |
 | ⇧⌦, ⌥⌘⌫ | take the selected row's page or search out of the history; the row under it takes its place | Chrome, Arc |
 

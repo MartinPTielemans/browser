@@ -1312,6 +1312,73 @@ fn a_word_of_the_name_puts_the_best_first_and_the_rest_after(cx: &mut TestAppCon
     assert_eq!(bar.listed(), ["Open Library… ⇧⌘L".to_string(), search("library")]);
 }
 
+/// Tab in an empty field lists only the commands, as Arc's bar does: all that do something now,
+/// and then those what's typed names, none of the core's rows among them. ↩ runs one. Esc, ⇧Tab
+/// or ⌫ at the start leaves, and the bar lists what's typed as ever.
+#[gpui::test]
+fn tab_in_an_empty_field_lists_only_the_commands(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    bar.keys("tab");
+    let all = bar.listed();
+    assert!(all.len() > shell::BAR_ROWS, "{all:?}");
+    assert_eq!(all[0], "Pin Tab ⌘D");
+    type_and_suggest(&mut bar, "split", suggestions("split", &["splitwise.com"]));
+    let only = [
+        "Add Split View ⌃+",
+        "Close this Split Pane ⌃⇧-",
+        "Separate Page from Split View",
+        "Expand Current Split",
+        "Flip Split View",
+    ];
+    assert_eq!(bar.listed(), only);
+    // What's typed doesn't go to a page or a search.
+    bar.keys("shift-cmd-enter");
+    assert!(bar.calls().is_empty());
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["hide"]);
+
+    for leave in ["escape", "shift-tab", "home backspace"] {
+        let mut bar = Bar::with_commands(cx);
+        bar.keys("tab");
+        bar.type_text("sp");
+        bar.keys(leave);
+        assert_eq!(bar.input().0, "sp", "{leave}");
+        assert!(bar.calls().is_empty(), "{leave}");
+        bar.suggest("sp", suggestions("sp", &["spotify.com"]));
+        assert_eq!(bar.listed()[..2], [search("sp"), "https://spotify.com/".into()], "{leave}");
+    }
+}
+
+/// "/ " lists only the commands too, as in Arc's bar, and leaving puts it back. A slash elsewhere
+/// is typed as ever.
+#[gpui::test]
+fn slash_space_lists_only_the_commands(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    bar.type_text("/");
+    bar.type_text(" ");
+    assert_eq!(bar.input(), (String::new(), 0..0));
+    bar.type_text("flip");
+    assert_eq!(bar.listed(), ["Flip Split View"]);
+    bar.keys("home backspace");
+    assert_eq!(bar.input(), ("/ flip".into(), 2..2));
+    bar.suggest("/ flip", vec![searching("/ flip")]);
+    assert_eq!(bar.listed()[0], search("/ flip"));
+
+    let mut bar = Bar::with_commands(cx);
+    bar.type_text("a/");
+    bar.type_text(" ");
+    assert_eq!(bar.input(), ("a/ ".into(), 3..3));
+}
+
+/// Search Tabs and the bar over a new pane list no commands, so there Tab moves the selection.
+#[gpui::test]
+fn search_tabs_keeps_tab_for_the_next_row(cx: &mut TestAppContext) {
+    let tabs = vec![tab(4, "https://a.test/"), tab(5, "https://b.test/")];
+    let mut bar = Bar::search_tabs(cx, tabs);
+    bar.keys("tab enter");
+    assert_eq!(bar.calls(), ["select 5", "hide"]);
+}
+
 /// Arc's "space": New Space… first, as a word of its name starts with it, and the other Space
 /// commands after the suggestions.
 #[gpui::test]
