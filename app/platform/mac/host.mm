@@ -427,6 +427,15 @@ NSRect g_card_plate = NSZeroRect;
 unsigned g_card_changes = 0;
 void (*g_card_away)(void);
 id g_card_monitor;
+// Dia's hover card motion (docs/ux-spec.md › Motion): it fades in over 0.1 s on its curve as it
+// grows from 0.92 on a spring of 0.25 s damped 0.75, and goes back to 0.92 on one of 0.2 s damped
+// 0.6, from its plate's top left.
+constexpr double kCardFadeIn = 0.1;
+constexpr double kCardScale = 0.92;
+constexpr double kCardInResponse = 0.25;
+constexpr double kCardInDamping = 0.75;
+constexpr double kCardOutResponse = 0.2;
+constexpr double kCardOutDamping = 0.6;
 
 // The link target's window and view, the browser it shows over, where its top left goes there, a
 // count of its shows and hides as the tooltip's, the UI's handler for the pointer, and while it
@@ -3166,6 +3175,61 @@ void WatchCard() {
                                    }];
 }
 
+// The card at |scale| about its plate's top left, as a sublayer transform of its window's content.
+static CATransform3D CardScaled(double scale) {
+  NSView* content = g_card_view.superview;
+  CALayer* layer = content.layer;
+  const NSSize size = content.bounds.size;
+  // A sublayer transform applies about the layer's anchor point, which AppKit puts at a view's
+  // bottom left, and y goes up unless the view is flipped.
+  const double x = g_card_margin - layer.anchorPoint.x * size.width;
+  const double y = (content.isFlipped ? g_card_margin : size.height - g_card_margin) -
+                   layer.anchorPoint.y * size.height;
+  CATransform3D scaled = CATransform3DMakeTranslation(x, y, 0);
+  scaled = CATransform3DScale(scaled, scale, scale, 1);
+  return CATransform3DTranslate(scaled, -x, -y, 0);
+}
+
+// Takes the card to |scale| and |opacity| from wherever it is now, so one leaving comes back from
+// where it is: the opacity over |fade| seconds on Dia's curve, the scale on a spring of |response|
+// seconds damped |damping|. Calls |done| once both are there or another move takes over.
+static void MoveCard(double scale,
+                     float opacity,
+                     double fade,
+                     double response,
+                     double damping,
+                     void (^done)(void)) {
+  NSView* content = g_card_view.superview;
+  content.wantsLayer = YES;
+  CALayer* layer = content.layer;
+  CALayer* now = layer.presentationLayer ?: layer;
+  const CATransform3D from = now.sublayerTransform;
+  const float from_opacity = now.opacity;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  [CATransaction setCompletionBlock:done];
+  [layer removeAnimationForKey:@"scale"];
+  [layer removeAnimationForKey:@"fade"];
+  layer.sublayerTransform = CardScaled(scale);
+  layer.opacity = opacity;
+  // A spring of |response| seconds is one whose undamped period that is.
+  CASpringAnimation* spring = [CASpringAnimation animationWithKeyPath:@"sublayerTransform"];
+  spring.mass = 1;
+  spring.stiffness = pow(2 * M_PI / response, 2);
+  spring.damping = 4 * M_PI * damping / response;
+  spring.fromValue = [NSValue valueWithCATransform3D:from];
+  spring.toValue = [NSValue valueWithCATransform3D:layer.sublayerTransform];
+  spring.duration = spring.settlingDuration;
+  [layer addAnimation:spring forKey:@"scale"];
+  CABasicAnimation* fading = [CABasicAnimation animationWithKeyPath:@"opacity"];
+  fading.fromValue = @(from_opacity);
+  fading.toValue = @(opacity);
+  fading.duration = fade;
+  fading.timingFunction = [CAMediaTimingFunction functionWithControlPoints:0.25:0.46:0.45:0.94];
+  [layer addAnimation:fading forKey:@"fade"];
+  [CATransaction commit];
+}
+
 void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {
   Browser* browser = BrowserWithView(ui_view);
   if (!g_card || !browser || !browser->window) {
@@ -3174,6 +3238,8 @@ void host_show_hover_card(void* ui_view, double left, double top, double width, 
   if (g_card_shown && g_card_over != browser) {
     host_hide_hover_card(0);
   }
+  // The next row's card swaps in at once while one shows.
+  const bool moving = !g_card_shown;
   g_card_left = left;
   g_card_top = top;
   g_card_plate = NSMakeRect(g_card_margin, g_card_margin, width, height);
@@ -3197,20 +3263,34 @@ void host_show_hover_card(void* ui_view, double left, double top, double width, 
     }
     [g_card_view.layer setNeedsDisplay];
     [g_card_view.layer displayIfNeeded];
-    // Still fading out over this window, it comes back at once.
+    // Still going over this window, it comes back from where it is.
     if (g_card.parentWindow != browser->window) {
       [g_card.parentWindow removeChildWindow:g_card];
+      // From nothing, at its smallest.
+      [CATransaction begin];
+      [CATransaction setDisableActions:YES];
+      g_card_view.superview.wantsLayer = YES;
+      [g_card_view.superview.layer removeAllAnimations];
+      g_card_view.superview.layer.sublayerTransform = CardScaled(kCardScale);
+      g_card_view.superview.layer.opacity = 0;
+      [CATransaction commit];
+      g_card.alphaValue = 1;
       AddOver(browser->window, g_card);
       RaiseOverlays(browser, g_card);
     }
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
-      context.duration = 0;
-      g_card.animator.alphaValue = 1;
-    }];
     WatchCard();
     PlaceCardClicks(NSEvent.mouseLocation);
-    // check.sh waits for this line, so a capture after it shows the card whole.
-    fprintf(stderr, "browser: hover card window shown\n");
+    void (^whole)(void) = ^{
+      if (change == g_card_changes) {
+        // check.sh waits for this line, so a capture after it shows the card whole.
+        fprintf(stderr, "browser: hover card window shown\n");
+      }
+    };
+    if (moving) {
+      MoveCard(1, 1, kCardFadeIn, kCardInResponse, kCardInDamping, whole);
+    } else {
+      whole();
+    }
   });
 }
 
@@ -3230,19 +3310,14 @@ void host_hide_hover_card(double fade) {
     }
     [g_card.parentWindow removeChildWindow:g_card];
     [g_card orderOut:nil];
+    // check.sh reads this line.
+    fprintf(stderr, "browser: hover card window gone\n");
   };
   if (fade == 0) {
     gone();
     return;
   }
-  [NSAnimationContext
-      runAnimationGroup:^(NSAnimationContext* context) {
-        context.duration = fade;
-        context.timingFunction =
-            [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
-        g_card.animator.alphaValue = 0;
-      }
-      completionHandler:gone];
+  MoveCard(kCardScale, 0, fade, kCardOutResponse, kCardOutDamping, gone);
 }
 
 void host_watch_memory_pressure(void (*pressed)(void)) {

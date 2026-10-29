@@ -31,6 +31,9 @@ use crate::tokens::hover_card::{
 /// How long the pointer rests on a row before its card shows: the tooltip's delay, which a hover
 /// that opens something waits as its threshold (docs/ux-principles.md).
 pub const DWELL: Duration = crate::tooltip::DELAY;
+/// How long the card fades in and out, as it grows and shrinks on its springs (Dia's,
+/// docs/ux-spec.md › Motion › Hover card in, out).
+pub const FADE: Duration = Duration::from_millis(100);
 /// How long the card stays after the pointer leaves its row, for the pointer to cross the gap onto
 /// it (ours).
 pub const LEAVE: Duration = Duration::from_millis(150);

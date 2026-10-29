@@ -1534,7 +1534,7 @@ impl hover_card::Host for CardHost {
     }
 
     fn hide(&self) {
-        unsafe { platform::host_hide_hover_card(tooltip::FADE_OUT.as_secs_f64()) };
+        unsafe { platform::host_hide_hover_card(hover_card::FADE.as_secs_f64()) };
     }
 }
 
