@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
@@ -102,33 +103,24 @@ void SetInputFocus(x11::Window window) {
       .IgnoreError();
 }
 
-// Sends |event| to the X window with the input focus, where the X server sends a key typed now,
-// unless that's still in |browser|, which would get it again.
-void SendToInputFocus(const ui::KeyEvent& event, x11::Window browser) {
+// |event| as the X server sends a key typed, but for the window it goes to.
+std::optional<x11::KeyEvent> X11KeyOf(const ui::KeyEvent& event) {
   const int code = ui::KeycodeConverter::DomCodeToNativeKeycode(event.code());
   if (code == ui::KeycodeConverter::InvalidNativeKeycode()) {
-    return;
+    return std::nullopt;
   }
-  const x11::Window focus = InputFocus();
-  if (focus == x11::Window::None || IsWithin(focus, browser)) {
-    return;
-  }
-  x11::Connection* connection = x11::Connection::Get();
   constexpr auto kNone = x11::KeyButMask{};
-  const x11::KeyEvent key{
+  return x11::KeyEvent{
       .opcode = event.type() == ui::EventType::kKeyPressed ? x11::KeyEvent::Press
                                                            : x11::KeyEvent::Release,
       .detail = static_cast<x11::KeyCode>(code),
-      .root = connection->default_root(),
-      .event = focus,
+      .root = x11::Connection::Get()->default_root(),
       .state = (event.IsShiftDown() ? x11::KeyButMask::Shift : kNone) |
                (event.IsCapsLockOn() ? x11::KeyButMask::Lock : kNone) |
                (event.IsControlDown() ? x11::KeyButMask::Control : kNone) |
                (event.IsAltDown() ? x11::KeyButMask::Mod1 : kNone),
       .same_screen = true,
   };
-  connection->SendEvent(key, focus, x11::EventMask::NoEvent);
-  connection->Flush();
 }
 
 ui::PlatformWindow* PlatformWindowOf(views::Widget* widget) {
@@ -391,6 +383,7 @@ class WindowViews : public views::WidgetObserver,
   // showed may have moved it.
   void OverlayTakesKeyboard(bool takes) {
     overlay_has_keyboard_ = takes;
+    early_keys_.clear();
     ui_text_input_.SetKeyboard(ui_has_keyboard_ || overlay_has_keyboard_);
     if (!takes && ui_ != x11::Window::None && !ui_has_keyboard_ && IsWithin(InputFocus(), ui_)) {
       UITakesKeyboard();
@@ -507,9 +500,13 @@ class WindowViews : public views::WidgetObserver,
       event->StopPropagation();
     }
     // On X11 only one typed before the overlay that took the keyboard had the input focus reaches
-    // the window, as fast typing after ⌃F does once the keys held for the bar were given to it.
+    // the window, as fast typing after ⌃F does once the keys held for the bar were given to it, as
+    // GPUI moves the focus on its next turn. They go to the overlay once it has the focus.
     if (overlay_has_keyboard_ && ui_ != x11::Window::None) {
-      SendToInputFocus(*event, window());
+      if (std::optional<x11::KeyEvent> key = X11KeyOf(*event)) {
+        early_keys_.push_back(*key);
+        SendEarlyKeys();
+      }
     }
   }
 
@@ -531,6 +528,9 @@ class WindowViews : public views::WidgetObserver,
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
     if (auto* focus = event.As<x11::FocusEvent>()) {
+      if (focus->opcode == x11::FocusEvent::Out) {
+        SendEarlyKeys();
+      }
       // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
           focus->mode == x11::NotifyMode::Ungrab || overlay_has_keyboard_) {
@@ -582,6 +582,27 @@ class WindowViews : public views::WidgetObserver,
     return std::ranges::any_of(panes_, holds) || holds(side_panel_);
   }
 
+  // Sends the keys typed before the overlay with the keyboard had the input focus to the window
+  // that has it, unless that's still in this one, which would get them again.
+  void SendEarlyKeys() {
+    if (early_keys_.empty()) {
+      return;
+    }
+    const x11::Window focus = InputFocus();
+    if (focus == x11::Window::None || IsWithin(focus, window())) {
+      return;
+    }
+    x11::Connection* connection = x11::Connection::Get();
+    for (x11::KeyEvent& key : early_keys_) {
+      key.event = focus;
+      connection->SendEvent(key, focus, x11::EventMask::NoEvent);
+    }
+    connection->Flush();
+    fprintf(stderr, "browser: sent %zu key events typed before the overlay had the input focus\n",
+            early_keys_.size());
+    early_keys_.clear();
+  }
+
   // Sizes the UI to the window's content.
   void SizeUI() {
     const gfx::Size pixels = ContentPixelsOf(widget_);
@@ -614,6 +635,8 @@ class WindowViews : public views::WidgetObserver,
   double corner_radius_ = 0;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // The keys typed while the overlay with the keyboard didn't have the input focus yet.
+  std::vector<x11::KeyEvent> early_keys_;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
