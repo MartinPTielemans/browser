@@ -85,6 +85,12 @@ pub(super) struct Recorder {
     pub(super) share_sheet: Cell<bool>,
     /// What the last menu does with the item chosen, as `choose` picks it.
     answer: RefCell<Option<Box<dyn FnOnce(Option<usize>, &mut App)>>>,
+    /// The questions the dialog was asked through `tell`, each as its message, its buttons and
+    /// its other answer's, and what the last one's action does.
+    pub(super) told: RefCell<Vec<String>>,
+    pub(super) told_action: RefCell<Option<Box<dyn FnOnce(&mut App)>>>,
+    /// The dialog asks something else, so `tell` doesn't ask.
+    pub(super) dialog_busy: Cell<bool>,
     /// Each time the shell opened the Site Controls: the tab, and where they hang from.
     pub(super) site_controls: RefCell<Vec<(u64, crate::site_controls::Place)>>,
     /// The ids of the extensions the Site Controls were given to list, each time.
@@ -537,6 +543,15 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    fn turn_on_extension(&self, profile: u64, id: &str, _: &mut App) -> bool {
+        self.record(format!("turn on {profile} {id}"));
+        true
+    }
+
+    fn extension_crash_told(&self, profile: u64, id: &str, _: &mut App) {
+        self.record(format!("crash told {profile} {id}"));
+    }
+
     fn open_extension_options(&self, _: &str, _: &mut App) {}
 
     fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
@@ -656,6 +671,22 @@ impl Browser for Recorder {
         _: Box<dyn FnOnce(&mut App)>,
         _: &mut App,
     ) {
+    }
+
+    fn tell(
+        &self,
+        question: crate::dialog::Question,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        _: &mut App,
+    ) -> bool {
+        if self.dialog_busy.get() {
+            return false;
+        }
+        let also = question.also.as_ref().map_or("", |(title, _)| title.as_ref());
+        let (message, action, cancel) = (question.message, question.action, question.cancel);
+        self.told.borrow_mut().push(format!("{message}: {action} / {cancel} / {also}"));
+        *self.told_action.borrow_mut() = Some(confirmed);
+        true
     }
 
     fn focus_ui(&self, _: &mut App) {

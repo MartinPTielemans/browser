@@ -658,6 +658,12 @@ impl Browser for Fake {
         false
     }
 
+    fn turn_on_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
+        false
+    }
+
+    fn extension_crash_told(&self, _: u64, _: &str, _: &mut App) {}
+
     fn open_extension_options(&self, _: &str, _: &mut App) {}
 
     fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
@@ -1028,6 +1034,10 @@ impl Browser for Fake {
         let look = menu::Look { light: light || look.light, ..look };
         let area = Bounds::new(point(px(0.), px(0.)), PREVIEW_AREA.get());
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
+    }
+
+    fn tell(&self, _: dialog::Question, _: Box<dyn FnOnce(&mut App)>, _: &mut App) -> bool {
+        false
     }
 
     // The dialog's window is one the app's host lays over the browser window. With PREVIEW_DIALOG=1

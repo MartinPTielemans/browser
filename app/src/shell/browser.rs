@@ -170,6 +170,10 @@ pub trait Browser {
     fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, cx: &mut App);
     /// Removes extension `id` from `profile`, with the data it keeps, and returns whether it went.
     fn remove_extension(&self, profile: u64, id: &str, cx: &mut App) -> bool;
+    /// Turns extension `id` on again in `profile`, and returns whether it's on.
+    fn turn_on_extension(&self, profile: u64, id: &str, cx: &mut App) -> bool;
+    /// Tells the core the user was told it turned extension `id` off in `profile` as it crashed.
+    fn extension_crash_told(&self, profile: u64, id: &str, cx: &mut App);
     /// Opens an extension's options page, `url`, in a new tab, and shows it.
     fn open_extension_options(&self, url: &str, cx: &mut App);
     /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,
@@ -253,6 +257,14 @@ pub trait Browser {
         confirmed: Box<dyn FnOnce(&mut App)>,
         cx: &mut App,
     );
+    /// Asks `question` in the browser's dialog, and calls `confirmed` if the user chooses its
+    /// action, once the dialog has gone. Returns whether it asks: not while it asks another.
+    fn tell(
+        &self,
+        question: crate::dialog::Question,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        cx: &mut App,
+    ) -> bool;
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
     /// Gives the page shown the keyboard, from the UI if it has it, now or once a page still

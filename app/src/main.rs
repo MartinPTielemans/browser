@@ -2095,6 +2095,19 @@ impl Browser for Engine {
         unsafe { bc::bc_extension_remove(profile, id.as_ptr()) }
     }
 
+    fn turn_on_extension(&self, profile: u64, id: &str, _: &mut App) -> bool {
+        let Ok(id) = CString::new(id) else {
+            return false;
+        };
+        unsafe { bc::bc_extension_turn_on(profile, id.as_ptr()) }
+    }
+
+    fn extension_crash_told(&self, profile: u64, id: &str, _: &mut App) {
+        if let Ok(id) = CString::new(id) {
+            unsafe { bc::bc_extension_crash_told(profile, id.as_ptr()) };
+        }
+    }
+
     fn open_extension_options(&self, url: &str, _: &mut App) {
         open_tab(self.window, url);
     }
@@ -2234,6 +2247,19 @@ impl Browser for Engine {
         cx: &mut App,
     ) {
         with_overlays(move |cx| dialog::ask(message, detail, action, confirmed, cx), cx);
+    }
+
+    fn tell(
+        &self,
+        question: dialog::Question,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        cx: &mut App,
+    ) -> bool {
+        if !dialog::can_pose(cx) {
+            return false;
+        }
+        with_overlays(move |cx| dialog::pose(question, confirmed, cx), cx);
+        true
     }
 
     fn focus_ui(&self, _: &mut App) {
@@ -4536,6 +4562,7 @@ unsafe extern "C" fn extensions_changed(
             options: text(extension.options),
             removable: extension.removable,
             incognito: extension.incognito,
+            crashed: extension.crashed,
             commands: match extension.commands.is_null() {
                 true => &[][..],
                 false => unsafe {
@@ -4559,6 +4586,8 @@ unsafe extern "C" fn extensions_changed(
         })
         .collect();
     update_shells(|shell, cx| shell.set_extensions(profile, extensions.clone(), cx));
+    // Over the window in front, once.
+    update_window(front().0, |shell, cx| shell.tell_crashed_extension(profile, cx));
 }
 
 unsafe extern "C" fn window_extension_actions(
