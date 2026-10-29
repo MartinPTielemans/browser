@@ -231,7 +231,9 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
 | [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit ilo?" in the dialog: "Quit, and don't ask again" at the left, Cancel ESC and a blue Quit ↩ at the right; no icon, so 172 tall where Arc's is 249; Dock and logout quits don't | Arc 1.170.0 cap, bin; Arc 1.170 rec |
-| [x] | Profiles tab | MVP | ours: a row per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile *interim*; Arc's: measure | Arc 1.170.0 cap |
+| [x] | Profiles tab | MVP | ours: a box per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile *interim*; Arc's: measure | Arc 1.170.0 cap |
+| [ ] | Download folder per profile | MVP | Settings › Profiles: the folder with ~, Change… in the system's panel, Chrome's download location for that profile; a policy's folder stays. Built (#683); to tick: `./check.sh profiles` sets a made-up folder through `BROWSER_DOWNLOAD_FOLDER` and downloads into it, with a capture of the tab. No run does yet | Arc 1.170.0 cap |
+| [ ] | Clear Browsing Data per profile | MVP | Settings › Profiles' Clear…, the command bar, the Archive menu and ⇧⌘⌫: Chrome's dialog in a tab for the profile, none in a private window; no agent path. Built (#683): the lib tests check the key, the bar and the private window; to tick: `./check.sh profiles` presses ⇧⌘⌫ with the page focused and clicks Clear… for a second profile, capturing the dialog in that profile's Space. No run does yet | Arc 1.170.0 cap, Dia |
 | [x] | Default browser | MVP | ours: General's Make ilo your default browser, macOS's confirmation, the way back in System Settings; links from other apps open as tabs in the front regular window's user Space *interim* until Little Arc | Ours |
 | [ ] | Arc's other tabs | MVP | Links, Icon, Previews: with their features. Not built: Settings has none of them. Links waits on Air Traffic Control's link rules (Phase 4), Icon on alternate app icons, the owner's and design's call, and Previews on knowing what Arc's tab holds (the Arc capture plan); then each is a tab of ours with its switches | Arc 1.170.0 cap |
 
@@ -295,6 +297,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Save / update prompt | MVP | page top right; Save / Update Password, username picker, Never, No Thanks in Chrome's words; look: measure | Dia P§16, Chrome |
 | [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
+| [ ] | Offer to save passwords, per profile | MVP | Settings › Passwords' switch for the profile picked, on by default; off, no offer on any site, and filling goes on; no agent path. Built (#683); to tick: `./check.sh passwords` turns it off, signs in on its page and sees no offer, with a capture of the tab. No run does yet. Addresses' and cards' switches come with their offers | Arc 1.170.0 cap |
 | [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |
