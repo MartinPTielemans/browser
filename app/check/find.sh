@@ -12,7 +12,8 @@
 # the keyboard. View › Developer's JavaScript Console opens them, a tab without them shows its page
 # across the card, and View Source opens the page's source in a tab under it. Help ›
 # Troubleshooting's Open Task Manager opens Chrome's, with the keyboard, and ⌘W there closes it, not
-# the tab.
+# the tab. Undocked, after a relaunch, ⌥⌘J opens DevTools in a window of Chrome's, where ⌘C copies
+# the console's text to the run's own pasteboard, and ⌥⌘I from the page brings them to the front.
 
 # Find in page, and zoom. The test page has three apples and one 日本語, and "far" well below
 # them, and puts its zoom and how far it's scrolled in its title as they change.
@@ -335,4 +336,61 @@ in_browser RenderWidgetHostViewCocoa "after ⌘W closed the Task Manager"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, what's typed right after it lands there, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png"
+
+# Undocked, as DevTools' Dock side menu leaves them for the next time, DevTools are a window of
+# Chrome's, where ⌘C copies, and ⌥⌘I from the page raises them, as Chrome's and Arc's toggle
+# does, rather than closing them. Sets where DevTools dock to $1.
+dock() {
+  python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    prefs = json.load(f)
+prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = sys.argv[2]
+with open(sys.argv[1], "w") as f:
+    json.dump(prefs, f)
+' "$prefs" "\"$1\""
+}
+dock undocked
+log="$out/find-undocked.log"
+step=0
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the find test page didn't draw after a relaunch"
+send click $page_point
+send key j cmd alt
+expect '^browser: command javascript-console via page$' \
+  "⌥⌘J with the page focused didn't reach the UI"
+send title
+expect '^browser: key window titled .*Tools - ' "⌥⌘J didn't open DevTools in a window of their own"
+await_views 1 "with DevTools undocked"
+# The console's prompt takes the keyboard once DevTools have loaded, so the copy is tried until
+# it has.
+word=undocked-copy
+for _ in $(seq 50); do
+  send key a cmd
+  send type "$word"
+  send key a cmd
+  send key c cmd
+  send pasteboard
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "^browser: pasteboard text $word\$" &&
+    break
+done
+expect "^browser: pasteboard text $word\$" "⌘C in undocked DevTools didn't copy the console's text"
+grep '^browser: command ' "$log" | grep -qv ' javascript-console ' &&
+  fail "⌘A or ⌘C in undocked DevTools ran a command of the app's"
+../tools/window-screenshot.sh "$pid" "$out/devtools-undocked.png" || fail "no window to capture"
+send window 1
+send click $page_point
+send key i cmd alt
+expect '^browser: command devtools via page$' "⌥⌘I with the page focused didn't reach the UI"
+send title
+expect '^browser: key window titled .*Tools - ' "⌥⌘I didn't bring undocked DevTools to the front"
+send window 1
+await_views 1 "after ⌥⌘I with DevTools undocked"
+quit_by_key
+await '^browser: command quit via ' || fail "⌘Q didn't quit"
+exited
+dock right
+echo "ok: ⌘F opens the find bar from the page with the keyboard, what's typed right after it lands there, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Undocked DevTools open in a window of their own, where ⌘C copies, and ⌥⌘I from the page brings them to the front. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png, $out/devtools-undocked.png"
