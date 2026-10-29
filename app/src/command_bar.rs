@@ -188,6 +188,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::JavaScriptConsole => "icons/terminal.svg",
         Command::ManageExtensions | Command::AddExtension => "icons/puzzle.svg",
         Command::RenameSpace | Command::RenameTab => "icons/pencil.svg",
+        Command::ExportSpace => "icons/file.svg",
         Command::NextTab => "icons/arrow-down.svg",
         Command::PreviousTab => "icons/arrow-up.svg",
         Command::ViewLibrary => "icons/library.svg",

@@ -116,7 +116,8 @@ expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in th
 e=$(today)
 expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
 post rightclick 100 112
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "the Space's menu didn't offer its theme"
 # The theme picker's pink swatch, and + for a second colour, which a relaunch brings back.
 send choose "$(cased 'Edit Theme Color…')"
@@ -136,7 +137,7 @@ expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
 # search and picked with ↩, which a relaunch brings back.
 post rightclick 100 112
 expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
-Delete Space")\$" "the Space's menu didn't offer Change Icon…"
+Export as Markdown…, Delete Space")\$" "the Space's menu didn't offer Change Icon…"
 send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for $second on icon\$" "Change Icon… didn't open the icon picker"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
