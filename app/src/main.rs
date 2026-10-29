@@ -2215,6 +2215,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_start_move(self.window) };
     }
 
+    fn window_maximized(&self) -> bool {
+        cfg!(target_os = "linux") && unsafe { bc::bc_window_is_maximized(self.window) }
+    }
+
     fn show_reveal(&self, width: f32, _: &mut App) {
         unsafe { platform::host_show_reveal(self.ui_view, width.into()) };
     }
@@ -2963,7 +2967,7 @@ fn open_window_as(
     let window = cx.open_window(options, |window, cx| {
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
-            cx.observe_window_bounds(window, move |shell: &mut Shell, window, _| {
+            cx.observe_window_bounds(window, move |shell: &mut Shell, window, cx| {
                 let viewport = window.viewport_size();
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
@@ -2974,6 +2978,7 @@ fn open_window_as(
                 // Mac's does.
                 #[cfg(target_os = "linux")]
                 {
+                    shell.bounds_changed(cx);
                     panels::place(ui_view);
                     overlays::place_dialog(ui_view);
                     menu_window::resized(ui_view);
