@@ -274,6 +274,21 @@ void UseProfile(Profile* profile) {
   ObserveExtensions(profile);
 }
 
+Profile* ProfileOrLoad(bc_id id) {
+  const std::string dir = ProfileDir(id);
+  // ProfileFor gives the first profile for one that isn't loaded.
+  Profile* profile = dir.empty() ? nullptr : ProfileFor(dir);
+  if (profile && DirOf(profile) == dir) {
+    return profile;
+  }
+  // Once: a profile Chrome can't load is asked about each time Settings draws.
+  static base::NoDestructor<std::set<std::string>> asked;
+  if (!dir.empty() && asked->insert(dir).second) {
+    LoadProfiles({dir}, base::BindOnce(&ReportChanged));
+  }
+  return nullptr;
+}
+
 void ReleaseProfiles() {
   Used().clear();
 }
