@@ -198,6 +198,23 @@ fi
 send resize 1000 700
 check_layout "after a resize"
 check_buttons "after a resize"
+# The window's resize border, about 3 outside its edge (Dia), is AppKit's to track, as for any
+# resizable window. Whether AppKit takes a drag the driver posts there only a Mac's run tells: a
+# drag from 2 outside the right edge either widens the window by 100 or leaves it, and the run
+# says which.
+send drag 1002 350 1102 350
+check_layout "after a drag at the window's edge"
+case "$width" in
+  1100)
+    edge="a drag 2 outside the window's right edge widened it by 100"
+    check_buttons "after a drag at the window's edge"
+    ../tools/window-screenshot.sh "$pid" "$out/edge-resized.png" || fail "no window to capture"
+    send resize 1000 700
+    check_layout "after the edge's resize"
+    ;;
+  1000) edge="the window didn't take a posted drag 2 outside its right edge, so no run can drag it" ;;
+  *) fail "a drag at the window's edge left it $width wide, neither 1000 nor 1100" ;;
+esac
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
 # Once there, it says how to leave, at the card's top right, as Arc's does.
@@ -683,4 +700,5 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
+echo "edge: $edge"
 echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
