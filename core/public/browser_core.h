@@ -174,6 +174,9 @@ typedef struct bc_extension {
   // Whether the user may remove it (bc_extension_remove). The ad blocker the browser comes with is
   // turned off in Settings instead (bc_set_ad_blocking).
   bool removable;
+  // Whether the user allowed it in Incognito, as Chrome's extensions page does: it runs in private
+  // windows, where the others don't, and its action and commands work there.
+  bool incognito;
 } bc_extension;
 
 // An extension's action as a window shows it, for the tab it shows.
