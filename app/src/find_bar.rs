@@ -86,13 +86,17 @@ impl Global for FindBars {}
 pub fn open(browser: bc::bc_id, ui_view: *mut c_void, cx: &mut App) -> Option<AnyWindowHandle> {
     // The keys are bound once, for every window's bar.
     if !cx.has_global::<FindBars>() {
+        // The browser's ⌘G, ⇧⌘G and ⌘F, for the bar while it has the keyboard.
+        let key = |key, action| crate::shell::view_binding(key, action, "FindBar", cx);
+        let mac_keys = [
+            key("cmd-g", Box::new(FindNext)),
+            key("shift-cmd-g", Box::new(FindPrevious)),
+            key("cmd-f", Box::new(SelectAll)),
+        ];
+        cx.bind_keys(mac_keys);
         cx.bind_keys([
             KeyBinding::new("enter", FindNext, Some("FindBar")),
             KeyBinding::new("shift-enter", FindPrevious, Some("FindBar")),
-            // The browser's ⌘G, ⇧⌘G and ⌘F, for the bar while it has the keyboard.
-            KeyBinding::new("cmd-g", FindNext, Some("FindBar")),
-            KeyBinding::new("shift-cmd-g", FindPrevious, Some("FindBar")),
-            KeyBinding::new("cmd-f", SelectAll, Some("FindBar")),
             KeyBinding::new("escape", Close, Some("FindBar")),
         ]);
         cx.set_global(FindBars::default());
