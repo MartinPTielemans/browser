@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/containers/contains.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
@@ -217,7 +216,7 @@ class WindowViews : public views::WidgetObserver,
   static void Detach(aura::Window* holder, aura::Window* view, const Staying& staying) {
     if (holder && view && view->parent() == holder) {
       holder->RemoveChild(view);
-      if (!base::Contains(staying, view)) {
+      if (!std::ranges::contains(staying, view)) {
         view->Hide();
       }
     }
