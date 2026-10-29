@@ -389,7 +389,7 @@ impl Shell {
             .map(|action| {
                 let id = action.id.clone();
                 let run: MenuAction = Box::new(move |shell, cx| shell.run_extension(&id, cx));
-                (MenuEntry::new(action.title.clone(), true), run)
+                (MenuEntry::named(action.title.clone(), true), run)
             })
             .collect();
         let button = self.action_bounds(shown);

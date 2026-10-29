@@ -19,6 +19,7 @@ use gpui::{
     point, prelude::*, px, relative, rgb, size,
 };
 use unicode_segmentation::*;
+use crate::shell::MenuEntry;
 use crate::tokens::text_input::PLACEHOLDER;
 use crate::tokens::palette::{NO_THEME_ACCENT, SELECTION};
 
@@ -385,7 +386,7 @@ impl TextInput {
         items.push(("", false, None));
         items.push(("Select All", !self.content.is_empty(), Some(Box::new(SelectAll))));
         let titles = (items.iter())
-            .map(|&(title, enabled, _)| (SharedString::from(title), enabled))
+            .map(|&(title, enabled, _)| (MenuEntry::label(title), enabled))
             .collect();
         let mut actions: Vec<Option<Box<dyn Action>>> =
             items.into_iter().map(|(_, _, action)| action).collect();

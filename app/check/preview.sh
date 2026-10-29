@@ -128,8 +128,8 @@ none_since "^browser: page $a unloaded 1\$" || fail "⌘W in the preview unloade
 # top of Today, under the pinned row, the divider and "+ New Tab", dragged onto the Space's name.
 away
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown .*Duplicate Tab' "a right-click on the pinned row didn't show its menu"
-send choose Duplicate Tab
+expect "^browser: menu shown $(cased '.*Duplicate Tab')" "a right-click on the pinned row didn't show its menu"
+send choose "$(cased 'Duplicate Tab')"
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
 expect "^browser: today [1-9][0-9]* $kept\$" "Duplicate Tab didn't put a copy at the top of Today"
 b=$(today | cut -d' ' -f1)
