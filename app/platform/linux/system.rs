@@ -1,6 +1,6 @@
 //! What the Linux host does through GPUI's Linux platform rather than in host.cc, as GPUI already
-//! has it: the clipboard, the file chooser portal, the browser window's activation and the
-//! touchpad's swipes over the page.
+//! has it: the clipboard, the file chooser portal, the browser window's activation, the touchpad's
+//! swipes over the page and Control's release.
 
 use std::{
     ffi::{CStr, c_char, c_void},
@@ -60,6 +60,14 @@ pub fn watch_activation<T: 'static>(
         platform::host_window_active(ui_view, window.is_window_active(), whole_window)
     })
     .detach();
+}
+
+/// Calls `released` once Control is no longer held, after the event that shows it, as a ⌃Tab walk
+/// ends: GPUI hears the keyboard's state whichever view has the keys.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_watch_control(released: extern "C" fn()) {
+    // After the update under way, which the walk's ⌃Tab asked from.
+    gpui_linux::watch_control(move || crate::overlays::later(released));
 }
 
 /// A touchpad swipe over the page in the browser window whose Wayland surface is `surface`
