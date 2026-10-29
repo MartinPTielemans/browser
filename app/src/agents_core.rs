@@ -51,10 +51,13 @@ impl Browser for Core {
     }
 
     fn space_tabs(&self, space: u64, cx: &App) -> Vec<TabInfo> {
+        (self.space_tab_ids(space, cx).into_iter()).map(|tab| self.tab(tab, cx)).collect()
+    }
+
+    fn space_tab_ids(&self, space: u64, _: &App) -> Vec<u64> {
         let pinned = tabs(bc::bc_space_pinned, space).into_iter();
         let pinned = pinned.filter(|&row| !unsafe { bc::bc_folder(row, &mut false) });
-        let today = tabs(bc::bc_space_today, space);
-        pinned.chain(today).map(|tab| self.tab(tab, cx)).collect()
+        pinned.chain(tabs(bc::bc_space_today, space)).collect()
     }
 
     fn tab(&self, tab: u64, cx: &App) -> TabInfo {
