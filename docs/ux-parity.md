@@ -12,11 +12,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [x] | Blur behind the window | MVP | material 29, emphasized, following the active state | Dia 1.50.1 bin, D›Window translucency |
-| [x] | Base tint | MVP | black 0.4. Ours: black 0.25, for the composite (row below) | Dia 1.50.1 bin |
-| [x] | Space gradient | MVP | colour → HSL L + 0.25, stops 0.36 (neutral 0.12), layer 0.5; system accent colour when the Space has none | Dia 1.50.1 bin |
-| [x] | Card fill | MVP | #121212 0.5, no grain | Dia 1.50.1 bin |
-| [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)`. Built: material 29 reads darker in our window than Dia's measures, so our base tint is black 0.25 (Window material › Ours). Over black / grey 20 / grey 60 / white a check VM reads 23 / 27 / 34 / 70 against Dia's 24 / 29 / 36 / 69, within 2.5 levels, which `check/window.sh` holds to 3. Light comes with the Appearance menu | Dia 1.50.1 cap |
+| [x] | Blur behind the window | MVP | material 29, emphasized, following the active state; light, material 13 | Dia 1.50.1 bin, D›Window translucency |
+| [x] | Base tint | MVP | black 0.4; light, white 0.8. Ours: black 0.25, for the composite (row below) | Dia 1.50.1 bin |
+| [x] | Space gradient | MVP | colour → HSL L + 0.25, stops 0.36 (neutral 0.12), layer 0.5 (light 0.75); system accent colour when the Space has none | Dia 1.50.1 bin |
+| [x] | Card fill | MVP | #121212 0.5, no grain; light, white 0.7 | Dia 1.50.1 bin |
+| [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)`. Built: material 29 reads darker in our window than Dia's measures, so our base tint is black 0.25 (Window material › Ours). Over black / grey 20 / grey 60 / white a check VM reads 23 / 27 / 34 / 70 against Dia's 24 / 29 / 36 / 69, within 2.5 levels, which `check/window.sh` holds to 3. Light: material 13 under white 0.8, which `check/window.sh` measures the same way in a check VM it turns light, against Dia's 211 / 212 / 216 / 230 before the gradient; not yet run | Dia 1.50.1 cap |
 | [ ] | Inactive, Reduce Transparency, Increase Contrast | MVP | opaque wallpaper-tinted fill (AppKit). Built: the material follows the window's active state, so AppKit swaps the fill; no capture of an inactive window or either setting yet | Dia 1.50.1 cap |
 | [x] | Card inset | MVP | 10 on every side, docked or hidden; docked, the 10 on the left is inside the sidebar | Arc 1.170.0 ax and cap |
 | [x] | Card radius | MVP | 6, circular, on the card and the page in it | Arc cap |
@@ -361,7 +361,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Arc: Spaces → Spaces, profiles → profiles | MVP | yes; Settings › Import | decision 5 |
 | [x] | Arc: favorites, pinned tabs, custom names | MVP | favorites → favorites; pinned → pinned rows | Dia 1.52 P§20 |
-| [ ] | Arc: themes | MVP | `windowTheme` colours, intensity, noise, texture, appearance, light and dark; built: colour, count, intensity, noise, appearance | Arc 1.167 P§20 |
+| [ ] | Arc: themes | MVP | `windowTheme` colours, intensity, noise, texture, appearance, light and dark; built: colour, count, intensity, noise, appearance (`windowAppearance`, else the looks' `translucencyStyle`), light and dark looks | Arc 1.167 P§20 |
 | [x] | Arc: folders | MVP | ours: folders, nested; split views as their tabs *interim*; measure | ours |
 | [ ] | Chrome: bookmarks, history, open tabs, passwords, addresses, cards | MVP | yes, passwords from the user's exported CSV; built: bookmarks and history, for Chrome's whole family, and passwords from any browser's exported CSV | P§20 |
 | [x] | Chrome: cookies | MVP | not imported: no other browser's cookies or passwords are decrypted, and the user signs in again | #453 |
@@ -418,10 +418,10 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Link rules: routing | 4 | links from other apps: first rule matching URL text and/or sending app opens in its Space; else The Space in Front, a named Space or Little Arc; never an Agent Space or private window *interim* | Arc (Air Traffic Control), ours |
 | [ ] | Link rules: Settings › Links | 4 | rows of URL contains, From, → Space, −; + adds; drag reorders; a deleted Space's rule says No Space *interim*; measure Arc's | ours |
 | [ ] | Link rules: import | 4 | Arc's rules come in with its Spaces | ours |
-| [ ] | Themes: rendering | 4 | OKLab 45° mix to 75 %; third colour top → bottom; alpha 0.2 + 0.55 × intensity; the automatic appearance turns a light colour's window light. Built, dark only: one colour keeps the Space gradient, intensity scales its alpha, two and three as Arc's rule *interim* | Arc 1.167 P§21, Arc 1.170 rec |
+| [ ] | Themes: rendering | 4 | OKLab 45° mix to 75 %; third colour top → bottom; alpha 0.2 + 0.55 × intensity; the automatic appearance turns a light colour's window light. Built: light and dark force the window's look and automatic follows the system's *interim*; one colour keeps the Space gradient, intensity scales its alpha, two and three as Arc's rule *interim* | Arc 1.167 P§21, Arc 1.170 rec |
 | [ ] | Themes: texture | 4 | noise × strength (0.8 / 0.15 / 0.6 / 0.4), quarter when inactive; our own textures. Built: one grain of our own noise at 0.075 × the dial *interim* | Arc 1.167, Arc 1.170 rec |
 | [ ] | Themes: picker | 4 | card 357 × 509 at radius 20, arrow at the row; HSL field 340 with 1–3 handles (44 / 26, + 180°, + 150° / + 210°); appearance ×3, − +, 9 swatches, wave slider for intensity, 24-dot dial for grain; grows from the arrow, shrinks to it in 110 ms; the window follows each drag. *Interim*: swatch clicks (the swatch's own colour), < >, −, Remove Theme Color, the menu's anchor, appearance not drawn, translucency not offered | Arc 1.170 rec |
-| [ ] | Appearance menu | 4 | Automatic / Light / Dark; light window: material 13, tint white 0.8, gradient layer 0.75, card white 0.7 | Dia, Dia 1.50.1 bin |
+| [ ] | Appearance menu | 4 | Automatic / Light / Dark; light window: material 13, tint white 0.8, gradient layer 0.75, card white 0.7. Built: the light window, from the system's appearance or a theme's; the menu isn't | Dia, Dia 1.50.1 bin |
 
 ## Later (picked by the owner, not on the roadmap)
 
