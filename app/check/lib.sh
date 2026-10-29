@@ -102,12 +102,13 @@ exited() {
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
 # user logs out. On Windows taskkill without /F closes the app's windows, as the user would, and
-# Chromium quits with its last one. On Linux SIGTERM is that way, which Chromium takes for a quit.
+# Chromium quits with its last one. On Linux SIGINT is that way: Chromium quits as from its menu,
+# where SIGTERM ends the session at once, without the startup trace tabs.sh reads.
 quit_app() {
   if windows; then
     taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null
   elif [ "$(uname)" = Linux ]; then
-    kill -TERM "$pid"
+    kill -INT "$pid"
   else
     osascript -e 'tell application id "dev.browser.app" to quit'
   fi
