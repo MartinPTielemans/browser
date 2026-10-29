@@ -319,7 +319,9 @@ handler = functools.partial(Handler, directory=sys.argv[1])
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
 print("Serving HTTP on 127.0.0.1 port", server.server_address[1], "...")
 server.serve_forever()
-' "$out/site" > "$out/site.log" 2>&1 &
+' "$out/site" > "$out/site.log" 2>&1 3>&- 4>&- 5>&- &
+# It runs on past the run that started it, so it holds none of a run's pipes, the driver's or an
+# MCP client's, whose reader would never hear them close.
 server=$!
 for _ in $(seq 50); do
   grep -q '^Serving HTTP' "$out/site.log" && break
