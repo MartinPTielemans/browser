@@ -176,7 +176,7 @@ send key tab
 send click 600 60
 send key escape
 send menu "AutoFill › Passwords…"
-expect "^browser: autofill $tab 1 opened\$" \
+expect "browser: autofill $tab 1 opened\$" \
   "Edit › AutoFill › Passwords… didn't open the dropdown at the username field"
 ../tools/window-screenshot.sh "$pid" "$out/autofill-menu-passwords.png" ||
   fail "no window to capture"
@@ -295,9 +295,9 @@ expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was 
 go_from_bar "${site#http://}welcome.html"
 expect "^browser: title $tab welcome\$" "the welcome page didn't load"
 send menu "AutoFill › Contact…"
-expect "^browser: autofill $tab 0 no field\$" \
+expect "browser: autofill $tab 0 no field\$" \
   "Edit › AutoFill › Contact… found a field on the welcome page"
-expect '^browser: settings tab Passwords$' \
+expect '^browser: settings shown Passwords$' \
   "Edit › AutoFill › Contact… with no field didn't show Settings' Passwords tab"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"

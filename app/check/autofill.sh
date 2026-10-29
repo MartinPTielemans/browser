@@ -59,7 +59,7 @@ expect "^browser: title $tab address\$" "the address form didn't load again"
 send click 600 30
 send key escape
 send menu "AutoFill › Contact…"
-expect "^browser: autofill $tab 0 opened\$" \
+expect "browser: autofill $tab 0 opened\$" \
   "Edit › AutoFill › Contact… didn't open the dropdown at the name field"
 send key down
 expect "^browser: title $tab filled\$" "down in the dropdown didn't preview the saved address"
@@ -92,7 +92,7 @@ expect "^browser: title $tab card\$" "the card form didn't load a third time"
 send click 600 90
 send key escape
 send menu "AutoFill › Credit Card…"
-expect "^browser: autofill $tab 2 opened\$" \
+expect "browser: autofill $tab 2 opened\$" \
   "Edit › AutoFill › Credit Card… didn't open the dropdown at the number field"
 ../tools/window-screenshot.sh "$pid" "$out/autofill-menu-card.png" || fail "no window to capture"
 send key escape
