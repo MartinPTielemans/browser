@@ -433,6 +433,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Peek: triggers | 4 | measure | — |
 | [ ] | Peek: geometry, backdrop, buttons | 4 | measure | — |
 | [ ] | Peek: open, close, expand motion | 4 | measure | — |
+| [ ] | Peek: reopening | 4 | ⌘Z reopens the Peek closed last over its tab, at its page, and ⇧⌘Z closes it; ⇧⌘T reopens it while no tab has closed since; none in a private window. Built (#692): `Shell::preview_closed` keeps it as Close Link Preview, and a UI test runs ⌘Z, ⇧⌘Z and ⇧⌘T. To tick: `./check.sh preview` on the Mac, which closes one, reopens it with ⌘Z and then ⇧⌘T, each waiting for it to settle, with `preview-reopened.png` | Arc |
 | [ ] | Little Arc: open | 4 | ⌥⌘N; centred above middle of the pointer's screen; last size, 900 × 640 first | Arc (Ardia), Ardia |
 | [ ] | Little Arc: bar | 4 | Space colour; favicon, host, title; ⌘L compact bar; Copy Link; ⌘O | Arc (Ardia), Ardia |
 | [ ] | Little Arc: ⌘O | 4 | moves the live page to the main window | Arc (Ardia) |
