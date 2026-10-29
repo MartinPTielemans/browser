@@ -349,7 +349,23 @@ impl Browser for Recorder {
         true
     }
 
-    fn reopen_closed_tab(&self, _: &mut App) {}
+    fn reopen_closed_tab(&self, _: &mut App) {
+        self.record("reopen closed tab".into());
+    }
+
+    fn reopen_preview(
+        &self,
+        closed: &crate::link_preview::Closed,
+        _: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+        self.record(format!("reopen preview over {} {}", closed.over, closed.url));
+    }
+
+    fn close_preview(&self, over: u64, _: &mut App) -> bool {
+        self.record(format!("close preview over {over}"));
+        true
+    }
 
     fn reopen_tab(&self, closed: u64, _: &mut App) -> u64 {
         let made = self.make();
