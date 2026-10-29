@@ -97,24 +97,28 @@ fn the_page_has_the_first_escape(cx: &mut TestAppContext) {
     assert_eq!(host.take(), [ZOOM]);
 }
 
-/// Given the browser first in Settings › Shortcuts, one ⎋ leaves, from the page or the UI, and
-/// the page has it too only with Use Both. Outside full screen it's the page's.
+/// Given the browser in Settings › Shortcuts, one ⎋ leaves, from the page or the UI, and the page
+/// never sees it. Left to websites, the page has every press, and only the UI's leaves. Outside
+/// full screen it's the page's.
 #[gpui::test]
 fn the_browser_can_have_the_first_escape(cx: &mut TestAppContext) {
     let (shell, host) = two_spaces(cx);
     shell.update(cx, |shell, cx| shell.set_full_screen(true, cx));
     host.take();
-    let first = |priority, cx: &mut TestAppContext| {
+    let press = |priority, cx: &mut TestAppContext| {
         cx.update(|cx| change_keys(cx, |keys| keys.set_escape_priority(priority)));
         shell.update(cx, |shell, cx| shell.escape_before_page(cx))
     };
-    assert!(first(EscapePriority::Browser, cx), "the page had the browser's ⎋");
+    assert!(press(EscapePriority::Browser, cx), "the page had the browser's ⎋");
     assert_eq!(host.take(), [ZOOM]);
-    assert!(!first(EscapePriority::Both, cx), "the page didn't have ⎋ with Use Both");
+    for _ in 0..2 {
+        assert!(!press(EscapePriority::Websites, cx), "the browser took the website's ⎋");
+        // The page's ⎋ handed back doesn't leave either.
+        shell.update(cx, |shell, cx| shell.run(Command::Stop, "page", cx));
+    }
+    assert!(!host.take().contains(&ZOOM.to_string()), "the website's ⎋ left full screen");
+    shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
     assert_eq!(host.take(), [ZOOM]);
-    // The page's ⎋ handed back doesn't leave again.
-    shell.update(cx, |shell, cx| shell.run(Command::Stop, "page", cx));
-    assert!(!host.take().contains(&ZOOM.to_string()));
 
     cx.update(|cx| change_keys(cx, |keys| keys.set_escape_priority(EscapePriority::Browser)));
     shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
