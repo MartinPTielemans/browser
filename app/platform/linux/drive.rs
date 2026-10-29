@@ -183,6 +183,8 @@ thread_local! {
     static FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The modifiers the last key went with.
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
+    /// Whether the X server's keyboard has Control locked, for `hold_control`.
+    static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
     /// The last click in each window: its time, place and button.
     static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
         RefCell::default();
@@ -700,10 +702,43 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     state |= FLAGS.get();
     let modifiers = KeyButMask::CONTROL | KeyButMask::MOD1 | KeyButMask::SHIFT;
     KEY_FLAGS.set(state & u16::from(modifiers));
+    hold_control();
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
     code_events(code, state, kinds)
+}
+
+/// Has the X server's keyboard hold Control while the driver does, after `flags` or a key with it,
+/// as a real Control key would: the app's ⌃Tab walk lasts while the server says Control is held
+/// (gpui_linux::watch_control), and the events the driver sends change none of its state.
+fn hold_control() -> Option<()> {
+    use x11rb::protocol::xkb::{self, ConnectionExt as _};
+    let held = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL) != 0;
+    if held == CONTROL_LOCKED.get() {
+        return Some(());
+    }
+    let x = server()?;
+    let (connection, _) = &*x;
+    // The server takes no other XKB request from a client before this one.
+    connection.xkb_use_extension(1, 0).ok()?.reply().ok()?;
+    let control = xproto::ModMask::CONTROL;
+    let locks = if held { control } else { xproto::ModMask::from(0u16) };
+    let none = xproto::ModMask::from(0u16);
+    (connection.xkb_latch_lock_state(
+        xkb::ID::USE_CORE_KBD.into(),
+        control,
+        locks,
+        false,
+        xkb::Group::M1,
+        none,
+        false,
+        0,
+    ))
+    .ok()?;
+    connection.flush().ok()?;
+    CONTROL_LOCKED.set(held);
+    Some(())
 }
 
 /// Sends the key `code`'s events of `kinds`, with the modifiers `state`, as `key_events` does.
@@ -1059,6 +1094,7 @@ fn run_command(line: &str) -> Option<()> {
                 code_events(keycode(keysym)?.0, held, &[kind])?;
                 FLAGS.set(held ^ mask);
             }
+            hold_control();
             Some(())
         }
         // Repeats are presses like the first, so repeat changes nothing here.
