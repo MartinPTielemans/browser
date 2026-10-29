@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::found::{Found, FromProfile, Node, Space, Tab, opens_here};
-use crate::theme::{Appearance, MAX_COLORS, Theme};
+use crate::theme::{Appearance, MAX_COLORS, Place, Theme, place_of};
 
 /// The sidebar `json` holds, or why it can't be read.
 pub fn parse(json: &str) -> Result<Found, String> {
@@ -227,8 +227,9 @@ fn icon(icon: &Value) -> String {
 }
 
 /// The theme of Arc's `windowTheme`: its first colour as our main one, as many colours as it has
-/// up to ours, its intensity, its grain and its appearance. Arc places its colours freely, where
-/// ours keep set angles from the main one, so only the first keeps its exact colour.
+/// up to ours, its intensity, its grain and its appearance. Arc places its colours freely, as ours
+/// can be, so each of the others is placed in the field at its own hue and lightness, at the main
+/// one's saturation, which is the theme's.
 fn theme(window_theme: &Value) -> Option<Theme> {
     let background = window_theme.pointer("/background/single/_0")?;
     let style = background.pointer("/style/color/_0")?;
@@ -264,8 +265,22 @@ fn theme(window_theme: &Value) -> Option<Theme> {
         intensity: factor("intensityFactor").unwrap_or(theme.intensity),
         grain: factor("noiseFactor").unwrap_or(0.),
         appearance,
+        places: places(&theme, &colors),
         ..theme
     })
+}
+
+/// Where `colors` after the main one go round `theme`'s main one, each at its own place in the
+/// field; none for a theme of one colour.
+fn places(theme: &Theme, colors: &[u32]) -> Option<[Place; 2]> {
+    let place = |index: usize| match colors.get(index) {
+        Some(&color) => {
+            let at = Theme::of_color(color);
+            place_of(theme.x, theme.y, at.x, at.y)
+        }
+        None => theme.place(index),
+    };
+    (theme.count > 1).then(|| [place(1), place(2)])
 }
 
 /// 0xRRGGBB of an Arc colour, its extended sRGB brought into sRGB.

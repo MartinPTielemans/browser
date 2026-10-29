@@ -5,9 +5,10 @@
 //! The field is a disc of HSL colours about its centre (Arc 1.170 rec at 2×, twelve handles): the
 //! hue is the angle clockwise from the right, saturation is 1, and lightness is the distance from
 //! the centre in half the field's width, black at the centre and white at the edge. A second colour
-//! is the main one's complement; with a third the two sit 150° and 210° round from it. Dragging
-//! moves them together. A swatch places the main colour at its hue and lightness and keeps its
-//! saturation, the others' too, until a handle is dragged.
+//! is the main one's complement; with a third the two sit 150° and 210° round from it, until one
+//! is dragged to a place of its own. Dragging the main one moves them all with it. A swatch places
+//! the main colour at its hue and lightness and keeps its saturation, the others' too, until a
+//! handle is dragged.
 
 use std::{cell::OnceCell, sync::Arc};
 
@@ -53,6 +54,17 @@ pub struct Theme {
     /// 0 to 1: how much grain lies over them.
     pub grain: f32,
     pub appearance: Appearance,
+    /// Where the second and third colours are from the main one, once either has been placed on
+    /// its own; none while they sit at the set angles round it.
+    pub places: Option<[Place; 2]>,
+}
+
+/// Where a colour other than the main one is, from the main one: `turn` degrees further round the
+/// field's centre clockwise, and `lift` further out from it, in half the field's width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Place {
+    pub turn: f32,
+    pub lift: f32,
 }
 
 impl Theme {
@@ -67,6 +79,7 @@ impl Theme {
             intensity: DEFAULT_INTENSITY,
             grain: 0.,
             appearance: Appearance::Automatic,
+            places: None,
         }
     }
 
@@ -89,10 +102,21 @@ impl Theme {
         }
     }
 
+    /// Where colour `index` other than the main one is from it: its own place, else its set angle
+    /// at the main one's distance.
+    pub fn place(&self, index: usize) -> Place {
+        match self.places {
+            Some(places) if (1..MAX_COLORS).contains(&index) => places[index - 1],
+            _ => Place { turn: Self::offsets(self.count).get(index).copied().unwrap_or(0.), lift: 0. },
+        }
+    }
+
     /// Where colour `index` is in the field, as `x` and `y` are.
     pub fn handle(&self, index: usize) -> (f32, f32) {
-        let offset = Self::offsets(self.count).get(index).copied().unwrap_or(0.);
-        rotated(self.x, self.y, offset)
+        if index == 0 {
+            return (self.x, self.y);
+        }
+        placed(self.x, self.y, self.place(index))
     }
 
     /// The colours, the main one first, 0xRRGGBB.
@@ -110,25 +134,30 @@ impl Theme {
         color_at(self.x, self.y, self.saturation)
     }
 
-    /// The theme with colour `index` dragged to (x, y): the others keep their places round it,
-    /// and all take the field's colours there.
+    /// The theme with colour `index` dragged to (x, y): the main one takes the others with it,
+    /// keeping their places round it, and another goes there alone. All take the field's colours.
     pub fn moved(self, index: usize, x: f32, y: f32) -> Theme {
-        let offset = Self::offsets(self.count).get(index).copied().unwrap_or(0.);
-        let (x, y) = rotated(x, y, -offset);
         let (x, y) = in_disc(x, y);
-        if (x, y) == (self.x, self.y) {
+        if (x, y) == self.handle(index) {
             return self;
         }
-        Theme { x, y, saturation: 1., ..self }
+        if index == 0 {
+            return Theme { x, y, saturation: 1., ..self };
+        }
+        let mut places = [self.place(1), self.place(2)];
+        places[index.min(MAX_COLORS - 1) - 1] = place_of(self.x, self.y, x, y);
+        Theme { places: Some(places), saturation: 1., ..self }
     }
 
-    /// The theme with `count` colours, from 1 to MAX_COLORS.
+    /// The theme with `count` colours, from 1 to MAX_COLORS, back at the set angles round the main
+    /// one.
     pub fn with_count(self, count: usize) -> Theme {
-        Theme { count: count.clamp(1, MAX_COLORS), ..self }
+        Theme { count: count.clamp(1, MAX_COLORS), places: None, ..self }
     }
 
-    /// The text the core keeps; the saturation only once a swatch has set it, so a theme from the
-    /// field reads as it did before swatches kept theirs.
+    /// The text the core keeps; the saturation only once a swatch has set it, and the places only
+    /// once a colour has one of its own, so a theme from the field reads as it did before swatches
+    /// kept theirs and colours were placed alone.
     pub fn to_text(&self) -> String {
         let text = format!(
             "x={:.4} y={:.4} colors={} intensity={:.3} grain={:.3} appearance={}",
@@ -139,10 +168,17 @@ impl Theme {
             self.grain,
             self.appearance.name()
         );
-        if self.saturation < 1. {
+        let text = if self.saturation < 1. {
             format!("{text} saturation={:.4}", self.saturation)
         } else {
             text
+        };
+        match self.places {
+            Some([second, third]) => format!(
+                "{text} places={:.2},{:.4},{:.2},{:.4}",
+                second.turn, second.lift, third.turn, third.lift
+            ),
+            None => text,
         }
     }
 
@@ -174,6 +210,7 @@ impl Theme {
                         theme.appearance = *appearance;
                     }
                 }
+                "places" => theme.places = parse_places(value),
                 _ => {}
             }
         }
@@ -182,10 +219,30 @@ impl Theme {
     }
 }
 
-/// (x, y) turned `degrees` clockwise about the field's centre.
-fn rotated(x: f32, y: f32, degrees: f32) -> (f32, f32) {
-    let (sin, cos) = degrees.to_radians().sin_cos();
-    (x * cos - y * sin, x * sin + y * cos)
+/// Places as `to_text` writes them: the second colour's turn and lift, then the third's.
+fn parse_places(text: &str) -> Option<[Place; 2]> {
+    let numbers: Vec<f32> = (text.split(','))
+        .map(|n| n.parse::<f32>().ok().filter(|n| n.is_finite()))
+        .collect::<Option<_>>()?;
+    let [turn, lift, third_turn, third_lift] = numbers[..] else {
+        return None;
+    };
+    let place = |turn: f32, lift: f32| Place { turn: turn.rem_euclid(360.), lift: lift.clamp(-1., 1.) };
+    Some([place(turn, lift), place(third_turn, third_lift)])
+}
+
+/// Where `place` is from a main colour at (x, y): turned round the field's centre, and moved out
+/// or in, staying in the field.
+pub fn placed(x: f32, y: f32, place: Place) -> (f32, f32) {
+    let distance = (x.hypot(y) + place.lift).clamp(0., 1.);
+    let angle = y.atan2(x) + place.turn.to_radians();
+    (distance * angle.cos(), distance * angle.sin())
+}
+
+/// The place of (x, y) from a main colour at (main_x, main_y).
+pub fn place_of(main_x: f32, main_y: f32, x: f32, y: f32) -> Place {
+    let turn = (y.atan2(x) - main_y.atan2(main_x)).to_degrees().rem_euclid(360.);
+    Place { turn, lift: x.hypot(y) - main_x.hypot(main_y) }
 }
 
 /// (x, y), brought in to the field's disc.

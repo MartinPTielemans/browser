@@ -103,8 +103,9 @@ fn arcs_sidebar_reads_as_its_spaces_and_favorites() {
     assert_eq!(urls(theirs), ["https://linear.app/"]);
 }
 
-/// A gradient's first colour is the main one, its colours as many as ours go, with Arc's
-/// intensity, grain and appearance; a colour outside sRGB is brought in.
+/// A gradient's first colour is the main one, its colours as many as ours go, each other one at
+/// its own place in the field, with Arc's intensity, grain and appearance; a colour outside sRGB
+/// is brought in.
 #[test]
 fn arcs_theme_becomes_the_spaces_theme() {
     let sidebar = sidebar();
@@ -114,6 +115,9 @@ fn arcs_theme_becomes_the_spaces_theme() {
         personal.main_color(),
         Theme::of_color(0x3366cc).main_color()
     );
+    // Arc's second, (1.1, 0.5, -0.05), is orange's hue and lightness, not the main one's opposite.
+    let ((x, y), orange) = (personal.handle(1), Theme::of_color(0xff8000));
+    assert!((x - orange.x).abs() < 1e-3 && (y - orange.y).abs() < 1e-3, "at {x}, {y}");
     assert_eq!((personal.intensity, personal.grain), (0.6, 0.3));
     assert_eq!(personal.appearance, Appearance::Dark);
     let work = sidebar.spaces[1].theme.unwrap();
