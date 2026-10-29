@@ -673,6 +673,7 @@ impl Browser for Fake {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+    fn site_search_settings(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false
@@ -872,6 +873,10 @@ impl Browser for Fake {
 
     // No command bar here, as for a new tab, and no split views but the made-up one.
     fn command_bar_open(&self, _: &App) -> bool {
+        false
+    }
+
+    fn command_bar_follows(&self, _: Vec<BarTab>, _: Vec<BarTab>, _: &mut App) -> bool {
         false
     }
 
@@ -1089,6 +1094,7 @@ impl command_bar::Host for PreviewBar {
     fn open_tab(&self, _: &str, _: bool) {}
     fn open_window(&self, _: &str, _: &mut App) {}
     fn navigate(&self, _: u64, _: &str) {}
+    fn reload(&self, _: u64) {}
     fn select(&self, _: u64) {}
     fn tab_window(&self, _: u64) -> Option<u64> {
         None

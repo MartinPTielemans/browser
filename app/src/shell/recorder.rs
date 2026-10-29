@@ -95,6 +95,10 @@ pub(super) struct Recorder {
     pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
     pub(super) bar_open: Cell<bool>,
+    /// How many times Site Search Settings opened.
+    pub(super) site_search_settings: Cell<usize>,
+    /// The tabs the command bar was given to list each time the window showed another Space.
+    pub(super) followed_tabs: RefCell<Vec<Vec<u64>>>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
     /// "moving" and "still" for what the shell told the core about the motion.
     pub(super) page_events: RefCell<Vec<&'static str>>,
@@ -533,6 +537,10 @@ impl Browser for Recorder {
 
     fn view_history(&self, _: &mut App) {}
 
+    fn site_search_settings(&self, _: &mut App) {
+        self.site_search_settings.set(self.site_search_settings.get() + 1);
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         Default::default()
     }
@@ -782,6 +790,15 @@ impl Browser for Recorder {
 
     fn command_bar_open(&self, _: &App) -> bool {
         self.bar_open.get()
+    }
+
+    /// A bar that follows opens a new tab, as one ⌘T opened.
+    fn command_bar_follows(&self, tabs: Vec<BarTab>, _: Vec<BarTab>, _: &mut App) -> bool {
+        let open = self.bar_open.get();
+        if open {
+            self.followed_tabs.borrow_mut().push(tabs.iter().map(|tab| tab.tab).collect());
+        }
+        open
     }
 
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {

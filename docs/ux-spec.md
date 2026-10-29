@@ -581,6 +581,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 - In a split view's new pane the panel moves right to 70 in from the card's right edge, which puts its field at x 719 where ⌘T's is at 426 (Arc cap).
 - ⇧⌘A opens Search Tabs, as Dia's and Chrome's do (Arc 1.170.0 has none). Ours is the command bar, centred, listing only the open tabs but the one shown, the Space shown's first; typing keeps those it names, as the bar's Switch to Tab row does, and ↩ switches to one, in any Space or window.
 - Open and close are one frame, for ⌘T, ⌘L and the click alike (Arc rec 120 fps, 3 runs, ⌘T; Arc 1.170 rec). Over the field the panel shows already grown, as Arc's does; Dia's grow out of the URL field isn't ours.
+- ⌘T or ⌘L while the bar shows closes it as Esc does, whichever of them opened it (Arc's help centre). The browser's other shortcuts go on to the browser.
 
 **Panel** (Arc 1.170.0 cap, ax, 1512 × 949 window)
 
@@ -630,7 +631,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 - Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia). Ours (*interim*, as Chrome's): a row for a tab another window shows live brings that window forward with the keyboard, rather than taking its page; any other comes to this window. Whether Arc raises or moves: measure.
 - ***Ours*, where Arc's ranking isn't recorded: an open tab can take row 0.** Arc's bar is first of all a tab switcher, so when the typing starts a word of a tab's title, or of its site's name (the host's labels without the top-level domain, and without www.), at two characters or more, case aside, that tab is row 0 with "Switch to Tab" and ↩ switches to it. Of several, the one shown most recently; the others stay where the core lists them. Chrome's row 0 stays when the typing reads as a URL (a dot, a colon or a slash), when the first row hints a site search (Tab to search), or when it completes inline to a page that isn't an open tab's; a completion to an open tab's own page makes that row the tab's. It looks only at the tabs the bar was opened with (the Space's and the favorites, never the tab shown or what shows with it), so the row doesn't wait for the core. A command that matches strongly still sits above the search row, under the tab.
 - Before anything is typed, the rows are the Space's open tabs, each with "Switch to Tab" (Arc cap). Ours (*interim*): its favorites, pinned tabs and Today tabs, the most recently shown first, without the tab shown or its split, at most ten; none over a split's new pane. ↩ switches to the selected one, and emptying the field lists them again.
-- History rows can be removed with a hover ✕ or ⇧⌦, and the selection moves to the next row (Chrome; Dia has the ✕).
+- A page from the profile's history, or a search typed before, shows a ✕ under the pointer that takes it out of the history, and ⌥⌘⌫ (Arc's help centre) or ⇧⌦ (Chrome) takes out the selected one; the row under it takes its place. Default suggestions have none: the search for what's typed, the well-known sites, the Space's tabs listed before anything is typed, sums and commands (Arc's help centre; Dia has the ✕ too). Ours (*interim*): the ✕ is Lucide's in the Switch to Tab arrow's tile, at the row's end, on the selected row too; Arc's look: measure. Off the Mac only ⇧Del does it, as Chrome's, since Ctrl+Alt+Backspace can end an X11 session.
 - Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia).
 - **Calculator** (Dia, as Ardia has it). A sum typed, such as "12*7" or "(1+2)^3", shows its result as the row after the first: "= 84". ↩ on it copies "84", closes the bar and says "Copied 84" in the toast.
   - Ours (*interim*): + − × ÷ ^ (or * / **) and parentheses, with . as the decimal point; 12 significant digits, so 0.1+0.2 is 0.3. A date such as 2026-10-26 isn't a sum. Dia's units, functions and its row's look: measure.
@@ -646,7 +647,13 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
     - The chip is the shortcut in 13 pt, at 24 tall, radius 6, white 0.08 and the dim text colour; on the selected row white with accent keys (Panel).
     - ↩ or a click runs the command. The bar closes first, as for a pick.
     - Not yet: Arc's commands we don't have, among them Mute All Tabs, Reveal Tab in Sidebar, Exit (⎋), Enter Full Screen, Collapse Pinned Tabs and Edit Theme…, and so their hidden words "hide" and "toggle".
+- **Commands only** (Arc's help centre). Tab in an empty field, or "/ " typed, lists only the commands, which what's typed next filters as it does the list's commands. Arc took away the hint for it in March 2024 and kept the key. Ours (*interim*, Arc's look unrecorded):
+  - With nothing typed it lists every command that does something now, in the table's order, scrolling past five; typed, the commands the bar would list for it, best first, with none of the core's rows. ↩ runs the one selected, and with none does nothing.
+  - "Commands" is a chip before the input, as a site search's engine is, the placeholder "Search Commands…" and the field's icon the command glyph until one is selected.
+  - ⌫ at the start, ⇧Tab or Esc leaves it, putting "/ " back before what's typed if that entered it, as a site search puts its keyword back, and the bar stays open.
+  - Not over a split's new pane or for Search Tabs, which list no commands; there Tab moves the selection.
 - Well-known sites that what's typed could start, such as YouTube for "you", fill the rows the profile's own leave, under them and never as row 0, so a new profile's list isn't bare. The list is built in and ranked by popularity alone (ours).
+- **Another Space** (Arc's help centre). Another Space shown while the bar is open, as its keys (⌃1 to ⌃9, ⌥⌘→ ⌥⌘←) show one, rebuilds the rows for it and its profile: its open tabs, and the suggestions for what's typed asked again of that profile. The rows from before go at once, and a completion from them, so a pick never goes to the Space before or navigates in its profile (decision 5). Ours, where Arc's isn't recorded: what's typed stays; the URL ⌘L opened the bar on goes, and ↩ then opens a new tab, as the tab it edited is the other Space's; a site search leaves, putting its keyword back, as the profile's engines may differ; Search Tabs lists the open tabs from the Space shown first; the bar over a split's new pane closes, as the split view stays behind. Only the window in front has the bar, so a Space another window shows, as an agent's, doesn't move it.
 - The row under the pointer has the hover plate and keeps it as the keys move the selection; ↩ takes the selection, and a click the row clicked (Arc 1.170 rec; Panel).
 
 **Inline completion** (Chrome; Dia rec, O)
@@ -668,12 +675,13 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
   - The selected row that hints shows "Search <engine>" dimmed and a Tab key at the input's end, as Arc's hint (Panel).
   - In the search, the engine's name is a chip before the input, whose placeholder is "Search <engine>".
   - The rows are the core's searches only, without commands, sums or well-known sites. Nothing is listed until something is typed, and ↩ does nothing until then.
+- **Site Search Settings** (Arc's help centre). The bar's "Site Search Settings" command, found by "site search", "search engines" or "keywords", opens Chromium's search engines page (chrome://settings/searchEngines) in a new tab, where the profile's site searches are added and edited, each a name, a keyword and a URL with %s for the query. It's Arc's own place for them, arc://settings/searchEngines, and ilo opens Chromium's history and extensions pages the same way, so a Settings section of ours would be more to build for the same form. A private window doesn't offer it, as it keeps no engines of its own, and agents have no path to it, as they get no pages outside http(s). Not built: Arc's toast that suggests a site's search and turns it on in every profile.
 
 **Keys**
 
 | Key | Action | Source |
 |---|---|---|
-| ↩ | open where the bar shows pages: a new tab for ⌘T, the tab for ⌘L | Chrome |
+| ↩ | open where the bar shows pages: a new tab for ⌘T, the tab for ⌘L. On the URL ⌘L or the click opened it on, as it opened, it loads the page again rather than going to it (Arc's help centre) | Chrome, Arc |
 | ⌘↩ | a tab behind the one shown, at the top of Today, which loads once first shown; the bar stays open. A command runs as for ↩ | Arc 1.170.0 cap |
 | ⌥↩ | a new pane on the right of the page, in a split view | Arc 1.170.0 cap |
 | ⇧↩ | where ↩ goes, in a new window made as ⌘N makes one, a private one from a private window. A command runs as for ↩, and over a new pane it's ↩ (*interim*; whether Arc opens a window, Little Arc or Peek: measure) | Chrome |
@@ -681,14 +689,15 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | ⌃↩ / ⌃⇧↩ | www.<word>.com for a word typed, else as ↩ / the same in a new window | Chrome |
 | ↑ ↓, ⌃N ⌃P | move, wrapping at the ends | Chrome |
 | ⇞ ⇟ | first / last row | Chrome |
-| Tab / ⇧Tab | enter site search when hinted, else the next row / previous row | Chrome |
+| Tab / ⇧Tab | enter site search when hinted, or in an empty field the commands-only list, else the next row / leave either, else the previous row | Chrome, Arc |
 | Esc | leave site search; otherwise close the panel, drop the typed text and give the page its focus back | Ardia |
-| ⇧⌦ | take the selected row's page out of the history; the row under it takes its place | Chrome |
+| ⇧⌦, ⌥⌘⌫ | take the selected row's page or search out of the history; the row under it takes its place | Chrome, Arc |
 
 - What's typed or pasted right after ⌘T, ⌘L or ⌘F, ⌘V, ⌘C, ⌘X or ⌘A too, waits up to 400 ms for the new field and lands there in order, never in the old page (Ardia, from a user report). Ours: a composition goes whole to the one field. A page that keeps the shortcut, as Google Docs keeps ⌘F, gets the keys when the 400 ms are up.
 - A click anywhere outside the panel, or another window or app taking focus, closes it like Esc; the click still does its own thing.
 - **URLs** (Chrome's `AutocompleteInput::Parse`). A dotted host without a scheme goes to https, falling back to http. Single labels, localhost, IP addresses and `.local` hosts go to http.
 - A right-click in a text field shows Cut, Copy, Paste and Select All. In the command bar's field it adds Paste and Go and Paste and Search, which go where ↩ and ⇧⌘↩ would for the copied text, a line break in it read as a space. Nothing reads the clipboard until one is chosen, so they're there whatever it holds, and macOS never sees an app read it unasked.
+- The field holds the page's whole address, its scheme too, so a copy of the URL keeps its https://, as Arc's adds it (Arc's help centre).
 - Copy URL, as a link or as Markdown, leaves out the utm_ parameters and the click IDs ad and mail services add, such as fbclid and gclid (Dia; the list is ours, in `app/src/shell/clean_link.rs`).
 
 ### New tab

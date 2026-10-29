@@ -1366,6 +1366,10 @@ impl command_bar::Host for Bar {
         }
     }
 
+    fn reload(&self, tab: u64) {
+        unsafe { bc::bc_tab_reload(tab, false) };
+    }
+
     fn select(&self, tab: u64) {
         unsafe { bc::bc_window_select(front().0, tab) };
     }
@@ -2128,6 +2132,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://history");
     }
 
+    fn site_search_settings(&self, _: &mut App) {
+        open_tab(self.window, "chrome://settings/searchEngines");
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -2454,6 +2462,16 @@ impl Browser for Engine {
 
     fn command_bar_open(&self, cx: &App) -> bool {
         command_bar::is_open(cx)
+    }
+
+    fn command_bar_follows(
+        &self,
+        tabs: Vec<BarTab>,
+        open_tabs: Vec<BarTab>,
+        cx: &mut App,
+    ) -> bool {
+        // The bar shows over the window in front; another's Space, as an agent's, isn't its.
+        self.window == front().0 && command_bar::space_shown(tabs, open_tabs, cx)
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
