@@ -295,7 +295,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Contact…, Passwords… and Credit Card… open Chrome's dropdown at the field the core saw take the keyboard, else Settings' Passwords; the passwords run checks Passwords… and the no-field case (autofill-menu-passwords), the autofill run Contact… and Credit Card…. Unverified until those run | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Chrome's popup, which Chrome offers only with a Google account to sync to, the core turns on without one, saying the password is saved on this device; the autofill run captures it on a new password field (password-generation) and takes the password. Unverified until that runs | Chrome |
 | [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Blink's PasswordReveal, on from the core; the passwords run captures the eye (password-reveal) and its absence on a filled password (password-filled-reveal). Unverified until that runs | Dia |
-| [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: Chrome's page should do it in a tab, unverified | Chrome |
+| [ ] | Settings unlock | MVP | one device check, 5 min grace. n/a: Settings never shows a password, only usernames, so there's nothing to unlock | Chrome |
 | [ ] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. Not started: unverified, probably works | Chrome |
 | [ ] | No agent path | MVP | agents never read or fill these. Holds today, since no call returns them and there is no MCP server; ticks with its allowlist test | decision 8 |
 
