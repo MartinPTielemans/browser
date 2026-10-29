@@ -23,7 +23,6 @@ use super::{
     display_face::{cap_top, display_text},
 };
 use crate::{
-    menu::Look,
     palette::Palette,
     text_input::TextInput,
     tooltip::{Anchor, Tip},
@@ -204,7 +203,7 @@ pub struct Download {
 pub enum DownloadAction {
     /// Opens the file, or for one still running, opens it once it's done, or no longer.
     Open,
-    /// Shows the file in Finder.
+    /// Shows the file in Finder, or the file manager off the Mac.
     Show,
     Pause,
     Resume,
@@ -251,7 +250,14 @@ fn download_menu_items(
         ],
         DownloadState::Done => vec![
             act("Open", DownloadAction::Open),
-            act("Show in Finder", DownloadAction::Show),
+            // Off the Mac, Chrome's word for the file manager there.
+            act(
+                match super::OFF_THE_MAC {
+                    true => "Show in Folder",
+                    false => "Show in Finder",
+                },
+                DownloadAction::Show,
+            ),
             (MenuEntry::new("Move to Trash", true).destructive(), Some(DownloadChoice::Trash)),
         ],
         DownloadState::Cancelled | DownloadState::Failed => Vec::new(),
@@ -740,7 +746,7 @@ impl Shell {
             entries,
             position,
             false,
-            Look { light: false, ..self.menu_look() },
+            self.menu_look(),
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| match chosen {

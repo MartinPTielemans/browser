@@ -19,9 +19,9 @@ use browser::command_bar::{self, Suggestion};
 use browser::dialog;
 use browser::icon_picker::{self, Recents};
 use browser::menu;
-use browser::palette::{self, Palette};
+use browser::palette::{self, Palette, Tone};
 use browser::site_controls::{self, Connection, Permission, Site, Value};
-use browser::theme::Theme;
+use browser::theme::{Appearance, Theme};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -491,6 +491,10 @@ impl Browser for Fake {
 
     fn set_pinned_url(&self, _: u64, _: &str, _: &mut App) {}
 
+    fn typed_url(&self, _: &str) -> Option<String> {
+        None
+    }
+
     fn tab_name(&self, _: u64) -> String {
         String::new()
     }
@@ -616,6 +620,9 @@ impl Browser for Fake {
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 
+    // The preview has no agents.
+    fn answer_agent(&self, _: u64, _: browser::agents::Answer, _: &mut App) {}
+
     // The made-up pages ask no dialogs.
     fn show_page_dialog(&self, _: Option<shell::ShownPageDialog>, _: &mut App) {}
     fn answer_page_dialog(&self, _: u64, _: u64, _: shell::PageReply, _: &mut App) {}
@@ -681,6 +688,7 @@ impl Browser for Fake {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+    fn site_search_settings(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false
@@ -755,8 +763,29 @@ impl Browser for Fake {
     fn settings(&self, _: &mut App) {}
 
     fn passwords(&self, _: u64, _: &mut App) {}
+    fn agent_activity(&self, _: &mut App) {}
+
+    fn agent_permissions(&self, _: u64, _: &App) -> browser::shell::AgentGrants {
+        Default::default()
+    }
+
+    fn revoke_agent(&self, _: u64, _: Option<SharedString>, _: &mut App) {}
+
+    fn disconnect_agent(&self, _: u64, _: &mut App) {}
+
+    fn take_back_agent_tabs(&self, _: u64, _: &mut App) {}
+
+    fn take_over(&self, _: SharedString, _: u64, _: &mut App) {}
+
+    fn hand_back(&self, _: u64, _: &mut App) {}
+
+    fn stop_agent(&self, _: SharedString, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}
+
+    fn about(&self, _: &mut App) {}
+
+    fn import(&self, _: &mut App) {}
 
     // Each made-up Space shows its top tab.
     fn show_space(&self, space: u64, cx: &mut App) {
@@ -857,12 +886,19 @@ impl Browser for Fake {
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
 
+    // The preview has no material: its window is the tint over GPUI's clear.
+    fn set_window_light(&self, _: bool, _: &mut App) {}
+
     fn page_moving(&self, _: bool, _: &mut App) {}
 
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
 
     // No command bar here, as for a new tab, and no split views but the made-up one.
     fn command_bar_open(&self, _: &App) -> bool {
+        false
+    }
+
+    fn command_bar_follows(&self, _: Vec<BarTab>, _: Vec<BarTab>, _: &mut App) -> bool {
         false
     }
 
@@ -1080,6 +1116,7 @@ impl command_bar::Host for PreviewBar {
     fn open_tab(&self, _: &str, _: bool) {}
     fn open_window(&self, _: &str, _: &mut App) {}
     fn navigate(&self, _: u64, _: &str) {}
+    fn reload(&self, _: u64) {}
     fn select(&self, _: u64) {}
     fn tab_window(&self, _: u64) -> Option<u64> {
         None
@@ -1105,6 +1142,16 @@ fn preview_theme() -> Option<Theme> {
     match text.strip_prefix('#') {
         Some(hex) => u32::from_str_radix(hex, 16).ok().map(Theme::of_color),
         None => Theme::parse(&text),
+    }
+}
+
+/// PREVIEW_APPEARANCE=light or =dark draws the window as if the system's appearance were that,
+/// as a headless session has none to switch.
+fn preview_tone() -> Option<Tone> {
+    match std::env::var("PREVIEW_APPEARANCE").ok()?.as_str() {
+        "light" => Some(Tone::Light),
+        "dark" => Some(Tone::Dark),
+        _ => None,
     }
 }
 
@@ -1200,7 +1247,14 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     if command_bar::open_at(Rc::new(PreviewBar), bounds, true, cx).is_none() {
         return;
     }
-    palette::set_current(Palette::of(preview_theme().as_ref()), cx);
+    let theme = preview_theme();
+    let forced = theme.and_then(|theme| match theme.appearance {
+        Appearance::Light => Some(Tone::Light),
+        Appearance::Dark => Some(Tone::Dark),
+        Appearance::Automatic => None,
+    });
+    let tone = forced.or(preview_tone()).unwrap_or_default();
+    palette::set_current(Palette::of(theme.as_ref(), tone), cx);
     match typed {
         "" => command_bar::show(None, tabs, None, cx),
         typed => command_bar::show(Some((0, typed.to_string().into())), Vec::new(), None, cx),
@@ -1326,6 +1380,7 @@ fn main() {
                     }
                     _ => Shell::new(browser, cx),
                 };
+                shell.force_tone(preview_tone());
                 shell.set_profiles(vec![(0, "Default".into())], cx);
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
@@ -1385,6 +1440,38 @@ fn main() {
                 if agent.is_some() {
                     shell.set_space(first_space + 1, cx);
                     shell.agent_acted("claude-code".into(), reading[2], cx);
+                    // =handoff has it hand its fourth tab to the user, shown, for a sign-in;
+                    // =back has the user take that tab over, and the agent ask for it back.
+                    let back = agent.as_deref() == Some("back");
+                    let handoff = back || agent.as_deref() == Some("handoff");
+                    let why: SharedString = match back {
+                        true => "To finish the order".into(),
+                        false => "Sign in to finish the order".into(),
+                    };
+                    let held = match (handoff, back) {
+                        (true, true) => vec![(reading[3], SharedString::default())],
+                        (true, false) => vec![(reading[3], why.clone())],
+                        _ => Vec::new(),
+                    };
+                    let status = browser::agents::Status {
+                        agent: "claude-code".into(),
+                        space: first_space + 1,
+                        doing: "Clicked · en.wikipedia.org".into(),
+                        held,
+                    };
+                    shell.set_agent_status(vec![status], cx);
+                    if handoff {
+                        shell.set_selected(reading[3], cx);
+                        let question = browser::agents::Question {
+                            id: 1,
+                            agent: "Claude Code".into(),
+                            what: "hand you a tab".into(),
+                            why,
+                            handoff: Some(reading[3]),
+                            back,
+                        };
+                        shell.set_agent_question(Some(question), cx);
+                    }
                 }
                 let favorite = std::env::var("PREVIEW_FAVORITE").ok().and_then(|n| n.parse().ok());
                 match (empty.as_deref(), favorite.and_then(|n: usize| favorites.get(n))) {

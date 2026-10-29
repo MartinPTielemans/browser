@@ -85,6 +85,7 @@ impl Host for Recorder {
             Run::Certificate => "certificate".into(),
             Run::RemoveLogin(login) => format!("remove login {} {}", login.site, login.username),
             Run::Passwords => "passwords".into(),
+            Run::ExtensionItem(id, item) => format!("extension {id} {item:?}"),
         };
         self.push(format!("run {run} {tab}"));
     }
@@ -161,7 +162,15 @@ fn login(username: &str, never: bool) -> Login {
 }
 
 fn extension() -> Extension {
-    Extension { id: "abc".into(), title: "Notes".into(), icon: None, enabled: true }
+    Extension {
+        id: "abc".into(),
+        title: "Notes".into(),
+        icon: None,
+        enabled: true,
+        pinned: false,
+        options: true,
+        removable: true,
+    }
 }
 
 fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
@@ -230,6 +239,13 @@ impl Panel {
 
     fn click(&mut self, (x, y): (f32, f32)) {
         self.cx.simulate_click(point(px(x), px(y)), Modifiers::none());
+        self.cx.run_until_parked();
+    }
+
+    fn right_click(&mut self, (x, y): (f32, f32)) {
+        let position = point(px(x), px(y));
+        self.cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::none());
+        self.cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::none());
         self.cx.run_until_parked();
     }
 
@@ -408,6 +424,46 @@ fn an_extension_runs_as_its_toolbar_button(cx: &mut TestAppContext) {
     panel.calls();
     panel.click(EXTENSION);
     panel.ran("extension abc 98 170 48 32");
+}
+
+/// A right-click on a tile gives its menu: Move to Top, which the first tile has done, then the
+/// pinned action's items. Pinning keeps the panel, whose grid the core redraws.
+#[gpui::test]
+fn a_right_click_on_a_tile_gives_its_menu(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    let each =
+        |id: &str, pinned: bool| Extension { id: id.to_string().into(), pinned, ..extension() };
+    let blocker = Extension { options: false, removable: false, ..each("def", false) };
+    panel.cx.cx.update(|cx| set_extensions(TAB, vec![each("abc", true), blocker], cx));
+    panel.cx.run_until_parked();
+    panel.calls();
+    panel.host.answer.set(Some(2));
+    panel.right_click(EXTENSION);
+    assert_eq!(
+        panel.calls(),
+        [
+            "menu Move to Top, , Unpin, Options, Remove, Manage Extension",
+            "run extension abc Unpin 7"
+        ]
+    );
+    panel.host.answer.set(Some(0));
+    panel.right_click(ADD);
+    assert_eq!(
+        panel.calls(),
+        ["menu Move to Top, , Pin, Manage Extension", "run extension def MoveToTop 7"]
+    );
+}
+
+/// Remove closes the panel for the browser window's dialog, which asks first.
+#[gpui::test]
+fn a_tiles_remove_closes_the_panel_to_ask(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    panel.calls();
+    panel.host.answer.set(Some(4));
+    panel.right_click(EXTENSION);
+    let calls = panel.calls();
+    assert_eq!(calls[0], "menu Move to Top, , Pin, Options, Remove, Manage Extension");
+    assert_eq!(calls[1..], ["release", "stop", "run extension abc Remove 7", "hide"]);
 }
 
 /// The core reports the unpinned extensions once the panel opens, and the grid takes them, four to

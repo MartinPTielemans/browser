@@ -87,6 +87,7 @@ mod system;
 #[path = "../platform/linux/window_buttons.rs"]
 mod window_buttons;
 mod reveal;
+mod agents_core;
 mod settings;
 
 /// The host's overlays (platform/host.h).
@@ -156,6 +157,7 @@ mod platform {
             height: *mut f64,
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
+        pub fn host_set_window_light(ui_view: *mut c_void, light: bool);
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
@@ -537,13 +539,16 @@ fn update_shells(change: impl Fn(&mut Shell, &mut Context<Shell>)) {
     let Some(cx) = CX.with_borrow(Clone::clone) else {
         return;
     };
+    cx.update(|cx| update_shells_in(cx, change));
+}
+
+/// Changes every window's shell, as `update_shells`, in an update under way.
+fn update_shells_in(cx: &mut App, change: impl Fn(&mut Shell, &mut Context<Shell>)) {
     let shells: Vec<_> =
         WINDOWS.with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
-    cx.update(|cx| {
-        for shell in shells {
-            shell.update(cx, &change).ok();
-        }
-    });
+    for shell in shells {
+        shell.update(cx, &change).ok();
+    }
 }
 
 /// Changes the shell of the window `id`, from a core callback about that window, and returns what
@@ -898,6 +903,9 @@ impl site_controls::Host for SiteControlsHost {
             site_controls::Run::Passwords => {
                 let profile = unsafe { bc::bc_tab_profile(tab) };
                 settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
+            }
+            site_controls::Run::ExtensionItem(id, item) => {
+                window.shell.update(cx, |shell, cx| shell.extension_item(&id, item, cx)).ok();
             }
         }
     }
@@ -1374,6 +1382,10 @@ impl command_bar::Host for Bar {
         }
     }
 
+    fn reload(&self, tab: u64) {
+        unsafe { bc::bc_tab_reload(tab, false) };
+    }
+
     fn select(&self, tab: u64) {
         unsafe { bc::bc_window_select(front().0, tab) };
     }
@@ -1774,6 +1786,10 @@ impl Browser for Engine {
         name(bc::bc_tab_pinned_url, tab).to_string()
     }
 
+    fn typed_url(&self, text: &str) -> Option<String> {
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+    }
+
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
         let url = CString::new(url).unwrap_or_default();
         unsafe { bc::bc_tab_set_pinned_url(tab, url.as_ptr()) };
@@ -1874,6 +1890,54 @@ impl Browser for Engine {
             shell::Answer::Dismiss => bc::BC_PERMISSION_DISMISS,
         };
         unsafe { bc::bc_tab_answer_permission(tab, answer as i32) };
+    }
+
+    fn answer_agent(&self, question: u64, answer: browser::agents::Answer, _: &mut App) {
+        // After the shell's update, as the answer tells every window's shell the next question.
+        agents_core::update(move |agents, cx| agents.answer(question, answer, cx));
+    }
+
+    fn agent_permissions(&self, space: u64, cx: &App) -> shell::AgentGrants {
+        let agent = name(bc::bc_space_agent, space);
+        let Some(agents) = browser::agents::global(cx) else {
+            return Default::default();
+        };
+        let agents = agents.read(cx);
+        let client = browser::agents::Client::from_id(&agent);
+        shell::AgentGrants {
+            sites: agents.grants(&agent),
+            connected: client.is_some_and(|client| agents.is_connected(client)),
+            tabs: !agents.tabs_to_take(&agent, cx).is_empty(),
+        }
+    }
+
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        agents_core::update(move |agents, cx| agents.revoke(&agent, site.as_deref(), cx));
+    }
+
+    fn take_over(&self, agent: SharedString, tab: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.take_over(&agent, tab, cx));
+    }
+
+    fn hand_back(&self, tab: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
+    }
+
+    fn stop_agent(&self, agent: SharedString, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.stop_agent(&agent, cx));
+    }
+
+    fn disconnect_agent(&self, space: u64, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        if let Some(client) = browser::agents::Client::from_id(&agent) {
+            agents_core::update(move |agents, cx| agents.disconnect(client, cx));
+        }
+    }
+
+    fn take_back_agent_tabs(&self, space: u64, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        agents_core::update(move |agents, cx| agents.take_back_all(&agent, cx));
     }
 
     fn show_page_dialog(&self, shown: Option<shell::ShownPageDialog>, cx: &mut App) {
@@ -2112,6 +2176,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://history");
     }
 
+    fn site_search_settings(&self, _: &mut App) {
+        open_tab(self.window, "chrome://settings/searchEngines");
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -2228,6 +2296,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_set_page_color(self.window, color) };
     }
 
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        unsafe { platform::host_set_window_light(self.ui_view, light) };
+    }
+
     fn page_moving(&self, moving: bool, _: &mut App) {
         unsafe { bc::bc_window_page_moving(self.window, moving) };
     }
@@ -2327,6 +2399,10 @@ impl Browser for Engine {
         // As Quit does: once the shell that asked is done, and before Chromium's posted quit.
         cx.defer(save_launch_picture);
         unsafe { bc::bc_restart() };
+    }
+
+    fn playready_needs(&self) -> shell::PlayReady {
+        shell::PlayReady::from_core(unsafe { bc::bc_playready_needs() })
     }
 
     fn share_services(&self, url: &str) -> Vec<SharedString> {
@@ -2440,6 +2516,16 @@ impl Browser for Engine {
         command_bar::is_open(cx)
     }
 
+    fn command_bar_follows(
+        &self,
+        tabs: Vec<BarTab>,
+        open_tabs: Vec<BarTab>,
+        cx: &mut App,
+    ) -> bool {
+        // The bar shows over the window in front; another's Space, as an agent's, isn't its.
+        self.window == front().0 && command_bar::space_shown(tabs, open_tabs, cx)
+    }
+
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
         with_overlays(move |cx| command_bar::show_split(with, pane, card, cx), cx);
     }
@@ -2498,6 +2584,8 @@ impl Browser for Engine {
 
     fn card_picture(&self, tab: u64, cx: &mut App) {
         let request = hover_card::asking(tab, cx);
+        // check.sh reads this line: a hidden page draws for its picture from here.
+        log!("browser: tab {tab} picturing {request}");
         let (width, height) = hover_card::PICTURE_PIXELS;
         unsafe { bc::bc_tab_picture(tab, request, width, height) };
     }
@@ -2525,6 +2613,14 @@ impl Browser for Engine {
         settings::show_shortcuts(cx);
     }
 
+    fn about(&self, cx: &mut App) {
+        settings::show_about(cx);
+    }
+
+    fn import(&self, cx: &mut App) {
+        settings::show_import(cx);
+    }
+
     fn passwords(&self, space: u64, cx: &mut App) {
         let profile = unsafe { bc::bc_space_profile(space) };
         settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
@@ -2535,8 +2631,12 @@ impl Browser for Engine {
         offered.then(|| unsafe { bc::bc_send_crash_reports() })
     }
 
-    fn set_crash_reports(&self, on: bool, _: &mut App) {
-        settings::set_send_crash_reports(on);
+    fn set_crash_reports(&self, on: bool, cx: &mut App) {
+        settings::set_send_crash_reports(on, cx);
+    }
+
+    fn agent_activity(&self, cx: &mut App) {
+        settings::show_agents(cx);
     }
 
     fn new_window(&self, cx: &mut App) {
@@ -3204,7 +3304,8 @@ fn open_window_as(
                 unsafe { platform::host_close_launch_window() };
                 // check.sh reads this line: the UI comes out from under the launch picture.
                 log!("browser: UI shown at {:.1} ms", unsafe { platform::host_since_launch() });
-                cx.update(overlays_now)
+                cx.update(overlays_now);
+                cx.update(agents_core::start)
             })
             .detach();
         }
@@ -3731,13 +3832,15 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
+    let about = item(concat!("About ", env!("APP_NAME")), Command::About);
+    let mut app = vec![about, MenuItem::separator()];
     // Only a release build that carries Sparkle has updates to check for.
-    let mut app = Vec::new();
     if updates_available() {
         app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
     }
     app.extend([
         item("Settings…", Command::Settings),
+        item("Import from Other Browsers…", Command::Import),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
@@ -3866,6 +3969,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Reveal Tab in Sidebar", Command::RevealTab),
                 MenuItem::separator(),
                 item("Clear Today", Command::Clear),
+                item("Reset all tabs in this Space", Command::ResetSpaceTabs),
             ],
         ),
         menu(
@@ -3978,26 +4082,33 @@ unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
     log!("browser: private session ended {profile}");
 }
 
-/// An agent's action as the core judged it. The Agent Space's activity log will list these; until
-/// it ships with the MCP server (decision 8), the log has them, and check.sh reads it. One it let
-/// the agent do puts the agent's dot on the tab's row, from the same entry.
+/// An agent's action as the core judged it, for the activity log in Settings › Agents, which
+/// check.sh reads in the log too. One it let the agent do puts the agent's dot on the tab's row,
+/// from the same entry. It comes from inside the call that asked, so the app hears it after.
 unsafe extern "C" fn agent_activity(_: *mut c_void, entry: *const bc::bc_agent_activity) {
     let entry = unsafe { &*entry };
-    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
     let (agent, action, refused) = (text(entry.agent), text(entry.action), text(entry.refused));
+    let tab = entry.tab;
     match refused.is_empty() {
-        true => log!("browser: agent activity {agent} {} {action}", entry.tab),
-        false => log!("browser: agent activity {agent} {} {action} refused: {refused}", entry.tab),
+        true => log!("browser: agent activity {agent} {tab} {action}"),
+        false => log!("browser: agent activity {agent} {tab} {action} refused: {refused}"),
     }
     if refused.is_empty() {
-        let (agent, tab): (SharedString, _) = (agent.into_owned().into(), entry.tab);
-        update_shells(|shell, cx| shell.agent_acted(agent.clone(), tab, cx));
+        let agent = SharedString::from(agent.clone());
+        update_app_later(move |cx| update_shells_in(cx, |shell, cx| {
+            shell.agent_acted(agent.clone(), tab, cx)
+        }));
+    }
+    // The Agents' own calls log themselves.
+    if !agents_core::calling() {
+        agents_core::update(move |agents, cx| agents.checked(&agent, tab, &action, &refused, cx));
     }
 }
 
-/// The core ended an agent's session with a tab: its client disconnected, it released the tab or
-/// the user took the tab back. The activity log has it beside what the agent did, and the agent is
-/// no longer at work in the tab.
+/// The core ended an agent's session with a tab: its client disconnected, it released the tab, the
+/// user took the tab back or its page asked for the user's passkey. The activity log has it beside
+/// what the agent did, and the agent is no longer at work in the tab.
 unsafe extern "C" fn agent_session_ended(
     _: *mut c_void,
     agent: *const c_char,
@@ -4009,11 +4120,45 @@ unsafe extern "C" fn agent_session_ended(
         bc::BC_AGENT_SESSION_DISCONNECTED => "disconnected",
         bc::BC_AGENT_SESSION_RELEASED => "released",
         bc::BC_AGENT_SESSION_TAKEN_BACK => "taken back",
+        bc::BC_AGENT_SESSION_PASSKEY => "passkey",
         _ => "ended",
     };
     // check.sh reads this line.
     log!("browser: agent session ended {agent} {tab} {why}");
-    update_shells(|shell, cx| shell.agent_session_ended(&agent, tab, cx));
+    // As agent_activity, from inside the call that ended it.
+    update_app_later(move |cx| {
+        update_shells_in(cx, |shell, cx| shell.agent_session_ended(&agent, tab, cx));
+        if let Some(agents) = browser::agents::global(cx) {
+            agents.update(cx, |agents, cx| agents.session_ended(&agent, tab, why, cx));
+        }
+    });
+}
+
+/// The core's answer to an agent's action in a tab (bc_agent_page): why it couldn't, a
+/// screenshot, or the page's tree.
+unsafe extern "C" fn agent_page_done(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    request: u64,
+    text: *const c_char,
+    error: bool,
+) {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    // check.sh reads this line.
+    match error {
+        true => log!("browser: agent page {tab} {request} error: {text}"),
+        false => log!("browser: agent page {tab} {request} {}", text.len()),
+    }
+    agents_core::update(move |agents, cx| agents.page_done(request, text, error, cx));
+}
+
+/// The text of a tab's page that bc_tab_read_text asked for, or null if it had none.
+unsafe extern "C" fn tab_text(_: *mut c_void, tab: bc::bc_id, request: u64, text: *const c_char) {
+    let text = (!text.is_null())
+        .then(|| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned());
+    // check.sh reads this line.
+    log!("browser: tab text {tab} {request} {}", text.as_ref().map_or(0, String::len));
+    agents_core::update(move |agents, cx| agents.text_read(request, text, cx));
 }
 
 /// The page menu's Open Link in New Window and Open Link in Incognito Window: `url` opens in a
@@ -5209,6 +5354,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
+        tab_text: Some(tab_text),
+        agent_page_done: Some(agent_page_done),
         ..Default::default()
     };
     (args, host)

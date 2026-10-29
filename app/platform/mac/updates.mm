@@ -256,6 +256,22 @@ bool SignedLikeThisApp(NSURL* app) {
                                  cause ? [@" " stringByAppendingString:cause.description] : @""]);
 }
 
+// The feed parsed and the check's end, which a check that shows no outcome says it got to.
+- (void)updater:(SPUUpdater*)updater didFinishLoadingAppcast:(SUAppcast*)appcast {
+  Log([NSString stringWithFormat:@"update feed loaded, %lu items",
+                                 (unsigned long)appcast.items.count]);
+}
+
+- (void)updater:(SPUUpdater*)updater
+    didFinishUpdateCycleForUpdateCheck:(SPUUpdateCheck)updateCheck
+                                 error:(NSError*)error {
+  NSString* outcome = error ? [NSString stringWithFormat:@"%@ %ld, %@", error.domain,
+                                                         (long)error.code,
+                                                         error.localizedDescription]
+                            : @"no error";
+  Log([NSString stringWithFormat:@"update cycle ended: %@", outcome]);
+}
+
 - (void)updater:(SPUUpdater*)updater willScheduleUpdateCheckAfterDelay:(NSTimeInterval)delay {
   Log([NSString stringWithFormat:@"update check in %.0f s", delay]);
 }
@@ -298,6 +314,11 @@ bool SignedLikeThisApp(NSURL* app) {
   self.waiting = !handleShowingUpdate;
   NSString* outcome = handleShowingUpdate ? @"shown" : @"held in full screen";
   Log([NSString stringWithFormat:@"update %@ %@", update.versionString, outcome]);
+}
+
+// Any of Sparkle's alerts, an error's too.
+- (void)standardUserDriverWillShowModalAlert {
+  Log(@"update alert shows");
 }
 
 - (void)standardUserDriverDidReceiveUserAttentionForUpdate:(SUAppcastItem*)update {

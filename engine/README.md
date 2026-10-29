@@ -75,6 +75,8 @@ The zip is named after its contents' hash. The first build takes about as long a
 
 `windows/prepare.sh` is ungoogled-chromium-windows's own build on Windows, which `.github/workflows/engine-windows.yml` runs by hand on GitHub's runners, for when the cross build can't.
 
+Both add `enable_playready=true` to the args. Chromium sets it only in Chrome-branded builds, and nothing else on PlayReady's path checks branding, so with it protected video plays through Windows' own PlayReady (decision 1).
+
 ## Releases
 
 A copy for other Macs is the Release engine with the prod app in it. `app/build.sh prod` builds it, and `SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh` signs each part inside out with the hardened runtime, notarizes the app and then a DMG through the Keychain's `notary` profile (`xcrun notarytool store-credentials notary`), and staples both, leaving `app/build/release/ilo.dmg`. Only a Developer ID passes Gatekeeper on another Mac. The entitlements are Chromium's, trimmed to what a browser outside App Sandbox uses, in `app/entitlements/`. `tools/install.sh` signs the owner's own copy instead, on its Apple Development identity.
@@ -134,11 +136,15 @@ so a build whose profile is elsewhere, as a dev build's is, does none of that.
   Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
   (glitchtip.com/documentation/install), an organization and a project, and an auth token with
   `project:write` for the symbols.
-- **Symbols.** When the build names a collector, `tools/release.sh` uploads the Release engine's
-  dSYMs and the app's executable with `sentry-cli debug-files upload`, which GlitchTip takes as
-  Sentry does. The engine builds with ungoogled-chromium-macos's `symbol_level=1` and
-  `blink_symbol_level=0`, so frames have functions and lines outside Blink, and Blink's only
-  their library.
+- **Symbols.** When the build names a collector, each release job uploads its OS's with
+  `tools/symbols.sh`, through `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does.
+  The Mac's are the Release engine's dSYMs and the app's executable; that engine builds with
+  ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions
+  and lines outside Blink, and Blink's only their library. Linux and Windows build with their
+  ungoogled-chromium's `symbol_level=0`, so frames have functions and no lines: on Linux from the
+  symbol tables of `chrome` and `libBrowser.so`, which the Flatpak keeps, and on Windows from PDBs,
+  the engine's in its release beside it (`windows/cross/package.sh`, `fetch.sh symbols`) and
+  `Browser.pdb`. Lines there would take `symbol_level=1`, a full rebuild of each engine.
 
 ## Rules
 

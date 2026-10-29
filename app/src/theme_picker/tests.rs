@@ -344,7 +344,7 @@ fn minus_and_plus_read_on_the_field_and_off_reads_as_off() {
     let light = Theme { appearance: Appearance::Light, ..Theme::of_color(SWATCHES[0]) };
     let dark = Theme { appearance: Appearance::Dark, ..Theme::of_color(SWATCHES[8]) };
     for theme in [light, dark] {
-        let palette = Palette::of(Some(&theme));
+        let palette = Palette::of(Some(&theme), Tone::Dark);
         let states = [
             ("enabled", true, false, 0.65),
             ("pressed", true, true, 0.9),

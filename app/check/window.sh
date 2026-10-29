@@ -18,7 +18,8 @@
 # pointer kept at the window's edge brings the hidden sidebar out, and one passing it doesn't. The
 # sidebar's edge drags its width between 164 and 500, stopping at them, and dragged on past half the
 # narrowest it hides the sidebar, keeping its width; a double-click on it puts the width back. A
-# page that hasn't drawn yet shows the card's colour, not white. In a check VM, the sidebar over grey backdrops is Dia's composite.
+# page that hasn't drawn yet shows the card's colour, not white. In a check VM, the sidebar over grey
+# backdrops is Dia's composite, dark and then light, with the Mac's appearance.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -168,18 +169,12 @@ expect "^browser: tab [0-9]* opened by $first in the foreground\$" "the page did
 tab=$(grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: page $tab back 0 forward 0 loading 1 \$" \
   "a tab opened to a page that hasn't come doesn't say it's loading"
-if [ "$(uname)" = Linux ]; then
+for _ in $(seq 20); do
   ../tools/window-screenshot.sh "$pid" "$out/before-paint.png" || fail "no window to capture"
   color=$(pixel "$out/before-paint.png" 0.6 0.5)
-  echo "skip: a page that hasn't drawn showing the card's colour: on Linux it shows $color until the stubs lane's fix/linux-unpainted-tab."
-else
-  for _ in $(seq 20); do
-    ../tools/window-screenshot.sh "$pid" "$out/before-paint.png" || fail "no window to capture"
-    color=$(pixel "$out/before-paint.png" 0.6 0.5)
-    dark "$color" && break
-  done
-  dark "$color" || fail "a page that hasn't drawn shows $color, not the card's colour"
-fi
+  dark "$color" && break
+done
+dark "$color" || fail "a page that hasn't drawn shows $color, not the card's colour"
 send key w cmd
 expect_tabs "$first" "$first" "after closing the tab of the page that hasn't come"
 send click $page_point
@@ -654,14 +649,17 @@ none_since '^browser: command new-tab' || fail "a double-click on the sidebar's 
 check_layout "after a double-click on the sidebar's edge"
 
 # The sidebar over a backdrop of black, grey 20, grey 60 and white (sRGB levels) is Dia's composite
-# within 3 levels (docs/ux-spec.md › Window material): Dia's material reads 24 / 32 / 45 / 104
-# there, under its tint of black 0.4, with the gradient over that. The blur comes from the window
-# server, which a capture of the window alone leaves out, so this captures the screen, and only a
-# check VM's screen is the check's to capture.
+# within 3 levels (docs/ux-spec.md › Window material), in the Mac's dark appearance and then its
+# light one: Dia's dark material reads 24 / 32 / 45 / 104 there, under its tint of black 0.4, and
+# its light one 137 / 146 / 165 / 243, under white 0.8, with the gradient over that. The blur comes
+# from the window server, which a capture of the window alone leaves out, so this captures the
+# screen, and only a check VM's screen, and its appearance, are the check's to change: check.sh
+# runs it dark, and this turns it light for the light pass and back after.
 material="not measured outside a check VM"
 if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   # The theme picker's field is black at its middle, and black is neutral, so its gradient is
-  # faint and known: stops at 0.06, from black at the top to 0.25 · 255 at the bottom.
+  # faint and known: stops at 0.06 in dark and 0.09 in light, from black at the top to 0.25 · 255
+  # at the bottom.
   post rightclick 100 112
   expect '^browser: menu shown Rename Space' "a right-click on the Space's name showed no menu"
   send choose "$(cased 'Edit Theme Color…')"
@@ -676,42 +674,68 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   srgb="/System/Library/ColorSync/Profiles/sRGB Profile.icc"
   material=
   off=
-  for pair in 0:24 20:32 60:45 255:104; do
-    level=${pair%:*}
-    send backdrop "$level"
-    expect "^browser: backdrop $level drawn" "the backdrop in grey $level didn't draw"
-    # The window's frame and its screen's size, in points from the screen's top left.
-    place=$(sed -n "/^browser: drive $step: /,\$p" "$log" |
-      grep -m1 "^browser: backdrop $level drawn" | sed 's/.* at //; s/[,x]/ /g; s/ on / /')
-    [ "$(echo "$place" | wc -w)" -eq 6 ] || fail "the backdrop didn't say where the window is"
-    shot="$out/material-$level.png"
-    screencapture -x "$shot" || fail "screencapture couldn't capture the screen"
-    sips -m "$srgb" "$shot" > /dev/null || fail "sips couldn't match $shot to sRGB"
-    # A point of the empty sidebar, away from its text, and one of the backdrop beside the window.
-    sidebar=$(pixel "$shot" $(echo "$place" | awk '{ print ($1 + 60) / $5, ($2 + 450) / $6 }'))
-    backdrop=$(pixel "$shot" $(echo "$place" |
-      awk '{ x = $1 >= 50 ? $1 - 50 : $1 + $3 + 50; print x / $5, ($2 + 450) / $6 }'))
-    # Dia's composite there: 0.94 of its tinted material, then 0.06 of the gradient, 450 pt down.
-    # The material alone is ours under our tint of black 0.25, to tune the tint by.
-    line=$(echo "${pair#*:} $place $sidebar $backdrop" | awk -v level="$level" '{
-      gradient = 0.06 * 63.75 * 450 / $5
-      dia = 0.94 * 0.6 * $1 + gradient
-      ours = ($8 + $9 + $10) / 3
-      seen = ($11 + $12 + $13) / 3
-      printf "%.0f (Dia %.0f), the material alone %.0f (Dia %d), the backdrop read as %.0f",
-        ours, dia, (ours - gradient) / (0.94 * 0.749), $1, seen
-      if (ours - dia > 3 || dia - ours > 3) printf ", off"
-      if (seen - level > 2 || level - seen > 2) printf ", capture off"
-    }')
-    echo "material over $level: $line"
-    case "$line" in *", off"* | *"capture off"*) off="$off $level" ;; esac
-    material="$material$level $line; "
+  # Each pass: its appearance, then each backdrop's grey and Dia's material over it.
+  for pass in "dark 0:24 20:32 60:45 255:104" "light 0:137 20:146 60:165 255:243"; do
+    tone=${pass%% *}
+    if [ "$tone" = light ]; then
+      light_shots=", $out/light.png, $out/light-menu.png"
+      appearance false || fail "System Events didn't turn the Mac light"
+      expect '^browser: window light true$' "the window didn't turn light with the Mac"
+      ../tools/window-screenshot.sh "$pid" "$out/light.png" || fail "no window to capture"
+      post rightclick 100 112
+      expect '^browser: menu shown Rename Space' "a right-click on the Space's name showed no menu"
+      ../tools/window-screenshot.sh "$pid" "$out/light-menu.png" || fail "no window to capture"
+      send key escape
+      expect '^browser: menu closed$' "escape didn't close the Space's menu"
+      send move $page_point
+    fi
+    for pair in ${pass#* }; do
+      level=${pair%:*}
+      send backdrop "$level"
+      expect "^browser: backdrop $level drawn" "the backdrop in grey $level didn't draw"
+      # The window's frame and its screen's size, in points from the screen's top left.
+      place=$(sed -n "/^browser: drive $step: /,\$p" "$log" |
+        grep -m1 "^browser: backdrop $level drawn" | sed 's/.* at //; s/[,x]/ /g; s/ on / /')
+      [ "$(echo "$place" | wc -w)" -eq 6 ] || fail "the backdrop didn't say where the window is"
+      shot="$out/material-$tone-$level.png"
+      screencapture -x "$shot" || fail "screencapture couldn't capture the screen"
+      sips -m "$srgb" "$shot" > /dev/null || fail "sips couldn't match $shot to sRGB"
+      # A point of the empty sidebar, away from its text, and one of the backdrop beside the window.
+      sidebar=$(pixel "$shot" $(echo "$place" | awk '{ print ($1 + 60) / $5, ($2 + 450) / $6 }'))
+      backdrop=$(pixel "$shot" $(echo "$place" |
+        awk '{ x = $1 >= 50 ? $1 - 50 : $1 + $3 + 50; print x / $5, ($2 + 450) / $6 }'))
+      # Dia's composite there, 450 pt down: in dark 0.94 of its material under black 0.4, then 0.06
+      # of the gradient; in light 0.91 of it under white 0.8, then 0.09. The material alone is ours
+      # under our tint, black 0.25 or white 0.8, to tune the tint by.
+      line=$(echo "${pair#*:} $place $sidebar $backdrop" | awk -v level="$level" -v tone="$tone" '{
+        ours = ($8 + $9 + $10) / 3
+        seen = ($11 + $12 + $13) / 3
+        if (tone == "dark") {
+          gradient = 0.06 * 63.75 * 450 / $5
+          dia = 0.94 * 0.6 * $1 + gradient
+          alone = (ours - gradient) / (0.94 * 0.749)
+        } else {
+          gradient = 0.09 * 63.75 * 450 / $5
+          dia = 0.91 * (0.8 * 255 + 0.2 * $1) + gradient
+          alone = ((ours - gradient) / 0.91 - 0.8 * 255) / 0.2
+        }
+        printf "%.0f (Dia %.0f), the material alone %.0f (Dia %d), the backdrop read as %.0f",
+          ours, dia, alone, $1, seen
+        if (ours - dia > 3 || dia - ours > 3) printf ", off"
+        if (seen - level > 2 || level - seen > 2) printf ", capture off"
+      }')
+      echo "$tone material over $level: $line"
+      case "$line" in *", off"* | *"capture off"*) off="$off $tone $level," ;; esac
+      material="$material$tone over $level $line; "
+    done
   done
   send backdrop off
-  [ -z "$off" ] || fail "the sidebar isn't Dia's composite within 3 levels over grey$off: $material"
+  appearance true || fail "System Events didn't turn the Mac dark again"
+  expect '^browser: window light false$' "the window didn't turn dark again with the Mac"
+  [ -z "$off" ] || fail "the sidebar isn't Dia's composite within 3 levels over grey${off%,}: $material"
   material="over grey ${material%; }"
 fi
 exec 3>&-
 quit
 echo "edge: $edge"
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png${light_shots:-}"

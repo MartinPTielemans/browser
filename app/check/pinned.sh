@@ -12,7 +12,10 @@
 # dragged left comes out, a folder drags as a row, and a click closes and opens it. Launched again,
 # the app brings it back closed, a double-click renames it, and Delete Folder in its menu leaves its
 # tab where it was. Links and files dragged onto the list from the page or another app open as tabs
-# where the pointer lets go, and dragged text that isn't a web link doesn't.
+# where the pointer lets go, and dragged text that isn't a web link doesn't. A split made with a
+# pinned tab is pinned. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and
+# Edit… change its pinned URL, which ⌘Z gives back, and ⌘-click on its favicon goes back keeping
+# the page in a new tab.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -201,6 +204,89 @@ link_away_and_back() {
 }
 link_away_and_back page
 link_away_and_back ui
+# A split made with a pinned tab is pinned, as Arc keeps one made in Pinned: ⌥⇧-click on its
+# page's link opens the link in a pane beside it, which joins the pinned tabs as one row. Separate
+# All Pages ends it, and ⌘D and ⌘W take the pane's tab out again.
+send click $link_point alt shift
+expect "^browser: splits $c+[0-9][0-9]*\$" \
+  "⌥⇧-click on the pinned tab's link didn't open it beside the page: $(grep '^browser: splits' "$log" | tail -1)"
+n=$(grep '^browser: splits' "$log" | tail -1 | sed 's/.*+//')
+expect "^browser: pinned $c $n\$" "the pane beside the pinned tab isn't pinned: the pinned tabs are \"$(pinned)\""
+expect "^browser: today $a\$" "the pane beside the pinned tab went into Today: Today is \"$(today)\""
+expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in the pane beside the pinned tab"
+# The outline comes as the rows are drawn.
+expect '^browser: outline ' "the pinned split's row wasn't drawn"
+../tools/window-screenshot.sh "$pid" "$out/pinned-split.png" || fail "no window to capture"
+bar_command separate-split "Separate All Pages" "separate all"
+expect '^browser: splits $' "Separate All Pages didn't end the pinned split"
+expect "^browser: panes $n\$" "Separate All Pages didn't leave the focused pane's tab shown alone"
+send key d cmd
+expect_lists "$c" "$n $a" "after ⌘D on the pinned split's pane"
+send key w cmd
+expect "^browser: tab $n closed\$" "⌘W didn't close the pinned split's pane"
+send click $(pinned_row 0)
+expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
+# Away from its pinned URL, the menu's Pinned URL › Replace Pinned URL with Current makes the page
+# it's at the one it goes back to, and ⌘Z gives it back the one it had. Edit… shows the pinned URL
+# in a field in its row, which takes a URL typed over it, and ⌘Z takes that back too (Arc).
+link_away
+post rightclick $(pinned_row 0)
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" \
+  "a right-click on the pinned tab away from its pinned URL didn't show its Pinned URL submenu"
+expect '^browser: menu window at ' "the menu didn't take the keyboard"
+send key p
+expect "^browser: menu highlights $(cased 'Pinned URL') at " "typing p didn't select Pinned URL"
+send key right
+expect '^browser: menu submenu Pinned URL shown at ' "→ didn't open the Pinned URL submenu"
+expect "^browser: menu highlights $(cased 'Pinned URL › Replace Pinned URL with Current') at " \
+  "→ didn't highlight Replace Pinned URL with Current"
+../tools/window-screenshot.sh "$pid" "$out/pinned-url-menu.png" || fail "no window to capture"
+send key return
+expect '^browser: command replace-pinned-url via tab menu$' "Replace Pinned URL with Current didn't run"
+expect "^browser: page $c away 0\$" "Replace Pinned URL with Current didn't make the page its pinned URL"
+send key z cmd
+expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo Replace Pinned URL with Current"
+expect "^browser: page $c away 1\$" "⌘Z didn't give the pinned tab back its pinned URL"
+send key z cmd shift
+expect '^browser: command redo via \(ui\|page\)$' "⇧⌘Z didn't redo Replace Pinned URL with Current"
+expect "^browser: page $c away 0\$" "⇧⌘Z didn't replace the pinned URL again"
+send key z cmd
+expect "^browser: page $c away 1\$" "⌘Z didn't give the pinned tab back its pinned URL again"
+post rightclick $(pinned_row 0)
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on the pinned tab didn't show its menu"
+send choose "$(cased 'Pinned URL › Edit…')"
+expect "^browser: edit pinned url $c\$" "Edit… didn't show the pinned URL in a field"
+send type "${site}notes.txt"
+../tools/window-screenshot.sh "$pid" "$out/pinned-url-edit.png" || fail "no window to capture"
+send key return
+expect "^browser: page $c away 0\$" "the pinned URL typed in Edit… didn't take"
+send key z cmd
+expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo the pinned URL typed"
+expect "^browser: page $c away 1\$" "⌘Z didn't give the pinned tab back the pinned URL Edit… replaced"
+# ⌘-click on its favicon goes back too, keeping the page it's at in a new tab at the top of Today,
+# opened first, which shows (Arc).
+# Shown, its row draws − in place of ✕.
+send move $(pinned_favicon 0)
+expect "^browser: hover tab $c close \(0\|1\|−\) favicon $c\$" \
+  "the pointer on the pinned tab's favicon wasn't drawn"
+send click $(pinned_favicon 0) cmd
+expect '^browser: command back-to-pinned-url-keeping-page via sidebar$' \
+  "a ⌘-click on an away pinned tab's favicon didn't keep its page on the way back"
+expect "^browser: today [0-9][0-9]* $a\$" "the ⌘-click didn't open a copy at the top of Today: Today is \"$(today)\""
+k=$(today | cut -d' ' -f1)
+expect "^browser: loaded $k ${site}notes.txt\$" "the copy didn't keep the page the pinned tab was at"
+expect "^browser: loaded $c $site\$" "the ⌘-click didn't take the pinned tab back to its pinned URL"
+expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
+since=$(grep -n "^browser: drive $step: " "$log" | cut -d: -f1)
+opened=$(sed -n "$since,\$p" "$log" | grep -n "^browser: today $k $a\$" | head -1 | cut -d: -f1)
+back=$(sed -n "$since,\$p" "$log" | grep -n "^browser: loaded $c $site\$" | head -1 | cut -d: -f1)
+[ "$opened" -lt "$back" ] || fail "the pinned tab went back before its page's copy opened"
+../tools/window-screenshot.sh "$pid" "$out/pinned-kept-page.png" || fail "no window to capture"
+expect "^browser: selected $k\( in .*\)\{0,1\}\$" "the copy the ⌘-click kept didn't show"
+send key w cmd
+expect "^browser: tab $k closed\$" "⌘W didn't close the copy the ⌘-click kept"
+send click $(pinned_row 0)
+expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
 # An address typed into it opens in a tab it opened, at the top of Today, shown, and the pinned tab
 # keeps its page. Closing that tab shows the pinned one again, its opener.
 go_from_bar example.com
@@ -441,4 +527,4 @@ send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. ⌥⇧-click on a pinned tab's link opens a pinned split. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change the pinned URL, which ⌘Z and ⇧⌘Z undo and redo, and ⌘-click on its favicon goes back after opening the page in a new tab. Windows: $out/pinned-split.png, $out/pinned-url-menu.png, $out/pinned-url-edit.png, $out/pinned-kept-page.png, $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"

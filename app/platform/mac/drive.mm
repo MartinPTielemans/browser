@@ -155,11 +155,14 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <map>
 #include <sstream>
 #include <string>
 #include <thread>
+
+#include <unistd.h>
 
 #include "browser_core.h"
 #include "../host.h"
@@ -1833,11 +1836,11 @@ void drive_start(void) {
                                                 fprintf(stderr, "browser: window zoomed %d\n",
                                                         zoomed);
                                               }];
+  // Reads fd 0 with read(2), not stdio: fgets would hold stdin's FILE lock while it waits, and
+  // NSXMLNode's XPath lexer, which Sparkle's appcast parse runs on the main thread, takes it too.
   std::thread([] {
-    char buffer[1024];
     long number = 0;
-    while (fgets(buffer, sizeof buffer, stdin)) {
-      std::string line(buffer);
+    auto command = [&number](std::string line) {
       line.erase(line.find_last_not_of("\r\n") + 1);
       long n = ++number;
       // In the run loop's common modes, so a command also runs while a menu is open. GCD's main
@@ -1852,6 +1855,26 @@ void drive_start(void) {
         }
       });
       CFRunLoopWakeUp(CFRunLoopGetMain());
+    };
+    std::string pending;
+    char buffer[1024];
+    for (;;) {
+      ssize_t got = read(STDIN_FILENO, buffer, sizeof buffer);
+      if (got < 0 && errno == EINTR) {
+        continue;
+      }
+      if (got <= 0) {
+        break;
+      }
+      pending.append(buffer, got);
+      for (size_t end; (end = pending.find('\n')) != std::string::npos;) {
+        command(pending.substr(0, end));
+        pending.erase(0, end + 1);
+      }
+    }
+    // A last line without its newline still runs, as fgets returned it.
+    if (!pending.empty()) {
+      command(pending);
     }
   }).detach();
 }

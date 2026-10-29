@@ -14,6 +14,7 @@
 #include "../host.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -337,6 +338,9 @@ void host_set_window_title(void* ui_view, const char* title) {
   }
 }
 
+// The window has no material under the UI, whose tint is the window's look.
+void host_set_window_light(void* ui_view, bool light) {}
+
 // Through the core, as host_set_window_title. Under Wayland the compositor decides whether the
 // window comes forward or only asks for attention, as Hyprland's focus_on_activate setting does.
 void host_activate(void* ui_view) {
@@ -462,12 +466,27 @@ void host_detent(void) {}
 
 void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y, const host_dragged* items, size_t count)) {}
 
-bool host_trash(const char* path) {
-  return false;
-}
+// GIO's, from the chrome that loads the app, as GLib's are: its trash is the freedesktop.org one the
+// file managers share, in the home's or in the file's own volume's.
+extern "C" void* g_file_new_for_path(const char* path) __attribute__((weak));
+extern "C" int g_file_trash(void* file, void* cancellable, void** error) __attribute__((weak));
+extern "C" void g_object_unref(void* object) __attribute__((weak));
+extern "C" void g_error_free(void* error) __attribute__((weak));
 
-bool host_drag_file(const char* path, void (*ended)(bool taken)) {
-  return false;
+bool host_trash(const char* path) {
+  if (g_file_trash) {
+    void* file = g_file_new_for_path(path);
+    void* error = nullptr;
+    bool trashed = g_file_trash(file, nullptr, &error);
+    if (error) {
+      g_error_free(error);
+    }
+    g_object_unref(file);
+    if (trashed) {
+      return true;
+    }
+  }
+  return access(path, F_OK) != 0 && errno == ENOENT;
 }
 
 // shortcut: no file previews yet; the downloads list shows its generic icon.
