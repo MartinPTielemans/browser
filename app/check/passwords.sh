@@ -8,7 +8,9 @@
 # and escape there declines. On another site, Never answers, and that site's Site Controls list it
 # in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
 # All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
-# browser window's dialog and removes it, which Settings hears. Each run has a profile of its own,
+# browser window's dialog and removes it, which Settings hears. Settings' Offer to save passwords,
+# switched off, keeps the next login from bringing the offer, and Save and fill addresses switches
+# off and on. Each run has a profile of its own,
 # which no other run or the owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty.
@@ -219,8 +221,9 @@ send key escape
 expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
 
 # On the first site the row names the saved login, and All Passwords… lists it in Settings, whose
-# Remove asks in an alert, where Cancel keeps it. With one profile there's no pop-up, so the first
-# login's row is the Shortcuts tab's first row, its Remove at the box's right.
+# Remove asks in an alert, where Cancel keeps it. With one profile there's no pop-up, so the box at
+# the top holds the profile's offers to save passwords, addresses and cards. Offer to save passwords
+# switches off, and Save and fill addresses off and on again. Settings logs where it draws each.
 go_from_bar "${site#http://}login.html"
 expect "^browser: title $tab filled\$" "the login page didn't fill the saved password in again"
 controls="^browser: site controls http://127.0.0.1:$port: "
@@ -239,11 +242,18 @@ expect '^browser: settings tab Passwords$' "All Passwords… didn't show Setting
 expect "^browser: passwords [0-9]*: 127.0.0.1:$port check@example.test\$" \
   "Settings didn't list the saved login alone: $(grep '^browser: passwords ' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-passwords.png" || fail "no window to capture"
-post clickkey 574 159
+post clickkey $(drawn "remove login 0")
 expect "^browser: alert shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
   "Remove in Settings didn't ask first"
 send choose Cancel
 none_since '^browser: remove login' || fail "Cancel removed the login"
+send clickkey $(drawn "switch offer to save passwords")
+expect '^browser: offer to save passwords off$' "a click on Offer to save passwords didn't switch it off"
+send clickkey $(drawn "switch save and fill addresses")
+expect '^browser: save and fill addresses off$' "a click on Save and fill addresses didn't switch it off"
+send clickkey $(drawn "switch save and fill addresses")
+expect '^browser: save and fill addresses on$' "a second click didn't switch addresses back on"
+../tools/window-screenshot.sh "$pid" "$out/settings-passwords-off.png" || fail "no window to capture"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 
@@ -266,6 +276,20 @@ send key return
 expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
   "return didn't remove the login"
 expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
+
+# Switched off, the profile doesn't offer to save the next login. The page it posts to loading, and
+# the command bar opening and closing, take longer than the core reporting an offer.
+send click $page_point
+send click 600 60
+off=$step
+log_in hunter2.off
+expect "^browser: title $tab welcome\$" "the login didn't post"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+sed -n "/^browser: drive $off: /,\$p" "$log" | grep -q "^browser: offer $tab " &&
+  fail "the login brought an offer with Offer to save passwords off"
 exec 3>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; Settings' Offer to save passwords switched off keeps the next login from bringing an offer, and Save and fill addresses switches off and on. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/settings-passwords-off.png, $out/password-remove.png"

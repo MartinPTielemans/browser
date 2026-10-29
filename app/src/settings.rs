@@ -318,8 +318,8 @@ pub struct Settings {
     default_browser: Entity<DefaultBrowser>,
     /// The sites with ad blocking off, as General last logged them for check.sh.
     off_sites_logged: Option<String>,
-    /// Where each Turn On has been logged, so it logs only where it moves to.
-    turn_on_logged: Rc<RefCell<Vec<String>>>,
+    /// Where each control check.sh clicks has been logged, so it logs only where it moves to.
+    drawn_logged: Rc<RefCell<Vec<String>>>,
     /// Where each pop-up button's text starts, as last drawn, for its menu to put the chosen
     /// item's over.
     popup_texts: Rc<RefCell<Vec<(Popup, gpui::Point<gpui::Pixels>)>>>,
@@ -741,7 +741,7 @@ fn open(cx: &mut App) {
                 refused: None,
                 search,
                 off_sites_logged: None,
-                turn_on_logged: Rc::default(),
+                drawn_logged: Rc::default(),
                 popup_texts: Rc::default(),
                 passwords_profile: None,
                 logins: HashMap::new(),
@@ -941,21 +941,7 @@ impl Settings {
         }
         let rows = sites.iter().enumerate().map(|(index, off)| {
             let (profile, site) = (off.profile, off.site.clone());
-            let (logged, named) = (self.turn_on_logged.clone(), off.site.clone());
-            // check.sh clicks Turn On where this line says it is.
-            let at = canvas(
-                |_, _, _| {},
-                move |bounds, _, _, _| {
-                    let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
-                    let line = format!("browser: settings turn on {named} at {x:.0} {y:.0}");
-                    if !logged.borrow().contains(&line) {
-                        log!("{line}");
-                        logged.borrow_mut().push(line);
-                    }
-                },
-            )
-            .absolute()
-            .inset_0();
+            let at = self.drawn(format!("turn on {}", off.site));
             let turn_on = button(&RowLook::settings(), ("ad-blocking-on", index as u64), "Turn On").relative().child(at);
             let turn_on = turn_on.on_click(cx.listener(move |_, _, _, cx| {
                 let Ok(text) = CString::new(site.to_string()) else {
@@ -1018,6 +1004,29 @@ impl Settings {
 
     /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
     /// pressed while its menu is open.
+    /// Logs where the element it fills is drawn, its centre in the window, as "browser: settings
+    /// `what` at x y", each time it moves, for check.sh to click it there. Put it in a relative one.
+    fn drawn(&self, what: String) -> gpui::Canvas<()> {
+        let logged = self.drawn_logged.clone();
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, _, _| {
+                let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
+                let line = format!("browser: settings {what} at {x:.0} {y:.0}");
+                let mut logged = logged.borrow_mut();
+                // Once a place: forget where it was drawn before.
+                let at = format!("browser: settings {what} at ");
+                if !logged.contains(&line) {
+                    log!("{line}");
+                    logged.retain(|each| !each.starts_with(&at));
+                    logged.push(line);
+                }
+            },
+        )
+        .absolute()
+        .inset_0()
+    }
+
     fn popup(
         &self,
         which: Popup,
@@ -1082,7 +1091,9 @@ impl Settings {
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
             }))
+            .relative()
             .child(switch(&RowLook::settings(), on, slid, accent))
+            .child(self.drawn(format!("switch {name}")))
             .into_any_element()
     }
 
@@ -1223,9 +1234,11 @@ impl Settings {
                     }))
                     .child(renaming.name.clone()),
                 _ => div()
+                    .relative()
                     .flex_1()
                     .min_w_0()
                     .truncate()
+                    .child(self.drawn(format!("profile {id}")))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |settings, event: &MouseDownEvent, _, cx| {
@@ -1243,7 +1256,9 @@ impl Settings {
             };
             let name = profile.name.clone();
             let delete = profile.deletable.then(|| {
-                button(&RowLook::settings(), ("delete-profile", id), "Delete").on_click(
+                let button = button(&RowLook::settings(), ("delete-profile", id), "Delete");
+                let button = button.relative().child(self.drawn(format!("delete profile {id}")));
+                button.on_click(
                     cx.listener(move |settings, _, window, cx| {
                         settings.delete(id, name.clone(), window, cx)
                     }),
@@ -1271,6 +1286,7 @@ impl Settings {
                         settings.choose_search_engine(id, engines.clone(), chosen, window, cx)
                     }),
                 );
+                let popup = popup.child(self.drawn(format!("search engine {id}")));
                 row(None, "Search engine", popup.into_any_element())
             });
             let after = unsafe { bc::bc_profile_archive_after(id) };
@@ -1284,15 +1300,20 @@ impl Settings {
                         settings.choose_archive_after(Some(id), chosen, window, cx)
                     }),
                 );
+                let popup = popup.child(self.drawn(format!("archive {id}")));
                 row(None, "Archive tabs after", popup.into_any_element())
             });
             let folder = download_folder(id).map(|folder| {
                 let change = button(&RowLook::settings(), ("download-folder", id), "Change…")
+                    .relative()
+                    .child(self.drawn(format!("download folder {id}")))
                     .on_click(cx.listener(move |_, _, _, cx| choose_download_folder(id, cx)));
                 detailed_row("Download folder", folder, Some(change.into_any_element()))
             });
             let clear = profile.users_space.then(|| {
                 let clear = button(&RowLook::settings(), ("clear-browsing-data", id), "Clear…")
+                    .relative()
+                    .child(self.drawn(format!("clear {id}")))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         if crate::clear_browsing_data(id) {
                             hide(cx);
@@ -1304,6 +1325,8 @@ impl Settings {
             group(&RowLook::settings(), rows.into_iter().flatten())
         });
         let new = button(&RowLook::settings(), "new-profile", "New Profile")
+            .relative()
+            .child(self.drawn("new profile".into()))
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
         div()
             .flex()
@@ -1459,6 +1482,7 @@ impl Settings {
             let (site, username) = passwords::lines(login);
             let login = login.clone();
             let remove = button(&RowLook::settings(), ("remove-login", index), "Remove");
+            let remove = remove.relative().child(self.drawn(format!("remove login {index}")));
             let remove = remove.on_click(cx.listener(move |settings, _, window, cx| {
                 settings.remove(profile, login.clone(), window, cx)
             }));
@@ -1491,6 +1515,7 @@ impl Settings {
             let icon = if saved.card { "icons/credit-card.svg" } else { "icons/map-pin.svg" };
             let saved = saved.clone();
             let remove = button(&RowLook::settings(), ("remove-autofill", index), "Remove");
+            let remove = remove.relative().child(self.drawn(format!("remove autofill {index}")));
             let remove = remove.on_click(cx.listener({
                 let saved = saved.clone();
                 move |settings, _, window, cx| {
