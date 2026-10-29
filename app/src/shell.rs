@@ -1134,6 +1134,8 @@ pub struct Shell {
     /// What the menu bar was last given for this window, and the window's title.
     menus: MenuBar,
     window_title: SharedString,
+    /// What the URL field said when it last drew, for its log line.
+    url_field_drawn: RefCell<SharedString>,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
     /// The other turned-on extensions' actions, which the core reports while the Site Controls
@@ -1369,6 +1371,7 @@ impl Shell {
             extensions: HashMap::new(),
             menus: MenuBar::default(),
             window_title: SharedString::default(),
+            url_field_drawn: RefCell::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
             side_panel: None,
