@@ -1,19 +1,18 @@
-//! The offer to save a login's password, or to update the one saved, after a page submits it
-//! (docs/ux-spec.md › Passwords and autofill): a card at the top right of the page, in Chrome's
-//! words. GPUI can't draw over the page's native view, so as the find bar is, each browser
-//! window's offer is a window of its own that the host shows over it, as its child. The core keeps
-//! the password; the card shows the username, which the user can edit or pick from the page's other
-//! fields, and the password masked. Showing another tab closes the offer, as it closes Chrome's
-//! bubble, and coming back doesn't bring it back. What it asks of its window and the core goes
-//! through `Host`.
+//! The offer to save a login's password, or to update the one saved, after a page submits it, or
+//! to save the address or the card a form submitted (docs/ux-spec.md › Passwords and autofill): a
+//! card at the top right of the page, in Chrome's words. GPUI can't draw over the page's native
+//! view, so as the find bar is, each browser window's offer is a window of its own that the host
+//! shows over it, as its child. The core keeps the password; the card shows the username, which the
+//! user can edit or pick from the page's other fields, and the password masked. Showing another tab
+//! closes the offer, as it closes Chrome's bubble, and coming back doesn't bring it back. What it
+//! asks of its window and the core goes through `Host`.
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use gpui::{
-    App, Bounds, Context, Entity, Focusable, FontWeight, Global, Hsla, KeyBinding, Pixels, Point,
-    SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, size,
-    svg,
+    App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, KeyBinding,
+    Pixels, Point, SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, size, svg,
 };
 
 use crate::{
@@ -68,6 +67,18 @@ pub enum Kind {
     Save,
     /// To update the password saved for it.
     Update,
+    /// To save the address a form submitted, which `Offer::details` shows in place of a login.
+    Address,
+    /// To save the card a form submitted: its network and last four digits, then its name and when
+    /// it expires.
+    Card,
+}
+
+impl Kind {
+    /// Whether it saves a login, with a username the user can edit.
+    fn login(self) -> bool {
+        matches!(self, Kind::Save | Kind::Update)
+    }
 }
 
 /// An offer from Chrome's password manager, as the core reports it, in Chrome's words.
@@ -86,8 +97,10 @@ pub struct Offer {
     pub password_length: usize,
     pub accept: SharedString,
     pub decline: SharedString,
-    /// None where there's no Never, as for an update.
+    /// None where there's no Never, as for an update, an address or a card.
     pub never: Option<SharedString>,
+    /// For an address or a card, what it saves, a row each of the first two lines.
+    pub details: Vec<SharedString>,
 }
 
 /// The user's answer.
@@ -122,6 +135,8 @@ pub struct OfferPrompt {
     /// The window's colour, which the card takes, and the palette its text is drawn in.
     look: Box<dyn Fn(&App) -> (Hsla, Palette)>,
     input: Entity<TextInput>,
+    /// The card's, which has the keyboard for an address or a card, as they have no field.
+    focus: FocusHandle,
     /// The tab the window shows, whose offer this is.
     tab: u64,
     /// The tab's page shows in another window, which shows the offer, and this one a picture of it.
@@ -179,12 +194,14 @@ pub fn open(
                 .caret_color(look(cx).1.accent)
                 .selection_color(look(cx).1.selection())
         });
-        // The field has the keyboard whenever the window does.
+        // The field has the keyboard whenever the window does, but for an address or a card, which
+        // have none (show_offer).
         window.focus(&input.focus_handle(cx), cx);
-        cx.new(|_| OfferPrompt {
+        cx.new(|cx| OfferPrompt {
             host,
             look: Box::new(look),
             input,
+            focus: cx.focus_handle(),
             tab: 0,
             elsewhere: false,
             settling: Settling::default(),
@@ -219,14 +236,16 @@ pub fn changed(tab: u64, offer: Option<Offer>, cx: &mut App) {
     // check.sh reads these lines. They count the page's other fields' values rather than log them,
     // as a check keeps its log, and leave out the password's length, since prod logs to stderr too.
     match &offer {
-        Some(offer) => log!(
+        Some(offer) if offer.kind.login() => log!(
             "browser: offer {tab} {} {} {}",
-            match offer.kind {
-                Kind::Save => "save",
-                Kind::Update => "update",
-            },
+            if offer.kind == Kind::Save { "save" } else { "update" },
             offer.username,
             offer.usernames.len()
+        ),
+        Some(offer) => log!(
+            "browser: offer {tab} {} {}",
+            if offer.kind == Kind::Address { "address" } else { "card" },
+            offer.details.len()
         ),
         None => log!("browser: offer {tab} gone"),
     }
@@ -292,6 +311,11 @@ fn show_offer(window: WindowHandle<OfferPrompt>, cx: &mut App) {
             match prompt.offer().filter(|_| !prompt.elsewhere) {
                 Some(offer) => {
                     prompt.input.update(cx, |input, cx| input.reset(offer.username, window, cx));
+                    if offer.kind.login() {
+                        window.focus(&prompt.input.focus_handle(cx), cx);
+                    } else {
+                        window.focus(&prompt.focus, cx);
+                    }
                     prompt.host.show();
                     prompt.settling.start(format!("offer {}", prompt.tab), cx);
                 }
@@ -312,10 +336,12 @@ impl OfferPrompt {
         if answer != Answer::NotNow && !self.settling.settled(cx) {
             return;
         }
-        if OFFERS.with_borrow_mut(|offers| offers.remove(&tab)).is_none() {
+        let Some(offer) = OFFERS.with_borrow_mut(|offers| offers.remove(&tab)) else {
             return;
-        }
-        let username = self.input.read(cx).text().to_string();
+        };
+        // An address or a card has no field, though the window's keyboard is in its hidden one.
+        let username =
+            if offer.kind.login() { self.input.read(cx).text().to_string() } else { String::new() };
         // check.sh reads this line.
         log!("browser: offer {tab} answered {answer:?} {username}");
         self.host.answer(tab, answer, &username);
@@ -419,6 +445,16 @@ impl Render for OfferPrompt {
             .child(
                 svg().path("icons/chevron-down.svg").size(px(GLYPH)).text_color(palette.glyph(DETAIL)),
             );
+        // An address or a card shows what it saves in the login's rows.
+        let detail = |index: usize| {
+            row()
+                .pr(px(FIELD_X))
+                .overflow_hidden()
+                .text_color(palette.text(DETAIL))
+                .child(
+                    div().truncate().child(offer.details.get(index).cloned().unwrap_or_default()),
+                )
+        };
         let username = row()
             .pr(px(FIELD_X))
             .child(div().flex_1().min_w_0().overflow_hidden().child(self.input.clone()))
@@ -438,6 +474,7 @@ impl Render for OfferPrompt {
         root.child(
             div()
                 .key_context("Offer")
+                .track_focus(&self.focus)
                 .on_action(cx.listener(Self::accept))
                 .on_action(cx.listener(Self::not_now))
                 .size_full()
@@ -466,8 +503,12 @@ impl Render for OfferPrompt {
                         .truncate()
                         .child(offer.site),
                 )
-                .child(username.mt(px(HEADER_GAP)))
-                .child(password.mt(px(ROW_GAP)))
+                .when(offer.kind.login(), |card| {
+                    card.child(username.mt(px(HEADER_GAP))).child(password.mt(px(ROW_GAP)))
+                })
+                .when(!offer.kind.login(), |card| {
+                    card.child(detail(0).mt(px(HEADER_GAP))).child(detail(1).mt(px(ROW_GAP)))
+                })
                 .child(buttons),
         )
     }

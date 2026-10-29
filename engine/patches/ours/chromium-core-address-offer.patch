@@ -1,0 +1,25 @@
+Lets the core's windows, which have no BrowserView, take a saved address: accepting the app's offer
+to save one runs the iOS promo's check, which reads the BrowserView. The core's windows have no
+promo for Chrome on iOS.
+
+--- a/chrome/browser/ui/autofill/address_bubbles_controller.cc
++++ b/chrome/browser/ui/autofill/address_bubbles_controller.cc
+@@ -312,10 +312,14 @@
+ }
+ 
+ void AddressBubblesController::MaybeShowIOSDektopAddressPromo() {
+-  BrowserWindowInterface* browser =
+-      BrowserWindow::FindBrowserWindowWithWebContents(web_contents())
+-          ->AsBrowserView()
+-          ->browser();
++  BrowserWindow* window =
++      BrowserWindow::FindBrowserWindowWithWebContents(web_contents());
++  // browser_core: the core's windows have no BrowserView, and no promo for
++  // Chrome on iOS.
++  if (!window || !window->AsBrowserView()) {
++    return;
++  }
++  BrowserWindowInterface* browser = window->AsBrowserView()->browser();
+ 
+   // Verify if user is eligible for iOS promo, and attempt showing if they are.
+   ios_promos_utils::VerifyIOSPromoEligibility(

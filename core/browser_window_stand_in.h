@@ -20,6 +20,7 @@
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/unowned_user_data/scoped_unowned_user_data.h"
 #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -81,9 +82,12 @@ class NoLocationBar : public LocationBar {
 };
 
 // Autofill's controllers dereference the bubble they're handed, so each offer gets a bubble that
-// shows nothing. The app's own prompts replace it.
+// shows nothing, but those to save an address or a card, which the app shows (AutofillOffer).
 class NoAutofillBubbles : public autofill::AutofillBubbleHandler {
  public:
+  // Makes it |browser|'s handler, where the card's controller looks for it, as Chrome's views
+  // handler does.
+  void Register(BrowserWindowInterface* browser);
   autofill::AutofillBubbleBase* ShowSaveCreditCardBubble(
       content::WebContents* web_contents,
       autofill::SaveCardBubbleController* controller,
@@ -151,6 +155,9 @@ class NoAutofillBubbles : public autofill::AutofillBubbleHandler {
       content::WebContents* web_contents,
       autofill::WalletReminderNoticeBubbleController* controller,
       bool is_user_gesture) override;
+
+ private:
+  std::optional<ui::ScopedUnownedUserData<autofill::AutofillBubbleHandler>> registration_;
 };
 
 // Find in page keeps its state in Chrome's FindBarController; this bar only holds what it's told.

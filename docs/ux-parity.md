@@ -289,7 +289,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Save / update prompt | MVP | page top right; Save / Update Password, username picker, Never, No Thanks in Chrome's words; look: measure | Dia P§16, Chrome |
-| [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
+| [ ] | Address and card offers | MVP | same prompt, Chrome's words. Chrome's save-address and save-card offers show in the password offer's card, with Chrome's title, buttons and what they save; the autofill run saves an address (address-offer), declines one card and saves another (card-offer). An offer to update a saved address isn't shown yet. Unverified until that runs | Chrome |
 | [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Contact…, Passwords… and Credit Card… open Chrome's dropdown at the field the core saw take the keyboard, else Settings' Passwords; the passwords run checks Passwords… and the no-field case (autofill-menu-passwords), the autofill run Contact… and Credit Card…. Unverified until those run | Dia |

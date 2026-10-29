@@ -77,6 +77,35 @@ setInterval(() => {
 </script>' > "$out/site/login.html"
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
+# The address and card forms, a field 60 tall each from the top, the first at y 30, which post to
+# the server as the login does. Each title says "address" or "card" once it's drawn, and "filled"
+# while Chrome's dropdown previews or fills a saved one in.
+for form in address card; do
+  case $form in
+    address)
+      fields='<input autocomplete=name name=name><input autocomplete=address-line1 name=street>
+<input autocomplete=address-level2 name=city><input autocomplete=address-level1 name=state>
+<input autocomplete=postal-code name=zip>
+<select autocomplete=country name=country><option value=US selected>United States</select>' ;;
+    card)
+      fields='<input autocomplete=cc-name name=holder><input autocomplete=cc-number name=number>
+<input autocomplete=cc-exp-month name=month><input autocomplete=cc-exp-year name=year>' ;;
+  esac
+  printf '%s' "<title>loading</title>
+<style>input,select{display:block;box-sizing:border-box;width:100%;height:60px;font:24px system-ui}
+</style>
+<form method=post action=$form>$fields<button style=\"width:1px;height:1px\"></button></form>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = \"$form\"));
+let filled = false;
+setInterval(() => {
+  if (!!document.querySelector(\":autofill\") != filled) {
+    filled = !filled;
+    document.title = filled ? \"filled\" : \"$form\";
+  }
+}, 100);
+</script>" > "$out/site/$form.html"
+done
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
 # page, and puts what the user answered in the title. "u" has it ask before it's left, and "o" goes
 # to a maps: link, which macOS opens in Maps.

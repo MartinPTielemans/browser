@@ -37,6 +37,22 @@ fn offer(kind: Kind, usernames: &[&str]) -> Offer {
         accept: "Save".into(),
         decline: "No Thanks".into(),
         never: (kind == Kind::Save).then(|| "Never".into()),
+        details: Vec::new(),
+    }
+}
+
+fn address() -> Offer {
+    Offer {
+        kind: Kind::Address,
+        title: "Save address?".into(),
+        site: "127.0.0.1".into(),
+        username: "".into(),
+        usernames: Vec::new(),
+        password_length: 0,
+        accept: "Save".into(),
+        decline: "No thanks".into(),
+        never: None,
+        details: vec!["Ada Lovelace".into(), "1 Main St, Springfield, IL 62701".into()],
     }
 }
 
@@ -148,6 +164,19 @@ fn the_offer_takes_no_answer_for_good_for_its_first_moment(cx: &mut TestAppConte
     assert!(prompt.calls().is_empty());
     prompt.keys("escape");
     assert_eq!(prompt.calls(), ["NotNow 1 check@example.test", "hide"]);
+}
+
+/// The window's keyboard stays in the username field it doesn't show, and what's typed there isn't
+/// a username.
+#[gpui::test]
+fn an_address_is_saved_without_a_username(cx: &mut TestAppContext) {
+    let mut prompt = Prompt::new(cx);
+    prompt.calls();
+    prompt.offered(1, Some(address()));
+    assert_eq!(prompt.calls(), ["show"]);
+    prompt.type_text("ada");
+    prompt.keys("enter");
+    assert_eq!(prompt.calls(), ["Accept 1 ", "hide"]);
 }
 
 #[gpui::test]
