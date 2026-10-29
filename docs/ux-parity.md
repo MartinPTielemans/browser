@@ -213,6 +213,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
 | [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
+| [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh split` with a pinned tab shown and a Today row dropped on its left target, its `browser: pinned` line holding both and a capture of the pinned split's row | Arc release notes |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
 | [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
