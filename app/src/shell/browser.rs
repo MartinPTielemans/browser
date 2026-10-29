@@ -186,6 +186,9 @@ pub trait Browser {
     fn set_side_panel_width(&self, width: f32, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
+    /// Opens a new document in the notes service `space`'s profile picks, in a tab at the top of
+    /// its Today tabs, as a new tab opens, or in a split view with `beside`, on its right.
+    fn new_note(&self, space: u64, beside: Option<u64>, cx: &mut App);
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);

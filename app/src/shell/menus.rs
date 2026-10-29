@@ -743,7 +743,11 @@ impl Shell {
     /// The + button's menu, by Arc's menus' names for what it makes (ours: Arc's + menu isn't
     /// recorded).
     pub(super) fn plus_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let items = [("New Space…", Command::NewSpace), ("New Folder…", Command::NewFolder)];
+        let items = [
+            ("New Space…", Command::NewSpace),
+            ("New Folder…", Command::NewFolder),
+            ("New Note", Command::NewNote),
+        ];
         let entries = items.iter().map(|&(title, _)| MenuEntry::new(title, true)).collect();
         self.context_menu(
             entries,

@@ -15,6 +15,7 @@ use browser::default_browser::{self, DefaultBrowser, Os};
 use browser::dialog;
 use browser::import::ImportView;
 use browser::log;
+use browser::notes;
 use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
@@ -171,6 +172,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Tab", Keys::Of(Command::NewTab)),
             ("New Window", Keys::Of(Command::NewWindow)),
             ("New Incognito Window", Keys::Of(Command::NewPrivateWindow)),
+            ("New Note", Keys::Of(Command::NewNote)),
             ("Open Command Bar", Keys::Of(Command::EditUrl)),
             ("Search Tabs", Keys::Of(Command::SearchTabs)),
             ("Archive Tab", Keys::Of(Command::CloseTab)),
@@ -233,6 +235,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         "Split View",
         &[
             ("Add Split View", Keys::Of(Command::AddSplit)),
+            ("New Note Split", Keys::Of(Command::NewNoteSplit)),
             ("Close this Split Pane", Keys::Of(Command::CloseSplitPane)),
             ("Next Pane", Keys::Of(Command::NextPane)),
             ("Previous Pane", Keys::Of(Command::PreviousPane)),
@@ -277,6 +280,8 @@ enum Popup {
     ArchiveAfter,
     Favorites,
     PasswordsProfile,
+    /// A profile's New Documents.
+    Notes(u64),
 }
 
 pub struct Settings {
@@ -974,7 +979,8 @@ impl Settings {
             }
             settings.update(cx, |settings, cx| settings.chose(cx)).ok();
         });
-        self.pop_up(Popup::ArchiveAfter, items, picked, window, cx);
+        let text = popup_text(Popup::ArchiveAfter);
+        self.pop_up(Popup::ArchiveAfter, items, picked, text, window, cx);
     }
 
     /// Opens the favorites' pop-up menu over its button, as the archive's, and sets the scope
@@ -1001,7 +1007,8 @@ impl Settings {
             }
             settings.update(cx, |settings, cx| settings.chose(cx)).ok();
         });
-        self.pop_up(Popup::Favorites, items, picked, window, cx);
+        let text = popup_text(Popup::Favorites);
+        self.pop_up(Popup::Favorites, items, picked, text, window, cx);
     }
 
     /// Shows `which` pop-up's menu of `items` in ilo's menu over Settings' window, dark as Settings
@@ -1011,12 +1018,13 @@ impl Settings {
         which: Popup,
         items: Vec<MenuEntry>,
         picked: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        text: gpui::Point<gpui::Pixels>,
         window: &Window,
         cx: &mut Context<Self>,
     ) {
         self.choosing = Some(which);
         cx.notify();
-        show_menu(ns_view(window), items, popup_text(which), false, Look::dark(), picked, cx);
+        show_menu(ns_view(window), items, text, false, Look::dark(), picked, cx);
     }
 
     /// The pop-up's menu closed.
@@ -1026,8 +1034,10 @@ impl Settings {
     }
 
     /// A row for each profile, with how many Spaces are in it and Delete for one nothing is in, and
-    /// New Profile under them. A double-click on a profile's name renames it, as on a Space's.
+    /// New Profile under them, then each profile's New Documents. A double-click on a profile's name
+    /// renames it, as on a Space's.
     fn profiles(&self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+        let services: Vec<_> = profiles.iter().map(|profile| self.notes_row(profile, cx)).collect();
         let rows = profiles.iter().map(|profile| {
             let (id, name) = (profile.id, profile.name.clone());
             let label = match &self.renaming {
@@ -1081,10 +1091,75 @@ impl Settings {
         });
         let new = button(&RowLook::settings(), "new-profile", "New Profile")
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
+        let documents = div()
+            .mt(px(SECTION_GAP))
+            .mb(px(HEADER_GAP))
+            .pl(px(PADDING))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("New Documents");
         div()
             .child(group(&RowLook::settings(), rows))
             .child(div().mt(px(BUTTONS_TOP)).flex().child(new))
+            .child(documents)
+            .child(group(&RowLook::settings(), services))
             .into_any_element()
+    }
+
+    /// A profile's row under New Documents: the notes service New Note opens a new document in, in
+    /// a pop-up, as Arc's Settings › Profiles has it.
+    fn notes_row(&self, profile: &Profile, cx: &mut Context<Self>) -> gpui::Div {
+        let id = profile.id;
+        let chosen = notes::service(&crate::name(bc::bc_profile_notes_service, id));
+        // The menu opens with the service's name over the button's, wherever the tab has put it.
+        let button = Rc::new(Cell::new(Bounds::default()));
+        let placed = button.clone();
+        let view = cx.entity().downgrade();
+        let label = notes::SERVICES[chosen].1.into();
+        let popup = self
+            .popup(Popup::Notes(id), label, POPUP_WIDTH, move |_, window, cx| {
+                let at = button.get();
+                let text = point(at.origin.x + px(CONTROL_PADDING), at.origin.y);
+                let choose = |settings: &mut Settings, cx: &mut Context<Settings>| {
+                    settings.choose_notes(id, chosen, text, window, cx)
+                };
+                view.update(cx, choose).ok();
+            })
+            .child(
+                canvas(move |bounds, _, _| placed.set(bounds), |_, _, _, _| {})
+                    .absolute()
+                    .size_full(),
+            );
+        let icon = Some(("icons/user.svg", PROFILE_TILE));
+        row(icon, profile.name.clone(), popup.into_any_element())
+    }
+
+    /// Opens a profile's New Documents pop-up menu over its button, as the archive's, and keeps the
+    /// service picked for the profile.
+    fn choose_notes(
+        &mut self,
+        profile: u64,
+        chosen: usize,
+        text: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (notes::SERVICES.iter().enumerate())
+            .map(|(index, &(_, title, _))| {
+                let on = index == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(title, true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some(&(name, title, _)) = picked.and_then(|index| notes::SERVICES.get(index)) {
+                // check.sh waits for this line.
+                log!("browser: notes service {profile} {title}");
+                let name = CString::new(name).unwrap_or_default();
+                unsafe { bc::bc_profile_set_notes_service(profile, name.as_ptr()) };
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::Notes(profile), items, picked, text, window, cx);
     }
 
     /// Shows the profile's name in a field, all selected, to type a new one over.
@@ -1320,7 +1395,8 @@ impl Settings {
                 })
                 .ok();
         });
-        self.pop_up(Popup::PasswordsProfile, items, picked, window, cx);
+        let text = popup_text(Popup::PasswordsProfile);
+        self.pop_up(Popup::PasswordsProfile, items, picked, text, window, cx);
     }
 
     /// Removes a saved login once the user confirms, in an alert, or on Linux in Settings' own
@@ -1578,8 +1654,8 @@ fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
         Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
         // Under Unload's switch.
         Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
-        // The Passwords tab's first row.
-        Popup::PasswordsProfile => (POPUP_WIDTH, 0.),
+        // The Passwords tab's first row. A profile's New Documents' button gives its own place.
+        Popup::PasswordsProfile | Popup::Notes(_) => (POPUP_WIDTH, 0.),
     };
     point(
         px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),

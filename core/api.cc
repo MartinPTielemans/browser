@@ -29,6 +29,7 @@
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/notes.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/passwords.h"
@@ -467,6 +468,18 @@ bc_id bc_profile_create(const char* name) {
 
 bool bc_profile_delete(bc_id profile) {
   return browser_core::DeleteProfile(profile);
+}
+
+size_t bc_profile_notes_service(bc_id profile_id, char* service, size_t capacity) {
+  Profile* profile = LoadedProfile(profile_id);
+  return CopyString(profile ? browser_core::notes::Service(profile) : std::string(), service,
+                    capacity);
+}
+
+void bc_profile_set_notes_service(bc_id profile_id, const char* service) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && service) {
+    browser_core::notes::SetService(profile, service);
+  }
 }
 
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
