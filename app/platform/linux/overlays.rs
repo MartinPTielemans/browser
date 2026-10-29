@@ -29,7 +29,7 @@ struct Shown {
 }
 
 thread_local! {
-    static OVERLAYS: RefCell<[Option<Overlay>; 2]> = const { RefCell::new([None, None]) };
+    static OVERLAYS: RefCell<[Option<Overlay>; 3]> = const { RefCell::new([None, None, None]) };
     /// The app's overlays that have each browser window's keyboard, by their views.
     static LENT: RefCell<Vec<(bc::bc_id, usize)>> = const { RefCell::new(Vec::new()) };
 }
@@ -60,7 +60,7 @@ pub(crate) fn keyboard_lent_to_another(window: bc::bc_id, view: *mut c_void) -> 
 }
 
 /// The overlays by index, as check.sh reads them in the log.
-const NAMES: [&str; 2] = ["command bar", "icon picker"];
+const NAMES: [&str; 3] = ["command bar", "icon picker", "theme picker"];
 
 fn with_overlay<R>(overlay: c_int, f: impl FnOnce(&mut Overlay) -> R) -> Option<R> {
     OVERLAYS.with_borrow_mut(|overlays| overlays.get_mut(overlay as usize)?.as_mut().map(f))
@@ -118,9 +118,9 @@ pub extern "C" fn host_show_overlay(
     top: f64,
     width: f64,
 ) {
-    // The other overlay closes, as the user leaving it.
-    if hide(1 - overlay) {
-        with_overlay(1 - overlay, |other| later(other.dismissed));
+    // The others close, as the user leaving them.
+    for other in (0..NAMES.len() as c_int).filter(|&other| other != overlay) {
+        host_dismiss_overlay(other);
     }
     let Some(content) = gpui_linux::embedder_size(ui_view) else {
         return;
