@@ -198,6 +198,7 @@ class WindowViews : public views::WidgetObserver,
   Slot& side_panel() { return side_panel_; }
   FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  void set_held(bool held) { held_ = held; }
   UITextInput& ui_text_input() { return ui_text_input_; }
 
   // A slot's holder, made the first time it's needed, over the window's own views.
@@ -407,7 +408,9 @@ class WindowViews : public views::WidgetObserver,
 
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override {
-    LayOut();
+    if (!held_) {
+      LayOut();
+    }
     if (!OnWayland()) {
       if (ui_ != x11::Window::None) {
         SizeUI();
@@ -506,12 +509,20 @@ class WindowViews : public views::WidgetObserver,
         return;
       }
       const bool in = focus->opcode == x11::FocusEvent::In;
+      if (focus->detail != x11::NotifyDetail::Inferior) {
+        retook_ = false;
+      }
       switch (focus->detail) {
         // Out: GPUI took the input focus into the UI's window, as it does on a click. In: it came
         // back up to the window's own, as a window manager focusing the window may move it, which
-        // while the keys are the UI's would leave them with neither (#593).
+        // while the keys are the UI's would leave them with neither (#593). That's taken back once
+        // until the focus next leaves or enters the window: wlroots 0.17's Xwayland puts it back
+        // up each time, and the two would go on without end (#628).
         case x11::NotifyDetail::Inferior:
-          if (!in || ui_has_keyboard_) {
+          if (!in) {
+            UITakesKeyboard();
+          } else if (ui_has_keyboard_ && !retook_) {
+            retook_ = true;
             UITakesKeyboard();
           }
           break;
@@ -583,8 +594,13 @@ class WindowViews : public views::WidgetObserver,
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
+  // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
+  bool held_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // Whether the core took the input focus back down to the UI's window since the focus last left or
+  // entered the window.
+  bool retook_ = false;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
@@ -669,6 +685,7 @@ void ShowPages(views::Widget* widget,
     return;
   }
   views->set_corner_radius(corner_radius);
+  views->set_held(false);
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = ContentSizeOf(widget);
 
@@ -736,6 +753,12 @@ void ShowPages(views::Widget* widget,
   // With no page, the keys are the UI's, as on the Mac, where its view is all that's left.
   if (panes.empty()) {
     views->UITakesKeyboard();
+  }
+}
+
+void HoldPagesForResize(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->set_held(true);
   }
 }
 

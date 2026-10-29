@@ -35,6 +35,7 @@ ours/chromium-crashpad-start.patch
 ours/chromium-crashpad-mac-handler.patch
 ours/chromium-crashpad-mac-async-start.patch
 ours/chromium-windows-product-folder.patch
+ours/chromium-windows-app-names.patch
 ours/chromium-xcode-build-define.patch
 ours/chromium-core-login-dialog.patch
 ours/chromium-core-external-protocol-dialog.patch

@@ -36,24 +36,30 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     ffi::{CString, c_int, c_uint, c_void},
     io::BufRead,
     rc::Rc,
+    sync::{Arc, OnceLock},
 };
 
 use browser::log;
 use gpui::{Keystroke, Menu, MenuItem, Modifiers};
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{
-        self, ButtonPressEvent, ConfigureWindowAux, ConnectionExt as _, EnterNotifyEvent,
-        EventMask, KeyButMask, KeyPressEvent, MotionNotifyEvent, StackMode,
+    protocol::{
+        Event,
+        xproto::{
+            self, ButtonPressEvent, ChangeWindowAttributesAux, ConfigureWindowAux,
+            ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent,
+            MotionNotifyEvent, StackMode,
+        },
     },
     rust_connection::RustConnection,
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
     settings_window,
 };
 
@@ -121,6 +127,9 @@ fn settle(n: u64) {
         sync();
         gpui_linux::sync_display();
         drawn(Box::new(move || {
+            if let Some(browser) = driven() {
+                watch_zoom(browser.window);
+            }
             let (key, focus, active) = keyboard();
             let marked = input_focus().and_then(gpui_linux::marked_range);
             let marked = marked.map_or("none".into(), |at| format!("{},{}", at.start, at.len()));
@@ -190,7 +199,7 @@ thread_local! {
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
     /// Whether the X server's keyboard has Control locked, for `hold_control`.
     static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
-    /// The last click in each window: its time, place and button.
+    /// The last press in each window, a click's or a drag's: its time, place and button.
     static LAST_CLICKS: RefCell<std::collections::HashMap<xproto::Window, (std::time::Instant, Target, u8)>> =
         RefCell::default();
     /// The keysyms on each key, from the server's first keycode, and how many each key has.
@@ -222,6 +231,7 @@ fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(panels::shown());
     views.extend(menu_window::shown());
+    views.extend(reveal_window::shown());
     views
 }
 
@@ -587,9 +597,22 @@ fn motion(at: Target, state: u16) -> Option<()> {
 }
 
 /// A click of `which` (1 the left, 3 the right, 4 to 7 the wheel's) at `at`, the second of a
-/// double click with `again`. A first click waits until GPUI wouldn't count it with the last
-/// one, as the driver clicks faster than a hand does.
+/// double click with `again`.
 fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
+    first_press(at, which, again);
+    button(at, which, true, state)?;
+    button(
+        at,
+        which,
+        false,
+        state | button_mask(which),
+    )
+}
+
+/// Before a press of `which` at `at`: unless it's `again`, the second of a double click, waits
+/// until GPUI wouldn't count it with the last press there, as the driver presses faster than a
+/// hand does. A drag's press counts too, as GPUI counts it.
+fn first_press(at: Target, which: u8, again: bool) {
     if which <= 3 && !again {
         let last = LAST_CLICKS.with_borrow(|clicks| clicks.get(&at.window).copied());
         if let Some((then, last, last_which)) = last
@@ -607,13 +630,6 @@ fn click(at: Target, which: u8, state: u16, again: bool) -> Option<()> {
         let now = std::time::Instant::now();
         LAST_CLICKS.with_borrow_mut(|clicks| clicks.insert(at.window, (now, at, which)));
     }
-    button(at, which, true, state)?;
-    button(
-        at,
-        which,
-        false,
-        state | button_mask(which),
-    )
 }
 
 /// The Mac's modifiers named in `words`, cmd, shift, alt and ctrl, as an X state holds them on
@@ -991,6 +1007,51 @@ fn full_screen(window: xproto::Window) -> Option<bool> {
     Some(property.value32()?.any(|atom| atom == full))
 }
 
+/// Logs "browser: window zoomed <0|1>" as the window manager maximizes `window` or restores it, as
+/// drive.mm logs AppKit's zoom. On a connection of the driver's own, whose thread waits on the X
+/// server's property changes, so it wakes only for one.
+fn watch_zoom(window: xproto::Window) {
+    static WATCHER: OnceLock<Option<Arc<RustConnection>>> = OnceLock::new();
+    let watcher = WATCHER.get_or_init(|| {
+        let (connection, _) = x11rb::connect(None).ok()?;
+        let connection = Arc::new(connection);
+        let reader = connection.clone();
+        std::thread::spawn(move || zoom_changes(&reader));
+        Some(connection)
+    });
+    let Some(connection) = watcher else { return };
+    let aux = ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE);
+    // A window that has closed since answers with an error, which is dropped.
+    if let Ok(cookie) = connection.change_window_attributes(window, &aux) {
+        cookie.ignore_error();
+    }
+    connection.flush().ok();
+}
+
+fn zoom_changes(connection: &RustConnection) {
+    let atom = |name: &str| {
+        let cookie = connection.intern_atom(false, name.as_bytes()).ok()?;
+        cookie.reply().ok().map(|reply| reply.atom)
+    };
+    let names = ["_NET_WM_STATE", "_NET_WM_STATE_MAXIMIZED_VERT", "_NET_WM_STATE_MAXIMIZED_HORZ"];
+    let [Some(state), Some(vertical), Some(horizontal)] = names.map(atom) else { return };
+    let mut zoomed = HashMap::new();
+    while let Ok(event) = connection.wait_for_event() {
+        let Event::PropertyNotify(notify) = event else { continue };
+        if notify.atom != state {
+            continue;
+        }
+        let atom_type = xproto::AtomEnum::ATOM;
+        let property = connection.get_property(false, notify.window, state, atom_type, 0, 64);
+        let Some(property) = property.ok().and_then(|cookie| cookie.reply().ok()) else { continue };
+        let atoms: Vec<_> = property.value32().map(Iterator::collect).unwrap_or_default();
+        let now = atoms.contains(&vertical) && atoms.contains(&horizontal);
+        if zoomed.insert(notify.window, now).unwrap_or(false) != now {
+            log!("browser: window zoomed {}", now as u8);
+        }
+    }
+}
+
 /// The item of `menus` titled `title`, in a submenu too, or with "Submenu › Item", the item in the
 /// submenu so titled.
 fn menu_item<'a>(menus: &'a [Menu], title: &str) -> Option<&'a MenuItem> {
@@ -1091,6 +1152,7 @@ fn run_command(line: &str) -> Option<()> {
                 ..target_in(driven()?.window, x2, y2)?
             };
             let to = relative_to(to, at.window)?;
+            first_press(at, 1, false);
             button(at, 1, true, none)?;
             motion(to, button_mask(1))?;
             button(to, 1, false, button_mask(1))
@@ -1105,6 +1167,7 @@ fn run_command(line: &str) -> Option<()> {
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
+                first_press(at, which, false);
                 return button(at, which, true, none);
             }
             let to = target_in(driven()?.window, x, y)?;

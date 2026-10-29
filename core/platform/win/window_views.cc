@@ -451,6 +451,8 @@ void ShowPages(views::Widget* widget,
   views->LayOut();
 }
 
+void HoldPagesForResize(views::Widget*) {}
+
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   if (!views) {
