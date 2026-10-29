@@ -1119,6 +1119,8 @@ pub struct Shell {
     /// Every download a report has listed, whether one has come, and the new download's icon on its
     /// way to the Library button.
     downloads_seen: HashSet<u64>,
+    /// Every tab a Space has listed, so a tab a Space lists that none did is new, not moved.
+    listed: HashSet<u64>,
     downloads_read: bool,
     flight: Option<Flight>,
     /// The picture of the page another window shows, in place of it, and the pictures to let go of.
@@ -1339,6 +1341,7 @@ impl Shell {
             download_previews: HashMap::new(),
             recent_downloads: RecentDownloads::default(),
             downloads_seen: HashSet::new(),
+            listed: HashSet::new(),
             downloads_read: false,
             flight: None,
             picture: None,
@@ -1852,6 +1855,9 @@ impl Shell {
         // The rows of the Space shown move from where they were, unless it's being filled.
         let had_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
         let before = (space == self.space && had_tabs).then(|| entry.slots());
+        let listed = &mut self.listed;
+        let opened: Vec<u64> =
+            pinned.iter().chain(&today).copied().filter(|&tab| listed.insert(tab)).collect();
         entry.pinned = pinned;
         entry.today = today;
         entry.splits = splits;
@@ -1902,6 +1908,10 @@ impl Shell {
             && let Some(tab) = self.revealing.take()
         {
             self.scroll_to_row(tab);
+        }
+        // A Space being filled, as at launch, has opened nothing.
+        if space == self.space && had_tabs {
+            self.toast_opened(&opened, cx);
         }
         // Pinning or unpinning the tab shown renames Tabs › Pin Tab.
         self.update_menus(cx);

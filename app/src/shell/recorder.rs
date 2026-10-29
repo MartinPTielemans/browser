@@ -122,6 +122,8 @@ pub(super) struct Recorder {
     /// button does.
     pub(super) undo_toasts: RefCell<Vec<String>>,
     pub(super) undo_toast: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
+    /// What the last toast with a button other than Undo runs, its words in `toasts`.
+    pub(super) toast_run: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
     /// The Edit menu's Undo and Redo titles it was last given.
     pub(super) edit_titles: RefCell<(Option<String>, Option<String>)>,
     /// The platform has Apple's engine for a tab's page.
@@ -721,6 +723,18 @@ impl Browser for Recorder {
 
     fn hide_undo_toast(&self, _: &mut App) {
         self.undo_toast.borrow_mut().take();
+    }
+
+    fn toast_button(
+        &self,
+        text: &str,
+        _: (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        _: Duration,
+        _: &mut App,
+    ) {
+        self.toasts.borrow_mut().push(text.into());
+        *self.toast_run.borrow_mut() = Some(run);
     }
 
     fn full_screen_note(&self, shown: bool, _: &mut App) {
