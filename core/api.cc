@@ -1,6 +1,7 @@
 // The C API in public/browser_core.h, over the core's C++.
 
 #include <algorithm>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
@@ -494,6 +495,17 @@ bool bc_agent_navigate(const char* agent, bc_id tab, const char* url) {
   }
   LoadInTab(tab, target, ui::PAGE_TRANSITION_TYPED);
   return true;
+}
+
+size_t bc_agent_list_tabs(const char* agent, bc_id id, bc_id* tabs, size_t capacity) {
+  const browser_core::Space* space = browser_core::Space::FromId(id);
+  if (!agent || !*agent || !space || !space->agent() || space->agent()->id != agent) {
+    return 0;
+  }
+  std::vector<bc_id> listed = space->pinned();
+  std::ranges::copy(space->today(), std::back_inserter(listed));
+  std::copy_n(listed.begin(), std::min(capacity, listed.size()), tabs);
+  return listed.size();
 }
 
 void bc_agent_page(const char* agent,
