@@ -17,6 +17,16 @@
 # again), and all of them stay after the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
 # Settings… opens Chromium's settings in a tab.
 
+# The last line matching $1 logged since the last command was sent.
+since_move() {
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep "$1" | tail -1
+}
+# Linux's host has no hover card window yet, so main.rs keeps the card off there.
+cards=1
+if [ "$(uname)" = Linux ]; then
+  cards=
+  echo "skip: the favorites' hover cards: Linux's host has no card window yet, so the card is off"
+fi
 # Favorites, from the served page with example.org above it.
 serve
 log="$out/favorites.log"
@@ -70,30 +80,31 @@ expect "^browser: today $b\$" "the favorite is still in Today: Today is \"$(toda
 # goes when the pointer leaves and when the tile is clicked. The pointer let go over the new tile,
 # which the drag had hovered without a card, so its card comes once the tile has settled. It's the
 # tab shown, so its card has no picture, and a favorite's only button takes it out of the favorites.
-send move $tile
-expect "^browser: hover card shown $a unfavorite none\$" \
-  "resting on the tile the row was dropped on didn't show its card"
-send move 100 400
-expect '^browser: hover card hidden$' "the pointer leaving the tile didn't hide its card"
+if [ -n "$cards" ]; then
+  send move $tile
+  expect "^browser: hover card shown $a unfavorite none\$" \
+    "resting on the tile the row was dropped on didn't show its card"
+  send move 100 400
+  expect '^browser: hover card hidden$' "the pointer leaving the tile didn't hide its card"
+fi
 # The press showed the favorite, so the click on its tile below has a tab to change from.
 switch "2 cmd" "$b"
 send move $tile
-expect "^browser: hover card shown $a unfavorite \(picture\|favicon\)\$" \
-  "resting on the tile again didn't show its card"
-expect '^browser: hover card window shown$' "the tile's card didn't show"
-# It starts at the tile's top, 90 down, right of the tile's middle, beside the rows, and the window
-# the host put over the page is where the UI asked.
-since_move() {
-  sed -n "/^browser: drive $step: /,\$p" "$log" | grep "$1" | tail -1
-}
-asked=$(since_move '^browser: hover card at ')
-placed=$(since_move '^browser: hover card window at ')
-echo "$asked $placed" | awk '
-  { across = $5 - $14; down = $6 - $15; top = $6 - 90 }
-  END { exit !(NR == 1 && NF == 15 && $5 > 114 && across > -1 && across < 1 \
-    && down > -1 && down < 1 && top > -1 && top < 1) }' \
-  || fail "the card isn't beside the tile: asked \"$asked\", placed \"$placed\""
-../tools/window-screenshot.sh "$pid" "$out/favorite-card.png" || fail "no window to capture"
+if [ -n "$cards" ]; then
+  expect "^browser: hover card shown $a unfavorite \(picture\|favicon\)\$" \
+    "resting on the tile again didn't show its card"
+  expect '^browser: hover card window shown$' "the tile's card didn't show"
+  # It starts at the tile's top, 90 down, right of the tile's middle, beside the rows, and the
+  # window the host put over the page is where the UI asked.
+  asked=$(since_move '^browser: hover card at ')
+  placed=$(since_move '^browser: hover card window at ')
+  echo "$asked $placed" | awk '
+    { across = $5 - $14; down = $6 - $15; top = $6 - 90 }
+    END { exit !(NR == 1 && NF == 15 && $5 > 114 && across > -1 && across < 1 \
+      && down > -1 && down < 1 && top > -1 && top < 1) }' \
+    || fail "the card isn't beside the tile: asked \"$asked\", placed \"$placed\""
+  ../tools/window-screenshot.sh "$pid" "$out/favorite-card.png" || fail "no window to capture"
+fi
 # Another app asking which window is in front, as T3 Code's window capture does, gets the browser
 # window, not the card over it or the command bar's shadow.
 send front
@@ -102,7 +113,7 @@ expect '^browser: front driven, main driven, key driven, ax focused driven, ax m
 # A click on the tile shows the favorite, and ⌘1–⌘9 count favorites first.
 send click $tile
 expect '^browser: command select via favorite$' "a click on the tile didn't run"
-expect '^browser: hover card hidden$' "a click on the tile didn't hide its card"
+[ -z "$cards" ] || expect '^browser: hover card hidden$' "a click on the tile didn't hide its card"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
 ../tools/window-screenshot.sh "$pid" "$out/favorites.png" || fail "no window to capture"
 # The footer's Library button names itself beside it, with its shortcut's keys on chips (Arc), and
@@ -381,66 +392,68 @@ expect '^browser: tiles stay put$' "the tiles in a window back at its height sti
 send doubleclick 161 400
 expect '^browser: sidebar width 228$' \
   "a double-click on the sidebar's edge didn't put its width back"
-# Three tiles across the sidebar with titles of very different widths, long, medium and short as
-# the owner's are: each one's card goes beside the rows at its tile's top, not over the tiles,
-# where the UI asked, going along them and back, and while one shows the next swaps in at once. In
-# a window too narrow for it there, it keeps 8 from the window's right edge.
-long="Creating A World That Doesn't Exist - YouTube"
-medium="Elon Musk on X: a post / X"
-short="Proton Mail: Sign-in"
-for page in long medium short; do
-  eval "printf '<title>%s</title>' \"\$$page\"" > "$out/site/$page.html"
-done
-for titled in "1 $a long" "2 $x medium" "3 $y short"; do
-  set -- $titled
-  switch "$1 cmd" "$2"
-  tab=$2
-  go_from_bar "${site#http://}$3.html"
-  eval "title=\$$3"
-  expect "^browser: title $2 $title\$" "the $3 page didn't give its title to tab $2"
-done
-# The width the window was last drawn at.
-drawn_width() {
-  grep '^browser: drawn at' "$log" | tail -1 | sed 's/^browser: drawn at \([0-9.]*\)x.*/\1/'
-}
-# Resting on the tile whose middle is at x $1 shows tab $2's card at the tile's top, 90 down,
-# inside the window, placed where the UI asked. Sets $left to where it starts.
-beside() {
-  send move $1 110
-  expect "^browser: hover card shown $2 " "resting on the tile at $1 didn't show tab $2's card"
-  expect '^browser: hover card window at ' "tab $2's card wasn't put over the window"
-  asked=$(since_move '^browser: hover card at ')
-  placed=$(since_move '^browser: hover card window at ')
-  echo "$asked $placed" | awk -v window=$(drawn_width) '
-    { across = $5 - $14; down = $6 - $15; top = $6 - 90; inside = window - 8 - ($5 + $7) }
-    END { exit !(NR == 1 && NF == 15 && across > -1 && across < 1 && down > -1 && down < 1 \
-      && top > -1 && top < 1 && inside > -1) }' \
-    || fail "tab $2's card isn't beside its tile at $1: asked \"$asked\", placed \"$placed\", window $(drawn_width)"
-  left=$(echo "$asked" | cut -d' ' -f5)
-}
-beside 41 "$a"
-first=$left
-beside 114 "$x"
-[ "$left" = "$first" ] || fail "the second tile's card starts at $left, not beside the rows at $first"
-beside 187 "$y"
-[ "$left" = "$first" ] || fail "the third tile's card starts at $left, not beside the rows at $first"
-../tools/window-screenshot.sh "$pid" "$out/favorite-cards.png" || fail "no window to capture"
-beside 114 "$x"
-beside 41 "$a"
-# The window may not go so narrow.
-send resize 320 ${size#* }
-for _ in $(seq 30); do
-  [ "$(drawn_width | cut -d. -f1)" -le 322 ] && break
-  sleep 0.1
-done
-if [ "$(drawn_width | cut -d. -f1)" -le 322 ]; then
+if [ -n "$cards" ]; then
+  # Three tiles across the sidebar with titles of very different widths, long, medium and short as
+  # the owner's are: each one's card goes beside the rows at its tile's top, not over the tiles,
+  # where the UI asked, going along them and back, and while one shows the next swaps in at once. In
+  # a window too narrow for it there, it keeps 8 from the window's right edge.
+  long="Creating A World That Doesn't Exist - YouTube"
+  medium="Elon Musk on X: a post / X"
+  short="Proton Mail: Sign-in"
+  for page in long medium short; do
+    eval "printf '<title>%s</title>' \"\$$page\"" > "$out/site/$page.html"
+  done
+  for titled in "1 $a long" "2 $x medium" "3 $y short"; do
+    set -- $titled
+    switch "$1 cmd" "$2"
+    tab=$2
+    go_from_bar "${site#http://}$3.html"
+    eval "title=\$$3"
+    expect "^browser: title $2 $title\$" "the $3 page didn't give its title to tab $2"
+  done
+  # The width the window was last drawn at.
+  drawn_width() {
+    grep '^browser: drawn at' "$log" | tail -1 | sed 's/^browser: drawn at \([0-9.]*\)x.*/\1/'
+  }
+  # Resting on the tile whose middle is at x $1 shows tab $2's card at the tile's top, 90 down,
+  # inside the window, placed where the UI asked. Sets $left to where it starts.
+  beside() {
+    send move $1 110
+    expect "^browser: hover card shown $2 " "resting on the tile at $1 didn't show tab $2's card"
+    expect '^browser: hover card window at ' "tab $2's card wasn't put over the window"
+    asked=$(since_move '^browser: hover card at ')
+    placed=$(since_move '^browser: hover card window at ')
+    echo "$asked $placed" | awk -v window=$(drawn_width) '
+      { across = $5 - $14; down = $6 - $15; top = $6 - 90; inside = window - 8 - ($5 + $7) }
+      END { exit !(NR == 1 && NF == 15 && across > -1 && across < 1 && down > -1 && down < 1 \
+        && top > -1 && top < 1 && inside > -1) }' \
+      || fail "tab $2's card isn't beside its tile at $1: asked \"$asked\", placed \"$placed\", window $(drawn_width)"
+    left=$(echo "$asked" | cut -d' ' -f5)
+  }
+  beside 41 "$a"
+  first=$left
+  beside 114 "$x"
+  [ "$left" = "$first" ] || fail "the second tile's card starts at $left, not beside the rows at $first"
   beside 187 "$y"
-  ../tools/window-screenshot.sh "$pid" "$out/favorite-card-narrow.png" || fail "no window to capture"
-else
-  echo "note: the window didn't narrow to 320, so the card in a narrow window wasn't checked."
+  [ "$left" = "$first" ] || fail "the third tile's card starts at $left, not beside the rows at $first"
+  ../tools/window-screenshot.sh "$pid" "$out/favorite-cards.png" || fail "no window to capture"
+  beside 114 "$x"
+  beside 41 "$a"
+  # The window may not go so narrow.
+  send resize 320 ${size#* }
+  for _ in $(seq 30); do
+    [ "$(drawn_width | cut -d. -f1)" -le 322 ] && break
+    sleep 0.1
+  done
+  if [ "$(drawn_width | cut -d. -f1)" -le 322 ]; then
+    beside 187 "$y"
+    ../tools/window-screenshot.sh "$pid" "$out/favorite-card-narrow.png" || fail "no window to capture"
+  else
+    echo "note: the window didn't narrow to 320, so the card in a narrow window wasn't checked."
+  fi
+  send resize $size
+  expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
 fi
-send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
 # Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,
 # its close button hides it, and More Settings… opens Chromium's settings in a tab.
 send click $sidebar_point
