@@ -1205,7 +1205,7 @@ fn firefox(name: &str) -> (PathBuf, rusqlite::Connection) {
 /// reads what Firefox still holds in its log.
 #[test]
 fn firefoxs_bookmarks_and_history_come_from_places() {
-    let (home, _db) = firefox("firefox-places");
+    let (home, db) = firefox("firefox-places");
     let profile = home.join(".mozilla/firefox/x.default-release");
     let wal = profile.join("places.sqlite-wal");
     assert!(fs::metadata(&wal).unwrap().len() > 0);
@@ -1250,6 +1250,8 @@ fn firefoxs_bookmarks_and_history_come_from_places() {
     );
     let only = firefox::read(&profile, &[Kind::History], since).unwrap();
     assert!(only.pinned.is_empty() && only.pages.len() == 2);
+    // Windows doesn't delete a file while it's open.
+    drop(db);
     fs::remove_dir_all(home).unwrap();
 }
 
@@ -1257,7 +1259,7 @@ fn firefoxs_bookmarks_and_history_come_from_places() {
 /// as Firefox's default profile, and its history with them; again, nothing new comes.
 #[gpui::test]
 fn firefoxs_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
-    let (home, _db) = firefox("firefox-view");
+    let (home, db) = firefox("firefox-view");
     let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
     let host: Rc<dyn Host> = browser.clone();
     let view = cx.new(|_| ImportView::new(host, false));
@@ -1286,6 +1288,8 @@ fn firefoxs_bookmarks_and_history_come_in(cx: &mut TestAppContext) {
     assert_eq!((space.name.as_str(), space.profile), ("Firefox", 1));
     assert_eq!(browser.state.borrow().profiles.len(), 1);
     assert_eq!(import(cx), "Everything from Firefox is here already.");
+    // Windows doesn't delete a file while it's open.
+    drop(db);
     fs::remove_dir_all(home).unwrap();
 }
 
