@@ -308,8 +308,8 @@ none_since '^browser: library space ' || fail "a right-click on a card showed it
 send dismiss
 # The card's field is 8 in from its sides and 36 tall around the middle of its name's row, 33
 # down. Its brush, 4 in from the field's end, opens the theme picker for the Space, where the
-# second gets its light and its dark appearance in turn, and then automatic again. The window
-# stays dark whatever the appearance until the app has a light look (docs/ux-spec.md › Themes), so
+# second gets its light and its dark appearance in turn, and then automatic again. The capture
+# comes while it's dark, and the window takes only the look of the Space it shows, the first, so
 # one capture shows the card's field. The Library opens again with ⇧⌘L. $1 is the appearance and
 # $2 its button's x in the picker's window, which holds the 13 wide arrow left of the card.
 card_y=$((48 + 33))
