@@ -1,6 +1,7 @@
 //! Add Split View's targets (Dia, docs/ux-spec.md › Split view › Drag targets): a tab dragged out
 //! of the sidebar over the page becomes a picture of a window, and a target slides in at each of
-//! the card's sides. Let go over one, the tab joins the page shown in a split view on that side.
+//! the card's sides, and at its top and bottom as Arc's stacks them. Let go over one, the tab joins
+//! the page shown in a split view on that side.
 //! GPUI can't draw over the page's native view, so the app draws them in a window of its own over
 //! the browser window, which the mouse goes through (`Browser::show_drop_targets`).
 
@@ -21,6 +22,12 @@ const TARGET_REST: (f32, f32, f32) = (0.132, 0.383, 37.5);
 const TARGET_GROWN: (f32, f32, f32) = (0.215, 0.611, 30.);
 const TARGET_UNDER: (f32, f32) = (0.241, 0.69);
 const TARGET_LEAN: f32 = 0.43;
+/// The top and bottom targets' height and width as a fraction of the card's, and their inset, the
+/// sides' turned, but only as wide as the room between the side targets grown (ours, as Arc's
+/// aren't measured).
+const STACK_REST: (f32, f32, f32) = (0.132, 0.28, 37.5);
+const STACK_GROWN: (f32, f32, f32) = (0.215, 0.45, 30.);
+const STACK_UNDER: (f32, f32) = (0.241, 0.51);
 /// The targets slide in, then grow, and the one under the tab grows again, each on an ease-out
 /// cubic with no overshoot.
 const TARGET_SLIDE: f32 = 0.11;
@@ -49,6 +56,36 @@ use crate::tokens::shell::split_targets::PICTURE_INSET;
 use crate::tokens::shell::split_targets::HALF_GLYPH_RADIUS;
 use crate::tokens::text;
 
+/// Where a target is on the card, and so where the tab joins the page.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl Edge {
+    /// Whether the split it makes shows its pages top to bottom.
+    fn stacked(self) -> bool {
+        matches!(self, Edge::Top | Edge::Bottom)
+    }
+
+    /// Whether the tab comes before the page it joins.
+    fn first(self) -> bool {
+        matches!(self, Edge::Left | Edge::Top)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Edge::Left => "left",
+            Edge::Right => "right",
+            Edge::Top => "top",
+            Edge::Bottom => "bottom",
+        }
+    }
+}
+
 /// A dragged tab over the page, where it can join the page shown in a split view.
 pub(super) struct OverPage {
     /// The tab it would join.
@@ -57,16 +94,16 @@ pub(super) struct OverPage {
     since: Instant,
     /// Where the pointer is in the window.
     pointer: Point<Pixels>,
-    /// For the left target and the right: whether the tab is over it, since when, and how far it
-    /// had grown toward its size under the tab then.
-    under: [(bool, Instant, f32); 2],
+    /// Each target, as one split has one orientation: all four for a page alone, else the two
+    /// along its split's. For each, whether the tab is over it, since when, and how far it had
+    /// grown toward its size under the tab then.
+    targets: Vec<(Edge, bool, Instant, f32)>,
 }
 
 impl OverPage {
-    /// The target the tab is over: the left (true) or the right.
-    fn side(&self) -> Option<bool> {
-        let [(left, ..), (right, ..)] = self.under;
-        (left || right).then_some(left)
+    /// The target the tab is over.
+    fn edge(&self) -> Option<Edge> {
+        self.targets.iter().find(|(_, under, ..)| *under).map(|(edge, ..)| *edge)
     }
 }
 
@@ -117,6 +154,11 @@ impl Shell {
             return false;
         };
         let now = Instant::now();
+        let edges = match (self.panes(with).len() > 1, self.stacked(with)) {
+            (false, _) => vec![Edge::Left, Edge::Right, Edge::Top, Edge::Bottom],
+            (true, false) => vec![Edge::Left, Edge::Right],
+            (true, true) => vec![Edge::Top, Edge::Bottom],
+        };
         let Some(drag) = &mut self.drag else {
             return false;
         };
@@ -127,30 +169,25 @@ impl Shell {
                 with,
                 since: now,
                 pointer: position,
-                under: [(false, now, 0.); 2],
+                targets: edges.into_iter().map(|edge| (edge, false, now, 0.)).collect(),
             }
         });
         over.pointer = position;
-        let side = over.side();
-        for (index, left) in [true, false].into_iter().enumerate() {
-            let (under, since, from) = over.under[index];
+        let edge = over.edge();
+        for target in &mut over.targets {
+            let (at, under, since, from) = *target;
             // Under once the pointer is in the grown target, until it leaves the one under it.
             let bounds = match under {
-                true => under_bounds(card, left, position.x),
-                false => target_bounds(card, left, TARGET_GROWN),
+                true => under_bounds(card, at, position),
+                false => target_bounds(card, at, grown_at(at)),
             };
             if bounds.contains(&position) != under {
-                over.under[index] = (!under, now, grown(under, since, from));
+                *target = (at, !under, now, grown(under, since, from));
             }
         }
-        if over.side() != side {
+        if over.edge() != edge {
             // check.sh reads this line.
-            let side = match over.side() {
-                Some(true) => "left",
-                Some(false) => "right",
-                None => "none",
-            };
-            log!("browser: drop target {side}");
+            log!("browser: drop target {}", over.edge().map_or("none", Edge::name));
         }
         cx.notify();
         true
@@ -166,12 +203,17 @@ impl Shell {
         let Some(over) = &drag.over_page else {
             return false;
         };
-        let (tab, with, side) = (drag.tab, over.with, over.side());
+        let (tab, with, edge) = (drag.tab, over.with, over.edge());
+        let alone = self.panes(with).len() == 1;
         // The release that ends the drag isn't a click.
         self.dragged = true;
         self.settle_drag();
-        if let Some(left) = side {
-            self.browser.split_with(tab, with, left, cx);
+        if let Some(edge) = edge {
+            self.browser.split_with(tab, with, edge.first(), cx);
+            // A page alone has every target, and the top and bottom ones stack its new split.
+            if alone && edge.stacked() {
+                self.browser.set_split_stacked(with, true, cx);
+            }
         }
         cx.notify();
         true
@@ -191,16 +233,21 @@ impl Shell {
         let fill = self.window_fill().blend(palette.plate(TARGET_PLATE));
         let t = over.since.elapsed().as_secs_f32();
         let growing =
-            over.under.iter().any(|(_, since, _)| since.elapsed().as_secs_f32() < TARGET_GROW);
+            over.targets.iter().any(|(_, _, since, _)| since.elapsed().as_secs_f32() < TARGET_GROW);
         if growing || t < TARGET_SLIDE + TARGET_GROW {
             window.request_animation_frame();
         }
-        let targets = [true, false].into_iter().enumerate().map(|(index, left)| {
-            let (under, since, from) = over.under[index];
-            let way = grown(under, since, from);
-            let under = under_bounds(card, left, over.pointer.x);
-            let bounds = mix_bounds(arriving(card, left, t), under, way);
-            target(bounds, card, left, way, fill, palette)
+        let mut targets: Vec<_> = over
+            .targets
+            .iter()
+            .map(|&(edge, under, since, from)| (edge, grown(under, since, from)))
+            .collect();
+        // The one growing under the tab goes over the others, which it can reach.
+        targets.sort_by(|a, b| a.1.total_cmp(&b.1));
+        let targets = targets.into_iter().map(|(edge, way)| {
+            let under = under_bounds(card, edge, over.pointer);
+            let bounds = mix_bounds(arriving(card, edge, t), under, way);
+            target(bounds, card, edge, way, fill, palette)
         });
         let page = div()
             .absolute()
@@ -234,41 +281,64 @@ fn ease_out(progress: f32) -> f32 {
     1. - (1. - progress.clamp(0., 1.)).powi(3)
 }
 
-/// The left target's bounds in `card`, or the right's: `(width, height, inset)`, its width and
-/// height as fractions of the card's and how far in it is from the card's side, centred down it.
-fn target_bounds(card: Bounds<Pixels>, left: bool, at: (f32, f32, f32)) -> Bounds<Pixels> {
-    let (width, height, inset) = at;
-    let size = size(card.size.width * width, card.size.height * height);
-    let x = match left {
-        true => card.left() + px(inset),
-        false => card.right() - px(inset) - size.width,
-    };
-    Bounds::new(point(x, card.top() + (card.size.height - size.height) / 2.), size)
+/// The target at `edge`'s rest and grown sizes: `(across, along, inset)`.
+fn rest_at(edge: Edge) -> (f32, f32, f32) {
+    if edge.stacked() { STACK_REST } else { TARGET_REST }
 }
 
-/// A target under the tab: bigger, its centre leaning toward the pointer at `x`.
-fn under_bounds(card: Bounds<Pixels>, left: bool, x: Pixels) -> Bounds<Pixels> {
-    let grown = target_bounds(card, left, TARGET_GROWN);
-    let (width, height) = TARGET_UNDER;
+fn grown_at(edge: Edge) -> (f32, f32, f32) {
+    if edge.stacked() { STACK_GROWN } else { TARGET_GROWN }
+}
+
+/// The target at `edge`'s bounds in `card`: `(across, along, inset)`, its size across the card's
+/// edge and along it as fractions of the card's, and how far in it is from that edge, centred
+/// along it.
+fn target_bounds(card: Bounds<Pixels>, edge: Edge, at: (f32, f32, f32)) -> Bounds<Pixels> {
+    let (across, along, inset) = at;
+    let (width, height) = if edge.stacked() { (along, across) } else { (across, along) };
     let size = size(card.size.width * width, card.size.height * height);
-    let centre = grown.center().x + (x - grown.center().x) * TARGET_LEAN;
-    Bounds::new(
-        point(centre - size.width / 2., card.top() + (card.size.height - size.height) / 2.),
-        size,
-    )
+    let centred = card.center() - point(size.width / 2., size.height / 2.);
+    let origin = match edge {
+        Edge::Left => point(card.left() + px(inset), centred.y),
+        Edge::Right => point(card.right() - px(inset) - size.width, centred.y),
+        Edge::Top => point(centred.x, card.top() + px(inset)),
+        Edge::Bottom => point(centred.x, card.bottom() - px(inset) - size.height),
+    };
+    Bounds::new(origin, size)
+}
+
+/// A target under the tab: bigger, its centre leaning across the card toward the pointer.
+fn under_bounds(card: Bounds<Pixels>, edge: Edge, pointer: Point<Pixels>) -> Bounds<Pixels> {
+    let grown = target_bounds(card, edge, grown_at(edge));
+    let (across, along) = if edge.stacked() { STACK_UNDER } else { TARGET_UNDER };
+    let (width, height) = if edge.stacked() { (along, across) } else { (across, along) };
+    let size = size(card.size.width * width, card.size.height * height);
+    let lean = |from: Pixels, to: Pixels| from + (to - from) * TARGET_LEAN;
+    let mut centre = card.center();
+    if edge.stacked() {
+        centre.y = lean(grown.center().y, pointer.y);
+    } else {
+        centre.x = lean(grown.center().x, pointer.x);
+    }
+    Bounds::new(centre - point(size.width / 2., size.height / 2.), size)
 }
 
 /// Where a target is `t` seconds after the tab came over the page: sliding in at its first size
-/// from outside the card's side, then growing.
-fn arriving(card: Bounds<Pixels>, left: bool, t: f32) -> Bounds<Pixels> {
-    let rest = target_bounds(card, left, TARGET_REST);
+/// from outside the card's edge, then growing.
+fn arriving(card: Bounds<Pixels>, edge: Edge, t: f32) -> Bounds<Pixels> {
+    let rest = target_bounds(card, edge, rest_at(edge));
     if t < TARGET_SLIDE {
-        let out = rest.size.width + px(TARGET_REST.2);
-        let away = out * (1. - ease_out(t / TARGET_SLIDE));
-        let x = if left { rest.left() - away } else { rest.left() + away };
-        return Bounds::new(point(x, rest.top()), rest.size);
+        let away = 1. - ease_out(t / TARGET_SLIDE);
+        let inset = px(rest_at(edge).2);
+        let origin = match edge {
+            Edge::Left => rest.origin - point((rest.size.width + inset) * away, px(0.)),
+            Edge::Right => rest.origin + point((rest.size.width + inset) * away, px(0.)),
+            Edge::Top => rest.origin - point(px(0.), (rest.size.height + inset) * away),
+            Edge::Bottom => rest.origin + point(px(0.), (rest.size.height + inset) * away),
+        };
+        return Bounds::new(origin, rest.size);
     }
-    let grown = target_bounds(card, left, TARGET_GROWN);
+    let grown = target_bounds(card, edge, grown_at(edge));
     mix_bounds(rest, grown, ease_out((t - TARGET_SLIDE) / TARGET_GROW))
 }
 
@@ -285,7 +355,7 @@ fn mix_bounds(from: Bounds<Pixels>, to: Bounds<Pixels>, way: f32) -> Bounds<Pixe
 fn target(
     bounds: Bounds<Pixels>,
     card: Bounds<Pixels>,
-    left: bool,
+    edge: Edge,
     way: f32,
     fill: Hsla,
     palette: Palette,
@@ -332,13 +402,18 @@ fn target(
         .justify_center()
         .gap(px(TITLE_GAP))
         .child(line)
-        .child(half_glyph(left, text))
+        .child(half_glyph(edge, text))
         .child(
             div()
                 .text_size(px(text::BODY))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(text)
-                .child(if left { "Add left split" } else { "Add right split" }),
+                .child(match edge {
+                    Edge::Left => "Add left split",
+                    Edge::Right => "Add right split",
+                    Edge::Top => "Add top split",
+                    Edge::Bottom => "Add bottom split",
+                }),
         )
 }
 
@@ -358,9 +433,15 @@ pub(super) fn rounded_rect(path: &mut PathBuilder, bounds: Bounds<Pixels>, radiu
     path.close();
 }
 
-/// A ≈ 19 pt rectangle with its left half filled, or its right.
-fn half_glyph(left: bool, color: Hsla) -> impl IntoElement {
-    let half = div().absolute().top_0().bottom_0().w(px(8.)).bg(color);
+/// A ≈ 19 pt rectangle with the half at `edge` filled.
+fn half_glyph(edge: Edge, color: Hsla) -> impl IntoElement {
+    let half = div().absolute().bg(color);
+    let half = match edge {
+        Edge::Left => half.top_0().bottom_0().w(px(8.)).left_0(),
+        Edge::Right => half.top_0().bottom_0().w(px(8.)).right_0(),
+        Edge::Top => half.left_0().right_0().h(px(6.)).top_0(),
+        Edge::Bottom => half.left_0().right_0().h(px(6.)).bottom_0(),
+    };
     div()
         .relative()
         .w(px(19.))
@@ -369,7 +450,7 @@ fn half_glyph(left: bool, color: Hsla) -> impl IntoElement {
         .border(px(1.5))
         .border_color(color)
         .overflow_hidden()
-        .child(if left { half.left_0() } else { half.right_0() })
+        .child(half)
 }
 
 /// The dragged tab over the page: a picture of a window centred on `pointer`, its page showing the
