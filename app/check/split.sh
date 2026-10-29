@@ -114,16 +114,20 @@ for modifiers in "alt shift" "alt cmd"; do
   send click $page_point
 done
 # A link dragged over the page brings the targets, which the page doesn't see, and let go on the
-# right one it opens in a pane there, as a tab let go there does.
+# right one it opens in a pane there, as a tab let go there does. The link comes from another app,
+# as the driver hands it to the page's view: a drag the page starts is AppKit's, which follows the
+# real mouse, so the driver's events would end it at once. Both reach the same drag destination.
 right_target="$((x + w - 100)) $((y + h / 2))"
-send press $((x + 20)) $((y + 20))
-send dragto $((x + 40)) $((y + 30))
-send dragto $right_target
+send dragover $((x + 40)) $((y + 30)) url "${site}notes.txt"
+send dragover $((x + 60)) $((y + 40))
 expect "^browser: drop targets for $a\$" "a link dragged over the page didn't bring the targets"
+send dragover $right_target
 expect '^browser: drop target right$' "the right target isn't under the dragged link"
+expect '^browser: drag over [A-Za-z]* taken$' "the page's view didn't take the link on the target"
 ../tools/window-screenshot.sh "$pid" "$out/split-link-targets.png" || fail "no window to capture"
-send release $right_target
+send dragdrop $right_target
 expect '^browser: link dropped right$' "the link let go on the right target didn't open"
+expect '^browser: drag dropped$' "the page's view didn't take the link let go on the target"
 expect "^browser: splits $a+[0-9][0-9]*\$" "the dropped link isn't beside the page: \"$(splits)\""
 n=$(splits | cut -d+ -f2)
 expect "^browser: loaded $n ${site}notes.txt\$" "the dropped link didn't load in its pane"
