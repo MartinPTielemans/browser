@@ -177,11 +177,15 @@ bool SignedLikeThisApp(NSURL* app) {
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
     NSBundle* app = StagedApp(version);
     NSString* outcome = nil;
+    // The signature's check and the run apart, so the log says which of them macOS's check is in.
+    NSDate* checking = NSDate.date;
     if (!app) {
       outcome = @"not found";
     } else if (!SignedLikeThisApp(app.bundleURL)) {
       outcome = @"not signed as this app is";
     } else {
+      Log([NSString stringWithFormat:@"update %@ signature checked in %.0f ms", version,
+                                     -checking.timeIntervalSinceNow * 1000]);
       NSTask* task = [[NSTask alloc] init];
       task.executableURL = app.executableURL;
       NSMutableDictionary* environment = [NSProcessInfo.processInfo.environment mutableCopy];

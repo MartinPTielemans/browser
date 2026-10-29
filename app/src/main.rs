@@ -5078,6 +5078,9 @@ fn main() {
     if std::env::var_os("BROWSER_PREWARM").is_some() {
         return;
     }
+    // The time from the process's start to here is mostly macOS's check of a version it hasn't run
+    // before, which warming an update saves its first launch.
+    log!("browser: main at {:.1} ms", unsafe { platform::host_since_launch() });
     if cfg!(feature = "prod") {
         // Chromium can't read the cookie key a new signature hasn't been granted, so it asks first.
         if !unsafe { platform::host_keep_keychain_key() } {
