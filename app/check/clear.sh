@@ -517,6 +517,9 @@ none_since '^browser: reveal hidden$' || fail "the pointer leaving sent the ques
 send click $((qx + qw / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Block didn't take the question down"
 expect "^browser: title $r refused NotAllowedError\$" "Block didn't refuse the page"
+# Linux's host hears the pointer only over the reveal's own window, not the question's over it, so
+# the pointer leaves the way a hand's can, over the reveal under the question.
+[ "$(uname)" = Linux ] && send move 100 $((qy + qh + 60))
 send move 600 400
 expect '^browser: reveal hidden$' "the pointer leaving didn't send the sidebar away once answered"
 # A key that does nothing reports who has the keyboard, which the hidden panel must not.
