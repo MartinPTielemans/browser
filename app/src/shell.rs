@@ -256,6 +256,9 @@ const ICONLESS_NAME_X: f32 = FAVICON_X + (FAVICON_SIZE - FAVICON_DRAWN) / 2.;
 use crate::tokens::shell::SPACE_ICON_SLOT;
 const SPACE_ICON_X: f32 = FAVICON_X + FAVICON_SIZE / 2. - SPACE_ICON_SLOT / 2.;
 use crate::tokens::shell::SPACE_ICON_PLATE;
+use crate::tokens::shell::PINNED_CARET;
+use crate::tokens::shell::PINNED_CARET_PLATE;
+use crate::tokens::shell::PINNED_CARET_GAP;
 // While the icon picker shows for a Space with no icon, a dashed square holds the icon's place,
 // centred in its frame (Arc 1.170 cap at 1×): 24 across, its corners rounded by about 6, a 1 pt
 // line of 4 pt dashes and 2 pt gaps, in black at 0.30, seen over a red Space (*interim* over the
@@ -519,9 +522,9 @@ impl Space {
         (pinned.collect(), rows(&self.today))
     }
 
-    /// Whether `row` is in a closed folder.
+    /// Whether `row`, one of its pinned rows, is in a closed folder or in pinned rows collapsed.
     fn shut(&self, row: u64) -> bool {
-        self.holders(row).any(|folder| !self.is_open(folder))
+        self.folders.pinned_shut || self.holders(row).any(|folder| !self.is_open(folder))
     }
 
     fn is_folder(&self, row: u64) -> bool {
@@ -952,6 +955,8 @@ pub struct Shell {
     /// The edge the selected tab's marker was last drawn at, true for the top, and its frame in
     /// the window (`shown_marker`).
     marker_drawn: Cell<Option<(bool, Bounds<Pixels>)>>,
+    /// Whether the pinned rows' chevron was last drawn for collapsed ones, and where.
+    caret_drawn: Rc<Cell<Option<(bool, Bounds<Pixels>)>>>,
     /// Whether Clear and the URL field's button were fading in or shown at the last frame, the
     /// fade since it last changed, from how far in they were then, and whether they were drawn
     /// when the last line was logged.
@@ -1255,6 +1260,7 @@ impl Shell {
             scrolled: false,
             scroll_edge_fade: None,
             marker_drawn: Cell::new(None),
+            caret_drawn: Rc::default(),
             tools_on: false,
             tools_fade: None,
             drawn_tools: false,
@@ -2640,7 +2646,12 @@ impl Render for Shell {
         // check.sh reads this line. It comes as the rows are drawn, so a click it sends next goes
         // to what's drawn.
         if std::mem::take(&mut self.outline_changed) {
-            let outline = self.shown_space().map(|space| space.outline(0)).unwrap_or_default();
+            let outline = self.shown_space().map_or_else(String::new, |space| {
+                match space.folders.pinned_shut {
+                    true => format!("-[{}]", space.outline(0)),
+                    false => space.outline(0),
+                }
+            });
             log!("browser: outline {outline}");
         }
         // As the outline's, so a click on Clear, which shows only under the pointer, finds it.

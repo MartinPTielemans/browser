@@ -46,6 +46,8 @@ pub trait Browser {
     -> u64;
     fn rename_folder(&self, folder: u64, name: &str, cx: &mut App);
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App);
+    /// Collapses `space`'s pinned rows, or expands them.
+    fn set_pinned_open(&self, space: u64, open: bool, cx: &mut App);
     /// Moves `folder`, with what's in it, to `index` in `to`, else in the pinned tabs, counted as
     /// `move_tab` counts.
     fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App);
@@ -556,4 +558,7 @@ pub struct Folders {
     pub folders: HashMap<u64, (SharedString, bool)>,
     /// The folder holding each pinned tab or folder in one.
     pub parents: HashMap<u64, u64>,
+    /// Whether its pinned rows are collapsed, which hides them as a closed folder hides what's in
+    /// it.
+    pub pinned_shut: bool,
 }

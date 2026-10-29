@@ -349,6 +349,7 @@ fn a_drag_is_undone_to_where_the_tab_was_in_its_folder(cx: &mut TestAppContext) 
     let folders = Folders {
         folders: HashMap::from([(5, ("Reading".into(), true))]),
         parents: HashMap::from([(6, 5), (7, 5), (8, 5)]),
+        pinned_shut: false,
     };
     let (shell, host) = window(cx, vec![4, 5, 6, 7, 8], vec![9], folders, Vec::new());
     // 8 goes out of the folder to the top of Today.
@@ -390,6 +391,7 @@ fn a_deleted_folder_is_made_again_with_what_it_held_and_deleted_again_by_its_new
     let folders = Folders {
         folders: HashMap::from([(5, ("Reading".into(), false))]),
         parents: HashMap::from([(6, 5), (7, 5)]),
+        pinned_shut: false,
     };
     let (shell, host) = window(cx, vec![4, 5, 6, 7], Vec::new(), folders, Vec::new());
     shell.update(cx, |shell, cx| shell.delete_folder_now(5, cx));
@@ -409,6 +411,7 @@ fn a_deleted_folder_is_made_again_with_what_it_held_and_deleted_again_by_its_new
     let folders = Folders {
         folders: HashMap::from([(1001, ("Reading".into(), true))]),
         parents: HashMap::from([(6, 1001), (7, 1001)]),
+        pinned_shut: false,
     };
     shell.update(cx, |shell, cx| {
         shell.set_tabs(1, vec![4, 1001, 6, 7], Vec::new(), Vec::new(), folders, cx)

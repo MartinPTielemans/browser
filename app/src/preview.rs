@@ -440,6 +440,19 @@ impl Browser for Fake {
         self.change_folder(folder, cx, move |entry| entry.1 = open);
     }
 
+    // The preview keeps the rows of the Space shown alone.
+    fn set_pinned_open(&self, space: u64, open: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            if space != shell.space() {
+                return;
+            }
+            let folders = Folders { pinned_shut: !open, ..shell.folders() };
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
     fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App) {
         self.later(cx, move |shell, cx| move_pinned(shell, folder, to, index, cx));
     }
@@ -1365,6 +1378,7 @@ fn main() {
                 let folders = Folders {
                     folders: [(folder, ("Docs".into(), true))].into(),
                     parents: [(2, folder)].into(),
+                    pinned_shut: false,
                 };
                 let today = (3..=TABS.len() as u64).collect();
                 let split = Split {

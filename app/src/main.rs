@@ -1690,6 +1690,10 @@ impl Browser for Engine {
         unsafe { bc::bc_folder_set_open(folder, open) };
     }
 
+    fn set_pinned_open(&self, space: u64, open: bool, _: &mut App) {
+        unsafe { bc::bc_space_set_pinned_open(space, open) };
+    }
+
     fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
         unsafe { bc::bc_folder_move(folder, to, index) };
     }
@@ -3799,6 +3803,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "View",
             vec![
                 item(bar.sidebar_title(), Command::ToggleSidebar),
+                item(bar.pinned_item().0, bar.pinned_item().1),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -4216,7 +4221,8 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
             });
         }
     }
-    let mut folders = Folders::default();
+    let pinned_shut = unsafe { !bc::bc_space_pinned_open(space) };
+    let mut folders = Folders { pinned_shut, ..Default::default() };
     for &row in &pinned {
         let mut open = false;
         if unsafe { bc::bc_folder(row, &mut open) } {
