@@ -116,6 +116,10 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
     widevine::Start();
   }
 
+  void PostProfileInit(Profile* profile, bool is_initial_profile) override {
+    crash_reports::ProfileStarted(profile);
+  }
+
   void PreBrowserStart() override {
     // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.
     LeaveDialog::Install();

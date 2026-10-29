@@ -3,6 +3,8 @@
 
 #include <string>
 
+class Profile;
+
 namespace browser_core::crash_reports {
 
 // Crashpad writes a minidump of every crash, in the profile folder's Crashpad
@@ -17,6 +19,12 @@ namespace browser_core::crash_reports {
 // In the browser process, before Chromium starts Crashpad: its reports go in the profile folder the
 // app gave, not Chromium's default one, which another Chromium on the machine shares.
 void PlaceReports();
+
+// As each profile starts: writes its Preferences now, with the mark Chrome's ExitTypeService has
+// just set there that its session crashed, which Chrome would write only 10 s after the change. A
+// crash sooner, as at startup, would otherwise leave the last session's mark, and the next launch
+// wouldn't offer its report. Only with a collector, since the mark is only read for the offer.
+void ProfileStarted(Profile* profile);
 
 // In each process, once Chromium has started Crashpad there: its reports leave out the memory that
 // pointers on the stack lead to, which can be a page's, and Chrome's dumps of processes that didn't
@@ -34,8 +42,9 @@ void SetSending(bool send);
 
 // Once the app has started: sends the reports not yet sent, if the user has said to, once the
 // browser has finished starting, or else offers to send the report of a crash the time before.
-// With --crash-after-start, crashes the browser instead, once Crashpad's handler is up, so the
-// checks see it write its minidump (app/check/crash.sh). The prod app doesn't pass that switch on.
+// With --crash-after-start, crashes the browser instead, once Crashpad's handler is up and the
+// profile's crashed mark is on disk, so the checks see it write its minidump and the next launch
+// offer it (app/check/crash.sh). The prod app doesn't pass that switch on.
 void Started();
 
 // The user's answer to the offer: send that report, though Send Crash Reports is off, or delete it.
