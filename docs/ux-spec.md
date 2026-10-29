@@ -950,6 +950,7 @@ A new profile's first launch (*Ours*: Arc's and Dia's are films and sign-ups of 
 Sparkle 2 (Dia and Ardia, P§24). Its feed URL is a default service URL, so forks change it (principle 2).
 
 - "Check for Updates…" sits in the app menu. Automatic checks run every 8 hours (**Ardia**).
+- ilo needs macOS 15 (Sequoia) or later, the owner's call (#678); Arc needs 13 (Ventura). The bundle says so (`LSMinimumSystemVersion`), so macOS won't open it on an older Mac and the feed offers that Mac no update. README.md and each release's notes name it.
 - An install waits until no window is in full screen.
 - The first launch after an update opens its release notes.
 - Settings › General › Updates.
