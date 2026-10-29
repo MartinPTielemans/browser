@@ -427,6 +427,23 @@ expect "^browser: download $t Trash via download menu\$" "Move to Trash didn't r
 expect '^browser: downloads 0$' "Move to Trash didn't take the download off the list"
 expect '^browser: recent downloads hidden$' "the recent downloads stayed with none left"
 [ -e "$out/downloads/trash.txt" ] && fail "Move to Trash left the file in the check's folder"
+# Media tiles the video downloaded, which plays in its tile without sound while the tile shows,
+# and stops once the Library closes. Only the Mac's platform plays one.
+send click $page_point
+send type v
+expect '^browser: download [0-9]* done clip.mp4$' "the page's video didn't download"
+send menu "$(cased 'View Media…')"
+expect '^browser: library section media$' "View Media… didn't open the Library on Media"
+expect '^browser: library shown$' "View Media… didn't open the Library"
+if [ "$(uname)" = Darwin ]; then
+  expect '^browser: media video playing clip.mp4$' "the video's tile didn't play it"
+  ../tools/window-screenshot.sh "$pid" "$out/media-video.png" || fail "no window to capture"
+fi
+send menu "$(cased 'View Media…')"
+expect '^browser: library hidden$' "View Media… didn't close the Library"
+if [ "$(uname)" = Darwin ]; then
+  expect '^browser: media video stopped clip.mp4$' "the video played on with the Library closed"
+fi
 send click $page_point
 tab=$a
 history_key right forward page
@@ -610,6 +627,6 @@ exec 3>&-
 quit
 grep -q '"fullscreen": *true' "$saved" &&
   fail "the window was saved full screen for the page that was full screen at the quit"
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so, unless a page took it there. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and its right-click menu picks the kinds it lists, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays; the first ones bring a note, until View Archive answers it, opening Archived Tabs, and none after that ($out/archive-note.png). A tab put back unshown has no page until it's shown, when it loads scrolled where it was."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so, unless a page took it there. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and its right-click menu picks the kinds it lists, and Media plays a video downloaded in its tile while the Library shows it, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays; the first ones bring a note, until View Archive answers it, opening Archived Tabs, and none after that ($out/archive-note.png). A tab put back unshown has no page until it's shown, when it loads scrolled where it was."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png, $out/unloaded-scrolled.png,"
-echo "  $out/recent-downloads.png, $out/library-button-menu.png"
+echo "  $out/recent-downloads.png, $out/library-button-menu.png, $out/media-video.png"

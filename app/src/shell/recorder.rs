@@ -5,10 +5,11 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     rc::Rc,
+    sync::Arc,
     time::Duration,
 };
 
-use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
+use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size, WeakEntity};
 
 use crate::theme::Appearance;
 
@@ -146,6 +147,8 @@ pub(super) struct Recorder {
     pub(super) agent_permissions: RefCell<super::AgentGrants>,
     /// What the Library button's hover leaves out, none at first, as the core's default.
     hover_kinds_off: Cell<u32>,
+    /// The videos opened that haven't given their first frame yet.
+    videos_starting: RefCell<Vec<u64>>,
 }
 
 impl Recorder {
@@ -407,6 +410,25 @@ impl Browser for Recorder {
 
     fn file_preview(&self, download: u64, _: &str, _: &mut App) {
         self.record(format!("file preview {download}"))
+    }
+
+    fn open_video(&self, id: u64, _: &str, side: u32, _: &mut App) -> bool {
+        self.record(format!("open video {id} {side}"));
+        self.videos_starting.borrow_mut().push(id);
+        true
+    }
+
+    /// A pixel, the first time.
+    fn video_frame(&self, id: u64, _: &mut App) -> Option<Arc<RenderImage>> {
+        let mut starting = self.videos_starting.borrow_mut();
+        let at = starting.iter().position(|&each| each == id)?;
+        starting.remove(at);
+        let pixel = image::RgbaImage::from_raw(1, 1, vec![0; 4])?;
+        Some(Arc::new(RenderImage::new(vec![image::Frame::new(pixel)])))
+    }
+
+    fn close_video(&self, id: u64, _: &mut App) {
+        self.record(format!("close video {id}"))
     }
 
     fn list_captures(&self, _: &mut App) {
