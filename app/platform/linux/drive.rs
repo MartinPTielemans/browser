@@ -36,24 +36,30 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     ffi::{CString, c_int, c_uint, c_void},
     io::BufRead,
     rc::Rc,
+    sync::{Arc, OnceLock},
 };
 
 use browser::log;
 use gpui::{Keystroke, Menu, MenuItem, Modifiers};
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{
-        self, ButtonPressEvent, ConfigureWindowAux, ConnectionExt as _, EnterNotifyEvent,
-        EventMask, KeyButMask, KeyPressEvent, MotionNotifyEvent, StackMode,
+    protocol::{
+        Event,
+        xproto::{
+            self, ButtonPressEvent, ChangeWindowAttributesAux, ConfigureWindowAux,
+            ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent,
+            MotionNotifyEvent, StackMode,
+        },
     },
     rust_connection::RustConnection,
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
     settings_window,
 };
 
@@ -121,6 +127,9 @@ fn settle(n: u64) {
         sync();
         gpui_linux::sync_display();
         drawn(Box::new(move || {
+            if let Some(browser) = driven() {
+                watch_zoom(browser.window);
+            }
             let (key, focus, active) = keyboard();
             let marked = input_focus().and_then(gpui_linux::marked_range);
             let marked = marked.map_or("none".into(), |at| format!("{},{}", at.start, at.len()));
@@ -222,6 +231,7 @@ fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(panels::shown());
     views.extend(menu_window::shown());
+    views.extend(reveal_window::shown());
     views
 }
 
@@ -989,6 +999,51 @@ fn full_screen(window: xproto::Window) -> Option<bool> {
         .ok()?;
     let full = full?;
     Some(property.value32()?.any(|atom| atom == full))
+}
+
+/// Logs "browser: window zoomed <0|1>" as the window manager maximizes `window` or restores it, as
+/// drive.mm logs AppKit's zoom. On a connection of the driver's own, whose thread waits on the X
+/// server's property changes, so it wakes only for one.
+fn watch_zoom(window: xproto::Window) {
+    static WATCHER: OnceLock<Option<Arc<RustConnection>>> = OnceLock::new();
+    let watcher = WATCHER.get_or_init(|| {
+        let (connection, _) = x11rb::connect(None).ok()?;
+        let connection = Arc::new(connection);
+        let reader = connection.clone();
+        std::thread::spawn(move || zoom_changes(&reader));
+        Some(connection)
+    });
+    let Some(connection) = watcher else { return };
+    let aux = ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE);
+    // A window that has closed since answers with an error, which is dropped.
+    if let Ok(cookie) = connection.change_window_attributes(window, &aux) {
+        cookie.ignore_error();
+    }
+    connection.flush().ok();
+}
+
+fn zoom_changes(connection: &RustConnection) {
+    let atom = |name: &str| {
+        let cookie = connection.intern_atom(false, name.as_bytes()).ok()?;
+        cookie.reply().ok().map(|reply| reply.atom)
+    };
+    let names = ["_NET_WM_STATE", "_NET_WM_STATE_MAXIMIZED_VERT", "_NET_WM_STATE_MAXIMIZED_HORZ"];
+    let [Some(state), Some(vertical), Some(horizontal)] = names.map(atom) else { return };
+    let mut zoomed = HashMap::new();
+    while let Ok(event) = connection.wait_for_event() {
+        let Event::PropertyNotify(notify) = event else { continue };
+        if notify.atom != state {
+            continue;
+        }
+        let atom_type = xproto::AtomEnum::ATOM;
+        let property = connection.get_property(false, notify.window, state, atom_type, 0, 64);
+        let Some(property) = property.ok().and_then(|cookie| cookie.reply().ok()) else { continue };
+        let atoms: Vec<_> = property.value32().map(Iterator::collect).unwrap_or_default();
+        let now = atoms.contains(&vertical) && atoms.contains(&horizontal);
+        if zoomed.insert(notify.window, now).unwrap_or(false) != now {
+            log!("browser: window zoomed {}", now as u8);
+        }
+    }
 }
 
 /// The item of `menus` titled `title`, in a submenu too, or with "Submenu › Item", the item in the
