@@ -359,12 +359,16 @@ expect '^browser: detent$' "a tile dragged into the list didn't click the trackp
 ../tools/window-screenshot.sh "$pid" "$out/favorite-drag-out.png" || fail "no window to capture"
 send dragto 100 300
 send key escape
+escaped=$step
 expect '^browser: command stop via ' "escape during a tile's drag didn't reach the UI"
 send release 100 300
 none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
 [ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
-# A press hits the frame drawn, so the next drag waits for the put-back's.
+# A press hits the frame drawn, so the next drag waits for the put-back's, which can end before the
+# release.
+released=$step step=$escaped
 expect '^browser: drag put back$' "Escape's put-back didn't finish"
+step=$released
 # Three tiles in the sidebar at its narrowest take two rows, 94 points, more than 40 % of a window
 # 220 tall, so they scroll with the list, under the URL field (Ardia).
 send drag $(tiled_row 0) 200 112
