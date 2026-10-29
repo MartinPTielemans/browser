@@ -70,7 +70,9 @@ expect "^browser: download landed $d\$" "the new download's icon didn't land"
 # download over the finished one.
 check_layout "with a download running"
 send move 24 $((height - 25))
-expect '^browser: tooltip shown View Library ⇧⌘L$' \
+library_keys=⇧⌘L
+[ "$(uname)" = Darwin ] || library_keys=Ctrl+Shift+L
+expect "^browser: tooltip shown View Library $library_keys\$" \
   "with a download running, the Library button didn't name itself View Library"
 expect '^browser: recent downloads shown 2$' \
   "with a download running, resting on the Library button didn't show it and the finished one"
@@ -544,6 +546,8 @@ grep -q "browser: tab $l has its page\$" "$log" && fail "the tab not shown got i
 switch "2 cmd" "$l"
 expect "browser: tab $l has its page\$" "the tab put back didn't get its page once shown"
 expect "^browser: title $l scrolled [1-9][0-9]*\$" "the tab put back loaded its page at the top"
+# The page takes its scroll back before it has loaded, and a click while it loads misses it.
+expect "^browser: page $l back [0-9]* forward [0-9]* loading 0 " "the tab put back didn't finish loading"
 ../tools/window-screenshot.sh "$pid" "$out/unloaded-scrolled.png" || fail "no window to capture"
 # A quit while a page is full screen, as a video is, keeps the window windowed: the page took it
 # full screen, and it would come back so with no video in it (#383).

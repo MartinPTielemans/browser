@@ -362,7 +362,7 @@ mod platform {
         #[cfg(not(target_os = "linux"))]
         pub fn host_show_hover_card(ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64);
         #[cfg(not(target_os = "linux"))]
-        pub fn host_hide_hover_card(fade: f64);
+        pub fn host_hide_hover_card();
         #[cfg(not(target_os = "linux"))]
         pub fn host_watch_memory_pressure(pressed: extern "C" fn());
         pub fn host_add_link_target(
@@ -1362,6 +1362,10 @@ impl command_bar::Host for Bar {
         }
     }
 
+    fn reload(&self, tab: u64) {
+        unsafe { bc::bc_tab_reload(tab, false) };
+    }
+
     fn select(&self, tab: u64) {
         unsafe { bc::bc_window_select(front().0, tab) };
     }
@@ -1527,12 +1531,12 @@ impl hover_card::Host for CardHost {
     }
 
     fn hide(&self) {
-        unsafe { platform::host_hide_hover_card(tooltip::FADE_OUT.as_secs_f64()) };
+        unsafe { platform::host_hide_hover_card() };
     }
 }
 
-/// The window lost the keyboard, the app stopped being the active one, or a press, a scroll or a
-/// key landed outside the card.
+/// The window lost the keyboard, the app stopped being the active one, or a press or a scroll
+/// landed outside the card.
 #[cfg(not(target_os = "linux"))]
 extern "C" fn card_away() {
     update_app(hover_card::close);
@@ -2076,6 +2080,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://history");
     }
 
+    fn site_search_settings(&self, _: &mut App) {
+        open_tab(self.window, "chrome://settings/searchEngines");
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -2396,8 +2404,22 @@ impl Browser for Engine {
         with_overlays(move |cx| command_bar::show(editing, tabs, field, cx), cx);
     }
 
+    fn search_tabs(&self, tabs: Vec<BarTab>, cx: &mut App) {
+        with_overlays(move |cx| command_bar::show_tabs(tabs, cx), cx);
+    }
+
     fn command_bar_open(&self, cx: &App) -> bool {
         command_bar::is_open(cx)
+    }
+
+    fn command_bar_follows(
+        &self,
+        tabs: Vec<BarTab>,
+        open_tabs: Vec<BarTab>,
+        cx: &mut App,
+    ) -> bool {
+        // The bar shows over the window in front; another's Space, as an agent's, isn't its.
+        self.window == front().0 && command_bar::space_shown(tabs, open_tabs, cx)
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
@@ -2483,6 +2505,14 @@ impl Browser for Engine {
 
     fn shortcuts(&self, cx: &mut App) {
         settings::show_shortcuts(cx);
+    }
+
+    fn about(&self, cx: &mut App) {
+        settings::show_about(cx);
+    }
+
+    fn import(&self, cx: &mut App) {
+        settings::show_import(cx);
     }
 
     fn passwords(&self, space: u64, cx: &mut App) {
@@ -2661,6 +2691,8 @@ unsafe extern "C" fn tab_key_before_page(
     if held_escape::keeps_from_page(unsafe { &*key }) {
         return true;
     }
+    // Any key ends the hover card, as in Dia, the page's as the UI's.
+    update_app(hover_card::close);
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
@@ -3689,13 +3721,15 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
+    let about = item(concat!("About ", env!("APP_NAME")), Command::About);
+    let mut app = vec![about, MenuItem::separator()];
     // Only a release build that carries Sparkle has updates to check for.
-    let mut app = Vec::new();
     if updates_available() {
         app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
     }
     app.extend([
         item("Settings…", Command::Settings),
+        item("Import from Other Browsers…", Command::Import),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
@@ -3810,6 +3844,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "Tabs",
             vec![
                 item("New Tab…", Command::NewTab),
+                item("Search Tabs…", Command::SearchTabs),
                 item(bar.pin_title(), Command::TogglePin),
                 item("New Folder…", Command::NewFolder),
                 MenuItem::separator(),

@@ -79,6 +79,9 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
   grep -q '^cdp: authenticator ready$' "$cdp_log" ||
     fail "DevTools gave the page no virtual authenticator: $(tail -3 "$cdp_log")"
   send click $page_point
+  # The browser window's own child windows, before Chrome's dialog adds one.
+  send layout
+  children=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child' || true)
   if [ "$active" != 1 ]; then
     exec 3>&- 5>&-
     quit
@@ -93,13 +96,39 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
       done
       ../tools/window-screenshot.sh "$pid" "$out/passkeys-stuck.png" all || true
       title=$(grep "^browser: title $tab " "$log" | tail -1 | cut -d' ' -f4-)
-      fail "$3, its title $title: $out/passkeys-stuck.png"
+      fail "$3, its title $title, the keyboard in $sent_key on $sent_focus as the key went:" \
+        "$out/passkeys-stuck.png"
+    }
+    # Chrome closes its dialog once the request is over, a moment after the page hears, and until
+    # it has gone the dialog has the keyboard and the page ignores keys (Chromium's
+    # WebContentsModalDialogManager), so a key sent at once is lost. Waits up to 10 s for the dialog's
+    # window to go and the page to have the keyboard, or fails with where it is, after $1.
+    page_has_keyboard() {
+      for _ in $(seq 100); do
+        send layout
+        now=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child' ||
+          true)
+        [ "$now" -le "$children" ] && [ "$key" = BrowserCoreNSWindow ] &&
+          [ "$focus" = RenderWidgetHostViewCocoa ] && return 0
+        sleep 0.1
+      done
+      ../tools/window-screenshot.sh "$pid" "$out/passkeys-stuck.png" all || true
+      fail "after $1, Chrome's dialog didn't give the page back the keyboard: $now child windows" \
+        "where there were $children, the keyboard in $key on $focus: $out/passkeys-stuck.png"
+    }
+    # A key for the page, noting where the keyboard was as it went.
+    page_key() {
+      send key "$1"
+      sent_key=$key
+      sent_focus=$focus
     }
     # The key is touched for each, so its dialog shows only as long as Chrome takes.
-    send key r
+    page_key r
     ceremony registered "credential added" "the page didn't register a passkey"
-    send key s
+    page_has_keyboard registering
+    page_key s
     ceremony "signed in" "credential asserted" "the page didn't sign in with its passkey"
+    page_has_keyboard "signing in"
     # Untouched, the key leaves Chrome's dialog up, asking for it.
     echo "presence 0" >&5
     for _ in $(seq 100); do
@@ -107,9 +136,6 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
       sleep 0.1
     done
     grep -q '^cdp: presence 0$' "$cdp_log" || fail "cdp.py didn't stop the key's touches"
-    send layout
-    children=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child' ||
-      true)
     send key s
     expect "^browser: title $tab signing in\$" "\"s\" didn't start signing in again"
     # Chrome's dialog, a child window more than the browser window had.

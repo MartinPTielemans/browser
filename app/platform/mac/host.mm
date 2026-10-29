@@ -1668,7 +1668,7 @@ void host_forget_window(void* ui_view) {
     host_hide_tooltip(0);
   }
   if (g_card_over == browser) {
-    host_hide_hover_card(0);
+    host_hide_hover_card();
   }
   if (g_link_shown && g_link_over == browser) {
     host_hide_link_target(0);
@@ -3115,16 +3115,15 @@ void PlaceCardClicks(NSPoint screen) {
 }
 
 // The pointer's moves over the page go to the page's view, so the card's window doesn't hear them:
-// this sets where it takes the mouse from them, and ends the card on a press, a scroll or a key
-// anywhere else, which still go where they were aimed. Only while it shows, so an idle browser is
-// never woken.
+// this sets where it takes the mouse from them, and ends the card on a press or a scroll anywhere
+// else, which still go where they were aimed. The UI ends it on a key. Only while it shows, so an
+// idle browser is never woken.
 void WatchCard() {
   if (g_card_monitor) {
     return;
   }
   constexpr NSEventMask kEnds = NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown |
-                                NSEventMaskOtherMouseDown | NSEventMaskScrollWheel |
-                                NSEventMaskKeyDown;
+                                NSEventMaskOtherMouseDown | NSEventMaskScrollWheel;
   g_card_monitor = [NSEvent
       addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
                                            kEnds
@@ -3150,7 +3149,7 @@ void host_show_hover_card(void* ui_view, double left, double top, double width, 
     return;
   }
   if (g_card_shown && g_card_over != browser) {
-    host_hide_hover_card(0);
+    host_hide_hover_card();
   }
   g_card_left = left;
   g_card_top = top;
@@ -3175,52 +3174,27 @@ void host_show_hover_card(void* ui_view, double left, double top, double width, 
     }
     [g_card_view.layer setNeedsDisplay];
     [g_card_view.layer displayIfNeeded];
-    // Still fading out over this window, it comes back at once.
     if (g_card.parentWindow != browser->window) {
       [g_card.parentWindow removeChildWindow:g_card];
       AddOver(browser->window, g_card);
       RaiseOverlays(browser, g_card);
     }
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
-      context.duration = 0;
-      g_card.animator.alphaValue = 1;
-    }];
     WatchCard();
     PlaceCardClicks(NSEvent.mouseLocation);
-    // check.sh waits for this line, so a capture after it shows the card whole.
+    // check.sh waits for this line, and for the UI's "hover card settled" before a capture.
     fprintf(stderr, "browser: hover card window shown\n");
   });
 }
 
-void host_hide_hover_card(double fade) {
-  if (!g_card_shown && fade > 0) {
-    return;
-  }
+void host_hide_hover_card() {
   g_card_shown = false;
-  const unsigned change = ++g_card_changes;
-  // The mouse goes through it at once, to what's under it, while it fades.
+  // A show still waiting to draw doesn't come after.
+  ++g_card_changes;
   g_card.ignoresMouseEvents = YES;
   [NSEvent removeMonitor:g_card_monitor];
   g_card_monitor = nil;
-  void (^gone)(void) = ^{
-    if (change != g_card_changes) {
-      return;
-    }
-    [g_card.parentWindow removeChildWindow:g_card];
-    [g_card orderOut:nil];
-  };
-  if (fade == 0) {
-    gone();
-    return;
-  }
-  [NSAnimationContext
-      runAnimationGroup:^(NSAnimationContext* context) {
-        context.duration = fade;
-        context.timingFunction =
-            [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
-        g_card.animator.alphaValue = 0;
-      }
-      completionHandler:gone];
+  [g_card.parentWindow removeChildWindow:g_card];
+  [g_card orderOut:nil];
 }
 
 void host_watch_memory_pressure(void (*pressed)(void)) {

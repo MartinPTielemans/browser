@@ -81,6 +81,7 @@ send move $tile
 expect "^browser: hover card shown $a unfavorite \(picture\|favicon\)\$" \
   "resting on the tile again didn't show its card"
 expect '^browser: hover card window shown$' "the tile's card didn't show"
+expect '^browser: hover card settled$' "the tile's card didn't come to rest"
 # It starts at the tile's top, 90 down, right of the tile's middle, beside the rows, and the window
 # the host put over the page is where the UI asked.
 since_move() {
@@ -216,7 +217,7 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces (
   "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
 send choose "$(cased 'In Each Space')"
 expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
-send clickkey 491 60
+send clickkey 463 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics off$' "a click on the haptics switch didn't turn them off"
@@ -403,6 +404,16 @@ done
 drawn_width() {
   grep '^browser: drawn at' "$log" | tail -1 | sed 's/^browser: drawn at \([0-9.]*\)x.*/\1/'
 }
+# Waits for the card shown to be at rest, whether it came in this step or swapped in for another
+# tile's, which came before: a capture before then has it partway in.
+card_settled() {
+  for _ in $(seq 100); do
+    [ "$(grep -E '^browser: hover card (settled|hidden)$' "$log" | tail -1)" = 'browser: hover card settled' ] &&
+      return 0
+    sleep 0.1
+  done
+  fail "$1"
+}
 # Resting on the tile whose middle is at x $1 shows tab $2's card at the tile's top, 90 down,
 # inside the window, placed where the UI asked. Sets $left to where it starts.
 beside() {
@@ -424,6 +435,7 @@ beside 114 "$x"
 [ "$left" = "$first" ] || fail "the second tile's card starts at $left, not beside the rows at $first"
 beside 187 "$y"
 [ "$left" = "$first" ] || fail "the third tile's card starts at $left, not beside the rows at $first"
+card_settled "the tiles' card didn't come to rest"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-cards.png" || fail "no window to capture"
 beside 114 "$x"
 beside 41 "$a"
@@ -435,6 +447,7 @@ for _ in $(seq 30); do
 done
 if [ "$(drawn_width | cut -d. -f1)" -le 322 ]; then
   beside 187 "$y"
+  card_settled "the card in the narrow window didn't come to rest"
   ../tools/window-screenshot.sh "$pid" "$out/favorite-card-narrow.png" || fail "no window to capture"
 else
   echo "note: the window didn't narrow to 320, so the card in a narrow window wasn't checked."
@@ -457,7 +470,7 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces, 
   "Settings didn't keep Each Space across the quit"
 send choose "$(cased "In Each Profile's Spaces")"
 expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
-send clickkey 491 60
+send clickkey 463 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"

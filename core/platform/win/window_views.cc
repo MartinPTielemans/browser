@@ -16,12 +16,15 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/scoped_observation.h"
 #include "browser_core/platform/focus_ring_aura.h"
+#include "chrome/installer/util/install_util.h"
+#include "chrome/installer/util/shell_util.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/win/hwnd_subclass.h"
+#include "ui/base/win/shell.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
@@ -348,6 +351,9 @@ views::NativeWidget* NewNativeWidget(views::Widget* widget, base::RepeatingClosu
 void AddWindowViews(views::Widget* widget, void* ui_view) {
   HWND ui = static_cast<HWND>(ui_view);
   HWND window = views::HWNDForWidget(widget);
+  // Chrome's toasts name the app by this ID, and the shortcut ilo.iss makes has it, so the windows
+  // need it too to group with that shortcut pinned to the taskbar.
+  ui::win::SetAppIdForWindow(ShellUtil::GetBrowserModelId(InstallUtil::IsPerUserInstall()), window);
   if (ui) {
     // The app's UI was a window of its own until now, made before the core's.
     SetWindowLongPtr(ui, GWL_STYLE,
@@ -450,6 +456,8 @@ void ShowPages(views::Widget* widget,
   }
   views->LayOut();
 }
+
+void HoldPagesForResize(views::Widget*) {}
 
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);

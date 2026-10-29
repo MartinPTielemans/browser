@@ -22,6 +22,7 @@
 #include "browser_core/platform/linux/ui_text_input.h"
 #include "browser_core/platform/linux/wayland.h"
 #include "browser_core/window.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
@@ -29,6 +30,7 @@
 #include "ui/aura/window_tracker.h"
 #include "ui/aura/window_tree_host_platform.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/layer_solid_color.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/geometry/insets.h"
@@ -198,6 +200,7 @@ class WindowViews : public views::WidgetObserver,
   Slot& side_panel() { return side_panel_; }
   FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  void set_held(bool held) { held_ = held; }
   UITextInput& ui_text_input() { return ui_text_input_; }
 
   // A slot's holder, made the first time it's needed, over the window's own views.
@@ -205,7 +208,10 @@ class WindowViews : public views::WidgetObserver,
     if (!slot.holder) {
       slot.holder = std::make_unique<aura::Window>(nullptr);
       slot.holder->set_owned_by_parent(false);
-      slot.holder->Init(ui::LAYER_NOT_DRAWN);
+      // A colour where its page hasn't drawn, as an aura page draws nothing before its first
+      // frame, where the Mac's view shows its background.
+      slot.holder->Init(ui::LAYER_SOLID_COLOR);
+      slot.holder->layer()->AsSolidColor()->SetColor(SkColors::kTransparent);
       slot.holder->SetName("BrowserCorePane");
       slot.holder->layer()->SetMasksToBounds(true);
       slot.holder->layer()->SetIsFastRoundedCorner(true);
@@ -407,7 +413,9 @@ class WindowViews : public views::WidgetObserver,
 
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override {
-    LayOut();
+    if (!held_) {
+      LayOut();
+    }
     if (!OnWayland()) {
       if (ui_ != x11::Window::None) {
         SizeUI();
@@ -506,12 +514,20 @@ class WindowViews : public views::WidgetObserver,
         return;
       }
       const bool in = focus->opcode == x11::FocusEvent::In;
+      if (focus->detail != x11::NotifyDetail::Inferior) {
+        retook_ = false;
+      }
       switch (focus->detail) {
         // Out: GPUI took the input focus into the UI's window, as it does on a click. In: it came
         // back up to the window's own, as a window manager focusing the window may move it, which
-        // while the keys are the UI's would leave them with neither (#593).
+        // while the keys are the UI's would leave them with neither (#593). That's taken back once
+        // until the focus next leaves or enters the window: wlroots 0.17's Xwayland puts it back
+        // up each time, and the two would go on without end (#628).
         case x11::NotifyDetail::Inferior:
-          if (!in || ui_has_keyboard_) {
+          if (!in) {
+            UITakesKeyboard();
+          } else if (ui_has_keyboard_ && !retook_) {
+            retook_ = true;
             UITakesKeyboard();
           }
           break;
@@ -535,9 +551,11 @@ class WindowViews : public views::WidgetObserver,
       return;
     }
     // A child X window the core didn't put in the browser window, mapped there, is Chromium's
-    // output for the window, opaque and over the UI until it's sent under it.
+    // output for the window, opaque and over the UI until it's sent under it. The window's own map
+    // comes with the same |event|, and sending it under would put a new window under the others
+    // once the window manager has raised it (#712).
     auto* map = event.As<x11::MapNotifyEvent>();
-    if (map && map->event == window() && map->window != ui_) {
+    if (map && map->event == window() && map->window != window() && map->window != ui_) {
       x11::Connection::Get()->ConfigureWindow(
           {.window = map->window, .stack_mode = x11::StackMode::Below});
     }
@@ -583,8 +601,13 @@ class WindowViews : public views::WidgetObserver,
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
+  // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
+  bool held_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // Whether the core took the input focus back down to the UI's window since the focus last left or
+  // entered the window.
+  bool retook_ = false;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
@@ -669,6 +692,7 @@ void ShowPages(views::Widget* widget,
     return;
   }
   views->set_corner_radius(corner_radius);
+  views->set_held(false);
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = ContentSizeOf(widget);
 
@@ -710,6 +734,10 @@ void ShowPages(views::Widget* widget,
       }
     }
     views->Keep(slot, pane.page, devtools);
+    holder->layer()->AsSolidColor()->SetColor(
+        pane.color ? SkColor4f::FromColor(SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff,
+                                                        *pane.color & 0xff))
+                   : SkColors::kTransparent);
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->Show();
   }
@@ -736,6 +764,12 @@ void ShowPages(views::Widget* widget,
   // With no page, the keys are the UI's, as on the Mac, where its view is all that's left.
   if (panes.empty()) {
     views->UITakesKeyboard();
+  }
+}
+
+void HoldPagesForResize(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->set_held(true);
   }
 }
 

@@ -1,6 +1,6 @@
 //! What the Linux host does through GPUI's Linux platform rather than in host.cc, as GPUI already
 //! has it: the clipboard, the file chooser portal, the browser window's activation, the touchpad's
-//! swipes over the page and Control's release.
+//! swipes over the page, Control's release and a file's drag.
 
 use std::{
     ffi::{CStr, c_char, c_void},
@@ -60,6 +60,22 @@ pub fn watch_activation<T: 'static>(
         platform::host_window_active(ui_view, window.is_window_active(), whole_window)
     })
     .detach();
+}
+
+/// Starts the system's drag of the file at `path`, as host.h says: XDND on X11, the data device's
+/// drag under Wayland, from the press the left button holds.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_drag_file(path: *const c_char, ended: extern "C" fn(taken: bool)) -> bool {
+    let path = PathBuf::from(unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned());
+    if !path.exists() {
+        return false;
+    }
+    gpui_linux::start_file_drag(&path, move |taken| {
+        // After the event that let it go, out of the display's handling.
+        if let Some(cx) = crate::CX.with_borrow(Clone::clone) {
+            cx.foreground_executor().spawn(async move { ended(taken) }).detach();
+        }
+    })
 }
 
 /// Calls `released` once Control is no longer held, after the event that shows it, as a ⌃Tab walk

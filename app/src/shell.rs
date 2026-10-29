@@ -95,7 +95,7 @@ pub use browser::{Browser, Folders, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label,
-    menu_item, pane_added, run_from_bar, shown_tab,
+    Run, menu_item, pane_added, run_from_bar, shown_tab,
 };
 pub use drag::dropped_urls;
 pub use extensions::{
@@ -109,7 +109,7 @@ pub use keys::{
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
-pub use page_menu::PageMenuItem;
+pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
 pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
@@ -982,6 +982,9 @@ pub struct Shell {
     /// The press under way was on a target that opens the command bar while it was open, so the
     /// click that follows only closes it.
     press_closed_bar: bool,
+    /// The window shows another Space, whose tab the core says next, for the command bar to follow
+    /// once it has.
+    bar_follows: bool,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -1263,6 +1266,7 @@ impl Shell {
             importing: None,
             in_hint: false,
             press_closed_bar: false,
+            bar_follows: false,
             drag: None,
             dragged: false,
             putting_back: false,
@@ -1774,6 +1778,7 @@ impl Shell {
         }
         self.end_hovers(cx);
         let before = std::mem::replace(&mut self.space, space);
+        self.bar_follows |= before != space;
         // Arc says again how to leave full screen in each Space it shows there.
         if before != space && self.full_screen && !self.page_fullscreen {
             self.browser.full_screen_note(true, cx);
@@ -2017,7 +2022,12 @@ impl Shell {
         if tab == 0 && cfg!(target_os = "linux") {
             self.browser.focus_ui(cx);
         }
-        self.set_new_tab(false, cx);
+        // The command bar open over the Space before lists this one's tabs and suggestions now, so
+        // a pick never goes to the other or its profile (Arc).
+        let follows = std::mem::take(&mut self.bar_follows) && self.browser.command_bar_open(cx);
+        let new_tab =
+            follows && self.browser.command_bar_follows(self.bar_tabs(), self.open_tabs(), cx);
+        self.set_new_tab(new_tab, cx);
         self.selection_moved(before);
         self.adding_pane = None;
         self.link_tab_changed(cx);
@@ -2194,9 +2204,15 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
+        // shell hears of Chromium's as it resizes.
+        let full_screen = match cfg!(target_os = "linux") {
+            true => self.full_screen,
+            false => window.is_fullscreen(),
+        };
         let window_resizes = match fullscreen {
-            true => !window.is_fullscreen(),
-            false => self.window_for_page && window.is_fullscreen(),
+            true => !full_screen,
+            false => self.window_for_page && full_screen,
         };
         self.window_for_page = fullscreen && window_resizes;
         self.page_held = window_resizes.then(|| window.viewport_size());
@@ -3760,6 +3776,22 @@ fn file_name(url: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// The `file:` URL of the file at `path`, with what a URL can't hold escaped, and a Windows path's
+/// drive and backslashes as Chromium reads them.
+pub fn file_url(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let mut url = String::from(if path.starts_with('/') { "file://" } else { "file:///" });
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                url.push(char::from(byte))
+            }
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
@@ -3768,7 +3800,7 @@ mod tests {
 
     use gpui::{Image, ImageFormat};
 
-    use super::{Curve, Folders, Page, Shape, Space, Tab, fade_at, file_name, tab_drawn};
+    use super::{Curve, Folders, Page, Shape, Space, Tab, fade_at, file_name, file_url, tab_drawn};
 
     /// A fade reversed partway starts from the opacity it had, so nothing jumps, and ends at the
     /// other end.
@@ -3791,6 +3823,19 @@ mod tests {
         assert_eq!(file_name("file:///tmp/100%.txt").unwrap(), "100%.txt");
         assert_eq!(file_name("file:///Users/someone/"), None);
         assert_eq!(file_name("https://example.com/notes.txt"), None);
+    }
+
+    /// The licences the app carries open in a tab from wherever it's installed, and come back to
+    /// the same name.
+    #[test]
+    fn a_path_becomes_a_file_url() {
+        let licence = "/Applications/My Apps/ilo.app/Contents/Resources/LICENSE";
+        let url = file_url(licence);
+        assert_eq!(url, "file:///Applications/My%20Apps/ilo.app/Contents/Resources/LICENSE");
+        assert_eq!(file_name(&url).unwrap(), "LICENSE");
+        assert_eq!(file_name(&file_url("/tmp/日記#1.txt")).unwrap(), "日記#1.txt");
+        let windows = r"C:\Program Files\ilo\THIRD-PARTY.txt";
+        assert_eq!(file_url(windows), "file:///C:/Program%20Files/ilo/THIRD-PARTY.txt");
     }
 
     fn png(bytes: &[u8]) -> Option<Arc<Image>> {

@@ -5,7 +5,8 @@
 # core adds. Run again, each adds nothing. Then a passwords file, made up here, comes in through
 # Chrome's password importer: the view says how many came in, deletes the file when asked, and a
 # second file with a login's password changed says it conflicted and kept the saved one. Settings'
-# Passwords tab lists what came in. Each step is captured.
+# Passwords tab lists what came in, and the app menu's Import from Other Browsers… shows Import
+# again. Each step is captured.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
@@ -90,7 +91,7 @@ first=$(space)
 # choices, a row each, with Back and Import under them.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 370 60
+send clickkey 342 60
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
 expect '^browser: import found Arc, Chrome, Firefox$' \
   "the import didn't find the fixture's Arc, Chrome and Firefox, and only them"
@@ -203,10 +204,12 @@ await '^browser: import done: 1 password came in to Default from passwords\.csv\
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords-conflict.png" || fail "no window to capture"
 rm -f "$passwords"
 # Passwords, the third of Settings' tabs, lists the three logins, not their passwords.
-send clickkey 308 60
+send clickkey 280 60
 expect '^browser: settings tab Passwords$' "a click on Passwords didn't show its tab"
 await '^browser: passwords [0-9]*: login\.example\.test check@example\.test, mail\.example\.test check@example\.test, new\.example\.test new@example\.test$' ||
   fail "Settings didn't list the imported logins: $(grep '^browser: passwords [0-9]*:' "$log" | tail -1)"
+send menu Import from Other Browsers…
+expect '^browser: settings tab Import$' "Import from Other Browsers… didn't show Settings' Import tab"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 # The Personal Space shows its pinned tabs: HN, then Reading with a, b and c and Deep with d.
@@ -220,7 +223,8 @@ echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From 
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
 echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
 echo "  A passwords file comes in, says how many, and is deleted when asked; a second one says its"
-echo "  changed login conflicted and kept the saved one; Settings' Passwords tab lists the three."
+echo "  changed login conflicted and kept the saved one; Settings' Passwords tab lists the three,"
+echo "  and the app menu's Import from Other Browsers… shows Import again."
 echo "  Windows: $out/import-list.png, $out/import-pick.png, $out/import-done.png,"
 echo "  $out/import-again.png, $out/import-chrome.png, $out/import-firefox.png,"
 echo "  $out/import-passwords.png, $out/import-passwords-conflict.png, $out/import-personal.png"

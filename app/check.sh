@@ -4,10 +4,10 @@
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites cards extensions adblock adblock-lists windows private capture passwords
-#   links preview access trouble dialogs crash import quit onboarding
+#   links preview access trouble dialogs crash import quit onboarding passkeys
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
-# Updates and passkeys run only when named too, until they pass on the Mac.
+# Updates runs only when named too, until it passes on the Mac.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
 # take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
 # build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
@@ -22,8 +22,8 @@
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
 # windows and input then never reach the owner's session. Of the runs, load and history pass
-# there so far; the others stop where they need what Linux hasn't yet, such as the held escape's
-# rule (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
+# there so far; the others stop where they need what Linux hasn't yet, such as Japanese input in a
+# page (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
 # the driver says it can't do. Captures are the session's whole output.
 # BROWSER_XVFB=1 runs it under Xvfb and openbox instead, which CI has.
 set -e
@@ -52,8 +52,8 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
-runs="$runs links preview access trouble dialogs crash import quit onboarding"
-named="store adblock-live updates passkeys"
+runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys"
+named="store adblock-live updates"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
@@ -104,10 +104,7 @@ launch_frame="$(dirname "$saved")/launch-frame"
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
 # extensions pinned. The profile keeps the clear run's answers to its sites' questions, and how
-# often it dismissed them, for sites whose ports a later run may get, and a failed clear run the
-# site it kept for Safari's engine, whose pages would then open there, and the clear run the site
-# whose protected-video note it closed, which would never show it again, and a failed one the
-# listed host it turned off.
+# often it dismissed them, for sites whose ports a later run may get.
 prefs="$profile_dir/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
@@ -122,16 +119,13 @@ prefs.setdefault("extensions", {})["pinned_extensions"] = []
 exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
 for kind in ("window_placement", "permission_autoblocking_data"):
     exceptions.pop(kind, None)
-engine = prefs.get("browser_core", {}).get("system_engine", {})
-engine.pop("sites", None)
-engine.pop("closed_notes", None)
-engine.pop("listed_off", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"
-# Each run starts in the one profile, Default: Chrome deletes the others a failed run left at its
-# next launch.
-python3 -I -c '
+# Each run starts in the one profile, Default: Chrome deletes the others, which a run before made,
+# as import's Work, or a failed run left, at its next launch.
+only_default() {
+  python3 -I -c '
 import json, os, sys
 if not os.path.exists(sys.argv[1]):
     sys.exit()
@@ -148,10 +142,19 @@ deleted.extend(name for name in left if name not in deleted)
 with open(sys.argv[1], "w") as f:
     json.dump(local, f)
 ' "$(dirname "$saved")/Local State"
+}
 . check/lib.sh
 trap cleanup EXIT
 # The runs send the app's driver its commands through it.
 mkfifo "$out/drive"
+# A run with a profile of its own, such as adblock's, sets profile_dir to it, and the runs after
+# start with the check's again, or what they reset would be that profile's (#731).
+check_profile_dir=$profile_dir
 for run in ${*:-$runs}; do
+  profile_dir=$check_profile_dir
+  only_default
+  # The windows and clear runs keep 127.0.0.1 for Safari's engine, whose pages would then open there
+  # in a later run if one failed, and clear the note it closed and the listed host it turned off.
+  forget_engine_sites
   . "check/$run.sh"
 done

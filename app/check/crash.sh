@@ -1,16 +1,27 @@
 # A crash leaves a minidump in the profile's Crashpad folder: --crash-after-start crashes the
-# browser once it has started and Crashpad's handler is up, the handler writes the report, and no
-# Chromium process outlives the crash, the handler included. Nor does one outlive a quit.
+# browser once it has started, Crashpad's handler is up and the profile's Preferences say its
+# session crashed, the handler writes the report, and no Chromium process outlives the crash, the
+# handler included. Nor does one outlive a quit.
 # Nothing goes to the crash collector, check/collector.py, while Send Crash Reports is off, as it is
 # at first: the next launch offers to send that crash's report in a toast, and keeps it. On, the
 # next launch sends the report, the minidump alone, without cookies, and deletes
 # it once the collector has it. One the collector refuses waits for the next launch, and turning
-# the switch off in Settings › Privacy deletes it.
+# the switch off in Settings › Privacy deletes it, which only the Mac's run clicks so far.
 
 log="$out/crash.log"
 crashpad="$(dirname "$saved")/Crashpad"
 rm -rf "$crashpad"
 rm -f "$saved" "$launch_frame"
+# The profile's session ended cleanly, as a quit leaves it, so the offer after the crash comes from
+# the mark the crash test's launch writes as it starts, not one an earlier try left.
+python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    prefs = json.load(f)
+prefs.setdefault("profile", {})["exit_type"] = "Normal"
+with open(sys.argv[1], "w") as f:
+    json.dump(prefs, f)
+' "$prefs" || fail "the session couldn't be marked clean in $prefs"
 python3 -I check/collector.py "$out/collector-port" > "$out/collector.log" 2>&1 &
 collector=$!
 for _ in $(seq 50); do
@@ -35,8 +46,7 @@ await_pending() {
 }
 # Crashes the browser with the crash test, with $1 as the collector, and waits for the report.
 crash() {
-  "$app/Contents/MacOS/Browser" --crash-after-start "--crash-upload-url=$1" < /dev/null \
-    > "$log" 2>&1 &
+  "$browser" --crash-after-start "--crash-upload-url=$1" < /dev/null > "$log" 2>&1 &
   pid=$!
   await '^browser: crash test$' || fail "the app didn't start its crash test"
   for _ in $(seq 20); do
@@ -52,19 +62,19 @@ crash() {
   dump=$(find "$crashpad/pending" -name '*.dmp' | head -1)
   head -c 4 "$dump" | grep -q '^MDMP$' || fail "$dump isn't a minidump"
   for _ in $(seq 20); do
-    pgrep -f "$app/Contents" > /dev/null || break
+    pgrep -f "$procs" > /dev/null || break
     sleep 0.5
   done
-  pgrep -f "$app/Contents/.*/chrome_crashpad_handler" > /dev/null &&
+  pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null &&
     fail "Crashpad's handler outlived the crash"
-  pgrep -f "$app/Contents" > /dev/null && fail "Chromium processes outlived the crash"
+  pgrep -f "$procs" > /dev/null && fail "Chromium processes outlived the crash"
   return 0
 }
 # Launches the browser driven, with $1 as the collector, and waits for its page.
 launch() {
   step=0
-  BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" "--crash-upload-url=$1" \
-    < "$out/drive" > "$log" 2>&1 &
+  BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" "--crash-upload-url=$1" < "$out/drive" \
+    > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await_load
@@ -112,10 +122,10 @@ launch "$collector_url/refuse/"
 await '^browser: crash report not sent$' || fail "the refused report wasn't tried"
 [ "$(pending)" = 1 ] || fail "the refused report didn't wait"
 send click $page_point
-if [ "$active" = 1 ]; then
+if [ "$(uname)" = Darwin ] && [ "$active" = 1 ]; then
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings"
-  send clickkey 458 60
+  send clickkey 430 60
   expect '^browser: settings tab Privacy$' "a click on Privacy didn't show its tab"
   ../tools/window-screenshot.sh "$pid" "$out/privacy.png" || fail "no window to capture"
   send clickkey 592 133
@@ -125,7 +135,12 @@ if [ "$active" = 1 ]; then
   turned_off=" Turned off in Settings › Privacy, it deleted that one."
   windows="$out/crash-offer.png, $out/privacy.png"
 else
-  turned_off=" skip: turning it off in Settings. Browser wasn't the active app."
+  if [ "$(uname)" = Darwin ]; then
+    echo "skip: crash's Settings switch. Browser wasn't the active app."
+  else
+    echo "skip: crash's Settings switch, whose clicks are where the Mac's Settings has it."
+  fi
+  turned_off=
   windows="$out/crash-offer.png"
 fi
 exec 3>&-

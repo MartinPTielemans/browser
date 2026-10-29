@@ -7,6 +7,7 @@ ours/chromium-core-link-linux.patch
 ours/chromium-core-wayland.patch
 ours/chromium-core-main.patch
 ours/chromium-core-browser-window.patch
+ours/chromium-core-tab-background.patch
 ours/chromium-core-embedded-view.patch
 ours/chromium-core-navigate.patch
 ours/chromium-core-devtools-dock.patch
@@ -34,6 +35,8 @@ ours/chromium-core-native-host-fallback.patch
 ours/chromium-crashpad-start.patch
 ours/chromium-crashpad-mac-handler.patch
 ours/chromium-crashpad-mac-async-start.patch
+ours/chromium-windows-product-folder.patch
+ours/chromium-windows-app-names.patch
 ours/chromium-xcode-build-define.patch
 ours/chromium-core-login-dialog.patch
 ours/chromium-core-external-protocol-dialog.patch

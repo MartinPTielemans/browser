@@ -1,0 +1,54 @@
+On Windows, the names Chromium registers with Windows are ilo's own. As Chromium's, ilo shared
+them with any Chromium on the machine: the AppUserModelID (base_app_id), which groups windows on
+the taskbar and names the app a notification comes from; the toast activator CLSID, which a
+Chromium's installer registers for its own notification helper; the ProgIDs and Default
+Programs name for links, HTML and PDF files; and the direct-launch URL scheme (chromium:) that
+Chromium registers as it makes itself the default browser. They're now app/branding/name's, as
+app/platform/windows/package/ilo.iss registers them (IloHTML), and the CLSID is ilo's own, which
+ilo.iss registers for the engine's notification_helper.exe. The other GUIDs stay Chromium's: the
+elevation and tracing services and Active Setup belong to the system-level installs Chromium's
+installer makes, which ilo's doesn't, and the sandbox SID prefix names only the renderer's
+AppContainer, which Chromium leaves off (kRendererAppContainer).
+
+--- a/chrome/install_static/chromium_install_modes.h
++++ b/chrome/install_static/chromium_install_modes.h
+@@ -57,23 +57,27 @@
+         .logo_suffix = L"",  // No logo suffix for the primary install mode.
+         .app_guid =
+             L"",  // Empty app_guid since no integration with Google Update.
+-        .base_app_name = L"Chromium",              // A distinct base_app_name.
+-        .base_app_id = L"Chromium",                // A distinct base_app_id.
+-        .browser_prog_id_prefix = L"ChromiumHTM",  // Browser ProgID prefix.
++        // browser_core: ilo's, as app/platform/windows/package/ilo.iss
++        // registers them, so its taskbar grouping, notifications and file and
++        // link associations aren't every other Chromium's on the machine.
++        .base_app_name = L"ilo",              // A distinct base_app_name.
++        .base_app_id = L"ilo",                // A distinct base_app_id.
++        .browser_prog_id_prefix = L"IloHTML",  // Browser ProgID prefix.
+         .browser_prog_id_description =
+-            L"Chromium HTML Document",  // Browser ProgID description.
++            L"ilo HTML Document",  // Browser ProgID description.
+-        .direct_launch_url_scheme = "chromium",
++        .direct_launch_url_scheme = "ilo",
+-        .pdf_prog_id_prefix = L"ChromiumPDF",  // PDF ProgID prefix.
++        .pdf_prog_id_prefix = L"IloPDF",  // PDF ProgID prefix.
+         .pdf_prog_id_description =
+-            L"Chromium PDF Document",  // PDF ProgID description.
++            L"ilo PDF Document",  // PDF ProgID description.
+         .active_setup_guid =
+             L"{7D2B3E1D-D096-4594-9D8F-A6667F12E0AC}",  // Active Setup
+                                                         // GUID.
+-        .toast_activator_clsid = {0x635EFA6F,
+-                                  0x08D6,
+-                                  0x4EC9,
+-                                  {0xBD, 0x14, 0x8A, 0x0F, 0xDE, 0x97, 0x51,
+-                                   0x59}},  // Toast Activator CLSID.
++        // browser_core: ilo's own, {BF0AC29E-6375-476D-946E-0EBEB1F03DD4}.
++        .toast_activator_clsid = {0xBF0AC29E,
++                                  0x6375,
++                                  0x476D,
++                                  {0x94, 0x6E, 0x0E, 0xBE, 0xB1, 0xF0, 0x3D,
++                                   0xD4}},  // Toast Activator CLSID.
+         .elevator_clsid = {0xD133B120,
+                            0x6DB4,
+                            0x4D6B,

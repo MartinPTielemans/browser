@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/fixed_flat_map.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/no_destructor.h"
 #include "browser_core/host.h"
 #include "browser_core/space.h"
@@ -70,6 +72,27 @@ size_t EndAgentSessions(const std::string& agent, int why) {
 
 bool EndTabSession(bc_id tab, int why) {
   return End(tab, std::nullopt, why);
+}
+
+std::string RefusedAction(std::string_view action) {
+  // The tools that act on a tab, the reference agent's (prototypes/arcish/agent.js) and the MCP
+  // server's, each something the user does in the page, or handing the tab to the user.
+  static constexpr auto kAllowed = base::MakeFixedFlatSet<std::string_view>(
+      {"back", "click", "close_tab", "forward", "hand_off", "navigate", "press_key", "read_page",
+       "screenshot", "scroll", "select_option", "snapshot", "type"});
+  // Those agents ask for that the rules forbid outright, with why.
+  static constexpr auto kForbidden = base::MakeFixedFlatMap<std::string_view, std::string_view>({
+      {"ad_blocking", "Agents can't change ad blocking. It's the user's, in Site Controls."},
+      {"devtools", "Agents get no DevTools or debugging port."},
+      {"passwords", "Agents never read passwords, cookies or autofill data."},
+  });
+  if (kAllowed.contains(action)) {
+    return std::string();
+  }
+  if (const auto forbidden = kForbidden.find(action); forbidden != kForbidden.end()) {
+    return std::string(forbidden->second);
+  }
+  return "Agents have no action \"" + std::string(action) + "\".";
 }
 
 }  // namespace browser_core

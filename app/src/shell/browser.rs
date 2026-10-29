@@ -186,6 +186,9 @@ pub trait Browser {
     fn set_side_panel_width(&self, width: f32, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
+    /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
+    /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
+    fn site_search_settings(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
@@ -383,9 +386,21 @@ pub trait Browser {
         field: Option<Bounds<Pixels>>,
         cx: &mut App,
     );
+    /// Opens the command bar centred for Search Tabs, listing only `tabs` and filtering them by
+    /// what's typed, to switch to one.
+    fn search_tabs(&self, tabs: Vec<BarTab>, cx: &mut App);
     /// Whether the command bar shows, which stays true through a click outside it until the app
     /// calls `Shell::command_bar_dismissed`, so a click on what opens it can tell it has closed it.
     fn command_bar_open(&self, cx: &App) -> bool;
+    /// The window shows another Space: the command bar, if it shows over this window, lists
+    /// `tabs` from it, or `open_tabs` for Search Tabs, and its profile's suggestions (decision 5).
+    /// Returns whether its pick opens a new tab, for New Tab to keep its plate.
+    fn command_bar_follows(
+        &self,
+        tabs: Vec<BarTab>,
+        open_tabs: Vec<BarTab>,
+        cx: &mut App,
+    ) -> bool;
     /// Opens the command bar over `pane`, a new pane in the card at `card`, for a page to show
     /// there in a split view with `with`.
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);
@@ -429,6 +444,10 @@ pub trait Browser {
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.
     fn shortcuts(&self, cx: &mut App);
+    /// Opens the Settings window on its About tab.
+    fn about(&self, cx: &mut App);
+    /// Opens the Settings window on its Import tab.
+    fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
     fn passwords(&self, space: u64, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
