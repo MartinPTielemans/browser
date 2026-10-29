@@ -681,6 +681,8 @@ fn keysym(key: &str) -> Option<u32> {
         "delete" => 0xffff,
         "pageup" => 0xff55,
         "pagedown" => 0xff56,
+        // Off the Mac a page's own way to its top, which ⌘↑ is on the Mac.
+        "home" => 0xff50,
         "up" => 0xff52,
         "down" => 0xff54,
         "left" => 0xff51,

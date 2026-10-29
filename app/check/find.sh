@@ -193,7 +193,10 @@ send key f cmd
 expect '^browser: find bar shown$' "⌘F after the close button didn't open the find bar again"
 
 # ⌘J from the page and Edit › Find › Jump to Selection scroll the page back to the match a find
-# left selected. ⌘↑ is the page's own, to its top. It ends there, where zooming doesn't scroll it.
+# left selected. ⌘↑ is the page's own, to its top, and off the Mac that's Home. It ends there, where
+# zooming doesn't scroll it.
+top="key up cmd"
+[ "$(uname)" = Linux ] && top="key home"
 for _ in 1 2 3; do send key backspace; done
 send type far
 expect_find "$first" "open 1 of 1 far" "the find didn't find the text below the fold"
@@ -201,15 +204,15 @@ expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' "the find didn't scroll th
 send key escape
 expect_find "$first" "closed" "escape didn't close the find"
 for jump in "key j cmd" "menu Jump to Selection"; do
-  send key up cmd
-  expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
+  send $top
+  expect '^browser: title [0-9]* scrolled 0$' "$top didn't scroll the page to its top"
   send $jump
   expect '^browser: command jump-to-selection via \(page\|ui\)$' "$jump didn't reach the UI"
   expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' \
     "$jump didn't scroll the page to its selection"
 done
-send key up cmd
-expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
+send $top
+expect '^browser: title [0-9]* scrolled 0$' "$top didn't scroll the page to its top"
 send key f cmd
 expect '^browser: find bar shown$' "⌘F didn't open the find bar again"
 
