@@ -52,9 +52,10 @@ impl Shell {
     fn menu_bar(&self) -> MenuBar {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         // A private window lists neither Spaces nor extensions: its one Space isn't one of them,
-        // and Chrome keeps extensions out of a private session.
+        // and Chrome keeps extensions out of a private session. A Blank Window, in the profile
+        // itself, lists its extensions.
         let extensions = (self.extensions.get(&profile).into_iter().flatten())
-            .filter(|extension| extension.enabled && !self.private)
+            .filter(|extension| extension.enabled && (!self.private || self.blank))
             .cloned()
             .collect();
         let spaces = (self.spaces.iter())

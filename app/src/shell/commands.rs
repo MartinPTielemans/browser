@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use super::{
-    COPIED_TIME, ESCAPE_AGAIN, Edit, Section, Shell, Space, Swapped, UserKeys, What,
+    COPIED_TIME, ESCAPE_AGAIN, Edit, EscapePriority, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
@@ -29,6 +29,8 @@ pub enum Command {
     NewWindow,
     /// Opens a private window, in the profile's off-the-record session.
     NewPrivateWindow,
+    /// Opens a Blank Window: a Space of its own, unsaved, in the profile, whose tabs can move out.
+    NewBlankWindow,
     /// Closes the window, its tabs going to the window in front of the others.
     CloseWindow,
     /// Keeps the window over other apps' windows, or lets it go back among them, as Arc's Window ›
@@ -187,6 +189,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-w", Command::CloseTab, true),
     ("cmd-n", Command::NewWindow, true),
     ("shift-cmd-n", Command::NewPrivateWindow, true),
+    ("ctrl-cmd-n", Command::NewBlankWindow, true),
     ("shift-cmd-w", Command::CloseWindow, true),
     ("shift-cmd-t", Command::ReopenClosedTab, true),
     ("cmd-q", Command::Quit, true),
@@ -299,6 +302,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("New Window", Command::NewWindow, &["duplicate", "copy"]),
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
+    ("New Blank Window", Command::NewBlankWindow, &["unsaved"]),
     ("Close Window", Command::CloseWindow, &[]),
     ("Stay On Top", Command::StayOnTop, &["float", "always on top", "keep window on top"]),
     ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
@@ -567,6 +571,7 @@ impl Command {
             Command::SearchTabs => "search-tabs",
             Command::NewWindow => "new-window",
             Command::NewPrivateWindow => "new-private-window",
+            Command::NewBlankWindow => "new-blank-window",
             Command::StayOnTop => "stay-on-top",
             Command::CloseWindow => "close-window",
             Command::EditUrl => "edit-url",
@@ -727,7 +732,7 @@ impl Shell {
     pub fn run(&mut self, command: Command, from: &str, cx: &mut Context<Self>) {
         // check.sh waits for these lines.
         log!("browser: command {} via {from}", command.name());
-        if self.private && !private_runs(command) {
+        if self.private && !private_runs(command) && !(self.blank && blank_runs(command)) {
             return;
         }
         let rows = self.sidebar_rows();
@@ -778,6 +783,7 @@ impl Shell {
             }
             Command::NewWindow => return self.browser.new_window(cx),
             Command::NewPrivateWindow => return self.browser.new_private_window(cx),
+            Command::NewBlankWindow => return self.browser.new_blank_window(cx),
             Command::StayOnTop => return self.toggle_on_top(cx),
             Command::CloseWindow => {
                 // As ⌘W does, from a window of Chrome's it closes that one.
@@ -836,12 +842,14 @@ impl Shell {
                 return self.browser.clear_site(self.selected, true, cx);
             }
             // In window full screen ⎋ stops a load, and otherwise a second press or a held key
-            // leaves, as Arc's does. The page's presses were counted before it had them.
+            // leaves, as Arc's does, or the first if the user gave the browser ⎋ first. The
+            // page's presses were counted before it had them.
             Command::Stop if self.full_screen && !self.page_fullscreen => {
                 if self.page(self.selected).loading {
                     return self.browser.stop(self.selected, cx);
                 }
-                if from != "page" && self.escape_again() {
+                let first = user_keys(cx).escape_priority() != EscapePriority::Websites;
+                if from != "page" && (first || self.escape_again()) {
                     return self.browser.press_window_button(WindowButton::Zoom, cx);
                 }
                 return;
@@ -1010,14 +1018,19 @@ impl Shell {
     /// nothing to undo or redo, ⌘Z and ⇧⌘Z go on, for the Edit menu to give the page.
     /// ⎋ is going down in the page, which has it first, as in Arc: in window full screen a second
     /// press soon after the first, or a held key's repeat, leaves it instead. Returns whether it
-    /// did, and the page doesn't get the key.
+    /// did, and the page doesn't get the key. Given to the browser first in Settings › Shortcuts,
+    /// the first press leaves, and the page gets it too with Use Both.
     pub fn escape_before_page(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.full_screen || self.page_fullscreen || !self.escape_again() {
+        if !self.full_screen || self.page_fullscreen {
+            return false;
+        }
+        let priority = user_keys(cx).escape_priority();
+        if priority == EscapePriority::Websites && !self.escape_again() {
             return false;
         }
         log!("browser: command stop via page");
         self.browser.press_window_button(WindowButton::Zoom, cx);
-        true
+        priority != EscapePriority::Both
     }
 
     /// Keeps the window over other apps' windows, or lets it go back among them, and the Window
@@ -1181,7 +1194,7 @@ impl Shell {
 
     /// Whether `command` would do something now, for the command bar to offer it.
     pub(super) fn offers(&self, command: Command) -> bool {
-        if self.private && !private_runs(command) {
+        if self.private && !private_runs(command) && !(self.blank && blank_runs(command)) {
             return false;
         }
         let page = self.page(self.selected);
@@ -1225,6 +1238,7 @@ impl Shell {
             | Command::ReopenClosedTab
             | Command::NewWindow
             | Command::NewPrivateWindow
+            | Command::NewBlankWindow
             | Command::CloseWindow
             | Command::ToggleSidebar
             | Command::NewSpace
@@ -1287,7 +1301,8 @@ fn space_tabs(space: &Space) -> impl Iterator<Item = u64> + '_ {
 fn private_runs(command: Command) -> bool {
     !matches!(
         command,
-        Command::ReopenClosedTab
+        Command::NewBlankWindow
+            | Command::ReopenClosedTab
             | Command::TogglePin
             | Command::FavoriteTab
             | Command::NewFolder
@@ -1304,6 +1319,19 @@ fn private_runs(command: Command) -> bool {
             | Command::ViewArchive
             | Command::ClearArchive
             | Command::ViewDownloads
+            | Command::ViewHistory
+            | Command::SiteSearchSettings
+            | Command::ManageExtensions
+            | Command::AddExtension
+    )
+}
+
+/// Whether a Blank Window runs `command` that a private window doesn't: it's in the profile
+/// itself, so it has its history, site searches and extensions, and opens another.
+fn blank_runs(command: Command) -> bool {
+    matches!(
+        command,
+        Command::NewBlankWindow
             | Command::ViewHistory
             | Command::SiteSearchSettings
             | Command::ManageExtensions
@@ -1491,6 +1519,43 @@ mod tests {
         });
         assert!(host.followed_tabs.take().is_empty());
         assert!(!shell.read_with(cx, |shell, _| shell.new_tab));
+    }
+
+    /// ⌃⌘N opens a Blank Window from a regular or a Blank Window, but not from a private one,
+    /// whose profile is off the record. A Blank Window, in the profile itself, opens its history
+    /// and extensions, but keeps no Space and no closed tabs, as a private window doesn't.
+    #[gpui::test]
+    fn a_blank_window_opens_from_a_regular_or_blank_one_and_keeps_the_profiles_history(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui::AppContext as _;
+
+        use crate::shell::{Browser, recorder::Recorder};
+
+        let keys = UserKeys::default();
+        assert_eq!(keys.command_for("ctrl-cmd-n", true), Some(Command::NewBlankWindow));
+        let host = Rc::new(Recorder::default());
+        let browser: Rc<dyn Browser> = host.clone();
+        let regular = cx.new(|cx| Shell::new(browser.clone(), cx));
+        let blank = cx.new(|cx| Shell::blank_window(browser.clone(), 1, 1, None, cx));
+        let private = cx.new(|cx| Shell::private_window(browser, 2, "Incognito".into(), 1, cx));
+        host.take();
+        for shell in [&regular, &blank, &private] {
+            shell.update(cx, |shell, cx| shell.run(Command::NewBlankWindow, "ui", cx));
+        }
+        assert_eq!(host.take(), ["new blank window", "new blank window"]);
+
+        blank.read_with(cx, |shell, _| {
+            for command in [Command::ViewHistory, Command::ManageExtensions] {
+                assert!(shell.offers(command), "{command:?}");
+            }
+            for command in [Command::NewSpace, Command::ReopenClosedTab, Command::ViewLibrary] {
+                assert!(!shell.offers(command), "{command:?}");
+            }
+        });
+        assert!(!private.read_with(cx, |shell, _| shell.offers(Command::ViewHistory)));
     }
 
     /// The bar finds Site Search Settings by its name or by Chrome's, and it opens the search

@@ -8,7 +8,9 @@ use gpui::{
     AppContext, Bounds, Entity, Pixels, Size, TestAppContext, VisualTestContext, point, px, size,
 };
 
-use crate::shell::{Command, ESCAPE_AGAIN, Folders, Shell, recorder::Recorder};
+use crate::shell::{
+    Command, ESCAPE_AGAIN, EscapePriority, Folders, Shell, change_keys, recorder::Recorder,
+};
 
 /// Spaces 1 and 2, with tabs 10 and 20, Space 1 shown.
 fn two_spaces(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
@@ -93,6 +95,35 @@ fn the_page_has_the_first_escape(cx: &mut TestAppContext) {
     let second = shell.update(cx, |shell, cx| shell.escape_before_page(cx));
     assert!(second, "the browser left the second ⎋ to the page");
     assert_eq!(host.take(), [ZOOM]);
+}
+
+/// Given the browser first in Settings › Shortcuts, one ⎋ leaves, from the page or the UI, and
+/// the page has it too only with Use Both. Outside full screen it's the page's.
+#[gpui::test]
+fn the_browser_can_have_the_first_escape(cx: &mut TestAppContext) {
+    let (shell, host) = two_spaces(cx);
+    shell.update(cx, |shell, cx| shell.set_full_screen(true, cx));
+    host.take();
+    let first = |priority, cx: &mut TestAppContext| {
+        cx.update(|cx| change_keys(cx, |keys| keys.set_escape_priority(priority)));
+        shell.update(cx, |shell, cx| shell.escape_before_page(cx))
+    };
+    assert!(first(EscapePriority::Browser, cx), "the page had the browser's ⎋");
+    assert_eq!(host.take(), [ZOOM]);
+    assert!(!first(EscapePriority::Both, cx), "the page didn't have ⎋ with Use Both");
+    assert_eq!(host.take(), [ZOOM]);
+    // The page's ⎋ handed back doesn't leave again.
+    shell.update(cx, |shell, cx| shell.run(Command::Stop, "page", cx));
+    assert!(!host.take().contains(&ZOOM.to_string()));
+
+    cx.update(|cx| change_keys(cx, |keys| keys.set_escape_priority(EscapePriority::Browser)));
+    shell.update(cx, |shell, cx| shell.run(Command::Stop, "ui", cx));
+    assert_eq!(host.take(), [ZOOM]);
+
+    shell.update(cx, |shell, cx| shell.set_full_screen(false, cx));
+    host.take();
+    assert!(!shell.update(cx, |shell, cx| shell.escape_before_page(cx)));
+    assert!(host.take().is_empty());
 }
 
 const WINDOWED: Size<Pixels> = size(px(1000.), px(700.));

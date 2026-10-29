@@ -521,6 +521,9 @@ pub trait Browser {
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);
+    /// Opens a Blank Window in the shown Space's profile, after this one's draw. Not from a
+    /// private window, whose profile is off the record.
+    fn new_blank_window(&self, cx: &mut App);
     /// Closes this window. Its tabs go to the window that was in front before it, live.
     fn close_window(&self, cx: &mut App);
 }

@@ -48,15 +48,52 @@ pub enum Refused {
     Taken(Holder),
 }
 
-/// The commands the user gave keys of their own, or none.
+/// The commands the user gave keys of their own, or none, and who ⎋ in window full screen is for.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct UserKeys {
     set: Vec<(Command, Vec<String>)>,
+    escape: EscapePriority,
 }
 
 impl Global for UserKeys {}
 
-static DEFAULTS: UserKeys = UserKeys { set: Vec::new() };
+static DEFAULTS: UserKeys = UserKeys { set: Vec::new(), escape: EscapePriority::Websites };
+
+/// Who has ⎋ first in window full screen, Arc's choice on Settings › Shortcuts › Exit: the page,
+/// so it takes a second press to leave; the browser, so one press leaves and the page never sees
+/// it; or both, so one press leaves and the page has it too.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub enum EscapePriority {
+    #[default]
+    Websites,
+    Browser,
+    Both,
+}
+
+impl EscapePriority {
+    pub const ALL: [EscapePriority; 3] = [Self::Websites, Self::Browser, Self::Both];
+
+    /// Arc's names, with ours for Prefer Arc.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Websites => "Prefer Websites",
+            Self::Browser => concat!("Prefer ", env!("APP_NAME")),
+            Self::Both => "Use Both",
+        }
+    }
+
+    /// As the Shortcuts file has it.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Websites => "websites",
+            Self::Browser => "browser",
+            Self::Both => "both",
+        }
+    }
+}
+
+/// The Shortcuts file's line for who has ⎋ first, which no command is named.
+const ESCAPE_LINE: &str = "escape-priority";
 
 /// The user's keys, or the defaults before they're read.
 pub fn user_keys(cx: &App) -> &UserKeys {
@@ -396,7 +433,15 @@ impl UserKeys {
     }
 
     pub fn reset_all(&mut self) {
-        self.set.clear();
+        *self = UserKeys::default();
+    }
+
+    pub fn escape_priority(&self) -> EscapePriority {
+        self.escape
+    }
+
+    pub fn set_escape_priority(&mut self, escape: EscapePriority) {
+        self.escape = escape;
     }
 
     /// Keeps `keys` for `command`, unless they're its defaults.
@@ -407,13 +452,16 @@ impl UserKeys {
         }
     }
 
-    /// As Settings saves them: a line a command, its name, then its keys, if any.
+    /// As Settings saves them: a line a command, its name, then its keys, if any, and who has ⎋
+    /// first unless it's the page.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
             let words = std::iter::once(command.name()).chain(keys.iter().map(String::as_str));
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
-        lines.collect()
+        let escape = (self.escape != EscapePriority::Websites)
+            .then(|| format!("{ESCAPE_LINE} {}\n", self.escape.name()));
+        lines.chain(escape).collect()
     }
 
     /// What to_text wrote. A line it can't read, or keys another command keeps, is left out.
@@ -421,7 +469,14 @@ impl UserKeys {
         let mut keys = UserKeys::default();
         for line in text.lines() {
             let mut words = line.split_whitespace();
-            let Some(command) = words.next().and_then(named) else {
+            let first = words.next();
+            if first == Some(ESCAPE_LINE) {
+                let name = words.next();
+                let escape = EscapePriority::ALL.into_iter().find(|each| Some(each.name()) == name);
+                keys.escape = escape.unwrap_or_default();
+                continue;
+            }
+            let Some(command) = first.and_then(named) else {
                 continue;
             };
             let set = words.filter(|key| valid(key)).map(str::to_string);
@@ -890,6 +945,13 @@ mod tests {
         user.set(Command::NewFolder, keys(&["alt-cmd-n"])).unwrap();
         assert_eq!(UserKeys::parse(&user.to_text()), user);
         assert_eq!(UserKeys::parse("quit cmd-k\nnothing cmd-j\n"), UserKeys::default());
+        // Who has ⎋ first is kept with them, and Restore Defaults gives it back to the page.
+        for priority in EscapePriority::ALL {
+            user.set_escape_priority(priority);
+            assert_eq!(UserKeys::parse(&user.to_text()), user);
+        }
+        user.reset_all();
+        assert_eq!(user.escape_priority(), EscapePriority::Websites);
     }
 
     /// A key needs ⌘ or ⌃, as one without would type, and ⇧ with a character a page names its

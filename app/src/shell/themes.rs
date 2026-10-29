@@ -28,7 +28,7 @@ impl Shell {
     pub(super) fn theme_of(&self, space: u64) -> Option<Theme> {
         match self.theme_preview {
             Some((previewed, theme)) if previewed == space => Some(theme),
-            _ => self.spaces.iter().find(|each| each.id == space).and_then(|each| each.theme),
+            _ => self.space_entry(space).and_then(|each| each.theme),
         }
     }
 
@@ -46,9 +46,10 @@ impl Shell {
     }
 
     /// Whether `space`'s window is dark or light: as its theme's appearance forces it, else as
-    /// the system's is, as Arc's follows it. A private window is dark, as Arc's is.
+    /// the system's is, as Arc's follows it. A private window is dark, as Arc's is; a Blank
+    /// Window, untinted, follows the system's.
     pub(super) fn tone_of(&self, space: u64) -> Tone {
-        if self.private {
+        if self.private && !self.blank {
             return Tone::Dark;
         }
         match self.theme_of(space).map(|theme| theme.appearance) {

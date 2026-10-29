@@ -288,7 +288,7 @@ impl Shell {
     /// `space`'s colour `x` of the way across the window and `y` of the way down, as the gradient
     /// has it: its theme's, or nothing over the underlay without one.
     pub(super) fn space_color_at(&self, space: u64, x: f32, y: f32) -> Rgba {
-        if self.private {
+        if self.private && !self.blank {
             return Rgba { r: 0., g: 0., b: 0., a: PRIVATE_SHADE };
         }
         match self.space_theme(space) {

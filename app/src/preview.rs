@@ -1090,6 +1090,8 @@ impl Browser for Fake {
 
     fn new_private_window(&self, _: &mut App) {}
 
+    fn new_blank_window(&self, _: &mut App) {}
+
     fn close_window(&self, cx: &mut App) {
         cx.quit();
     }

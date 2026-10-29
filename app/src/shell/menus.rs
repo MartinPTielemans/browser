@@ -408,8 +408,7 @@ impl Shell {
     /// Moves the tab to the Space, warning the first time it goes to another profile's, where its
     /// page loads again without this profile's cookies and logins.
     pub(super) fn move_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
-        let profile_of =
-            |space| self.spaces.iter().find(|each| each.id == space).map(|each| each.profile);
+        let profile_of = |space| self.space_entry(space).map(|each| each.profile);
         let to = profile_of(space);
         // The tab's own Space, which isn't the one shown once New Space… shows the new one.
         let from = (self.spaces.iter())
@@ -766,8 +765,8 @@ impl Shell {
             Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
         ));
         // A private window's tabs stay in it. The others: every one of the user's Spaces, the
-        // tab's checked, then a new one.
-        if !self.private {
+        // tab's checked, then a new one, but for a Blank Window's, which makes none.
+        if !self.private || self.blank {
             let move_to = items.len();
             items.push((MenuEntry::new("Move to", true), "", Box::new(|_, _| {})));
             for (space, name, shown) in self.spaces_to_move_to(true) {
@@ -782,12 +781,14 @@ impl Shell {
                     }),
                 ));
             }
-            items.push((MenuEntry::line().under(move_to), "", Box::new(|_, _| {})));
-            items.push((
-                MenuEntry::new("New Space…", true).under(move_to),
-                "new-space",
-                Box::new(move |shell, cx| shell.new_space_with(Some(tab), cx)),
-            ));
+            if !self.blank {
+                items.push((MenuEntry::line().under(move_to), "", Box::new(|_, _| {})));
+                items.push((
+                    MenuEntry::new("New Space…", true).under(move_to),
+                    "new-space",
+                    Box::new(move |shell, cx| shell.new_space_with(Some(tab), cx)),
+                ));
+            }
         }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         // Closing a Today tab archives it.
@@ -805,9 +806,11 @@ impl Shell {
     }
 
     /// The user's Spaces a tab can move to, by id and name in the switcher's order, and whether
-    /// each is the one shown, which `with_shown` lists too. None moves into an agent's.
+    /// each is the one shown, which `with_shown` lists too. None moves into an agent's. A Blank
+    /// Window's tab moves to the user's Spaces alone, none of them shown.
     fn spaces_to_move_to(&self, with_shown: bool) -> Vec<(u64, SharedString, bool)> {
-        (self.spaces.iter())
+        let spaces = if self.blank { &self.others } else { &self.spaces };
+        (spaces.iter())
             .filter(|space| space.agent.is_empty() && (with_shown || space.id != self.space))
             .map(|space| (space.id, space.name.clone(), space.id == self.space))
             .collect()
@@ -823,7 +826,7 @@ impl Shell {
                 return Swatch { from, to };
             }
         }
-        let entry = self.spaces.iter().find(|each| each.id == space);
+        let entry = self.space_entry(space);
         let color = theme.map(|theme| theme.main_color());
         let untinted = || crate::theme::packed(crate::palette::Palette::of(None, self.tone_of(space)).accent);
         let color = color.or(entry.and_then(|each| each.color)).unwrap_or_else(untinted);
@@ -1112,6 +1115,40 @@ mod tests {
         host.take();
         cx.update(|cx| host.choose("Messages", cx));
         assert_eq!(host.take(), ["share https://example.com/ with 1"]);
+    }
+
+    /// A Blank Window's tab moves out to the user's Spaces, which it hears of though it shows
+    /// none, but not to an agent's, and Move to makes no Space. A private window's stays in it.
+    #[gpui::test]
+    fn a_blank_windows_tab_moves_out_to_the_users_spaces(cx: &mut TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext as _;
+
+        let host = Rc::new(Recorder::default());
+        let blank = cx.new(|cx| Shell::blank_window(host.clone(), 9, 1, None, cx));
+        blank.update(cx, |shell, cx| {
+            let work = (1, "Work".into(), None, 1, "".into(), "".into(), "".into());
+            let agent = (2, "Agent".into(), None, 1, "".into(), "Claude".into(), "".into());
+            shell.set_spaces(vec![work, agent], cx);
+            shell.set_tabs(9, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+        });
+        let menu = tab_menu(&blank, &host, cx, 10);
+        let move_to: Vec<&String> =
+            menu.iter().filter(|item| item.starts_with("Move to")).collect();
+        assert_eq!(move_to, ["Move to › Work"]);
+        assert_eq!(blank.read_with(cx, |shell, _| shell.spaces.len()), 1, "it shows its own alone");
+        host.take_edits();
+        cx.update(|cx| host.choose("Work", cx));
+        assert_eq!(host.take_edits(), ["space 10 1"]);
+
+        let private =
+            cx.new(|cx| Shell::private_window(host.clone(), 8, "Incognito".into(), 1, cx));
+        private.update(cx, |shell, cx| {
+            shell.set_tabs(8, Vec::new(), vec![20], Vec::new(), Folders::default(), cx)
+        });
+        let menu = tab_menu(&private, &host, cx, 20);
+        assert!(!menu.iter().any(|item| item.starts_with("Move to")), "{menu:?}");
     }
 
     /// Where the system lists none but has a share sheet, as Windows does, Share… is one item that
