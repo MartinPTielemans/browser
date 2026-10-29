@@ -168,6 +168,15 @@ expect_soon() {
   done
   fail "$2"
 }
+# Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
+# draws one ("browser: settings $1 at x y").
+drawn() {
+  for _ in $(seq 100); do
+    sed -n "s/^browser: settings $1 at //p" "$log" | tail -1 | grep . && return 0
+    sleep 0.1
+  done
+  return 1
+}
 # Nothing logged since the last command was sent matches $1.
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
