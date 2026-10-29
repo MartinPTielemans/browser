@@ -159,6 +159,11 @@ class Tab : public content::WebContentsObserver,
   bool CanGoForward();
   void GoBack();
   void GoForward();
+  // The pages back from this one, or forward of it, as SavedTab keeps them, to the app's
+  // tab_history with their favicons. None while a system page shows, whose history is WebKit's.
+  void ListHistory(bool forward);
+  // Goes to the page |offset| from this one, as ListHistory numbers them, if there's one there.
+  void GoToOffset(int offset);
   void Reload(bool bypass_cache);
   void Stop();
 
