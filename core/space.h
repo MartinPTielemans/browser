@@ -65,7 +65,8 @@ class Space {
   // Deletes the Space, which windows no longer show.
   static void Delete(bc_id id);
   static Space* FromId(bc_id id);
-  // Every Space but the private windows', in the order they were made.
+  // Every Space but the private windows', in their order: by their nodes' places, a Space just made
+  // last.
   static std::vector<Space*> All();
   // The Space holding |tab|, pinned or in Today, if any.
   static Space* Holding(bc_id tab);

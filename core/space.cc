@@ -142,6 +142,12 @@ std::vector<Space*> Space::All() {
       all.push_back(space.get());
     }
   }
+  // By their places, which sync gives as the other devices have them, so a place that came from
+  // one is kept here rather than made again and sent back. One with none yet, as just made, last.
+  std::ranges::stable_sort(all, [](const Space* a, const Space* b) {
+    const syncer::UniquePosition &at = a->node_.position, &bt = b->node_.position;
+    return at.IsValid() && (!bt.IsValid() || at.LessThan(bt));
+  });
   return all;
 }
 
@@ -196,8 +202,13 @@ const Space::Node* Space::NodeOf(bc_id id) const {
 
 void Space::RestoreNodes(const Node& space, const std::map<bc_id, Node>& rows) {
   if (space.id.is_valid()) {
+    const bool moved = !node_.position.Equals(space.position);
     node_ = space;
     PlaceSpaces();
+    // The Spaces' order follows their places.
+    if (moved) {
+      ReportSpacesChanged();
+    }
   }
   for (const auto& [id, node] : rows) {
     if (node.id.is_valid() && nodes_.contains(id)) {
