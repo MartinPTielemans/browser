@@ -96,7 +96,7 @@ impl MenuEntry {
         MenuEntry { checked, ..self }
     }
 
-    pub(super) fn destructive(self) -> Self {
+    pub(crate) fn destructive(self) -> Self {
         MenuEntry { destructive: true, ..self }
     }
 
