@@ -17,6 +17,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
+#include "browser_core/cast_dialog.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
@@ -124,6 +125,8 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   void PreBrowserStart() override {
     // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.
     LeaveDialog::Install();
+    // A tab's Cast dialog is the app's card, in place of the Views dialog Chrome's parts set.
+    CastDialog::Install();
     keep_alive_ = std::make_unique<ScopedKeepAlive>(KeepAliveOrigin::APP_CONTROLLER,
                                                     KeepAliveRestartOption::DISABLED);
     // A quit can start in Chrome too, such as from the Dock or the system logging out, and Chrome

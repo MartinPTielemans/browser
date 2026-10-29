@@ -78,6 +78,8 @@ pub enum Command {
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
+    /// Opens the selected tab's Cast dialog, or closes it.
+    Cast,
     /// Starts capture mode over the selected tab's page, or leaves it.
     CapturePortion,
     /// Captures all of the selected tab's page, beyond its view, and copies it.
@@ -300,6 +302,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
     ("Find…", Command::Find, &[]),
     ("Site Controls", Command::SiteControls, &["permissions"]),
+    ("Cast…", Command::Cast, &["chromecast", "tv", "mirror"]),
     ("Go Back", Command::Back, &[]),
     ("Go Forward", Command::Forward, &[]),
     ("Refresh the Page", Command::Reload, &["reload"]),
@@ -590,6 +593,7 @@ impl Command {
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
+            Command::Cast => "cast",
             Command::CapturePortion => "capture",
             Command::CaptureFullPage => "capture-full-page",
             Command::FindNext => "find-next",
@@ -921,6 +925,7 @@ impl Shell {
             }
             Command::Find => return self.browser.find(self.selected, cx),
             Command::SiteControls => return self.site_controls(cx),
+            Command::Cast => return self.cast(cx),
             Command::CapturePortion => return self.capture(false, cx),
             Command::CaptureFullPage => return self.capture(true, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),

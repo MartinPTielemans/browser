@@ -27,8 +27,8 @@ use browser::{
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
-    SidePanel, Split, Trouble, WindowButton,
+    ExtensionAction, ExtensionCommand, FilePreview, Folders, MediaAction, MenuEntry, Page,
+    PagePicture, Shell, SidePanel, Split, Trouble, WindowButton,
 };
 use browser::text_input::{
     Copy, Cut, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
@@ -1747,6 +1747,32 @@ impl Browser for Engine {
 
     fn set_muted(&self, tab: u64, muted: bool, _: &mut App) {
         unsafe { bc::bc_tab_set_muted(tab, muted) };
+    }
+
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_share_instead(tab) };
+    }
+
+    fn media(&self, tab: u64, action: MediaAction, _: &mut App) {
+        let action = match action {
+            MediaAction::Play => bc::BC_MEDIA_PLAY,
+            MediaAction::Pause => bc::BC_MEDIA_PAUSE,
+            MediaAction::Next => bc::BC_MEDIA_NEXT,
+        };
+        unsafe { bc::bc_tab_media(tab, action as i32) };
+    }
+
+    fn cast(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_cast(tab) };
+    }
+
+    fn cast_close(&self, _: &mut App) {
+        unsafe { bc::bc_cast_close() };
+    }
+
+    fn cast_to(&self, tab: u64, id: SharedString, _: &mut App) {
+        let id = CString::new(id.as_ref()).unwrap_or_default();
+        unsafe { bc::bc_tab_cast_to(tab, id.as_ptr()) };
     }
 
     fn clear(&self, _: &mut App) -> u64 {
@@ -3878,6 +3904,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Zoom In", Command::ZoomIn),
                 item("Zoom Out", Command::ZoomOut),
                 MenuItem::separator(),
+                item("Cast…", Command::Cast),
+                MenuItem::separator(),
                 MenuItem::submenu(menu(
                     "Developer",
                     vec![
@@ -4417,6 +4445,22 @@ unsafe extern "C" fn tab_state_changed(
             _ => Trouble::Fine,
         },
         system_engine: state.system_engine,
+        camera: state.camera,
+        microphone: state.microphone,
+        sharing: state.sharing,
+        shared: state.shared,
+        share_instead: state.share_instead,
+        media: state.media,
+        media_playing: state.media_playing,
+        media_title: unsafe { CStr::from_ptr(state.media_title) }
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+        media_artist: unsafe { CStr::from_ptr(state.media_artist) }
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+        media_next: state.media_next,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
         update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));
@@ -5003,6 +5047,56 @@ unsafe extern "C" fn tab_permission_asked(
     update_shells(|shell, cx| shell.set_question(tab, question.clone(), cx));
 }
 
+/// A tab's Cast dialog, or that it closed (a null header), for the window showing the tab.
+unsafe extern "C" fn tab_cast(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    header: *const c_char,
+    devices: *const bc::bc_cast_device,
+    count: usize,
+) {
+    let string = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let cast = (!header.is_null()).then(|| {
+        let devices = match count {
+            0 => &[][..],
+            _ => unsafe { std::slice::from_raw_parts(devices, count) },
+        };
+        shell::Cast {
+            header: string(header),
+            devices: (devices.iter())
+                .map(|device| shell::CastDevice {
+                    id: string(device.id),
+                    name: string(device.name),
+                    state: match device.state as u32 {
+                        bc::BC_CAST_AVAILABLE => shell::CastState::Available,
+                        bc::BC_CAST_CONNECTING => shell::CastState::Connecting,
+                        bc::BC_CAST_CONNECTED => shell::CastState::Connected,
+                        bc::BC_CAST_DISCONNECTING => shell::CastState::Disconnecting,
+                        _ => shell::CastState::Unavailable,
+                    },
+                    status: string(device.status),
+                })
+                .collect(),
+        }
+    });
+    // check.sh waits for these lines.
+    match &cast {
+        Some(cast) => {
+            let devices: Vec<String> = (cast.devices.iter())
+                .map(|device| format!("{} {:?}", device.name, device.state))
+                .collect();
+            log!("browser: cast {tab} {} devices {}", cast.header, devices.len());
+            for device in devices {
+                log!("browser: cast {tab} device {device}");
+            }
+        }
+        None => log!("browser: cast {tab} closed"),
+    }
+    update_shells(|shell, cx| shell.set_cast(tab, cast.clone(), cx));
+}
+
 /// The user right-clicked a page: its menu, as the core has Chrome build it, in ilo's menu over the
 /// window that shows it. With no window, the menu went with its page.
 unsafe extern "C" fn tab_page_menu(
@@ -5270,6 +5364,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         tab_permission_asked: Some(tab_permission_asked),
+        tab_cast: Some(tab_cast),
         tab_site_controls: Some(tab_site_controls),
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),

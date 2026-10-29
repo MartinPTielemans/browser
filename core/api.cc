@@ -20,6 +20,7 @@
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/capture.h"
+#include "browser_core/cast_dialog.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/downloads.h"
@@ -1362,6 +1363,18 @@ void bc_site_controls_close(void) {
   browser_core::SiteControls::Close();
 }
 
+void bc_tab_cast(bc_id id) {
+  browser_core::CastDialog::Open(id);
+}
+
+void bc_cast_close(void) {
+  browser_core::CastDialog::Close();
+}
+
+void bc_tab_cast_to(bc_id id, const char* device) {
+  browser_core::CastDialog::To(id, device);
+}
+
 void bc_tab_set_site_permission(bc_id id, int type, int value) {
   browser_core::SiteControls::SetPermission(id, type, value);
 }
@@ -1583,6 +1596,18 @@ void bc_tab_set_icon(bc_id id, const char* icon) {
 void bc_tab_set_muted(bc_id id, bool muted) {
   if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
     tab->SetMuted(muted);
+  }
+}
+
+void bc_tab_share_instead(bc_id id) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ShareInstead();
+  }
+}
+
+void bc_tab_media(bc_id id, int action) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->Media(action);
   }
 }
 

@@ -30,11 +30,13 @@
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
+#include "chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/error_page/content/browser/net_error_auto_reloader.h"
@@ -43,10 +45,13 @@
 #include "components/favicon_base/favicon_types.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
+#include "components/infobars/content/content_infobar_manager.h"
+#include "components/infobars/core/infobar.h"
 #include "components/input/native_web_keyboard_event.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/favicon_status.h"
+#include "content/public/browser/media_session.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -137,6 +142,26 @@ void Forget(bc_id id) {
   std::unique_ptr<Tab> tab = std::move(it->second);
   Tabs().erase(it);
   base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE, std::move(tab));
+}
+
+// Chrome's tab sharing infobar on |contents|, which every tab has while a page shares a tab, if
+// it offers Share this tab instead: the app's controls stand for the infobar, which never shows.
+TabSharingInfoBarDelegate* ShareInsteadInfoBar(content::WebContents* contents) {
+  auto* manager = contents ? infobars::ContentInfoBarManager::FromWebContents(contents) : nullptr;
+  if (!manager) {
+    return nullptr;
+  }
+  for (infobars::InfoBar* infobar : manager->infobars()) {
+    if (infobar->delegate()->GetIdentifier() !=
+        infobars::InfoBarDelegate::TAB_SHARING_INFOBAR_DELEGATE) {
+      continue;
+    }
+    auto* sharing = static_cast<TabSharingInfoBarDelegate*>(infobar->delegate());
+    constexpr auto kInstead = TabSharingInfoBarDelegate::kShareThisTabInstead;
+    return (sharing->GetButtons() & kInstead) && sharing->IsButtonEnabled(kInstead) ? sharing
+                                                                                    : nullptr;
+  }
+  return nullptr;
 }
 
 }  // namespace
@@ -238,6 +263,18 @@ void Tab::Attach(content::WebContents* contents) {
   if (auto* audible = RecentlyAudibleHelper::FromWebContents(contents)) {
     audible_subscription_ = audible->RegisterRecentlyAudibleChangedCallback(
         base::IgnoreArgs<bool>(base::BindRepeating(&Tab::ReportStateSoon, base::Unretained(this))));
+  }
+  // Its page's camera, microphone and sharing, as Chrome's tab strip marks them.
+  if (!capture_observation_.IsObserving()) {
+    capture_observation_.Observe(
+        MediaCaptureDevicesDispatcher::GetInstance()->GetMediaStreamCaptureIndicator().get());
+  }
+  // Another page's session is heard from once it plays.
+  media_observer_.reset();
+  // Chrome's tab sharing infobar comes and goes on it as a page starts and stops sharing a tab.
+  infobar_observation_.Reset();
+  if (auto* infobars = infobars::ContentInfoBarManager::FromWebContents(contents)) {
+    infobar_observation_.Observe(infobars);
   }
   // Its page's alert(), confirm() and prompt() ask with the app's dialog.
   ScriptDialogs::Attach(contents);
@@ -869,6 +906,8 @@ void Tab::ReportState() {
         .trouble = BC_PAGE_FINE,
         .net_error = 0,
         .system_engine = false,
+        .media_title = "",
+        .media_artist = "",
     };
     Host().tab_state_changed(Host().context, id_, &state);
     return;
@@ -881,6 +920,21 @@ void Tab::ReportState() {
   const std::string url =
       (page ? page->url() : waiting_ ? waiting_->url : contents->GetVisibleURL()).spec();
   const RecentlyAudibleHelper* audible = RecentlyAudibleHelper::FromWebContents(contents);
+  // The system's engine shows its page's own markers, and Chromium's capture none of it.
+  const scoped_refptr<MediaStreamCaptureIndicator> capture =
+      MediaCaptureDevicesDispatcher::GetInstance()->GetMediaStreamCaptureIndicator();
+  const bool sharing = capture->IsCapturingTab(contents) ||
+                       capture->IsCapturingWindow(contents) ||
+                       capture->IsCapturingDisplay(contents);
+  // Chrome's media controls show a session they can control, as the sidebar's player does.
+  content::MediaSession* session = page ? nullptr : content::MediaSession::GetIfExists(contents);
+  const media_session::mojom::MediaSessionInfoPtr media =
+      session ? session->GetMediaSessionInfoSync() : nullptr;
+  const bool controllable = media && media->is_controllable;
+  const std::string media_title =
+      controllable ? base::UTF16ToUTF8(session->GetMediaSessionMetadata().title) : "";
+  const std::string media_artist =
+      controllable ? base::UTF16ToUTF8(session->GetMediaSessionMetadata().artist) : "";
   const bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = CanGoBack(),
@@ -894,6 +948,19 @@ void Tab::ReportState() {
       .trouble = Trouble(),
       .net_error = Trouble() == BC_PAGE_NETWORK_ERROR ? net_error_ : 0,
       .system_engine = page != nullptr,
+      .camera = !page && capture->IsCapturingVideo(contents),
+      .microphone = !page && capture->IsCapturingAudio(contents),
+      .sharing = !page && sharing,
+      .shared = !page && capture->IsBeingMirrored(contents),
+      .share_instead = !page && ShareInsteadInfoBar(contents),
+      .media = controllable,
+      .media_playing = controllable && media->playback_state ==
+                                           media_session::mojom::MediaPlaybackState::kPlaying,
+      .media_title = media_title.c_str(),
+      .media_artist = media_artist.c_str(),
+      .media_next = controllable &&
+                    std::ranges::contains(session->GetMediaSessionActionsSync(),
+                                          media_session::mojom::MediaSessionAction::kNextTrack),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
@@ -1245,9 +1312,104 @@ int Tab::Trouble() const {
   return net_error_ ? BC_PAGE_NETWORK_ERROR : BC_PAGE_FINE;
 }
 
+void Tab::OnIsCapturingVideoChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingAudioChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsBeingMirroredChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingTabChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingWindowChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::OnIsCapturingDisplayChanged(content::WebContents* contents, bool) {
+  CaptureChanged(contents);
+}
+
+void Tab::ShareInstead() {
+  if (TabSharingInfoBarDelegate* sharing = ShareInsteadInfoBar(web_contents())) {
+    sharing->ShareThisTabInstead();
+  }
+}
+
+void Tab::Media(int action) {
+  content::MediaSession* session =
+      web_contents() ? content::MediaSession::GetIfExists(web_contents()) : nullptr;
+  if (!session) {
+    return;
+  }
+  // As the user asked from the browser's UI, as Chrome's media controls do.
+  constexpr auto kUI = media_session::mojom::MediaSession::SuspendType::kUI;
+  switch (action) {
+    case BC_MEDIA_PLAY:
+      session->Resume(kUI);
+      break;
+    case BC_MEDIA_PAUSE:
+      session->Suspend(kUI);
+      break;
+    case BC_MEDIA_NEXT:
+      session->NextTrack();
+      break;
+  }
+}
+
+void Tab::MediaStartedPlaying(const MediaPlayerInfo&, const content::MediaPlayerId&) {
+  if (!media_observer_.is_bound()) {
+    content::MediaSession::Get(web_contents())
+        ->AddObserver(media_observer_.BindNewPipeAndPassRemote());
+  }
+}
+
+void Tab::MediaSessionInfoChanged(media_session::mojom::MediaSessionInfoPtr) {
+  ReportStateSoon();
+}
+
+void Tab::MediaSessionMetadataChanged(const std::optional<media_session::MediaMetadata>&) {
+  ReportStateSoon();
+}
+
+void Tab::MediaSessionActionsChanged(const std::vector<media_session::mojom::MediaSessionAction>&) {
+  ReportStateSoon();
+}
+
+void Tab::OnInfoBarAdded(infobars::InfoBar*) {
+  ReportStateSoon();
+}
+
+void Tab::OnInfoBarRemoved(infobars::InfoBar*, bool) {
+  ReportStateSoon();
+}
+
+void Tab::OnInfoBarReplaced(infobars::InfoBar*, infobars::InfoBar*) {
+  ReportStateSoon();
+}
+
+void Tab::OnManagerWillBeDestroyed(infobars::InfoBarManager*) {
+  infobar_observation_.Reset();
+}
+
+void Tab::CaptureChanged(content::WebContents* contents) {
+  // Every tab hears every page's.
+  if (contents && contents == web_contents()) {
+    ReportStateSoon();
+  }
+}
+
 void Tab::WebContentsDestroyed() {
-  // The driver is the page's too, and may go before the tab does.
+  // The driver is the page's too, and may go before the tab does, as may its infobars.
   favicon_observation_.Reset();
+  infobar_observation_.Reset();
+  media_observer_.reset();
   audible_subscription_ = {};
   system_page_.reset();
   // Unloaded, it stays without its page.
