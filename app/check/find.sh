@@ -371,12 +371,14 @@ expect '^browser: trace stopped$' "Stop didn't stop the trace"
 await '^browser: trace recorded [1-9][0-9]* bytes$' || fail "the core didn't give the trace back"
 expect '^browser: trace save panel shown$' "Stop didn't ask where to save the trace"
 if [ "$(uname)" = Darwin ]; then
-  rm -f "$out/trace.json"
-  send savepanel "$out/trace.json"
+  # The app logs the absolute path it saved to.
+  trace="$(cd "$out" && pwd)/trace.json"
+  rm -f "$trace"
+  send savepanel "$trace"
   grep -q "^browser: save panel offers .* Trace\.json in $HOME" "$log" ||
     fail "the save panel didn't offer the trace's name in Downloads or the home folder"
   expect '^browser: save panel answered$' "no save panel showed for the trace"
-  expect "^browser: trace saved $out/trace.json\$" "the trace wasn't saved where it was picked"
+  expect "^browser: trace saved $trace\$" "the trace wasn't saved where it was picked"
   python3 -I -c '
 import json, sys
 with open(sys.argv[1]) as f:
