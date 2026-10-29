@@ -935,7 +935,7 @@ Sparkle 2 (Dia and Ardia, P§24). Its feed URL is a default service URL, so fork
 - An install waits until no window is in full screen.
 - The first launch after an update opens its release notes.
 - Once an update has downloaded, "Relaunch to update" stands over the sidebar's footer as a row of the list, ↻ for its icon and its words in New Tab's, and the list stops above it. A click restarts into the update once macOS has checked it, 15 s at most, as Install and Relaunch does; without one it installs at quit. A private window shows none. Arc's hover-expanding banner is an owner call (#678).
-- Settings › General › "Install updates automatically", on by default, is Sparkle's own setting: on, updates download by themselves and wait for the restart; off, Sparkle asks when it finds one. On, a ready update also installs when the screen locks or its screensaver starts, unless a window is full screen or a page plays sound the user hears. It doesn't install on waking, when the user is back. An idle install loses text typed into a page, as a quit does.
+- Sparkle downloads an update by itself and installs it when the app quits, which relaunches nothing. Settings › General › "Install updates automatically", ilo's own setting, is off until the user turns it on (ours): nobody's browser relaunches by itself unasked, and Relaunch to update is the way in. On, a ready update also installs and relaunches when the screen locks or its screensaver starts, unless a window is full screen or a page plays, muted too, as a video can play muted. It doesn't install on waking, when the user is back. An idle install loses text typed into a page, as a quit does.
 - Measure Arc's update prompt, if one can still be triggered.
 
 ## Phase 4 features

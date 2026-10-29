@@ -759,7 +759,8 @@ impl Settings {
         let unload = self.toggle("unload idle tabs", unload, set_unload_idle_tabs, accent, cx);
         let ad_blocking = unsafe { bc::bc_ad_blocking() };
         let ad_blocking = self.toggle("ad blocking", ad_blocking, set_ad_blocking, accent, cx);
-        // Sparkle's own setting, so the Mac's build alone has it; the others update their own way.
+        // Whether a downloaded update installs while the Mac is idle, off until the user turns it
+        // on. Only the Mac's build with Sparkle has it; the others update their own way.
         #[cfg(target_os = "macos")]
         let updates = crate::updates_available().then(|| {
             let on = unsafe { platform::host_automatic_updates() };

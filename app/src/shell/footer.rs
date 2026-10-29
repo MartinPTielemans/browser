@@ -1,7 +1,9 @@
 //! The sidebar's footer: the Space switcher and the plus button beside it, and over them the row
 //! that restarts into a downloaded update.
 
-use gpui::{Context, MouseButton, MouseDownEvent, Role, div, prelude::*, px, svg};
+use std::cell::Cell;
+
+use gpui::{Context, MouseButton, MouseDownEvent, Role, canvas, div, prelude::*, px, svg};
 
 use super::{
     FAVICON_DRAWN, FOOTER_HEIGHT, HOVERED, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE,
@@ -22,6 +24,27 @@ pub(super) fn icon_opacity(shown: bool, hovered: bool) -> f32 {
         (false, false) => SPACE_OTHER / SPACE_SHOWN,
         (false, true) => SPACE_HOVERED / SPACE_SHOWN,
     }
+}
+
+thread_local! {
+    /// Where the update's row was last drawn, in the window's points, as its centre.
+    static UPDATE_ROW_AT: Cell<Option<(i32, i32)>> = const { Cell::new(None) };
+}
+
+/// Logs where the update's row draws, once for each place, for check.sh to click it.
+fn drawn_at() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |bounds, _, _, _| {
+            let at = (f32::from(bounds.center().x) as i32, f32::from(bounds.center().y) as i32);
+            if UPDATE_ROW_AT.replace(Some(at)) != Some(at) {
+                // check.sh waits for this line.
+                log!("browser: update row at {} {}", at.0, at.1);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
 }
 
 impl Shell {
@@ -59,6 +82,7 @@ impl Shell {
                     plate(icon.text_color(self.palette.glyph(NEW_TAB_PLUS)), label)
                         .hover(|style| style.bg(self.palette.plate(HOVERED))),
                 )
+                .child(drawn_at())
                 .on_click(cx.listener(|shell, _, _, cx| {
                     log!("browser: update relaunch via sidebar");
                     shell.browser.install_update(cx);
@@ -194,7 +218,27 @@ mod tests {
     use gpui::{AppContext as _, Modifiers, TestAppContext, point, px};
 
     use super::icon_opacity;
-    use crate::shell::{FOOTER_HEIGHT, Folders, ROW_PITCH, Shell, recorder::Recorder};
+    use crate::shell::{FOOTER_HEIGHT, Folders, Page, ROW_PITCH, Shell, recorder::Recorder};
+
+    /// A page playing holds an update installing while the Mac is idle, muted too, as a video
+    /// can play muted, and stops holding it once the sound stops.
+    #[gpui::test]
+    fn a_page_playing_holds_the_idle_install_muted_too(cx: &mut TestAppContext) {
+        let shell = cx.new(|cx| Shell::new(Rc::new(Recorder::default()), cx));
+        let plays = |page: Page, cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| {
+                let space = (1, "Space".into(), None, 0, "".into(), "".into(), "".into());
+                shell.set_spaces(vec![space], cx);
+                shell.set_tabs(1, Vec::new(), vec![1], Vec::new(), Folders::default(), cx);
+                shell.set_page(1, page, cx);
+                shell.plays_sound()
+            })
+        };
+        assert!(!plays(Page::default(), cx));
+        assert!(plays(Page { audible: true, ..Page::default() }, cx));
+        assert!(plays(Page { audible: true, muted: true, ..Page::default() }, cx));
+        assert!(!plays(Page { muted: true, ..Page::default() }, cx));
+    }
 
     /// Once an update has downloaded, its row stands over the footer and the list stops above it,
     /// and a click on it installs the update. A private window shows none.

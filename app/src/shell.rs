@@ -1405,9 +1405,10 @@ impl Shell {
         self.private
     }
 
-    /// Whether a page of this window plays sound the user hears, which an update waits out.
+    /// Whether a page of this window plays sound, muted too, as a video can play muted, which an
+    /// update installing while the Mac is idle waits out.
     pub fn plays_sound(&self) -> bool {
-        self.tabs.values().any(|tab| tab.page.audible && !tab.page.muted)
+        self.tabs.values().any(|tab| tab.page.audible)
     }
 
     /// A shell for another window, which starts out knowing what `from` heard from the core about

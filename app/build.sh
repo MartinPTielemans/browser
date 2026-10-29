@@ -52,8 +52,10 @@ esac
   exit 1
 }
 # Sparkle in the app at $1, checking the feed $2 every 8 hours for updates signed with the key $3,
-# and installing what it downloads when the app quits (docs/ux-spec.md › Updates). Its helpers for
-# sandboxed apps stay out, as this one isn't.
+# downloading them by itself and installing them when the app quits, never relaunching it: the
+# sidebar offers that, and installing while the Mac is idle is ilo's own setting, off until the
+# user turns it on (docs/ux-spec.md › Updates). Its helpers for sandboxed apps stay out, as this
+# one isn't.
 add_sparkle() {
   ditto .deps/Sparkle/Sparkle.framework "$1/Contents/Frameworks/Sparkle.framework"
   rm -rf "$1/Contents/Frameworks/Sparkle.framework/XPCServices" \

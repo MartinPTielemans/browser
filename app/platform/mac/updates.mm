@@ -20,6 +20,9 @@ constexpr int64_t kPrewarmLimit = 90;
 constexpr int64_t kInstallWait = 15;
 // The release notes of the update being installed: its version and their URL.
 NSString* const kNotes = @"UpdateNotes";
+// Settings › General's Install updates automatically: a ready update installs while the Mac is
+// idle. Off unless the user turns it on; Sparkle's own setting only downloads it.
+NSString* const kIdleInstall = @"InstallUpdatesWhileIdle";
 // The designated requirement Chromium last read its cookie key under.
 NSString* const kKeySignature = @"KeychainKeySignature";
 
@@ -269,10 +272,13 @@ bool (*g_quiet)(void);
 // The screen locked or its screensaver started: the user is away, so a ready update installs, as
 // they set it to, unless it would cut off what they left playing or showing full screen.
 - (void)idle:(NSNotification*)notification {
-  if (!self.installReady) return;
+  if (!self.installReady) {
+    Log(@"update idle: none ready");
+    return;
+  }
   NSString* outcome = @"installs";
-  if (!self.controller.updater.automaticallyDownloadsUpdates) {
-    outcome = @"waits: not automatic";
+  if (![NSUserDefaults.standardUserDefaults boolForKey:kIdleInstall]) {
+    outcome = @"waits: setting off";
   } else if (AnyFullScreen()) {
     outcome = @"waits: full screen";
   } else if (g_quiet && !g_quiet()) {
@@ -280,6 +286,15 @@ bool (*g_quiet)(void);
   }
   Log([NSString stringWithFormat:@"update %@ idle %@", self.ready, outcome]);
   if ([outcome isEqual:@"installs"]) [self installNow];
+}
+
+// A driven run's app is the check's own, which a relaunch would open outside the run: with no
+// driver, in the dev build's profile and on the main display. It installs all the same.
+- (BOOL)updaterShouldRelaunchApplication:(SPUUpdater*)updater {
+  BOOL driven = getenv("BROWSER_DRIVE") != nullptr;
+  NSString* outcome = driven ? @"relaunch held: driven" : @"relaunches";
+  Log([NSString stringWithFormat:@"update %@ %@", self.ready, outcome]);
+  return !driven;
 }
 
 - (void)updater:(SPUUpdater*)updater didFindValidUpdate:(SUAppcastItem*)item {
@@ -468,20 +483,20 @@ void host_install_update(void) {
   [g_updates installNow];
 }
 
-// Sparkle's own setting, which it keeps in the user's defaults over Info.plist's, read before it's
-// loaded too.
 bool host_automatic_updates(void) {
-  if (g_updates) return g_updates.controller.updater.automaticallyDownloadsUpdates;
-  id kept = [NSUserDefaults.standardUserDefaults objectForKey:@"SUAutomaticallyUpdate"]
-                ?: [NSBundle.mainBundle objectForInfoDictionaryKey:@"SUAutomaticallyUpdate"];
-  return [kept boolValue];
+  return [NSUserDefaults.standardUserDefaults boolForKey:kIdleInstall];
 }
 
 void host_set_automatic_updates(bool on) {
+  [NSUserDefaults.standardUserDefaults setBool:on forKey:kIdleInstall];
+  Log([NSString stringWithFormat:@"updates install while idle %@", on ? @"on" : @"off"]);
+}
+
+// The driver's idle, as the screen locking: it posts no notification, which every app would hear.
+void DriveUpdatesIdle() {
   if (g_updates) {
-    g_updates.controller.updater.automaticallyDownloadsUpdates = on;
+    [g_updates idle:nil];
   } else {
-    [NSUserDefaults.standardUserDefaults setBool:on forKey:@"SUAutomaticallyUpdate"];
+    Log(@"update idle: no updater");
   }
-  Log([NSString stringWithFormat:@"updates automatic %@", on ? @"on" : @"off"]);
 }

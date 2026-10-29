@@ -136,6 +136,11 @@
 //                                         later, for the next tab shown to unload those
 //                                         bc_unload_idle_tabs lets go. From then each check logs
 //                                         "browser: idle tabs checked" once it's done
+//   idle                                  what the screen locking does to a downloaded update
+//                                         (platform/mac/updates.mm), without the system-wide
+//                                         notification, which every app on the Mac would hear,
+//                                         logging "browser: update <version> idle installs" or
+//                                         "… waits: <why>", or "browser: update idle: none ready"
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
@@ -158,6 +163,9 @@
 #include "browser_core.h"
 #include "../host.h"
 #include "menu_window.h"
+
+// platform/mac/updates.mm's.
+void DriveUpdatesIdle();
 
 // A drag from another app, as AppKit describes it to the view under the pointer: what it carries
 // and where it is.
@@ -1403,6 +1411,11 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     bc_age_tabs_for_testing(seconds);
+    done();
+    return true;
+  }
+  if (action == "idle") {
+    DriveUpdatesIdle();
     done();
     return true;
   }
