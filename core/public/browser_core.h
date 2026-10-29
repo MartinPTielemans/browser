@@ -946,12 +946,12 @@ BC_EXPORT bc_id bc_agent_open_tab(const char* agent, const char* url);
 // returns whether it does: never another URL. Agent code calls it after bc_agent_may_act.
 BC_EXPORT bool bc_agent_navigate(const char* agent, bc_id tab, const char* url);
 
-// Copies up to |capacity| of the tabs of |space| into |tabs|, its pinned tabs top to bottom without
-// their folders, then its Today tabs, and returns how many it has, if |space| is the Space of the
-// agent with the id |agent|. Of any other Space, the user's or another agent's, it copies none and
-// returns 0. Agent code calls it for an agent's list of tabs, never bc_space_pinned or
-// bc_space_today.
-BC_EXPORT size_t bc_agent_list_tabs(const char* agent, bc_id space, bc_id* tabs, size_t capacity);
+// Copies up to |capacity| of the tabs of the Space of the agent with the id |agent| into |tabs|, its
+// pinned tabs top to bottom without their folders, then its Today tabs, and returns how many it
+// has: 0 for an agent with no Space yet. The core finds the Space, so no other Space's tabs, the
+// user's or another agent's, are ever listed. Agent code calls it for an agent's list of tabs,
+// never bc_space_pinned or bc_space_today.
+BC_EXPORT size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capacity);
 
 // What bc_agent_page does in a tab. Each but SCREENSHOT then answers with the page's accessibility
 // tree, once the page has settled, as an action can start a navigation.

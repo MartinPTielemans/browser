@@ -497,9 +497,18 @@ bool bc_agent_navigate(const char* agent, bc_id tab, const char* url) {
   return true;
 }
 
-size_t bc_agent_list_tabs(const char* agent, bc_id id, bc_id* tabs, size_t capacity) {
-  const browser_core::Space* space = browser_core::Space::FromId(id);
-  if (!agent || !*agent || !space || !space->agent() || space->agent()->id != agent) {
+size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capacity) {
+  if (!agent || !*agent) {
+    return 0;
+  }
+  // The agent's Space, found here as bc_agent_open_tab finds it, so no other Space is listed.
+  const browser_core::Space* space = nullptr;
+  for (const browser_core::Space* each : browser_core::Space::All()) {
+    if (each->agent() && each->agent()->id == agent) {
+      space = each;
+    }
+  }
+  if (!space) {
     return 0;
   }
   std::vector<bc_id> listed = space->pinned();

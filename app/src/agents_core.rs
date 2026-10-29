@@ -60,12 +60,12 @@ impl Browser for Core {
         pinned.chain(tabs(bc::bc_space_today, space)).collect()
     }
 
-    fn agent_tabs(&self, agent: &str, space: u64, cx: &App) -> Vec<TabInfo> {
+    fn agent_tabs(&self, agent: &str, cx: &App) -> Vec<TabInfo> {
         let Ok(agent) = CString::new(agent) else {
             return Vec::new();
         };
         let list = |tabs: *mut bc::bc_id, capacity| unsafe {
-            bc::bc_agent_list_tabs(agent.as_ptr(), space, tabs, capacity)
+            bc::bc_agent_list_tabs(agent.as_ptr(), tabs, capacity)
         };
         let mut tabs = vec![0; list(std::ptr::null_mut(), 0)];
         let count = list(tabs.as_mut_ptr(), tabs.len());
