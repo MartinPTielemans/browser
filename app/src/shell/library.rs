@@ -765,6 +765,25 @@ impl Shell {
         );
     }
 
+    /// The menu a right-click on the Archived Tabs section shows, Clear Archive as Arc's has it,
+    /// which asks first as the Archive menu's does.
+    fn archive_section_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let entries = vec![MenuEntry::new("Clear Archive", !self.archive.is_empty())];
+        let shell = cx.weak_entity();
+        self.browser.context_menu(
+            entries,
+            position,
+            false,
+            Look { light: false, ..self.menu_look() },
+            Box::new(move |chosen, cx| {
+                if chosen == Some(0) {
+                    shell.update(cx, |shell, cx| shell.run(Command::ClearArchive, "library", cx)).ok();
+                }
+            }),
+            cx,
+        );
+    }
+
     /// Empties the archive, once the user says so.
     pub(super) fn clear_archive(&mut self, cx: &mut Context<Self>) {
         let count = self.archive.len();
@@ -1310,6 +1329,14 @@ impl Shell {
                     shell.show_section(section, cx);
                 }
             }))
+            .when(section == Section::Archive, |button| {
+                button.on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(|shell, event: &MouseDownEvent, _, cx| {
+                        shell.archive_section_menu(event.position, cx)
+                    }),
+                )
+            })
             .child(
                 svg()
                     .path(glyph)
@@ -1765,9 +1792,10 @@ mod rename_tests;
 #[cfg(test)]
 mod tests {
     use super::{
-        CARD_WIDTH, Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, Line,
+        Archived, CARD_WIDTH, Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, Line,
         Space, bar_drawn, card_x, download_menu_items, downloads_progress, library_band,
-        panel_at_rest, past_end, plus_x, receded_opacity, spaces_width,
+        SECTION_WIDTH, SECTION_X, panel_at_rest, past_end, plus_x, receded_opacity,
+        spaces_width,
     };
     use std::rc::Rc;
 
@@ -1866,6 +1894,35 @@ mod tests {
         assert!(shell.read_with(cx, |shell, _| shell.library_open), "the Library closed");
         cx.update(|_, cx| host.choose("Remove Theme Color", cx));
         assert_eq!(host.take(), ["space theme 2 none", "space color 2 none"]);
+    }
+
+    /// A right-click on the Archived Tabs section offers Clear Archive, which has nothing to do
+    /// while the archive is empty.
+    #[gpui::test]
+    fn a_right_click_on_archived_tabs_offers_clear_archive(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_library(true, cx);
+            shell.library_motion = None;
+            shell.sidebar_fade = None;
+        });
+        cx.run_until_parked();
+        let height = cx.update(|window, _| f32::from(window.viewport_size().height));
+        // The third button, the column's three centred 5 above its middle, 100 apart.
+        let section = point(px(SECTION_X + SECTION_WIDTH / 2.), px(height / 2. + 95.));
+        let menu = |cx: &mut gpui::VisualTestContext| {
+            cx.simulate_mouse_down(section, MouseButton::Right, Modifiers::none());
+            cx.simulate_mouse_up(section, MouseButton::Right, Modifiers::none());
+            cx.run_until_parked();
+            host.menus.borrow().last().cloned().unwrap_or_default()
+        };
+        assert_eq!(menu(cx), [("Clear Archive".into(), false)]);
+        let tab = Archived { id: 7, url: "https://example.org/".into(), title: "".into(), archived: 0. };
+        shell.update(cx, |shell, cx| shell.set_archive(vec![tab], cx));
+        assert_eq!(menu(cx), [("Clear Archive".into(), true)]);
+        assert!(shell.read_with(cx, |shell, _| shell.library_open), "the Library closed");
     }
 
     /// Past its end, the Library gives about as far as the Space pages do past theirs on a short
