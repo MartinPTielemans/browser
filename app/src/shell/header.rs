@@ -43,7 +43,7 @@ use crate::tokens::text;
 
 impl Shell {
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
-    /// back does on a page with no history.
+    /// back does on a page with no history, and all do in a window that isn't active.
     fn nav_button(
         &self,
         x: f32,
@@ -52,7 +52,8 @@ impl Shell {
         enabled: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let color = Hsla::from(self.palette.glyph(if enabled { NAV } else { NAV_DISABLED }));
+        let level = if enabled && self.window_active { NAV } else { NAV_DISABLED };
+        let color = Hsla::from(self.palette.glyph(level));
         // Reload and stop are one button, which changes with the tab shown's page.
         let glyph = match x == RELOAD_X {
             true => self.swaps.glyph(Swapped::Reload(self.selected), icon, NAV_GLYPH, color),
