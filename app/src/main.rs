@@ -3426,7 +3426,15 @@ unsafe extern "C" fn started(_: *mut c_void) {
             held_escape::watch(cx);
         }
         cx.set_global(menu::field_menu(Rc::new(|window, request, cx| {
-            if let Ok(view) = cx.update_window(window, |_, window, _| ns_view(window)) {
+            // A browser window's field by the view the host knows the window by, as its other
+            // menus are, which on Linux isn't GPUI's own: Chromium's surface or the X window GPUI
+            // opened in. An overlay's by its own.
+            let browser = WINDOWS.with_borrow(|windows| {
+                windows.iter().find(|each| each.handle == window).map(|each| each.ui_view)
+            });
+            let view = browser
+                .map_or_else(|| cx.update_window(window, |_, window, _| ns_view(window)), Ok);
+            if let Ok(view) = view {
                 let menu::Request { items, at, look, chosen, .. } = request;
                 show_menu(view, items, at, false, look, chosen, cx);
             }

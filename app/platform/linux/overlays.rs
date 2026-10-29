@@ -206,18 +206,28 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
     })
 }
 
-/// The browser window the overlay of `view` shows over, by its UI's view, and where in its
-/// content, if it shows: ilo's menu shows over it there (menu_window.rs).
+/// The browser window the overlay, dialog or panel of `view` shows over, by its UI's view, and
+/// where in its content, if it shows: ilo's menu shows over it there (menu_window.rs), as a
+/// field's in it does.
 pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
-    let (window, bounds) = OVERLAYS.with_borrow(|overlays| {
+    let overlay = OVERLAYS.with_borrow(|overlays| {
         (overlays.iter().flatten())
             .find(|o| o.view == view)
             .and_then(|o| o.shown.as_ref().map(|shown| (shown.window, shown.bounds)))
-    })?;
-    let ui_view = crate::WINDOWS.with_borrow(|windows| {
-        windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
-    })?;
-    Some((ui_view, bounds))
+    });
+    if let Some((window, bounds)) = overlay {
+        let ui_view = crate::WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
+        })?;
+        return Some((ui_view, bounds));
+    }
+    let dialog = DIALOG.with_borrow(|dialog| {
+        (dialog.over.filter(|_| dialog.view == view)).map(|(ui_view, _)| (ui_view, dialog.insets))
+    });
+    if let Some((ui_view, insets)) = dialog {
+        return dialog_bounds(ui_view, insets).map(|(bounds, _)| (ui_view, bounds));
+    }
+    crate::panels::placed(view)
 }
 
 /// Hides `overlay` if it shows, and says whether it did. The window has its keyboard back once
@@ -373,6 +383,11 @@ pub(crate) fn forget_window(ui_view: *mut c_void) {
 /// The user left the dialog, such as for the sidebar beside a page's, or Chromium took its
 /// window's keyboard as a page committed: it takes the keyboard back, unless another app has it.
 fn left_dialog(view: *mut c_void) {
+    // To ilo's menu over it, its field's, which gives the keyboard back as it closes.
+    if crate::menu_window::over(view) {
+        gpui_linux::set_overlay_keyboard(view, true, left_dialog);
+        return;
+    }
     if DIALOG.with_borrow(|dialog| dialog.over.is_some()) {
         gpui_linux::take_overlay_keyboard(view, left_dialog);
     }
