@@ -333,10 +333,12 @@ record folder-motion 3
 send click $(pinned_row 0)
 expect '^browser: command toggle-folder via sidebar$' "a click on the folder didn't run toggle-folder"
 expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it: $(outline)"
-settled
+# Each half plays out in the film before the next click. The fold takes under 0.5 s, and with no
+# row under the folder nothing slides, so no "rows settled" says it's done.
+sleep 0.5
 send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
-settled
+sleep 0.5
 recorded
 # The command bar finds commands by their names' letters in order, those that start with what's
 # typed first, and one found by its letters alone last, after the suggestions. ↩ runs the command
