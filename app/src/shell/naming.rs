@@ -315,7 +315,7 @@ impl Shell {
         self.name_folder(folder, name, cx);
     }
 
-    fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
+    pub(super) fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
         let name = cx.new(|cx| {
             TextInput::new("Folder name", cx)
                 .placeholder_color(self.palette.text(FORM_PLACEHOLDER))

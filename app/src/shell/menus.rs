@@ -468,8 +468,15 @@ impl Shell {
     pub(super) fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
         self.end_hovers(cx);
         let row = Row::Tab(self.row_of(tab));
+        // A right-click on a row not chosen lets the chosen ones go, as a plain click does.
+        let chosen = self.chosen.contains(&self.row_of(tab));
+        if !chosen {
+            self.unchoose(cx);
+        }
         let keys = user_keys(cx);
-        let items = if self.favorites.contains(&tab) {
+        let items = if chosen {
+            self.chosen_menu(keys)
+        } else if self.favorites.contains(&tab) {
             self.favorite_menu(keys, tab)
         } else if self.is_folder(tab) {
             self.folder_menu(tab)
@@ -580,6 +587,52 @@ impl Shell {
             "close-tab",
             Box::new(move |shell, cx| shell.close_tab(tab, false, cx)),
         ));
+        items
+    }
+
+    /// The chosen rows' menu (ours, *interim* until Arc's is captured): what's done to them
+    /// together, each as one step to undo.
+    fn chosen_menu(&self, keys: &UserKeys) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let close: (MenuEntry, &'static str, MenuAction) = (
+            MenuEntry::new("Close Tabs", true).shortcut(Command::CloseTab, keys),
+            "close-tab",
+            Box::new(|shell, cx| shell.close_chosen(cx)),
+        );
+        // A private window's tabs are Today's alone, and stay in it.
+        if self.private {
+            return vec![close];
+        }
+        let pin = if self.chosen_pin() { "Pin Tabs" } else { "Unpin Tabs" };
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
+            (
+                MenuEntry::new(pin, true).shortcut(Command::TogglePin, keys),
+                "toggle-pin",
+                Box::new(|shell, cx| shell.pin_chosen(cx)),
+            ),
+            (
+                MenuEntry::new("New Folder with Tabs", true),
+                "new-folder",
+                Box::new(|shell, cx| shell.folder_chosen(cx)),
+            ),
+        ];
+        // The other Spaces of the profile, where every tab keeps its place to undo.
+        let profile = self.shown_space().map(|space| space.profile);
+        let others: Vec<_> = (self.spaces_to_move_to(false).into_iter())
+            .filter(|&(space, ..)| {
+                self.spaces.iter().any(|each| each.id == space && Some(each.profile) == profile)
+            })
+            .collect();
+        let move_to = items.len();
+        items.push((MenuEntry::new("Move to Space", !others.is_empty()), "", Box::new(|_, _| {})));
+        for (space, name, _) in others {
+            items.push((
+                MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
+                "move-to-space",
+                Box::new(move |shell, cx| shell.move_chosen_to_space(space, cx)),
+            ));
+        }
+        items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
+        items.push(close);
         items
     }
 
@@ -1340,6 +1393,97 @@ mod tests {
         tab_menu(&shell, &host, cx, 10);
         cx.update(|cx| host.choose("Old / Older", cx));
         assert_eq!(host.take_edits(), ["space 10 2", "move 10 true 31 0"]);
+    }
+
+    /// The chosen rows' menu pins, folders or moves them together, each as one step that ⌘Z puts
+    /// back in place and ⇧⌘Z does again, and a right-click on a row not chosen lets them go.
+    #[gpui::test]
+    fn the_chosen_rows_menu_pins_folders_and_moves_them_together(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[2], &[3, 4, 5], Folders::default());
+        fn tabs(
+            shell: &Entity<Shell>,
+            cx: &mut TestAppContext,
+            space: u64,
+            pinned: Vec<u64>,
+            today: Vec<u64>,
+            folders: Folders,
+        ) {
+            shell.update(cx, |shell, cx| {
+                shell.set_tabs(space, pinned, today, Vec::new(), folders, cx)
+            })
+        }
+        let choose = |shell: &Entity<Shell>, cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| {
+                shell.choose_row(3, cx);
+                shell.choose_row(5, cx);
+            })
+        };
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str, profile| {
+                (id, name.to_string().into(), None, profile, "".into(), "".into(), "".into())
+            };
+            let spaces = vec![space(1, "Work", 0), space(2, "Home", 0), space(3, "Other", 7)];
+            shell.set_spaces(spaces, cx);
+        });
+        choose(&shell, cx);
+        host.take();
+        assert_eq!(
+            tab_menu(&shell, &host, cx, 5),
+            ["Pin Tabs", "New Folder with Tabs", "Move to Space › Home", "Close Tabs"]
+        );
+        host.take_edits();
+        cx.update(|cx| host.choose("Pin Tabs", cx));
+        assert_eq!(host.take_edits(), ["pinned 3 true", "pinned 5 true"]);
+        // The core reports them pinned once the calls return.
+        tabs(&shell, cx, 1, vec![2, 3, 5], vec![4], Folders::default());
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        assert_eq!(host.take_edits(), ["move 3 false 0 0", "move 5 false 0 2"]);
+        shell.update(cx, |shell, cx| shell.redo(cx));
+        assert_eq!(host.take_edits(), ["move 3 true 0 1", "move 5 true 0 2"]);
+        host.take();
+        assert_eq!(tab_menu(&shell, &host, cx, 3)[0], "Unpin Tabs");
+        cx.update(|cx| host.dismiss(cx));
+
+        tabs(&shell, cx, 1, vec![2], vec![3, 4, 5], Folders::default());
+        host.take();
+        tab_menu(&shell, &host, cx, 3);
+        host.take_edits();
+        cx.update(|cx| host.choose("New Folder with Tabs", cx));
+        let edits = host.take_edits();
+        let folder: u64 = edits[0].split(' ').nth(1).unwrap().parse().unwrap();
+        let into = |tab, index| format!("move {tab} true {folder} {index}");
+        assert_eq!(edits[1..], [into(3, 0), into(5, 1)]);
+        shell.read_with(cx, |shell, _| {
+            assert!(shell.chosen.is_empty() && shell.renaming.is_some())
+        });
+        let made = Folders {
+            folders: [(folder, ("New Folder".into(), true))].into(),
+            parents: [(3, folder), (5, folder)].into(),
+        };
+        tabs(&shell, cx, 1, vec![2, folder, 3, 5], vec![4], made);
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let back = ["move 3 false 0 0", "move 5 false 0 2", &format!("delete folder {folder}")];
+        assert_eq!(host.take_edits(), back);
+
+        tabs(&shell, cx, 1, vec![2], vec![3, 4, 5], Folders::default());
+        choose(&shell, cx);
+        host.take();
+        tab_menu(&shell, &host, cx, 3);
+        host.take_edits();
+        cx.update(|cx| host.choose("Home", cx));
+        assert_eq!(host.take_edits(), ["space 5 2", "space 3 2"]);
+        tabs(&shell, cx, 1, vec![2], vec![4], Folders::default());
+        tabs(&shell, cx, 2, Vec::new(), vec![3, 5], Folders::default());
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let back = ["space 3 1", "move 3 false 0 0", "space 5 1", "move 5 false 0 2"];
+        assert_eq!(host.take_edits(), back);
+
+        tabs(&shell, cx, 1, vec![2], vec![3, 4, 5], Folders::default());
+        tabs(&shell, cx, 2, Vec::new(), Vec::new(), Folders::default());
+        choose(&shell, cx);
+        host.take();
+        assert!(tab_menu(&shell, &host, cx, 4)[0].starts_with("Copy Link"));
+        shell.read_with(cx, |shell, _| assert!(shell.chosen.is_empty()));
     }
 
     /// File › Share… and the command bar's Share… open the same sheet for the page shown, and
