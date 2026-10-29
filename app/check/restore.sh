@@ -7,9 +7,10 @@
 # place until Remove Icon, and a Japanese conversion in the picker's search isn't a pick. A Space's
 # icon, picked in its icon picker, comes back too. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
-# check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
-# does, and ⇧⌘J opens the Library on Downloads, which lists them. While one runs, the button keeps
-# its name and resting on it shows the running one with the finished one. With one running, ⌘Q
+# check's folder, on the Mac with the quarantine flag and their link, a new one's icon flies into
+# the Library button, none of those a relaunch reads does, and ⇧⌘J opens the Library on
+# Downloads, which lists them. While one runs, the button keeps its name and resting on it shows
+# the running one with the finished one. With one running, ⌘Q
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files.
 # A new download's row dragged hands its file to the system's drag, the Library closing until it's
@@ -59,6 +60,20 @@ fi
 send type d
 expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
+# On the Mac it carries the quarantine flag, so Gatekeeper checks it when it's opened: macOS sets
+# it for the app's LSFileQuarantineEnabled, naming the app, and Chromium writes the link it came
+# from beside it.
+if [ "$(uname)" = Darwin ]; then
+  flag=$(xattr -p com.apple.quarantine "$out/downloads/notes.txt" 2> /dev/null) ||
+    fail "the download has no quarantine flag"
+  [ "$(echo "$flag" | cut -d ';' -f 3)" = "$app_name" ] ||
+    fail "the download's quarantine flag names another app: $flag"
+  from=$(xattr -px com.apple.metadata:kMDItemWhereFroms "$out/downloads/notes.txt" 2> /dev/null |
+    xxd -r -p | plutil -extract 0 raw -o - - 2> /dev/null)
+  [ "$from" = "${site}notes.txt" ] || fail "the download's source isn't the page's link: $from"
+else
+  echo "skip: restore's quarantine flag, which only macOS sets."
+fi
 send type s
 expect '^browser: download [0-9]* running slow.bin$' "the page's slow download didn't start"
 # Its icon flies into the Library button.

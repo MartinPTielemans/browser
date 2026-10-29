@@ -325,6 +325,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Fly-in | MVP | ours: 32 → 16 pt icon from under the URL field to the button on a slight arc, 0.45 s on cubic-bezier(0.55, 0, 0.85, 0.4), fading over the last 30 %; Arc's: measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
 | [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
 | [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
+| [ ] | Quarantine | MVP | every finished file has com.apple.quarantine naming the app, and its link as Where from. Built: Chromium's, kept by the bundle's LSFileQuarantineEnabled; to tick: `./check.sh restore` on a check VM | macOS, Chrome |
 
 ## Find in page
 
