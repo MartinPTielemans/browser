@@ -282,7 +282,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Filter lists | MVP | weekly while open, and 37 s after a launch when stale; never more often; source a default service URL. Built: `core/ad_block.cc` gives uBlock Origin a 168 h update period and `kFilterListsSource`, which `--ad-block-lists` replaces for `check/adblock-lists.sh`: on the Mac, a list from the check's server blocks its script, and stale, it's fetched again 37 s after the launch, not before, with a capture. The weekly update isn't checked | principles 1, 2 |
 | [ ] | First launch | MVP | requests through for about 3 s until the lists load; closing it: measure first. The adblock run reports how long a new profile's first launch let them through, to a reload's wait: 7.2 s over 6 loads on the Mac | principle 1 |
 | [ ] | Cost | MVP | page-load and memory numbers, with and without it, against the performance gate. Not built: no run measures page load or memory with it and without. Next: a run named as adblock-live is, loading a fixed set of pages with Settings' Block ads and trackers on and off, reporting load times and the processes' memory; numbers, not a capture | principle 1 |
-| [ ] | No agent path | MVP | agents can't change it, everywhere or for a site. Holds: the core's agent calls (`bc_agent_may_act`) act only on an agent Space's tabs, none on ad blocking. Not built: a list of what agents may do, which refuses the rest; next, `bc_agent_may_act` takes only listed actions, and `./check.sh agents` checks it refuses ad blocking, in the log, as the activity log has no window yet | decision 8 |
+| [ ] | No agent path | MVP | agents can't change it, everywhere or for a site. Holds: the core's agent calls (`bc_agent_may_act`) act only on an agent Space's tabs. Built: `bc_agent_may_act` takes only the listed actions and refuses `ad_blocking` with why, which `./check.sh agents` asserts in its activity-log line; it ticks from that log line, as the activity log has no window yet | decision 8 |
 
 ## Passwords and autofill
 
@@ -342,7 +342,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Docked width | MVP | Arc a third of the card; ours Chrome's 555 pt, then the user's, kept per profile | Arc 1.170.0 cap |
 | [x] | Undocked | MVP | Chrome's window, from DevTools' Dock side menu; Dia's 640 × 640 first, "Developer Tools - <url>" | Dia P§23, Chrome |
 | [x] | Task Manager | MVP | Chrome's, from Help › Troubleshooting › Open Task Manager as Arc's; ⌘W closes it | Arc 1.170.0 menus, Chrome |
-| [ ] | No agent DevTools or debugging port | MVP | none. Holds: no agent call opens DevTools or a port; `--remote-debugging-port` and `--remote-debugging-pipe` open one for whoever launches the browser, as the trouble run does. Not built: the list of agents' actions (Ad blocking › No agent path); next, `./check.sh agents` checks it refuses DevTools, and that a plain launch leaves no DevToolsActivePort | decision 8 |
+| [ ] | No agent DevTools or debugging port | MVP | none. Holds: no agent call opens DevTools or a port; `--remote-debugging-port` and `--remote-debugging-pipe` open one for whoever launches the browser, as the trouble run does. Built: the list of agents' actions refuses `devtools` with why, which `./check.sh agents` asserts in its activity-log line, ticking from it. Not built: a check that a plain launch leaves no DevToolsActivePort | decision 8 |
 
 ## Capture
 

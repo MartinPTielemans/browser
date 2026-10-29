@@ -1301,7 +1301,7 @@ fn run_command(line: &str) -> Option<()> {
         "agentmayact" => {
             let agent = words.next()?;
             let tab: bc::bc_id = words.next()?.parse().ok()?;
-            let what = words.next().unwrap_or("act");
+            let what = words.next().unwrap_or("navigate");
             let (agent_c, what_c) = (CString::new(agent).ok()?, CString::new(what).ok()?);
             let mut reason = [0 as std::ffi::c_char; 256];
             let may = unsafe {

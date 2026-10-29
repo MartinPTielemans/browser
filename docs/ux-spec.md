@@ -807,7 +807,7 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 - **Reveal.** An eye button appears in a page's password field once the user types. It never appears for a filled saved password (Dia).
 - **Seeing and removing** (ours: Arc's and Dia's aren't recorded). Chrome's other password bubbles, such as the confirmation after a save and the manage bubble, show nothing, and its key icon is the URL field's key. A site's logins are a row in its Site Controls (Extensions › Site Controls), and every login and every site set to Never is in Settings › Passwords, each removable, so Never isn't a one-way door. A password is never shown or copied: there is no reveal and so no device check. Removing a saved login asks first, as no undo brings it back; taking a site off Never asks nothing.
 - **Passkeys.** Chrome's WebAuthn dialogs appear centred over the page as child windows.
-- **Agents.** Agents never read or type into password fields and never see autofill data (decision 8). There is no agent path to any of this: the core's login calls are the user's alone, and agents hear none of their callbacks.
+- **Agents.** Agents never read or type into password fields and never see autofill data (decision 8). There is no agent path to any of this: the core's login calls are the user's alone, agents hear none of their callbacks, and the core refuses an agent's `passwords` action, with why (Agents UI).
 - Measure Arc's save prompt and password settings.
 
 ### Page dialogs
@@ -1010,6 +1010,8 @@ Arc's theme, read by Ardia from Arc 1.167's shader and the code that feeds it (P
 
 See Spaces › Agent Space. The confirmation UI and the activity log ship in the same change as the MCP server (decision 8).
 
+- **What agents may do** (ours). `bc_agent_may_act` lets an agent do only what a user does in a page, the reference agent's tab tools: click, close_tab, navigate, press_key, read_page, screenshot, select_option, snapshot and type. It refuses the rest whatever the tab, saying why in the activity-log entry: ad_blocking, devtools and passwords each with their own reason, any other as an action agents don't have. A refused call starts no session. Until the activity log has a window, these rows tick from the refusals the agents run asserts in its log.
+
 ## Picked by the owner, not on the roadmap
 
 Boosts are Arc's. Ad blocking, environments and the Dock dot go beyond Arc and Dia; the owner picked them (decision 6). Add them to a phase before building them, as ad blocking is, in Phase 3; the Dock dot is built.
@@ -1035,7 +1037,7 @@ Helium and Flecha block ads and trackers by default; Arc and Dia don't. Ours doe
 - **Filter lists.** uBlock Origin ships its lists, so the first launch blocks without the network. It checks them 37 s after a launch if they're out of date, then once a week while the browser runs, never more often (principle 1). Their source is a default service URL, `kFilterListsSource` in `core/ad_block.cc`, a forks' own `assets.json`; empty, it's the one uBlock Origin ships, naming its upstream hosts (principle 2).
 - **First launch.** uBlock Origin lets requests through until it has read its lists, about 3 s on a new profile's first launch. Its own fix, holding requests until then, would hold the launch's first page too, so it stays off until the cost is measured against the launch gate.
 - **Cost.** Page-load and memory numbers, with and without it, against the performance gate.
-- **Agents.** They get no call that changes it, everywhere or for a site: it keeps trackers off the user's own pages (decision 8). An agent's pages are blocked as the user's are.
+- **Agents.** They get no call that changes it, everywhere or for a site: it keeps trackers off the user's own pages (decision 8). The core refuses an agent's `ad_blocking` action, with why, in the activity log (Agents UI). An agent's pages are blocked as the user's are.
 
 ### Environments
 
