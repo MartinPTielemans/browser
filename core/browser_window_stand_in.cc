@@ -330,7 +330,6 @@ void BrowserWindowStandIn::LetGoOfPage() {
   // window has resized. A page its tab switch had hidden by then never heard it was out: it kept
   // its full screen, and stopped drawing or taking input when shown again. Told the window is out
   // now, the controller lets go first, as it does on the Mac (ExitFullscreenModeInternal).
-  LogFullScreenState("stand-in lets go", controller->exclusive_access_tab());
   base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
   letting_go_ = true;
   controller->WindowFullscreenStateChanged();
@@ -652,7 +651,6 @@ void BrowserWindowStandIn::ExitFullscreen() {
 }
 
 void BrowserWindowStandIn::PutFullscreen(bool fullscreen, int64_t display_id) {
-  fprintf(stderr, "browser: fs: put full screen %d\n", fullscreen);
   views::Widget* widget = this->widget();
   if (!widget) {
     return;
@@ -710,8 +708,6 @@ bool BrowserWindowStandIn::GetAcceleratorForCommandId(int command_id,
 }
 
 void BrowserWindowStandIn::OnWidgetShowStateChanged(views::Widget* widget) {
-  fprintf(stderr, "browser: fs: show state changed, full screen %d, for page %d\n", IsFullscreen(),
-          window_ && window_->FullScreenForPage());
 #if !BUILDFLAG(IS_MAC)
   // Off the Mac a window the window manager took out of full screen, by its own key, says so here,
   // on Wayland before its new size: it leaves the one way every exit takes, so a page full screen

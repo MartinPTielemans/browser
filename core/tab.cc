@@ -141,19 +141,6 @@ void Forget(bc_id id) {
 
 }  // namespace
 
-void LogFullScreenState(const char* what, content::WebContents* contents) {
-  if (!contents) {
-    fprintf(stderr, "browser: fs: %s, no page\n", what);
-    return;
-  }
-  content::RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
-  fprintf(stderr, "browser: fs: %s, tab %llu, full screen %d, visibility %d, view %s showing %d\n",
-          what, static_cast<unsigned long long>(Tab::IdOf(contents)), contents->IsFullscreen(),
-          static_cast<int>(contents->GetVisibility()),
-          view ? view->GetViewBounds().size().ToString().c_str() : "none",
-          view && view->IsShowing());
-}
-
 // static
 bc_id Tab::IdOf(content::WebContents* contents) {
   if (const TabLink* link = TabLink::FromWebContents(contents)) {
@@ -1085,8 +1072,6 @@ void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause
   }
   fullscreen_ = entered_fullscreen;
   LogFullScreenAsked(entered_fullscreen);
-  LogFullScreenState(will_cause_resize ? "page toggled, will resize" : "page toggled, no resize",
-                     web_contents());
   // At once, as only the page's request takes it full screen: Chrome has asked the window to go
   // with it, in a task it posted, and the app lays the page out at the window's new size only if
   // it hears first.
@@ -1114,7 +1099,6 @@ void Tab::DidUpdateAudioMutingState(bool muted) {
 }
 
 void Tab::OnVisibilityChanged(content::Visibility visibility) {
-  LogFullScreenState("visibility changed", web_contents());
   // As Chrome loads a restored tab once it's shown. Posted: the page view is being shown now.
   if (visibility == content::Visibility::VISIBLE && waiting_) {
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(

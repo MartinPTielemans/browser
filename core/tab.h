@@ -36,10 +36,6 @@ namespace browser_core {
 
 class Window;
 
-// Diagnostic for #709, to go before merge: logs |what| with |contents|'s tab, full screen,
-// visibility and view.
-void LogFullScreenState(const char* what, content::WebContents* contents);
-
 // A tab's id, and what the app hears about it. A tab may have no page: one put back at launch and
 // not yet shown, or one unloaded. It keeps its history then, and what its row shows, and gets its
 // page back once a window shows it (Wake), as Chrome loads a restored tab once it's shown.
