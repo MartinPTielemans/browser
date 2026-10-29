@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     palette::{self, Palette, SECOND_AT, Tone},
-    theme::{self, Appearance, GRAIN_STRENGTH, GRAIN_TILE, Theme},
+    theme::{self, Appearance, GRAIN_TILE, INACTIVE_TEXTURE, Texture, Theme},
     theme_picker::{self, Changed},
 };
 
@@ -70,8 +70,8 @@ impl Shell {
         }
     }
 
-    /// Reads the system's appearance as the window draws, and draws the window again once it
-    /// changes, which GPUI doesn't by itself.
+    /// Reads the system's appearance and whether the window is active as the window draws, and
+    /// draws the window again once either changes, which GPUI doesn't by itself.
     pub(super) fn watch_appearance(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         let system = match window.appearance() {
             gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight => Tone::Light,
@@ -84,8 +84,12 @@ impl Shell {
             Appearance::Automatic => None,
         };
         self.system_tone = self.forced_tone.or(chosen).unwrap_or(system);
-        if self.appearance_watch.is_none() {
-            self.appearance_watch = Some(cx.observe_window_appearance(window, |_, _, cx| cx.notify()));
+        self.window_active = window.is_window_active();
+        if self.window_watches.is_empty() {
+            self.window_watches = vec![
+                cx.observe_window_appearance(window, |_, _, cx| cx.notify()),
+                cx.observe_window_activation(window, |_, _, cx| cx.notify()),
+            ];
         }
     }
 
@@ -224,7 +228,7 @@ impl Shell {
 
     /// The window's colour behind everything: the gradient down it, or with a Space of more than
     /// one colour shown, its colours across it, one Space's over the other's as the sidebar pages
-    /// between them; and the grain over them.
+    /// between them; and each one's texture over them, fainter while the window isn't active.
     pub(super) fn window_background(&self) -> gpui::Div {
         let (space, beside) = self.colored_pages();
         // Each Space shown, and how much of the window's colour is its.
@@ -248,11 +252,11 @@ impl Shell {
         } else {
             background.bg(self.gradient(None))
         };
-        let grain: f32 = themes
-            .iter()
-            .map(|(_, theme, weight)| theme.map_or(0., |theme| theme.grain) * weight)
-            .sum();
-        background.when(grain > 0., |background| background.child(grain_layer(grain)))
+        let dimmed = if self.window_active { 1. } else { INACTIVE_TEXTURE };
+        background.children(themes.iter().filter_map(|&(_, theme, weight)| {
+            let theme = theme.filter(|theme| theme.grain > 0.)?;
+            Some(texture_layer(theme.texture, theme.grain_opacity() * weight * dimmed))
+        }))
     }
 
     /// `space`'s colours over the whole window, with `theme`.
@@ -301,14 +305,13 @@ fn diagonal_stops(width: f32, height: f32) -> (f32, f32, f32) {
     (side, start, end)
 }
 
-/// Noise over the whole window, `grain` strong (0 to 1), in tiles of the grain image at one device
-/// pixel to a pixel.
-fn grain_layer(grain: f32) -> impl IntoElement {
-    div().absolute().size_full().opacity(grain * GRAIN_STRENGTH).child(
+/// `texture` over the whole window at `opacity`, in tiles at one device pixel to a pixel.
+fn texture_layer(texture: Texture, opacity: f32) -> impl IntoElement {
+    div().absolute().size_full().opacity(opacity).child(
         canvas(
             |_, _, _| {},
-            |bounds, _, window, _| {
-                let image = theme::grain_image();
+            move |bounds, _, window, _| {
+                let image = texture.image();
                 let tile = GRAIN_TILE as f32 / window.scale_factor();
                 let (width, height) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let (columns, rows) = ((width / tile).ceil() as i32, (height / tile).ceil() as i32);

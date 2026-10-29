@@ -442,7 +442,8 @@ impl ThemePicker {
                 let picked = Theme::of_color(SWATCHES[index]);
                 editing.theme = Some(match theme {
                     Some(theme) => {
-                        Theme { x: picked.x, y: picked.y, saturation: picked.saturation, ..theme }
+                        let (x, y, saturation) = (picked.x, picked.y, picked.saturation);
+                        Theme { x, y, saturation, third: None, ..theme }
                     }
                     None => Theme { appearance: editing.appearance, ..picked },
                 });
@@ -773,7 +774,8 @@ impl Render for ThemePicker {
                     let (hx, hy) = theme.handle(0);
                     let (sin, cos) = offset.to_radians().sin_cos();
                     let (hx, hy) = (hx * cos - hy * sin, hx * sin + hy * cos);
-                    let color = theme::color_at(hx, hy, theme.saturation);
+                    let color = (theme.third.filter(|_| index == 2))
+                        .unwrap_or_else(|| theme::color_at(hx, hy, theme.saturation));
                     let size = handle_size(index) * editing.growth(index);
                     let ring = if index == 0 { MAIN_RING } else { HANDLE_RING };
                     let (mx, my) = (FIELD / 2. * (1. + hx), FIELD / 2. * (1. + hy));
@@ -939,17 +941,17 @@ impl Render for ThemePicker {
                 .left(card_x(DIAL.0 - DIAL_DISC))
                 .top(px(DIAL.1 - DIAL_DISC))
                 .size(px(DIAL_DISC * 2.))
-                .opacity(theme.grain * theme::GRAIN_STRENGTH)
+                .opacity(theme.grain_opacity())
                 .child(
                     canvas(
                         |_, _, _| {},
-                        |bounds, _, window, _| {
+                        move |bounds, _, window, _| {
                             window
                                 .paint_image(
                                     bounds,
                                     bounds,
                                     px(DIAL_DISC).into(),
-                                    theme::grain_image(),
+                                    theme.texture.image(),
                                     0,
                                     false,
                                 )

@@ -1364,6 +1364,13 @@ default-intensity = 0.81
 # How strongly grain at 1 lies over the colours: Arc's window at full grain is ≈ 5.5 levels of
 # luminance noisier (Arc 1.170 rec at 2×).
 grain-strength = 0.075
+# Ours, each texture's strength as a share of grain's, so it moves the window's colours as much as
+# the noise does at the same grain: the noise's root mean square opacity over its own.
+dust-strength = 2.47
+weave-strength = 0.91
+fleck-strength = 1.47
+# Arc's texture in an inactive window, at a quarter of its strength (Arc 1.167).
+inactive-texture = 0.25
 
 [theme-picker]
 # Arc 1.170's, measured at 2× (docs/ux-spec.md › Themes), in points from the card's top left.
