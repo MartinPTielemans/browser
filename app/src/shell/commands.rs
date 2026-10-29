@@ -1065,7 +1065,7 @@ impl Shell {
     /// Copies the selected tab's URL, or a Markdown link to it, without its tracking parameters,
     /// and says so in the toast.
     fn copy_url(&mut self, markdown: bool, cx: &mut Context<Self>) {
-        if let Some((text, toast)) = self.url_to_copy(markdown) {
+        if let Some((text, toast)) = self.link_to_copy(self.selected, markdown) {
             self.copy(&text, toast, cx);
         }
     }
@@ -1108,16 +1108,16 @@ impl Shell {
         self.browser.show_share_sheet(self.selected, &link, &title, at, cx);
     }
 
-    /// The text to copy and the toast to say so with.
-    fn url_to_copy(&self, markdown: bool) -> Option<(String, &'static str)> {
-        let url = clean_link(&self.url(self.selected));
+    /// `tab`'s link to copy, as a Markdown link if `markdown`, and the toast to say so with.
+    pub(super) fn link_to_copy(&self, tab: u64, markdown: bool) -> Option<(String, &'static str)> {
+        let url = clean_link(&self.url(tab));
         if url.is_empty() {
             return None;
         }
         let (text, toast) = match markdown {
             false => (url.clone(), "Copied Current URL"),
             true => {
-                let title = markdown_text(&self.title(self.selected));
+                let title = markdown_text(&self.title(tab));
                 (format!("[{title}]({url})"), "Copied URL as Markdown")
             }
         };
@@ -1129,7 +1129,7 @@ impl Shell {
     pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: command copy-url via sidebar");
-        let Some((text, toast)) = self.url_to_copy(false) else {
+        let Some((text, toast)) = self.link_to_copy(self.selected, false) else {
             return;
         };
         self.copy(&text, toast, cx);
