@@ -56,8 +56,8 @@ exec 4> "$out/mcp-in" 5< "$out/mcp-out"
 # Sends the JSON-RPC message $1 and, for a request, prints its answer, within 30 s.
 id=0
 mcp() {
-  echo "$1" >&4
-  case "$1" in *'"id":'*) read -r -t 30 answer <&5 || fail "the browser didn't answer $1"; echo "$answer" ;; esac
+  printf '%s\n' "$1" >&4
+  case "$1" in *'"id":'*) read -r -t 30 answer <&5 || fail "the browser didn't answer $1"; printf '%s\n' "$answer" ;; esac
 }
 # Prints a tool's answer on stdin: its text, after "error: " if it's an error, or a picture's type
 # and size.
@@ -121,7 +121,7 @@ if [ "$driven" = 1 ]; then
   esac
   read=$(call read_page "{\"tab\":$agent_tab}")
   case "$read" in
-    "Tab $agent_tab: Example Domain"*"Example Domain"*) ;;
+    "Tab $agent_tab: Example Domain"*"for use in documentation examples"*) ;;
     *) fail "reading the agent's tab answered: $read" ;;
   esac
   await_log "^browser: agent activity mcp-client $agent_tab read_page\$" "the read didn't reach the activity log"
@@ -152,7 +152,7 @@ note.oninput = () => document.title = "noted";
   send type typed-by-ada
   expect "^browser: title $agent_tab typed\$" "typing didn't reach the page's field"
   read=$(call read_page "{\"tab\":$agent_tab}")
-  echo "$read" > "$out/mcp-fields.txt"
+  printf '%s\n' "$read" > "$out/mcp-fields.txt"
   case "$read" in
     *"Fields for the agents check."*) ;;
     *) fail "reading the fields page didn't give its prose: $read" ;;
@@ -165,7 +165,7 @@ note.oninput = () => document.title = "noted";
 
   # The outline names the fields by ref, the password field off limits, and gives no value.
   outline=$(call snapshot "{\"tab\":$agent_tab}")
-  echo "$outline" > "$out/mcp-outline.txt"
+  printf '%s\n' "$outline" > "$out/mcp-outline.txt"
   case "$outline" in
     "Tab $agent_tab: typed"*"Fields for the agents check."*"(password: off limits)"*) ;;
     *) fail "the fields page's outline was: $outline" ;;
@@ -173,7 +173,7 @@ note.oninput = () => document.title = "noted";
   for secret in $secrets; do
     case "$outline" in *"$secret"*) fail "the fields page's outline gave a field's value, $secret" ;; esac
   done
-  ref_of() { echo "$outline" | sed -n "s/.*- $1 \"$2\" \[\(e[0-9]*\)\].*/\1/p" | head -1; }
+  ref_of() { printf '%s\n' "$outline" | sed -n "s/.*- $1 \"$2\" \[\(e[0-9]*\)\].*/\1/p" | head -1; }
   password=$(ref_of textbox Password)
   refused=$(call type "{\"tab\":$agent_tab,\"ref\":\"$password\",\"text\":\"by-the-agent\"}")
   case "$refused" in
@@ -196,9 +196,9 @@ note.oninput = () => document.title = "noted";
     "Opened tab "*"URL: https://example.com/"*) ;;
     *) fail "open_tab answered: $opened" ;;
   esac
-  opened_tab=$(echo "$opened" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  opened_tab=$(printf '%s\n' "$opened" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
   await_log "^browser: agent page $opened_tab [0-9]* [1-9][0-9]*\$" "the core didn't outline the opened page"
-  link=$(echo "$opened" | sed -n 's/.*- link "[^"]*" \[\(e[0-9]*\)\].*/\1/p' | head -1)
+  link=$(printf '%s\n' "$opened" | sed -n 's/.*- link "[^"]*" \[\(e[0-9]*\)\].*/\1/p' | head -1)
   clicked=$(call click "{\"tab\":$opened_tab,\"ref\":\"$link\"}")
   case "$clicked" in
     "Clicked link"*"iana.org"*) ;;
@@ -210,14 +210,14 @@ note.oninput = () => document.title = "noted";
   case "$picture" in "image/jpeg "[1-9]*) ;; *) fail "screenshot answered: $picture" ;; esac
   # close_tab closes a tab of its own, which goes to the archive.
   opened=$(call open_tab '{"url":"example.com"}')
-  closing=$(echo "$opened" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  closing=$(printf '%s\n' "$opened" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
   closed=$(call close_tab "{\"tab\":$closing}")
   [ "$closed" = "Closed tab $closing. The user can still find it in the archive." ] ||
     fail "close_tab answered: $closed"
   await_log "^browser: agent activity mcp-client $closing close_tab\$" \
     "the close didn't reach the activity log"
   listed=$(call list_tabs '{}')
-  echo "$listed" | grep -q "^. $closing  " && fail "list_tabs listed the closed tab"
+  printf '%s\n' "$listed" | grep -q "^. $closing  " && fail "list_tabs listed the closed tab"
 
   # run_steps takes several actions in one call, in order.
   ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"}]}")
@@ -227,7 +227,7 @@ note.oninput = () => document.title = "noted";
   esac
 
   # hand_off waits, in a card in the window, until the user hands the tab back.
-  cards=$(grep -c '^browser: agent question [0-9]* at ' "$log")
+  cards=$(grep -c '^browser: agent question [0-9]* at ' "$log" || true)
   request hand_off "{\"tab\":$opened_tab,\"reason\":\"Sign in for the check\"}" >&4
   await_log "^browser: agent mcp-client hands off $opened_tab: Sign in for the check\$" \
     "hand_off didn't hand the tab to the user"
@@ -241,7 +241,7 @@ CARD
   send click $((qx + qw - 16)) $((qy + qh - 26))
   await_log "^browser: agent mcp-client handed back $opened_tab\$" "Hand Back didn't hand the tab back"
   read -r -t 30 handed <&5 || fail "the browser didn't answer hand_off"
-  handed=$(echo "$handed" | answered)
+  handed=$(printf '%s\n' "$handed" | answered)
   case "$handed" in
     "The user handed tab $opened_tab back."*) ;;
     *) fail "hand_off answered: $handed" ;;
@@ -265,7 +265,7 @@ BAR
   await_log "^browser: agent activity mcp-client $opened_tab scroll refused: .*hand it back" \
     "the refusal didn't reach the activity log"
   # The agent asks for the tab in a card, and Keep, at the left, keeps it the user's.
-  cards=$(grep -c '^browser: agent question [0-9]* at ' "$log")
+  cards=$(grep -c '^browser: agent question [0-9]* at ' "$log" || true)
   request ask_for_tab "{\"tab\":$opened_tab,\"reason\":\"To finish the check\"}" >&4
   await_log "^browser: agent mcp-client asks for $opened_tab back: To finish the check\$" \
     "ask_for_tab didn't ask"
@@ -278,7 +278,7 @@ CARD
   send click $((qx + 30)) $((qy + qh - 26))
   await_log "^browser: agent mcp-client answered $q Never\$" "Keep didn't answer"
   read -r -t 30 kept <&5 || fail "the browser didn't answer ask_for_tab"
-  kept=$(echo "$kept" | answered)
+  kept=$(printf '%s\n' "$kept" | answered)
   case "$kept" in
     "error: The user keeps tab $opened_tab."*) ;;
     *) fail "ask_for_tab answered: $kept" ;;
@@ -301,7 +301,7 @@ BAR
   # Take Over, at the right end of the bar's buttons.
   take_over() {
     taken="^browser: agent mcp-client taken over in $opened_tab\$"
-    before=$(grep -c "$taken" "$log")
+    before=$(grep -c "$taken" "$log" || true)
     bar
     send click $((bx + bw - 16)) $((by + bh - 26))
     await_more "$taken" "$before" || fail "$1: Take Over didn't take the tab"
@@ -328,6 +328,7 @@ BAR
   send key return
   expect "^browser: offer $opened_tab save check@example.test " "the user's login brought no offer to save"
   expect '^browser: offer shown$' "the offer to save the login wasn't shown"
+  expect "^browser: offer $opened_tab takes input\$" "the offer to save the login never took input"
   send layout
   child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: layout child' |
     grep ' 320x180$' | head -1 | sed 's/^browser: layout child //')
@@ -340,7 +341,7 @@ BAR
   send key return
   expect "^browser: offer $opened_tab answered Accept check@example.test\$" "return didn't save the login"
   handed="^browser: agent mcp-client handed back $opened_tab\$"
-  before=$(grep -c "$handed" "$log")
+  before=$(grep -c "$handed" "$log" || true)
   # Hand Back, the held tab's bar's one button, at its left.
   bar
   send click $((bx + 30)) $((by + bh - 26))
@@ -371,7 +372,7 @@ BAR
   [ "$(children)" -gt "$shown" ] || fail "the held tab's username field offered no saved login"
   ../tools/window-screenshot.sh "$pid" "$out/agent-login-filled.png" || fail "no window to capture"
   send key escape
-  before=$(grep -c "$handed" "$log")
+  before=$(grep -c "$handed" "$log" || true)
   bar
   send click $((bx + 30)) $((by + bh - 26))
   await_more "$handed" "$before" || fail "the bar's Hand Back didn't hand the filled tab back"
@@ -382,7 +383,7 @@ BAR
   # Opens the bank's site, which asks, and answers $1 with a click at the card's foot: Allow Once
   # in the middle of the buttons' row, Always Allow at its right end. Sets allowed to the answer.
   answer_bank() {
-    before=$(grep -c "$asks" "$log")
+    before=$(grep -c "$asks" "$log" || true)
     request open_tab "$bank" >&4
     await_more "$asks" "$before" || fail "a bank's site didn't ask first"
     q=$(grep '^browser: agent mcp-client asks' "$log" | tail -1 | cut -d' ' -f5 | tr -d :)
@@ -395,13 +396,13 @@ CARD
     send click $((qx + x)) $((qy + qh - 26))
     await_log "^browser: agent mcp-client answered $q $1\$" "$1 didn't answer the question"
     read -r -t 30 allowed <&5 || fail "the browser didn't answer the bank's open_tab"
-    allowed=$(echo "$allowed" | answered)
+    allowed=$(printf '%s\n' "$allowed" | answered)
   }
   answer_bank Once
   case "$allowed" in "Opened tab "*) ;; *) fail "the allowed open_tab answered: $allowed" ;; esac
   answer_bank Always
   case "$allowed" in "Opened tab "*) ;; *) fail "the always allowed open_tab answered: $allowed" ;; esac
-  before=$(grep -c "$asks" "$log")
+  before=$(grep -c "$asks" "$log" || true)
   allowed=$(call open_tab "$bank")
   case "$allowed" in "Opened tab "*) ;; *) fail "after Always Allow, open_tab answered: $allowed" ;; esac
   [ "$(grep -c "$asks" "$log")" = "$before" ] || fail "Always Allow asked again"
@@ -433,14 +434,14 @@ if [ "$driven" = 1 ]; then
   bridge_pid=$!
   exec 4> "$out/mcp-in" 5< "$out/mcp-out"
   hello='^browser: agent mcp-client hello from check$'
-  hellos=$(grep -c "$hello" "$log")
+  hellos=$(grep -c "$hello" "$log" || true)
   mcp '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' \
     > /dev/null
   await_more "$hello" "$hellos" || fail "the app didn't hear the second client's hello"
   send menu Settings…
   expect '^browser: settings shown ' "Settings… didn't show Settings"
-  # The fourth tab, and the switch at the end of the first row.
-  send clickkey 399 60
+  # The sixth tab, and the switch at the end of the first row.
+  send clickkey 461 60
   expect '^browser: settings tab Agents$' "a click on Agents didn't show its tab"
   ../tools/window-screenshot.sh "$pid" "$out/settings-agents.png" || fail "no window to capture"
   send clickkey 592 134
