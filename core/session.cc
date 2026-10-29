@@ -475,7 +475,11 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
                            .Set("crash_report_offered", saved.settings.crash_report_offered)
-                           .Set("widevine", saved.settings.widevine));
+                           .Set("widevine", saved.settings.widevine)
+                           .Set("links_in_little", saved.settings.links_in_little)
+                           .Set("little_archive_after",
+                                saved.settings.little_archive_after.InSecondsF())
+                           .Set("little_in_menu_bar", saved.settings.little_in_menu_bar));
   return base::WriteJson(root);
 }
 
@@ -717,6 +721,14 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.crash_report_offered =
         settings->FindDouble("crash_report_offered").value_or(0);
     saved.settings.widevine = settings->FindBool("widevine").value_or(false);
+    saved.settings.links_in_little = settings->FindBool("links_in_little").value_or(true);
+    const double little_archive_after =
+        settings->FindDouble("little_archive_after").value_or(0);
+    if (little_archive_after > 0) {
+      saved.settings.little_archive_after = base::Seconds(little_archive_after);
+    }
+    saved.settings.little_in_menu_bar =
+        settings->FindBool("little_in_menu_bar").value_or(false);
   }
   return saved;
 }

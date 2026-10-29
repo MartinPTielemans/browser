@@ -166,6 +166,13 @@ struct Settings {
   // Whether the user said yes to Google's Widevine module, which the component updater then keeps
   // up to date (widevine.h), until they remove it.
   bool widevine = false;
+  // Whether a link from another app opens in Little Arc, else in a new tab.
+  bool links_in_little = true;
+  // How long a Little Arc window the user hasn't been in stays open, before it closes into the
+  // archive.
+  base::TimeDelta little_archive_after = base::Hours(6);
+  // Whether the menu bar has a button that opens Little Arc.
+  bool little_in_menu_bar = false;
 };
 
 // The user's settings. Call SessionChanged after changing them.

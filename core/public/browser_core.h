@@ -1074,6 +1074,10 @@ BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
 // returns the name's length without it.
 BC_EXPORT size_t bc_space_name(bc_id space, char* name, size_t capacity);
 
+// Copies the Space's key into |key| as bc_space_name does: the same across launches, as its id
+// isn't, for the app to remember it by. Empty for a window's own Space.
+BC_EXPORT size_t bc_space_key(bc_id space, char* key, size_t capacity);
+
 // Renames the Space to |name|, UTF-8. Then spaces_changed.
 BC_EXPORT void bc_space_set_name(bc_id space, const char* name);
 
@@ -1394,6 +1398,19 @@ BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);
 BC_EXPORT void bc_set_link_previews(bool previews);
+// Whether a link from another app opens in a Little Arc window, as it does by default, else in a
+// new tab, as the user chose. The core keeps it with the Spaces.
+BC_EXPORT bool bc_links_in_little(void);
+BC_EXPORT void bc_set_links_in_little(bool little);
+// How long, in seconds, a Little Arc window the user hasn't been in stays open before it closes
+// into the archive: 6 hours, else the time the user chose. The app keeps the time, as it closes
+// the window; the core keeps the choice with the Spaces. Ignores 0 or less.
+BC_EXPORT double bc_little_archive_after(void);
+BC_EXPORT void bc_set_little_archive_after(double seconds);
+// Whether the menu bar has a button that opens Little Arc, off by default, as the user chose. The
+// core keeps it with the Spaces.
+BC_EXPORT bool bc_little_in_menu_bar(void);
+BC_EXPORT void bc_set_little_in_menu_bar(bool shown);
 // Whether the app warns before moving a tab to another profile's Space, which it does once, as Dia
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);

@@ -604,6 +604,12 @@ size_t bc_space_name(bc_id id, char* name, size_t capacity) {
   return space ? CopyString(space->name(), name, capacity) : 0;
 }
 
+size_t bc_space_key(bc_id id, char* key, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return space && !space->own() ? CopyString(space->node().id.AsLowercaseString(), key, capacity)
+                                : 0;
+}
+
 void bc_space_set_name(bc_id id, const char* name) {
   if (browser_core::Space* space = browser_core::Space::FromId(id)) {
     space->SetName(name ? name : "");
@@ -1017,6 +1023,35 @@ bool bc_warn_before_quitting(void) {
 
 void bc_set_warn_before_quitting(bool warn) {
   browser_core::UserSettings().warn_before_quitting = warn;
+  browser_core::SessionChanged();
+}
+
+bool bc_links_in_little(void) {
+  return browser_core::UserSettings().links_in_little;
+}
+
+void bc_set_links_in_little(bool little) {
+  browser_core::UserSettings().links_in_little = little;
+  browser_core::SessionChanged();
+}
+
+double bc_little_archive_after(void) {
+  return browser_core::UserSettings().little_archive_after.InSecondsF();
+}
+
+void bc_set_little_archive_after(double seconds) {
+  if (seconds > 0) {
+    browser_core::UserSettings().little_archive_after = base::Seconds(seconds);
+    browser_core::SessionChanged();
+  }
+}
+
+bool bc_little_in_menu_bar(void) {
+  return browser_core::UserSettings().little_in_menu_bar;
+}
+
+void bc_set_little_in_menu_bar(bool shown) {
+  browser_core::UserSettings().little_in_menu_bar = shown;
   browser_core::SessionChanged();
 }
 
