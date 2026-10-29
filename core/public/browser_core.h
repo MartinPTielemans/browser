@@ -1421,6 +1421,10 @@ BC_EXPORT void bc_set_archive_after(double seconds);
 // Spaces.
 BC_EXPORT bool bc_haptics(void);
 BC_EXPORT void bc_set_haptics(bool haptics);
+// View › Appearance's choice, which pages' prefers-color-scheme follows: 0 the system's, 1 light,
+// 2 dark. The app gives it at launch and when it changes, except on the Mac, where pages follow
+// the app's NSAppearance instead.
+BC_EXPORT void bc_set_appearance(int appearance);
 // Whether the app asks before the user's Quit quits, as the user chose. The core keeps it with the
 // Spaces.
 BC_EXPORT bool bc_warn_before_quitting(void);

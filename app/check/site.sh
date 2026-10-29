@@ -52,6 +52,14 @@ printf '%s' '<title>loading</title><textarea id=text autofocus></textarea>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
 </script>' > "$out/site/autofocus.html"
+# Its title says its prefers-color-scheme, "scheme dark" or "scheme light", as it loads and each
+# time the scheme changes.
+printf '%s' '<title>loading</title><script>
+const dark = matchMedia("(prefers-color-scheme: dark)");
+const say = () => document.title = "scheme " + (dark.matches ? "dark" : "light");
+say();
+dark.onchange = say;
+</script>' > "$out/site/scheme.html"
 # Its title says "login" once it's drawn, "filled" each time Chrome fills a saved password in, and
 # "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
 # highlighted fills it too, but only a fill the user chose gives the page its value, with a change
