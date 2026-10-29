@@ -63,6 +63,7 @@ mod link;
 #[cfg(test)]
 mod link_target;
 mod menu_bar;
+mod media_player;
 mod menus;
 mod naming;
 mod new_space;
@@ -93,7 +94,7 @@ mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
+pub use browser::{AgentGrants, Browser, Folders, MediaAction, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label,
@@ -1175,6 +1176,11 @@ pub struct Shell {
     /// (agent_bar.rs).
     agent_status: Vec<crate::agents::Status>,
     agent_bar_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The tabs whose player × put away until their page plays again.
+    media_dismissed: HashSet<u64>,
+    /// The players last drawn, as the log has them, and where the bottom one is.
+    media_logged: RefCell<Vec<u64>>,
+    media_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
@@ -1379,6 +1385,9 @@ impl Shell {
             agent_question_drawn: Rc::default(),
             agent_status: Vec::new(),
             agent_bar_drawn: Rc::default(),
+            media_dismissed: HashSet::new(),
+            media_logged: RefCell::default(),
+            media_drawn: Rc::default(),
             drm_notes: HashMap::new(),
             keys: HashMap::new(),
             drm_drawn: Rc::default(),
@@ -2221,6 +2230,23 @@ impl Shell {
             // check.sh waits for this line.
             log!("browser: page {tab} share instead {}", flag(page.share_instead));
         }
+        let media = |page: &Page| {
+            (page.media, page.media_playing, page.media_next, page.media_title.clone())
+        };
+        if media(&page) != media(&entry.page) {
+            // check.sh waits for this line.
+            log!(
+                "browser: page {tab} media {} playing {} next {} {}",
+                flag(page.media),
+                flag(page.media_playing),
+                flag(page.media_next),
+                page.media_title
+            );
+        }
+        // A player put away comes back once its page plays again.
+        if page.media_playing && !entry.page.media_playing {
+            self.media_dismissed.remove(&tab);
+        }
         if page.icon != entry.page.icon {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
             log!("browser: page {tab} icon {icon}");
@@ -3026,6 +3052,7 @@ impl Shell {
                     .children(self.turning_drag())
                     .children(self.question_card(cx))
                     .children(self.agent_question_card(cx))
+                    .children(self.media_player_cards(cx))
                     .children(self.agent_bar_card(cx))
                     .children(self.drm_note_card(cx))
             }
@@ -3090,7 +3117,7 @@ impl Shell {
             .top(px(self.pages_top()))
             .left_0()
             .w(px(self.width()))
-            .bottom(px(FOOTER_HEIGHT))
+            .bottom(px(self.list_bottom()))
             .overflow_hidden()
             .children(pages)
             .child(self.rest_press_listener(Self::press_at_rest, cx).absolute().size_full())

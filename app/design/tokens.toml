@@ -677,6 +677,15 @@ tile-radius = 12.0
 # or is shared, or plays sound (ours).
 tile-mark = 12.0
 tile-mark-inset = 4.0
+# The players at the sidebar's foot for tabs playing out of sight, as Arc's mini player and media
+# tray (ours: Arc's aren't measured): each a row's height on a tile's fill, 6 apart and over the
+# footer, its title 13 pt over its artist at 11, and buttons a row's ✕ square holding 14 pt glyphs.
+media-height = 40.0
+media-gap = 6.0
+media-title = 13.0
+media-artist = 11.0
+media-button = 24.0
+media-glyph = 14.0
 # Favorites taller than this much of the window scroll with the list instead of staying put
 # (Ardia), so they never leave the rows too little room.
 tall-favorites = 0.4

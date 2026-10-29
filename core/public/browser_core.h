@@ -101,6 +101,14 @@ typedef struct bc_tab_state {
   bool shared;
   // Another page shares a tab, and bc_tab_share_instead would have it share this one.
   bool share_instead;
+  // The page's media, as Chrome's media controls show it: whether it has a session the browser
+  // can play, pause and skip (bc_tab_media), whether that's playing, its title and artist, each
+  // empty without one, and whether it has a next track.
+  bool media;
+  bool media_playing;
+  const char* media_title;
+  const char* media_artist;
+  bool media_next;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -1871,6 +1879,15 @@ BC_EXPORT void bc_tab_set_muted(bc_id tab, bool muted);
 // page in its place, as Chrome's Share this tab instead does. The user's: agents get none, as it
 // would show a page to whoever the call reaches. Then tab_state_changed, for both tabs.
 BC_EXPORT void bc_tab_share_instead(bc_id tab);
+
+// What bc_tab_media does to the page's media, as Chrome's media controls do.
+#define BC_MEDIA_PLAY 0
+#define BC_MEDIA_PAUSE 1
+#define BC_MEDIA_NEXT 2
+
+// Plays, pauses or skips the page's media, one of BC_MEDIA_, while its state has media. Then
+// tab_state_changed. The user's: agents act in the page instead.
+BC_EXPORT void bc_tab_media(bc_id tab, int action);
 
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
 // shows the tab first. Then tab_closed for each, and space_changed.

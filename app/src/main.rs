@@ -27,8 +27,8 @@ use browser::{
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
-    SidePanel, Split, Trouble, WindowButton,
+    ExtensionAction, ExtensionCommand, FilePreview, Folders, MediaAction, MenuEntry, Page,
+    PagePicture, Shell, SidePanel, Split, Trouble, WindowButton,
 };
 use browser::text_input::{
     Copy, Cut, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
@@ -1751,6 +1751,15 @@ impl Browser for Engine {
 
     fn share_instead(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_share_instead(tab) };
+    }
+
+    fn media(&self, tab: u64, action: MediaAction, _: &mut App) {
+        let action = match action {
+            MediaAction::Play => bc::BC_MEDIA_PLAY,
+            MediaAction::Pause => bc::BC_MEDIA_PAUSE,
+            MediaAction::Next => bc::BC_MEDIA_NEXT,
+        };
+        unsafe { bc::bc_tab_media(tab, action as i32) };
     }
 
     fn clear(&self, _: &mut App) -> u64 {
@@ -4420,6 +4429,17 @@ unsafe extern "C" fn tab_state_changed(
         sharing: state.sharing,
         shared: state.shared,
         share_instead: state.share_instead,
+        media: state.media,
+        media_playing: state.media_playing,
+        media_title: unsafe { CStr::from_ptr(state.media_title) }
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+        media_artist: unsafe { CStr::from_ptr(state.media_artist) }
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+        media_next: state.media_next,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
         update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));

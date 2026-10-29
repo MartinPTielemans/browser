@@ -99,7 +99,7 @@ impl Shell {
     }
 
     /// Whether `tab`'s page is on screen in this window, alone or in the split view shown.
-    fn on_screen(&self, tab: u64) -> bool {
+    pub(super) fn on_screen(&self, tab: u64) -> bool {
         self.selected != 0 && !self.new_tab && self.panes(self.selected).contains(&tab)
     }
 

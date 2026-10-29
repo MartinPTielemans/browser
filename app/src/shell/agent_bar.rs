@@ -6,7 +6,7 @@
 use gpui::{Context, FontWeight, SharedString, div, prelude::*, px, rgba};
 
 use super::{
-    FOOTER_HEIGHT, Shell, TITLE,
+    Shell, TITLE,
     permission::{BUTTONS_TOP, card_button, card_listener},
 };
 use crate::agents::Status;
@@ -99,7 +99,7 @@ impl Shell {
         Some(
             self.plate("agent-bar")
                 .top(gpui::auto())
-                .bottom(px(FOOTER_HEIGHT + GAP))
+                .bottom(px(self.list_bottom() + GAP))
                 .child(listener)
                 .child(
                     div()

@@ -51,6 +51,7 @@
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/favicon_status.h"
+#include "content/public/browser/media_session.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -268,6 +269,8 @@ void Tab::Attach(content::WebContents* contents) {
     capture_observation_.Observe(
         MediaCaptureDevicesDispatcher::GetInstance()->GetMediaStreamCaptureIndicator().get());
   }
+  // Another page's session is heard from once it plays.
+  media_observer_.reset();
   // Chrome's tab sharing infobar comes and goes on it as a page starts and stops sharing a tab.
   infobar_observation_.Reset();
   if (auto* infobars = infobars::ContentInfoBarManager::FromWebContents(contents)) {
@@ -903,6 +906,8 @@ void Tab::ReportState() {
         .trouble = BC_PAGE_FINE,
         .net_error = 0,
         .system_engine = false,
+        .media_title = "",
+        .media_artist = "",
     };
     Host().tab_state_changed(Host().context, id_, &state);
     return;
@@ -921,6 +926,15 @@ void Tab::ReportState() {
   const bool sharing = capture->IsCapturingTab(contents) ||
                        capture->IsCapturingWindow(contents) ||
                        capture->IsCapturingDisplay(contents);
+  // Chrome's media controls show a session they can control, as the sidebar's player does.
+  content::MediaSession* session = page ? nullptr : content::MediaSession::GetIfExists(contents);
+  const media_session::mojom::MediaSessionInfoPtr media =
+      session ? session->GetMediaSessionInfoSync() : nullptr;
+  const bool controllable = media && media->is_controllable;
+  const std::string media_title =
+      controllable ? base::UTF16ToUTF8(session->GetMediaSessionMetadata().title) : "";
+  const std::string media_artist =
+      controllable ? base::UTF16ToUTF8(session->GetMediaSessionMetadata().artist) : "";
   const bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = CanGoBack(),
@@ -939,6 +953,14 @@ void Tab::ReportState() {
       .sharing = !page && sharing,
       .shared = !page && capture->IsBeingMirrored(contents),
       .share_instead = !page && ShareInsteadInfoBar(contents),
+      .media = controllable,
+      .media_playing = controllable && media->playback_state ==
+                                           media_session::mojom::MediaPlaybackState::kPlaying,
+      .media_title = media_title.c_str(),
+      .media_artist = media_artist.c_str(),
+      .media_next = controllable &&
+                    std::ranges::contains(session->GetMediaSessionActionsSync(),
+                                          media_session::mojom::MediaSessionAction::kNextTrack),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
@@ -1320,6 +1342,46 @@ void Tab::ShareInstead() {
   }
 }
 
+void Tab::Media(int action) {
+  content::MediaSession* session =
+      web_contents() ? content::MediaSession::GetIfExists(web_contents()) : nullptr;
+  if (!session) {
+    return;
+  }
+  // As the user asked from the browser's UI, as Chrome's media controls do.
+  constexpr auto kUI = media_session::mojom::MediaSession::SuspendType::kUI;
+  switch (action) {
+    case BC_MEDIA_PLAY:
+      session->Resume(kUI);
+      break;
+    case BC_MEDIA_PAUSE:
+      session->Suspend(kUI);
+      break;
+    case BC_MEDIA_NEXT:
+      session->NextTrack();
+      break;
+  }
+}
+
+void Tab::MediaStartedPlaying(const MediaPlayerInfo&, const content::MediaPlayerId&) {
+  if (!media_observer_.is_bound()) {
+    content::MediaSession::Get(web_contents())
+        ->AddObserver(media_observer_.BindNewPipeAndPassRemote());
+  }
+}
+
+void Tab::MediaSessionInfoChanged(media_session::mojom::MediaSessionInfoPtr) {
+  ReportStateSoon();
+}
+
+void Tab::MediaSessionMetadataChanged(const std::optional<media_session::MediaMetadata>&) {
+  ReportStateSoon();
+}
+
+void Tab::MediaSessionActionsChanged(const std::vector<media_session::mojom::MediaSessionAction>&) {
+  ReportStateSoon();
+}
+
 void Tab::OnInfoBarAdded(infobars::InfoBar*) {
   ReportStateSoon();
 }
@@ -1347,6 +1409,7 @@ void Tab::WebContentsDestroyed() {
   // The driver is the page's too, and may go before the tab does, as may its infobars.
   favicon_observation_.Reset();
   infobar_observation_.Reset();
+  media_observer_.reset();
   audible_subscription_ = {};
   system_page_.reset();
   // Unloaded, it stays without its page.

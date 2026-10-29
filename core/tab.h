@@ -22,6 +22,8 @@
 #include "components/infobars/core/infobar_manager.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "services/media_session/public/mojom/media_session.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/image/image.h"
@@ -45,6 +47,7 @@ class Tab : public content::WebContentsObserver,
             public favicon::FaviconDriverObserver,
             public MediaStreamCaptureIndicator::Observer,
             public infobars::InfoBarManager::Observer,
+            public media_session::mojom::MediaSessionObserver,
             public platform::SystemPage::Delegate {
  public:
   // |contents|'s id, given the first time it's asked for.
@@ -146,6 +149,8 @@ class Tab : public content::WebContentsObserver,
   // While another page shares a tab, has it share this tab's page instead, as Chrome's infobar's
   // Share this tab instead does.
   void ShareInstead();
+  // Plays, pauses or skips the page's media, as bc_tab_media.
+  void Media(int action);
   bool muted() const;
 
   // The page the system's engine shows in place of Chromium's (system_engine.h), else null. Its
@@ -231,6 +236,7 @@ class Tab : public content::WebContentsObserver,
   void DidUpdateAudioMutingState(bool muted) override;
   void DidGetUserInteraction(const blink::WebInputEvent& event) override;
   void OnVisibilityChanged(content::Visibility visibility) override;
+  void MediaStartedPlaying(const MediaPlayerInfo& info, const content::MediaPlayerId& id) override;
   void WebContentsDestroyed() override;
 
   // platform::SystemPage::Delegate:
@@ -268,6 +274,18 @@ class Tab : public content::WebContentsObserver,
   void OnInfoBarRemoved(infobars::InfoBar* infobar, bool animate) override;
   void OnInfoBarReplaced(infobars::InfoBar* old_infobar, infobars::InfoBar* new_infobar) override;
   void OnManagerWillBeDestroyed(infobars::InfoBarManager* manager) override;
+
+  // media_session::mojom::MediaSessionObserver, for the media the sidebar's player shows:
+  void MediaSessionInfoChanged(media_session::mojom::MediaSessionInfoPtr info) override;
+  void MediaSessionMetadataChanged(
+      const std::optional<media_session::MediaMetadata>& metadata) override;
+  void MediaSessionActionsChanged(
+      const std::vector<media_session::mojom::MediaSessionAction>& actions) override;
+  void MediaSessionImagesChanged(
+      const base::flat_map<media_session::mojom::MediaSessionImageType,
+                           std::vector<media_session::MediaImage>>& images) override {}
+  void MediaSessionPositionChanged(
+      const std::optional<media_session::MediaPosition>& position) override {}
 
   // Tells the app the tab's state from a task of its own, as StateChanged does, for a change the
   // session doesn't keep.
@@ -325,6 +343,8 @@ class Tab : public content::WebContentsObserver,
       capture_observation_{this};
   base::ScopedObservation<infobars::InfoBarManager, infobars::InfoBarManager::Observer>
       infobar_observation_{this};
+  // Bound once the page first plays media, as only then has it a session to hear from.
+  mojo::Receiver<media_session::mojom::MediaSessionObserver> media_observer_{this};
   std::unique_ptr<content::NavigationController::LoadURLParams> waiting_;
   bool crashed_ = false;
   // While the page is hung: Chrome's Wait, and the id of the renderer that hung, which Reload ends.

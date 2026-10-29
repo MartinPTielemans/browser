@@ -140,6 +140,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/palette.svg", include_bytes!("../../assets/icons/palette.svg")),
     ("icons/panel-left.svg", include_bytes!("../../assets/icons/panel-left.svg")),
     ("icons/paw-print.svg", include_bytes!("../../assets/icons/paw-print.svg")),
+    ("icons/pause.svg", include_bytes!("../../assets/icons/pause.svg")),
     ("icons/pencil.svg", include_bytes!("../../assets/icons/pencil.svg")),
     ("icons/piano.svg", include_bytes!("../../assets/icons/piano.svg")),
     (
@@ -150,6 +151,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/pizza.svg", include_bytes!("../../assets/icons/pizza.svg")),
     ("icons/plane.svg", include_bytes!("../../assets/icons/plane.svg")),
     ("icons/planet.svg", include_bytes!("../../assets/icons/planet.svg")),
+    ("icons/play.svg", include_bytes!("../../assets/icons/play.svg")),
     ("icons/plus.svg", include_bytes!("../../assets/icons/plus.svg")),
     ("icons/printer.svg", include_bytes!("../../assets/icons/printer.svg")),
     ("icons/puzzle.svg", include_bytes!("../../assets/icons/puzzle.svg")),
@@ -166,6 +168,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/share.svg", include_bytes!("../../assets/icons/share.svg")),
     ("icons/shield.svg", include_bytes!("../../assets/icons/shield.svg")),
     ("icons/shopping-basket.svg", include_bytes!("../../assets/icons/shopping-basket.svg")),
+    ("icons/skip-forward.svg", include_bytes!("../../assets/icons/skip-forward.svg")),
     ("icons/skull.svg", include_bytes!("../../assets/icons/skull.svg")),
     ("icons/spaces.svg", include_bytes!("../../assets/icons/spaces.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../../assets/icons/sliders-horizontal.svg")),

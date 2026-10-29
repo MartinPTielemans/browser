@@ -1,15 +1,18 @@
 # A tab in a call says so on its row, as Chrome's tab strip does: the camera while its page uses
 # the camera, the microphone alone, or the screen while it shares a screen, a window or a tab, and
 # the tab it shares shows the screen too. While it shares a tab, another tab's menu has Share This
-# Tab Instead, which moves the share there. The marks go once the call ends. Chromium's fake camera
-# and microphone stand in for real ones, and the share takes the tab titled Shared without its
-# picker; the question for the camera is answered with Allow, as the user would, since the fake
-# question Chromium can put in its place never tells the browser what's captured.
+# Tab Instead, which moves the share there. The marks go once the call ends. A tab playing music
+# out of sight has a player at the sidebar's foot, whose button pauses it, whose click shows the
+# tab, and whose × puts it away. Chromium's fake camera and microphone stand in for real ones, and
+# the share takes the tab titled Shared without its picker; the question for the camera is
+# answered with Allow, as the user would, since the fake question Chromium can put in its place
+# never tells the browser what's captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
-# opens that tab, the same page with ?Shared, whose title is what follows the ?, and "p" one titled
-# Other.
+# opens that tab, the same page with ?Shared, whose title is what follows the ?, "p" one titled
+# Other, and "m" plays ten seconds of silence over and over, as music titled Quiet with a next
+# track: long enough for Chrome to give it controls, and no sound.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 const name = decodeURIComponent(location.search.slice(1));
@@ -27,6 +30,23 @@ onkeydown = async e => {
       streams.forEach(stream => stream.getTracks().forEach(track => track.stop()));
       streams = [];
       document.title = "ended";
+    } else if (e.key == "m") {
+      const rate = 8000, n = rate * 10, wav = new DataView(new ArrayBuffer(44 + n));
+      const text = (at, s) => [...s].forEach((c, i) => wav.setUint8(at + i, c.charCodeAt(0)));
+      text(0, "RIFF"); wav.setUint32(4, 36 + n, true); text(8, "WAVEfmt ");
+      wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true);
+      wav.setUint32(24, rate, true); wav.setUint32(28, rate, true); wav.setUint16(32, 1, true);
+      wav.setUint16(34, 8, true); text(36, "data"); wav.setUint32(40, n, true);
+      for (let i = 0; i < n; i++) {
+        wav.setUint8(44 + i, 128);
+      }
+      const music = new Audio(URL.createObjectURL(new Blob([wav], {type: "audio/wav"})));
+      music.loop = true;
+      music.onplaying = () => document.title = "playing";
+      music.onpause = () => document.title = "paused";
+      navigator.mediaSession.metadata = new MediaMetadata({title: "Quiet", artist: "Check"});
+      navigator.mediaSession.setActionHandler("nexttrack", () => document.title = "next track");
+      await music.play();
     } else if (e.key == "o" || e.key == "p") {
       window.open(e.key == "o" ? "call.html?Shared" : "call.html?Other");
     }
@@ -55,14 +75,18 @@ fi
 
 # The tab the call shares and the one it shares instead, opened from it, then the call's tab
 # shown again. Each opens under it, so the call's tab is found by its place in Today.
-# shown_again <tab>: shows <tab> by its ⌘ number and gives its page the keyboard.
-shown_again() {
+# shown <tab>: shows <tab> by its ⌘ number. shown_again <tab>: and gives its page the keyboard.
+shown() {
   n=$(today | tr ' ' '\n' | grep -nx "$1" | cut -d: -f1)
   switch "$((n + $(pinned | wc -w))) cmd" "$1"
+}
+shown_again() {
+  shown "$1"
   send click $page_point
 }
 send key o
-expect "^browser: today \($a [0-9][0-9]*\|[0-9][0-9]* $a\)\$" "the page didn't open the tab to share"
+expect "^browser: today \($a [0-9][0-9]*\|[0-9][0-9]* $a\)\$" \
+  "the page didn't open the tab to share"
 b=$(today | tr ' ' '\n' | grep -vx "$a")
 expect "^browser: title $b Shared\$" "the tab to share didn't draw"
 shown_again "$a"
@@ -112,7 +136,34 @@ expect "^browser: page $a camera 0 microphone 0 sharing 0 shared 0\$" \
   "the call's tab kept its mark once the call ended"
 expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
   "the tab shared kept its mark once the share ended"
+
+# Music in the call's tab, then another tab shown: the tab playing out of sight has a player.
+send key m
+expect "^browser: title $a playing\$" "m in the page didn't play its silence"
+expect "^browser: page $a media 1 playing 1 next 1 Quiet\$" "the page's music had no controls"
+none_since "^browser: media players [0-9]" || fail "the tab shown had a player"
+shown "$b"
+expect "^browser: media players $a\$" "the tab playing out of sight had no player"
+expect "^browser: media player $a at " "the player wasn't drawn"
+read -r mx my mw mh <<EOF
+$(grep "^browser: media player $a at " "$log" | tail -1 | cut -d' ' -f6-)
+EOF
+../tools/window-screenshot.sh "$pid" "$out/media-player.png" || fail "no window to capture"
+# Its buttons from the right, 8 in, 24 wide and 6 apart: ×, the next track, then pause.
+button_x() { echo $((mx + mw - 8 - 12 - $1 * 30)); }
+send click "$(button_x 2)" $((my + mh / 2))
+expect '^browser: command media-pause via player$' "the player's pause didn't take the click"
+expect "^browser: title $a paused\$" "the player's pause didn't pause the page"
+expect "^browser: page $a media 1 playing 0 next 1 Quiet\$" "the player didn't show it paused"
+send click $((mx + 60)) $((my + mh / 2))
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the player didn't show its tab"
+expect '^browser: media players $' "the tab shown kept its player"
+shown "$b"
+expect "^browser: media players $a\$" "the paused tab out of sight had no player"
+send click "$(button_x 0)" $((my + mh / 2))
+expect '^browser: command media-dismiss via player$' "the player's × didn't take the click"
+expect '^browser: media players $' "× didn't put the player away"
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; music playing out of sight has a player that pauses it, shows its tab and goes on ×."

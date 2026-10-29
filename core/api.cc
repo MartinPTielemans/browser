@@ -1587,6 +1587,12 @@ void bc_tab_share_instead(bc_id id) {
   }
 }
 
+void bc_tab_media(bc_id id, int action) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->Media(action);
+  }
+}
+
 void bc_tab_close_below(bc_id id) {
   browser_core::Window::CloseBelow(id);
 }
