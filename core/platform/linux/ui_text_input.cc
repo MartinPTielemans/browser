@@ -252,6 +252,10 @@ bool UITextInput::ShouldDoLearning() {
   return false;
 }
 
+// GPUI tells the core only where the caret is, not the field's bounds, so neither is known.
+void UITextInput::GetActiveTextInputControlLayoutBounds(std::optional<gfx::Rect>*,
+                                                        std::optional<gfx::Rect>*) {}
+
 bool UITextInput::SetCompositionFromExistingText(const gfx::Range&,
                                                  const std::vector<ui::ImeTextSpan>&) {
   return false;
