@@ -400,8 +400,8 @@ fn target_in(window: xproto::Window, x: f64, y: f64) -> Option<Target> {
 }
 
 /// The window of the app's that the pointer at (`x`, `y`) in the driven browser window is over, as
-/// the X server picks it: an overlay over the window, then GPUI's window, but where its shape
-/// leaves holes for the pages, which are Chromium's window's.
+/// the X server picks it: an overlay over the window, or a panel in it, then GPUI's window, but
+/// where its shape leaves holes for the pages, which are Chromium's window's.
 fn target_at(x: f64, y: f64) -> Option<Target> {
     let browser = driven()?;
     let at = target_in(browser.window, x, y)?;
@@ -412,9 +412,16 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
         .ok()?
         .reply()
         .ok()?;
+    let child = (connection.translate_coordinates(browser.window, browser.window, at.x, at.y))
+        .ok()?
+        .reply()
+        .ok()?
+        .child;
+    // A panel, such as the offer to save a password, is a child of Chromium's window, beside the
+    // UI's, where an overlay is a window of its own.
     if let Some(view) = overlay_views()
         .into_iter()
-        .find(|&view| view as usize as u32 == top.child)
+        .find(|&view| [top.child, child].contains(&(view as usize as u32)))
     {
         let view = view as usize as u32;
         let inside = connection
@@ -429,11 +436,6 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
             ..at
         });
     }
-    let child = (connection.translate_coordinates(browser.window, browser.window, at.x, at.y))
-        .ok()?
-        .reply()
-        .ok()?
-        .child;
     Some(match child == browser.ui {
         true => Target {
             window: browser.gpui,
