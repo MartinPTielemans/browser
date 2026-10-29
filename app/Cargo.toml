@@ -51,6 +51,8 @@ gpui_linux = { path = ".deps/zed/crates/gpui_linux" }
 # Flatpak's portal, for updates (src/flatpak.rs): the D-Bus GPUI's portals already use.
 zbus = { version = "5.13", default-features = false, features = ["async-io"] }
 futures-lite = "2"
+# The driver's keys on X11 (platform/linux/drive.rs), as linux/Cargo.toml has it for the library.
+x11rb = { version = "0.13", features = ["xkb"] }
 
 [build-dependencies]
 # 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.

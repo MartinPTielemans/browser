@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use super::{
-    COPIED_TIME, Edit, Section, Shell, Swapped, UserKeys, What,
+    COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
@@ -23,6 +23,8 @@ use super::{
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Command {
     NewTab,
+    /// Opens the command bar on the open tabs alone, the Space shown's first, to switch to one.
+    SearchTabs,
     /// Opens another window on the same Spaces.
     NewWindow,
     /// Opens a private window, in the profile's off-the-record session.
@@ -183,6 +185,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("alt-cmd-right", Command::NextSpace, true),
     ("alt-cmd-left", Command::PreviousSpace, true),
     ("cmd-l", Command::EditUrl, false),
+    ("shift-cmd-a", Command::SearchTabs, false),
     ("cmd-d", Command::TogglePin, false),
     ("cmd-enter", Command::BackToPinnedUrl, false),
     ("shift-cmd-k", Command::Clear, false),
@@ -266,6 +269,7 @@ const HIDE_SIDEBAR: &str = "Hide Sidebar";
 pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Pin Tab", Command::TogglePin, &["unpin"]),
     ("Next Tab", Command::NextTab, &[]),
+    ("Search Tabs…", Command::SearchTabs, &["switch tab", "open tabs"]),
     ("Archive Tab", Command::CloseTab, &["close tab"]),
     ("Clear Today", Command::Clear, &["unpinned tabs"]),
     ("Clear Cache and Refresh", Command::ClearCacheAndRefresh, &[]),
@@ -525,13 +529,21 @@ impl Command {
     /// Whether it opens the command bar or the find bar with the keyboard, which the keys typed
     /// right after its shortcut belong in (docs/ux-spec.md › Command bar › Keys).
     pub fn opens_field(self) -> bool {
-        matches!(self, Command::NewTab | Command::EditUrl | Command::Find | Command::AddSplit)
+        matches!(
+            self,
+            Command::NewTab
+                | Command::SearchTabs
+                | Command::EditUrl
+                | Command::Find
+                | Command::AddSplit
+        )
     }
 
     /// The command's name in the log and in the user's saved keys.
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
+            Command::SearchTabs => "search-tabs",
             Command::NewWindow => "new-window",
             Command::NewPrivateWindow => "new-private-window",
             Command::CloseWindow => "close-window",
@@ -703,13 +715,20 @@ impl Shell {
             return;
         }
         // The command bar opens over the page, and the reveal's panel makes way for it.
-        if matches!(command, Command::NewTab | Command::EditUrl | Command::AddSplit) {
+        if matches!(
+            command,
+            Command::NewTab | Command::SearchTabs | Command::EditUrl | Command::AddSplit
+        ) {
             self.set_revealed(false, cx);
         }
         let target = match command {
             Command::NewTab => {
                 self.set_new_tab(true, cx);
                 return self.browser.command_bar(None, self.bar_tabs(), None, cx);
+            }
+            Command::SearchTabs => {
+                self.set_new_tab(false, cx);
+                return self.browser.search_tabs(self.open_tabs(), cx);
             }
             Command::EditUrl => {
                 self.set_new_tab(false, cx);
@@ -1027,10 +1046,23 @@ impl Shell {
     fn bar_tabs(&self) -> Vec<BarTab> {
         let mut tabs = self.favorites.clone();
         if let Some(space) = self.shown_space() {
-            tabs.extend(space.pinned.iter().filter(|&&row| !space.is_folder(row)));
-            tabs.extend(&space.today);
+            tabs.extend(space_tabs(space));
         }
-        let shown = self.panes(self.selected);
+        self.as_bar_tabs(self.recent_first(tabs))
+    }
+
+    /// The tabs Search Tabs lists: the command bar's, then the other Spaces' pinned and Today tabs,
+    /// those shown most recently first, then the rest in the Spaces' order.
+    fn open_tabs(&self) -> Vec<BarTab> {
+        let others = self.spaces.iter().filter(|space| space.id != self.space);
+        let others = self.recent_first(others.flat_map(space_tabs).collect());
+        let mut tabs = self.bar_tabs();
+        tabs.extend(self.as_bar_tabs(others));
+        tabs
+    }
+
+    /// `tabs`, those shown most recently first, then the rest in their order.
+    fn recent_first(&self, tabs: Vec<u64>) -> Vec<u64> {
         let recent = self.recent.iter().copied().filter(|tab| tabs.contains(tab));
         let mut order: Vec<u64> = recent.collect();
         for tab in tabs {
@@ -1039,7 +1071,13 @@ impl Shell {
             }
         }
         order
-            .into_iter()
+    }
+
+    /// `tabs` as the command bar lists them, without the tab shown and what shows with it, and
+    /// without those that have no page yet.
+    fn as_bar_tabs(&self, tabs: Vec<u64>) -> Vec<BarTab> {
+        let shown = self.panes(self.selected);
+        tabs.into_iter()
             .filter(|tab| !shown.contains(tab) && !self.url(*tab).is_empty())
             .map(|tab| BarTab {
                 tab,
@@ -1101,6 +1139,7 @@ impl Shell {
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
             Command::NewFolder
+            | Command::SearchTabs
             | Command::ReopenClosedTab
             | Command::NewWindow
             | Command::NewPrivateWindow
@@ -1137,6 +1176,12 @@ impl Shell {
             _ => Some(name),
         }
     }
+}
+
+/// `space`'s pinned tabs, without its folders, and its Today tabs, in the sidebar's order.
+fn space_tabs(space: &Space) -> impl Iterator<Item = u64> + '_ {
+    let pinned = space.pinned.iter().filter(|&&row| !space.is_folder(row));
+    pinned.chain(&space.today).copied()
 }
 
 /// Whether a private window runs `command`. It has one Space, unsaved, so nothing that keeps a tab
@@ -1223,5 +1268,52 @@ mod tests {
         assert_eq!(keys.command_for("cmd-n", true), Some(Command::NewWindow));
         assert_eq!(keys.command_for("shift-cmd-n", true), Some(Command::NewPrivateWindow));
         assert_eq!(keys.command_for("shift-cmd-w", true), Some(Command::CloseWindow));
+    }
+
+    /// ⇧⌘A is a page's to keep, as Chrome's Search Tabs is, and the keys typed right after it wait
+    /// for the bar it opens.
+    #[test]
+    fn search_tabs_is_not_a_reserved_key() {
+        let keys = UserKeys::default();
+        assert_eq!(keys.command_for("shift-cmd-a", false), Some(Command::SearchTabs));
+        assert_eq!(keys.command_for("shift-cmd-a", true), None);
+        assert!(keys.holds_keys("shift-cmd-a"));
+        assert_eq!(keys.label(Command::SearchTabs).as_deref(), Some("⇧⌘A"));
+    }
+
+    /// ⇧⌘A with the UI focused lists the open tabs but the one shown: the Space shown's first, as
+    /// the command bar lists them, then the other Space's, the one shown last there first.
+    #[gpui::test]
+    fn search_tabs_lists_the_open_tabs_the_space_shown_first(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::VisualTestContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(bind_keys);
+        let (shell, cx): (gpui::Entity<Shell>, &mut VisualTestContext) =
+            cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str| (id, name.into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space(1, "One"), space(2, "Two")], cx);
+            shell.set_tabs(1, vec![10], vec![11, 12], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+            for tab in [10, 11, 12, 20, 21] {
+                let page = Page { url: format!("https://{tab}.test/").into(), ..Page::default() };
+                shell.set_page(tab, page, cx);
+            }
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+            shell.set_space(1, cx);
+            shell.set_selected(12, cx);
+            shell.set_selected(11, cx);
+        });
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        cx.simulate_keystrokes("shift-cmd-a");
+        assert_eq!(host.searched_tabs.take(), [vec![12, 10, 21, 20]]);
+        assert!(host.command_bars.take().is_empty(), "it opened the bar for a new tab too");
     }
 }

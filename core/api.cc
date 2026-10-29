@@ -94,6 +94,23 @@ views::Widget* OpenWidget(bc_id id) {
   return widget && !widget->IsClosed() ? widget : nullptr;
 }
 
+#if BUILDFLAG(IS_LINUX)
+// Takes window |id|'s |widget| out of full screen. Linux reports no change Chromium asks for
+// itself, so a page full screen leaves with it here, as the Mac's does as AppKit says it's leaving.
+void LeaveFullScreen(bc_id id, views::Widget* widget) {
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  // The app lays the page leaving out once, at the window's new size.
+  if (window && window->FullScreenForPage()) {
+    browser_core::platform::HoldPagesForResize(widget);
+  }
+  widget->SetFullscreen(false);
+  // Found again: the window's resize runs the app, which may close it.
+  if (browser_core::Window* still = browser_core::Window::FromId(id)) {
+    still->LeavingFullScreen();
+  }
+}
+#endif
+
 // Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
 size_t CopyString(const std::string& text, char* to, size_t capacity) {
   if (capacity > 0) {
@@ -280,7 +297,7 @@ void bc_window_toggle_maximized(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    widget->SetFullscreen(false);
+    LeaveFullScreen(id, widget);
   } else if (widget->IsMaximized()) {
     widget->Restore();
   } else {
@@ -388,10 +405,13 @@ bool bc_agent_may_act(const char* agent,
                       char* reason,
                       size_t capacity) {
   content::WebContents* contents = browser_core::Tab::FromId(tab);
-  std::string refused;
-  if (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab)) {
+  // An action no agent may do is refused whatever the tab, so that's the reason given.
+  std::string refused = browser_core::RefusedAction(action ? action : "");
+  if (refused.empty() && (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab))) {
     refused = "The tab isn't in the agent's own Space.";
-  } else if (contents && browser_core::Tab::FromWebContents(contents)->system_page()) {
+  }
+  if (refused.empty() && contents &&
+      browser_core::Tab::FromWebContents(contents)->system_page()) {
     // Its Space never switches a tab there, but the rule is the core's to keep, not the UI's.
     refused =
         "The tab shows its page in the system's engine, where the browser can't keep an agent's "
@@ -1555,8 +1575,14 @@ bool bc_window_is_full_screen(bc_id id) {
 
 void bc_window_toggle_full_screen(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  if (views::Widget* widget = OpenWidget(id)) {
-    widget->SetFullscreen(!widget->IsFullscreen());
+  views::Widget* widget = OpenWidget(id);
+  if (!widget) {
+    return;
+  }
+  if (widget->IsFullscreen()) {
+    LeaveFullScreen(id, widget);
+  } else {
+    widget->SetFullscreen(true);
   }
 #endif
 }

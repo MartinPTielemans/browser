@@ -134,7 +134,10 @@ void host_add_menu_window(void* view,
   g_dismissed = dismissed;
   g_choose = choose;
   HostMakeOverlay(g_window);
-  // The UI draws the panels' shadows, inside the window.
+  // Borderless, as GPUI made it titled, whose edge AppKit draws as a light line along the top of
+  // the whole window, which reaches past the panels for their shadows (#643). The UI draws the
+  // panels' shadows, inside the window.
+  g_window.styleMask = NSWindowStyleMaskBorderless;
   g_window.hasShadow = NO;
   constexpr NSEventMask kEvents =
       NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged |

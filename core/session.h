@@ -45,8 +45,10 @@ struct SavedTab {
   // Whether its page took its split view's card, the other pages keeping 220 pt, which the shares
   // aren't kept for.
   bool expanded = false;
-  // How many folders it's in, among the pinned tabs.
-  int depth = 0;
+  // A pinned tab's folder, among its Space's saved folders, else -1.
+  int folder = -1;
+  // A pinned tab's node, or none if it was saved before pinned tabs had them.
+  Space::Node node;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.
   bool muted = false;
   // A favorite's profile's directory. A Space's tabs are in the Space's.
@@ -62,15 +64,19 @@ SavedTab SaveTab(content::WebContents& contents);
 struct SavedFolder {
   std::string name;
   bool open = true;
-  // How many folders it's in.
-  int depth = 0;
+  // The folder it's in, among its Space's saved folders, which is saved before it, else -1.
+  int folder = -1;
   // The pinned tab saved under it, counted among them.
   size_t at = 0;
+  // Its node, or none if it was saved before folders had them.
+  Space::Node node;
 };
 
 // A Space, as the session file keeps it.
 struct SavedSpace {
   std::string name;
+  // Its node, or none if it was saved before Spaces had them.
+  Space::Node node;
   std::optional<uint32_t> color;
   // The emoji the user gave it, if any.
   std::string icon;

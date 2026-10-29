@@ -328,17 +328,18 @@ settled
 none_since '^browser: selected' || fail "dragging into and out of a folder showed a tab"
 ../tools/window-screenshot.sh "$pid" "$out/folder.png" || fail "no window to capture"
 # A click closes the folder and another opens it, recorded for its motion: closing critically
-# damped, opening on its ease-out, neither overshooting.
+# damped, opening on its ease-out, neither overshooting. With the Today tab shown, the folder's tab
+# isn't, so it folds away and the rows under it slide up, then back down.
+switch "9 cmd" "$a"
 record folder-motion 3
 send click $(pinned_row 0)
 expect '^browser: command toggle-folder via sidebar$' "a click on the folder didn't run toggle-folder"
 expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it: $(outline)"
-# Each half plays out in the film before the next click. The fold takes under 0.5 s, and with no
-# row under the folder nothing slides, so no "rows settled" says it's done.
-sleep 0.5
+# Each half plays out in the film before the next click.
+settled
 send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
-sleep 0.5
+settled
 recorded
 # The command bar finds commands by their names' letters in order, those that start with what's
 # typed first, and one found by its letters alone last, after the suggestions. ↩ runs the command
