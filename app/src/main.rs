@@ -3980,6 +3980,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                         item("Open Task Manager", Command::TaskManager),
                     ],
                 )),
+                MenuItem::separator(),
+                item("Privacy Policy", Command::PrivacyPolicy),
             ],
         ),
     ]

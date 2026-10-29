@@ -9,6 +9,8 @@ pub const NEW_ISSUE: &str = env!("APP_ISSUES");
 /// The site's help and release notes, at a default service URL (branding/site).
 pub const HELP_CENTER: &str = concat!(env!("APP_SITE"), "/help");
 pub const WHATS_NEW: &str = concat!(env!("APP_SITE"), "/whats-new");
+/// The privacy policy, at a default service URL too, which Settings › Privacy and Help open.
+pub const PRIVACY_POLICY: &str = concat!(env!("APP_SITE"), "/privacy");
 
 /// The details of this copy of the app and the computer it runs on.
 #[derive(Clone, Debug, PartialEq)]

@@ -1133,7 +1133,7 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
         Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
         Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::HelpCenter,
-        Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
+        Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo, Command::PrivacyPolicy,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {

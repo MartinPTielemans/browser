@@ -184,6 +184,8 @@ pub enum Command {
     HelpCenter,
     /// Opens the site's release notes in a tab.
     WhatsNew,
+    /// Opens the privacy policy in a tab.
+    PrivacyPolicy,
     Quit,
 }
 
@@ -363,6 +365,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("What's New", Command::WhatsNew, &["release notes", "changelog"]),
     ("Report a Problem…", Command::ReportProblem, &["bug", "feedback", "issue"]),
     ("Copy Build Info", Command::CopyBuildInfo, &["version"]),
+    ("Privacy Policy", Command::PrivacyPolicy, &["data"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
 
@@ -663,6 +666,7 @@ impl Command {
             Command::CopyBuildInfo => "copy-build-info",
             Command::HelpCenter => "help-center",
             Command::WhatsNew => "whats-new",
+            Command::PrivacyPolicy => "privacy-policy",
             Command::Quit => "quit",
         }
     }
@@ -884,6 +888,9 @@ impl Shell {
             }
             Command::HelpCenter => return self.browser.open_page(build_info::HELP_CENTER, cx),
             Command::WhatsNew => return self.browser.open_page(build_info::WHATS_NEW, cx),
+            Command::PrivacyPolicy => {
+                return self.browser.open_page(build_info::PRIVACY_POLICY, cx);
+            }
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
                 if !self.url(self.selected).starts_with("chrome://history") {
@@ -1229,6 +1236,7 @@ impl Shell {
             | Command::CopyBuildInfo
             | Command::HelpCenter
             | Command::WhatsNew
+            | Command::PrivacyPolicy
             | Command::Settings => true,
             _ => self.selected != 0,
         }

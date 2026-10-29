@@ -202,6 +202,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::WhatsNew => "icons/megaphone.svg",
         Command::ReportProblem => "icons/flag.svg",
         Command::CopyBuildInfo => "icons/copy.svg",
+        Command::PrivacyPolicy => "icons/shield.svg",
         _ => COMMAND_GLYPH,
     }
 }

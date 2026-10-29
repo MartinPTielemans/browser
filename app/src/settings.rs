@@ -128,11 +128,8 @@ impl Tab {
         Tab::About,
     ];
 
-    /// The tabs this build has: Privacy only holds crash reports, which a build without a collector
-    /// never sends.
     fn shown() -> impl Iterator<Item = Tab> {
-        let collector = !crash_reports_collector().is_empty();
-        Tab::ALL.into_iter().filter(move |&tab| tab != Tab::Privacy || collector)
+        Tab::ALL.into_iter()
     }
 
     fn name(self) -> &'static str {
@@ -1216,16 +1213,31 @@ impl Settings {
     }
 
     /// Send Crash Reports, off by default, with where they go and what turning it off does under
-    /// it, as the default browser's row has its way back.
+    /// it, as the default browser's row has its way back; a build without a collector never sends
+    /// them and has no row. Then what leaves the device, with the privacy policy a click away.
     fn privacy(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
-        let send = unsafe { bc::bc_send_crash_reports() };
-        let send = self.toggle("send crash reports", send, set_send_crash_reports, accent, cx);
-        let detail = format!(
-            "Reports go to {}. Turning this off deletes those not yet sent.",
-            crash_reports_collector()
+        let collector = crash_reports_collector();
+        let crash_reports = (!collector.is_empty()).then(|| {
+            let send = unsafe { bc::bc_send_crash_reports() };
+            let send = self.toggle("send crash reports", send, set_send_crash_reports, accent, cx);
+            let detail =
+                format!("Reports go to {collector}. Turning this off deletes those not yet sent.");
+            detailed_row("Send crash reports", detail, Some(send))
+        });
+        let policy = button(&RowLook::settings(), "privacy-policy", "Privacy Policy")
+            .on_click(|_, _, cx| open_notice(build_info::PRIVACY_POLICY, cx));
+        let leaves = detailed_row(
+            "What leaves this device",
+            concat!(
+                "The pages you open, crash reports you send, and checks for updates and ad block \
+                 lists. ",
+                env!("APP_NAME"),
+                " collects no usage data."
+            ),
+            Some(policy.into_any_element()),
         );
-        let row = detailed_row("Send crash reports", detail, Some(send));
-        div().child(group(&RowLook::settings(), [row])).into_any_element()
+        let rows = crash_reports.into_iter().chain([leaves]);
+        div().child(group(&RowLook::settings(), rows)).into_any_element()
     }
 
     /// The profile the Passwords tab lists: the one picked or asked for while it's there, or else
@@ -1934,7 +1946,8 @@ fn carried(name: &str) -> Option<String> {
     path.is_file().then(|| shell::file_url(&path.to_string_lossy()))
 }
 
-/// Opens one of About's notices in a new tab and goes to it, as More Settings… does.
+/// Opens one of About's notices, or the privacy policy, in a new tab and goes to it, as More
+/// Settings… does.
 fn open_notice(url: &str, cx: &mut App) {
     crate::open_tab(crate::front().0, url);
     hide(cx);
