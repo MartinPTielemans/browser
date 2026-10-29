@@ -2737,7 +2737,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git a/crates/gpui_linux/src/linux/x11/client.rs b/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..535ad87625 100644
+index e21f019c64..53dc9c1069 100644
 --- a/crates/gpui_linux/src/linux/x11/client.rs
 +++ b/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -3059,7 +3059,7 @@ index e21f019c64..535ad87625 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2289,407 @@ impl X11ClientState {
+@@ -2087,6 +2289,414 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -3431,6 +3431,13 @@ index e21f019c64..535ad87625 100644
 +                &xproto::ConfigureWindowAux::new().x(x.max(0)).y(y.max(0)),
 +            )?;
 +        }
++        // A window manager that keeps the focus from an app that asks for it, as sway's and
++        // Hyprland's do by default, still gives it to a window as it maps, so one that shows behind
++        // another maps again.
++        let viewable = xcb.get_window_attributes(view)?.reply()?.map_state == xproto::MapState::VIEWABLE;
++        if viewable && xcb.get_input_focus()?.reply()?.focus != view {
++            xcb.unmap_window(view)?;
++        }
 +        xcb.map_window(view)?;
 +        // As GPUI's activate asks: the window manager raises it and gives it the focus.
 +        let message = xproto::ClientMessageEvent::new(
@@ -3467,7 +3474,7 @@ index e21f019c64..535ad87625 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2250,6 +2853,20 @@ fn fp3232_to_f32(value: xinput::Fp3232) -> f32 {
+@@ -2250,6 +2860,20 @@ fn fp3232_to_f32(value: xinput::Fp3232) -> f32 {
      value.integral as f32 + value.frac as f32 / u32::MAX as f32
  }
  
@@ -3488,7 +3495,7 @@ index e21f019c64..535ad87625 100644
  fn detect_compositor_gpu(
      xcb_connection: &XCBConnection,
      screen: &xproto::Screen,
-@@ -2620,6 +3237,11 @@ fn get_scale_factor(
+@@ -2620,6 +3244,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -3500,7 +3507,7 @@ index e21f019c64..535ad87625 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3520,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3527,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -3544,7 +3551,7 @@ index e21f019c64..535ad87625 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3872,101 @@ mod tests {
+@@ -3213,3 +3879,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
