@@ -839,10 +839,12 @@ sleeping-favicon = 0.5
 # A favorite's tile: 0.10 at rest (Dia), with the resting level's rim, and under the pointer the
 # ladder's hover over that (palette's `state-hovered`; Dia's isn't measured). The one shown is
 # themed by its icon (tile_theme.rs), and black with Dia's default selection ring, white 0.45,
-# where the icon gives no theme.
+# where the icon gives no theme. A light window's is white (Dia), unthemed whatever its icon until
+# the light theme is built (ours).
 tile = 0.1
 tile-ring = 0.45
 tile-unthemed = 0x0000_00ff
+tile-unthemed-light = 0xffff_ffff
 # The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
 # with nowhere to go, over a hover plate of 0.077.
 nav = 0.6
