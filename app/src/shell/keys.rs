@@ -48,31 +48,36 @@ pub enum Refused {
     Taken(Holder),
 }
 
-/// The commands the user gave keys of their own, or none, and who ⎋ in window full screen is for.
+/// The commands the user gave keys of their own, or none, and who has a shortcut a page may keep
+/// where it isn't its default.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct UserKeys {
     set: Vec<(Command, Vec<String>)>,
-    escape: EscapePriority,
+    priorities: Vec<(Command, Priority)>,
+    /// ⎋ leaving window full screen, which no command is.
+    escape: Priority,
 }
 
 impl Global for UserKeys {}
 
-static DEFAULTS: UserKeys = UserKeys { set: Vec::new(), escape: EscapePriority::Both };
+static DEFAULTS: UserKeys =
+    UserKeys { set: Vec::new(), priorities: Vec::new(), escape: Priority::Both };
 
-/// Who has ⎋ in window full screen, Arc's choice on Settings › Shortcuts › Exit, with Arc's
-/// meanings: the page alone, so it never leaves from the page; the browser, so one press leaves
-/// and the page never sees it; or both, Arc's default, so the page has the first press and a
-/// second soon after leaves.
+/// Who has a shortcut's keys while a page is focused, Arc's choice on each row of Settings ›
+/// Shortcuts, with Arc's meanings: websites, so the page has them first and the browser's runs only
+/// if it doesn't keep them; the browser, before the page, which never sees them; or both, where
+/// the page has the first press and a second soon after is the browser's. A command's is websites
+/// unless the user chose, and ⎋ leaving window full screen's is both, Arc's.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
-pub enum EscapePriority {
+pub enum Priority {
     Websites,
     Browser,
     #[default]
     Both,
 }
 
-impl EscapePriority {
-    pub const ALL: [EscapePriority; 3] = [Self::Websites, Self::Browser, Self::Both];
+impl Priority {
+    pub const ALL: [Priority; 3] = [Self::Websites, Self::Browser, Self::Both];
 
     /// Arc's names, with ours for Prefer Arc.
     pub fn title(self) -> &'static str {
@@ -93,8 +98,10 @@ impl EscapePriority {
     }
 }
 
-/// The Shortcuts file's line for who has ⎋ first, which no command is named.
-const ESCAPE_LINE: &str = "escape-priority";
+/// The end of the Shortcuts file's word for who has a row's keys, after its command's name, or
+/// escape's for ⎋'s.
+const PRIORITY: &str = "-priority";
+const ESCAPE: &str = "escape";
 
 /// The user's keys, or the defaults before they're read.
 pub fn user_keys(cx: &App) -> &UserKeys {
@@ -116,6 +123,13 @@ pub fn rebindable(command: Command) -> bool {
             | Command::SelectTab(_)
             | Command::SelectSpace(_)
     )
+}
+
+/// Whether the user can choose who has `command`'s keys: not a reserved one's, which the browser
+/// has before the page as in Chrome, nor one whose keys can't be changed, nor Stop Loading's, whose
+/// ⎋ every page needs and Exit Full Screen's row has.
+pub fn prioritized(command: Command) -> bool {
+    rebindable(command) && !reserved(command) && command != Command::Stop
 }
 
 /// Whether `command` reaches the browser before the page, on whichever key it has.
@@ -355,9 +369,30 @@ impl UserKeys {
         self.set.iter().any(|(each, _)| *each == command)
     }
 
-    /// The command `keystroke` runs, if it's a shortcut that is `reserved` or isn't.
-    pub fn command_for(&self, keystroke: &str, reserved: bool) -> Option<Command> {
-        self.command_with(keystroke).filter(|&command| self::reserved(command) == reserved)
+    /// The command `keystroke` runs, if it's a shortcut the browser has `first`, before the page,
+    /// or one the page has first.
+    pub fn command_for(&self, keystroke: &str, first: bool) -> Option<Command> {
+        let browser = |command| self.priority(command) == Priority::Browser;
+        self.command_with(keystroke).filter(|&command| browser(command) == first)
+    }
+
+    /// Who has `command`'s keys while a page is focused, the browser if they're reserved.
+    pub fn priority(&self, command: Command) -> Priority {
+        if reserved(command) {
+            return Priority::Browser;
+        }
+        let chosen = self.priorities.iter().find(|&&(each, _)| each == command);
+        chosen.map_or(Priority::Websites, |&(_, priority)| priority)
+    }
+
+    pub fn set_priority(&mut self, command: Command, priority: Priority) {
+        if !prioritized(command) {
+            return;
+        }
+        self.priorities.retain(|&(each, _)| each != command);
+        if priority != Priority::Websites {
+            self.priorities.push((command, priority));
+        }
     }
 
     /// Whether `keystroke` is a shortcut the page gets first, and may keep, that opens a field over
@@ -437,11 +472,11 @@ impl UserKeys {
         *self = UserKeys::default();
     }
 
-    pub fn escape_priority(&self) -> EscapePriority {
+    pub fn escape_priority(&self) -> Priority {
         self.escape
     }
 
-    pub fn set_escape_priority(&mut self, escape: EscapePriority) {
+    pub fn set_escape_priority(&mut self, escape: Priority) {
         self.escape = escape;
     }
 
@@ -453,16 +488,20 @@ impl UserKeys {
         }
     }
 
-    /// As Settings saves them: a line a command, its name, then its keys, if any, and who has ⎋
-    /// unless it's both.
+    /// As Settings saves them: a line a command, its name, then its keys, if any, then a line for
+    /// each row whose priority isn't its default, its name and -priority, then who has it.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
             let words = std::iter::once(command.name()).chain(keys.iter().map(String::as_str));
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
-        let escape = (self.escape != EscapePriority::Both)
-            .then(|| format!("{ESCAPE_LINE} {}\n", self.escape.name()));
-        lines.chain(escape).collect()
+        let priorities = (self.priorities.iter())
+            .map(|&(command, priority)| (command.name(), priority));
+        let escape = (self.escape != Priority::Both).then_some((ESCAPE, self.escape));
+        let priorities = priorities.chain(escape);
+        let priorities =
+            priorities.map(|(row, priority)| format!("{row}{PRIORITY} {}\n", priority.name()));
+        lines.chain(priorities).collect()
     }
 
     /// What to_text wrote. A line it can't read, or keys another command keeps, is left out.
@@ -471,10 +510,18 @@ impl UserKeys {
         for line in text.lines() {
             let mut words = line.split_whitespace();
             let first = words.next();
-            if first == Some(ESCAPE_LINE) {
+            if let Some(row) = first.and_then(|first| first.strip_suffix(PRIORITY)) {
                 let name = words.next();
-                let escape = EscapePriority::ALL.into_iter().find(|each| Some(each.name()) == name);
-                keys.escape = escape.unwrap_or_default();
+                let chosen = Priority::ALL.into_iter().find(|each| Some(each.name()) == name);
+                match (row, chosen) {
+                    (_, None) => {}
+                    (ESCAPE, Some(chosen)) => keys.escape = chosen,
+                    (row, Some(chosen)) => {
+                        if let Some(command) = named(row) {
+                            keys.set_priority(command, chosen);
+                        }
+                    }
+                }
                 continue;
             }
             let Some(command) = first.and_then(named) else {
@@ -946,13 +993,37 @@ mod tests {
         user.set(Command::NewFolder, keys(&["alt-cmd-n"])).unwrap();
         assert_eq!(UserKeys::parse(&user.to_text()), user);
         assert_eq!(UserKeys::parse("quit cmd-k\nnothing cmd-j\n"), UserKeys::default());
-        // Who has ⎋ is kept with them, and Restore Defaults gives it back to both.
-        for priority in EscapePriority::ALL {
+        // Who has ⎋ and each command's keys is kept with them, and Restore Defaults gives them
+        // back: ⎋ to both, the rest to websites.
+        for priority in Priority::ALL {
             user.set_escape_priority(priority);
+            user.set_priority(Command::Find, priority);
             assert_eq!(UserKeys::parse(&user.to_text()), user);
         }
+        user.set_priority(Command::Back, Priority::Browser);
+        assert_eq!(UserKeys::parse(&user.to_text()), user);
+        let unread = "find-priority nobody\nquit-priority browser\n";
+        assert_eq!(UserKeys::parse(unread), UserKeys::default());
         user.reset_all();
-        assert_eq!(user.escape_priority(), EscapePriority::Both);
+        assert_eq!(user.escape_priority(), Priority::Both);
+        assert_eq!(user.priority(Command::Find), Priority::Websites);
+    }
+
+    /// A shortcut left to websites reaches the browser after the page, one given to the browser
+    /// before it, and a reserved one's stays the browser's.
+    #[test]
+    fn a_shortcut_goes_before_the_page_once_the_browser_has_it() {
+        let mut user = UserKeys::default();
+        let find = "cmd-f";
+        assert_eq!(user.command_for(find, false), Some(Command::Find));
+        user.set_priority(Command::Find, Priority::Browser);
+        assert_eq!(user.command_for(find, true), Some(Command::Find));
+        assert_eq!(user.command_for(find, false), None);
+        user.set_priority(Command::Find, Priority::Both);
+        assert_eq!(user.command_for(find, false), Some(Command::Find));
+        user.set_priority(Command::NewTab, Priority::Websites);
+        assert_eq!(user.priority(Command::NewTab), Priority::Browser);
+        assert_eq!(user.command_for("cmd-t", true), Some(Command::NewTab));
     }
 
     /// A key needs ⌘ or ⌃, as one without would type, and ⇧ with a character a page names its

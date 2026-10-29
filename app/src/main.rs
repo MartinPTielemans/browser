@@ -2801,6 +2801,23 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
+/// Runs the shortcut `key` is, if it's one left to both whose first press the page kept a moment
+/// ago, in the window showing `tab`'s page.
+fn run_second_press(tab: bc::bc_id, key: *const bc::bc_key) -> bool {
+    let keystroke = keystroke(unsafe { &*key });
+    let cx = CX.with_borrow(Clone::clone);
+    let command = cx.and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| {
+            let command = keys.command_for(&keystroke, false);
+            command.filter(|&command| keys.priority(command) == shell::Priority::Both)
+        })
+    });
+    let Some(command) = command.flatten() else {
+        return false;
+    };
+    update_tab_window(tab, |shell, cx| shell.shortcut_before_page(command, cx)).unwrap_or(false)
+}
+
 unsafe extern "C" fn tab_key_before_page(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -2822,8 +2839,9 @@ unsafe extern "C" fn tab_key_before_page(
     {
         return true;
     }
-    // As in Chrome, the reserved shortcuts come first, then the extensions' keys.
-    if run_page_shortcut(tab, key, true) {
+    // As in Chrome, the reserved shortcuts come first, with those the user gave the browser, then
+    // a second press of one left to both, then the extensions' keys.
+    if run_page_shortcut(tab, key, true) || run_second_press(tab, key) {
         return true;
     }
     let keystroke = keystroke(unsafe { &*key });

@@ -106,7 +106,8 @@ pub use extensions::{
     pin_menu_item as extension_pin_menu_item,
 };
 pub use keys::{
-    EscapePriority, Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable,
+    Holder, OFF_THE_MAC, Priority, Refused, UserKeys, change_keys, page_keystroke, prioritized,
+    rebindable,
     recorded, reserved, shortcut_found, user_keys, view_binding, written_as,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
@@ -1043,6 +1044,9 @@ pub struct Shell {
     full_screen: bool,
     /// When ⎋ last went down in window full screen, for a second press to leave it.
     escaped: Option<Instant>,
+    /// The shortcut left to both that last went down in the page, and when, for a second press to
+    /// be the browser's.
+    kept: Option<(Command, Instant)>,
     /// The window stays on top of other apps' windows (Window › Stay On Top).
     on_top: bool,
     /// On Linux, whether the window is maximized, which its third button shows.
@@ -1334,6 +1338,7 @@ impl Shell {
             link_system: None,
             full_screen: false,
             escaped: None,
+            kept: None,
             on_top: false,
             maximized: false,
             window_for_page: false,
