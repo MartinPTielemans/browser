@@ -60,6 +60,9 @@ pub enum Command {
     RevealTab,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
+    /// Loads the pinned URL of each pinned tab of the Space shown that's away from it, as Arc's
+    /// Reset all tabs in this Space does.
+    ResetSpaceTabs,
     /// Mutes the selected tab, or unmutes it.
     ToggleMute,
     /// Closes the Today tabs of the Space shown, but the one shown.
@@ -564,6 +567,7 @@ impl Command {
             Command::CollapseFolders => "collapse-folders",
             Command::RevealTab => "reveal-tab",
             Command::BackToPinnedUrl => "back-to-pinned-url",
+            Command::ResetSpaceTabs => "reset-space-tabs",
             Command::ToggleMute => "toggle-mute",
             Command::Clear => "clear",
             Command::Undo => "undo",
@@ -775,6 +779,12 @@ impl Shell {
             Command::CollapseFolders => return self.collapse_folders(cx),
             Command::RevealTab => return self.reveal_tab(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
+            Command::ResetSpaceTabs => {
+                for tab in self.tabs_to_reset() {
+                    self.browser.back_to_pinned_url(tab, cx);
+                }
+                return;
+            }
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
             Command::Clear => return self.clear(cx),
             Command::Undo => {
@@ -1162,6 +1172,18 @@ impl Shell {
         }
     }
 
+    /// The pinned tabs of the Space shown that Reset all tabs in this Space takes back, those away
+    /// from their pinned URL. An unloaded one waits until it's shown, as loading it unseen would
+    /// cost what showing it does.
+    fn tabs_to_reset(&self) -> Vec<u64> {
+        let Some(space) = self.shown_space() else { return Vec::new() };
+        let away = |tab: &u64| {
+            let page = self.page(*tab);
+            page.away_from_pinned_url && !page.unloaded
+        };
+        space.pinned.iter().copied().filter(|&row| !space.is_folder(row)).filter(away).collect()
+    }
+
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
     /// says what it would do.
     fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
@@ -1196,6 +1218,7 @@ fn private_runs(command: Command) -> bool {
             | Command::NewFolder
             | Command::CollapseFolders
             | Command::BackToPinnedUrl
+            | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
             | Command::ChangeProfile(_)
@@ -1315,5 +1338,40 @@ mod tests {
         cx.simulate_keystrokes("shift-cmd-a");
         assert_eq!(host.searched_tabs.take(), [vec![12, 10, 21, 20]]);
         assert!(host.command_bars.take().is_empty(), "it opened the bar for a new tab too");
+    }
+
+    /// Reset all tabs in this Space takes back the pinned tabs away from their pinned URL, in a
+    /// folder too, but neither an unloaded one, which waits to be shown, nor a Today tab.
+    #[gpui::test]
+    fn reset_all_tabs_takes_back_the_loaded_pinned_tabs(cx: &mut gpui::TestAppContext) {
+        use std::{collections::HashMap, rc::Rc};
+
+        use gpui::VisualTestContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx): (gpui::Entity<Shell>, &mut VisualTestContext) =
+            cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "One".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            let folders = Folders {
+                folders: HashMap::from([(5, ("Folder".into(), false))]),
+                parents: HashMap::from([(4, 5)]),
+            };
+            shell.set_tabs(1, vec![2, 3, 5, 4, 6], vec![7], Vec::new(), folders, cx);
+            for tab in [2, 3, 4, 7] {
+                let unloaded = tab == 3;
+                let page = Page { away_from_pinned_url: true, unloaded, ..Page::default() };
+                shell.set_page(tab, page, cx);
+            }
+            shell.set_space(1, cx);
+            shell.set_selected(6, cx);
+            host.take();
+            shell.run(Command::ResetSpaceTabs, "ui", cx);
+        });
+        assert_eq!(host.take(), ["back to pinned url 2", "back to pinned url 4"]);
     }
 }
