@@ -763,8 +763,13 @@ EOF
 # WebKit loads with the first page in it, or earlier only to clear a store a page made in an
 # earlier run, as Clear Cookies and Refresh above does once this run has played. Read before the
 # click, whose page can say it loaded WebKit before the next line runs.
-early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
-send click $((nx + nw / 2)) $((ny + nh - 26))
+if [ "$(uname)" = Linux ]; then
+  drm_done="nothing, as on Linux it downloads Google's Widevine"
+  echo "skip: the note's button: on Linux it downloads Google's Widevine, which check-widevine.sh runs, where the Mac's offers Safari's engine or Safari"
+else
+  early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
+  send click $((nx + nw / 2)) $((ny + nh - 26))
+fi
 # Safari's engine keeps a store for each profile from macOS 14; before it, the note offers Safari.
 if [ "$(uname)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   drm_done="Safari's engine"
@@ -1040,7 +1045,7 @@ if [ "$(uname)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 1
   fi
   go_from_bar "localhost:$port/index.html"
   expect "^browser: loaded $tab http://localhost:$port/index.html\$" "localhost didn't load again"
-else
+elif [ "$(uname)" = Darwin ]; then
   drm_done="Safari"
   expect "^browser: open in safari http://127.0.0.1:$port/drm.html\$" \
     "the note's button didn't open the page in Safari"
