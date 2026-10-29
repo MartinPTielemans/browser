@@ -940,7 +940,8 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
                                                     &claims_json)) {
       return false;
     }
-    std::optional<base::DictValue> claims = base::JSONReader::ReadDict(claims_json);
+    std::optional<base::DictValue> claims =
+        base::JSONReader::ReadDict(claims_json, base::JSON_PARSE_RFC);
     const std::string* sub = claims ? claims->FindString("sub") : nullptr;
     const std::string* sid = claims ? claims->FindString("sid") : nullptr;
     const std::string* email = claims ? claims->FindString("email") : nullptr;
@@ -1308,7 +1309,8 @@ class Account : public syncer::SyncServiceObserver, public SyncRelay::Delegate {
     if (!relay_) {
       return;
     }
-    std::optional<base::DictValue> frame = base::JSONReader::ReadDict(message);
+    std::optional<base::DictValue> frame =
+        base::JSONReader::ReadDict(message, base::JSON_PARSE_RFC);
     const std::string* type = frame ? frame->FindString("type") : nullptr;
     if (!type) {
       return;
