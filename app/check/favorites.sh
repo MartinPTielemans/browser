@@ -512,7 +512,10 @@ expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
 # More Settings… sits under Advanced's two switch rows, the haptics' and the link previews'.
-send clickkey 120 211
+# On Linux the core offers Widevine's download, whose box sits over it.
+more=211
+[ "$(uname)" = Linux ] && more=302
+send clickkey 120 $more
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
 expect '^browser: loaded [0-9]* chrome://settings/$' \
