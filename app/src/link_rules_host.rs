@@ -70,6 +70,18 @@ pub fn route(url: &str) -> u64 {
     space
 }
 
+/// The user's Space a link that would open in a link preview goes to instead, by the first rule it
+/// meets, if that's another than `shown`, else 0: everything else's Space is for links from other
+/// apps, and a preview already shows its link in the Space shown.
+pub fn preview_route(url: &str, shown: u64) -> u64 {
+    let routed = RULES.with_borrow(|rules| rules.preview_route(url, &users_spaces(), shown));
+    if let Some((space, rule)) = routed {
+        // check.sh reads this line.
+        log!("browser: link rule {rule} sends {url} to space {space}");
+    }
+    routed.map_or(0, |(space, _)| space)
+}
+
 /// The Links tab's calls.
 pub struct CoreLinkRules;
 

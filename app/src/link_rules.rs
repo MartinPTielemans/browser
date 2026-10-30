@@ -1,5 +1,5 @@
-//! Link rules (docs/ux-spec.md › Link rules): the Space a link from another app opens in, and
-//! Settings' Links tab, which makes them. They're the user's alone: agents get no way to read or
+//! Link rules (docs/ux-spec.md › Link rules): the Space a link from another app, or one that would
+//! open in a link preview, opens in, and Settings' Links tab, which makes them. They're the user's alone: agents get no way to read or
 //! change them, as with the default browser.
 
 use std::rc::Rc;
@@ -85,6 +85,17 @@ impl Rules {
         match rule {
             Some(index) => (self.rules[index].space, Some(index)),
             None => (if there(self.otherwise) { self.otherwise } else { 0 }, None),
+        }
+    }
+
+    /// Where a link that would open in a link preview goes instead, of the user's `spaces`: the
+    /// Space of the first rule it meets, with that rule, if it's another than `shown`. A rule to
+    /// the Space shown keeps it in the preview, and everything else's Space is only for links from
+    /// other apps.
+    pub fn preview_route(&self, url: &str, spaces: &[u64], shown: u64) -> Option<(u64, usize)> {
+        match self.route(url, spaces) {
+            (space, Some(rule)) if space != shown => Some((space, rule)),
+            _ => None,
         }
     }
 
