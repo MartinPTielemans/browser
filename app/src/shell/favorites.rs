@@ -11,14 +11,14 @@ use gpui::{
 use crate::elevation::Level;
 use crate::tooltip::{self, Anchor, Tip};
 
-use crate::palette::Palette;
+use crate::palette::{Palette, Tone};
 use super::{
     access::Accessible,
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
     HOVERED, LIST_TOP,
-    PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
+    PLATE_INSET, Place, Row, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
     TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
-    TILE_UNTHEMED, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
+    TILE_UNTHEMED, TILE_UNTHEMED_LIGHT, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
     title,
 };
 
@@ -114,8 +114,8 @@ impl Shell {
     pub(super) fn turning_drag(&self) -> Option<impl IntoElement + use<>> {
         let (tab, [left, top, width, height, radius], turned) = self.turning_shape()?;
         let selected = tab == self.selected && !self.new_tab;
-        let row_fill = self.palette.plate(if selected { SELECTED } else { HOVERED });
-        let row_fill = self.window_fill().blend(row_fill.into());
+        let row_fill = if selected { self.palette.selected(0.) } else { self.palette.plate(HOVERED) };
+        let row_fill = self.window_fill().blend(row_fill);
         let theme = selected.then(|| self.tile_theme(tab)).flatten();
         let (shown, ring_width, ring) = shown_look(theme.as_deref(), &self.palette);
         let tile_fill = match selected {
@@ -326,6 +326,10 @@ impl Shell {
     /// give the pixels of, and for a page without a favicon or one with no opaque pixel. Made the
     /// first time it's drawn, then kept with the tab until its favicon changes.
     fn tile_theme(&self, tab: u64) -> Option<Rc<TileTheme>> {
+        // Dia's light theme isn't built, and its dark one's rings are baked over black.
+        if self.palette.tone == Tone::Light {
+            return None;
+        }
         let tab = self.tabs.get(&tab)?;
         let favicon = tab.favicon.as_ref().filter(|_| tab.page.icon.is_empty())?;
         let mut made = tab.theme.borrow_mut();
@@ -585,11 +589,14 @@ impl Shell {
 /// icon, a one-colour icon's is a border, and without a theme it's Dia's default.
 fn shown_look(theme: Option<&TileTheme>, palette: &Palette) -> (Hsla, f32, Hsla) {
     match theme {
-        Some(TileTheme::Blur { .. }) => (palette.plate(SELECTED), 0., gpui::transparent_black()),
+        Some(TileTheme::Blur { .. }) => (palette.selected(0.), 0., gpui::transparent_black()),
         Some(&TileTheme::Flat { fill, ring, .. }) => {
             (rgba(fill).into(), RING_WIDTH, rgba(ring).into())
         }
         // The black tile is the ring's ground, whatever the theme.
+        None if palette.tone == Tone::Light => {
+            (rgba(TILE_UNTHEMED_LIGHT).into(), HAIRLINE, hsla(0., 0., 1., TILE_RING))
+        }
         None => (rgba(TILE_UNTHEMED).into(), HAIRLINE, hsla(0., 0., 1., TILE_RING)),
     }
 }

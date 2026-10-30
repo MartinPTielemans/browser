@@ -317,4 +317,8 @@ impl browser::import::Host for CoreImport {
         let profiles = ids(bc::bc_profiles);
         (profiles.len() > 1).then(|| name(bc::bc_profile_name, passwords_profile()).to_string())
     }
+
+    fn open_store_page(&self, url: &str) {
+        open_tab_behind(front().0, url, false);
+    }
 }

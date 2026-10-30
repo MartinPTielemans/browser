@@ -15,12 +15,14 @@
 
 pub mod arc;
 pub mod chromium;
+pub mod extensions;
 pub mod firefox;
 pub mod found;
 pub mod plan;
 pub mod read;
 pub mod safari;
 pub mod sources;
+pub mod suggested;
 #[cfg(test)]
 mod tests;
 
@@ -28,15 +30,17 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Instant, SystemTime};
 
-use gpui::{App, Context, EventEmitter, SharedString, div, prelude::*, px, rgb};
+use gpui::{App, Context, EventEmitter, SharedString, div, prelude::*, px, rgb, svg};
 
 use crate::palette::NO_THEME_ACCENT;
 pub use crate::settings_rows::Look;
-use crate::settings_rows::{SLIDE, button, group, row, switch};
+use crate::settings_rows::{SLIDE, button, checked_row, group, row, switch};
 use crate::theme::Theme;
-use crate::tokens::settings::{BOX_GAP, BUTTONS_TOP, PADDING};
+use crate::tokens::settings::{
+    BOX_GAP, BUTTONS_TOP, CHECK_TICK, DISCLOSURE_GAP, DISCLOSURE_GLYPH, PADDING,
+};
 use crate::tokens::text;
-use found::{Found, Page, Tab};
+use found::{Found, FromProfile, Page, Tab};
 use plan::{Add, Counts, Existing, Plan, ProfileRef, Target};
 use read::{Kind, ReadError};
 use sources::{Family, Os, Roots, Source};
@@ -91,6 +95,9 @@ pub trait Host {
     fn import_passwords(&self, file: &Path, then: Box<dyn FnOnce(Passwords, &mut App)>) -> bool;
     /// The name of the profile passwords go into, when there's more than one to tell apart.
     fn passwords_profile(&self) -> Option<String>;
+    /// Opens an extension's page in the Chrome Web Store in a new tab behind the one shown, where
+    /// the user can add it.
+    fn open_store_page(&self, url: &str);
 }
 
 /// What came of importing a file of passwords, as bc_profile_import_passwords says it.
@@ -152,6 +159,7 @@ impl Host for Detached {
     fn passwords_profile(&self) -> Option<String> {
         None
     }
+    fn open_store_page(&self, _: &str) {}
 }
 
 /// An import under way: the profiles and Spaces it made, and what goes into them once each Space
@@ -275,6 +283,8 @@ pub enum ImportEvent {
     Done,
     /// The user went on without importing.
     Skipped,
+    /// The import read the history, and suggested() has the favorites it offers.
+    Suggested,
 }
 
 enum Step {
@@ -294,6 +304,16 @@ enum Step {
     Done(SharedString),
 }
 
+/// The bookmark folders to choose from, behind Choose folders, and those the user unticked.
+#[derive(Default)]
+struct Folders {
+    open: bool,
+    /// Read the first time it opens, for the browser picked.
+    names: Option<Vec<String>>,
+    reading: bool,
+    left_out: Vec<String>,
+}
+
 /// An import under way.
 #[derive(Default)]
 struct Run {
@@ -304,6 +324,8 @@ struct Run {
     waiting: usize,
     /// Pages the core added, which leaves out those that were here.
     pages: usize,
+    /// The extensions it listed to add, but for ad blockers.
+    listed: usize,
 }
 
 /// The import's view: Settings shows it as its Import tab, and the first launch as a step, with
@@ -324,6 +346,10 @@ pub struct ImportView {
     drawn: Option<&'static str>,
     /// The system it runs on, for where the browsers it names export their passwords.
     os: Os,
+    /// The bookmark folders of the browser picked, to choose from.
+    folders: Folders,
+    /// The favorites the last import offers from its history, once it's read.
+    suggested: Option<Vec<Tab>>,
 }
 
 impl EventEmitter<ImportEvent> for ImportView {}
@@ -356,6 +382,8 @@ impl ImportView {
             passwords_file: None,
             drawn: None,
             os: roots.os,
+            folders: Folders::default(),
+            suggested: None,
         }
     }
 
@@ -392,8 +420,38 @@ impl ImportView {
     /// Lists the browsers found again, as Settings does each time it shows the tab.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         if matches!(self.step, Step::List | Step::Done(_)) {
+            let suggested = self.suggested.take();
             *self = ImportView::new(self.host.clone(), self.skip).look(self.look);
+            self.suggested = suggested;
             cx.notify();
+        }
+    }
+
+    /// The favorites the last import offers from the history it read, the sites visited most;
+    /// none until it's read them. An import that brought favorites, as Arc's does, offers none.
+    pub fn suggested(&self) -> Option<&[Tab]> {
+        self.suggested.as_deref()
+    }
+
+    /// Whether an import is reading what it'll offer, so suggested() comes later.
+    pub fn suggesting(&self) -> bool {
+        matches!(self.step, Step::Running { .. }) && self.suggested.is_none()
+    }
+
+    /// Offers `tabs` as an import's history would, for the first launch's tests.
+    #[cfg(test)]
+    pub(crate) fn offer(&mut self, tabs: Vec<Tab>, cx: &mut Context<Self>) {
+        self.suggested = Some(tabs);
+        cx.emit(ImportEvent::Suggested);
+    }
+
+    /// Makes `tabs` favorites of `space`, as the user ticked them.
+    pub fn add_favorites(&self, space: u64, tabs: &[Tab]) {
+        let urls: Vec<&str> = tabs.iter().map(|tab| tab.url.as_str()).collect();
+        // check.sh reads this line.
+        log!("browser: import favorites {}", urls.join(" "));
+        for tab in tabs {
+            self.host.add_favorite(space, tab);
         }
     }
 
@@ -402,7 +460,62 @@ impl ImportView {
         log!("browser: import pick {}", self.sources[source].name());
         let picked = read::kinds(&self.sources[source]).to_vec();
         self.step = Step::Pick { source, picked };
+        self.folders = Folders::default();
         cx.notify();
+    }
+
+    /// Opens or closes the bookmark folders to choose from, reading them the first time, away from
+    /// the UI.
+    fn choose_folders(&mut self, cx: &mut Context<Self>) {
+        let Step::Pick { source, .. } = self.step else {
+            return;
+        };
+        self.folders.open = !self.folders.open;
+        cx.notify();
+        if self.folders.names.is_some() || self.folders.reading {
+            return;
+        }
+        self.folders.reading = true;
+        let from = self.sources[source].clone();
+        let read = cx.background_spawn(async move { read::folders(&from, SystemTime::now()) });
+        cx.spawn(async move |view, cx| {
+            let names = read.await.unwrap_or_default();
+            view.update(cx, |view, cx| {
+                // Unless the user went back to another browser meanwhile.
+                if matches!(view.step, Step::Pick { source: now, .. } if now == source) {
+                    // check.sh waits for this line.
+                    log!("browser: import folders {}", names.join(", "));
+                    view.folders.names = Some(names);
+                    view.folders.reading = false;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Ticks or unticks the bookmark folder `name`, which comes in only ticked.
+    fn toggle_folder(&mut self, name: &str, cx: &mut Context<Self>) {
+        let left_out = &mut self.folders.left_out;
+        match left_out.iter().position(|each| each == name) {
+            Some(at) => {
+                left_out.remove(at);
+            }
+            None => left_out.push(name.into()),
+        }
+        log!("browser: import leaves out {}", left_out.join(", "));
+        cx.notify();
+    }
+
+    /// Takes extension `id` off the list and opens its Web Store page, where the user adds it.
+    fn add_extension(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(extension) = extensions::take(id) {
+            // check.sh waits for this line.
+            log!("browser: import add extension {id}");
+            self.host.open_store_page(&extension.store_page());
+            cx.notify();
+        }
     }
 
     fn toggle(&mut self, kind: Kind, cx: &mut Context<Self>) {
@@ -425,14 +538,19 @@ impl ImportView {
         };
         let (source, picked) = (*source, picked.clone());
         let from = self.sources[source].clone();
+        let left_out = self.folders.left_out.clone();
         self.step = Step::Running {
             source,
             run: Run::default(),
         };
+        self.suggested = None;
         cx.emit(ImportEvent::Started);
         cx.notify();
         let read = cx.background_spawn(async move {
-            let found = read::read(&from, &picked, SystemTime::now());
+            let mut found = read::read(&from, &picked, SystemTime::now());
+            if let Ok(found) = &mut found {
+                read::leave_out(found, &left_out, from.browser.family);
+            }
             (from, picked, found)
         });
         cx.spawn(async move |view, cx| {
@@ -451,18 +569,16 @@ impl ImportView {
         found: Result<Found, ReadError>,
         cx: &mut Context<Self>,
     ) {
-        let Step::Running { source, run } = &mut self.step else {
+        let Step::Running { source, .. } = &self.step else {
             return;
         };
-        let name = self.sources[*source].name();
+        let source = *source;
+        let name = self.sources[source].name();
         let found = match found {
             Ok(found) => found,
             Err(ReadError::NoAccess) => {
                 log!("browser: import from {name} needs full disk access");
-                self.step = Step::NoAccess {
-                    source: *source,
-                    picked,
-                };
+                self.step = Step::NoAccess { source, picked };
                 let view = cx.entity().downgrade();
                 self.host.when_active(Box::new(move |cx| {
                     view.update(cx, |view, cx| {
@@ -486,8 +602,36 @@ impl ImportView {
         let names: Vec<(String, String)> = (from.profiles.iter())
             .map(|profile| (profile.dir.clone(), profile.name.clone()))
             .collect();
-        let plan = plan::plan(&found, &names, &self.host.existing());
+        let existing = self.host.existing();
+        let plan = plan::plan(&found, &names, &existing);
         let counts = plan.counts();
+        // The favorites to offer, from the history of the profile this browser started with, but
+        // for its favorites; an import that brings its own offers none.
+        let start = existing.profiles.first().map(|(id, _)| *id);
+        let here: Vec<String> = (existing.favorites.iter())
+            .filter(|(profile, _)| Some(*profile) == start)
+            .map(|(_, url)| url.clone())
+            .collect();
+        let history = (found.history.iter())
+            .find(|(profile, _)| *profile == FromProfile::Default)
+            .map_or(&[][..], |(_, pages)| &pages[..]);
+        let suggested = match plan.favorites.is_empty() {
+            true => suggested::favorites(history, &here),
+            false => Vec::new(),
+        };
+        let urls: Vec<&str> = suggested.iter().map(|tab| tab.url.as_str()).collect();
+        // check.sh reads this line.
+        log!("browser: import suggests {}", urls.join(" "));
+        self.suggested = Some(suggested);
+        cx.emit(ImportEvent::Suggested);
+        // Another ad blocker is left off the list, which says so once (extensions_box).
+        let listed = found.extensions.iter().filter(|each| !each.blocks_ads()).count();
+        if !found.extensions.is_empty() {
+            let ids: Vec<&str> = found.extensions.iter().map(|each| each.id.as_str()).collect();
+            // check.sh reads this line.
+            log!("browser: import lists extensions {}", ids.join(" "));
+            extensions::list(&name, found.extensions);
+        }
         // check.sh waits for this line.
         log!(
             "browser: import from {name}: {} Spaces, {} pinned tabs, {} favorites, {} pages",
@@ -496,8 +640,12 @@ impl ImportView {
             counts.favorites,
             counts.pages
         );
+        let Step::Running { run, .. } = &mut self.step else {
+            return;
+        };
+        run.listed = listed;
         if plan.is_empty() {
-            return self.finish(format!("Everything from {name} is here already."), cx);
+            return self.finish(summary(&name, Counts::default(), listed), cx);
         }
         run.counts = counts;
         run.job = Some(Job::start(plan, &*self.host));
@@ -551,14 +699,20 @@ impl ImportView {
             pages: run.pages,
             ..run.counts
         };
-        self.finish(summary(&name, counts), cx);
+        self.finish(summary(&name, counts, run.listed), cx);
     }
 
     fn finish(&mut self, said: impl Into<SharedString>, cx: &mut Context<Self>) {
         let said = said.into();
         // check.sh waits for this line.
         log!("browser: import done: {said}");
+        // An import from a browser that ended before reading its history offers nothing.
+        let reading = matches!(self.step, Step::Running { .. });
         self.step = Step::Done(said.clone());
+        if reading && self.suggested.is_none() {
+            self.suggested = Some(Vec::new());
+            cx.emit(ImportEvent::Suggested);
+        }
         cx.emit(ImportEvent::Finished(said));
         cx.notify();
     }
@@ -672,7 +826,127 @@ impl ImportView {
             true => list.child(line("No browser to import from was found on this computer.")),
             false => list.child(self.browsers(cx)),
         };
-        list.child(self.passwords(cx)).into_any_element()
+        let extensions = self.extensions_box(cx);
+        list.children(extensions).child(self.passwords(cx)).into_any_element()
+    }
+
+    /// The extensions the last import listed, each with Add…, which opens its Web Store page, and
+    /// a line for another ad blocker, which stays off the list, with Add Anyway; none once each is
+    /// added.
+    fn extensions_box(&self, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let look = &self.look;
+        let listed = extensions::listed();
+        if listed.extensions.is_empty() {
+            return None;
+        }
+        let from = &listed.from;
+        let (blockers, extensions): (Vec<_>, Vec<_>) =
+            listed.extensions.iter().partition(|each| each.blocks_ads());
+        let rows = extensions.iter().enumerate().map(|(index, extension)| {
+            let id = extension.id.clone();
+            let add = button(look, ("import-add-extension", index), "Add…")
+                .on_click(cx.listener(move |view, _, _, cx| view.add_extension(&id, cx)))
+                .into_any_element();
+            match extension.pinned {
+                true => {
+                    let pinned = format!("Pinned in {from}, and here once it's added");
+                    detailed(look, extension.name.clone().into(), pinned.into(), add)
+                }
+                false => row(None, extension.name.clone(), add),
+            }
+        });
+        let rows: Vec<gpui::Div> = rows.collect();
+        let header = (!rows.is_empty()).then(|| {
+            line(format!(
+                "Extensions from {from}. Add… opens each one's page in the Chrome Web Store in a \
+                 tab."
+            ))
+        });
+        let names: Vec<&str> = blockers.iter().map(|each| each.name.as_str()).collect();
+        let ids: Vec<String> = blockers.iter().map(|each| each.id.clone()).collect();
+        let blockers = (!blockers.is_empty()).then(|| {
+            let is = if names.len() == 1 { "isn't" } else { "aren't" };
+            let names = match names.split_last() {
+                Some((last, rest)) if !rest.is_empty() => {
+                    format!("{} and {last}", rest.join(", "))
+                }
+                _ => names.concat(),
+            };
+            let said = format!(
+                "{names} from {from} {is} listed, as {} blocks ads itself.",
+                env!("APP_NAME")
+            );
+            let anyway = button(look, "import-add-ad-blocker", "Add Anyway").on_click(
+                cx.listener(move |view, _, _, cx| {
+                    for id in &ids {
+                        view.add_extension(id, cx);
+                    }
+                }),
+            );
+            detailed_line(look, said.into(), anyway.into_any_element())
+        });
+        let group = (!rows.is_empty()).then(|| group(look, rows));
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(BOX_GAP))
+                .children(header)
+                .children(group)
+                .children(blockers),
+        )
+    }
+
+    /// Choose folders, under the switches while bookmarks come: a box of the bookmark folders,
+    /// each ticked to come in, which a click unticks.
+    fn folder_chooser(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let look = &self.look;
+        let folders = &self.folders;
+        let glyph = match folders.open {
+            true => "icons/chevron-up.svg",
+            false => "icons/chevron-down.svg",
+        };
+        let disclosure = div()
+            .id("import-choose-folders")
+            .px(px(PADDING))
+            .flex()
+            .items_center()
+            .gap(px(DISCLOSURE_GAP))
+            .text_color(look.detail)
+            .on_click(cx.listener(|view, _, _, cx| view.choose_folders(cx)))
+            .child("Choose folders")
+            .child(svg().path(glyph).size(px(DISCLOSURE_GLYPH)).text_color(look.detail));
+        let names = folders.open.then_some(folders.names.as_deref());
+        let chosen = match names {
+            None => None,
+            Some(None) => Some(line("Reading the folders…").text_color(look.detail)),
+            Some(Some([])) => Some(line("No folders to choose from.").text_color(look.detail)),
+            Some(Some(names)) => {
+                let rows = names.iter().enumerate().map(|(index, name)| {
+                    let on = !folders.left_out.contains(name);
+                    let toggled = name.clone();
+                    div()
+                        .id(("import-folder", index))
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            view.toggle_folder(&toggled, cx)
+                        }))
+                        .child(checked_row(
+                            look,
+                            on,
+                            name.clone(),
+                            rgb(NO_THEME_ACCENT),
+                            rgb(CHECK_TICK),
+                        ))
+                });
+                Some(group(look, rows.map(|row| div().child(row))))
+            }
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(BOX_GAP))
+            .child(disclosure)
+            .children(chosen)
     }
 
     /// A row for each browser found, with Import….
@@ -739,6 +1013,8 @@ impl ImportView {
                 .child(switch(look, on, slid, rgb(NO_THEME_ACCENT)));
             row(None, kind.label(), toggle.into_any_element())
         });
+        // Drawn before Choose folders, which takes the context too.
+        let rows: Vec<gpui::Div> = rows.collect();
         let any = !picked.is_empty();
         let import = button(look, "import", "Import")
             .when(!any, |button| button.opacity(0.5))
@@ -747,12 +1023,16 @@ impl ImportView {
             });
         let back = button(look, "import-back", "Back")
             .on_click(cx.listener(|view, _, _, cx| view.back(cx)));
+        let chooser = picked
+            .contains(&Kind::Bookmarks)
+            .then(|| self.folder_chooser(cx));
         div()
             .flex()
             .flex_col()
             .gap(px(BOX_GAP))
             .child(line(format!("From {name}")))
             .child(group(look, rows))
+            .children(chooser)
             .child(
                 div()
                     .mt(px(BUTTONS_TOP - BOX_GAP))
@@ -791,6 +1071,17 @@ fn detailed(
                         .child(detail),
                 ),
         )
+        .child(div().flex_none().ml(px(PADDING)).child(control))
+}
+
+/// A line of text between the boxes with a button at its end.
+fn detailed_line(look: &Look, said: SharedString, control: gpui::AnyElement) -> gpui::Div {
+    div()
+        .px(px(PADDING))
+        .flex()
+        .items_center()
+        .text_color(look.detail)
+        .child(div().flex_1().min_w_0().child(said))
         .child(div().flex_none().ml(px(PADDING)).child(control))
 }
 
@@ -883,8 +1174,8 @@ fn passwords_summary(file: &Path, passwords: Passwords, into: Option<&str>) -> S
     said.into()
 }
 
-/// What an import brought in, as the view says it.
-fn summary(name: &str, counts: Counts) -> SharedString {
+/// What an import brought in, as the view says it, with the `listed` extensions it lists to add.
+fn summary(name: &str, counts: Counts, listed: usize) -> SharedString {
     let count = |count: usize, one: &str, many: &str| match count {
         0 => None,
         1 => Some(format!("1 {one}")),
@@ -899,12 +1190,20 @@ fn summary(name: &str, counts: Counts) -> SharedString {
     .into_iter()
     .flatten()
     .collect();
+    let extensions = count(listed, "extension", "extensions");
     let what = match parts.as_slice() {
-        [] => return format!("Everything from {name} is here already.").into(),
+        [] => {
+            let said = match extensions {
+                None => format!("Everything from {name} is here already."),
+                Some(them) => format!("{them} from {name} to add from the Chrome Web Store."),
+            };
+            return said.into();
+        }
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
-    format!("{what} came in from {name}.").into()
+    let with = extensions.map(|them| format!(", with {them} to add from the Chrome Web Store"));
+    format!("{what} came in from {name}{}.", with.unwrap_or_default()).into()
 }
 
 impl Render for ImportView {
@@ -948,12 +1247,14 @@ impl Render for ImportView {
                     (line(why).text_color(look.detail), delete)
                 });
                 let (why, delete) = file.unzip();
+                let extensions = self.extensions_box(cx);
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(BOX_GAP))
                     .child(line(said.clone()))
                     .children(why)
+                    .children(extensions)
                     .child(
                         div()
                             .flex()

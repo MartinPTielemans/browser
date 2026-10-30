@@ -198,14 +198,50 @@ fn dragging_a_handle_moves_every_colour_and_keeps_them_on_letting_go(cx: &mut Te
 }
 
 #[gpui::test]
-fn a_secondary_handle_drags_the_set_round(cx: &mut TestAppContext) {
-    let mut picker = Picker::new(Some(Theme::at(0.5, 0.).with_count(2)), cx);
-    // The complement is at (-0.5, 0); dragged to (0, -0.5), the main colour goes to (0, 0.5).
-    let (x, y) = Picker::in_field(-0.5, 0.);
-    let (to_x, to_y) = Picker::in_field(0., -0.5);
-    picker.drag((x, y), (to_x, to_y));
+fn dragging_another_handle_places_its_colour_alone(cx: &mut TestAppContext) {
+    let start = Theme::at(0.5, 0.).with_count(3);
+    let mut picker = Picker::new(Some(start), cx);
+    let (hx, hy) = start.handle(2);
+    picker.drag(Picker::in_field(hx, hy), Picker::in_field(0., -0.3));
     let theme = picker.theme().unwrap();
-    assert!(close((theme.x, theme.y), (0., 0.5)), "at {}, {}", theme.x, theme.y);
+    assert!(close(theme.handle(2), (0., -0.3)), "the third at {:?}", theme.handle(2));
+    assert!(close((theme.x, theme.y), (0.5, 0.)), "the main one moved, to {}, {}", theme.x, theme.y);
+    assert!(close(theme.handle(1), start.handle(1)), "the second moved");
+    assert_eq!(theme.colors()[2], theme::color_at(0., -0.3, 1.));
+    assert_eq!(picker.handed_on(), vec![false, true]);
+    // − puts the second back at the main one's complement, the third gone.
+    picker.click(REMOVE_X, COUNT_Y);
+    let theme = picker.theme().unwrap();
+    assert_eq!((theme.count, theme.places), (2, None));
+}
+
+/// The handles are drawn at rest, then held from the press's own frame, which is the first to
+/// listen for the drag's moves, and at rest again once let go, and the wave's knob is drawn held the
+/// same way (check.sh waits for each).
+#[gpui::test]
+fn a_held_handle_is_drawn_held_before_it_drags(cx: &mut TestAppContext) {
+    let start = Theme::at(0.5, 0.).with_count(3);
+    let mut picker = Picker::new(Some(start), cx);
+    let drawn = |picker: &mut Picker| {
+        let editing = picker.window.read_with(&picker.cx.cx, |picker, _| {
+            picker.editing.as_ref().and_then(|editing| editing.drawn_handles)
+        });
+        editing.unwrap()
+    };
+    assert_eq!(drawn(&mut picker), Some((3, None)));
+    let (x, y) = Picker::in_field(start.handle(2).0, start.handle(2).1);
+    let left = MouseButton::Left;
+    picker.cx.simulate_mouse_down(Picker::at(x, y), left, Modifiers::none());
+    picker.cx.run_until_parked();
+    assert_eq!(drawn(&mut picker), Some((3, Some(Drag::Handle(2, 0., 0.)))));
+    picker.cx.simulate_mouse_up(Picker::at(x, y), left, Modifiers::none());
+    picker.cx.run_until_parked();
+    assert_eq!(drawn(&mut picker), Some((3, None)));
+    // The wave's knob, likewise.
+    let knob = Picker::at(knob_x(DEFAULT_INTENSITY), SLIDER_Y);
+    picker.cx.simulate_mouse_down(knob, left, Modifiers::none());
+    picker.cx.run_until_parked();
+    assert_eq!(drawn(&mut picker), Some((3, Some(Drag::Intensity))));
 }
 
 #[gpui::test]
@@ -344,7 +380,7 @@ fn minus_and_plus_read_on_the_field_and_off_reads_as_off() {
     let light = Theme { appearance: Appearance::Light, ..Theme::of_color(SWATCHES[0]) };
     let dark = Theme { appearance: Appearance::Dark, ..Theme::of_color(SWATCHES[8]) };
     for theme in [light, dark] {
-        let palette = Palette::of(Some(&theme));
+        let palette = Palette::of(Some(&theme), Tone::Dark);
         let states = [
             ("enabled", true, false, 0.65),
             ("pressed", true, true, 0.9),

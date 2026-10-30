@@ -463,6 +463,15 @@ pub fn withdraw_chrome(cx: &mut App) {
     window.update(cx, |dialog, _, cx| dialog.withdraw(Source::Chrome, cx)).ok();
 }
 
+/// For the drivers, as AppKit's alerts are chosen on the Mac: answers with the button `label` names
+/// in the dialog that shows, as a click on it would. Returns whether it shows one.
+pub fn choose(label: &str, cx: &mut App) -> bool {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        return false;
+    };
+    window.update(cx, |dialog, _, cx| dialog.choose(label, cx)).unwrap_or(false)
+}
+
 /// Asks a page's `question`, the dialog `id` of `tab`, over its tab's card, `over` in the window
 /// with corners of `radius`, in place of any page's that shows or waits, once any other dialog has
 /// gone, and calls `answered` with the answer once the dialog has gone. Asked again, it only moves
@@ -659,6 +668,21 @@ impl Dialog {
             true => self.answer(Answer::Cancel, cx),
             false => self.answer(Answer::Action, cx),
         }
+    }
+
+    /// The button `label` names was chosen, if the dialog shows one.
+    fn choose(&mut self, label: &str, cx: &mut Context<Self>) -> bool {
+        let Some(asked) = &self.asked else {
+            return false;
+        };
+        let answer = match label {
+            _ if asked.question.action == label => Answer::Action,
+            _ if asked.question.cancel == label => Answer::Cancel,
+            _ if asked.also.as_ref().is_some_and(|also| also == label) => Answer::Also,
+            _ => return false,
+        };
+        self.answer(answer, cx);
+        true
     }
 
     /// The user chose the action, the other answer or Cancel. The dialog leaves, and then what

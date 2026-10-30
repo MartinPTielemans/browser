@@ -10,6 +10,8 @@ use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
 };
 
+use crate::theme::Appearance;
+
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
@@ -121,6 +123,8 @@ pub enum Command {
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
+    /// Saves the Space shown's pinned tabs, folders and Today tabs as Markdown links.
+    ExportSpace,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
@@ -173,6 +177,9 @@ pub enum Command {
     Passwords,
     /// Plays a new profile's first launch again.
     Welcome,
+    /// Gives every window this appearance where its Space's theme doesn't choose one, in place of
+    /// the system's (View › Appearance).
+    Appearance(Appearance),
     Quit,
 }
 
@@ -319,6 +326,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
+    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
+    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
+    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
@@ -333,6 +343,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
+    ("Export Space as Markdown…", Command::ExportSpace, &["save", "links", "backup"]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
     ("Previous Space", Command::PreviousSpace, &[]),
@@ -616,6 +627,7 @@ impl Command {
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
+            Command::ExportSpace => "export-space",
             Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
@@ -638,6 +650,9 @@ impl Command {
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
             Command::SiteSearchSettings => "site-search-settings",
+            Command::Appearance(Appearance::Automatic) => "appearance-automatic",
+            Command::Appearance(Appearance::Light) => "appearance-light",
+            Command::Appearance(Appearance::Dark) => "appearance-dark",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::About => "about",
@@ -907,12 +922,14 @@ impl Shell {
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::Appearance(appearance) => return self.set_app_appearance(appearance, cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
+            Command::ExportSpace => return self.export_space(self.space, cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
@@ -1184,6 +1201,7 @@ impl Shell {
             | Command::ToggleSidebar
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::ExportSpace
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
@@ -1197,6 +1215,7 @@ impl Shell {
             | Command::Import
             | Command::Passwords
             | Command::Welcome
+            | Command::Appearance(_)
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -1222,6 +1241,8 @@ impl Shell {
         }
         match command {
             Command::TogglePin if self.pinned().contains(&self.selected) => Some("Unpin Tab"),
+            // The appearance chosen already would do nothing.
+            Command::Appearance(appearance) => (appearance != self.app_appearance).then_some(name),
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
@@ -1251,6 +1272,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::ExportSpace
             | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
             | Command::NextSpace

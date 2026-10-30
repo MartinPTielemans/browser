@@ -89,6 +89,14 @@ void host_cascaded(void* ui_view, double* x, double* y, double* width, double* h
 // Control. The window doesn't draw it.
 void host_set_window_title(void* ui_view, const char* title);
 
+// Draws the material under the UI of |ui_view|'s browser window light, Dia's material 13, or
+// dark, its material 29 (docs/ux-spec.md › Window material).
+void host_set_window_light(void* ui_view, bool light);
+
+// Gives the whole app, its menus, alerts and pages, an appearance of its own, 1 light or 2 dark, in
+// place of the system's, or with 0 the system's again (View › Appearance).
+void host_set_app_appearance(int appearance);
+
 // Makes the browser window of |ui_view| key and puts it in front, out of the Dock if it's
 // minimized, as a Switch to Tab row for a page it shows does. The user's: agents get none, as it
 // takes the user's focus (decision 8).
