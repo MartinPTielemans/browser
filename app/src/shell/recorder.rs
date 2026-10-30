@@ -611,7 +611,9 @@ impl Browser for Recorder {
 
     fn print(&self, _: u64, _: &mut App) {}
 
-    fn devtools(&self, _: u64, _: i32, _: &mut App) {}
+    fn devtools(&self, tab: u64, what: i32, _: &mut App) {
+        self.record(format!("devtools {tab} {what}"));
+    }
 
     fn task_manager(&self, _: &mut App) {}
 
@@ -1081,6 +1083,10 @@ impl Browser for Recorder {
 
     fn hand_back(&self, tab: u64, _: &mut App) {
         self.record(format!("hand back {tab}"));
+    }
+
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        self.record(format!("give {tab} to {space}"));
     }
 
     fn stop_agent(&self, agent: SharedString, _: &mut App) {
