@@ -1575,10 +1575,12 @@ fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<(
         "drag" => {
             let (x2, y2) = point(&mut words)?;
             let scale = scale();
-            let by = |dx: f64, dy: f64| Target {
-                root_x: at.root_x + (dx * scale).round() as i16,
-                root_y: at.root_y + (dy * scale).round() as i16,
-                ..at
+            // In the window too: the core starts the move once the pointer has gone far enough in
+            // it, and the move follows the pointer on the screen from then.
+            let by = |dx: f64, dy: f64| {
+                let (dx, dy) = ((dx * scale).round() as i16, (dy * scale).round() as i16);
+                let (x, y) = (at.x + dx, at.y + dy);
+                Target { x, y, root_x: at.root_x + dx, root_y: at.root_y + dy, ..at }
             };
             let held = button_mask(1);
             first_press(at, 1, false);

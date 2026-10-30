@@ -408,15 +408,14 @@ if [ "$(uname)" = Linux ]; then
   send pip wheel $((pw / 2)) $((ph / 3)) 2
   mini_player_at "x == px && y == py - 240 && w == pw && h == ph" \
     "a scroll over the Mini Player didn't move it with the content"
-  echo "skip: dragging the Mini Player on Linux (#813): it doesn't move from a press off its" \
-    "controls, and the suspects are X11's RunMoveLoop grab, or openbox's for a caption drag, and" \
-    "the move loop ignoring the driver's synthetic events."
-  # About its middle, but kept on the screen, whose right edge it's placed near: the edge may push
-  # it left, still over where it was.
+  # Off its controls, left of the 10 seconds back by more than its width, and away from the
+  # screen's right edge, which would push it in as it grows.
+  send pip drag $((pw / 8)) $((ph / 2)) $((pw / 8 - 200)) $((ph / 2))
+  mini_player_at "x == px - 200 && y == py && w == pw && h == ph" \
+    "a drag didn't move the Mini Player"
   send pip wheel $((pw / 2)) $((ph / 3)) -2 cmd
-  mini_player_at "w > pw * 1.15 && h > ph * 1.15 && (2 * y + h - 2 * py - ph) ^ 2 <= 16 &&
-    x <= px && x + w >= px + pw && 2 * x + w <= 2 * px + pw + 4" \
-    "Ctrl with a scroll didn't grow the Mini Player in place"
+  mini_player_at "w > pw * 1.15 && h > ph * 1.15 && (2 * x + w - 2 * px - pw) ^ 2 <= 16 &&
+    (2 * y + h - 2 * py - ph) ^ 2 <= 16" "Ctrl with a scroll didn't grow the Mini Player in place"
   ../tools/window-screenshot.sh "$pid" "$out/mini-player.png" || fail "no window to capture"
   # By its row: ⌘ and a number in the page whose video floats shows no tab on Linux yet.
   send click $(row $(($(today | tr ' ' '\n' | grep -nx "$b" | cut -d: -f1) - 1)))
@@ -435,4 +434,4 @@ fi
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll moves it, Ctrl with a scroll sizes it and a double-click shows its tab."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab."
