@@ -357,8 +357,8 @@ expect "^browser: download folder of profile $work $work_downloads set\$" \
 post clickkey $(drawn "search engine $work")
 expect '^browser: menu shown .*DuckDuckGo (checked)' \
   "the second profile's Search engine didn't show the engines, with DuckDuckGo chosen"
-send choose Bing
-expect "^browser: profile $work searches with Bing\$" "choosing Bing didn't set the second profile's"
+send choose Microsoft Bing
+expect "^browser: profile $work searches with Microsoft Bing\$" "choosing Bing didn't set the second profile's"
 post clickkey $(drawn "archive $work")
 expect '^browser: menu shown 12 hours (default) (checked), 24 hours, 7 days, 30 days$' \
   "the second profile's Archive tabs after didn't show the times, with General's 12 hours chosen"
