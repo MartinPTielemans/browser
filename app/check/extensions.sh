@@ -199,9 +199,12 @@ expect "^browser: extension actions $popup:1\$" "Unpin didn't take Check Third's
 send menu "Pin to URL Field › Check Popup"
 expect "^browser: unpin extension $popup\$" "Pin to URL Field › Check Popup didn't unpin it"
 expect '^browser: extension actions $' "unpinning the last action left it in the URL field"
-# Their keys, as Chrome gave them: those the extensions suggested, as no one set any.
+# Their keys, as Chrome gave them: those the extensions suggested, as no one set any. Off the Mac
+# the app writes Alt as ⌃, so Alt+Shift+P is ctrl-shift-p there.
+popup_key=alt-shift-p
+[ "$(uname)" = Darwin ] || popup_key=ctrl-shift-p
 grep -q "^browser: extension keys $clicked hello=shift-cmd-y suggested\$" "$log" &&
-  grep -q "^browser: extension keys $popup _execute_action=alt-shift-p suggested\$" "$log" &&
+  grep -q "^browser: extension keys $popup _execute_action=$popup_key suggested\$" "$log" &&
   grep -q "^browser: extension keys $third jump=cmd-j suggested\$" "$log" ||
   fail "the extensions' keys weren't the ones they suggested: $(grep 'extension keys' "$log")"
 # Keyboard commands, on the first tab's page.

@@ -36,6 +36,7 @@
 #include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_host_observer.h"
+#include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registrar.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
@@ -152,6 +153,42 @@ std::vector<KeyedCommand> KeyedCommands(Profile* profile, const extensions::Exte
   return keyed;
 }
 
+// Chrome gives an extension the key it suggests only if Chrome's own table of shortcuts doesn't
+// hold it, but here the app's keys are the browser's, and the app keeps them over an extension's.
+// So a key that table alone refused, such as Linux's Alt+Shift+P for Chrome's tab groups, is the
+// extension's, as on the Mac. One the user changed or took away stays as they left it, and one
+// another extension holds stays its.
+void AssignKeysChromeRefused(Profile* profile, const extensions::Extension& extension) {
+  extensions::CommandService* service = extensions::CommandService::Get(profile);
+  const base::DictValue* suggested =
+      extensions::ExtensionPrefs::Get(profile)->ReadPrefAsDict(extension.id(), "commands");
+  auto assign = [&](const ui::Command& command) {
+    const base::DictValue* pref = suggested ? suggested->FindDict(command.command_name()) : nullptr;
+    if (command.global() || command.accelerator().key_code() == ui::VKEY_UNKNOWN ||
+        (pref && pref->FindBool("was_assigned").value_or(false)) ||
+        service->FindCommandByName(extension.id(), command.command_name())
+                .accelerator()
+                .key_code() != ui::VKEY_UNKNOWN) {
+      return;
+    }
+    service->AddKeybindingPref(command.accelerator(), extension.id(), command.command_name(),
+                               /*allow_overrides=*/false, /*global=*/false);
+  };
+  if (const ui::CommandMap* named = extensions::CommandsInfo::GetNamedCommands(&extension)) {
+    for (const auto& [name, command] : *named) {
+      assign(command);
+    }
+  }
+  using extensions::CommandsInfo;
+  for (const extensions::Command* action : {CommandsInfo::GetActionCommand(&extension),
+                                            CommandsInfo::GetBrowserActionCommand(&extension),
+                                            CommandsInfo::GetPageActionCommand(&extension)}) {
+    if (action) {
+      assign(*action);
+    }
+  }
+}
+
 // The page Chrome's Options item opens for |extension|: its own, or Chrome's extensions page
 // showing it, as Chrome embeds one that doesn't ask for a tab. "" if it has none.
 std::string OptionsPage(const extensions::Extension& extension) {
@@ -189,6 +226,7 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
   // extensions::ExtensionRegistryObserver:
   void OnExtensionLoaded(content::BrowserContext* context,
                          const extensions::Extension* extension) override {
+    AssignKeysChromeRefused(profile_, *extension);
     Changed();
   }
   void OnExtensionUnloaded(content::BrowserContext* context,
