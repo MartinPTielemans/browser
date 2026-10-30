@@ -276,7 +276,11 @@ impl Shell {
         };
         let top = *self.layout().get(&Slot::Tab(row))? + self.tiles_room();
         let height = f32::from(self.list_scroll.bounds().size.height);
-        past(top, -f32::from(self.list_scroll.offset().y), height)
+        // Where the list will draw: GPUI clamps a wheel's move past either end in the layout
+        // after this, and a marker drawn from the unclamped offset would flash up and stay.
+        let most = f32::from(self.list_scroll.max_offset().y);
+        let scrolled = (-f32::from(self.list_scroll.offset().y)).clamp(0., most.max(0.));
+        past(top, scrolled, height)
     }
 
     /// While the selected tab's row is scrolled out of the list, a sliver of its plate at the
@@ -633,8 +637,9 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::{
-        Bounds, Context, Entity, Modifiers, MouseButton, MouseDownEvent, Render, TestAppContext,
-        VisualTestContext, Window, WindowBounds, WindowOptions, point, prelude::*, px, size,
+        Bounds, Context, Entity, InputEvent as _, Modifiers, MouseButton, MouseDownEvent, Render,
+        ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext, Window, WindowBounds,
+        WindowOptions, point, prelude::*, px, size,
     };
 
     use super::super::{
@@ -816,6 +821,59 @@ mod tests {
         draw(&shell, cx);
         let marker = shell.read_with(cx, |shell, _| shell.marker_drawn.get());
         assert!(matches!(marker, Some((true, _))), "no marker at the top: {marker:?}");
+    }
+
+    /// The wheel takes the list up, as favorites.sh's does: a marker comes only once the selected
+    /// row is wholly under the list's bottom, also for a move past the list's top, which GPUI
+    /// clamps only after the shell has drawn, and it stays through the rest of the scroll.
+    #[gpui::test]
+    fn the_wheel_brings_the_marker_only_for_a_row_wholly_scrolled_out(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host, cx));
+        cx.simulate_resize(size(px(1000.), px(340.)));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            shell.set_favorites(vec![(10, 1)], cx);
+            shell.set_tabs(1, Vec::new(), vec![11, 12], Vec::new(), Folders::default(), cx);
+            shell.set_selected(12, cx);
+        });
+        draw(&shell, cx);
+        // What the shell reads as it draws next, once the wheel has moved the list.
+        let wheel = |cx: &mut VisualTestContext, dy: f32| {
+            let past = cx.update(|window, cx| {
+                let event = ScrollWheelEvent {
+                    position: point(px(100.), px(200.)),
+                    delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+                    ..Default::default()
+                };
+                window.dispatch_event(event.to_platform_input(), cx);
+                shell.read(cx).selected_row_past()
+            });
+            cx.run_until_parked();
+            past
+        };
+        // At the list's top the last row still shows its top: a move past it marks nothing.
+        assert_eq!(wheel(cx, 50.), None, "a marker for a row that still shows");
+        // Shorter, the row is wholly under the list's bottom at its top.
+        cx.simulate_resize(size(px(1000.), px(300.)));
+        shell.update(cx, |shell, cx| shell.set_selected(12, cx));
+        draw(&shell, cx);
+        let markers: Vec<_> = (0..8).map(|_| wheel(cx, 10.)).collect();
+        let first = markers.iter().position(Option::is_some).expect("no marker on the way up");
+        assert!(markers[first..].iter().all(|&past| past == Some(false)), "{markers:?}");
+        draw(&shell, cx);
+        let marker = shell.read_with(cx, |shell, _| shell.marker_drawn.get());
+        let (top, frame) = marker.expect("the marker went once the list was drawn at its top");
+        assert!(!top, "the marker for the row under the list's bottom is at its top");
+        cx.simulate_click(frame.center(), Modifiers::none());
+        draw(&shell, cx);
+        let (marker, scrolled) = shell.read_with(cx, |shell, _| {
+            (shell.marker_drawn.get(), shell.list_scroll.offset().y)
+        });
+        assert_eq!(marker, None, "the marker stayed once its row scrolled into the list");
+        assert!(scrolled < px(0.), "a click on the marker didn't scroll to the row");
     }
 
     /// Presses the sidebar's edge where it's drawn, and drags it to `to`, a list of x's.

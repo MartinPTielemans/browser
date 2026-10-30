@@ -225,13 +225,19 @@ expect '^browser: scroll edge shown$' "the list scrolled to a row didn't show it
 ../tools/window-screenshot.sh "$pid" "$out/list-scrolled.png" || fail "no window to capture"
 switch "2 cmd" "$c"
 none_since '^browser: list scrolled' || fail "showing a tab in view scrolled the list"
-# Shown again, the last tab's row is in view, and with the list scrolled back to its top, under its
-# bottom, so a sliver of its plate marks it there; a click on that scrolls the list back to the row.
+# Shown again in a window short enough that, with the list scrolled back to its top, the last tab's
+# row is wholly under its bottom (at 340 its top still shows), a sliver of its plate marks it there,
+# through the rest of the scroll; a click on that scrolls the list back to the row.
+send resize 1000 300
+expect '^browser: drawn at 1000x300$' "the window didn't draw at its new size"
 switch "9 cmd" "$b"
-send scroll 100 200 -10 5
+expect "^browser: list scrolled to [1-9][0-9.]* for $b\$" \
+  "showing a tab under the list's bottom didn't scroll to its row"
+send scroll 100 200 -10 8
 expect '^browser: shown tab marker bottom at ' \
   "the shown tab's row scrolled under the list's bottom didn't put its marker there"
 ../tools/window-screenshot.sh "$pid" "$out/shown-marker.png" || fail "no window to capture"
+none_since '^browser: shown tab marker hidden$' || fail "the marker went before the click"
 marker=$(grep '^browser: shown tab marker bottom at ' "$log" | tail -1 |
   awk '{ printf "%d %d", $7 + $9 / 2, $8 + $10 / 2 }')
 send click $marker
