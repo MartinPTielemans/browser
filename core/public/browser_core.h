@@ -485,8 +485,8 @@ typedef struct bc_host {
   // Chrome opened a tab in the window that the app didn't ask for: a page's link to a new tab, or
   // its popup or new window, which open as tabs. |opener| is the tab it came from, or 0. In a window
   // that shows a Space, it goes in its opener's Space where Chrome would put it, under the opener,
-  // and the window shows it if |foreground| and the window shows that Space. A link ⌥⌘- or
-  // ⌥⇧-clicked goes in a split view with its page instead, unless the split has three tabs; then
+  // and the window shows it if |foreground| and the window shows that Space. A link ⌥- or
+  // ⌥⌘-clicked goes in a split view with its page instead, unless the split has three tabs; then
   // space_changed. Elsewhere it isn't shown until bc_tab_show; show it if |foreground|, since
   // Chrome made it the window's active tab.
   void (*tab_opened)(void* context, bc_id window, bc_id tab, bc_id opener, bool foreground);

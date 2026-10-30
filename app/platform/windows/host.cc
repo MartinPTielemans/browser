@@ -1626,7 +1626,9 @@ void host_show_toast(void* ui_view) {
   double content_width, content_height, width, height;
   ContentSize(Root(ui_view), &content_width, &content_height);
   WindowSize(g_toast.hwnd, &width, &height);
-  Show(g_toast, ui_view, content_width - width, 0, -1, -1, false);
+  // At the focused page's corner, which in a split view is its pane's.
+  auto [extra_right, extra_top] = g_pane_corners[ui_view];
+  Show(g_toast, ui_view, content_width - extra_right - width, extra_top, -1, -1, false);
 }
 
 void host_hide_toast(void) {
