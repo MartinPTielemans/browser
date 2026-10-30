@@ -54,6 +54,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/emoji.rs"]
+mod emoji;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/floats.rs"]
 mod floats;
 #[cfg(target_os = "linux")]
@@ -71,6 +74,9 @@ mod panels;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/popovers.rs"]
 mod popovers;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/previews.rs"]
+mod previews;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
@@ -750,10 +756,10 @@ fn open_split(window: bc::bc_id, url: &str, with: u64, cx: &mut App) {
     }
 }
 
-/// Makes a Space after the others.
-fn create_space(name: &str) -> bc::bc_id {
+/// Makes a Space right after `after`, else after the others.
+fn create_space(name: &str, after: bc::bc_id) -> bc::bc_id {
     let name = CString::new(name).unwrap_or_default();
-    unsafe { bc::bc_space_create(name.as_ptr()) }
+    unsafe { bc::bc_space_create(name.as_ptr(), after) }
 }
 
 /// The URL the core's `get` copies for `text`.
@@ -1637,6 +1643,12 @@ impl theme_picker::Host for ThemeHost {
     fn hide(&self) {
         unsafe { platform::host_hide_overlay(THEME_PICKER) };
     }
+
+    fn detent(&self) {
+        if unsafe { bc::bc_haptics() } {
+            unsafe { platform::host_detent() };
+        }
+    }
 }
 
 /// The user left the theme picker, such as with a click outside it.
@@ -2446,8 +2458,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_space_tab(self.window, space) }
     }
 
-    fn create_space(&self, name: &str, profile: u64, _: &mut App) -> u64 {
-        let space = create_space(name);
+    fn create_space(&self, name: &str, profile: u64, after: u64, _: &mut App) -> u64 {
+        let space = create_space(name, after);
         if profile != 0 {
             unsafe { bc::bc_space_set_profile(space, profile) };
         }
@@ -3273,7 +3285,7 @@ fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -
             start.elapsed().as_secs_f64() * 1000.
         );
     } else {
-        unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
+        unsafe { bc::bc_window_show_space(window, create_space("Space 1", 0)) };
     }
     let links = LAUNCH_LINKS.take().unwrap_or_default();
     match std::env::var("BROWSER_URL") {
@@ -3541,6 +3553,8 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
+        #[cfg(target_os = "linux")]
+        emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
             windows.insert(

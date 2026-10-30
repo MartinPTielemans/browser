@@ -839,12 +839,15 @@ impl Browser for Fake {
         0
     }
 
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
         let entry =
             (space, name.to_string().into(), None, profile, "".into(), "".into(), "".into());
-        self.spaces.borrow_mut().push(entry);
+        let mut spaces = self.spaces.borrow_mut();
+        let at = spaces.iter().position(|(id, ..)| *id == after).map_or(spaces.len(), |at| at + 1);
+        spaces.insert(at, entry);
+        drop(spaces);
         self.report_spaces(cx);
         space
     }
@@ -1753,6 +1756,8 @@ impl theme_picker::Host for PreviewPicker {
     fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
 
     fn hide(&self) {}
+
+    fn detent(&self) {}
 }
 
 /// The dialog over the preview's window, which it covers, for its host can't move it.

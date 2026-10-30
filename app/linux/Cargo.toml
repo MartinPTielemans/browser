@@ -25,8 +25,9 @@ browser = { path = ".." }
 gpui = { path = "../.deps/zed/crates/gpui" }
 gpui_platform = { path = "../.deps/zed/crates/gpui_platform", features = ["wayland", "x11"] }
 gpui_linux = { path = "../.deps/zed/crates/gpui_linux" }
-# The version GPUI decodes with, as the browser crate has, for a video tile's frame (src/main.rs).
-image = { version = "0.25", default-features = false, features = ["png"] }
+# The version GPUI decodes with, as the browser crate has, for a video tile's frame (src/main.rs)
+# and a photo's preview (platform/linux/previews.rs), in the formats GPUI decodes.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 raw-window-handle = "0.6"
 # The test driver's X connection (platform/linux/drive.rs), and the held Escape's
 # (platform/linux/held_escape.rs).
