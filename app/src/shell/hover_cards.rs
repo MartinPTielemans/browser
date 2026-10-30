@@ -107,6 +107,23 @@ impl Shell {
                     self.browser.card_picture(tab, cx);
                 }
             }
+            // Off the card, the pointer may be past a hidden sidebar's panel too, which the reveal
+            // knows once the move that took it off is through.
+            Event::Pointer(on) => {
+                self.pointer_on_card = on;
+                if !on {
+                    cx.spawn(async move |shell, cx| {
+                        shell
+                            .update(cx, |shell, cx| {
+                                if !shell.pointer_on_card {
+                                    shell.pointer_at(shell.reveal_x, cx);
+                                }
+                            })
+                            .ok();
+                    })
+                    .detach();
+                }
+            }
             Event::Act(action) => {
                 log!("browser: command {} via hover card", action.label());
                 match action {
@@ -116,7 +133,7 @@ impl Shell {
                     Action::Unfavorite => self.move_tab_to(tab, false, 0, 0, cx),
                     Action::Split => {
                         if let Some(with) = self.split_partner(tab) {
-                            self.browser.split_with(tab, with, false, cx);
+                            self.join_split(tab, with, false, false, cx);
                         }
                     }
                 }

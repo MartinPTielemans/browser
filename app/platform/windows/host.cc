@@ -1214,6 +1214,12 @@ void host_set_window_title(void* ui_view, const char* title) {
   SetWindowTextW(Root(ui_view), Wide(title).c_str());
 }
 
+// The window has no material under the UI, whose tint is the window's look.
+void host_set_window_light(void* ui_view, bool light) {}
+
+// The UI takes the choice itself; the system's controls and the pages keep Windows'.
+void host_set_app_appearance(int appearance) {}
+
 void host_activate(void* ui_view) {
   HWND root = Root(ui_view);
   if (IsIconic(root)) {
@@ -1511,7 +1517,7 @@ void* host_add_link_preview(void*, void (*)(void)) {
 
 void host_show_link_preview(void*) {}
 
-void host_link_preview_drew(double, double, double, double, double) {}
+void host_link_preview_drew(double, double, double, double, double, double) {}
 
 void host_release_link_preview(void) {}
 
@@ -1547,6 +1553,16 @@ void host_copy_png(const uint8_t* png, size_t size) {
     }
   }
   CloseClipboard();
+}
+
+void host_capture_name(char* name, size_t capacity) {
+  SYSTEMTIME now;
+  GetLocalTime(&now);
+  if (capacity && snprintf(name, capacity, "Capture %04d-%02d-%02d at %02d.%02d.%02d.png",
+                           now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+                           now.wSecond) < 0) {
+    name[0] = 0;
+  }
 }
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
@@ -1629,7 +1645,9 @@ void host_show_toast(void* ui_view) {
   double content_width, content_height, width, height;
   ContentSize(Root(ui_view), &content_width, &content_height);
   WindowSize(g_toast.hwnd, &width, &height);
-  Show(g_toast, ui_view, content_width - width, 0, -1, -1, false);
+  // At the focused page's corner, which in a split view is its pane's.
+  auto [extra_right, extra_top] = g_pane_corners[ui_view];
+  Show(g_toast, ui_view, content_width - extra_right - width, extra_top, -1, -1, false);
 }
 
 void host_hide_toast(void) {
@@ -2068,6 +2086,17 @@ void host_file_preview(const char* path,
   }).detach();
 }
 
+// shortcut: no video playback yet; Media's video tiles show their preview.
+void* host_video_open(const char*, int) {
+  return nullptr;
+}
+
+bool host_video_frame(void*, uint8_t*) {
+  return false;
+}
+
+void host_video_close(void*) {}
+
 void host_copy(const char* text) {
   std::wstring wide = Wide(text);
   if (!OpenClipboard(nullptr)) {
@@ -2085,9 +2114,9 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
-// shortcut: there's no Safari; protected video on Windows waits for WebView2 (decision 1).
 void host_open_full_disk_access(void) {}
 
+// There's no Safari: Windows plays protected video with Chromium's own PlayReady (decision 1).
 void host_open_in_safari(const char* url) {
   fprintf(stderr, "browser: no system engine for %s\n", url);
 }

@@ -10,11 +10,15 @@ use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
 };
 
+use crate::theme::Appearance;
+use crate::build_info::{self, BuildInfo};
+
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
+    trace,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -114,6 +118,10 @@ pub enum Command {
     JavaScriptConsole,
     /// Opens Chrome's Task Manager.
     TaskManager,
+    /// Starts recording a trace of the whole browser, or stops it and asks where to save it.
+    RecordTrace,
+    /// Turns Developer Mode on or off for the page's site.
+    ToggleDeveloperMode,
     /// Opens Chrome's extensions page in a new tab.
     ManageExtensions,
     /// Opens the Web Store in a new tab, as Dia's Add Extension… does.
@@ -121,10 +129,20 @@ pub enum Command {
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
+    /// Opens the theme picker for the Space shown, as its menu's Edit Theme Color… does.
+    EditTheme,
+    /// Saves the Space shown's pinned tabs, folders and Today tabs as Markdown links.
+    ExportSpace,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
     SelectSpace(usize),
+    /// Moves the tab shown to this Space, as the tab menu's Move to does.
+    MoveToSpace(u64),
+    /// Pins the tab shown and moves it to this Space, at the bottom of its pinned tabs.
+    PinToSpace(u64),
+    /// Opens this folder of the Space shown, with the folders it's in, and scrolls to it.
+    OpenFolder(u64),
     NextSpace,
     PreviousSpace,
     /// Hides the docked sidebar, or shows it.
@@ -136,6 +154,8 @@ pub enum Command {
     ClearArchive,
     /// Opens the Library on the downloads, or closes it there.
     ViewDownloads,
+    /// Opens the Library on its media, or closes it there.
+    ViewMedia,
     /// Opens the command bar over a new pane beside the pages shown, for a split view.
     AddSplit,
     /// Closes the split view's focused page.
@@ -173,6 +193,18 @@ pub enum Command {
     Passwords,
     /// Plays a new profile's first launch again.
     Welcome,
+    /// Gives every window this appearance where its Space's theme doesn't choose one, in place of
+    /// the system's (View › Appearance).
+    Appearance(Appearance),
+    /// Opens a new issue on the bug report form in a tab, its version and system fields filled
+    /// with the build's details. Nothing is sent until the user submits it.
+    ReportProblem,
+    /// Copies the build's details: the version, the engine's, the system's and the chip.
+    CopyBuildInfo,
+    /// Opens the site's help in a tab.
+    HelpCenter,
+    /// Opens the site's release notes in a tab.
+    WhatsNew,
     Quit,
 }
 
@@ -243,6 +275,9 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("f12", Command::DevTools, false),
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
+    // Arc's, unreserved: a page or field that uses ⌃D, as a Mac text field's forward delete,
+    // keeps it. Off the Mac it would be Alt+D, Chrome's, so it has none there.
+    ("ctrl-d", Command::ToggleDeveloperMode, false),
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
@@ -272,6 +307,16 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
 /// The name of the sidebar's second row in the command bar, which it lists only while there's a
 /// sidebar to hide.
 const HIDE_SIDEBAR: &str = "Hide Sidebar";
+
+/// The page's Developer Mode's rows in the command bar, of which it lists the one that would change
+/// it (Arc's, in sentence case).
+const DEVELOPER_MODE_ON: &str = "Turn on Developer Mode for this site";
+const DEVELOPER_MODE_OFF: &str = "Turn off Developer Mode for this site";
+
+/// What turns Developer Mode the other way, for a page in it or not.
+pub(super) fn developer_mode_title(on: bool) -> &'static str {
+    if on { DEVELOPER_MODE_OFF } else { DEVELOPER_MODE_ON }
+}
 
 /// The commands the command bar finds, with the words besides their names' that find them, in
 /// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
@@ -319,6 +364,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
+    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "app theme"]),
+    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "app theme"]),
+    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "app theme"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
@@ -328,11 +376,19 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Developer Tools", Command::DevTools, &["devtools"]),
     ("Inspect Elements", Command::InspectElements, &[]),
     ("JavaScript Console", Command::JavaScriptConsole, &[]),
+    (DEVELOPER_MODE_ON, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
+    (DEVELOPER_MODE_OFF, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
     ("Open Task Manager", Command::TaskManager, &[]),
+    (trace::RECORD, Command::RecordTrace, &["performance", "tracing"]),
+    (trace::STOP_RECORDING, Command::RecordTrace, &["performance", "tracing"]),
     ("Manage Extensions…", Command::ManageExtensions, &["plugins"]),
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
+    // Arc's bar's name, where its Space menu says Edit Theme Color…. "theme" finds it before the
+    // Appearance rows, whose "app theme" it finds as a later word.
+    ("Edit Theme…", Command::EditTheme, &["theme", "color", "colour"]),
+    ("Export Space as Markdown…", Command::ExportSpace, &["save", "links", "backup"]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
     ("Previous Space", Command::PreviousSpace, &[]),
@@ -340,6 +396,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Open Library…", Command::ViewLibrary, &["view library"]),
     ("View Archive…", Command::ViewArchive, &[]),
     ("View Downloads…", Command::ViewDownloads, &[]),
+    ("View Media…", Command::ViewMedia, &["screenshots", "captures"]),
     ("View History", Command::ViewHistory, &[]),
     ("Site Search Settings", Command::SiteSearchSettings, &["search engines", "keywords"]),
     ("Settings", Command::Settings, &["preferences"]),
@@ -348,6 +405,10 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
+    ("Help Center", Command::HelpCenter, &["help", "support"]),
+    ("What's New", Command::WhatsNew, &["release notes", "changelog"]),
+    ("Report a Problem…", Command::ReportProblem, &["bug", "feedback", "issue"]),
+    ("Copy Build Info", Command::CopyBuildInfo, &["version"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
 
@@ -401,7 +462,9 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
         return Vec::new();
     };
     let shell = shell.read(cx);
-    find_commands(typed, user_keys(cx), |name, command| shell.bar_name(name, command))
+    let keys = user_keys(cx);
+    let found = find_commands(typed, keys, |name, command| shell.bar_name(name, command, cx));
+    with_named_rows(found, typed, &shell.named_bar_rows(), keys)
 }
 
 /// The commands of BAR_COMMANDS that match `typed`, best first and then in the table's order, at
@@ -414,16 +477,47 @@ pub fn find_commands(
     mut named: impl FnMut(&'static str, Command) -> Option<&'static str>,
 ) -> Vec<BarCommand> {
     let typed = typed.trim().to_lowercase();
-    let mut found: Vec<(Match, &'static str, Command)> = (BAR_COMMANDS.iter())
+    let found = (BAR_COMMANDS.iter())
         .zip(LOWERCASE_NAMES.iter())
         .filter_map(|(&(name, command, keywords), lowercase)| {
             let matched = match typed.is_empty() {
                 true => Match::Letters,
                 false => match_of(lowercase, keywords, &typed)?,
             };
-            Some((matched, named(name, command)?, command))
+            Some((matched, SharedString::from(named(name, command)?), command))
         })
         .collect();
+    ranked(found, &typed, keys)
+}
+
+/// `found` with the rows of `rows` that match `typed`, each a row's name, what it's for, which
+/// finds it as a hidden word does, and its command, ranked as `find_commands` ranks. None with
+/// nothing typed, so the commands-only list starts with the table's commands alone (ours).
+pub fn with_named_rows(
+    found: Vec<BarCommand>,
+    typed: &str,
+    rows: &[(SharedString, SharedString, Command)],
+    keys: &UserKeys,
+) -> Vec<BarCommand> {
+    let typed = typed.trim().to_lowercase();
+    if typed.is_empty() {
+        return found;
+    }
+    let found = found.into_iter().map(|row| (row.matched, row.name, row.command));
+    let named = rows.iter().filter_map(|(name, of, command)| {
+        let of = of.to_lowercase();
+        let matched = match_of(&name.to_lowercase(), &[of.as_str()], &typed)?;
+        Some((matched, name.clone(), *command))
+    });
+    ranked(found.chain(named).collect(), &typed, keys)
+}
+
+/// `found` best first, equals in their order, at most BAR_ROWS unless nothing is `typed`.
+fn ranked(
+    mut found: Vec<(Match, SharedString, Command)>,
+    typed: &str,
+    keys: &UserKeys,
+) -> Vec<BarCommand> {
     // Stable, so equals keep the table's order.
     found.sort_by_key(|&(matched, ..)| std::cmp::Reverse(matched));
     if !typed.is_empty() {
@@ -431,7 +525,7 @@ pub fn find_commands(
     }
     (found.into_iter())
         .map(|(matched, name, command)| BarCommand {
-            name: name.into(),
+            name,
             command,
             shortcut: keys.label(command).map(Into::into),
             matched,
@@ -480,41 +574,55 @@ pub fn keystroke_label(keystroke: &str) -> String {
 pub fn keystroke_keys(keystroke: &str) -> Vec<String> {
     match super::keys::OFF_THE_MAC {
         true => (super::keys::pressed_as(keystroke).first())
-            .map(|pressed| keys_named(pressed, ["Ctrl", "Alt", "Shift", "Super"]))
+            .map(|pressed| keys_named(pressed, true))
             .unwrap_or_default(),
-        false => keys_named(keystroke, ["⌃", "⌥", "⇧", "⌘"]),
+        false => keys_named(keystroke, false),
     }
 }
 
-/// The keys of `keystroke`, with its ctrl, alt, shift and cmd named `names`.
-fn keys_named(keystroke: &str, names: [&str; 4]) -> Vec<String> {
+/// The keys of `keystroke`, its modifiers and key named as on the Mac, or `off_the_mac` in words.
+fn keys_named(keystroke: &str, off_the_mac: bool) -> Vec<String> {
+    let names = match off_the_mac {
+        true => ["Ctrl", "Alt", "Shift", "Super"],
+        false => ["⌃", "⌥", "⇧", "⌘"],
+    };
     let mut rest = keystroke;
     let mut keys = Vec::new();
-    for (modifier, glyph) in ["ctrl-", "alt-", "shift-", "cmd-"].into_iter().zip(names) {
+    for (modifier, name) in ["ctrl-", "alt-", "shift-", "cmd-"].into_iter().zip(names) {
         if let Some(after) = rest.strip_prefix(modifier) {
-            keys.push(glyph.to_string());
+            keys.push(name.to_string());
             rest = after;
         }
     }
-    let key = match rest {
-        "enter" => "↩".to_string(),
-        "escape" => "⎋".to_string(),
-        "up" => "↑".to_string(),
-        "down" => "↓".to_string(),
-        "left" => "←".to_string(),
-        "right" => "→".to_string(),
-        "tab" => "⇥".to_string(),
-        "backspace" => "⌫".to_string(),
-        "delete" => "⌦".to_string(),
-        "space" => "Space".to_string(),
-        "pageup" => "⇞".to_string(),
-        "pagedown" => "⇟".to_string(),
-        "home" => "↖".to_string(),
-        "end" => "↘".to_string(),
-        key => key.to_uppercase(),
-    };
-    keys.push(key);
+    keys.push(key_name(rest, off_the_mac));
     keys
+}
+
+/// How a menu names `key`, a binding's key such as "enter": by its symbol on the Mac, as macOS
+/// does, and `off_the_mac` by Chrome's word for it on Linux and Windows, where the UI's font has no
+/// keyboard symbols (#772).
+pub fn key_name(key: &str, off_the_mac: bool) -> String {
+    let (symbol, word) = match key {
+        "enter" => ("↩", "Enter"),
+        "escape" => ("⎋", "Esc"),
+        "up" => ("↑", "Up Arrow"),
+        "down" => ("↓", "Down Arrow"),
+        "left" => ("←", "Left Arrow"),
+        "right" => ("→", "Right Arrow"),
+        "tab" => ("⇥", "Tab"),
+        "backspace" => ("⌫", "Backspace"),
+        "delete" => ("⌦", "Del"),
+        "space" => ("Space", "Space"),
+        "pageup" => ("⇞", "Page Up"),
+        "pagedown" => ("⇟", "Page Down"),
+        "home" => ("↖", "Home"),
+        "end" => ("↘", "End"),
+        key => return key.to_uppercase(),
+    };
+    match off_the_mac {
+        true => word.into(),
+        false => symbol.into(),
+    }
 }
 
 /// Copies `text`, a sum's result chosen in the command bar, once the bar has gone, and says so in
@@ -556,7 +664,16 @@ impl Command {
         )
     }
 
-    /// The command's name in the log and in the user's saved keys.
+    /// The command's name as Settings knows it, in the user's saved keys and the lines it logs:
+    /// its name, with the number of a Space's, as each of ⌃1–⌃9 has keys of its own.
+    pub fn key_name(self) -> String {
+        match self {
+            Command::SelectSpace(index) => format!("select-space-{}", index + 1),
+            _ => self.name().to_string(),
+        }
+    }
+
+    /// The command's name in the log.
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
@@ -612,12 +729,19 @@ impl Command {
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
             Command::TaskManager => "task-manager",
+            Command::RecordTrace => "record-trace",
+            Command::ToggleDeveloperMode => "toggle-developer-mode",
             Command::ManageExtensions => "manage-extensions",
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
+            Command::EditTheme => "edit-theme",
+            Command::ExportSpace => "export-space",
             Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
+            Command::MoveToSpace(_) => "move-to-space",
+            Command::PinToSpace(_) => "pin-to-space",
+            Command::OpenFolder(_) => "open-folder",
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
             Command::ToggleSidebar => "toggle-sidebar",
@@ -625,6 +749,7 @@ impl Command {
             Command::ViewArchive => "view-archive",
             Command::ClearArchive => "clear-archive",
             Command::ViewDownloads => "view-downloads",
+            Command::ViewMedia => "view-media",
             Command::AddSplit => "add-split",
             Command::CloseSplitPane => "close-split-pane",
             Command::SeparatePane => "separate-pane",
@@ -638,12 +763,19 @@ impl Command {
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
             Command::SiteSearchSettings => "site-search-settings",
+            Command::Appearance(Appearance::Automatic) => "appearance-automatic",
+            Command::Appearance(Appearance::Light) => "appearance-light",
+            Command::Appearance(Appearance::Dark) => "appearance-dark",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::About => "about",
             Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
+            Command::ReportProblem => "report-problem",
+            Command::CopyBuildInfo => "copy-build-info",
+            Command::HelpCenter => "help-center",
+            Command::WhatsNew => "whats-new",
             Command::Quit => "quit",
         }
     }
@@ -696,15 +828,20 @@ pub fn bind_keys(cx: &mut App) {
     drm_note::bind(cx);
 }
 
-/// The command bar is about to show a page in the pane being added, if one is: the pages shown take
-/// back its room first, so the split view shows at its place at once.
-pub fn pane_added(cx: &mut App) {
+/// The command bar is about to put `tab` in a split view with `with`: the pages shown take back the
+/// room of the pane being added, if one is, so the split view shows at its place at once. ⌘Z takes
+/// `tab` back out, or closes it if it was `opened` for the split.
+pub fn pane_added(tab: u64, with: u64, opened: bool, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
         shell
             .update(cx, |shell, cx| {
                 if shell.adding_pane.take().is_some() {
                     shell.lay_out_page(cx);
                     cx.notify();
+                }
+                match opened {
+                    true => shell.split_opened(tab, cx),
+                    false => shell.keep_split(tab, with, cx),
                 }
             })
             .ok();
@@ -796,7 +933,10 @@ impl Shell {
             Command::FavoriteTab => {
                 return self.favorite_tab(self.selected, usize::MAX, cx);
             }
-            Command::DuplicateTab => return self.browser.duplicate(self.selected, cx),
+            Command::DuplicateTab => {
+                self.browser.duplicate(self.selected, cx);
+                return;
+            }
             Command::RenameTab => return self.rename_tab(self.selected, cx),
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
@@ -824,7 +964,7 @@ impl Shell {
             }
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
-            Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
+            Command::ReopenClosedTab => return self.reopen_closed(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
             Command::Reload => return self.browser.reload(self.selected, false, cx),
@@ -853,6 +993,14 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
+            Command::RecordTrace => {
+                trace::toggle(self.browser.clone(), cx);
+                return self.update_menus(cx);
+            }
+            Command::ToggleDeveloperMode => {
+                let on = !self.page(self.selected).developer_mode;
+                return self.browser.set_developer_mode(self.selected, on, cx);
+            }
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
@@ -862,6 +1010,15 @@ impl Shell {
             Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
+            Command::ReportProblem => {
+                let url = BuildInfo::here().issue_url(build_info::NEW_ISSUE);
+                return self.browser.open_page(&url, cx);
+            }
+            Command::CopyBuildInfo => {
+                return self.copy(&BuildInfo::here().text(), "Copied Build Info", cx);
+            }
+            Command::HelpCenter => return self.browser.open_page(build_info::HELP_CENTER, cx),
+            Command::WhatsNew => return self.browser.open_page(build_info::WHATS_NEW, cx),
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
                 if !self.url(self.selected).starts_with("chrome://history") {
@@ -895,7 +1052,7 @@ impl Shell {
             }
             Command::ChangeOrientation => {
                 let stacked = self.stacked(self.selected);
-                return self.browser.set_split_stacked(self.selected, !stacked, cx);
+                return self.stack_split(self.selected, !stacked, cx);
             }
             Command::ExpandSplit => return self.expand_split(cx),
             Command::MovePaneLeft | Command::MovePaneRight => {
@@ -913,14 +1070,26 @@ impl Shell {
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::Appearance(appearance) => return self.set_app_appearance(appearance, cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
+            Command::ViewMedia => return self.view_section(Section::Media, cx),
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
+            Command::EditTheme => return self.edit_space_theme(self.space, cx),
+            Command::ExportSpace => return self.export_space(self.space, cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
+            Command::MoveToSpace(space) | Command::PinToSpace(space) => {
+                let pin = matches!(command, Command::PinToSpace(_));
+                if self.selected != 0 {
+                    self.move_to_space(self.selected, space, pin, cx);
+                }
+                return;
+            }
+            Command::OpenFolder(folder) => return self.open_folder(folder, cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
             Command::PreviousSpace => {
                 return self.show_space_at(space.and_then(|index| index.checked_sub(1)), cx);
@@ -936,7 +1105,14 @@ impl Shell {
             Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
-            Command::SelectTab(index) => (index < count).then_some(index),
+            Command::SelectTab(index) => {
+                // Past the favorites, which sidebar_rows puts first, if the user left them out.
+                let index = match user_keys(cx).favorites_numbered() {
+                    true => index,
+                    false => index + self.favorites.len(),
+                };
+                (index < count).then_some(index)
+            }
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
@@ -1138,7 +1314,16 @@ impl Shell {
         let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
         let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
         let pane = pane_frames(frame, panes.len(), stacked, &shares)[focused];
-        self.browser.capture(self.selected, pane, radius, full_page, cx);
+        let look = self.menu_look();
+        self.browser.capture(self.selected, pane, radius, full_page, !self.private, look, cx);
+    }
+
+    /// Whether `tab`'s page is in Developer Mode, or None where the user can't change it: a page
+    /// that isn't http(s), or a private window.
+    pub(super) fn developer_mode(&self, tab: u64) -> Option<bool> {
+        let page = self.page(tab);
+        let web = page.url.starts_with("http://") || page.url.starts_with("https://");
+        (tab != 0 && web && !self.private).then_some(page.developer_mode)
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.
@@ -1152,10 +1337,11 @@ impl Shell {
             Command::Back => page.can_go_back,
             Command::Forward => page.can_go_forward,
             Command::Stop => page.loading,
-            // Only a web page has a site to clear.
+            // Only a web page has a site to clear, or to show in Developer Mode.
             Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
+            Command::ToggleDeveloperMode => self.developer_mode(self.selected).is_some(),
             Command::BackToPinnedUrl => page.away_from_pinned_url || self.agent_bar().is_some(),
             Command::CloseSplitPane
             | Command::SeparatePane
@@ -1190,10 +1376,13 @@ impl Shell {
             | Command::ToggleSidebar
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
+            | Command::ExportSpace
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
             | Command::ViewDownloads
+            | Command::ViewMedia
             | Command::ManageExtensions
             | Command::AddExtension
             | Command::ViewHistory
@@ -1203,6 +1392,12 @@ impl Shell {
             | Command::Import
             | Command::Passwords
             | Command::Welcome
+            | Command::Appearance(_)
+            | Command::RecordTrace
+            | Command::ReportProblem
+            | Command::CopyBuildInfo
+            | Command::HelpCenter
+            | Command::WhatsNew
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -1222,17 +1417,60 @@ impl Shell {
 
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
     /// says what it would do.
-    fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
+    fn bar_name(&self, name: &'static str, command: Command, cx: &App) -> Option<&'static str> {
         if !self.offers(command) {
             return None;
         }
         match command {
             Command::TogglePin if self.pinned().contains(&self.selected) => Some("Unpin Tab"),
+            // The appearance chosen already would do nothing.
+            Command::Appearance(appearance) => (appearance != self.app_appearance).then_some(name),
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
+            Command::ToggleDeveloperMode => {
+                let on = self.page(self.selected).developer_mode;
+                (name == developer_mode_title(on)).then_some(name)
+            }
+            Command::RecordTrace => (name == trace::title(trace::recording(cx))).then_some(name),
             _ => Some(name),
         }
+    }
+}
+
+impl Shell {
+    /// The command bar's rows for the Spaces and the folders, each with what it's for and its
+    /// command, as Arc's bar has them: Focus for each other Space, then Pin to and Move to for
+    /// each other of the user's while a tab is shown, and Open for each closed folder of the Space
+    /// shown. A private window has one Space and no folders.
+    pub(super) fn named_bar_rows(&self) -> Vec<(SharedString, SharedString, Command)> {
+        if self.private {
+            return Vec::new();
+        }
+        let tab = self.selected != 0 && !self.favorites.contains(&self.selected);
+        let mut rows = Vec::new();
+        for (index, space) in self.spaces.iter().enumerate() {
+            if space.id == self.space {
+                continue;
+            }
+            let name = &space.name;
+            let mut row = |verb: &str, command| {
+                rows.push((format!("{verb} {name}").into(), name.clone(), command));
+            };
+            row("Focus", Command::SelectSpace(index));
+            if tab && space.agent.is_empty() {
+                row("Pin to", Command::PinToSpace(space.id));
+                row("Move to", Command::MoveToSpace(space.id));
+            }
+        }
+        if let Some(space) = self.shown_space() {
+            let shut = |row: &&u64| space.is_folder(**row) && !space.is_open(**row);
+            for &folder in space.pinned.iter().filter(shut) {
+                let name = space.folders.folders[&folder].0.clone();
+                rows.push((format!("Open {name}").into(), name, Command::OpenFolder(folder)));
+            }
+        }
+        rows
     }
 }
 
@@ -1257,18 +1495,25 @@ fn private_runs(command: Command) -> bool {
             | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
+            | Command::ExportSpace
             | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
+            | Command::MoveToSpace(_)
+            | Command::PinToSpace(_)
+            | Command::OpenFolder(_)
             | Command::NextSpace
             | Command::PreviousSpace
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
             | Command::ViewDownloads
+            | Command::ViewMedia
             | Command::ViewHistory
             | Command::SiteSearchSettings
             | Command::ManageExtensions
             | Command::AddExtension
+            | Command::ToggleDeveloperMode
     )
 }
 
@@ -1310,6 +1555,22 @@ mod tests {
         }
         assert_eq!(keys.label(Command::SelectSpace(0)).as_deref(), Some("⌃1"));
         assert_eq!(keys.label(Command::SelectSpace(9)), None);
+    }
+
+    /// Off the Mac, keys are named in Chrome's words, as the UI's font there has no keyboard
+    /// symbols; the Mac keeps its symbols (#772).
+    #[test]
+    fn keys_are_named_in_words_off_the_mac() {
+        assert_eq!(keys_named("shift-cmd-k", false), ["⇧", "⌘", "K"]);
+        assert_eq!(keys_named("ctrl-shift-k", true), ["Ctrl", "Shift", "K"]);
+        assert_eq!(keys_named("escape", false), ["⎋"]);
+        assert_eq!(keys_named("escape", true), ["Esc"]);
+        assert_eq!(keys_named("alt-left", true), ["Alt", "Left Arrow"]);
+        assert_eq!(keys_named("ctrl-alt-backspace", true), ["Ctrl", "Alt", "Backspace"]);
+        assert_eq!(keys_named("ctrl-pagedown", true), ["Ctrl", "Page Down"]);
+        assert_eq!(key_name("enter", false), "↩");
+        assert_eq!(key_name("enter", true), "Enter");
+        assert_eq!(key_name("delete", true), "Del");
     }
 
     /// ⌘Y is a page's to keep, as Chrome's is, unlike the reserved keys.
@@ -1472,9 +1733,9 @@ mod tests {
         let private =
             cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
         let found = |shell: &gpui::Entity<Shell>, typed: &str, cx: &mut gpui::TestAppContext| {
-            shell.read_with(cx, |shell, _| {
+            shell.read_with(cx, |shell, cx| {
                 find_commands(typed, &UserKeys::default(), |name, command| {
-                    shell.bar_name(name, command)
+                    shell.bar_name(name, command, cx)
                 })
                 .into_iter()
                 .map(|row| row.name.to_string())
@@ -1491,5 +1752,98 @@ mod tests {
         assert_eq!(host.site_search_settings.get(), 1);
         private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
         assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
+    }
+
+    /// The command bar offers to turn Developer Mode on for a web page and off for one in it, and
+    /// neither for a page with no site or in a private window, which can't change it.
+    #[gpui::test]
+    fn developer_mode_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
+            (find_commands("developer mode", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::ToggleDeveloperMode)
+                .map(|found| if found.name == DEVELOPER_MODE_ON { "on" } else { "off" })
+                .collect()
+        };
+        let page = |url: &str, developer_mode| Page {
+            url: url.to_string().into(),
+            developer_mode,
+            ..Page::default()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| {
+            let mut shell = Shell::new(browser, cx);
+            let space = (1, "One".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("https://example.com/", false), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell, cx), ["on"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            assert_eq!(listed(shell, cx), ["off"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("chrome://settings/", false), cx);
+            assert!(listed(shell, cx).is_empty());
+        });
+        let calls = host.take();
+        let changes: Vec<&String> = calls.iter().filter(|call| call.contains("developer")).collect();
+        assert_eq!(changes, ["developer mode 10 true", "developer mode 10 false"]);
+
+        let browser = host.clone();
+        let private = cx.new(|cx| {
+            let mut shell = Shell::private_window(browser, 1, "Private".into(), 0, cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        private.update(cx, |shell, cx| assert!(listed(shell, cx).is_empty()));
+    }
+
+    /// Record a Trace starts one, and while it records the command bar and Help › Troubleshooting
+    /// offer Stop Recording Trace in its place, which stops it.
+    #[gpui::test]
+    fn record_a_trace_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::recorder::Recorder;
+
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
+            (find_commands("trace", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::RecordTrace)
+                .map(|found| if found.name == trace::RECORD { "record" } else { "stop" })
+                .collect()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell, cx), ["record"]);
+            shell.run(Command::RecordTrace, "bar", cx);
+            assert_eq!(listed(shell, cx), ["stop"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::STOP_RECORDING);
+        shell.update(cx, |shell, cx| {
+            shell.run(Command::RecordTrace, "ui", cx);
+            assert_eq!(listed(shell, cx), ["record"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::RECORD);
+        let calls = host.take();
+        let traced: Vec<&String> = calls.iter().filter(|call| call.contains("trace")).collect();
+        assert_eq!(traced, ["start trace", "trace note shown", "trace note hidden", "stop trace"]);
     }
 }

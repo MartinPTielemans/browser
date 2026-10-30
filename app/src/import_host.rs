@@ -188,7 +188,7 @@ impl browser::import::Host for CoreImport {
     }
 
     fn create_space(&self, name: &str, icon: &str, theme: Option<&Theme>) -> u64 {
-        let space = crate::create_space(name);
+        let space = crate::create_space(name, 0);
         let icon = CString::new(icon).unwrap_or_default();
         unsafe { bc::bc_space_set_icon(space, icon.as_ptr()) };
         if let Some(theme) = theme {
@@ -316,5 +316,9 @@ impl browser::import::Host for CoreImport {
     fn passwords_profile(&self) -> Option<String> {
         let profiles = ids(bc::bc_profiles);
         (profiles.len() > 1).then(|| name(bc::bc_profile_name, passwords_profile()).to_string())
+    }
+
+    fn open_store_page(&self, url: &str) {
+        open_tab_behind(front().0, url, false);
     }
 }

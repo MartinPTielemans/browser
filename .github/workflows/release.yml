@@ -6,9 +6,14 @@
 #   ilo-linux-x86_64.flatpak     flatpak.yml's bundle, naming ilo's Flatpak repository, which it
 #   ilo.flatpakref               updates from, and the repository's entry (tools/flatpak-repo.sh)
 #   SHA256SUMS, and appcast.xml  the updates feed's next state (tools/appcast.sh)
+# and, in the run rather than the release, winget's manifests for the Windows installer.
 # On a pushed v* tag, or by hand with the tag's name. The tag must be app/Cargo.toml's version, and
 # its message is the release's notes. Each job builds on its OS's prebuilt engine for the commit,
-# which engine/fetch.sh finds or fails on; a release never builds an engine. The owner publishes
+# which engine/fetch.sh finds or fails on; a release never builds an engine. The Windows engine is
+# built nightly, not for each core change, so before pushing the tag, dispatch Engine on Windows
+# (cross-compiled) on its commit (gh workflow run engine-windows-cross.yml --ref main, with main at
+# that commit) and wait for its release engine-windows-<commit>; otherwise the Windows job stops at
+# "No Windows engine release for this commit", or packs an older core. The owner publishes
 # the draft, which puts its Linux build in the Flatpak repository (the publish job). README.md ›
 # Releases names the secrets it needs. GitHub's hosted runners only.
 name: Release
@@ -73,8 +78,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # Crash reports' symbols, which each OS's job uploads to the collector app/branding/crash-reports
-      # names (tools/symbols.sh). Optional: with none of these no symbols are uploaded, and with only
-      # some the release stops here rather than after its builds.
+      # names (tools/symbols.sh). Optional: without the token no symbols are uploaded, and with the
+      # token but not the rest the release stops here rather than after its builds.
       - name: Crash reports' symbols
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -136,15 +141,42 @@ jobs:
 
       # The packaging is app/platform/windows/package's, under the release's names. --release stops
       # on a missing engine and on windows-store.ini's placeholder identity, and only its release
-      # names are taken, never an -app-only or -placeholder-identity package.
+      # names are taken, never an -app-only or -placeholder-identity package. A trial packs a test
+      # MSIX while the identity is a placeholder, so the rest of the job can be tried before
+      # Partner Center gives one; the Engine step has already stopped one without an engine.
       - name: Package
         env:
           version: ${{ needs.version.outputs.version }}
+          TRIAL: ${{ needs.version.outputs.trial }}
         run: |
-          platform/windows/package/package.sh --release "$RUNNER_TEMP/packages"
+          if [ "$TRIAL" = true ]; then
+            platform/windows/package/package.sh "$RUNNER_TEMP/packages"
+            msix=$(ls "$RUNNER_TEMP/packages/ilo-$version-x64"*.msix)
+          else
+            platform/windows/package/package.sh --release "$RUNNER_TEMP/packages"
+            msix=$RUNNER_TEMP/packages/ilo-$version-x64.msix
+          fi
           mkdir "$RUNNER_TEMP/windows"
-          mv "$RUNNER_TEMP/packages/ilo-$version-x64.msix" "$RUNNER_TEMP/windows/ilo-windows-x64.msix"
-          mv "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" "$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe"
+          mv "$msix" "$RUNNER_TEMP/windows/ilo-windows-x64.msix"
+          cp "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" "$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe"
+
+      # winget's manifests for the installer at the URL this release publishes it at, which the
+      # owner puts in a pull request to microsoft/winget-pkgs once the draft is published
+      # (README.md › Releases). They're the run's, not the release's: users never need them.
+      - name: winget manifests
+        env:
+          version: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          ../tools/winget.sh "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/ilo-windows-x64-setup.exe" \
+            "$RUNNER_TEMP/winget"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winget
+          path: ${{ runner.temp }}/winget
+          if-no-files-found: error
 
       # The engine's executables and libraries with their PDBs, from its release, and Browser.dll
       # with its own.
@@ -361,17 +393,17 @@ jobs:
             --key-id "$MAC_NOTARY_KEY_ID" --issuer "$MAC_NOTARY_ISSUER_ID"
           rm "$RUNNER_TEMP/notary.p8"
 
+      # It uploads the crash reports' symbols too (tools/symbols.sh).
       - name: Build
         env:
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
-        run: ./build.sh prod
-
-      - name: Sign and notarize
-        env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_URL: ${{ vars.SENTRY_URL }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: ./build.sh prod
+
+      - name: Sign and notarize
         run: ../tools/release.sh
 
       - uses: actions/download-artifact@v4
@@ -448,6 +480,8 @@ jobs:
 
       - run: |
           (cd assets && sha256sum -- ilo-* > SHA256SUMS)
+          # The Mac's minimum, LSMinimumSystemVersion in app/build.sh.
+          printf '\nThe Mac build needs macOS 15 (Sequoia) or later, on Apple silicon.\n' >> notes/notes.md
           if [ ! -f assets/ilo-windows-x64-setup.exe ]; then
             printf '\nThe Windows packages are not in this release yet.\n' >> notes/notes.md
             echo "No Windows packages: the Windows job failed. The draft has the Mac's and Linux's." >> "$GITHUB_STEP_SUMMARY"

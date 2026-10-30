@@ -9,7 +9,7 @@ use super::{
     CARD_SLOT, CARD_SLOT_X, CARD_WIDTH, SPACES_INSET, card_x,
 };
 use crate::icon_picker::Subject;
-use crate::shell::{Naming, Pending, Section, Shell, recorder::Recorder};
+use crate::shell::{Command, Naming, Pending, Section, Shell, recorder::Recorder};
 
 /// A window with the Library open on Spaces, at rest, over the Spaces Home and Work, Home shown.
 fn library(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
@@ -186,4 +186,45 @@ fn the_brush_opens_the_theme_picker(cx: &mut TestAppContext) {
     let pending = shell.read_with(cx, |shell, _| shell.picker_pending.map(|(picker, _)| picker));
     assert_eq!(pending, Some(Pending::Theme(1)));
     assert_eq!(renaming_in_card(&shell, cx), None, "the brush renamed");
+}
+
+/// The command bar's Edit Theme…, Arc's, is the first command "theme" finds, and opens the theme
+/// picker for the Space shown, as its menu's Edit Theme Color… does, once the Library has gone.
+#[gpui::test]
+fn edit_theme_in_the_command_bar_opens_the_theme_picker(cx: &mut TestAppContext) {
+    let keys = crate::shell::UserKeys::default();
+    let found = crate::shell::find_commands("theme", &keys, |name, _| Some(name));
+    assert_eq!(found.first().map(|row| row.command), Some(Command::EditTheme));
+    let (shell, cx, _) = library(cx);
+    shell.update(cx, |shell, cx| shell.run(Command::EditTheme, "command-bar", cx));
+    let pending = shell.read_with(cx, |shell, _| shell.picker_pending.map(|(picker, _)| picker));
+    assert_eq!(pending, Some(Pending::Theme(1)));
+}
+
+/// Whether each card's field was last drawn with its plate, dashes and brush, by Space.
+fn fields_shown(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> (bool, bool) {
+    shell.read_with(cx, |shell, _| {
+        let drawn = shell.fields_drawn.borrow();
+        (drawn[&1], drawn[&2])
+    })
+}
+
+fn move_to(cx: &mut VisualTestContext, at: Point<Pixels>) {
+    cx.simulate_mouse_move(at, None, Modifiers::none());
+    cx.run_until_parked();
+}
+
+/// A card's field draws its plate, the slot's dashes and the brush only under the pointer, its own
+/// and not the card's, and keeps them while its name is typed over (#811).
+#[gpui::test]
+fn a_card_s_field_shows_its_plate_under_the_pointer_or_while_renamed(cx: &mut TestAppContext) {
+    let (shell, cx, _) = library(cx);
+    assert_eq!(fields_shown(&shell, cx), (false, false), "at rest");
+    move_to(cx, brush(1));
+    assert_eq!(fields_shown(&shell, cx), (false, true), "the pointer on the second's brush");
+    move_to(cx, point(px(card_x(1) + CARD_WIDTH / 2.), px(SPACES_INSET + 150.)));
+    assert_eq!(fields_shown(&shell, cx), (false, false), "the pointer on the card, off its field");
+    click(cx, name(0));
+    move_to(cx, point(px(card_x(1) + CARD_WIDTH / 2.), px(SPACES_INSET + 150.)));
+    assert_eq!(fields_shown(&shell, cx), (true, false), "the first's name typed over");
 }

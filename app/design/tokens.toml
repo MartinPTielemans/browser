@@ -11,12 +11,11 @@
 # Timings, springs and other motion stay in the code: the design file has no motion.
 
 [capture]
-# Arc's, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen, the pill that
-# says how, and the menu. Their corners are ilo's own radii, the menu's concentric with its rows
-# (inset ROW_INSET, so 12 + 4) and its field (inset FIELD_INSET, so 6 + 10).
+# Arc's layout, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen and the
+# pill that says how. Their look is ilo's: the ring in the Space's accent, and the pill and the
+# menu in ilo's menu's panel ([menu]), in the window's tone.
 ring = 4.0
 ring-radius = 6.0
-ring-color = 0x151c_2fff
 # The page around what's chosen is grey, Rec. 601's luma at this much of its brightness, which
 # gives Arc's grey to the level at each of the three measured.
 dim = 0.749
@@ -25,38 +24,11 @@ pill-height = 67.0
 pill-radius = 16.0
 pill-bottom = 35.5
 pill-text-size = 13.0
-pill-text = 0x471c_9dff
-# The pill's lilac glow, fitted by eye to its edge over the grey page (interim).
-glow = 0x825a_9666
-glow-blur = 90.0
+# The menu, 10 in from the ring's left, with a glyph before each row's title.
 menu-left = 10.0
-menu-width = 273.0
-menu-radius = 16.0
-menu-fill = 0x120f_2cff
-field-inset = 10.0
-field-top = 13.0
-field-height = 29.5
-field-fill = 0x2320_3bff
-field-text = 0xaaa9_b4ff
-field-text-left = 10.0
-rows-top = 7.5
-row = 40.0
 glyph = 14.0
-glyph-left = 18.0
-# Arc's glyphs are white 0.3, under 3:1 on the menu; ours are Paper at the least alpha, in
-# 25ths, at which they reach it there and on a hovered row (decision 6).
-glyph-color = 0.4
-text-left = 42.0
-text-size = 13.0
-separator = 9.0
-separator-color = 0xffff_ff0f
-menu-bottom = 6.0
-row-inset = 4.0
 # The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
 margin = 8.0
-# The menu's words.
-menu-text = 0xffff_ffff
-pill-fill = 0xffff_ffff
 
 [command-bar]
 # The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
@@ -309,6 +281,10 @@ search-radius = 6.0
 search-padding = 8.0
 list-bottom = 6.0
 emoji-size = 20.0
+# The skin tone button at the search's right end, a hand in the tone the grid shows, which opens
+# the six tones along the field (ours: Arc's isn't recorded): a plate 4 short of the field's height.
+tone-plate = 20.0
+tone-emoji = 14.0
 # A group's header takes a row, its text on the plates' left edge and the row's bottom.
 header-text = 11.0
 header-left = 4.0
@@ -435,6 +411,9 @@ pressed = 0x1614_0f2e
 # A Space's swatch in Move to (#320), before its name: its gradient, ringed by the palette's rule
 # for a swatch's ring (palette.rs) against the panel.
 swatch = 10.0
+# A page's favicon before its title in the back and forward buttons' menu of the tab's history
+# (#675), as Arc's and Chrome's show them: the engine's 16 pt favicon.
+favicon = 16.0
 
 [offer]
 width = 320.0
@@ -497,6 +476,21 @@ neutral = 0.1
 # dialog.
 overlay-dark = 0x1f1d17
 dialog-dark = 0x2a2720
+# The light window, Dia's light layers: material 13 under white at `light-tint`, read before the
+# gradient as Dia's composite gives it over a black and a white backdrop, 0.8·255 + 0.2·(137, 243)
+# (interim, until the window run measures ours). A theme's colours lie over it at 0.75 of the
+# gradient's 0.36, and a neutral one's of its 0.12. The stand-in is Dia's light composite over
+# grey 20 (ours, as the dark one).
+light-tint = 0.8
+light-ground-over-black = 0xe7e7e7
+light-ground-over-white = 0xfdfdfd
+light-stand-in = 0xe9e9e9
+light-gradient-alpha = 0.27
+light-neutral-gradient-alpha = 0.09
+# What floats over a light window: Paper, the light menu's fill, and a dialog a step lighter, as
+# the dark dialog is a step lighter than the dark overlay (ours).
+overlay-light = 0xf3f0e8
+dialog-light = 0xfbf9f4
 # The accent of a Space without a theme starts from ilo green (#0B8045), lighter, so Ink reads on
 # it at 4.6:1 where Paper on #0B8045 is 4.4:1. On the measured window over a white backdrop it's
 # 2.7:1, so the palette takes it lighter still at its hue, to #57B97A, as it does a theme's colour.
@@ -512,10 +506,10 @@ intensity-span = 0.55
 # A Space swatch's ring, a hairline.
 ring = 1.0
 # The accent under the pointer, each channel at this, darker as every filled button goes (the
-# owner, 2026-10-26); pressed (#319), this much OKLab lightness further from its label, so the
-# label reads more on it; and a text selection, the accent at this.
+# owner, 2026-10-26); pressed, each channel at this, a step darker again, whatever the label (the
+# owner, #707); and a text selection, the accent at this.
 accent-hovered = 0.9
-accent-pressed = 0.08
+accent-pressed = 0.8
 selection = 0.28
 # One ladder of states for every control whose states Arc wasn't recorded with, but the accent's
 # (#318): pressed, under the pointer, selected, and selected under the pointer. They're the
@@ -526,6 +520,14 @@ state-pressed = 0.065
 state-hovered = 0.12
 state-selected = 0.2
 state-selected-hovered = 0.36
+# On a light window the tab shown lies on white 0.85 over a black 0.20 shadow rather than on a plate
+# of Ink (Arc's light `TabCellBackgroundCurrent`). Ours, as Arc's light rows aren't recorded: the
+# shadow 1 down and blurred 2, and the plate white 1 under the pointer.
+light-selected = 0.85
+light-selected-hovered = 1.0
+light-selected-shadow = 0.2
+light-selected-shadow-y = 1.0
+light-selected-shadow-blur = 2.0
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
@@ -574,6 +576,15 @@ popup-end = 22.5
 chevrons = 14.0
 # Buttons under the boxes are 11 below them.
 buttons-top = 11.0
+# Ours: a checkbox, as the dialog's, 8 before its name, ticked in the accent with a white tick;
+# and a disclosure, such as the import's Choose folders, its chevron 4 after its words.
+check-box = 16.0
+check-radius = 6.0
+check-gap = 8.0
+check-glyph = 12.0
+check-tick = 0xffffff
+disclosure-gap = 4.0
+disclosure-glyph = 12.0
 # Ours, for the Shortcuts tab: a header 8 over each box, 20 below the box before, and keys in
 # chips as the command bar shows them, at least 56 wide so they line up, with a command's way
 # back to its default 6 before its chip.
@@ -605,6 +616,7 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
+restore-windows-tile = 0x5856d6
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
 password-tile = 0x8e8e93
@@ -612,6 +624,8 @@ password-tile = 0x8e8e93
 # client on the profiles' grey, as none is ours.
 agents-tile = 0x289054
 client-tile = 0x8e8e93
+# Ours: exporting the Spaces' links is a file, grey as the profiles' and passwords' tiles.
+export-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
@@ -781,8 +795,10 @@ cancel-height = 15.0
 # black, darker than any Space and without its colour (ours: Arc's and Dia's private look isn't
 # recorded).
 private-shade = 0.35
-# Dia's card, #121212 at 0.5: what shows before a page first paints.
+# Dia's card, #121212 at 0.5 on a dark window and white at 0.7 on a light one: what shows before
+# a page first paints.
 card = 0x1212_1280
+light-card = 0xffff_ffb3
 # Everything below is an alpha of the palette's ink, Ink or Paper (palette.rs): text and glyphs
 # through its floors, plates in Paper's terms. Arc's row tokens (docs/ux-spec.md › Tab rows): the
 # tab shown is 0.2, a row under the pointer 0.12 and a pressed one 0.065, with no line or shadow.
@@ -814,10 +830,21 @@ sleeping-favicon = 0.5
 # A favorite's tile: 0.10 at rest (Dia), with the resting level's rim, and under the pointer the
 # ladder's hover over that (palette's `state-hovered`; Dia's isn't measured). The one shown is
 # themed by its icon (tile_theme.rs), and black with Dia's default selection ring, white 0.45,
-# where the icon gives no theme.
+# where the icon gives no theme. A light window's is white (Dia), unthemed whatever its icon until
+# the light theme is built (ours).
 tile = 0.1
 tile-ring = 0.45
 tile-unthemed = 0x0000_00ff
+tile-unthemed-light = 0xffff_ffff
+# A tab in Developer Mode (docs/ux-spec.md › Developer Mode; ours, as Arc's isn't recorded and its
+# yellow and black aren't ilo's). The one shown has a dashed outline, a work in progress, in the
+# ink, so it reads on every theme, over its row's fill, a step firmer than another tab's, or in
+# place of its tile's ring. Every tab in it keeps its title in the full ink, and a favorite's tile
+# rests a step firmer, so the sidebar sets them apart.
+developer-outline = 0.62
+developer-outline-width = 1.0
+developer-selected = 0.26
+developer-tile = 0.16
 # The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
 # with nowhere to go, over a hover plate of 0.077.
 nav = 0.6
@@ -933,8 +960,9 @@ badge-text-color = 0xffffff
 site-controls-end = -1.0
 tool-pitch = 28.0
 # The URL field's words with no page shown: the command bar's placeholder, which a click opens
-# over them, at white 0.32, which is to the host's 0.60 as the bar's placeholder is to its text.
-url-placeholder = 0xffff_ff52
+# over them, at the ink's 0.32, which is to the host's 0.60 as the bar's placeholder is to its
+# text, raised as all text is to read on the window.
+url-placeholder = 0.32
 # The password manager's key after the host (ours, for Chrome's key icon), drawn as the engine's
 # compass is, 12 pt and 5 after the host, and taking clicks 4 around it.
 key-gap = 5.0
@@ -1018,6 +1046,9 @@ plus-size = 30.0
 plus-glyph = 14.0
 # The room after the +, to the Library's edge.
 plus-after = 37.0
+# Ours: a tab dragged over another Space's card rings it in that card's accent, this wide, inside
+# its edge (Arc's isn't recorded).
+card-drop-ring = 2.0
 # The search field, on the window buttons' row. Arc's Filter button is left out, and the field
 # takes its place.
 search-x = 120.0
@@ -1045,6 +1076,10 @@ archived-right = 3.0
 archived-favicon-x = 14.0
 archived-text-x = 44.0
 archived-radius = 12.0
+# Ours, as Arc's Media isn't measured: three tiles a row in the rows' width, 6 apart, at the
+# favorites' tiles' radius.
+media-gap = 6.0
+media-radius = 12.0
 # Ours: a running download's bar, under its text, and the footer button's, under its glyph.
 progress-height = 3.0
 progress-bottom = 6.0
@@ -1204,6 +1239,19 @@ picture-inset = 4.0
 # The corners of the half-filled glyph a target shows.
 half-glyph-radius = 3.5
 
+[shell.split-controls]
+# Ours, as Arc's split controls aren't measured: the handle over each page of a split view, in
+# the window's margin over the card, or the gap under the page over it stacked. Its hover plate is
+# this wide, and its strip's height less twice the inset, at the radius of half that. Its three
+# dots are this wide and this far apart, at the ink's dots alpha, or dots-hovered under the
+# pointer.
+width = 32.0
+inset = 1.0
+dot = 2.5
+dot-gap = 3.0
+dots = 0.35
+dots-hovered = 0.8
+
 [shell.swap]
 check-box = 24.0
 # The check is Lucide's, so it draws at the icons' one stroke, `shell::assets::ICON_STROKE`.
@@ -1336,6 +1384,13 @@ default-intensity = 0.81
 # How strongly grain at 1 lies over the colours: Arc's window at full grain is ≈ 5.5 levels of
 # luminance noisier (Arc 1.170 rec at 2×).
 grain-strength = 0.075
+# Ours, each texture's strength as a share of grain's, so it moves the window's colours as much as
+# the noise does at the same grain: the noise's root mean square opacity over its own.
+dust-strength = 2.47
+weave-strength = 0.91
+fleck-strength = 1.47
+# Arc's texture in an inactive window, at a quarter of its strength (Arc 1.167).
+inactive-texture = 0.25
 
 [theme-picker]
 # Arc 1.170's, measured at 2× (docs/ux-spec.md › Themes), in points from the card's top left.

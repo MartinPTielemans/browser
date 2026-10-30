@@ -58,7 +58,7 @@ Chromium's security point releases (same major, such as 156.0.8078.47 → .60) u
 
 ## Windows
 
-The Windows engine is cross-compiled on Linux, as Chromium's `docs/win_cross.md` describes, by `.github/workflows/engine-windows-cross.yml` on the runner that builds the Linux engine. It keeps its tree in `$ILO_ENGINE_ROOT/windows`, runs on the same pushes to main and by hand, and publishes a release `engine-windows-<commit>`, which `fetch.sh` downloads on Windows and `app/setup.sh` copies into `app/.deps/engine`.
+The Windows engine is cross-compiled on Linux, as Chromium's `docs/win_cross.md` describes, by `.github/workflows/engine-windows-cross.yml` on the runner that builds the Linux engine. It keeps its tree in `$ILO_ENGINE_ROOT/windows`, runs nightly on main, on pushes to main that change the pin, the series or its scripts, and by hand, but not for each core change, which would hold the Linux engines' one runner, and publishes a release `engine-windows-<commit>`, which `fetch.sh` downloads on Windows and `app/setup.sh` copies into `app/.deps/engine`. Until the next one, Windows takes the nearest engine in its history, up to a day's core changes behind main, and none after a change to `core/public/browser_core.h`.
 
 `windows/cross/prepare.sh <work>` takes ungoogled-chromium-windows's patches and Windows-only sources at the tag `pins.ini` names, on Chromium's source tarball, with ungoogled-chromium-portablelinux's Linux toolchain (the same ungoogled-chromium commit, which the script checks). Of ungoogled-chromium-windows's patches it leaves out the ones that fit its build to a Windows host or its own LLVM, and adds portablelinux's for the Linux host's Python and Node tools. A new tag comes in through `<work>/next` as on Linux. Three exceptions to ungoogled-chromium's pruning stay in the tree: the outputs of Microsoft's `midl` and `mc` that Chromium checks in under `win_build_output/` and `chrome/app/etw_events/`, and windows-rs's import libraries. Those tools don't run on Linux, so a cross build copies the checked-in outputs, as Google's own does. `windows/cross/build.sh` builds `chrome`, and `windows/cross/package.sh` packs what Chromium's `FILES.cfg` lists, with `chrome.dll.lib`, which the app links, into `Chromium-windows-x64.zip`.
 
@@ -74,6 +74,8 @@ python package_from_installed.py <VS version> -w <SDK version> --noarm
 The zip is named after its contents' hash. The first build takes about as long as the Linux engine's, and the tree, the toolchain and a new version coming in need about 150 GB.
 
 `windows/prepare.sh` is ungoogled-chromium-windows's own build on Windows, which `.github/workflows/engine-windows.yml` runs by hand on GitHub's runners, for when the cross build can't.
+
+Both add `enable_playready=true` to the args. Chromium sets it only in Chrome-branded builds, and nothing else on PlayReady's path checks branding, so with it protected video plays through Windows' own PlayReady (decision 1).
 
 ## Releases
 
@@ -128,14 +130,16 @@ so a build whose profile is elsewhere, as a dev build's is, does none of that.
   doesn't. Reports leave out the memory that pointers on the stack lead to, which can hold a
   page's, and Chrome's dumps of processes that didn't crash. The stacks can still hold a URL or
   page text, which is why sending is the user's to turn on.
-- **The collector.** `app/branding/crash-reports` holds GlitchTip's minidump endpoint,
+- **The collector.** `app/branding/crash-reports` holds the minidump endpoint of ilo's Sentry
+  project, in Sentry's EU region (organization `ilo-rg`, project `ilo`):
   `https://<host>/api/<project id>/minidump/?sentry_key=<key>`, read off the project's DSN,
-  `https://<key>@<host>/<project id>`. Empty, as a fork's starts, the build sends nothing and
-  Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
-  (glitchtip.com/documentation/install), an organization and a project, and an auth token with
-  `project:write` for the symbols.
+  `https://<key>@<host>/<project id>`. The key is public, as every client carries it. Only the
+  prod build (`app/build.sh prod`, as every release is) names it, so a dev build or a check never
+  sends to it, and Settings › Privacy names it "Sentry (EU region)". Empty, as a fork's starts,
+  the build sends nothing and Settings has no Privacy tab. A fork names its own project's
+  endpoint, Sentry's or a self-hosted collector's that takes Sentry's minidump endpoint.
 - **Symbols.** When the build names a collector, each release job uploads its OS's with
-  `tools/symbols.sh`, through `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does.
+  `tools/symbols.sh`, through `sentry-cli debug-files upload`, to the same project.
   The Mac's are the Release engine's dSYMs and the app's executable; that engine builds with
   ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions
   and lines outside Blink, and Blink's only their library. Linux and Windows build with their

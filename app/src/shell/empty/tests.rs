@@ -8,7 +8,7 @@ use std::{
 use gpui::{Entity, Modifiers, Pixels, Point, TestAppContext, VisualTestContext, point, px};
 
 use crate::command_bar::PLACEHOLDER_TEXT;
-use crate::shell::{Folders, Page, ROW_HEIGHT, Shell, Slot, empty::FADE, recorder::Recorder};
+use crate::shell::{Folders, Page, ROW_HEIGHT, SECONDARY, Shell, Slot, empty::FADE, recorder::Recorder};
 
 /// A drawn shell showing one Space with Today tabs 1 and 2, and no tab shown, as a fresh window.
 fn window_with_no_tab(
@@ -144,7 +144,9 @@ fn the_url_field_says_what_to_type_only_with_no_page(cx: &mut TestAppContext) {
     assert!(alpha < 0.1, "it starts from nothing with the mark, at {alpha}");
     shell.update(cx, |shell, _| shell.empty_since = Some(Instant::now() - Duration::from_secs(1)));
     let (_, faded_in) = words(cx);
-    assert!(faded_in > 0.3 && faded_in < 0.6, "dimmer than a host, at {faded_in}");
+    // Dimmer than a host where the window lets it be, and never under what text needs to read.
+    let (floor, host) = shell.read_with(cx, |shell, _| (shell.palette.text_floor, shell.palette.text(SECONDARY).a));
+    assert!(faded_in > floor.max(0.3) - 0.01 && faded_in <= host, "reads, no brighter than a host, at {faded_in}");
 
     shell.update(cx, |shell, cx| shell.set_selected(1, cx));
     cx.run_until_parked();

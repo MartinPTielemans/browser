@@ -100,7 +100,11 @@ fn bounds(kind: Kind, ui_view: *mut c_void) -> Option<Bounds<Pixels>> {
     let width = f64::from(content.width);
     let (x, y) = match kind {
         Kind::DropTargets => return Some(Bounds::new(point(px(0.), px(0.)), content)),
-        Kind::Toast => (width - f64::from(own.width), 0.),
+        // At the focused page's corner, which in a split view is its pane's.
+        Kind::Toast => {
+            let (page_right, page_top) = crate::panels::page_corner(ui_view);
+            (width - page_right - f64::from(own.width), page_top)
+        }
         Kind::Hud => {
             let (page_right, page_top) = crate::panels::page_corner(ui_view);
             let (right, top, margin) = HUD.with_borrow(|hud| (hud.right, hud.top, hud.margin));
@@ -307,6 +311,12 @@ fn toast_pointer() {
     let Some(view) = find(Kind::Toast, |float| float.view) else { return };
     let plate = TOAST.with_borrow(|toast| toast.plate.filter(|_| toast.takes));
     gpui_linux::set_overlay_pointer(view, Some(plate.as_slice()));
+}
+
+/// For the driver: the toast's window while it shows. The X server finds it under the pointer only
+/// on its plate while it has buttons.
+pub(crate) fn shown() -> Option<*mut c_void> {
+    find(Kind::Toast, |float| (!float.over.is_null()).then_some(float.view)).flatten()
 }
 
 #[unsafe(no_mangle)]

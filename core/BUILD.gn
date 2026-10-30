@@ -72,6 +72,8 @@ source_set("browser_core") {
     "clear_site.h",
     "crash_reports.cc",
     "crash_reports.h",
+    "developer_mode.cc",
+    "developer_mode.h",
     "downloads.cc",
     "downloads.h",
     "drm_request.cc",
@@ -119,6 +121,7 @@ source_set("browser_core") {
     "platform/keyboard.h",
     "platform/keychain.h",
     "platform/native_hosts.h",
+    "platform/playready.h",
     "platform/system_page.h",
     "platform/window_views.h",
     "popular_sites.cc",
@@ -146,6 +149,7 @@ source_set("browser_core") {
     "system_engine.h",
     "tab.cc",
     "tab.h",
+    "trace.cc",
     "widevine.cc",
     "widevine.h",
     "window.cc",
@@ -213,6 +217,7 @@ source_set("browser_core") {
     "//components/component_updater",
     "//components/content_settings/core/browser",
     "//components/crash/core/app",
+    "//components/crash/core/common",
     "//components/content_settings/core/common",
     "//components/download/content/public",
     "//components/download/public/common:public",
@@ -332,14 +337,19 @@ source_set("browser_core") {
       "platform/native_hosts_win.cc",
       "platform/win/app_library.cc",
       "platform/win/keyboard.cc",
+      "platform/win/playready.cc",
       "platform/win/window_views.cc",
     ]
     deps += [
       "//chrome/installer/util:with_no_strings",
+      "//components/cdm/common:buildflags",
       "//ui/base/ime",
     ]
   } else {
-    sources += [ "platform/native_hosts_posix.cc" ]
+    sources += [
+      "platform/native_hosts_posix.cc",
+      "platform/playready_none.cc",
+    ]
   }
   if (is_linux) {
     sources += [

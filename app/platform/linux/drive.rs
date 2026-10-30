@@ -13,14 +13,15 @@
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
 //! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
 //! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
-//! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
+//! order, layout, state, title, pasteboard, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
 //! them, cmd with Ctrl and alt with Alt. flags presses and lets
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
 //! commits its text to a field of the UI's, not a page's. scroll turns the wheel a notch for each event,
-//! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
-//! no alerts yet. fullscreen toggles the window's full screen through the core. ime on types as
+//! where the Mac's moves the content by points. choose works on ilo's menu and on ilo's dialog,
+//! whose buttons it presses by their labels as drive.mm does an alert's, and dismiss on the menu;
+//! Linux shows no alerts yet. fullscreen toggles the window's full screen through the core. ime on types as
 //! drive.mm's scripted input method does, in the UI's fields alone, as a page's input method is
 //! Chromium's, and it can't compose in a page. The others, such as swipe, drags from other apps
 //! and displays, the driver can't do yet, and says so as drive.mm does.
@@ -59,8 +60,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
-    settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, link_preview_window, menu_window, overlays,
+    panels, platform, popovers, reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -225,13 +226,16 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
     })
 }
 
-/// The views of the app's windows that show over a browser window: the overlays, the find bar and
-/// the offer to save a password, then ilo's menu.
+/// The views of the app's windows that show over a browser window: the overlays, the Site Controls
+/// and Capture, the find bar and the offer to save a password, then ilo's menu, and the toast.
 fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
+    views.extend(popovers::shown());
     views.extend(panels::shown());
     views.extend(menu_window::shown());
     views.extend(reveal_window::shown());
+    views.extend(floats::shown());
+    views.extend(link_preview_window::shown());
     views
 }
 
@@ -1397,6 +1401,13 @@ fn run_command(line: &str) -> Option<()> {
             log!("browser: key window titled {title}");
             Some(())
         }
+        // The headless session's clipboard is the run's own, as drive.mm's pasteboard is.
+        "pasteboard" => {
+            let cx = CX.with_borrow(Clone::clone)?;
+            let text = cx.update(|cx| cx.read_from_clipboard().and_then(|item| item.text()));
+            log!("browser: pasteboard text {}", text.unwrap_or_default());
+            Some(())
+        }
         // The app's menus, which Linux shows no bar for, run in the driven window as the Mac's
         // menu bar runs them in the key one.
         "menu" | "menubar" => {
@@ -1445,10 +1456,15 @@ fn run_command(line: &str) -> Option<()> {
             })
             .ok()
         }
-        // An item of ilo's menu that shows, or an alert's button.
+        // An item of ilo's menu that shows, a button of ilo's dialog, or an alert's button.
         "choose" => {
             let title = CString::new(rest).ok()?;
+            let in_dialog = || {
+                CX.with_borrow(Clone::clone)
+                    .is_some_and(|cx| cx.update(|cx| browser::dialog::choose(rest, cx)))
+            };
             (menu_window::choose(title.as_ptr())
+                || in_dialog()
                 || unsafe { platform::host_choose(title.as_ptr()) })
             .then_some(())
         }

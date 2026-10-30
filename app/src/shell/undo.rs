@@ -6,6 +6,8 @@ use std::{rc::Rc, time::Duration};
 
 use gpui::{Context, SharedString};
 
+use crate::link_preview::Closed;
+
 use super::{Shell, Space};
 
 /// How long the toast that offers an Undo stays, and for as long as the pointer is over it.
@@ -36,6 +38,7 @@ impl What {
 
     pub const CLOSE_TAB: What = What::quiet("Close Tab");
     pub const CLOSE_TABS: What = What::said("Close Tabs", "Tabs Closed");
+    pub const CLOSE_PREVIEW: What = What::quiet("Close Link Preview");
     pub const PIN: What = What::quiet("Pin Tab");
     pub const UNPIN: What = What::quiet("Unpin Tab");
     pub const ADD_FAVORITE: What = What::quiet("Add to Favorites");
@@ -45,6 +48,8 @@ impl What {
     pub const MOVE_TO_SPACE: What = What::said("Move to Space", "Tab Moved to Space");
     pub const DELETE_FOLDER: What = What::said("Delete Folder", "Folder Deleted");
     pub const REMOVE_FROM_SPLIT: What = What::quiet("Remove from Split");
+    pub const SPLIT: What = What::quiet("Split View");
+    pub const CHANGE_ORIENTATION: What = What::quiet("Change Orientation");
     pub const RENAME_TAB: What = What::quiet("Rename Tab");
     pub const RENAME_FOLDER: What = What::quiet("Rename Folder");
     pub const RENAME_SPACE: What = What::quiet("Rename Space");
@@ -143,6 +148,19 @@ pub(super) enum Edit {
     },
     /// Takes a tab out of its split view.
     Separate(u64),
+    /// Puts a tab in a split view with another, as `Join` does, stacking the split if `stacked`,
+    /// which the user did and ⌘Z takes back out.
+    Split {
+        tab: u64,
+        with: u64,
+        left: bool,
+        stacked: bool,
+    },
+    /// Takes a tab out of the split view it joined, with `back`: the `Put` back to its row and
+    /// place, or the `Join` back to the split it was in. The tab shown stays shown.
+    Unsplit { tab: u64, back: Box<Edit> },
+    /// Stacks the pages of a tab's split view top to bottom, or puts them side by side.
+    Stack { tab: u64, stacked: bool },
     /// Gives a name, an icon or a colour back.
     Set(Prop, Value),
     /// Brings back the tabs the window's Clear `clear` closed in `space`. Each of these three asks
@@ -163,6 +181,10 @@ pub(super) enum Edit {
     },
     /// Takes the archived tab out of the archive, or all of them.
     Archive(Option<u64>),
+    /// Opens the link preview the user closed again, over its tab.
+    ReopenPreview(Closed),
+    /// Closes the link preview over the tab, which Redo does.
+    ClosePreview(Closed),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -222,7 +244,16 @@ impl Edit {
                 id(tab);
                 id(with);
             }
-            Edit::Separate(tab) => id(tab),
+            Edit::Separate(tab) | Edit::Stack { tab, .. } => id(tab),
+            Edit::Split { tab, with, .. } => {
+                id(tab);
+                id(with);
+            }
+            Edit::Unsplit { tab, back } => {
+                id(tab);
+                back.rekey(from, to);
+            }
+            Edit::ReopenPreview(closed) | Edit::ClosePreview(closed) => id(&mut closed.over),
             Edit::Set(prop, _) => match prop {
                 Prop::TabName(each)
                 | Prop::TabIcon(each)
@@ -304,6 +335,58 @@ impl Edit {
                 shell.browser.separate(tab, cx);
                 Some(join)
             }
+            Edit::Split {
+                tab,
+                with,
+                left,
+                stacked,
+            } => {
+                if !shell.has_tab(tab) || !shell.has_tab(with) {
+                    return None;
+                }
+                let undo = shell.unsplit_of(tab, with)?;
+                shell.browser.split_with(tab, with, left, cx);
+                if stacked {
+                    shell.browser.set_split_stacked(with, true, cx);
+                }
+                Some(undo)
+            }
+            Edit::Unsplit { tab, back } => {
+                let Some(Edit::Join { with, left, .. }) = shell.join_of(tab) else {
+                    return None;
+                };
+                let (panes, stacked) = shell.split_of(tab)?;
+                // A split of two goes with the tab, and its orientation with it, for Redo to give.
+                let stacked = stacked && panes.len() == 2;
+                let shown = shell.selected;
+                match *back {
+                    join @ Edit::Join { .. } => {
+                        if join.apply(shell, cx).is_none() {
+                            shell.browser.separate(tab, cx);
+                        }
+                    }
+                    put => {
+                        shell.browser.separate(tab, cx);
+                        put.apply(shell, cx);
+                    }
+                }
+                // The core shows the tab that leaves, where the user had another of its split. The
+                // shell still has that one selected, so this goes past its check.
+                if shown != tab && panes.contains(&shown) {
+                    shell.browser.select(shown, cx);
+                }
+                Some(Edit::Split {
+                    tab,
+                    with,
+                    left,
+                    stacked,
+                })
+            }
+            Edit::Stack { tab, stacked } => {
+                let (_, now) = shell.split_of(tab)?;
+                shell.browser.set_split_stacked(tab, stacked, cx);
+                Some(Edit::Stack { tab, stacked: now })
+            }
             Edit::Set(prop, value) => {
                 let now = shell.value_of(prop)?;
                 shell.set_prop(prop, &value, cx);
@@ -337,6 +420,11 @@ impl Edit {
                 };
                 (removal != 0).then_some(Edit::UndoArchive { removal, id })
             }
+            Edit::ReopenPreview(closed) => {
+                shell.reopen_preview(&closed, "undo", cx).then_some(Edit::ClosePreview(closed))
+            }
+            Edit::ClosePreview(closed) => (shell.browser.close_preview(closed.over, cx))
+                .then_some(Edit::ReopenPreview(closed)),
         }
     }
 }
@@ -355,6 +443,10 @@ impl Shell {
         let Some(edit) = edit.filter(|_| !self.private) else {
             return;
         };
+        // ⇧⌘T reopens what closed last: a tab closed since comes before the preview.
+        if matches!(edit, Edit::Reopen { .. } | Edit::UndoClear { .. }) {
+            self.closed_preview = None;
+        }
         self.history.redo.clear();
         self.history.undo.push(Entry { what, edit });
         if self.history.undo.len() > KEPT {
@@ -436,6 +528,52 @@ impl Shell {
             self.edit_titles = titles;
             self.browser.set_edit_titles(titles.0, titles.1, cx);
         }
+    }
+
+    /// The user closed the link preview over `closed.over`, which ⌘Z and ⇧⌘T open again, unless
+    /// Redo closed it (`undone`), as the history has it already.
+    pub fn preview_closed(&mut self, closed: Closed, undone: bool, cx: &mut Context<Self>) {
+        if self.private {
+            return;
+        }
+        self.closed_preview = Some(closed.clone());
+        if !undone {
+            self.keep(What::CLOSE_PREVIEW, Some(Edit::ReopenPreview(closed)), cx);
+        }
+    }
+
+    /// Opens the link preview the user closed again over its tab, showing the tab first if another
+    /// shows. Whether it could: the tab is still a pinned tab or a favorite.
+    fn reopen_preview(&mut self, closed: &Closed, via: &str, cx: &mut Context<Self>) -> bool {
+        if !self.has_tab(closed.over) {
+            return false;
+        }
+        let Some(page) = self.page_laid() else {
+            return false;
+        };
+        if !self.shows(closed.over) {
+            self.select(closed.over, cx);
+        }
+        self.closed_preview = None;
+        // check.sh waits for this line.
+        log!("browser: link preview reopened over {} via {via}", closed.over);
+        self.browser.reopen_preview(closed, page, cx);
+        true
+    }
+
+    /// ⇧⌘T: the link preview the user closed, if no tab has closed since, else the tab closed
+    /// last. ⌘Z then has nothing of the preview's to reopen.
+    pub(super) fn reopen_closed(&mut self, cx: &mut Context<Self>) {
+        if let Some(closed) = self.closed_preview.clone()
+            && self.reopen_preview(&closed, "reopen-closed-tab", cx)
+        {
+            let reopen = Edit::ReopenPreview(closed);
+            self.history.undo.retain(|entry| entry.edit != reopen);
+            self.send_edit_titles(false, cx);
+            return;
+        }
+        self.closed_preview = None;
+        self.browser.reopen_closed_tab(cx);
     }
 
     // What the user did, each remembered with how to take it back. The calls to the browser are
@@ -534,9 +672,15 @@ impl Shell {
         self.keep(what, before, cx);
     }
 
-    /// Moves `tab` to `space`. Into another profile's Space it goes as a new tab, which has
-    /// nothing to give back.
-    pub(super) fn send_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+    /// Moves `tab` to `space`, pinning it first if `pin`, which the one undo takes back too. Into
+    /// another profile's Space it goes as a new tab, which has nothing to give back.
+    pub(super) fn send_to_space(
+        &mut self,
+        tab: u64,
+        space: u64,
+        pin: bool,
+        cx: &mut Context<Self>,
+    ) {
         let same_profile = |this: &Self| {
             let profile = |id: u64| {
                 this.spaces
@@ -548,6 +692,11 @@ impl Shell {
             from.is_some() && from == profile(space)
         };
         let before = same_profile(self).then(|| self.put_back(tab)).flatten();
+        // The core moves a pinned tab pinned, into another profile's Space too.
+        let pinned = matches!(self.spot_of(tab).map(|spot| spot.at), Some(At::Pinned { .. }));
+        if pin && !pinned {
+            self.browser.set_pinned(tab, true, cx);
+        }
         self.browser.move_to_space(tab, space, cx);
         self.keep(What::MOVE_TO_SPACE, before, cx);
     }
@@ -564,6 +713,41 @@ impl Shell {
         let join = self.join_of(tab);
         self.browser.separate(tab, cx);
         self.keep(What::REMOVE_FROM_SPLIT, join, cx);
+    }
+
+    /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
+    /// stacks the split if `stacked`: one step, which ⌘Z takes back to where `tab` was.
+    pub(super) fn join_split(
+        &mut self,
+        tab: u64,
+        with: u64,
+        left: bool,
+        stacked: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.keep_split(tab, with, cx);
+        self.browser.split_with(tab, with, left, cx);
+        if stacked {
+            self.browser.set_split_stacked(with, true, cx);
+        }
+    }
+
+    /// `tab` is joining `with` in a split view, which ⌘Z takes it back out of.
+    pub(super) fn keep_split(&mut self, tab: u64, with: u64, cx: &mut Context<Self>) {
+        let undo = self.unsplit_of(tab, with);
+        self.keep(What::SPLIT, undo, cx);
+    }
+
+    /// `tab`, opened to join a split view, joined it: ⌘Z closes it.
+    pub fn split_opened(&mut self, tab: u64, cx: &mut Context<Self>) {
+        self.keep(What::SPLIT, Some(Edit::Close(vec![tab])), cx);
+    }
+
+    /// Stacks the pages of `tab`'s split view top to bottom, or puts them side by side.
+    pub(super) fn stack_split(&mut self, tab: u64, stacked: bool, cx: &mut Context<Self>) {
+        let undo = self.split_of(tab).map(|(_, now)| Edit::Stack { tab, stacked: now });
+        self.browser.set_split_stacked(tab, stacked, cx);
+        self.keep(What::CHANGE_ORIENTATION, undo, cx);
     }
 
     /// Gives a name, an icon or a colour its new value, remembering the old, unless it's the same.
@@ -730,6 +914,29 @@ impl Shell {
                 with: panes[at - 1],
                 left: false,
             },
+        })
+    }
+
+    /// The step that takes `tab` out of the split view it's joining with `with`, back to where it
+    /// is: the split it's in, else its row. None where the core won't join them, as `with`'s split
+    /// is full or has it.
+    fn unsplit_of(&self, tab: u64, with: u64) -> Option<Edit> {
+        let panes = self.split_of(with).map_or_else(|| vec![with], |(panes, _)| panes);
+        if panes.contains(&tab) || panes.len() >= super::MAX_PANES {
+            return None;
+        }
+        let back = self.join_of(tab).or_else(|| self.put_back(tab))?;
+        Some(Edit::Unsplit {
+            tab,
+            back: Box::new(back),
+        })
+    }
+
+    /// The tabs of `tab`'s split view, in any Space, and whether it's stacked.
+    fn split_of(&self, tab: u64) -> Option<(Vec<u64>, bool)> {
+        self.spaces.iter().find_map(|space| {
+            let panes = space.panes(tab);
+            (panes.len() > 1).then(|| (panes, space.stacked(tab)))
         })
     }
 
