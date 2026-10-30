@@ -21,7 +21,8 @@
 # Their Developer Mode row lists localhost on by itself, and turns it off and on for the tab, as the
 # command bar's Turn off and Turn on Developer Mode for this site do, View › Developer's and ⌃D,
 # from the page and the UI, which the page's text field and the command bar's keep as forward
-# delete. In it the URL field says the whole URL and the tab's row has its outline.
+# delete. In it the URL field says the whole URL, the tab's row has its outline, and the field's
+# DevTools button docks DevTools in the card and closes them.
 # Escape, a click outside and the button close it. A page that asks for Widevine brings a note under
 # the field, which ClearKey doesn't. From macOS 14 its button shows the page in Safari's engine, in
 # the tab, and the profile keeps the site for it: the site's cookies, HttpOnly too, and its
@@ -101,9 +102,11 @@ expect "^browser: title $a cookie none cache 2\$" \
 ../tools/window-screenshot.sh "$pid" "$out/clear-site.png" || fail "no window to capture"
 send key left cmd
 expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "⌘← didn't go back to the served page"
-# Clear on the divider, which sits under the one pinned tab, the URL field's Copy URL and Site
-# Controls buttons, and the served page's text field, along the bottom of the 800 pt tall window.
+# Clear on the divider, which sits under the one pinned tab, the URL field's DevTools button in
+# Developer Mode, Copy URL and Site Controls buttons, and the served page's text field, along the
+# bottom of the 800 pt tall window.
 clear_point="200 185"
+devtools_point="150 64"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
@@ -642,6 +645,27 @@ expect "^browser: page $r developer mode 1\$" "the command bar didn't turn Devel
 expect "^browser: url field http://localhost:$port/index.html\$" \
   "in Developer Mode the URL field didn't say the whole URL"
 expect "^browser: developer outline $r at " "in Developer Mode the tab drew no outline"
+# In Developer Mode the URL field has DevTools' button before Copy URL, under the pointer as those
+# are: a click docks DevTools in the card, as ⌥⌘I does, and another closes them.
+page_views() {
+  for _ in $(seq 50); do
+    send layout
+    views=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+      grep -o 'WebContentsViewCocoa' | wc -l | tr -d ' ')
+    [ "$views" -eq "$1" ] && return 0
+  done
+  fail "$2: the window shows $views page views, not $1"
+}
+away
+send move $devtools_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in in Developer Mode"
+send click $devtools_point
+expect '^browser: command devtools via sidebar$' "a click on DevTools' button didn't run DevTools"
+page_views 2 "after a click on DevTools' button"
+../tools/window-screenshot.sh "$pid" "$out/developer-devtools.png" || fail "no window to capture"
+send click $devtools_point
+expect '^browser: command devtools via sidebar$' "a second click on DevTools' button didn't run"
+page_views 1 "after a second click on DevTools' button"
 # So does View › Developer's last item, named by what it would do.
 developer="Developer › JavaScript Console$maybe, Developer › Turn"
 send menubar View
