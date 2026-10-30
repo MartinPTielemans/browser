@@ -17,7 +17,8 @@ namespace browser_core {
 
 // Why the core refuses every agent |action|, for the user and the agent to read, or an empty string
 // for one an agent may do. Agents get only the actions a user does in a page, and none that reads
-// what the user's sessions keep, changes ad blocking or opens DevTools (decision 8).
+// what the user's sessions keep, changes ad blocking or a profile's settings, or opens DevTools
+// (decision 8).
 std::string RefusedAction(std::string_view action);
 
 // The core let |agent| act in |tab|: opens its session there if none is, blurring the page so no

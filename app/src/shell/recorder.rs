@@ -117,6 +117,7 @@ pub(super) struct Recorder {
     pub(super) bar_open: Cell<bool>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
+    pub(super) clear_browsing_data: Cell<usize>,
     /// The pages `open_page` opened, in order.
     pub(super) opened_pages: RefCell<Vec<String>>,
     /// The text `copy` put on the clipboard, in order.
@@ -715,6 +716,10 @@ impl Browser for Recorder {
 
     fn site_search_settings(&self, _: &mut App) {
         self.site_search_settings.set(self.site_search_settings.get() + 1);
+    }
+
+    fn clear_browsing_data(&self, _: &mut App) {
+        self.clear_browsing_data.set(self.clear_browsing_data.get() + 1);
     }
 
     fn close_other_window(&self, _: &mut App) -> bool {
