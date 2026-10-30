@@ -164,6 +164,9 @@ pub trait Browser {
     fn hand_back(&self, tab: u64) -> bool;
     /// Closes `tab` as the user would (bc_tab_close): a Today tab goes to the archive.
     fn close_tab(&self, tab: u64, cx: &mut App);
+    /// The user gives the agent whose Space is `space` their `tab`, which moves there
+    /// (bc_tab_give_to_agent). Whether it did.
+    fn give(&self, tab: u64, space: u64, cx: &mut App) -> bool;
 }
 
 /// What the server's threads hand the UI thread.
@@ -1000,6 +1003,28 @@ impl Agents {
         self.held.insert(tab, held);
         // The core ends the agent's session there, which logs it.
         self.browser.take_back(tab, cx);
+        cx.notify();
+    }
+
+    /// The user gives the agent whose Space is `space` their `tab`, which it may act in from then
+    /// on, as in any tab of its own. Moving the tab to a Space of the user's takes it back.
+    pub fn give(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+        let agent = (Client::ALL.into_iter().map(Client::id))
+            .find(|agent| self.browser.agent_space(agent) == space);
+        let Some(agent) = agent else {
+            return;
+        };
+        if !self.browser.give(tab, space, cx) {
+            return;
+        }
+        // A hold from before is over, as the core's is.
+        if let Some(reply) = self.held.remove(&tab).and_then(|held| held.reply) {
+            _ = reply.send(ToolResult::text(format!("The user gave you tab {tab}.")));
+        }
+        // check.sh reads this line.
+        log!("browser: gave {tab} to agent {agent}");
+        let site = site(&self.browser.tab(tab, cx).url);
+        self.note(agent, "given", &site, "");
         cx.notify();
     }
 

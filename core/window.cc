@@ -879,13 +879,14 @@ void Window::CloseBelow(bc_id tab) {
 }
 
 // static
-void Window::MoveToSpace(bc_id tab, bc_id space) {
+void Window::MoveToSpace(bc_id tab, bc_id space, bool to_agent) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  // No tab moves into an agent's Space, which would put it in the agent's reach, and Chrome never
-  // moves a page between incognito and regular windows.
-  if (!from || !to || from == to || to->agent() || from->off_the_record() ||
-      to->off_the_record() || DeletingSpaces().contains(space)) {
+  // No tab moves into an agent's Space, which would put it in the agent's reach, unless the user
+  // gives it, and Chrome never moves a page between incognito and regular windows.
+  if (!from || !to || from == to || to->agent().has_value() != to_agent ||
+      from->off_the_record() || to->off_the_record() ||
+      DeletingSpaces().contains(space)) {
     return;
   }
   // A page can't take its cookies and logins to another profile, so it opens there again.
@@ -2249,6 +2250,9 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
       SessionChanged();
     }
     UnloadIdleTabsSoon();
+    if (Host().window_activated) {
+      Host().window_activated(Host().context, id_);
+    }
   }
   ReportActiveBrowser();
 }

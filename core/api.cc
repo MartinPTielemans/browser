@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -250,6 +251,14 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 #endif
 }
 
+bool bc_window_keyboard_in_child(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  return browser_core::platform::KeyboardInChild(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
 bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
@@ -260,6 +269,22 @@ bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
   }
   *frame = {static_cast<double>(ring->x()), static_cast<double>(ring->y()),
             static_cast<double>(ring->width()), static_cast<double>(ring->height())};
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool bc_window_dialog(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> dialog =
+      widget ? browser_core::platform::DialogFrame(widget) : std::nullopt;
+  if (!dialog) {
+    return false;
+  }
+  *frame = {static_cast<double>(dialog->x()), static_cast<double>(dialog->y()),
+            static_cast<double>(dialog->width()), static_cast<double>(dialog->height())};
   return true;
 #else
   return false;
@@ -452,6 +477,23 @@ size_t bc_agent_disconnected(const char* agent) {
 bool bc_tab_take_back(bc_id tab) {
   browser_core::Hold(tab);
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
+}
+
+bool bc_tab_give_to_agent(bc_id tab, bc_id space) {
+  browser_core::Space* from = browser_core::Space::Holding(tab);
+  browser_core::Space* to = browser_core::Space::FromId(space);
+  // The page goes as it is, with its profile's logins, so never into another profile's Space,
+  // where it would load again.
+  if (!from || from->agent() || !to || !to->agent() || from->profile() != to->profile()) {
+    return false;
+  }
+  browser_core::Window::MoveToSpace(tab, space, /*to_agent=*/true);
+  if (browser_core::Space::Holding(tab) != to) {
+    return false;
+  }
+  // One the user took back from an agent before is the agent's now.
+  browser_core::HandBack(tab);
+  return true;
 }
 
 bool bc_agent_hand_off(const char* agent, bc_id tab) {
@@ -716,6 +758,66 @@ void bc_folder_rename(bc_id folder, const char* name) {
   if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
     space->RenameFolder(folder, name ? name : "");
   }
+}
+
+size_t bc_folder_icon(bc_id folder, char* icon, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::HoldingFolder(folder);
+  return space ? CopyString(space->FolderIcon(folder), icon, capacity) : 0;
+}
+
+void bc_folder_set_icon(bc_id folder, const char* icon) {
+  if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
+    space->SetFolderIcon(folder, icon ? icon : "");
+  }
+}
+
+bc_id bc_folder_duplicate(bc_id folder) {
+  browser_core::Space* space = browser_core::Space::HoldingFolder(folder);
+  if (!space) {
+    return 0;
+  }
+  // A copy of the rows, which the copies go in among.
+  const std::vector<bc_id> rows = space->pinned_rows();
+  const auto at = std::ranges::find(rows, folder);
+  const bc_id holder = space->FolderOf(folder);
+  // Where |folder| is in its holder, counted as bc_folder_create counts.
+  const size_t index = std::ranges::count_if(
+      rows.begin(), at, [&](bc_id row) { return space->FolderOf(row) == holder; });
+  // Each folder copied, to its copy, and how many rows each copy holds so far.
+  std::map<bc_id, bc_id> copies;
+  std::map<bc_id, size_t> held;
+  const auto copy_folder = [&](bc_id from, bc_id into, size_t to) {
+    const bc_id copy = space->AddFolder(space->FolderName(from), into, to);
+    space->SetFolderIcon(copy, space->FolderIcon(from));
+    space->SetOpen(copy, space->IsOpen(from));
+    copies[from] = copy;
+    return copy;
+  };
+  const bc_id copy = copy_folder(folder, holder, index + 1);
+  if (!copy) {
+    return 0;
+  }
+  // What's in |folder| follows it, each row after the folder holding it.
+  for (auto row = std::next(at); row != rows.end(); ++row) {
+    auto in = copies.find(space->FolderOf(*row));
+    if (in == copies.end()) {
+      break;
+    }
+    const bc_id into = in->second;
+    if (space->IsFolder(*row)) {
+      copy_folder(*row, into, held[into]++);
+      continue;
+    }
+    const browser_core::Tab* tab = browser_core::Tab::Get(*row);
+    // Unloaded, as a tab restored after a quit is, to load once shown.
+    const bc_id copied = tab && tab->profile()
+                             ? browser_core::Tab::Restore(tab->profile(), tab->Save())
+                             : 0;
+    if (copied) {
+      space->AddPinned(copied, into, held[into]++, space->PinnedUrl(*row));
+    }
+  }
+  return copy;
 }
 
 void bc_folder_set_open(bc_id folder, bool open) {

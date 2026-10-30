@@ -22,6 +22,8 @@ pub(super) enum AtRest {
     Field,
     CopyUrl,
     SiteControls,
+    /// DevTools' button, in Developer Mode.
+    DevTools,
     /// A pinned extension's action, whose button takes its own presses.
     Action,
     Tile(u64),
@@ -139,7 +141,7 @@ impl Shell {
             (Some(AtRest::SiteControls), MouseButton::Left) => {
                 self.run(Command::SiteControls, "sidebar", cx)
             }
-            (Some(AtRest::CopyUrl), MouseButton::Left) => {}
+            (Some(AtRest::CopyUrl | AtRest::DevTools), MouseButton::Left) => {}
             _ => return false,
         }
         self.rest_press = rest.filter(|_| event.button == MouseButton::Left);
@@ -160,6 +162,7 @@ impl Shell {
         match pressed {
             AtRest::Field => self.clicked_bar_target(Command::EditUrl, "sidebar", cx),
             AtRest::CopyUrl => self.copy_url_from_button(cx),
+            AtRest::DevTools => self.run(Command::DevTools, "sidebar", cx),
             AtRest::Tile(tab) => self.clicked_tile(tab, cx),
             AtRest::SiteControls | AtRest::Action => {}
         }

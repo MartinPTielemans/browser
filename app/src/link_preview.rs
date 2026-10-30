@@ -87,6 +87,8 @@ pub struct Closed {
 pub enum KeyAction {
     Close,
     Keep,
+    /// Copies the preview's address, as ⇧⌘C copies a tab's (Arc).
+    CopyUrl,
 }
 
 /// What `keystroke` does in the preview, as the page hands it back: before the page sees it if
@@ -97,6 +99,7 @@ pub fn key_action(keystroke: &str, reserved: bool) -> Option<KeyAction> {
     match (keystroke, reserved) {
         ("cmd-w" | "escape", true) => Some(KeyAction::Close),
         ("cmd-enter", false) => Some(KeyAction::Keep),
+        ("shift-cmd-c", false) => Some(KeyAction::CopyUrl),
         _ => None,
     }
 }
@@ -495,6 +498,11 @@ pub fn key(window: u64, tab: u64, keystroke: &str, reserved: bool, cx: &mut App)
     update(cx, |preview, _, cx| match key_action(keystroke, reserved) {
         Some(KeyAction::Close) => preview.close(keystroke, cx),
         Some(KeyAction::Keep) => preview.keep(keystroke, cx),
+        Some(KeyAction::CopyUrl) => {
+            let url = preview.preview.as_ref().map(|shown| shown.url.clone()).unwrap_or_default();
+            crate::shell::copy_url_of_preview(&url, cx);
+            true
+        }
         None => false,
     })
 }
