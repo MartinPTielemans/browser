@@ -54,6 +54,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/emoji.rs"]
+mod emoji;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/floats.rs"]
 mod floats;
 #[cfg(target_os = "linux")]
@@ -3545,6 +3548,8 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
+        #[cfg(target_os = "linux")]
+        emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
             windows.insert(
