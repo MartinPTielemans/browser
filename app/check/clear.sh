@@ -351,8 +351,8 @@ expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, P
 send menubar View
 expect "^browser: menu bar View: \(Appearance › [^,]*, \)*Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
 send menubar Tabs
-expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Clear Today" \
-  "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar or Clear Today"
+expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Focus Sidebar, Clear Today" \
+  "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar, Focus Sidebar or Clear Today"
 send menubar Spaces
 expect "^browser: menu bar Spaces: New Space…$maybe, Rename Space$maybe, Change Profile › Default (checked)$maybe, Change Profile › New Profile (disabled), Next Space" \
   "Spaces has no Change Profile after Rename Space, with the Space's profile checked"

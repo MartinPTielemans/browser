@@ -10,7 +10,9 @@ name: Windows packages
 
 on:
   workflow_dispatch:
+  # Branches only: an engine release's tag, pushed with the owner's token, starts nothing here.
   push:
+    branches: ['**']
     paths:
       - app/platform/windows/package/**
       - app/branding/windows-store.ini

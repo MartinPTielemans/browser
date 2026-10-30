@@ -124,7 +124,7 @@ if os.path.exists(sys.argv[1]):
     with open(sys.argv[1]) as f:
         prefs = json.load(f)
 prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = "\"right\""
-prefs.setdefault("download", {}).update(default_directory=sys.argv[2], prompt_for_download=False)
+prefs.setdefault("download", {})["default_directory"] = sys.argv[2]
 prefs.setdefault("extensions", {})["pinned_extensions"] = []
 exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
 for kind in ("window_placement", "permission_autoblocking_data"):

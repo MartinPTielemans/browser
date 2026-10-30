@@ -378,6 +378,8 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 // (gpui_linux::watch_embedder_swipes, in main.rs), which the compositor sends unless it keeps them
 // for its own, such as for workspaces. X11 sends them to the page's window alone, Chromium's.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
+// The Mac's alone so far: Chromium's window has the keys while the page has the keyboard.
+void host_watch_option_taps(void (*tapped)(void* ui_view)) {}
 bool host_after_menus(void (*apply)(void)) { return false; }
 
 void host_watch_resigning_active(void (*resigning)(void)) {
@@ -468,8 +470,6 @@ bool host_close_other_window(void) {
 }
 
 void host_detent(void) {}
-
-void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y, const host_dragged* items, size_t count)) {}
 
 // GIO's, from the chrome that loads the app, as GLib's are: its trash is the freedesktop.org one the
 // file managers share, in the home's or in the file's own volume's.

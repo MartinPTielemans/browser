@@ -55,6 +55,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/drops.rs"]
+mod drops;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/emoji.rs"]
 mod emoji;
 #[cfg(target_os = "linux")]
@@ -179,6 +182,7 @@ mod platform {
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
+        pub fn host_watch_option_taps(tapped: extern "C" fn(*mut c_void));
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
@@ -429,6 +433,9 @@ const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 /// Where Add Extension… goes, as Dia's does.
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
 
+/// Chrome's Clear browsing data dialog, over its settings page, in the profile of the tab's Space.
+const CLEAR_BROWSING_DATA: &str = "chrome://settings/clearBrowserData";
+
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
 actions!(browser, [CheckForUpdates]);
 
@@ -529,6 +536,11 @@ extern "C" fn swiped(ui_view: *mut c_void, x: f64, y: f64, back: bool) -> bool {
     let at = point(px(x as f32), px(y as f32));
     update_window(window_with_view(ui_view), |shell, cx| shell.swiped(at, back, cx))
         .unwrap_or(false)
+}
+
+/// ⌥ was pressed and let go alone in the window whose UI draws in `ui_view`.
+extern "C" fn option_tapped(ui_view: *mut c_void) {
+    update_window(window_with_view(ui_view), |shell, cx| shell.option_tapped(cx));
 }
 
 /// The window whose UI draws in `ui_view`, or 0.
@@ -1537,13 +1549,17 @@ impl command_bar::Host for Bar {
     }
 
     fn typed_url(&self, text: &str) -> Option<String> {
-        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        let window = front().0;
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(window, text, url, capacity) })
     }
 
     fn search_url(&self, site: Option<&str>, text: &str) -> Option<String> {
         let site = site.map(CString::new).transpose().ok()?;
         let site = site.as_ref().map_or(std::ptr::null(), |site| site.as_ptr());
-        url_for(text, |text, url, capacity| unsafe { bc::bc_search_url(site, text, url, capacity) })
+        let window = front().0;
+        url_for(text, |text, url, capacity| unsafe {
+            bc::bc_search_url(window, site, text, url, capacity)
+        })
     }
 
     fn page_favicon(&self, url: &str) {
@@ -1958,6 +1974,10 @@ impl Browser for Engine {
         unsafe { bc::bc_folder_set_open(folder, open) };
     }
 
+    fn set_pinned_open(&self, space: u64, open: bool, _: &mut App) {
+        unsafe { bc::bc_space_set_pinned_open(space, open) };
+    }
+
     fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
         unsafe { bc::bc_folder_move(folder, to, index) };
     }
@@ -2081,7 +2101,8 @@ impl Browser for Engine {
     }
 
     fn typed_url(&self, text: &str) -> Option<String> {
-        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        let window = self.window;
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(window, text, url, capacity) })
     }
 
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
@@ -2572,6 +2593,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://settings/searchEngines");
     }
 
+    fn clear_browsing_data(&self, _: &mut App) {
+        open_tab(self.window, CLEAR_BROWSING_DATA);
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -2756,6 +2781,10 @@ impl Browser for Engine {
         unsafe { platform::host_hide_reveal(self.ui_view) };
     }
 
+    fn option_reveals_sidebar(&self) -> bool {
+        unsafe { bc::bc_option_reveals_sidebar() }
+    }
+
     fn saved_sidebar_width(&self) -> Option<f32> {
         let width = unsafe { bc::bc_window_sidebar_width(self.window) };
         (width > 0.).then_some(width as f32)
@@ -2866,6 +2895,27 @@ impl Browser for Engine {
 
     fn hide_undo_toast(&self, cx: &mut App) {
         toast::hide_undo(cx);
+    }
+
+    fn in_front(&self) -> bool {
+        front().0 == self.window
+    }
+
+    fn toast_button(
+        &self,
+        text: &str,
+        (label, name): (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        time: Duration,
+        cx: &mut App,
+    ) {
+        let text = text.to_string();
+        let button = toast::Button {
+            label: toast::Label::Text(label.into()),
+            name,
+            run: Rc::new(move |_, cx| run(cx)),
+        };
+        with_overlays(move |cx| toast::show_with_buttons(&text, vec![button], time, cx), cx);
     }
 
     fn full_screen_note(&self, shown: bool, cx: &mut App) {
@@ -3238,6 +3288,8 @@ unsafe extern "C" fn tab_key_before_page(
     }
     // Any key ends the hover card, as in Dia, the page's as the UI's.
     update_app(hover_card::close);
+    // The page has the keyboard, so the sidebar's ring of Focus Sidebar has gone stale.
+    update_tab_window(tab, |shell, cx| shell.leave_keys("page", cx));
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
@@ -3501,6 +3553,33 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     finished_launching();
 }
 
+/// Opens Chrome's Clear browsing data dialog for `profile`, as Arc's Settings › Profiles does, in
+/// the regular window in front, showing a Space of the profile first if it shows another's. Returns
+/// whether it did: not for a profile none of the user's Spaces is in, as its tabs would have none.
+pub fn clear_browsing_data(profile: u64) -> bool {
+    let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned())
+    else {
+        return false;
+    };
+    let users = |space: bc::bc_id| {
+        let theirs = unsafe { bc::bc_space_profile(space) } == profile;
+        theirs && name(bc::bc_space_agent, space).is_empty()
+    };
+    let shown = unsafe { bc::bc_window_space(window.id) };
+    let Some(space) = std::iter::once(shown).chain(ids(bc::bc_spaces)).find(|&space| users(space))
+    else {
+        return false;
+    };
+    if space != shown {
+        unsafe { bc::bc_window_show_space(window.id, space) };
+    }
+    open_tab(window.id, CLEAR_BROWSING_DATA);
+    unsafe { platform::host_activate(window.ui_view) };
+    // check.sh reads this line.
+    log!("browser: clear browsing data of profile {profile} in space {space}");
+    true
+}
+
 /// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
 /// that's an agent's, which none of the user's tabs go in. The last one opened shows.
 fn open_links_in(window: bc::bc_id, urls: &[String]) {
@@ -3578,9 +3657,16 @@ extern "C" fn dragged(
         .iter()
         .map(|item| (unsafe { CStr::from_ptr(item.url) }.to_string_lossy(), item.file))
         .collect();
-    let urls = shell::dropped_urls(items.iter().map(|(url, file)| (url.as_ref(), *file)));
+    let items = items.iter().map(|(url, file)| (url.as_ref(), *file));
+    let window = window_with_view(ui_view);
+    let search = |text: &str| {
+        url_for(text, |text, url, capacity| unsafe {
+            bc::bc_search_url(window, std::ptr::null(), text, url, capacity)
+        })
+    };
+    let urls = shell::dropped_urls(items, search);
     let position = point(px(x as f32), px(y as f32));
-    let answer = update_window(window_with_view(ui_view), |shell, cx| match phase {
+    let answer = update_window(window, |shell, cx| match phase {
         platform::DRAG_OVER => !urls.is_empty() && shell.drag_in(position, cx),
         platform::DRAG_DROP => shell.drop_in(position, &urls, cx),
         _ => {
@@ -3698,6 +3784,11 @@ fn open_window_as(
             .detach();
             #[cfg(target_os = "linux")]
             system::watch_activation(window, ui_view, wayland_size.is_some(), cx);
+            // Once GPUI's window is in the UI's, where Chromium's own drags may go.
+            #[cfg(target_os = "linux")]
+            if wayland_size.is_none() {
+                drops::take(ui_view);
+            }
             let engine = Rc::new(Engine {
                 window: id,
                 ui_view,
@@ -3945,6 +4036,7 @@ fn finish_opening(
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
         platform::host_watch_swipes(swiped);
+        platform::host_watch_option_taps(option_tapped);
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }
@@ -4384,6 +4476,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 )),
                 MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
+                item(bar.pinned_item().0, bar.pinned_item().1),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -4447,6 +4540,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Next Tab", Command::NextTab),
                 item("Previous Tab", Command::PreviousTab),
                 item("Reveal Tab in Sidebar", Command::RevealTab),
+                item("Focus Sidebar", Command::FocusSidebar),
                 MenuItem::separator(),
                 item("Clear Today", Command::Clear),
                 item("Reset all tabs in this Space", Command::ResetSpaceTabs),
@@ -4461,6 +4555,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("View History", Command::ViewHistory),
                 item("View Archive…", Command::ViewArchive),
                 item("Clear Archive", Command::ClearArchive),
+                MenuItem::separator(),
+                item("Clear Browsing Data…", Command::ClearBrowsingData),
             ],
         ),
         menu(
@@ -4657,6 +4753,21 @@ unsafe extern "C" fn agent_page_done(
         false => log!("browser: agent page {tab} {request} {}", text.len()),
     }
     agents_core::update(move |agents, cx| agents.page_done(request, text, error, cx));
+}
+
+/// The element an agent's action in a tab (bc_agent_page) is about to click or type in, for the
+/// agent's pointer over the page.
+unsafe extern "C" fn agent_page_element(_: *mut c_void, tab: bc::bc_id, request: u64, b: bc::bc_rect) {
+    // check.sh reads this line.
+    log!("browser: agent element {tab} {request} at {} {} {} {}", b.x, b.y, b.width, b.height);
+    let element = Bounds::new(
+        point(px(b.x as f32), px(b.y as f32)),
+        size(px(b.width as f32), px(b.height as f32)),
+    );
+    agents_core::update(move |agents, cx| {
+        let Some(tag) = agents.ref_of(request) else { return };
+        update_shells_in(cx, |shell, cx| shell.agent_pointing(tab, tag.clone().into(), element, cx));
+    });
 }
 
 /// The text of a tab's page that bc_tab_read_text asked for, or null if it had none.
@@ -4887,6 +4998,10 @@ fn show_archive_note(cx: &mut App) {
         run: Rc::new(|_, _| unsafe { bc::bc_dismiss_archive_note() }),
     };
     let text = format!("Tabs unseen for {} went to the archive.", settings::archive_after_words());
+    // Launch shows it once the toast's window is made, and the core's change can ask again.
+    if toast::showing(&text, cx) {
+        return;
+    }
     toast::show_until_answered(&text, vec![view, dismiss], cx);
 }
 
@@ -4936,7 +5051,8 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
             });
         }
     }
-    let mut folders = Folders::default();
+    let pinned_shut = unsafe { !bc::bc_space_pinned_open(space) };
+    let mut folders = Folders { pinned_shut, ..Default::default() };
     for &row in &pinned {
         let mut open = false;
         if unsafe { bc::bc_folder(row, &mut open) } {
@@ -5526,6 +5642,31 @@ fn logins(logins: *const bc::bc_login, count: usize) -> Vec<passwords::Login> {
         .collect()
 }
 
+/// The profile's saved addresses and cards, which Settings asked the core for.
+unsafe extern "C" fn profile_autofill_changed(
+    _: *mut c_void,
+    profile: bc::bc_id,
+    entries: *const bc::bc_autofill_entry,
+    count: usize,
+) {
+    let string = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let entries = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(entries, count) },
+    };
+    let saved: Vec<settings::Saved> = (entries.iter())
+        .map(|entry| settings::Saved {
+            title: string(entry.title),
+            detail: string(entry.detail),
+            card: entry.card,
+            key: string(entry.key),
+        })
+        .collect();
+    update_app(|cx| settings::autofill_changed(profile, saved, cx));
+}
+
 /// The profile's logins, which Settings asked the core for.
 unsafe extern "C" fn profile_logins_changed(
     _: *mut c_void,
@@ -5992,6 +6133,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_offer_changed: Some(tab_offer_changed),
         tab_passwords_changed: Some(tab_passwords_changed),
         profile_logins_changed: Some(profile_logins_changed),
+        profile_autofill_changed: Some(profile_autofill_changed),
         passwords_imported: Some(passwords_imported),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),
@@ -6009,6 +6151,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        agent_page_element: Some(agent_page_element),
         window_downloads_question: Some(window_downloads_question),
         archive_note_changed: Some(archive_note_changed),
         #[cfg(target_os = "linux")]

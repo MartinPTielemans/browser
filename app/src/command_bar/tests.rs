@@ -1156,8 +1156,8 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::JavaScriptConsole, Command::ManageExtensions, Command::RenameSpace,
         Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
         Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
-        Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::HelpCenter,
-        Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
+        Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::ClearBrowsingData,
+        Command::HelpCenter, Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {
@@ -1326,6 +1326,7 @@ fn clear_lists_clear_today_first_and_collapse_last(cx: &mut TestAppContext) {
         "Clear Cache and Refresh".into(),
         "Clear Cookies and Refresh".into(),
         "Clear Archive".into(),
+        "Clear Browsing Data… ⇧⌘⌫".into(),
         "https://clearhaus.com/".into(),
         "Collapse All Folders".into(),
     ];
@@ -1521,7 +1522,7 @@ fn space_puts_new_space_first(cx: &mut TestAppContext) {
 }
 
 /// The hidden words: "duplicate" finds New Window after Duplicate Current Tab, as Arc's does with
-/// a page, and "hide" Toggle Sidebar after Hide Sidebar.
+/// a page, and "hide" Collapse Pinned Tabs and Toggle Sidebar after Hide Sidebar.
 #[gpui::test]
 fn a_hidden_word_finds_its_command(cx: &mut TestAppContext) {
     let mut bar = Bar::with_commands(cx);
@@ -1531,7 +1532,12 @@ fn a_hidden_word_finds_its_command(cx: &mut TestAppContext) {
     assert_eq!(bar.listed(), expected);
     bar.keys("cmd-a");
     type_and_suggest(&mut bar, "hide", suggestions("hide", &[]));
-    let expected = ["Hide Sidebar ⌘S".to_string(), search("hide"), "Toggle Sidebar ⌘S".into()];
+    let expected = [
+        "Hide Sidebar ⌘S".to_string(),
+        search("hide"),
+        "Collapse Pinned Tabs".into(),
+        "Toggle Sidebar ⌘S".into(),
+    ];
     assert_eq!(bar.listed(), expected);
 }
 

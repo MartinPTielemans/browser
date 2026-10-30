@@ -261,9 +261,9 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
     views
 }
 
-/// The browser window the overlay, dialog, popover or panel of `view` shows over, by its UI's
-/// view, and where in its content, if it shows: ilo's menu shows over it there (menu_window.rs),
-/// as a field's in it does.
+/// The browser window the overlay, dialog, panel or popover of `view` shows over, by its UI's view,
+/// and where in its content, if it shows: ilo's menu shows over it there (menu_window.rs), as a
+/// field's in it does.
 pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
     let overlay = OVERLAYS.with_borrow(|overlays| {
         (overlays.iter().flatten())
@@ -282,7 +282,7 @@ pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)>
     if let Some((ui_view, insets)) = dialog {
         return dialog_bounds(ui_view, insets).map(|(bounds, _)| (ui_view, bounds));
     }
-    crate::popovers::placed(view).or_else(|| crate::panels::placed(view))
+    crate::panels::placed(view).or_else(|| crate::popovers::placed(view))
 }
 
 /// Hides `overlay` if it shows, and says whether it did. The window has its keyboard back once
