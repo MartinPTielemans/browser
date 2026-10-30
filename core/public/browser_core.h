@@ -1220,6 +1220,20 @@ BC_EXPORT bc_id bc_folder_create(bc_id space, const char* name, bc_id folder, si
 BC_EXPORT void bc_folder_rename(bc_id folder, const char* name);
 BC_EXPORT void bc_folder_set_open(bc_id folder, bool open);
 
+// Copies the folder's icon, an emoji, UTF-8, into |icon| as bc_space_name does; empty for none,
+// for which the sidebar draws a folder.
+BC_EXPORT size_t bc_folder_icon(bc_id folder, char* icon, size_t capacity);
+
+// Gives the folder |icon|, an emoji, UTF-8, kept across a quit and a duplicate; empty takes it
+// away. Then space_changed.
+BC_EXPORT void bc_folder_set_icon(bc_id folder, const char* icon);
+
+// Makes a copy of the folder under it, in the folder holding it, with its name and icon, and a copy
+// of each pinned tab and folder in it, in their order, each tab with its history, name, icon and
+// pinned URL, unloaded until it's shown. Nothing is shown or loads. Returns the copy, or 0. Then
+// space_changed.
+BC_EXPORT bc_id bc_folder_duplicate(bc_id folder);
+
 // Moves the folder, with what's in it, to |index| in |folder| if it isn't 0, else in the pinned
 // tabs, counted as bc_tab_move counts. Not into itself. Then space_changed.
 BC_EXPORT void bc_folder_move(bc_id folder, bc_id to, size_t index);
