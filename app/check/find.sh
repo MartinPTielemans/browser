@@ -358,8 +358,9 @@ for _ in $(seq 100); do
   sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$managed" && break
   sleep 0.1
 done
+# Captured first, so a Task Manager that didn't take the keyboard shows whether it opened.
+../tools/window-screenshot.sh "$pid" "$out/task-manager.png" all || fail "no window to capture"
 expect "$managed" "Open Task Manager didn't show Chrome's"
-../tools/window-screenshot.sh "$pid" "$out/task-manager.png" || fail "no window to capture"
 send key w cmd
 expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"
 send state
