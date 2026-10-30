@@ -23,6 +23,7 @@
 # can't be deleted. The Spaces menu lists the Spaces, and its names show them. A page out of sight,
 # behind another tab, in a Space not shown, in a minimized window or a hidden app, is hidden and
 # runs no animation frames, and it's visible once it's back.
+# A Space made from the first of two goes right after it, as Arc's does.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last. The page puts
 # "hidden" in its title as it hides, and "visible <n>" as it shows again, with the n animation
@@ -214,6 +215,25 @@ expect "^browser: title $a hidden\$" "the tab in the Space not shown isn't hidde
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 expect "^browser: title $a visible " "the tab in the Space shown again isn't visible"
 ran_hidden "the tab in the Space shown again ran frames while hidden, other than its picture's"
+# A Space shows its last-used tab again: with two in Today and the lower one shown, a switch away
+# and back shows the lower one, not the top one.
+open_from_bar example.org
+c=$tab
+send click "$(row 1)"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the lower row didn't show tab $a"
+show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
+send click 97 $dots_y
+expect '^browser: command select-space via sidebar$' "the first Space's dot didn't run select-space"
+expect "^browser: space $first in " "the first Space's dot didn't show it"
+# The swipes below would catch a page still sliding in, so it settles here: once the next command
+# is sent, expect no longer reads the lines this switch logs.
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+expect_tabs "$c $a" "$a" "back in the first Space, its last-used tab"
+../tools/window-screenshot.sh "$pid" "$out/space-last-used.png" || fail "no window to capture"
+send click "$(row 0)"
+expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on the top row didn't show tab $c"
+send key w cmd
+expect_tabs "$a" "$a" "after closing the last-used check's tab"
 
 # Two fingers across the sidebar page between Spaces. A flick goes on to the next Space, a drag let
 # go still goes to the Space nearest its place, and past the last Space the pages come back. Fingers
@@ -221,9 +241,6 @@ ran_hidden "the tab in the Space shown again ran frames while hidden, other than
 # page shows beside the first's.
 swipe_point="110 500"
 if [ -z "$x11" ]; then
-# Fingers catch a page still sliding in from the dot's switch where it is, from which this swipe
-# would go on past halfway.
-expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post swipe $swipe_point -10 0 10 1500
 await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
 ../tools/window-screenshot.sh "$pid" "$out/swipe.png" || fail "no window to capture"
@@ -454,13 +471,14 @@ expect_tabs "$b" "$b" "after Cancel"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle after Cancel"
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+# Made from the first of two, the Space goes right after it, as Arc's does, not after the others.
 # Fingers going on past the form rubber-band it, ready no new Space and leave its field the
-# keyboard. Going back, they page to the Space it was made from, here the first, not the Space
-# before it, and its Space goes once its page is out.
+# keyboard. Going back, they page to the Space it was made from, the first, and its Space goes
+# once its page is out.
 send menu New Space…
 expect '^browser: command new-space via ui$' "New Space in the menu didn't run new-space"
-expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
-third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
+expect "^browser: spaces $first [0-9]* $second\$" "New Space didn't make a Space after the first"
+third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: settled space $third\$" "the form's page didn't settle"
 if [ -z "$x11" ]; then
 send swipe $swipe_point -40 0 10
@@ -805,7 +823,7 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # The page shown is hidden while its window is minimized, and while the app is hidden, as Chrome's
 # is, and visible once they're back. Last, as the app may not be active after it's been hidden.
 # Today is the tab ⇧⌘T reopened over the page's.
-send click $(row 1)
+send click "$(row 1)"
 last_title=$(grep "^browser: title $a " "$log" | tail -1 | cut -d' ' -f4-)
 [ "${last_title%% *}" = visible ] ||
   expect "^browser: title $a visible " "a click on the page's row didn't show it"

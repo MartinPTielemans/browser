@@ -428,7 +428,13 @@ impl Shell {
 
     /// Moves the tab to the Space, warning the first time it goes to another profile's, where its
     /// page loads again without this profile's cookies and logins.
-    pub(super) fn move_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+    pub(super) fn move_to_space(
+        &mut self,
+        tab: u64,
+        space: u64,
+        pin: bool,
+        cx: &mut Context<Self>,
+    ) {
         let profile_of =
             |space| self.spaces.iter().find(|each| each.id == space).map(|each| each.profile);
         let to = profile_of(space);
@@ -437,7 +443,7 @@ impl Shell {
             .find(|each| each.pinned.contains(&tab) || each.today.contains(&tab))
             .map_or(self.space, |each| each.id);
         if profile_of(from) == to || !self.browser.warn_moving_profiles(cx) {
-            return self.send_to_space(tab, space, cx);
+            return self.send_to_space(tab, space, pin, cx);
         }
         let name = (self.profiles.iter())
             .find(|(profile, _)| Some(*profile) == to)
@@ -454,7 +460,7 @@ impl Shell {
                 shell
                     .update(cx, |shell, cx| {
                         shell.browser.set_warn_moving_profiles(false, cx);
-                        shell.send_to_space(tab, space, cx);
+                        shell.send_to_space(tab, space, pin, cx);
                     })
                     .ok();
             }),
@@ -678,7 +684,7 @@ impl Shell {
             items.push((
                 MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
                 "move-to-space",
-                Box::new(move |shell, cx| shell.move_to_space(tab, space, cx)),
+                Box::new(move |shell, cx| shell.move_to_space(tab, space, false, cx)),
             ));
         }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
@@ -807,7 +813,7 @@ impl Shell {
                     "move-to-space",
                     Box::new(move |shell, cx| {
                         if !shown {
-                            shell.move_to_space(tab, space, cx)
+                            shell.move_to_space(tab, space, false, cx)
                         }
                     }),
                 ));
