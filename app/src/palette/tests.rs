@@ -25,9 +25,9 @@ fn fine_window(palette: &Palette, theme: Option<&Theme>) -> Vec<Rgba> {
 }
 
 /// What fails: each of the chrome's components drawn as the shell draws it, with its alpha
-/// from the token ladder, on every point of the window, below its WCAG minimum.
-fn failures(theme: Option<&Theme>) -> Vec<String> {
-    let palette = Palette::of(theme);
+/// from the token ladder, on every point of a window of `tone`, below its WCAG minimum.
+fn failures(theme: Option<&Theme>, tone: Tone) -> Vec<String> {
+    let palette = Palette::of(theme, tone);
     let window = fine_window(&palette, theme);
     let grain = theme.map_or(0., |theme| theme.grain);
     let ink = palette.ink;
@@ -44,7 +44,9 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
         grounds.iter().map(|&at| contrast(over(at, color, color.a), at)).fold(f32::MAX, f32::min)
     };
     // The sidebar's text and glyphs (#320 rule 5's ladder).
-    check("selected title", on(palette.text(1.), &plated(SELECTED_PLATE)), TEXT);
+    let selected = Rgba::from(palette.selected(0.));
+    let selected: Vec<Rgba> = window.iter().map(|&at| over(at, selected, selected.a)).collect();
+    check("selected title", on(palette.text(1.), &selected), TEXT);
     check("unselected title", on(palette.text(0.78), &grained), TEXT);
     check("title on hovered plate", on(palette.text(0.78), &plated(HOVERED_PLATE)), TEXT);
     check("URL host on field", on(palette.text(0.62), &plated(FIELD_PLATE)), TEXT);
@@ -83,24 +85,26 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
     // A Library card is its Space's window, drawn in its palette, split segments too.
     let card: Vec<Rgba> = (0..=16).flat_map(|y| palette.window_at(theme, 0.5, y as f32 / 16.)).collect();
     check("card split segment title", on(palette.text(0.78), &card), TEXT);
-    // The theme picker's panel is the pickers' card, and the site controls the overlay, each with
-    // plates of the ink on it.
+    // The theme picker's panel is the pickers' card over the window, with plates of the dark
+    // palette's ink on it, as the picker is dark on either window; and the site controls the
+    // overlay, with plates of the ink.
     let overlay = palette.overlay;
     let on_overlay = |plates: &[f32]| -> Vec<Rgba> { plates.iter().map(|&plate| over(overlay, ink, plate)).collect() };
+    let picker = Palette::of(theme, Tone::Dark);
     let on_card = |plates: &[f32]| -> Vec<Rgba> {
-        cards.iter().flat_map(|&at| plates.iter().map(move |&plate| over(at, ink, plate))).collect()
+        cards.iter().flat_map(|&at| plates.iter().map(move |&plate| over(at, picker.ink, plate))).collect()
     };
     {
         use crate::tokens::theme_picker::*;
         let chosen = on_card(&[APPEARANCE_CHOSEN]);
-        check("picker appearance", on(palette.on_overlay_glyph(APPEARANCE_COLOR), &chosen), GLYPH);
+        check("picker appearance", on(picker.on_overlay_glyph(APPEARANCE_COLOR), &chosen), GLYPH);
         // − and + keep Arc's white 0.35 beside the count they change, under 3:1 on the card.
         let field = on_card(&[FIELD_FILL]);
-        check("picker handle ring", on(Hsla::from(ink), &field), GLYPH);
+        check("picker handle ring", on(Hsla::from(picker.ink), &field), GLYPH);
         let track = on_card(&[TRACK_FILL]);
-        check("picker wave", on(palette.plate(WAVE_ON), &track), GLYPH);
-        check("picker knob", on(Hsla::from(ink), &track), GLYPH);
-        check("picker swept dot", on(palette.plate(DIAL_SWEPT), &cards), GLYPH);
+        check("picker wave", on(picker.plate(WAVE_ON), &track), GLYPH);
+        check("picker knob", on(Hsla::from(picker.ink), &track), GLYPH);
+        check("picker swept dot", on(picker.plate(DIAL_SWEPT), &cards), GLYPH);
     }
     {
         use crate::tokens::site_controls::*;
@@ -118,7 +122,7 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
     }
     // The Space's swatch, ringed where its edge doesn't reach 3:1 on the window.
     let swatch = match theme {
-        Some(theme) => Window::of(theme).swatch(),
+        Some(theme) => Window::of(theme, tone).swatch(),
         None => vec![rgb(NO_THEME_ACCENT)],
     };
     let edge = match Palette::swatch_ring_on(theme, &window) {
@@ -164,6 +168,7 @@ fn states(palette: &Palette, theme: Option<&Theme>) -> Vec<(String, Hsla, f32, V
         ("Library card name", palette.text(shell::UNSELECTED_TITLE), TEXT, lay(&window, 0., &[STATE_HOVERED])),
         ("Library and side panel buttons", palette.glyph(shell::NAV), GLYPH, lay(&window, 0., &PRESSABLE)),
         ("URL field host", palette.text(shell::SECONDARY), TEXT, lay(&window, shell::URL_FIELD, &[STATE_HOVERED])),
+        ("URL field placeholder", palette.text(shell::header::URL_PLACEHOLDER), TEXT, lay(&window, shell::URL_FIELD, &[STATE_HOVERED])),
         ("question card button", palette.text(shell::TITLE), TEXT, lay(&window, shell::URL_FIELD, &PRESSABLE)),
         ("offer button", palette.text(offer::TITLE), TEXT, lay(&window, offer::PLATE, &PRESSABLE)),
         ("offer chevron", palette.glyph(offer::DETAIL), GLYPH, lay(&window, 0., &PRESSABLE)),
@@ -216,12 +221,14 @@ fn grid(hues: &[f32], saturations: &[f32], lightnesses: &[f32], intensities: &[f
     themes
 }
 
+/// What fails for each of `themes` on a dark and on a light window.
 fn sweep(themes: &[Theme]) -> Vec<String> {
     themes
         .iter()
-        .filter_map(|theme| {
-            let failed = failures(Some(theme));
-            (!failed.is_empty()).then(|| format!("{}: {}", theme.to_text(), failed.join(", ")))
+        .flat_map(|theme| [Tone::Dark, Tone::Light].map(|tone| (theme, tone)))
+        .filter_map(|(theme, tone)| {
+            let failed = failures(Some(theme), tone);
+            (!failed.is_empty()).then(|| format!("{} {tone:?}: {}", theme.to_text(), failed.join(", ")))
         })
         .collect()
 }
@@ -230,7 +237,7 @@ fn sweep(themes: &[Theme]) -> Vec<String> {
 /// and ilo green made to read with Ink on it, and everything passes.
 #[test]
 fn no_theme_is_the_measured_window_and_ilo_green_with_ink() {
-    let palette = Palette::of(None);
+    let palette = Palette::of(None, Tone::Dark);
     assert_eq!((palette.tint.a, palette.shade, palette.layer_alpha), (TINT, 0., 0.));
     // #289054 reads 2.7:1 on the window over a white backdrop, so ilo green, lighter, at its hue.
     assert_eq!(hex(palette.accent), 0x57b97a);
@@ -238,7 +245,20 @@ fn no_theme_is_the_measured_window_and_ilo_green_with_ink() {
     assert!(contrast(palette.accent_label, palette.accent) >= TEXT);
     // #0B8045 with Paper, the value #319 first had, is under 4.5.
     assert!(contrast(rgb(PAPER), rgb(0x0b8045)) < TEXT);
-    assert_eq!(failures(None), Vec::<String>::new());
+    assert_eq!(failures(None, Tone::Dark), Vec::<String>::new());
+}
+
+/// A light window is its material under white 0.8 with Ink on it, a theme's colours over it at
+/// Dia's light layer's alpha, and ilo green darker so it reads there; everything passes.
+#[test]
+fn a_light_window_is_white_over_the_material_with_ink() {
+    let palette = Palette::of(None, Tone::Light);
+    assert_eq!((palette.tint, palette.shade, palette.layer_alpha), (Rgba { a: LIGHT_TINT, ..WHITE }, 0., 0.));
+    assert_eq!(hex(palette.ink), INK);
+    assert!(luminance(palette.accent) < luminance(Palette::of(None, Tone::Dark).accent));
+    assert_eq!(failures(None, Tone::Light), Vec::<String>::new());
+    let violet = Palette::of(Some(&Theme::of_color(0x5a2a9a)), Tone::Light);
+    assert_eq!((violet.shade, violet.layer_alpha), (0., LIGHT_GRADIENT_ALPHA));
 }
 
 /// A theme lies over the window as a Space's colour did before themes, and only a theme too light
@@ -246,13 +266,13 @@ fn no_theme_is_the_measured_window_and_ilo_green_with_ink() {
 #[test]
 fn the_window_is_shaded_only_where_paper_needs_it() {
     // check/window.sh's black Space, measured against Dia's composite: neutral, unshaded.
-    let black = Palette::of(Some(&Theme::at(0., 0.)));
+    let black = Palette::of(Some(&Theme::at(0., 0.)), Tone::Dark);
     assert_eq!((black.tint.a, black.shade, black.layer_alpha), (TINT, 0., NEUTRAL_GRADIENT_ALPHA));
-    let violet = Palette::of(Some(&Theme::of_color(0x5a2a9a)));
+    let violet = Palette::of(Some(&Theme::of_color(0x5a2a9a)), Tone::Dark);
     assert_eq!((violet.shade, violet.layer_alpha), (0., GRADIENT_ALPHA));
     // Blue lightens to #9AC3FF down the window, too light for Paper's plates over white.
     let pale = Theme::of_color(0x1a79ff);
-    let palette = Palette::of(Some(&pale));
+    let palette = Palette::of(Some(&pale), Tone::Dark);
     assert!(palette.shade > 0., "the blue isn't shaded");
     let less = Palette { shade: palette.shade - SHADE_STEP, ..palette };
     let paper = rgb(PAPER);
@@ -266,9 +286,9 @@ fn the_window_is_shaded_only_where_paper_needs_it() {
 /// 3:1 on its menu and a hovered row.
 #[test]
 fn the_pickers_card_and_captures_glyphs_read() {
-    let black = Palette::of(Some(&Theme::at(0., 0.)));
+    let black = Palette::of(Some(&Theme::at(0., 0.)), Tone::Dark);
     assert_eq!(hex(black.card), hex(rgba(CARD)), "the measured grey over the black Space");
-    assert_eq!(Palette::of(None).card, rgba(CARD), "the measured grey with no theme");
+    assert_eq!(Palette::of(None, Tone::Dark).card, rgba(CARD), "the measured grey with no theme");
     use crate::tokens::capture::{GLYPH_COLOR, MENU_FILL};
     for ground in [0., STATE_HOVERED, STATE_PRESSED].map(|state| over(rgba(MENU_FILL), WHITE, state)) {
         assert!(contrast(over(ground, rgb(PAPER), GLYPH_COLOR), ground) >= GLYPH);
@@ -281,7 +301,7 @@ fn the_pickers_card_and_captures_glyphs_read() {
 #[test]
 fn the_selected_library_section_glyph_reads_without_moving_the_accent() {
     use crate::tokens::shell::library::{COLUMN, LIBRARY_PLATE};
-    let none = Palette::of(None);
+    let none = Palette::of(None, Tone::Dark);
     let selected: Vec<Rgba> = (none.window_samples(None).iter())
         .map(|&at| over(over(at, none.ink, COLUMN), none.ink, LIBRARY_PLATE))
         .collect();
@@ -291,7 +311,7 @@ fn the_selected_library_section_glyph_reads_without_moving_the_accent() {
     assert!(worst(none.section_glyph) >= GLYPH + BETWEEN);
     let (hue, glyph_hue) = (Hsla::from(none.accent).h, Hsla::from(none.section_glyph).h);
     assert!((hue - glyph_hue).abs() < 0.02, "the glyph keeps ilo green's hue");
-    let violet = Palette::of(Some(&Theme::of_color(0x5a2a9a)));
+    let violet = Palette::of(Some(&Theme::of_color(0x5a2a9a)), Tone::Dark);
     assert_eq!(violet.section_glyph, violet.accent);
 }
 
@@ -304,7 +324,8 @@ fn the_shown_spaces_icon_reads_on_the_footer_light_and_dark() {
     let themes = grid(&[0., 45., 90., 135., 180., 225., 270., 315.], &[0., 0.4, 1.], &[0., 0.3, 0.6, 1.], &[0., 1.]);
     let mut worst = (f32::MAX, String::new());
     for theme in themes.iter().filter(|theme| theme.appearance != Appearance::Automatic) {
-        let palette = Palette::of(Some(theme));
+        let tone = if theme.appearance == Appearance::Light { Tone::Light } else { Tone::Dark };
+        let palette = Palette::of(Some(theme), tone);
         let footer = (0..=16).flat_map(|along| {
             (12..=16).flat_map(move |y| palette.window_at(Some(theme), along as f32 / 16., y as f32 / 16.))
         });
@@ -317,7 +338,7 @@ fn the_shown_spaces_icon_reads_on_the_footer_light_and_dark() {
     }
     assert!(worst.0 >= GLYPH, "{:.2} on {}", worst.0, worst.1);
     // A Space with no colour draws it in the ink.
-    let none = Palette::of(None);
+    let none = Palette::of(None, Tone::Dark);
     assert!(none.window_samples(None).iter().all(|&at| contrast(none.ink, at) >= GLYPH));
 }
 
@@ -381,13 +402,14 @@ fn every_theme_of_a_coarse_sweep_reads() {
 #[test]
 fn a_pressed_accent_goes_darker_than_hovered() {
     let themes = grid(&[0., 60., 120., 180., 240., 300.], &[0.4, 1.], &[0.2, 0.45, 0.8], &[0.5]);
-    for theme in themes.iter().map(Some).chain([None]) {
-        let palette = Palette::of(theme);
+    let tones = [Tone::Dark, Tone::Light];
+    for (theme, tone) in themes.iter().map(Some).chain([None]).flat_map(|theme| tones.map(|tone| (theme, tone))) {
+        let palette = Palette::of(theme, tone);
         let [hovered, _, _] = crate::theme::oklab(palette.accent_hovered().to_rgb());
         let [pressed, _, _] = crate::theme::oklab(palette.accent_pressed().to_rgb());
-        assert!(pressed < hovered, "{theme:?}");
+        assert!(pressed < hovered, "{theme:?} {tone:?}");
     }
-    assert_eq!(hex(Palette::of(None).accent_pressed().to_rgb()), 0x469462);
+    assert_eq!(hex(Palette::of(None, Tone::Dark).accent_pressed().to_rgb()), 0x469462);
 }
 
 /// A filled button under the pointer goes 0.9 darker, whatever its label (the owner, 2026-10-26):
@@ -395,18 +417,19 @@ fn a_pressed_accent_goes_darker_than_hovered() {
 #[test]
 fn a_hovered_accent_goes_darker() {
     let themes = grid(&[0., 60., 120., 180., 240., 300.], &[0.4, 1.], &[0.2, 0.45, 0.8], &[0.5]);
-    for theme in themes.iter().map(Some).chain([None]) {
-        let palette = Palette::of(theme);
+    let tones = [Tone::Dark, Tone::Light];
+    for (theme, tone) in themes.iter().map(Some).chain([None]).flat_map(|theme| tones.map(|tone| (theme, tone))) {
+        let palette = Palette::of(theme, tone);
         let hovered = palette.accent_hovered().to_rgb();
         for (rest, hovered) in [
             (palette.accent.r, hovered.r),
             (palette.accent.g, hovered.g),
             (palette.accent.b, hovered.b),
         ] {
-            assert!((hovered - rest * 0.9).abs() < 0.005, "{theme:?}");
+            assert!((hovered - rest * 0.9).abs() < 0.005, "{theme:?} {tone:?}");
         }
     }
-    let green = Palette::of(None);
+    let green = Palette::of(None, Tone::Dark);
     assert_eq!(hex(green.accent), 0x57b97a);
     assert_eq!(hex(green.accent_hovered().to_rgb()), 0x4ea76e);
 }
@@ -443,11 +466,16 @@ fn full_sweep() {
             .collect();
         chunks.into_iter().flat_map(|chunk| chunk.join().unwrap()).collect()
     });
-    let palettes: Vec<Palette> = themes.iter().map(|t| Palette::of(Some(t))).collect();
+    let palettes: Vec<Palette> = (themes.iter())
+        .flat_map(|t| [Tone::Dark, Tone::Light].map(|tone| Palette::of(Some(t), tone)))
+        .collect();
     let shaded = palettes.iter().filter(|p| p.shade > 0.).count();
     let most = palettes.iter().map(|p| p.shade).fold(0., f32::max);
     let card = palettes.iter().filter(|p| p.card != rgba(CARD)).count();
-    let faded = themes.iter().zip(&palettes).filter(|(t, p)| p.layer_alpha < layer_alpha(t) - 1e-6).count();
+    let faded = (themes.iter().flat_map(|t| [t, t]))
+        .zip(&palettes)
+        .filter(|(t, p)| p.layer_alpha < layer_alpha(t, p.tone) - 1e-6)
+        .count();
     eprintln!(
         "{} themes, {shaded} shaded (at most {most}), {faded} faded, {card} with a darker card, {} failing",
         themes.len(),
@@ -473,7 +501,7 @@ fn a_palette_takes_well_under_a_frame() {
     let theme = theme(3, 1., "automatic", 300., 1., 0.95, 1.);
     let start = std::time::Instant::now();
     for _ in 0..10 {
-        std::hint::black_box(Palette::of(Some(&theme)));
+        std::hint::black_box(Palette::of(Some(&theme), Tone::Dark));
     }
     let each = start.elapsed() / 10;
     assert!(each < std::time::Duration::from_millis(4), "{each:?}");

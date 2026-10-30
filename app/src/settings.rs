@@ -14,6 +14,7 @@ use browser::agents::{self, Agents, Client};
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
+use browser::theme::Appearance;
 use browser::import::ImportView;
 use browser::log;
 use browser::passwords::{self, Login};
@@ -86,6 +87,7 @@ use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
 use browser::tokens::settings::CLIENT_TILE;
+use browser::tokens::settings::EXPORT_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 /// The chip's plate, as Paper's alpha, for the ladder to go over.
@@ -230,6 +232,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
+            ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
+            ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
             ("View Library", Keys::Of(Command::ViewLibrary)),
             ("View Archive", Keys::Of(Command::ViewArchive)),
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
@@ -1580,6 +1585,22 @@ impl Settings {
         let widevine = self.widevine.read(cx).shown().then(|| {
             group(&RowLook::settings(), [self.widevine_row(cx)]).mt(px(BOX_GAP))
         });
+        let export = button(&RowLook::settings(), "export-spaces", "Export…")
+            .on_click(|_, _, cx| crate::export_spaces(cx));
+        let export = div()
+            .h(px(PROFILE_ROW))
+            .px(px(PADDING))
+            .flex()
+            .items_center()
+            .child(tile("icons/file.svg", EXPORT_TILE))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child("Export each Space's favorites and pinned tabs as Markdown"),
+            )
+            .child(div().flex_none().ml(px(PADDING)).child(export));
         div()
             .child(group(&RowLook::settings(), [
                 row(
@@ -1593,6 +1614,7 @@ impl Settings {
                     previews,
                 ),
             ]))
+            .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
@@ -2096,6 +2118,23 @@ fn shortcuts_path() -> String {
 pub fn read_shortcuts(cx: &mut App) {
     let text = std::fs::read_to_string(shortcuts_path()).unwrap_or_default();
     cx.set_global(UserKeys::parse(&text));
+}
+
+/// Where View › Appearance's choice is kept, beside the keys.
+fn appearance_path() -> String {
+    format!("{}/Appearance", crate::profile_dir())
+}
+
+/// Reads View › Appearance's choice, automatic if there's none.
+pub fn read_appearance(cx: &mut App) {
+    let text = std::fs::read_to_string(appearance_path()).unwrap_or_default();
+    cx.set_global(shell::AppAppearance(Appearance::named(text.trim()).unwrap_or_default()));
+}
+
+pub fn save_appearance(appearance: Appearance) {
+    if let Err(error) = std::fs::write(appearance_path(), appearance.name()) {
+        log!("couldn't save the appearance: {error}");
+    }
 }
 
 fn save_shortcuts(cx: &App) {

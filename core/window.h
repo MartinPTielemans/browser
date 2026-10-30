@@ -9,6 +9,7 @@
 
 #include "base/callback_list.h"
 #include "base/containers/span.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -300,6 +301,13 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // From the stand-in, as |browser| goes.
   void OnBrowserGone(BrowserWindowInterface* browser);
 
+  // From the stand-in: Chrome asks whether to quit, or close the private profile's last window,
+  // cancelling |count| downloads (window_downloads_question). |answer| hears true to cancel them,
+  // and no if the window goes or asks again first.
+  void AskAboutDownloads(int count, bool last_private, base::OnceCallback<void(bool)> answer);
+  // The user's answer to AskAboutDownloads, if the window still asks.
+  void AnswerDownloads(bool cancel);
+
   // web_modal::WebContentsModalDialogHost:
   gfx::NativeView GetHostView() const override;
   gfx::Point GetDialogPosition(const gfx::Size& size) override;
@@ -438,6 +446,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bool page_had_keyboard_ = false;
   // The tab selected as an overlay took the keyboard, while it has it.
   bc_id selected_under_overlay_ = 0;
+  // What hears the answer AskAboutDownloads waits for.
+  base::OnceCallback<void(bool)> downloads_answer_;
   // The tab whose page the navigation being made opens a tab beside, until that tab is inserted.
   bc_id split_with_ = 0;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;

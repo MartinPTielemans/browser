@@ -204,6 +204,8 @@ namespace {
 struct Browser {
   NSWindow* window;
   NSView* ui_view;
+  // The material under the UI, which turns light or dark with the Space shown.
+  NSVisualEffectView* material;
 
   // The find bar's window and view, and its distance from the top right of the window's content.
   NSWindow* find_bar;
@@ -1109,18 +1111,31 @@ void WatchHeldEscape() {
 namespace {
 
 // Dia's window material (docs/ux-spec.md › Window material): what's behind the window, blurred,
-// under the UI, which tints it. AppKit swaps it for an opaque fill while the window is inactive,
-// and with Reduce Transparency or Increase Contrast.
-NSVisualEffectView* WindowMaterial(NSRect frame) {
+// under the UI, which tints it, dark or light. AppKit swaps it for an opaque fill while the window
+// is inactive, and with Reduce Transparency or Increase Contrast.
+void SetWindowMaterialLight(NSVisualEffectView* material, bool light) {
+  // Dia's dark material is one AppKit doesn't name; its light one is the HUD window's.
+  material.material = light ? NSVisualEffectMaterialHUDWindow : (NSVisualEffectMaterial)29;
+  material.appearance =
+      [NSAppearance appearanceNamed:light ? NSAppearanceNameAqua : NSAppearanceNameDarkAqua];
+}
+
+NSVisualEffectView* WindowMaterial(NSRect frame, bool light) {
   NSVisualEffectView* material = [[NSVisualEffectView alloc] initWithFrame:frame];
   material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   material.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-  // Dia's dark material, which AppKit doesn't name.
-  material.material = (NSVisualEffectMaterial)29;
   material.state = NSVisualEffectStateFollowsWindowActiveState;
   material.emphasized = YES;
-  material.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  SetWindowMaterialLight(material, light);
   return material;
+}
+
+// Whether the system's appearance is light, which a window follows until its Space's look is
+// known.
+bool SystemIsLight() {
+  NSAppearanceName name = [NSApp.effectiveAppearance
+      bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+  return [name isEqualToString:NSAppearanceNameAqua];
 }
 
 // What the first window looks like until its UI has drawn, put on screen before the browser
@@ -1157,8 +1172,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     [window standardWindowButton:button].hidden = YES;
   }
   // The material's colour rather than the material: its blur slows the browser's start by a
-  // third, and the window is gone by the time the material could show through.
-  window.backgroundColor = [NSColor colorWithWhite:0.15 alpha:1];
+  // third, and the window is gone by the time the material could show through. Light is Dia's
+  // light composite over grey 20, as the dark is near its dark one.
+  window.backgroundColor = [NSColor colorWithWhite:SystemIsLight() ? 0.91 : 0.15 alpha:1];
   NSView* content = window.contentView;
   NSImage* picture = [[NSImage alloc] initWithContentsOfFile:LaunchPicturePath(profile_dir, width, height)];
   NSImageRep* pixels = picture.representations.firstObject;
@@ -1298,7 +1314,9 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
   // Never drawn, but Mission Control and the Window menu name the window by it.
   window.title = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
   // Under the UI's view, since the core keeps only the UI's and the page's views in its own.
-  [view addSubview:WindowMaterial(view.bounds) positioned:NSWindowBelow relativeTo:nil];
+  // The system's look until the shell says its Space's.
+  browser->material = WindowMaterial(view.bounds, SystemIsLight());
+  [view addSubview:browser->material positioned:NSWindowBelow relativeTo:nil];
   // Views keeps a new window clear until its compositor's first frame, which waits for the GPU
   // process to start, though the UI's and the pages' views cover all of that compositor.
   window.alphaValue = 1;
@@ -1483,6 +1501,20 @@ void host_set_window_title(void* ui_view, const char* title) {
   if (browser && browser->window) {
     browser->window.title = @(title);
   }
+}
+
+void host_set_window_light(void* ui_view, bool light) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (browser && browser->material) {
+    SetWindowMaterialLight(browser->material, light);
+  }
+}
+
+void host_set_app_appearance(int appearance) {
+  // Chromium's pages follow NSApp's appearance, so prefers-color-scheme follows the choice too.
+  NSApp.appearance = appearance == 1   ? [NSAppearance appearanceNamed:NSAppearanceNameAqua]
+                     : appearance == 2 ? [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]
+                                       : nil;
 }
 
 void host_activate(void* ui_view) {

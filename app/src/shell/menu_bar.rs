@@ -4,6 +4,7 @@
 use gpui::{Context, SharedString};
 
 use super::{Extension, Shell, menus::space_menu_label};
+use crate::theme::Appearance;
 
 /// What the key window's menu bar shows that changes with it.
 #[derive(Clone, Default, PartialEq)]
@@ -18,6 +19,8 @@ pub struct MenuBar {
     /// Spaces › Change Profile: each profile by id and name, whether the Space shown can change to
     /// it and whether it's in it, then whether New Profile can be chosen. None in a private window.
     pub profiles: Option<(Vec<ProfileChoice>, bool)>,
+    /// View › Appearance's choice, which it checks.
+    pub appearance: Appearance,
 }
 
 /// A profile a Space can be in, as its menus list it.
@@ -66,6 +69,7 @@ impl Shell {
             sidebar_hidden: self.sidebar_hidden,
             pinned,
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
+            appearance: self.app_appearance,
         }
     }
 

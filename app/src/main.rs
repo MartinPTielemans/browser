@@ -30,6 +30,7 @@ use browser::shell::{
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
     SidePanel, Split, Trouble, WindowButton,
 };
+use browser::theme::Appearance;
 use browser::text_input::{
     Copy, Cut, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
 };
@@ -157,6 +158,8 @@ mod platform {
             height: *mut f64,
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
+        pub fn host_set_window_light(ui_view: *mut c_void, light: bool);
+        pub fn host_set_app_appearance(appearance: c_int);
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
@@ -573,6 +576,14 @@ fn remove_login(profile: bc::bc_id, login: &passwords::Login) {
     // check.sh reads this line.
     log!("browser: remove login {profile} {}", passwords::describe(std::slice::from_ref(login)));
     unsafe { bc::bc_profile_remove_login(profile, key.as_ptr(), username.as_ptr(), login.never) };
+}
+
+/// Saves the Spaces' favorites and pinned tabs as a Markdown file of links where the user picks,
+/// for Settings' Export…. The user's alone, as Settings is.
+fn export_spaces(cx: &mut App) {
+    if let Some(shell) = shell_with_view(front().1).upgrade() {
+        shell.update(cx, |shell, cx| shell.export_spaces(cx));
+    }
 }
 
 fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
@@ -2025,6 +2036,29 @@ impl Browser for Engine {
         }
     }
 
+    fn save_markdown(&self, name: &str, markdown: String, links: usize, cx: &mut App) {
+        let save = move |path: std::path::PathBuf| match std::fs::write(&path, markdown) {
+            // check.sh reads this line.
+            Ok(()) => log!("browser: exported {links} links to {}", path.display()),
+            Err(error) => log!("couldn't export to {}: {error}", path.display()),
+        };
+        // A check names its file, as it can't drive the system's panel.
+        if !cfg!(feature = "prod")
+            && let Some(file) = std::env::var_os("BROWSER_EXPORT_FILE")
+        {
+            return save(file.into());
+        }
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+        let chosen = cx.prompt_for_new_path(&home, Some(name));
+        cx.foreground_executor()
+            .spawn(async move {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    save(path);
+                }
+            })
+            .detach();
+    }
+
     fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
         unsafe { bc::bc_tab_close_page_menu(tab, command.unwrap_or(0)) };
     }
@@ -2283,6 +2317,15 @@ impl Browser for Engine {
 
     fn set_page_color(&self, color: u32, _: &mut App) {
         unsafe { bc::bc_window_set_page_color(self.window, color) };
+    }
+
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        unsafe { platform::host_set_window_light(self.ui_view, light) };
+    }
+
+    fn set_appearance(&self, appearance: Appearance, _: &mut App) {
+        settings::save_appearance(appearance);
+        give_host_appearance(appearance);
     }
 
     fn page_moving(&self, moving: bool, _: &mut App) {
@@ -3619,6 +3662,8 @@ unsafe extern "C" fn started(_: *mut c_void) {
         browser::face::register(cx);
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
+        settings::read_appearance(cx);
+        give_host_appearance(shell::app_appearance(cx));
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         #[cfg(target_os = "linux")]
@@ -3888,6 +3933,16 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
         menu(
             "View",
             vec![
+                MenuItem::submenu(menu(
+                    "Appearance",
+                    (Appearance::ALL.into_iter())
+                        .map(|each| {
+                            item(appearance_title(each), Command::Appearance(each))
+                                .checked(bar.appearance == each)
+                        })
+                        .collect(),
+                )),
+                MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
@@ -3999,6 +4054,25 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             ],
         ),
     ]
+}
+
+/// View › Appearance's item for `appearance`, as Arc's names them.
+fn appearance_title(appearance: Appearance) -> &'static str {
+    match appearance {
+        Appearance::Automatic => "Automatic",
+        Appearance::Light => "Light",
+        Appearance::Dark => "Dark",
+    }
+}
+
+/// Gives the host View › Appearance's choice, for the app's native parts and its pages.
+fn give_host_appearance(appearance: Appearance) {
+    let code = match appearance {
+        Appearance::Automatic => 0,
+        Appearance::Light => 1,
+        Appearance::Dark => 2,
+    };
+    unsafe { platform::host_set_app_appearance(code) };
 }
 
 /// Spaces › Change Profile: the profiles the Space shown can be in, as its menu's Profile items
@@ -4718,6 +4792,48 @@ unsafe extern "C" fn window_extension_popup(
     }
 }
 
+/// On Linux and Windows, Chrome asks whether to quit, or close the last private window, cancelling
+/// `count` downloads running. In the words of Chrome's alert on the Mac, with the app's name where
+/// it names Chromium, and ↩ on Continue Downloading, as there.
+unsafe extern "C" fn window_downloads_question(
+    _: *mut c_void,
+    window: bc::bc_id,
+    count: c_int,
+    last_private: bool,
+) {
+    let question = dialog::Question {
+        icon: None,
+        message: match count {
+            1 => "Download is in progress",
+            _ => "Downloads are in progress",
+        }
+        .into(),
+        detail: match last_private {
+            true => "Quit Incognito mode anyway?",
+            false => concat!("Quit ", env!("APP_NAME"), " anyway?"),
+        }
+        .into(),
+        list: Vec::new(),
+        action: "Quit".into(),
+        cancel: "Continue Downloading".into(),
+        // Quit cancels the downloads, which can't be taken back.
+        tone: dialog::Tone::Destructive,
+        also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: true,
+    };
+    let answered =
+        Box::new(move |cancel, _: &mut App| unsafe { bc::bc_window_answer_downloads(window, cancel) });
+    // With no UI to ask in, the browser stays open, as it does with no dialog to ask in.
+    if CX.with_borrow(Option::is_none) {
+        unsafe { bc::bc_window_answer_downloads(window, false) };
+        return;
+    }
+    // A private window's close can ask from inside the app's own call.
+    update_app_later(move |cx| dialog::ask_chrome(question, answered, cx));
+}
+
 unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
     update_window(window, |shell, cx| shell.show_downloads(cx));
 }
@@ -5330,6 +5446,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        window_downloads_question: Some(window_downloads_question),
         ..Default::default()
     };
     (args, host)

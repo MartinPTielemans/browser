@@ -2064,7 +2064,39 @@ void Window::OnBrowserGone(BrowserWindowInterface* browser) {
   }
 }
 
+void Window::AskAboutDownloads(int count,
+                               bool last_private,
+                               base::OnceCallback<void(bool)> answer) {
+  // Chrome stops the quit or close that asked before, which is asked again.
+  if (downloads_answer_) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(downloads_answer_), false));
+  }
+  // With no app to ask, it goes on, cancelling them.
+  if (!Host().window_downloads_question) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(answer), true));
+    return;
+  }
+  downloads_answer_ = std::move(answer);
+  Host().window_downloads_question(Host().context, id_, count, last_private);
+}
+
+void Window::AnswerDownloads(bool cancel) {
+  if (!downloads_answer_) {
+    return;
+  }
+  // Posted, as a yes closes windows, which the app hears of, from inside its own call.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(downloads_answer_), cancel));
+}
+
 void Window::Destroy() {
+  // Chrome isn't left waiting for an answer no one can give.
+  if (downloads_answer_) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(downloads_answer_), false));
+  }
   // The last regular window stays in the session at its frame, saved while it's listed, for the
   // next window to open there. One that had tabs was kept as they closed (OnTabClosing).
   const bool last_regular = std::ranges::none_of(Windows(), [this](const auto& entry) {
