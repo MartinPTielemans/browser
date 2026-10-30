@@ -141,12 +141,14 @@ double host_since_launch(void);
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
 
-// The overlays: the command bar, and the Space's icon and theme pickers. One shows at a time.
+// The overlays: the command bar, the Space's icon and theme pickers, and a closed folder's preview.
+// One shows at a time.
 #define HOST_COMMAND_BAR 0
 #define HOST_ICON_PICKER 1
 #define HOST_THEME_PICKER 2
+#define HOST_FOLDER_PREVIEW 3
 // The Site Controls take the same elevation call, though they aren't one of the overlays.
-#define HOST_SITE_CONTROLS 3
+#define HOST_SITE_CONTROLS 4
 
 // Gives the |overlay| (or the Site Controls) the shadow its elevation level draws, in Core
 // Animation's terms: a black line round its shape and a black drop shadow, each with an opacity
@@ -590,11 +592,13 @@ void host_day_starts(double starts[4]);
 // Updates: Sparkle on the Mac (platform/mac/updates.mm), WinSparkle on Windows
 // (platform/windows/updates.cc).
 
-// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe Storage" in
-// the Keychain, when the app's signature is new, as after a move to another signing identity.
-// Where macOS asks and the user doesn't allow it, an alert offers Try Again until it can, or Quit,
-// when this returns false and the app quits before Chromium starts. Without the key, Chromium
-// can't read the profile's cookies and passwords.
+// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe
+// Storage" in the Keychain, when the app's signature is new, as after a move to another signing
+// identity, and makes the item again so it's granted to the new signature (tools/requirement.sh
+// says why that carries over from Apple Development to Developer ID). Where macOS asks and the
+// user doesn't allow it, an alert offers Try Again until it can, or Quit, when this returns false
+// and the app quits before Chromium starts. Without the key, Chromium can't read the profile's
+// cookies and passwords.
 bool host_keep_keychain_key(void);
 
 // Whether this build updates itself: a release build that carries the updater, its feed and its

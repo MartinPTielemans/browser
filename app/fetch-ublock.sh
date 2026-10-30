@@ -26,6 +26,9 @@ edit() {
   mv "$file.new" "$file"
 }
 
+# Git for Windows has sha256sum but no shasum, which the Mac has alone.
+sha256() { if command -v shasum >/dev/null; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
+
 version=$(git config -f ublock.ini ublock.version)
 url=$(git config -f ublock.ini ublock.url)
 sha256=$(git config -f ublock.ini ublock.sha256)
@@ -38,7 +41,7 @@ if [ ! -f "$dir/manifest.json" ] || ! grep -qF "\"key\": \"$key\"" "$dir/manifes
   rm -rf "$dir" "$dir.part" "$dir.zip"
   echo "fetch-ublock: downloading uBlock Origin $version" >&2
   curl -fL --progress-bar -o "$dir.zip" "$url"
-  echo "$sha256  $dir.zip" | shasum -a 256 -c --status ||
+  echo "$sha256  $dir.zip" | sha256 -c --status ||
     { rm -f "$dir.zip"; fail "the download doesn't match ublock.ini's sha256."; }
   mkdir "$dir.part"
   unzip -q "$dir.zip" -d "$dir.part"

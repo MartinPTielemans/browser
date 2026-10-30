@@ -296,6 +296,19 @@ pub fn start(
     look: Look,
     cx: &mut App,
 ) {
+    // Once the update that asked is over, as off the Mac ⇧⌘2's second press comes from capture
+    // mode's own window, which can't be updated inside its own update.
+    cx.defer(move |cx| start_now(tab, frame, radius, library, look, cx));
+}
+
+fn start_now(
+    tab: u64,
+    frame: Bounds<Pixels>,
+    radius: f32,
+    library: bool,
+    look: Look,
+    cx: &mut App,
+) {
     update(cx, |capture, window, cx| {
         if capture.session.is_some() {
             return capture.leave("toggle", window, cx);
@@ -324,13 +337,16 @@ pub fn start(
 
 /// Captures all of `tab`'s page, beyond its view, and copies it.
 pub fn full_page(tab: u64, cx: &mut App) {
-    update(cx, |capture, _, _| {
-        if capture.full_page.is_some() {
-            return;
-        }
-        let request = capture.request();
-        capture.full_page = Some((tab, request));
-        capture.host.capture(tab, request, true, None);
+    // Once the update that asked is over, as start's.
+    cx.defer(move |cx| {
+        update(cx, |capture, _, _| {
+            if capture.full_page.is_some() {
+                return;
+            }
+            let request = capture.request();
+            capture.full_page = Some((tab, request));
+            capture.host.capture(tab, request, true, None);
+        });
     });
     toast::show("Capture in Progress", None, PROGRESS_TIME, cx);
 }
@@ -718,6 +734,14 @@ impl Capture {
 
 impl Render for Capture {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The browser's shortcuts work here too, below capture mode's own keys, as the Mac's menu
+        // bar has them in every window: a second ⇧⌘2 leaves.
+        div().key_context(crate::shell::KEY_CONTEXT).size_full().child(self.mode(cx))
+    }
+}
+
+impl Capture {
+    fn mode(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div()
             .id("capture")
             .key_context("Capture")

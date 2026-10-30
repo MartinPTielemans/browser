@@ -116,8 +116,9 @@ class Space {
   bool IsFolder(bc_id id) const { return folders_.contains(id); }
   // The folder holding the pinned tab or folder |id|, else 0.
   bc_id FolderOf(bc_id id) const;
-  // A folder's name, and whether it shows what's in it.
+  // A folder's name, its icon, empty for none, and whether it shows what's in it.
   std::string FolderName(bc_id folder) const;
+  std::string FolderIcon(bc_id folder) const;
   bool IsOpen(bc_id folder) const;
 
   void SetName(std::string name);
@@ -170,6 +171,7 @@ class Space {
   // Move counts. Returns it.
   bc_id AddFolder(std::string name, bc_id folder, size_t index);
   void RenameFolder(bc_id folder, std::string name);
+  void SetFolderIcon(bc_id folder, std::string icon);
   void SetOpen(bc_id folder, bool open);
   // Deletes |folder|, leaving what was in it where it was, in the folder that held it.
   void DeleteFolder(bc_id folder);
@@ -267,6 +269,7 @@ class Space {
   std::map<bc_id, GURL> pinned_urls_;
   struct Folder {
     std::string name;
+    std::string icon;
     bool open = true;
   };
   std::map<bc_id, Folder> folders_;

@@ -7,6 +7,7 @@ use gpui::{App, Context, Hsla, Image, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
     AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
+    commands::markdown_text,
     undo::{Prop, Value},
     user_keys,
 };
@@ -55,6 +56,9 @@ pub struct MenuEntry {
     pub over: bool,
     /// The Space it stands for, whose swatch goes before its title.
     pub swatch: Option<Swatch>,
+    /// Whether it's shown and chosen in place of the item before it while ⌥ is held, as AppKit's
+    /// alternates are, taking no row of its own.
+    pub alternate: bool,
     /// Whether it stands for a page, whose favicon goes before its title, or a globe without one.
     pub page: bool,
     pub favicon: Option<Arc<Image>>,
@@ -86,6 +90,7 @@ impl MenuEntry {
             destructive: false,
             over: false,
             swatch: None,
+            alternate: false,
             page: false,
             favicon: None,
         }
@@ -106,6 +111,11 @@ impl MenuEntry {
 
     pub(crate) fn destructive(self) -> Self {
         MenuEntry { destructive: true, ..self }
+    }
+
+    /// The item before it's ⌥ alternate.
+    fn alternate(self) -> Self {
+        MenuEntry { alternate: true, ..self }
     }
 
     fn swatch(self, swatch: Swatch) -> Self {
@@ -525,8 +535,15 @@ impl Shell {
     pub(super) fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
         self.end_hovers(cx);
         let row = Row::Tab(self.row_of(tab));
+        // A right-click on a row not chosen lets the chosen ones go, as a plain click does.
+        let chosen = self.chosen.contains(&self.row_of(tab));
+        if !chosen {
+            self.unchoose(cx);
+        }
         let keys = user_keys(cx);
-        let items = if self.favorites.contains(&tab) {
+        let items = if chosen {
+            self.chosen_menu(keys)
+        } else if self.favorites.contains(&tab) {
             self.favorite_menu(keys, tab)
         } else if self.is_folder(tab) {
             self.folder_menu(tab)
@@ -642,13 +659,105 @@ impl Shell {
         items
     }
 
-    /// A folder's menu.
+    /// The chosen rows' menu (ours, *interim* until Arc's is captured): what's done to them
+    /// together, each as one step to undo.
+    fn chosen_menu(&self, keys: &UserKeys) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let close: (MenuEntry, &'static str, MenuAction) = (
+            MenuEntry::new("Close Tabs", true).shortcut(Command::CloseTab, keys),
+            "close-tab",
+            Box::new(|shell, cx| shell.close_chosen(cx)),
+        );
+        // ⇧⌘C does it too, as Arc's Copy URLs does (owner, 2026-10-29).
+        let copy: (MenuEntry, &'static str, MenuAction) = (
+            MenuEntry::new("Copy URLs", true).shortcut(Command::CopyUrl, keys),
+            "copy-url",
+            Box::new(|shell, cx| shell.copy_chosen(cx)),
+        );
+        let line = || -> (MenuEntry, &'static str, MenuAction) {
+            (MenuEntry::line(), "", Box::new(|_, _| {}))
+        };
+        // A private window's tabs are Today's alone, and stay in it.
+        if self.private {
+            return vec![copy, line(), close];
+        }
+        let pin = if self.chosen_pin() { "Pin Tabs" } else { "Unpin Tabs" };
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
+            (
+                MenuEntry::new(pin, true).shortcut(Command::TogglePin, keys),
+                "toggle-pin",
+                Box::new(|shell, cx| shell.pin_chosen(cx)),
+            ),
+            (
+                MenuEntry::new("New Folder with Tabs", true),
+                "new-folder",
+                Box::new(|shell, cx| shell.folder_chosen(cx)),
+            ),
+        ];
+        // The other Spaces of the profile, where every tab keeps its place to undo.
+        let profile = self.shown_space().map(|space| space.profile);
+        let others: Vec<_> = (self.spaces_to_move_to(false).into_iter())
+            .filter(|&(space, ..)| {
+                self.spaces.iter().any(|each| each.id == space && Some(each.profile) == profile)
+            })
+            .collect();
+        let move_to = items.len();
+        items.push((MenuEntry::new("Move to Space", !others.is_empty()), "", Box::new(|_, _| {})));
+        for (space, name, _) in others {
+            items.push((
+                MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
+                "move-to-space",
+                Box::new(move |shell, cx| shell.move_chosen_to_space(space, cx)),
+            ));
+        }
+        items.extend([line(), copy, line(), close]);
+        items
+    }
+
+    /// A folder's menu, as Arc's.
     fn folder_menu(&self, folder: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
-        vec![
+        let links = !self.folder_links(folder).is_empty();
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
             (
                 MenuEntry::new("Rename Folder", true),
                 "rename-folder",
                 Box::new(move |shell, cx| shell.rename_folder(folder, cx)),
+            ),
+            (
+                MenuEntry::new("Change Icon…", true),
+                "change-folder-icon",
+                Box::new(move |shell, cx| shell.change_folder_icon(folder, cx)),
+            ),
+        ];
+        if has_icon(&self.folder_icon(folder)) {
+            items.push((
+                MenuEntry::new("Remove Icon", true),
+                "remove-folder-icon",
+                Box::new(move |shell, cx| {
+                    shell.change(Prop::FolderIcon(folder), Value::Text(String::new()), cx)
+                }),
+            ));
+        }
+        items.push((
+            MenuEntry::new("Duplicate", true),
+            "duplicate-folder",
+            Box::new(move |shell, cx| shell.duplicate_folder(folder, cx)),
+        ));
+        let rest: [(MenuEntry, &'static str, MenuAction); 6] = [
+            (MenuEntry::line(), "", Box::new(|_, _| {})),
+            (
+                MenuEntry::new("Copy All Links", links),
+                "copy-all-links",
+                Box::new(move |shell, cx| shell.copy_folder_links(folder, false, cx)),
+            ),
+            (
+                MenuEntry::new("Copy All Links as Markdown", links),
+                "copy-all-links-markdown",
+                Box::new(move |shell, cx| shell.copy_folder_links(folder, true, cx)),
+            ),
+            (
+                MenuEntry::new("Paste URL as New Tab", true),
+                "paste-url-as-tab",
+                Box::new(move |shell, cx| shell.paste_url_into(folder, cx)),
             ),
             (MenuEntry::line(), "", Box::new(|_, _| {})),
             (
@@ -656,7 +765,62 @@ impl Shell {
                 "delete-folder",
                 Box::new(move |shell, cx| shell.delete_folder_now(folder, cx)),
             ),
-        ]
+        ];
+        items.extend(rest);
+        items
+    }
+
+    /// A folder's Duplicate, as Arc's: a copy under it of what it holds, the tabs unloaded until
+    /// shown. As a tab's Duplicate, it's no step to undo; the copy is deleted as any folder is.
+    fn duplicate_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
+        self.browser.duplicate_folder(folder, cx);
+    }
+
+    /// The tabs in `folder` and the folders in it, in the sidebar's order.
+    pub(super) fn folder_tabs(&self, folder: u64) -> Vec<u64> {
+        let Some(space) = self.spaces.iter().find(|space| space.is_folder(folder)) else {
+            return Vec::new();
+        };
+        let within = |row: u64| {
+            let mut parent = space.folder_of(row);
+            while parent != 0 && parent != folder {
+                parent = space.folder_of(parent);
+            }
+            parent == folder
+        };
+        let tabs = space.pinned.iter().filter(|&&row| !space.is_folder(row) && within(row));
+        tabs.copied().collect()
+    }
+
+    /// The tabs in `folder` and the folders in it, in the sidebar's order, with their links,
+    /// without their tracking parameters. Those with none are left out.
+    fn folder_links(&self, folder: u64) -> Vec<(u64, String)> {
+        let tabs = self.folder_tabs(folder).into_iter();
+        let links = tabs.map(|tab| (tab, clean_link(&self.url(tab))));
+        links.filter(|(_, link)| !link.is_empty()).collect()
+    }
+
+    /// A folder's Copy All Links, as Arc's: each link on a line, or each a Markdown link, which
+    /// Arc's menu offers with ⌥ held.
+    fn copy_folder_links(&mut self, folder: u64, markdown: bool, cx: &mut Context<Self>) {
+        let lines: Vec<String> = (self.folder_links(folder).into_iter())
+            .map(|(tab, link)| match markdown {
+                false => link,
+                true => format!("[{}]({link})", markdown_text(&self.title(tab))),
+            })
+            .collect();
+        let toast = if markdown { "Copied Links as Markdown" } else { "Copied All Links" };
+        self.copy(&lines.join("\n"), toast, cx);
+    }
+
+    /// A folder's Paste URL as New Tab: the clipboard's web link as a tab at the folder's top,
+    /// opened and shown, as ⌥⌘V opens one at the top of Today.
+    fn paste_url_into(&mut self, folder: u64, cx: &mut Context<Self>) {
+        let Some(urls) = self.pasted_urls(cx) else {
+            return;
+        };
+        self.browser.set_folder_open(folder, true, cx);
+        self.browser.open_at(&urls, true, folder, 0, cx);
     }
 
     /// A pinned tab's menu (ours: Arc's isn't recorded).
@@ -796,11 +960,22 @@ impl Shell {
         let last = panes[panes.len() - 1];
         let below = self.today().iter().skip_while(|&&id| id != last).count() > 1;
         let link = clean_link(&page.url);
-        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![(
-            MenuEntry::new("Copy Link", !link.is_empty()).shortcut(Command::CopyUrl, keys),
-            "copy-link",
-            Box::new(move |shell, cx| shell.copy_link(tab, cx)),
-        )];
+        let markdown = MenuEntry::new("Copy Link as Markdown", !link.is_empty())
+            .shortcut(Command::CopyMarkdownLink, keys)
+            .alternate();
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
+            (
+                MenuEntry::new("Copy Link", !link.is_empty()).shortcut(Command::CopyUrl, keys),
+                "copy-link",
+                Box::new(move |shell, cx| shell.copy_link(tab, false, cx)),
+            ),
+            // Holding ⌥ makes Copy Link copy it as Markdown, as ⌥⇧⌘C does (owner, 2026-10-29).
+            (
+                markdown,
+                "copy-markdown-link",
+                Box::new(move |shell, cx| shell.copy_link(tab, true, cx)),
+            ),
+        ];
         self.push_share(&mut items, tab, &link, position);
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
@@ -851,15 +1026,30 @@ impl Shell {
             items.push((MenuEntry::new("Move to", true), "", Box::new(|_, _| {})));
             for (space, name, shown) in self.spaces_to_move_to(true) {
                 let swatch = self.space_swatch(space);
-                items.push((
-                    MenuEntry::named(name, true).checked(shown).swatch(swatch).under(move_to),
-                    "move-to-space",
-                    Box::new(move |shell, cx| {
-                        if !shown {
-                            shell.move_to_space(tab, space, false, cx)
-                        }
-                    }),
-                ));
+                let folders = self.folders_to_move_to(tab, space);
+                let entry = MenuEntry::named(name, true).checked(shown).swatch(swatch);
+                let to_space: MenuAction = Box::new(move |shell, cx| {
+                    if !shown {
+                        shell.move_to_space(tab, space, false, cx)
+                    }
+                });
+                if folders.is_empty() {
+                    items.push((entry.under(move_to), "move-to-space", to_space));
+                    continue;
+                }
+                // A Space with folders is a submenu of its Today tabs and its folders (Arc).
+                let parent = items.len();
+                items.push((entry.under(move_to), "", Box::new(|_, _| {})));
+                let today = MenuEntry::new("Today", true).checked(shown).under(parent);
+                items.push((today, "move-to-space", to_space));
+                items.push((MenuEntry::line().under(parent), "", Box::new(|_, _| {})));
+                for (folder, path) in folders {
+                    items.push((
+                        MenuEntry::named(path, true).under(parent),
+                        "move-to-folder",
+                        Box::new(move |shell, cx| shell.move_into_folder(tab, space, folder, cx)),
+                    ));
+                }
             }
             items.extend(self.give_items(tab, self.agents_to_give(tab), move_to));
             items.push((MenuEntry::line().under(move_to), "", Box::new(|_, _| {})));
@@ -891,6 +1081,42 @@ impl Shell {
             .filter(|space| space.agent.is_empty() && (with_shown || space.id != self.space))
             .map(|space| (space.id, space.name.clone(), space.id == self.space))
             .collect()
+    }
+
+    /// The folders of `space` that `tab` can move into, in the sidebar's order, each named by its
+    /// path, "Docs / Old". None in another profile's Space, where the tab goes as a new tab.
+    fn folders_to_move_to(&self, tab: u64, space: u64) -> Vec<(u64, String)> {
+        let profile_of = |space: Option<&super::Space>| space.map(|space| space.profile);
+        let from = self.spaces.iter().find(|each| each.today.contains(&tab));
+        let Some(to) = self.spaces.iter().find(|each| each.id == space) else {
+            return Vec::new();
+        };
+        if profile_of(from) != Some(to.profile) {
+            return Vec::new();
+        }
+        let name = |folder: u64| to.folders.folders.get(&folder).map(|(name, _)| name.clone());
+        let path = |folder: u64| {
+            let mut path = vec![name(folder).unwrap_or_default()];
+            let mut parent = to.folder_of(folder);
+            while parent != 0 {
+                path.push(name(parent).unwrap_or_default());
+                parent = to.folder_of(parent);
+            }
+            path.reverse();
+            path.join(" / ")
+        };
+        let folders = to.pinned.iter().filter(|&&row| to.is_folder(row));
+        folders.map(|&folder| (folder, path(folder))).collect()
+    }
+
+    /// Move to › a folder: the tab goes to the folder's top, from its Space's Today tabs or
+    /// another Space's, as one step to undo.
+    fn move_into_folder(&mut self, tab: u64, space: u64, folder: u64, cx: &mut Context<Self>) {
+        if self.spaces.iter().any(|each| each.id == space && each.today.contains(&tab)) {
+            return self.move_tab_to(tab, true, folder, 0, cx);
+        }
+        self.send_to_space(tab, space, false, cx);
+        self.browser.move_tab(tab, true, folder, 0, cx);
     }
 
     /// The agents' Spaces the user can give `tab` to, by id and name: a tab of the user's own,
@@ -947,11 +1173,10 @@ impl Shell {
     }
 
     /// Copy Link: copies `tab`'s URL without its tracking parameters, as ⇧⌘C does the tab
-    /// shown's.
-    fn copy_link(&mut self, tab: u64, cx: &mut Context<Self>) {
-        let link = clean_link(&self.page(tab).url);
-        if !link.is_empty() {
-            self.copy(&link, "Copied Current URL", cx);
+    /// shown's, or as a Markdown link, as ⌥⇧⌘C does.
+    fn copy_link(&mut self, tab: u64, markdown: bool, cx: &mut Context<Self>) {
+        if let Some((text, toast)) = self.link_to_copy(tab, markdown) {
+            self.copy(&text, toast, cx);
         }
     }
 
@@ -1069,7 +1294,9 @@ mod tests {
     use gpui::{Entity, TestAppContext, point, px};
 
     use super::{MenuEntry, sentence_case, space_menu_head, space_menu_label};
-    use crate::shell::{Folders, Page, Shell, drag::detents::shell_with, recorder::Recorder};
+    use crate::shell::{
+        Command, Folders, Page, Shell, drag::detents::shell_with, recorder::Recorder,
+    };
 
     /// Off the Mac, ilo's items are in sentence case, keeping its nouns Space and Library and
     /// acronyms capitalized.
@@ -1133,7 +1360,9 @@ mod tests {
             (true, false) => title,
         };
         (entries.iter().enumerate())
-            .filter(|(at, entry)| !entry.title.is_empty() && !parents.contains(at))
+            .filter(|(at, entry)| {
+                !entry.title.is_empty() && !parents.contains(at) && !entry.alternate
+            })
             .map(|(_, entry)| {
                 let title = match entry.parent {
                     Some(parent) => format!("{} › {}", entries[parent].title, entry.title),
@@ -1184,13 +1413,19 @@ mod tests {
                 "Archive Tabs Below",
             ]
         );
-        // Copy Link alone shows its key, as in Arc's.
-        let entries = host.entries.borrow();
+        // Copy Link alone shows its key, as in Arc's, and so does its ⌥ alternate.
+        let entries = host.entries.borrow().clone();
         let keyed: Vec<&str> = (entries.iter())
             .filter(|entry| entry.shortcut.is_some())
             .map(|entry| entry.title.as_ref())
             .collect();
-        assert_eq!(keyed, ["Copy Link"]);
+        assert_eq!(keyed, ["Copy Link", "Copy Link as Markdown"]);
+        assert!(entries[1].alternate && !entries[0].alternate);
+        host.take();
+        cx.update(|cx| host.choose("Copy Link as Markdown", cx));
+        let title = shell.read_with(cx, |shell, _| shell.title(10));
+        let markdown = format!("copy [{title}](https://example.com/)");
+        assert!(host.take().contains(&markdown), "{markdown}");
     }
 
     /// A split's menu offers Mute under each of its tabs' names, and its Duplicate copies the whole
@@ -1278,6 +1513,241 @@ mod tests {
         host.take();
         cx.update(|cx| host.choose("Share…", cx));
         assert_eq!(host.take(), [format!("share sheet 10 https://example.com/ {title}")]);
+    }
+
+    /// A folder's menu is Arc's: its name and icon, a copy of it, its links, then its deletion,
+    /// with Remove Icon once it has one.
+    #[gpui::test]
+    fn a_folders_menu_is_arcs(cx: &mut TestAppContext) {
+        let folders = Folders {
+            folders: [(20, ("Docs".into(), true)), (22, ("Old".into(), true))].into(),
+            parents: [(21, 20)].into(),
+            icons: [(22, "📚".into())].into(),
+        };
+        let (shell, host) = shell_with(cx, &[20, 21, 22], &[24], folders);
+        let menu = tab_menu(&shell, &host, cx, 20);
+        // Its tab has no address here, so Copy All Links is greyed out.
+        let head = ["Rename Folder", "Change Icon…", "Duplicate", "Copy All Links (disabled)"];
+        assert_eq!(menu[..4], head, "{menu:?}");
+        assert_eq!(menu.last().unwrap(), "Delete Folder");
+        let menu = tab_menu(&shell, &host, cx, 22);
+        assert_eq!(menu[..4], ["Rename Folder", "Change Icon…", "Remove Icon", "Duplicate"]);
+        host.take();
+        host.take_edits();
+        cx.update(|cx| host.choose("Remove Icon", cx));
+        assert_eq!(host.take_edits(), ["folder icon 22 "]);
+        tab_menu(&shell, &host, cx, 20);
+        cx.update(|cx| host.choose("Duplicate", cx));
+        let edits = host.take_edits();
+        assert!(edits.len() == 1 && edits[0].starts_with("duplicate folder 20 "), "{edits:?}");
+    }
+
+    /// A folder's menu copies the links of every tab in it, nested folders' too, each on a line or
+    /// as Markdown, and pastes the clipboard's link as a tab at its top, as Arc's does.
+    #[gpui::test]
+    fn a_folders_menu_copies_its_links_and_pastes_one_in(cx: &mut TestAppContext) {
+        let folders = Folders {
+            folders: [(20, ("Docs".into(), true)), (22, ("Old".into(), false))].into(),
+            parents: [(21, 20), (22, 20), (23, 22)].into(),
+            ..Default::default()
+        };
+        let (shell, host) = shell_with(cx, &[20, 21, 22, 23], &[24], folders);
+        shell.update(cx, |shell, cx| {
+            shell.set_page(21, page("https://a.example/?utm_source=x", false, false), cx);
+            shell.set_page(23, page("https://b.example/", false, false), cx);
+            shell.set_page(24, page("https://c.example/", false, false), cx);
+            shell.set_title(21, "A [1]".into(), cx);
+        });
+        let menu = tab_menu(&shell, &host, cx, 20);
+        let at = menu.iter().position(|title| title == "Copy All Links");
+        let at = at.unwrap_or_else(|| panic!("{menu:?}"));
+        let items = ["Copy All Links", "Copy All Links as Markdown", "Paste URL as New Tab"];
+        assert_eq!(menu[at..at + 3], items);
+        host.take();
+        cx.update(|cx| host.choose("Copy All Links", cx));
+        assert!(host.take().contains(&"copy https://a.example/\nhttps://b.example/".to_string()));
+        tab_menu(&shell, &host, cx, 20);
+        host.take();
+        cx.update(|cx| host.choose("Copy All Links as Markdown", cx));
+        let title = shell.read_with(cx, |shell, _| shell.title(23));
+        let (a, b) = ("[A \\[1\\]](https://a.example/)", "https://b.example/");
+        let markdown = format!("copy {a}\n[{title}]({b})");
+        assert!(host.take().contains(&markdown), "{markdown}");
+
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://d.example/".into()));
+        tab_menu(&shell, &host, cx, 22);
+        host.take();
+        cx.update(|cx| host.choose("Paste URL as New Tab", cx));
+        let calls = host.take();
+        assert!(calls.contains(&"folder open 22 true".to_string()), "{calls:?}");
+        assert!(calls.contains(&"open https://d.example/ true 22 0".to_string()), "{calls:?}");
+    }
+
+    /// Move to lists each Space's folders under it, by their paths, after its Today tabs, and a
+    /// folder chosen takes the tab at its top, in its Space or another of the same profile. Another
+    /// profile's Space lists none, as the tab goes there as a new tab.
+    #[gpui::test]
+    fn move_to_reaches_a_folder_in_any_space_of_the_profile(cx: &mut TestAppContext) {
+        let folders = Folders {
+            folders: [(20, ("Docs".into(), true))].into(),
+            parents: Default::default(),
+            ..Default::default()
+        };
+        let (shell, host) = shell_with(cx, &[20], &[10], folders);
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str, profile| {
+                (id, name.to_string().into(), None, profile, "".into(), "".into(), "".into())
+            };
+            let spaces = vec![space(1, "Work", 0), space(2, "Home", 0), space(3, "Other", 7)];
+            shell.set_spaces(spaces, cx);
+            let home = Folders {
+                folders: [(30, ("Old".into(), false)), (31, ("Older".into(), true))].into(),
+                parents: [(31, 30)].into(),
+                ..Default::default()
+            };
+            shell.set_tabs(2, vec![30, 31], vec![40], Vec::new(), home, cx);
+            let theirs = [(50, ("Theirs".into(), true))].into();
+            let other = Folders { folders: theirs, ..Default::default() };
+            shell.set_tabs(3, vec![50], Vec::new(), Vec::new(), other, cx);
+        });
+        let menu = tab_menu(&shell, &host, cx, 10);
+        let start = menu.iter().position(|title| title.starts_with("Work › Today"));
+        let end = menu.iter().position(|title| title == "Move to › New Space…");
+        let (Some(start), Some(end)) = (start, end) else {
+            panic!("{menu:?}");
+        };
+        assert_eq!(
+            menu[start..=end],
+            [
+                "Work › Today (checked)",
+                "Work › Docs",
+                "Home › Today",
+                "Home › Old",
+                "Home › Old / Older",
+                "Move to › Other",
+                "Move to › New Space…",
+            ]
+        );
+        host.take_edits();
+        cx.update(|cx| host.choose("Docs", cx));
+        assert_eq!(host.take_edits(), ["move 10 true 20 0"]);
+        tab_menu(&shell, &host, cx, 10);
+        cx.update(|cx| host.choose("Old / Older", cx));
+        assert_eq!(host.take_edits(), ["space 10 2", "move 10 true 31 0"]);
+    }
+
+    /// The chosen rows' menu pins, folders or moves them together, each as one step that ⌘Z puts
+    /// back in place and ⇧⌘Z does again, and a right-click on a row not chosen lets them go.
+    #[gpui::test]
+    fn the_chosen_rows_menu_pins_folders_and_moves_them_together(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[2], &[3, 4, 5], Folders::default());
+        fn tabs(
+            shell: &Entity<Shell>,
+            cx: &mut TestAppContext,
+            space: u64,
+            pinned: Vec<u64>,
+            today: Vec<u64>,
+            folders: Folders,
+        ) {
+            shell.update(cx, |shell, cx| {
+                shell.set_tabs(space, pinned, today, Vec::new(), folders, cx)
+            })
+        }
+        let choose = |shell: &Entity<Shell>, cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| {
+                shell.choose_row(3, cx);
+                shell.choose_row(5, cx);
+            })
+        };
+        shell.update(cx, |shell, cx| {
+            let space = |id, name: &str, profile| {
+                (id, name.to_string().into(), None, profile, "".into(), "".into(), "".into())
+            };
+            let spaces = vec![space(1, "Work", 0), space(2, "Home", 0), space(3, "Other", 7)];
+            shell.set_spaces(spaces, cx);
+        });
+        choose(&shell, cx);
+        host.take();
+        assert_eq!(
+            tab_menu(&shell, &host, cx, 5),
+            ["Pin Tabs", "New Folder with Tabs", "Move to Space › Home", "Copy URLs", "Close Tabs"]
+        );
+        host.take_edits();
+        cx.update(|cx| host.choose("Pin Tabs", cx));
+        assert_eq!(host.take_edits(), ["pinned 3 true", "pinned 5 true"]);
+        // The core reports them pinned once the calls return.
+        tabs(&shell, cx, 1, vec![2, 3, 5], vec![4], Folders::default());
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        assert_eq!(host.take_edits(), ["move 3 false 0 0", "move 5 false 0 2"]);
+        shell.update(cx, |shell, cx| shell.redo(cx));
+        assert_eq!(host.take_edits(), ["move 3 true 0 1", "move 5 true 0 2"]);
+        host.take();
+        assert_eq!(tab_menu(&shell, &host, cx, 3)[0], "Unpin Tabs");
+        cx.update(|cx| host.dismiss(cx));
+
+        tabs(&shell, cx, 1, vec![2], vec![3, 4, 5], Folders::default());
+        host.take();
+        tab_menu(&shell, &host, cx, 3);
+        host.take_edits();
+        cx.update(|cx| host.choose("New Folder with Tabs", cx));
+        let edits = host.take_edits();
+        let folder: u64 = edits[0].split(' ').nth(1).unwrap().parse().unwrap();
+        let into = |tab, index| format!("move {tab} true {folder} {index}");
+        assert_eq!(edits[1..], [into(3, 0), into(5, 1)]);
+        shell.read_with(cx, |shell, _| {
+            assert!(shell.chosen.is_empty() && shell.renaming.is_some())
+        });
+        let made = Folders {
+            folders: [(folder, ("New Folder".into(), true))].into(),
+            parents: [(3, folder), (5, folder)].into(),
+            ..Default::default()
+        };
+        tabs(&shell, cx, 1, vec![2, folder, 3, 5], vec![4], made);
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let back = ["move 3 false 0 0", "move 5 false 0 2", &format!("delete folder {folder}")];
+        assert_eq!(host.take_edits(), back);
+
+        tabs(&shell, cx, 1, vec![2], vec![3, 4, 5], Folders::default());
+        choose(&shell, cx);
+        host.take();
+        tab_menu(&shell, &host, cx, 3);
+        host.take_edits();
+        cx.update(|cx| host.choose("Home", cx));
+        assert_eq!(host.take_edits(), ["space 5 2", "space 3 2"]);
+        tabs(&shell, cx, 1, vec![2], vec![4], Folders::default());
+        tabs(&shell, cx, 2, Vec::new(), vec![3, 5], Folders::default());
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let back = ["space 3 1", "move 3 false 0 0", "space 5 1", "move 5 false 0 2"];
+        assert_eq!(host.take_edits(), back);
+
+        tabs(&shell, cx, 1, vec![2], vec![3, 4, 5], Folders::default());
+        tabs(&shell, cx, 2, Vec::new(), Vec::new(), Folders::default());
+        choose(&shell, cx);
+        host.take();
+        assert!(tab_menu(&shell, &host, cx, 4)[0].starts_with("Copy Link"));
+        shell.read_with(cx, |shell, _| assert!(shell.chosen.is_empty()));
+    }
+
+    /// File › Share… and the command bar's Share… open the same sheet for the page shown, and
+    /// aren't offered where the system has none, as on Linux, or for a page with no link.
+    #[gpui::test]
+    fn the_share_command_opens_the_sheet_for_the_page_shown(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11], Folders::default());
+        shell.update(cx, |shell, cx| {
+            shell.set_page(10, page("https://example.com/?utm_source=x", false, false), cx);
+            shell.set_selected(10, cx);
+        });
+        let offered =
+            |cx: &mut TestAppContext| shell.read_with(cx, |shell, _| shell.offers(Command::Share));
+        assert!(!offered(cx), "offered with no share sheet");
+        host.share_sheet.set(true);
+        assert!(offered(cx));
+        let title = shell.read_with(cx, |shell, _| shell.title(10));
+        host.take();
+        shell.update(cx, |shell, cx| shell.run(Command::Share, "ui", cx));
+        assert_eq!(host.take(), [format!("share sheet 10 https://example.com/ {title}")]);
+        shell.update(cx, |shell, cx| shell.set_page(10, page("", false, false), cx));
+        assert!(!offered(cx), "offered for a page with no link");
     }
 
     /// Where the system has neither, as Linux, the menu has no Share at all.

@@ -47,6 +47,9 @@
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/termination_notification.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/startup/startup_tab.h"
+#include "chrome/browser/ui/startup/startup_tab_provider.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
@@ -78,9 +81,8 @@ namespace {
 
 bc_host g_host;
 
-#if BUILDFLAG(IS_MAC)
-// The links another app sent, to the app. Only pages and files: AppController strips Chrome's
-// own direct-launch scheme first, and any other scheme an app sends is no page to show.
+// The links another app sent, to the app. Only pages and files: Chrome strips its own
+// direct-launch scheme first, and any other scheme an app sends is no page to show.
 void OpenLinks(const std::vector<GURL>& urls) {
   std::vector<std::string> specs;
   for (const GURL& url : urls) {
@@ -96,6 +98,26 @@ void OpenLinks(const std::vector<GURL>& urls) {
     links.push_back(spec.c_str());
   }
   g_host.open_links(g_host.context, links.data(), links.size());
+}
+
+#if !BUILDFLAG(IS_MAC)
+// The links in a launch's command line, read as Chrome reads them: paths relative to |cur_dir|,
+// and "? words" searched with the profile's engine, which needs a profile.
+void OpenCommandLine(const base::CommandLine& command_line,
+                     const base::FilePath& cur_dir,
+                     Profile* profile) {
+  if (!profile) {
+    profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  }
+  if (!profile) {
+    return;
+  }
+  std::vector<GURL> urls;
+  for (const StartupTab& tab :
+       StartupTabProviderImpl().GetCommandLineTabs(command_line, cur_dir, profile)) {
+    urls.push_back(tab.url);
+  }
+  OpenLinks(urls);
 }
 #endif
 
@@ -255,6 +277,8 @@ void Install(const bc_host& host) {
   g_browser_core_password_prompt = &PasswordOffer::Prompt;
 #if BUILDFLAG(IS_MAC)
   g_browser_core_open_links = &OpenLinks;
+#else
+  g_browser_core_open_command_line = &OpenCommandLine;
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;

@@ -232,16 +232,18 @@ expect "^browser: offer $tab answered Never check@example.test\$" "Never didn't 
 expect '^browser: offer hidden$' "Never didn't hide the offer"
 
 # The Site Controls list the site set to Never in a Passwords row, whose menu takes it off Never at
-# once. With no extension pinned and no permission set, it's the row under ad blocking's, whose
-# middle is at y 262 (clear.sh measures the panel), its own 43 under it at y 305.
+# once. With no extension pinned and no permission set, it's the row under the ones the log lists
+# between its semicolons: ad blocking's, whose middle is at y 262 (clear.sh measures the panel), and
+# Developer Mode's on localhost, each 43 under the last.
 last_controls() { grep '^browser: site controls http' "$log" | tail -1; }
+passwords_y() { echo $((262 + 43 * $(last_controls | cut -d';' -f2 | tr ',' '\n' | grep -c .))); }
 controls="^browser: site controls http://localhost:$port: "
 bar_command site-controls "Site Controls" "site controls"
 expect "${controls}.*; passwords never localhost:$port\$" \
   "the Site Controls didn't list localhost as set to Never: $(last_controls)"
 expect '^browser: site controls settled$' "the Site Controls didn't open"
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-never.png" || fail "no window to capture"
-post click 207 305
+post click 207 $(passwords_y)
 expect "^browser: menu shown $(cased 'Offer to Save Passwords, All Passwords…')\$" \
   "the Passwords row didn't offer to take localhost off Never"
 send choose "$(cased 'Offer to Save Passwords')"
@@ -266,7 +268,7 @@ expect "${controls}.*; passwords 127.0.0.1:$port check@example.test\$" \
 expect '^browser: site controls settled$' "the Site Controls didn't open on the first site"
 ../tools/window-screenshot.sh "$pid" "$out/site-controls-passwords.png" ||
   fail "no window to capture"
-post click 207 305
+post click 207 $(passwords_y)
 expect "^browser: menu shown $(cased 'Remove “check@example.test”…, All Passwords…')\$" \
   "the Passwords row didn't offer to remove the saved login"
 send choose "$(cased 'All Passwords…')"
@@ -296,7 +298,7 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
 bar_command site-controls "Site Controls" "site controls"
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
-post click 207 305
+post click 207 $(passwords_y)
 expect "^browser: menu shown $(cased 'Remove “check@example.test”…, All Passwords…')\$" \
   "the Passwords row didn't offer to remove the saved login again"
 send choose 'Remove “check@example.test”…'

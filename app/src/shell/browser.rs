@@ -48,6 +48,11 @@ pub trait Browser {
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, cx: &mut App)
     -> u64;
     fn rename_folder(&self, folder: u64, name: &str, cx: &mut App);
+    /// Gives `folder` `icon`, an emoji, or takes its icon away with an empty one.
+    fn set_folder_icon(&self, folder: u64, icon: &str, cx: &mut App);
+    /// Makes a copy of `folder` under it, with a copy of each tab and folder in it, the tabs
+    /// unloaded, and returns it, or 0.
+    fn duplicate_folder(&self, folder: u64, cx: &mut App) -> u64;
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App);
     /// Moves `folder`, with what's in it, to `index` in `to`, else in the pinned tabs, counted as
     /// `move_tab` counts.
@@ -450,6 +455,9 @@ pub trait Browser {
     /// Tells a tab's hover card the pointer rests on its row or tile, or left it, or ends it
     /// (crate::hover_card). The app ends it too on the window losing the keyboard.
     fn hover_card(&self, hover: crate::hover_card::Hover, cx: &mut App);
+    /// Tells a closed folder's preview the pointer rests on its row, or left it, or ends it
+    /// (crate::folder_preview).
+    fn folder_preview(&self, ask: crate::folder_preview::Ask, cx: &mut App);
     /// Asks for a small picture of `tab`'s page, as it was last drawn, for its hover card, which
     /// the browser keeps for it. The user's: agents get none, as with the page's picture.
     fn card_picture(&self, tab: u64, cx: &mut App);
@@ -534,6 +542,12 @@ pub trait Browser {
     fn shortcuts(&self, cx: &mut App);
     /// Opens the Settings window on its About tab.
     fn about(&self, cx: &mut App);
+    /// Whether this build updates itself: a release with its updater, or on Linux the Flatpak.
+    fn updates(&self) -> bool {
+        false
+    }
+    /// Check for Updates…: asks the updater to look, or says where the update stands.
+    fn check_for_updates(&self, _: &mut App) {}
     /// Opens the Settings window on its Import tab.
     fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
@@ -678,4 +692,7 @@ pub struct Folders {
     pub folders: HashMap<u64, (SharedString, bool)>,
     /// The folder holding each pinned tab or folder in one.
     pub parents: HashMap<u64, u64>,
+    /// Each folder's icon, an emoji, which the sidebar draws in place of the folder; those without
+    /// one aren't here.
+    pub icons: HashMap<u64, SharedString>,
 }

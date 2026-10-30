@@ -821,6 +821,9 @@ typedef struct bc_host {
   // The trace bc_trace_stop ended: Chromium's JSON, |size| bytes, or null and 0 if it gave none.
   // The user's: save it where they pick, or drop it.
   void (*trace_recorded)(void* context, const char* json, size_t size);
+  // On Linux: |window| became the active one. Under X11 the UI's window in it hears nothing of that
+  // when the keyboard goes to the page, as a click on another window's page gives it.
+  void (*window_activated)(void* context, bc_id window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -883,10 +886,20 @@ BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
 // On Linux, whether the keys in |window| are the app's UI's rather than a page's.
 BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 
+// On Linux, whether the keys in |window| are a window of Chromium's own in it, such as an
+// extension's popup or a tab's dialog, rather than a page's or the UI's. For the test driver, as
+// the Mac's sees it as a child window with the keyboard.
+BC_EXPORT bool bc_window_keyboard_in_child(bc_id window);
+
 // On Linux and Windows, where the core draws a split view's ring around the focused page: whether
 // it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
 // For the test driver, which sees the Mac's ring as a view.
 BC_EXPORT bool bc_window_focus_ring(bc_id window, bc_rect* frame);
+
+// On Linux, whether a tab's dialog, such as print preview, shows over |window|, and if so its frame
+// in |frame|, from the top-left of the window's content. For the test driver, which can't see it,
+// as the Mac's sees it as a child window.
+BC_EXPORT bool bc_window_dialog(bc_id window, bc_rect* frame);
 
 // On Linux, while an overlay of the app's over |window|, such as the command bar, has the keyboard:
 // neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
@@ -1082,7 +1095,10 @@ BC_EXPORT size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capac
 // in the agent's Space or its page isn't http(s). Through Chromium's DevTools protocol, inside the
 // browser, never a remote-debugging port, and never with the agent's own script. The tree leaves
 // out what fields hold: no node's value, and nothing under a field, where Chromium puts the text
-// typed or filled into it, and it marks password fields. A tab whose page the browser unloaded gets
+// typed or filled into it, and it marks password fields. It has the page's frames, each under the
+// element it's in, those from http(s) origins only: never an extension's or the browser's, nor
+// what's in one. An element in a frame in a process of its own has its frame above its DOM node's
+// id in the backendDOMNodeId, so ids stay unique. A tab whose page the browser unloaded gets
 // it back, not shown. While an agent works in a tab its page keeps drawing, hidden, as a tab Chrome
 // captures does, until a while after its last action or the end of its session there. Chrome's
 // autofill suggestions close before each input, so an agent's keys never fill the user's data.
@@ -1276,6 +1292,20 @@ BC_EXPORT bc_id bc_folder_create(bc_id space, const char* name, bc_id folder, si
 // Then space_changed.
 BC_EXPORT void bc_folder_rename(bc_id folder, const char* name);
 BC_EXPORT void bc_folder_set_open(bc_id folder, bool open);
+
+// Copies the folder's icon, an emoji, UTF-8, into |icon| as bc_space_name does; empty for none,
+// for which the sidebar draws a folder.
+BC_EXPORT size_t bc_folder_icon(bc_id folder, char* icon, size_t capacity);
+
+// Gives the folder |icon|, an emoji, UTF-8, kept across a quit and a duplicate; empty takes it
+// away. Then space_changed.
+BC_EXPORT void bc_folder_set_icon(bc_id folder, const char* icon);
+
+// Makes a copy of the folder under it, in the folder holding it, with its name and icon, and a copy
+// of each pinned tab and folder in it, in their order, each tab with its history, name, icon and
+// pinned URL, unloaded until it's shown. Nothing is shown or loads. Returns the copy, or 0. Then
+// space_changed.
+BC_EXPORT bc_id bc_folder_duplicate(bc_id folder);
 
 // Moves the folder, with what's in it, to |index| in |folder| if it isn't 0, else in the pinned
 // tabs, counted as bc_tab_move counts. Not into itself. Then space_changed.

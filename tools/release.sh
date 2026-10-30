@@ -62,7 +62,10 @@ if [ -d "$sparkle" ]; then
   sign "$sparkle/Versions/B/Updater.app"
   sign "$sparkle"
 fi
-sign --entitlements "$root/entitlements/app.plist" "$app"
+# The team's requirement, as tools/install.sh signs the owner's copy, so either reads the other's
+# Keychain items.
+requirement=$("$(dirname "$0")/requirement.sh" "$(cat "$root/branding/id")" "$identity")
+sign --entitlements "$root/entitlements/app.plist" ${requirement:+"-r=$requirement"} "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 [ "$identity" = - ] && exit 0
 
