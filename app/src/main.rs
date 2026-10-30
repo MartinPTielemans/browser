@@ -2224,6 +2224,10 @@ impl Browser for Engine {
         agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
     }
 
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.give(tab, space, cx));
+    }
+
     fn stop_agent(&self, agent: SharedString, _: &mut App) {
         agents_core::update(move |agents, cx| agents.stop_agent(&agent, cx));
     }
