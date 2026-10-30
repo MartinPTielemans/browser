@@ -879,13 +879,14 @@ void Window::CloseBelow(bc_id tab) {
 }
 
 // static
-void Window::MoveToSpace(bc_id tab, bc_id space) {
+void Window::MoveToSpace(bc_id tab, bc_id space, bool to_agent) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  // No tab moves into an agent's Space, which would put it in the agent's reach, and Chrome never
-  // moves a page between incognito and regular windows.
-  if (!from || !to || from == to || to->agent() || from->off_the_record() ||
-      to->off_the_record() || DeletingSpaces().contains(space)) {
+  // No tab moves into an agent's Space, which would put it in the agent's reach, unless the user
+  // gives it, and Chrome never moves a page between incognito and regular windows.
+  if (!from || !to || from == to || to->agent().has_value() != to_agent ||
+      from->off_the_record() || to->off_the_record() ||
+      DeletingSpaces().contains(space)) {
     return;
   }
   // A page can't take its cookies and logins to another profile, so it opens there again.
@@ -1257,7 +1258,14 @@ void Window::LayOutPage() {
       gfx::Rect devtools_frame;
       ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(pane.frame.size()),
                                             &devtools_frame, &docked.page_frame);
-      pane.devtools = docked;
+      // DevTools in a window of their own leave their toolbox in the tab, under the page, where it
+      // draws only around a page device mode makes smaller. Under one filling the frame it would
+      // show nothing, so it stays out, and its renderer hidden, until device mode leaves it room.
+      const bool toolbox = !DevToolsWindow::AsDevToolsWindow(devtools);
+      const bool covered = !docked.page_under && docked.page_frame == gfx::Rect(pane.frame.size());
+      if (!toolbox || !covered) {
+        pane.devtools = docked;
+      }
     }
   }
   SidePanel* side_panel = ShownSidePanel();

@@ -907,6 +907,10 @@ impl site_controls::Host for SiteControlsHost {
         remove_login(unsafe { bc::bc_tab_profile(tab) }, login);
     }
 
+    fn set_developer_mode(&self, tab: u64, on: bool) {
+        unsafe { bc::bc_tab_set_developer_mode(tab, on) };
+    }
+
     fn set_ad_blocking(&self, tab: u64, on: bool) {
         unsafe { bc::bc_tab_set_ad_blocking(tab, on) };
         // Settings lists the sites it's off on.
@@ -1409,6 +1413,14 @@ unsafe extern "C" fn tab_captured(
     log!("browser: tab {tab} captured {request}: {width}x{height}, {size} bytes");
     let png = (!png.is_null()).then(|| unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
     update_app_later(move |cx| capture::captured(tab, request, png, cx));
+}
+
+unsafe extern "C" fn trace_recorded(_: *mut c_void, json: *const c_char, size: usize) {
+    // check.sh reads this line.
+    log!("browser: trace recorded {size} bytes");
+    let json = (!json.is_null()).then(|| unsafe { std::slice::from_raw_parts(json.cast(), size) });
+    let json = json.map(<[u8]>::to_vec);
+    update_app_later(move |cx| shell::trace_recorded(json, cx));
 }
 
 unsafe extern "C" fn tab_pictured(
@@ -2167,6 +2179,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_clear_site(tab, cookies) };
     }
 
+    fn set_developer_mode(&self, tab: u64, on: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_developer_mode(tab, on) };
+    }
+
     fn answer_permission(&self, tab: u64, answer: shell::Answer, _: &mut App) {
         let answer = match answer {
             shell::Answer::Allow => bc::BC_PERMISSION_ALLOW,
@@ -2206,6 +2222,10 @@ impl Browser for Engine {
 
     fn hand_back(&self, tab: u64, _: &mut App) {
         agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
+    }
+
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.give(tab, space, cx));
     }
 
     fn stop_agent(&self, agent: SharedString, _: &mut App) {
@@ -2367,6 +2387,26 @@ impl Browser for Engine {
 
     fn task_manager(&self, _: &mut App) {
         unsafe { bc::bc_window_task_manager(self.window) };
+    }
+
+    fn start_trace(&self) -> bool {
+        unsafe { bc::bc_trace_start() }
+    }
+
+    fn stop_trace(&self) {
+        unsafe { bc::bc_trace_stop() };
+    }
+
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, cx: &mut App) {
+        let Some(stop) = stop else {
+            return toast::hide_resting(cx);
+        };
+        let button = toast::Button {
+            label: toast::Label::Text(shell::STOP.into()),
+            name: "stop",
+            run: Rc::new(move |_, cx| stop(cx)),
+        };
+        with_overlays(move |cx| toast::show_resting(shell::RECORDING, vec![button], cx), cx);
     }
 
     fn set_menus(&self, bar: &shell::MenuBar, cx: &mut App) {
@@ -4325,7 +4365,12 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                         item("Developer Tools", Command::DevTools),
                         item("Inspect Elements", Command::InspectElements),
                         item("JavaScript Console", Command::JavaScriptConsole),
-                    ],
+                    ]
+                    .into_iter()
+                    .chain(bar.developer_mode_title().into_iter().flat_map(|title| {
+                        [MenuItem::separator(), item(title, Command::ToggleDeveloperMode)]
+                    }))
+                    .collect(),
                 )),
                 MenuItem::separator(),
                 item("Expand Current Split", Command::ExpandSplit),
@@ -4415,6 +4460,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                     vec![
                         item("Copy Build Info", Command::CopyBuildInfo),
                         item("Open Task Manager", Command::TaskManager),
+                        item(bar.trace_title(), Command::RecordTrace),
                     ],
                 )),
             ],
@@ -4944,6 +4990,7 @@ unsafe extern "C" fn tab_state_changed(
             _ => Trouble::Fine,
         },
         system_engine: state.system_engine,
+        developer_mode: state.developer_mode,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
         update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));
@@ -5396,6 +5443,11 @@ unsafe extern "C" fn tab_site_controls(
         ad_blocking: match controls.ad_blocking as u32 {
             bc::BC_AD_BLOCKING_ON => Some(true),
             bc::BC_AD_BLOCKING_OFF => Some(false),
+            _ => None,
+        },
+        developer_mode: match controls.developer_mode as u32 {
+            bc::BC_DEVELOPER_MODE_ON => Some(true),
+            bc::BC_DEVELOPER_MODE_OFF => Some(false),
             _ => None,
         },
         logins: logins(controls.logins, controls.login_count),
@@ -5877,6 +5929,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),
         tab_captured: Some(tab_captured),
+        trace_recorded: Some(trace_recorded),
         tab_pictured: Some(tab_pictured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),

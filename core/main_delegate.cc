@@ -18,6 +18,7 @@
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
@@ -134,9 +135,13 @@ base::FilePath FindNativeHost(const std::string& name) {
 // tells the app when it can call in and when it has to stop.
 class ExtraParts : public ChromeBrowserMainExtraParts {
  public:
+  // Chrome has just set its crash keys again, with the switches about:flags added.
+  void PreCreateThreads() override { crash_reports::LeaveOutFolders(); }
+
   // Before Chrome stops taking factories, as the first profile is made.
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
+    developer_mode::RegisterProfilePrefs();
     widevine::Start();
   }
 
@@ -391,6 +396,7 @@ void MainDelegate::PreSandboxStartup() {
   }
   ChromeMainDelegate::PreSandboxStartup();
   crash_reports::LeaveOutPages();
+  crash_reports::LeaveOutFolders();
 }
 
 #if BUILDFLAG(IS_LINUX)
@@ -398,6 +404,7 @@ void MainDelegate::ZygoteForked() {
   // Chrome's starts Crashpad in a page's process as the zygote forks it.
   ChromeMainDelegate::ZygoteForked();
   crash_reports::LeaveOutPages();
+  crash_reports::LeaveOutFolders();
 }
 #endif
 
