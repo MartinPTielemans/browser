@@ -6,7 +6,7 @@
 
 use gpui::{
     AnyElement, App, Bounds, Context, Global, Hsla, MouseButton, MouseDownEvent, Pixels, Point,
-    Rgba, div, point, prelude::*, px, rgb, size,
+    Rgba, SharedString, div, point, prelude::*, px, rgb, size,
 };
 
 use super::{
@@ -29,6 +29,31 @@ impl Global for ShowToolbar {}
 /// Whether the user chose to show the toolbar.
 pub fn toolbar_shown(cx: &App) -> bool {
     cx.try_global::<ShowToolbar>().is_some_and(|chosen| chosen.0)
+}
+
+/// Whether the toolbar's URL field shows the whole URL, not the host alone, as the user chose
+/// (Arc's Show Full URL, its Settings' "Show full URL when Toolbar is enabled"). The sidebar's
+/// field keeps the host, as Arc's does.
+#[derive(Clone, Copy, Default)]
+pub struct ShowFullUrl(pub bool);
+
+impl Global for ShowFullUrl {}
+
+/// Whether the user chose the whole URL in the toolbar.
+pub fn full_url_shown(cx: &App) -> bool {
+    cx.try_global::<ShowFullUrl>().is_some_and(|chosen| chosen.0)
+}
+
+/// The whole of `url` as the toolbar's field shows it, as Dia's Show Full URL does: the host
+/// without "www.", then the path, query and fragment, with no "/" at the end. Arc's isn't
+/// measured. A URL with no host is shown as it is.
+pub fn full_url(url: &str) -> String {
+    let host = super::host(url);
+    let Some((_, rest)) = url.split_once("://").filter(|_| host != url) else {
+        return url.to_string();
+    };
+    let rest = rest.strip_prefix("www.").filter(|rest| rest.starts_with(host)).unwrap_or(rest);
+    rest.strip_suffix('/').unwrap_or(rest).to_string()
 }
 
 /// What's kept for the next launch, and what it reads back as: shown only if it says so, so a
@@ -94,7 +119,7 @@ pub fn under_toolbar(card: Bounds<Pixels>) -> Bounds<Pixels> {
 }
 
 /// The ink that reads on `fill`: Ink on a light page, Paper on a dark one.
-fn tone_on(fill: Rgba) -> Tone {
+pub fn tone_on(fill: Rgba) -> Tone {
     match contrast(rgb(INK), fill) >= contrast(rgb(PAPER), fill) {
         true => Tone::Light,
         false => Tone::Dark,
@@ -141,6 +166,43 @@ impl Shell {
     /// The View menu's item for ⇧⌘D, by what it does now, as Arc's.
     pub(super) fn toolbar_title(&self) -> &'static str {
         if self.toolbar { "Hide Toolbar" } else { "Show Toolbar" }
+    }
+
+    /// Shows the whole URL in every window's toolbar, or the host alone, and keeps that for the
+    /// next launch.
+    pub(super) fn toggle_full_url(&mut self, cx: &mut Context<Self>) {
+        self.set_full_url(!self.full_url, cx);
+        let shown = self.full_url;
+        cx.set_global(ShowFullUrl(shown));
+        self.browser.save_full_url(shown, cx);
+        cx.refresh_windows();
+    }
+
+    /// Takes the user's choice of the whole URL in the toolbar, as this window draws.
+    pub(super) fn set_full_url(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if self.full_url == shown {
+            return;
+        }
+        self.full_url = shown;
+        // check.sh waits for these lines.
+        log!("browser: full url {}", if shown { "shown" } else { "hidden" });
+        cx.notify();
+    }
+
+    /// The toolbar field's menu item and the command bar's row, by what it does now, as Arc's.
+    pub(super) fn full_url_title(&self) -> &'static str {
+        if self.full_url { "Hide Full URL" } else { "Show Full URL" }
+    }
+
+    /// What the URL field says for `url`, in its colour: the whole URL on the toolbar if the user
+    /// chose it, else the host.
+    pub(super) fn field_words(&self, url: &str, in_toolbar: bool) -> (SharedString, Hsla) {
+        let (words, color) = self.url_field_words(url);
+        let whole = in_toolbar && self.full_url && self.selected != 0;
+        match whole && self.extension_name(url).is_none() {
+            true => (full_url(url).into(), color),
+            false => (words, color),
+        }
     }
 
     /// The strip with the line under it, and the sidebar's controls on it, while it shows: in the
@@ -252,7 +314,8 @@ impl Shell {
     }
 
     /// The menu a right-click on the URL field shows, in the sidebar or the toolbar: Copy URL,
-    /// Share as the system can, and Show Toolbar or Hide Toolbar, as Arc's.
+    /// Share as the system can, Show Toolbar or Hide Toolbar, and on the toolbar Show Full URL or
+    /// Hide Full URL, as Arc's.
     pub(super) fn url_field_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let keys = user_keys(cx);
         let tab = self.selected;
@@ -271,6 +334,14 @@ impl Shell {
             "toggle-toolbar",
             Box::new(|shell, cx| shell.run(Command::ToggleToolbar, "url field menu", cx)),
         ));
+        // Arc's toolbar field offers it; the sidebar's always shows the host.
+        if self.toolbar {
+            items.push((
+                MenuEntry::new(self.full_url_title(), true),
+                "toggle-full-url",
+                Box::new(|shell, cx| shell.run(Command::ToggleFullUrl, "url field menu", cx)),
+            ));
+        }
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         // Over the card from the toolbar, in the hidden sidebar's reveal from its field.
         let in_reveal = !self.toolbar && self.sidebar_hidden;

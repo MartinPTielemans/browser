@@ -136,6 +136,8 @@ pub enum Command {
     ToggleSidebar,
     /// Shows the toolbar over the page in every window, or hides it (View › Show Toolbar).
     ToggleToolbar,
+    /// Shows the whole URL in the toolbar's field, or the host alone (Arc's Show Full URL).
+    ToggleFullUrl,
     /// Opens the Library, or closes it.
     ViewLibrary,
     /// Opens the Library on the archive.
@@ -342,6 +344,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
     ("Show Toolbar", Command::ToggleToolbar, &["hide", "url bar", "address bar"]),
+    ("Show Full URL", Command::ToggleFullUrl, &["address", "path"]),
     ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
     ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
     ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
@@ -669,6 +672,7 @@ impl Command {
             Command::PreviousSpace => "previous-space",
             Command::ToggleSidebar => "toggle-sidebar",
             Command::ToggleToolbar => "toggle-toolbar",
+            Command::ToggleFullUrl => "toggle-full-url",
             Command::ViewLibrary => "view-library",
             Command::ViewArchive => "view-archive",
             Command::ClearArchive => "clear-archive",
@@ -977,6 +981,7 @@ impl Shell {
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
             Command::ToggleToolbar => return self.toggle_toolbar(cx),
+            Command::ToggleFullUrl => return self.toggle_full_url(cx),
             Command::Appearance(appearance) => return self.set_app_appearance(appearance, cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
@@ -1255,6 +1260,8 @@ impl Shell {
             Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
+            // It changes only the toolbar's field, as Arc's setting is for the toolbar.
+            Command::ToggleFullUrl => self.toolbar,
             Command::NewFolder
             | Command::SearchTabs
             | Command::ReopenClosedTab
@@ -1304,7 +1311,7 @@ impl Shell {
 
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
     /// says what it would do.
-    fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
+    pub(super) fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
         if !self.offers(command) {
             return None;
         }
@@ -1316,6 +1323,7 @@ impl Shell {
                 (!self.sidebar_hidden).then_some(name)
             }
             Command::ToggleToolbar => Some(self.toolbar_title()),
+            Command::ToggleFullUrl => Some(self.full_url_title()),
             _ => Some(name),
         }
     }

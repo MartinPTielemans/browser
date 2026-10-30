@@ -327,6 +327,8 @@ pub trait Browser {
     fn set_appearance(&self, appearance: Appearance, cx: &mut App);
     /// Keeps View › Show Toolbar's choice for the next launch.
     fn save_toolbar(&self, shown: bool, cx: &mut App);
+    /// Keeps Show Full URL's choice for the next launch.
+    fn save_full_url(&self, shown: bool, cx: &mut App);
     /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
     /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
     /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.

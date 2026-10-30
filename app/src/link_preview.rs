@@ -18,9 +18,10 @@ use gpui::{
 };
 
 use crate::elevation::Level;
-use crate::palette::{self, STATE_HOVERED, STATE_PRESSED};
-use crate::shell::{Page, clean_link, cubic_bezier, scaled::scaled, toolbar_shown};
+use crate::palette::{self, Palette, STATE_HOVERED, STATE_PRESSED, Tone};
+use crate::shell::{Page, clean_link, cubic_bezier, scaled::scaled, tone_on, toolbar_shown};
 use crate::tokens::dialog::{DIM, DIM_OPACITY};
+use crate::tokens::shell::toolbar::DIVIDER;
 use crate::tokens::link_preview::{
     FRAME, HEADER_LEFT, HEADER_TEXT, INSET_MAX, INSET_MIN, INSET_SHARE, MIN_RADIUS,
 };
@@ -268,6 +269,8 @@ struct Preview {
     can_go_back: bool,
     can_go_forward: bool,
     loading: bool,
+    /// The page's colour, 0xRRGGBB, which the header takes with the toolbar, as the toolbar does.
+    color: Option<u32>,
     /// Redo closed it, so ⌘Z's history has it already.
     undone: bool,
     /// Where the link was clicked in the browser window.
@@ -294,6 +297,13 @@ impl Preview {
     fn moving(&self) -> bool {
         self.leaving.is_some()
             || self.shown.is_none_or(|shown| shown.elapsed().as_secs_f32() < OPEN)
+    }
+
+    /// The colour the header takes, the page's while the toolbar shows, with the tone of the ink
+    /// that reads on it; none, the card's, without the toolbar or before the page has one.
+    fn header_look(&self, toolbar: bool) -> Option<(u32, Tone)> {
+        let color = self.color.filter(|_| toolbar)?;
+        Some((color, tone_on(rgb(color))))
     }
 
     /// The page's corners, which the card's follow outside the frame.
@@ -403,6 +413,7 @@ pub fn show(
             can_go_back: false,
             can_go_forward: false,
             loading: true,
+            color: None,
             undone: false,
             link,
             asked: Instant::now(),
@@ -447,6 +458,7 @@ pub fn set_page(tab: u64, page: &Page, cx: &mut App) {
             shown.can_go_back = page.can_go_back;
             shown.can_go_forward = page.can_go_forward;
             shown.loading = page.loading;
+            shown.color = page.color;
             cx.notify();
         }
     });
@@ -615,12 +627,23 @@ impl Render for LinkPreview {
                 false => ("link-preview-reload", "icons/nav-reload.svg", Nav::Reload, true),
             },
         ];
+        // In the page's colour with the toolbar, as the toolbar is, with its ink and its line.
+        let look = shown.header_look(toolbar);
+        let ink = look.map(|(_, tone)| Palette::of(None, tone));
+        let glyph_of = |alpha| ink.map_or(palette.on_overlay_glyph(alpha), |ink| ink.glyph(alpha));
+        let plate_of = |alpha| ink.map_or(palette.plate(alpha), |ink| ink.plate(alpha));
+        let title = ink.map_or(palette.on_overlay(TITLE), |ink| ink.text(TITLE));
+        let line = look.zip(ink).map(|((color, _), ink)| {
+            let hairline = px(1. / window.scale_factor());
+            let line = div().absolute().left_0().right_0().bottom_0().h(hairline);
+            (Hsla::from(rgb(color)), line.bg(ink.faint(DIVIDER)))
+        });
         let site = match toolbar {
             true => url.clone(),
             false => SharedString::from(site_of(&url).to_string()),
         };
         let button = |id: &'static str, icon: &'static str, enabled: bool| {
-            let glyph = palette.on_overlay_glyph(if enabled { NAV } else { NAV_DISABLED });
+            let glyph = glyph_of(if enabled { NAV } else { NAV_DISABLED });
             div()
                 .id(id)
                 .flex_none()
@@ -631,8 +654,8 @@ impl Render for LinkPreview {
                 .rounded(px(NAV_RADIUS))
                 .when(enabled, |button| {
                     button
-                        .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
-                        .active(|style| style.bg(palette.plate(STATE_PRESSED)))
+                        .hover(|style| style.bg(plate_of(STATE_HOVERED)))
+                        .active(|style| style.bg(plate_of(STATE_PRESSED)))
                 })
                 .child(
                     svg()
@@ -661,6 +684,11 @@ impl Render for LinkPreview {
         });
         let header = div()
             .h(px(HEADER))
+            .relative()
+            .when_some(line, |header, (fill, line)| {
+                // Inside the card's 1 pt rim, its corners just in from the card's.
+                header.rounded_t(px(radius - 1.)).bg(fill).child(line)
+            })
             .flex()
             .items_center()
             .gap(px(URL_BUTTON_INSET))
@@ -673,7 +701,7 @@ impl Render for LinkPreview {
                     .min_w_0()
                     .truncate()
                     .text_size(px(HEADER_TEXT))
-                    .text_color(palette.on_overlay(TITLE))
+                    .text_color(title)
                     .child(site),
             )
             .children(copy)

@@ -181,6 +181,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::FlipSplit => "icons/arrow-left-right.svg",
         Command::ToggleSidebar => "icons/panel-left.svg",
         Command::ToggleToolbar => "icons/app-window.svg",
+        Command::ToggleFullUrl => "icons/link.svg",
         Command::CapturePortion | Command::CaptureFullPage => "icons/camera.svg",
         Command::SavePage => "icons/save.svg",
         Command::Print => "icons/printer.svg",

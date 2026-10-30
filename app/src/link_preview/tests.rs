@@ -233,6 +233,27 @@ fn the_toolbar_shows_in_it(cx: &mut TestAppContext) {
     assert_eq!(shown.calls(), ["Stop 7"]);
 }
 
+/// With the toolbar, its header takes the page's colour, with the ink that reads on it, as the
+/// toolbar does; without, or before the page has one, it keeps the card's.
+#[gpui::test]
+fn its_header_takes_the_pages_colour_with_the_toolbar(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    let look = |shown: &mut Shown, toolbar| {
+        shown.cx.cx.update(|cx| {
+            let window = cx.global::<LinkPreviewWindow>().0;
+            window.read(cx).ok().and_then(|it| it.preview.as_ref().unwrap().header_look(toolbar))
+        })
+    };
+    assert_eq!(look(&mut shown, true), None, "before the page has one");
+    for (color, tone) in [(0xffffff, Tone::Light), (0x101820, Tone::Dark)] {
+        let url = "https://www.example.org/a".into();
+        let page = Page { url, color: Some(color), ..Page::default() };
+        shown.cx.cx.update(|cx| set_page(TAB, &page, cx));
+        assert_eq!(look(&mut shown, true), Some((color, tone)));
+        assert_eq!(look(&mut shown, false), None, "the card's without the toolbar");
+    }
+}
+
 /// A click on the dim closes it; one on the card doesn't.
 #[gpui::test]
 fn a_click_outside_closes_it(cx: &mut TestAppContext) {

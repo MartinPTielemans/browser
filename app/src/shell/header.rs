@@ -482,7 +482,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
-        let (words, color) = self.url_field_words(&url);
+        let (words, color) = self.field_words(&url, in_toolbar);
         // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
         // before them, where the host stops short of them.
         let actions = self.action_buttons(cx);
@@ -533,7 +533,7 @@ impl Shell {
         };
         let from = if in_toolbar { "toolbar" } else { "sidebar" };
         // A button, as it is: a press opens the command bar on the URL, where it's edited. It's
-        // called what it shows, the host.
+        // called what it shows, the host or the whole URL.
         let field = div().id("url-field").when(self.a11y, |field| {
             field.button_named(words.clone()).a11y_synthetic_children(|builder| {
                 builder.parent_node().set_role_description("address")
@@ -558,7 +558,7 @@ impl Shell {
             .on_click(cx.listener(move |shell, _, _, cx| {
                 shell.clicked_bar_target(Command::EditUrl, from, cx)
             }))
-            // Copy URL, Share and Show Toolbar or Hide Toolbar, as Arc's.
+            // Copy URL, Share, Show Toolbar or Hide Toolbar and Show Full URL, as Arc's.
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(|shell, event: &MouseDownEvent, _, cx| {

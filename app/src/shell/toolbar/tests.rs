@@ -6,7 +6,10 @@ use std::rc::Rc;
 use gpui::{AppContext, Bounds, Entity, TestAppContext, point, px, size};
 
 use super::super::{Command, Folders, Page, Shell, Split, recorder::Recorder, user_keys};
-use super::{HEIGHT, toolbar_from, toolbar_layout, toolbar_shown, toolbar_text, under_toolbar};
+use super::{
+    HEIGHT, full_url, full_url_shown, toolbar_from, toolbar_layout, toolbar_shown, toolbar_text,
+    under_toolbar,
+};
 use crate::palette::Tone;
 use crate::tokens::shell::{CARD_INSET, NAV_SIZE, URL_FIELD_HEIGHT, URL_FIELD_TOP};
 
@@ -166,4 +169,48 @@ fn the_toolbar_takes_the_pages_colour(cx: &mut TestAppContext) {
         let drawn = shell.read_with(cx, |shell, _| shell.toolbar_look());
         assert_eq!(drawn, (Some(color), tone));
     }
+}
+
+/// Show Full URL is the toolbar's, as Arc's: the command bar offers it only while the toolbar
+/// shows, by what it would do, and it puts the whole URL in the toolbar's field in every window,
+/// kept for the next launch, while the sidebar's field keeps the host.
+#[gpui::test]
+fn show_full_url_puts_the_whole_url_in_the_toolbar(cx: &mut TestAppContext) {
+    let (shell, host) = shell_of(&[10], cx);
+    let page = Page { url: "https://www.example.org/a/b?c=d#e".into(), ..Page::default() };
+    shell.update(cx, |shell, cx| shell.set_page(10, page, cx));
+    let offered = |cx: &mut TestAppContext| {
+        shell.read_with(cx, |shell, _| shell.bar_name("Show Full URL", Command::ToggleFullUrl))
+    };
+    let words = |in_toolbar, cx: &mut TestAppContext| {
+        let url = shell.read_with(cx, |shell, _| shell.url(10));
+        shell.read_with(cx, |shell, _| shell.field_words(&url, in_toolbar).0.to_string())
+    };
+    assert_eq!(offered(cx), None, "only with the toolbar");
+
+    toggle(&shell, cx);
+    assert_eq!(offered(cx), Some("Show Full URL"));
+    assert_eq!(words(true, cx), "example.org");
+    shell.update(cx, |shell, cx| shell.run(Command::ToggleFullUrl, "ui", cx));
+    assert_eq!(words(true, cx), "example.org/a/b?c=d#e");
+    assert_eq!(words(false, cx), "example.org", "the sidebar's keeps the host");
+    assert_eq!(offered(cx), Some("Hide Full URL"));
+    assert!(cx.update(|cx| full_url_shown(cx)), "for every window");
+    assert_eq!(host.full_url_saved.get(), Some(true));
+
+    shell.update(cx, |shell, cx| shell.run(Command::ToggleFullUrl, "ui", cx));
+    assert_eq!(words(true, cx), "example.org");
+    assert_eq!(host.full_url_saved.get(), Some(false));
+}
+
+/// The whole URL as Dia shows it: no scheme, no "www.", no "/" at the end; one with no host as it
+/// is.
+#[test]
+fn the_whole_url_reads_as_dias() {
+    assert_eq!(full_url("https://www.iana.org/"), "iana.org");
+    assert_eq!(full_url("https://iana.org/domains/"), "iana.org/domains");
+    assert_eq!(full_url("http://p/x?y#z"), "p/x?y#z");
+    assert_eq!(full_url("http://localhost:8080/a"), "localhost:8080/a");
+    assert_eq!(full_url("https://www2.example.org/"), "www2.example.org");
+    assert_eq!(full_url("about:blank"), "about:blank");
 }

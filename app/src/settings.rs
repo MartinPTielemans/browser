@@ -81,6 +81,7 @@ use browser::tokens::settings::TAB_TEXT;
 use browser::tokens::settings::TEXT;
 use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
+use browser::tokens::settings::FULL_URL_TILE;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
@@ -261,6 +262,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
             ("Show/Hide Toolbar", Keys::Of(Command::ToggleToolbar)),
+            ("Show/Hide Full URL", Keys::Of(Command::ToggleFullUrl)),
             ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
             ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
             ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
@@ -1609,6 +1611,8 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let full_url = shell::full_url_shown(cx);
+        let full_url = self.toggle("full url", full_url, set_full_url, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
         let widevine = self.widevine.read(cx).shown().then(|| {
@@ -1641,6 +1645,12 @@ impl Settings {
                     Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
                     "Preview links to other sites from pinned tabs and favorites",
                     previews,
+                ),
+                // Arc's Advanced has it, in its words.
+                row(
+                    Some(("icons/link.svg", FULL_URL_TILE)),
+                    "Show full URL when Toolbar is enabled",
+                    full_url,
                 ),
             ]))
             .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
@@ -2174,6 +2184,30 @@ pub fn save_toolbar(shown: bool) {
     if let Err(error) = std::fs::write(toolbar_path(), shell::toolbar_text(shown)) {
         log!("couldn't save the toolbar: {error}");
     }
+}
+
+/// Where Show Full URL's choice is kept, beside the toolbar's.
+fn full_url_path() -> String {
+    format!("{}/FullURL", crate::profile_dir())
+}
+
+/// Reads Show Full URL's choice, the host alone if there's none, as Arc's is at first.
+pub fn read_full_url(cx: &mut App) {
+    let text = std::fs::read_to_string(full_url_path()).unwrap_or_default();
+    cx.set_global(shell::ShowFullUrl(shell::toolbar_from(&text)));
+}
+
+pub fn save_full_url(shown: bool) {
+    if let Err(error) = std::fs::write(full_url_path(), shell::toolbar_text(shown)) {
+        log!("couldn't save Show Full URL: {error}");
+    }
+}
+
+/// Advanced's switch for the whole URL in the toolbar, which every window takes as it draws.
+fn set_full_url(shown: bool, cx: &mut App) {
+    cx.set_global(shell::ShowFullUrl(shown));
+    save_full_url(shown);
+    cx.refresh_windows();
 }
 
 pub fn save_appearance(appearance: Appearance) {

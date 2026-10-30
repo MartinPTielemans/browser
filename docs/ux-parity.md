@@ -50,10 +50,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Nav glyph size | MVP | sidebar 18.5 × 14.5, back and forward 14.5 × 12, reload 14 across; 1.75 pt strokes | Arc 1.170.0 cap |
 | [x] | URL field top | MVP | 46 below the window top | Arc 1.170.0 cap |
 | [x] | URL field size, radius, fill, font | MVP | 36 tall, 8 in, radius 12, white 0.10; text 13 pt, white 0.60 | Arc 1.170.0 cap |
-| [x] | URL text | MVP | host only, no `www.`; Arc has no Show Full URL | Arc 1.170.0 cap, Dia 1.50.1 bin |
+| [x] | URL text | MVP | host only, no `www.`; with the toolbar, Arc's Show Full URL gives the whole URL there, in Dia's form | Arc 1.170.0 cap, Dia 1.50.1 bin |
 | [x] | URL on hover | MVP | the field's buttons, not the full URL (Dia shows it) | Arc 1.170.0 cap |
 | [x] | URL field buttons | MVP | Copy URL and Site Controls, 30 × 30 at x 163 and 191 of 228, while the pointer is over the sidebar | Arc 1.170.0 cap |
-| [ ] | Toolbar | MVP | Arc's opt-in strip over the page, off by default: ⇧⌘D, View › Show Toolbar and the URL field's menu; the sidebar's back, forward, reload, Copy URL, URL field, Site Controls and split controls on it, in the page's colour, the page under it, and in Peek's header (ux-spec.md › Sidebar). Built; to tick: `./check.sh window`'s `toolbar-page.png` and `toolbar-ui.png` and `./check.sh preview`'s `preview-toolbar.png` on the Mac. Arc's height: measure | Arc 1.170.0 menu, #670 |
+| [ ] | Toolbar | MVP | Arc's opt-in strip over the page, off by default: ⇧⌘D, View › Show Toolbar and the URL field's menu; the sidebar's back, forward, reload, Copy URL, URL field, Site Controls and split controls on it, in the page's colour, the page under it, and in Peek's header in the page's colour; Show Full URL from the field's menu, the command bar and Settings › Advanced (ux-spec.md › Sidebar). Built; to tick: `./check.sh window`'s `toolbar-page.png` and `toolbar-ui.png` and `./check.sh preview`'s `preview-toolbar.png` on the Mac. Arc's height: measure | Arc 1.170.0 menu, #670 |
 | [x] | A page's permission question | MVP | card under the URL field: "<site> wants to", Chrome's phrases, Block / Allow, × dismisses; follows its tab; brings out a hidden sidebar *interim*; Arc's look: measure | Chrome |
 | [x] | Insecure indicator | MVP | none, as Arc's (Dia and Chrome show a lock-warning glyph); owner to confirm | Dia, Chrome P§8, Arc 1.170.0 cap |
 | [x] | Favorite tile | MVP | 41 tall, 6 apart, inset 8, radius 10 *interim* | Dia 1.50.1 bin + cap; inset ours |

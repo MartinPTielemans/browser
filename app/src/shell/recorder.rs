@@ -90,6 +90,7 @@ pub(super) struct Recorder {
     pub(super) appearance: Cell<Option<Appearance>>,
     /// What View › Show Toolbar last kept for the next launch.
     pub(super) toolbar_saved: Cell<Option<bool>>,
+    pub(super) full_url_saved: Cell<Option<bool>>,
     /// Whether the page was last laid out under the toolbar.
     pub(super) under_toolbar: Cell<bool>,
     /// The share services it lists for any page.
@@ -816,6 +817,10 @@ impl Browser for Recorder {
 
     fn save_toolbar(&self, shown: bool, _: &mut App) {
         self.toolbar_saved.set(Some(shown));
+    }
+
+    fn save_full_url(&self, shown: bool, _: &mut App) {
+        self.full_url_saved.set(Some(shown));
     }
 
     fn page_moving(&self, moving: bool, _: &mut App) {

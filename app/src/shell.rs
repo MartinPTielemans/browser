@@ -119,8 +119,8 @@ pub use library::{Archived, Captured, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use themes::{AppAppearance, app_appearance};
 pub use toolbar::{
-    ShowToolbar, ToolbarLayout, toolbar_from, toolbar_layout, toolbar_shown, toolbar_text,
-    under_toolbar,
+    ShowFullUrl, ShowToolbar, ToolbarLayout, full_url, full_url_shown, toolbar_from,
+    toolbar_layout, toolbar_shown, toolbar_text, tone_on, under_toolbar,
 };
 pub use menus::{MenuEntry, new_profile_name};
 pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
@@ -1254,6 +1254,8 @@ pub struct Shell {
     /// Whether the toolbar shows over the page, as the user chose (`ShowToolbar`), as the window
     /// last drew.
     toolbar: bool,
+    /// Whether its URL field shows the whole URL, as the user chose (`ShowFullUrl`).
+    full_url: bool,
     forced_tone: Option<Tone>,
     window_active: bool,
     window_watches: Vec<Subscription>,
@@ -1469,6 +1471,7 @@ impl Shell {
             system_tone: Tone::Dark,
             app_appearance: Appearance::Automatic,
             toolbar: false,
+            full_url: false,
             forced_tone: None,
             window_active: true,
             window_watches: Vec::new(),
@@ -2899,6 +2902,7 @@ impl Render for Shell {
         }
         // As View › Show Toolbar chose, in this window or another.
         self.set_toolbar(toolbar_shown(cx), cx);
+        self.set_full_url(full_url_shown(cx), cx);
         self.lay_out_moving_page(cx);
         self.show_page_dialog(cx);
         let card_left = self.card_left();

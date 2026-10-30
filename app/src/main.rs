@@ -2595,6 +2595,10 @@ impl Browser for Engine {
         settings::save_toolbar(shown);
     }
 
+    fn save_full_url(&self, shown: bool, _: &mut App) {
+        settings::save_full_url(shown);
+    }
+
     fn page_moving(&self, moving: bool, _: &mut App) {
         unsafe { bc::bc_window_page_moving(self.window, moving) };
     }
@@ -3987,6 +3991,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
         settings::read_shortcuts(cx);
         settings::read_appearance(cx);
         settings::read_toolbar(cx);
+        settings::read_full_url(cx);
         give_host_appearance(shell::app_appearance(cx));
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);

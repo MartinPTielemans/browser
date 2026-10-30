@@ -932,6 +932,8 @@ impl Browser for Fake {
 
     fn save_toolbar(&self, _: bool, _: &mut App) {}
 
+    fn save_full_url(&self, _: bool, _: &mut App) {}
+
     fn page_moving(&self, _: bool, _: &mut App) {}
 
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
