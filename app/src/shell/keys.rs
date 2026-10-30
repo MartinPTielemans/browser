@@ -95,9 +95,13 @@ pub fn reserved(command: Command) -> bool {
     SHORTCUTS.iter().any(|&(_, each, reserved)| each == command && reserved)
 }
 
+/// Chrome's keys on Linux and Windows that the Mac's Chrome and Arc have no key for.
+const OFF_THE_MAC_ONLY: &[&str] = &["shift-escape"];
+
 fn defaults(command: Command) -> Vec<String> {
     (SHORTCUTS.iter())
         .filter(|&&(_, each, _)| each == command)
+        .filter(|&&(key, ..)| OFF_THE_MAC || !OFF_THE_MAC_ONLY.contains(&key))
         .map(|&(key, ..)| key.to_string())
         .collect()
 }
