@@ -63,6 +63,7 @@ SavedTab SaveTab(content::WebContents& contents);
 // A folder of pinned tabs, as the session file keeps it.
 struct SavedFolder {
   std::string name;
+  std::string icon;
   bool open = true;
   // The folder it's in, among its Space's saved folders, which is saved before it, else -1.
   int folder = -1;

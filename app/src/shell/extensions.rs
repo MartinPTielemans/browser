@@ -627,7 +627,8 @@ fn keystroke_text(keystroke: &Keystroke) -> String {
             text.push_str(name);
         }
     }
-    text + &keystroke.key
+    // Off the Mac the extensions' keys are written as the page's: cmd-y for ctrl-y.
+    super::keys::written_as(&(text + &keystroke.key))
 }
 
 /// The Site Controls' grid, from the window's `pinned` and `unpinned` actions and the profile's

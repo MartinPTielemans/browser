@@ -27,7 +27,7 @@ fn work(cx: &mut TestAppContext) -> (Rc<Recorder>, gpui::Entity<Shell>) {
         let folders = Folders {
             folders: HashMap::from([(50, ("Q3 [plans]".into(), false))]),
             parents: HashMap::from([(12, 50), (13, 50)]),
-            ..Folders::default()
+            ..Default::default()
         };
         let split = Split { tabs: vec![21, 22], ..Default::default() };
         shell.set_tabs(1, vec![10, 50, 12, 13], vec![20, 21, 22], vec![split], folders, cx);
@@ -116,7 +116,7 @@ fn settings_exports_every_space(cx: &mut TestAppContext) {
         let folders = Folders {
             folders: HashMap::from([(50, ("Q3 [plans]".into(), false))]),
             parents: HashMap::from([(12, 50), (13, 50)]),
-            ..Folders::default()
+            ..Default::default()
         };
         shell.set_tabs(1, vec![10, 50, 12, 13], vec![11], Vec::new(), folders, cx);
         shell.set_tabs(2, vec![20], Vec::new(), Vec::new(), Folders::default(), cx);

@@ -207,7 +207,7 @@ mod tests {
         let folders = Folders {
             folders: [(9, ("Work".into(), false))].into(),
             parents: [(10, 9)].into(),
-            pinned_shut: false,
+            ..Default::default()
         };
         shell.update(cx, |shell, cx| {
             let space = (1, "Home".into(), None, 1, "".into(), "".into(), "".into());

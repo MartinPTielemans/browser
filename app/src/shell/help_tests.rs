@@ -48,3 +48,21 @@ fn report_a_problem_fills_the_issue_with_the_builds_details(cx: &mut TestAppCont
     assert_eq!(host.copied.take(), [here.text()]);
     assert_eq!(host.toasts.take(), ["Copied Build Info"]);
 }
+
+/// Check for Updates… is in the command bar, where Linux has no menu bar to show it, only in a
+/// build that updates itself, and asks the browser's updater.
+#[gpui::test]
+fn check_for_updates_is_in_the_bar_of_a_build_that_updates(cx: &mut TestAppContext) {
+    let (shell, host) = window(cx);
+    let offered = |cx: &mut TestAppContext| {
+        shell.read_with(cx, |shell, _| shell.offers(Command::CheckForUpdates))
+    };
+    assert!(!offered(cx), "a dev build has nothing to check");
+    host.updates.set(true);
+    assert!(offered(cx));
+    let found = crate::shell::find_commands("updat", &Default::default(), |name, _| Some(name));
+    let row = found.iter().find(|row| row.command == Command::CheckForUpdates);
+    assert_eq!(row.map(|row| row.name.as_ref()), Some("Check for Updates…"));
+    shell.update(cx, |shell, cx| shell.run(Command::CheckForUpdates, "command bar", cx));
+    assert_eq!(host.checked_for_updates.get(), 1);
+}

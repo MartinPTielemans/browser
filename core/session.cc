@@ -27,6 +27,7 @@
 #include "base/values.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/archive.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
 #include "browser_core/space.h"
@@ -230,6 +231,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
     for (bc_id id : *ids) {
       if (space.IsFolder(id)) {
         to.folders.push_back({.name = space.FolderName(id),
+                              .icon = space.FolderIcon(id),
                               .open = space.IsOpen(id),
                               .folder = folder_of(id),
                               .at = to.pinned.size(),
@@ -398,6 +400,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     base::ListValue pinned = to_list(space.pinned, &space.folders);
     for (auto folder = space.folders.rbegin(); folder != space.folders.rend(); ++folder) {
       base::DictValue row = base::DictValue().Set("folder", folder->name).Set("open", folder->open);
+      if (!folder->icon.empty()) {
+        row.Set("icon", folder->icon);
+      }
       write_folder(space.folders, folder->folder, row);
       WriteNode(folder->node, row);
       pinned.Insert(pinned.begin() + folder->at, base::Value(std::move(row)));
@@ -635,6 +640,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
         if (folder && tabs == &to.pinned) {
           SavedFolder& read = to.folders.emplace_back(SavedFolder{
               .name = *folder,
+              .icon = dict->FindString("icon") ? *dict->FindString("icon") : std::string(),
               .open = dict->FindBool("open").value_or(true),
               .folder = folder_of(*dict),
               .at = to.pinned.size(),
@@ -809,6 +815,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
     }
     // The profile the browser started in loaded before the settings were read.
     ApplyAdBlocking();
+    ArchiveDefaultRead();
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
     if (saved) {
@@ -948,6 +955,7 @@ Space* RestoreSpace(Window& window,
       const bc_id folder = space->AddFolder(saved_folder.name, in(saved_folder.folder),
                                             space->pinned_rows().size());
       space->SetOpen(folder, saved_folder.open);
+      space->SetFolderIcon(folder, saved_folder.icon);
       nodes[folder] = saved_folder.node;
       folder_ids.push_back(folder);
     }

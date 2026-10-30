@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <ctime>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <string>
 #include <thread>
@@ -521,7 +522,7 @@ void WatchForeground() {
   (void)hook;
 }
 
-Floating g_overlays[3];
+Floating g_overlays[4];
 struct Corner {
   Floating floating;
   double right = 0;
@@ -1335,7 +1336,7 @@ void host_show_overlay(int overlay,
                        double left,
                        double top,
                        double width) {
-  for (int each = 0; each < 3; ++each) {
+  for (int each = 0; each < int(std::size(g_overlays)); ++each) {
     Floating& other = g_overlays[each];
     if (each != overlay && other.hwnd && IsWindowVisible(other.hwnd)) {
       Hide(other);

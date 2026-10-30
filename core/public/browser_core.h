@@ -320,6 +320,18 @@ typedef struct bc_login {
   const char* key;
 } bc_login;
 
+// An address or a card Chrome's autofill keeps in a profile, as Settings lists it. A card's number
+// never leaves the core, not even its last digits.
+typedef struct bc_autofill_entry {
+  // An address's name, or its email for one without; a card's nickname, else the name on it.
+  const char* title;
+  // An address's first line and city; a card's network and expiry, such as "Visa, Exp: 06/27".
+  const char* detail;
+  bool card;
+  // What bc_profile_remove_autofill takes back to name it; not for showing.
+  const char* key;
+} bc_autofill_entry;
+
 // Whether the ad blocker runs on the site of a tab's page, as its Site Controls show: not the
 // user's to change there (a page that isn't http(s), one the system's engine shows, a private
 // window, or ad blocking off), on, or turned off for the site.
@@ -690,6 +702,12 @@ typedef struct bc_host {
                                  bc_id profile,
                                  const bc_login* logins,
                                  size_t count);
+  // The profile's saved addresses, most recently changed first, then its cards, after
+  // bc_profile_read_autofill, and again each time they change. The user's alone: agents hear none.
+  void (*profile_autofill_changed)(void* context,
+                                   bc_id profile,
+                                   const bc_autofill_entry* entries,
+                                   size_t count);
   // bc_profile_import_passwords is done with its file: |result| is a BC_PASSWORDS_IMPORT_ value,
   // and with BC_PASSWORDS_IMPORTED, |imported| logins came in, or were here already, |conflicted|
   // were kept as the profile had them, as it holds another password for that site and username,
@@ -785,6 +803,9 @@ typedef struct bc_host {
   // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
   // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
   void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
+  // The element bc_agent_page's |request| for |tab| is about to click or type in, scrolled into
+  // view: its box in points from the top-left of the tab's page view, for the agent's pointer.
+  void (*agent_page_element)(void* context, bc_id tab, uint64_t request, bc_rect box);
   // On Linux and Windows, the browser is quitting, or with |last_private| the last window of a
   // private profile closing, with |count| downloads running, which it would cancel: ask the user
   // over |window|, and answer with bc_window_answer_downloads. A window asks one at a time. The Mac
@@ -803,6 +824,9 @@ typedef struct bc_host {
   // The trace bc_trace_stop ended: Chromium's JSON, |size| bytes, or null and 0 if it gave none.
   // The user's: save it where they pick, or drop it.
   void (*trace_recorded)(void* context, const char* json, size_t size);
+  // On Linux: |window| became the active one. Under X11 the UI's window in it hears nothing of that
+  // when the keyboard goes to the page, as a click on another window's page gives it.
+  void (*window_activated)(void* context, bc_id window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -865,10 +889,20 @@ BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
 // On Linux, whether the keys in |window| are the app's UI's rather than a page's.
 BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 
+// On Linux, whether the keys in |window| are a window of Chromium's own in it, such as an
+// extension's popup or a tab's dialog, rather than a page's or the UI's. For the test driver, as
+// the Mac's sees it as a child window with the keyboard.
+BC_EXPORT bool bc_window_keyboard_in_child(bc_id window);
+
 // On Linux and Windows, where the core draws a split view's ring around the focused page: whether
 // it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
 // For the test driver, which sees the Mac's ring as a view.
 BC_EXPORT bool bc_window_focus_ring(bc_id window, bc_rect* frame);
+
+// On Linux, whether a tab's dialog, such as print preview, shows over |window|, and if so its frame
+// in |frame|, from the top-left of the window's content. For the test driver, which can't see it,
+// as the Mac's sees it as a child window.
+BC_EXPORT bool bc_window_dialog(bc_id window, bc_rect* frame);
 
 // On Linux, while an overlay of the app's over |window|, such as the command bar, has the keyboard:
 // neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
@@ -994,8 +1028,10 @@ BC_EXPORT size_t bc_space_agent_name(bc_id space, char* name, size_t capacity);
 // may do, the tab is in that agent's own Space, and Chromium shows its page, not the system's
 // engine, where the browser can't keep an agent's rules. Agents may back, click, close_tab,
 // forward, hand_off, navigate, press_key, read_page, screenshot, scroll, select_option, snapshot
-// and type; ad_blocking, devtools, passwords and any other action are refused. Agent code calls it
-// once for each call an agent makes on a tab, before acting. If refused, copies why into |reason| as bc_space_name does, else an empty string. Either
+// and type; ad_blocking, devtools, passwords, profile_settings (a profile's search engine, archive
+// timing, download folder, offers to save and saved data, and Clear Browsing Data) and any other
+// action are refused. Agent code calls it once for each call an agent makes on a tab, before
+// acting. If refused, copies why into |reason| as bc_space_name does, else an empty string. Either
 // way, then agent_activity, for the activity log.
 BC_EXPORT bool bc_agent_may_act(const char* agent,
                                 bc_id tab,
@@ -1133,6 +1169,46 @@ BC_EXPORT bc_id bc_profile_create(const char* name);
 // Space or a favorite is in, the one the core started with or the last. Then spaces_changed.
 BC_EXPORT bool bc_profile_delete(bc_id profile);
 
+// The settings below are the profile's own, as Arc's Settings › Profiles keeps them, and the
+// user's: agents get none. A profile that isn't loaded, as one no Space or favorite is in after a
+// relaunch, has none to read or set: it loads, then spaces_changed.
+
+// Copies the folder the profile's downloads go to, UTF-8, into |path| as bc_space_name does, or
+// nothing for a profile that isn't loaded.
+BC_EXPORT size_t bc_profile_download_folder(bc_id profile, char* path, size_t capacity);
+// Sends the profile's downloads to the folder at |path|, UTF-8, and returns whether it will: not
+// for a profile that isn't loaded, a path that isn't absolute, or a folder a policy sets.
+BC_EXPORT bool bc_profile_set_download_folder(bc_id profile, const char* path);
+// What a profile offers to save, for bc_profile_offers_to_save: the password the user signs in
+// with, as Chrome's Offer to save passwords, which still fills those it has; and the address or the
+// card the user fills a form with, as Chrome's Save and fill addresses and Save and fill payment
+// methods, which fill nothing while off.
+#define BC_SAVE_PASSWORDS 0
+#define BC_SAVE_ADDRESSES 1
+#define BC_SAVE_CARDS 2
+// Sets |offers| to whether the profile offers to save |what|, a BC_SAVE_ value, and returns
+// whether it could: not for a profile that isn't loaded.
+BC_EXPORT bool bc_profile_offers_to_save(bc_id profile, int what, bool* offers);
+// Has the profile offer to save |what|, or not, and returns whether it will: not for a profile
+// that isn't loaded, or one a policy sets.
+BC_EXPORT bool bc_profile_set_offers_to_save(bc_id profile, int what, bool offer);
+// Copies the search engines the user picks the profile's default from, each "keyword\tname" on a
+// line of its own, UTF-8, into |engines| as bc_space_name does. Nothing for a profile that isn't
+// loaded, until its engines have, or while a policy or an extension picks its default.
+BC_EXPORT size_t bc_profile_search_engines(bc_id profile, char* engines, size_t capacity);
+// Copies the keyword of the profile's default search engine, which the command bar searches with in
+// its Spaces, into |keyword| as bc_space_name does.
+BC_EXPORT size_t bc_profile_search_engine(bc_id profile, char* keyword, size_t capacity);
+// Makes the engine of |keyword|, one of bc_profile_search_engines, the profile's default, and
+// returns whether it did.
+BC_EXPORT bool bc_profile_set_search_engine(bc_id profile, const char* keyword);
+// How long, in seconds, a Today tab in the profile's Spaces that no window shows waits before it
+// goes in the archive, or 0 for a profile that isn't loaded.
+BC_EXPORT double bc_profile_archive_after(bc_id profile);
+// Sets it, and returns whether it did: not for a profile that isn't loaded or a time that isn't
+// positive. The tabs that have waited that long go in the archive at once.
+BC_EXPORT bool bc_profile_set_archive_after(bc_id profile, double seconds);
+
 // A page of another browser's history, for bc_profile_add_history. Strings are UTF-8.
 typedef struct bc_history_page {
   const char* url;
@@ -1227,6 +1303,20 @@ BC_EXPORT bc_id bc_folder_create(bc_id space, const char* name, bc_id folder, si
 // Then space_changed.
 BC_EXPORT void bc_folder_rename(bc_id folder, const char* name);
 BC_EXPORT void bc_folder_set_open(bc_id folder, bool open);
+
+// Copies the folder's icon, an emoji, UTF-8, into |icon| as bc_space_name does; empty for none,
+// for which the sidebar draws a folder.
+BC_EXPORT size_t bc_folder_icon(bc_id folder, char* icon, size_t capacity);
+
+// Gives the folder |icon|, an emoji, UTF-8, kept across a quit and a duplicate; empty takes it
+// away. Then space_changed.
+BC_EXPORT void bc_folder_set_icon(bc_id folder, const char* icon);
+
+// Makes a copy of the folder under it, in the folder holding it, with its name and icon, and a copy
+// of each pinned tab and folder in it, in their order, each tab with its history, name, icon and
+// pinned URL, unloaded until it's shown. Nothing is shown or loads. Returns the copy, or 0. Then
+// space_changed.
+BC_EXPORT bc_id bc_folder_duplicate(bc_id folder);
 
 // Moves the folder, with what's in it, to |index| in |folder| if it isn't 0, else in the pinned
 // tabs, counted as bc_tab_move counts. Not into itself. Then space_changed.
@@ -1475,9 +1565,9 @@ BC_EXPORT bc_id bc_archive_remove(bc_id archived);
 // archive_changed. Returns how many tabs it put back, or 0 if that removal is gone.
 BC_EXPORT size_t bc_archive_undo_remove(bc_id removal);
 
-// How long, in seconds, a Today tab no window shows waits before it goes in the archive: 12 hours,
-// else the time the user chose. Setting it archives at once the tabs that have waited that long.
-// The core keeps it with the Spaces.
+// How long, in seconds, a Today tab no window shows waits before it goes in the archive in a new
+// profile: 12 hours, else the time the user chose. Each profile takes it the first time it's used,
+// then keeps its own (bc_profile_archive_after), as Arc's do. The core keeps it with the Spaces.
 BC_EXPORT double bc_archive_after(void);
 BC_EXPORT void bc_set_archive_after(double seconds);
 
@@ -1614,14 +1704,19 @@ BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url, bool when_shown);
 
 // Copies up to |capacity| bytes of the URL Chrome's address bar goes to for |text| typed in it into
 // |url|, UTF-8 and ending in a NUL, and returns the URL's length without it: the page |text| names,
-// else a search for it with the default search engine, DuckDuckGo until the user picks another.
-// Returns 0 if |text| names neither.
-BC_EXPORT size_t bc_typed_url(const char* text, char* url, size_t capacity);
+// else a search for it with the default search engine of the profile |window| shows, DuckDuckGo
+// until the user picks another. With no window, the profile the core started with. Returns 0 if
+// |text| names neither.
+BC_EXPORT size_t bc_typed_url(bc_id window, const char* text, char* url, size_t capacity);
 
 // As bc_typed_url, the URL of a search for |text| with the search engine whose keyword is
 // |keyword|, or the default one if that's null, even when |text| names a page. Returns 0 if there's
 // no such engine.
-BC_EXPORT size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity);
+BC_EXPORT size_t bc_search_url(bc_id window,
+                               const char* keyword,
+                               const char* text,
+                               char* url,
+                               size_t capacity);
 
 // Link previews: a page over the window, from a link the user clicked in a pinned tab or a
 // favorite, which the user closes or keeps as a tab. The user's: agents get none, as a preview takes
@@ -1951,6 +2046,12 @@ BC_EXPORT void bc_profile_remove_login(bc_id profile,
                                        const char* key,
                                        const char* username,
                                        bool never);
+// Reads the profile's saved addresses and cards, then profile_autofill_changed, and again each time
+// they change while the profile is loaded. Nothing for a profile that isn't loaded.
+BC_EXPORT void bc_profile_read_autofill(bc_id profile);
+// Removes the profile's address or card of |key|, as bc_autofill_entry gives it. Then
+// profile_autofill_changed.
+BC_EXPORT void bc_profile_remove_autofill(bc_id profile, const char* key);
 // What bc_profile_import_passwords did with its file, for passwords_imported.
 #define BC_PASSWORDS_IMPORTED 0
 // The file couldn't be read.

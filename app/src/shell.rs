@@ -47,6 +47,7 @@ mod undo_tests;
 mod help_tests;
 mod assets;
 mod browser;
+mod chosen;
 mod clean_link;
 mod commands;
 mod drag;
@@ -77,6 +78,7 @@ mod page_motion;
 mod panes;
 mod permission;
 mod agent_bar;
+mod agent_pointer;
 mod agent_question;
 mod picture;
 mod recent_downloads;
@@ -102,8 +104,8 @@ pub use favorites::FavoritesScope;
 pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
-    KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, key_name,
-    keystroke_label, Run, menu_item, pane_added, run_from_bar, shown_tab, with_named_rows,
+    KeepName, Match, bar_commands, bind_keys, copy_from_bar, copy_url_of_preview, find_commands,
+    key_name, keystroke_label, Run, menu_item, pane_added, run_from_bar, shown_tab, with_named_rows,
 };
 pub use drag::dropped_urls;
 pub use drm_note::PlayReady;
@@ -391,6 +393,7 @@ use crate::tokens::shell::CANCEL_HEIGHT;
 use crate::tokens::shell::PRIVATE_SHADE;
 use crate::tokens::shell::TITLE;
 use crate::tokens::shell::UNSELECTED_TITLE;
+use crate::tokens::shell::CHOSEN;
 use crate::tokens::shell::HOVERED;
 use crate::tokens::shell::PRESSED;
 use crate::tokens::shell::SECONDARY;
@@ -958,6 +961,10 @@ pub struct Shell {
     retip: bool,
     /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
     menu_row: Option<u64>,
+    /// The rows ⌘- and ⇧-click chose, by their first tabs (chosen.rs), and the row the next
+    /// ⇧-click chooses from, or 0 for the one shown.
+    chosen: Vec<u64>,
+    chosen_from: u64,
     /// ilo's own menu is up, which keeps the reveal's panel out while the pointer is on it.
     menu_open: bool,
     /// Rows the pointer left, whose hover fill is fading, and since when.
@@ -989,6 +996,13 @@ pub struct Shell {
     /// The frames the favorites' tiles and the folders' plates were last drawn in, in the window,
     /// for their tooltips to hang from.
     tip_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// A closed folder whose row lost the hover with the pointer last seen on it, so its preview
+    /// hasn't heard it left: the next move off the row tells it.
+    preview_row: Option<u64>,
+    /// Where the last move or press in the window put the pointer. GPUI's own mouse position
+    /// becomes the system cursor's whenever the window moves or resizes, as it can when the
+    /// preview's window is put over it, with no move, which is never where a driven pointer is.
+    pointer_at: Point<Pixels>,
     /// How long each frame drawn while the Spaces' pages moved took the sidebar, in ms, for the
     /// settle's log.
     paging_frames: Rc<RefCell<Vec<f32>>>,
@@ -1002,6 +1016,8 @@ pub struct Shell {
     slot_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// Whether each Space card's field was last drawn with its plate, for its log lines.
     fields_drawn: Rc<RefCell<HashMap<u64, bool>>>,
+    /// Where the Library's empty line was last laid out, for its log line.
+    empty_drawn: Rc<RefCell<String>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
     /// went past or back, from how far in it was then.
     scrolled: bool,
@@ -1173,8 +1189,10 @@ pub struct Shell {
     focus_color: Option<u32>,
     /// The colour last given for a page before its first frame.
     page_color: Option<u32>,
-    /// The window over the page that draws the drop targets shows.
+    /// The window over the page that draws the drop targets and the agent's pointer shows.
     drop_targets_shown: bool,
+    /// The agent's pointer at an element in the page, while it acts there.
+    agent_pointer: Option<agent_pointer::AgentPointer>,
     /// A link dragged over the page, and its targets.
     link_over: Option<split_targets::LinkOver>,
     /// How far in from the page frame's top right corner the focused page's is, as last given.
@@ -1353,6 +1371,8 @@ impl Shell {
             page_keyed: false,
             retip: false,
             menu_row: None,
+            chosen: Vec::new(),
+            chosen_from: 0,
             menu_open: false,
             unhovered: Vec::new(),
             held_row: None,
@@ -1367,12 +1387,15 @@ impl Shell {
             list_scroll: ScrollHandle::new(),
             sidebar_origin: Rc::default(),
             tip_frames: Rc::default(),
+            preview_row: None,
+            pointer_at: Point::default(),
             paging_frames: Rc::default(),
             #[cfg(test)]
             beside_frames: Rc::default(),
             button_frames: Rc::default(),
             slot_frames: Rc::default(),
             fields_drawn: Rc::default(),
+            empty_drawn: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
             marker_drawn: Cell::new(None),
@@ -1455,6 +1478,7 @@ impl Shell {
             focus_color: None,
             page_color: None,
             drop_targets_shown: false,
+            agent_pointer: None,
             link_over: None,
             pane_corner: (0., 0.),
             archive: Vec::new(),
@@ -1945,6 +1969,9 @@ impl Shell {
         self.end_hovers(cx);
         let before = std::mem::replace(&mut self.space, space);
         self.bar_follows |= before != space;
+        if before != space {
+            self.unchoose(cx);
+        }
         // Arc says again how to leave full screen in each Space it shows there.
         if before != space && self.full_screen && !self.page_fullscreen {
             self.browser.full_screen_note(true, cx);
@@ -2072,6 +2099,9 @@ impl Shell {
         // A Space being filled, as at launch, has opened nothing.
         if space == self.space && had_tabs {
             self.toast_opened(&opened, cx);
+        }
+        if space == self.space {
+            self.keep_chosen(cx);
         }
         // Pinning or unpinning the tab shown renames Tabs › Pin Tab.
         self.update_menus(cx);
@@ -2695,6 +2725,7 @@ impl Shell {
                         moved
                             .update(cx, |shell, cx| {
                                 shell.pointer_moved(cx);
+                                shell.pointer_to(event.position, cx);
                                 shell.sidebar_hover(over, cx)
                             })
                             .ok();
@@ -2707,6 +2738,7 @@ impl Shell {
                         pressed
                             .update(cx, |shell, cx| {
                                 shell.pointer_moved(cx);
+                                shell.pointer_to(event.position, cx);
                                 shell.sidebar_hover(over, cx)
                             })
                             .ok();
@@ -2957,7 +2989,8 @@ impl Render for Shell {
         self.step_empty(window);
         self.step_crash_cards(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some())
-            || self.link_over.is_some();
+            || self.link_over.is_some()
+            || self.agent_pointer_shown();
         if drop_targets || self.drop_targets_shown {
             self.drop_targets_shown = drop_targets;
             self.browser.show_drop_targets(drop_targets, cx);

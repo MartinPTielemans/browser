@@ -36,7 +36,9 @@ concurrency:
 jobs:
   build:
     if: github.repository == 'MartinPTielemans/browser'
-    runs-on: [self-hosted, linux, x64, ilo-engine]
+    # Microsoft's toolchain zip stays on the owner's machine, so a second Linux engine runner must
+    # never take this job.
+    runs-on: [self-hosted, linux, x64, ilo-engine, ilo-engine-windows]
     # As long as the Linux engine's first build, or longer: the first build compiles all of Chrome.
     timeout-minutes: 1440
     permissions:

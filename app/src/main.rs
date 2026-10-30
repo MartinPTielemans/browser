@@ -24,8 +24,9 @@ use browser::flatpak;
 use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_preview,
-    link_target, log, menu, offer, passwords, site_controls, theme_picker, toast, tooltip, zoom_hud,
+    capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
+    icon_picker, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -59,6 +60,9 @@ mod emoji;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/floats.rs"]
 mod floats;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/frames.rs"]
+mod frames;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/held_escape.rs"]
 mod held_escape;
@@ -106,8 +110,9 @@ mod settings;
 const COMMAND_BAR: c_int = 0;
 const ICON_PICKER: c_int = 1;
 const THEME_PICKER: c_int = 2;
+const FOLDER_PREVIEW: c_int = 3;
 /// The Site Controls aren't one of the host's overlays, but its elevation call takes them too.
-const SITE_CONTROLS: c_int = 3;
+const SITE_CONTROLS: c_int = 4;
 
 use browser::bc;
 
@@ -424,6 +429,9 @@ const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 
 /// Where Add Extension… goes, as Dia's does.
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
+
+/// Chrome's Clear browsing data dialog, over its settings page, in the profile of the tab's Space.
+const CLEAR_BROWSING_DATA: &str = "chrome://settings/clearBrowserData";
 
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
 actions!(browser, [CheckForUpdates]);
@@ -1538,13 +1546,17 @@ impl command_bar::Host for Bar {
     }
 
     fn typed_url(&self, text: &str) -> Option<String> {
-        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        let window = front().0;
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(window, text, url, capacity) })
     }
 
     fn search_url(&self, site: Option<&str>, text: &str) -> Option<String> {
         let site = site.map(CString::new).transpose().ok()?;
         let site = site.as_ref().map_or(std::ptr::null(), |site| site.as_ptr());
-        url_for(text, |text, url, capacity| unsafe { bc::bc_search_url(site, text, url, capacity) })
+        let window = front().0;
+        url_for(text, |text, url, capacity| unsafe {
+            bc::bc_search_url(window, site, text, url, capacity)
+        })
     }
 
     fn page_favicon(&self, url: &str) {
@@ -1686,6 +1698,26 @@ fn recent_emoji() -> icon_picker::Recents {
 /// The user left the icon picker without picking.
 extern "C" fn icon_picker_dismissed() {
     update_app(icon_picker::dismissed);
+}
+
+struct FolderPreviewHost;
+
+impl folder_preview::Host for FolderPreviewHost {
+    fn show(&self, left: f32, top: f32, height: f32) {
+        let (left, top, width) = (left.into(), top.into(), folder_preview::WIDTH.into());
+        unsafe {
+            platform::host_show_overlay(FOLDER_PREVIEW, front().1, false, left, top, width);
+            platform::host_set_overlay_height(FOLDER_PREVIEW, height.into());
+        }
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_overlay(FOLDER_PREVIEW) };
+    }
+}
+
+extern "C" fn folder_preview_dismissed() {
+    update_app(folder_preview::dismissed);
 }
 
 /// The theme picker's requests, to the host's overlay window, over the window in front.
@@ -1926,6 +1958,15 @@ impl Browser for Engine {
         unsafe { bc::bc_folder_rename(folder, name.as_ptr()) };
     }
 
+    fn set_folder_icon(&self, folder: u64, icon: &str, _: &mut App) {
+        let icon = CString::new(icon).unwrap_or_default();
+        unsafe { bc::bc_folder_set_icon(folder, icon.as_ptr()) };
+    }
+
+    fn duplicate_folder(&self, folder: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_folder_duplicate(folder) }
+    }
+
     fn set_folder_open(&self, folder: u64, open: bool, _: &mut App) {
         unsafe { bc::bc_folder_set_open(folder, open) };
     }
@@ -2057,7 +2098,8 @@ impl Browser for Engine {
     }
 
     fn typed_url(&self, text: &str) -> Option<String> {
-        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        let window = self.window;
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(window, text, url, capacity) })
     }
 
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
@@ -2548,6 +2590,10 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://settings/searchEngines");
     }
 
+    fn clear_browsing_data(&self, _: &mut App) {
+        open_tab(self.window, CLEAR_BROWSING_DATA);
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -3000,6 +3046,10 @@ impl Browser for Engine {
         hover_card::hover(hover, cx);
     }
 
+    fn folder_preview(&self, ask: folder_preview::Ask, cx: &mut App) {
+        folder_preview::ask(ask, cx);
+    }
+
     fn card_picture(&self, tab: u64, cx: &mut App) {
         let request = hover_card::asking(tab, cx);
         // check.sh reads this line: a hidden page draws for its picture from here.
@@ -3033,6 +3083,14 @@ impl Browser for Engine {
 
     fn about(&self, cx: &mut App) {
         settings::show_about(cx);
+    }
+
+    fn updates(&self) -> bool {
+        updates_available()
+    }
+
+    fn check_for_updates(&self, cx: &mut App) {
+        check_for_updates(cx);
     }
 
     fn import(&self, cx: &mut App) {
@@ -3207,6 +3265,12 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     if matches!(command, Command::Undo | Command::Redo) && key.editing {
         return false;
     }
+    // Its field opens before GPUI has read the keys typed after it, which it holds for the field
+    // under Wayland, as for a shortcut the page gets first (gpui_linux::hold_keys).
+    #[cfg(target_os = "linux")]
+    if reserved && command.opens_field() {
+        gpui_linux::hold_keys(Some(&held_keystroke(key)));
+    }
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
@@ -3243,8 +3307,25 @@ unsafe extern "C" fn tab_key_before_page(
     });
     if holds == Some(true) {
         unsafe { platform::host_hold_keys() };
+        #[cfg(target_os = "linux")]
+        gpui_linux::hold_keys(Some(&held_keystroke(unsafe { &*key })));
     }
     false
+}
+
+/// The keystroke GPUI has for `key`, one typed in a page.
+#[cfg(target_os = "linux")]
+fn held_keystroke(key: &bc::bc_key) -> gpui::Keystroke {
+    let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+    let has = |flag| key.modifiers & flag != 0;
+    let modifiers = gpui::Modifiers {
+        control: has(bc::BC_MODIFIER_CONTROL),
+        alt: has(bc::BC_MODIFIER_ALT),
+        shift: has(bc::BC_MODIFIER_SHIFT),
+        platform: has(bc::BC_MODIFIER_META),
+        function: false,
+    };
+    shell::web_keystroke(&name, modifiers)
 }
 
 /// Gives the keys the core held from a page since a shortcut that opens a field (bc_hold_keys) to
@@ -3254,17 +3335,14 @@ fn give_held_keys(view: *mut c_void) {
     unsafe extern "C" fn take(held: *mut c_void, keys: *const bc::bc_key, count: usize) {
         let held = unsafe { &mut *held.cast::<Vec<gpui::Keystroke>>() };
         for key in unsafe { std::slice::from_raw_parts(keys, count) } {
-            let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
-            let has = |flag| key.modifiers & flag != 0;
-            let modifiers = gpui::Modifiers {
-                control: has(bc::BC_MODIFIER_CONTROL),
-                alt: has(bc::BC_MODIFIER_ALT),
-                shift: has(bc::BC_MODIFIER_SHIFT),
-                platform: has(bc::BC_MODIFIER_META),
-                function: false,
-            };
-            held.push(shell::web_keystroke(&name, modifiers));
+            held.push(held_keystroke(key));
         }
+    }
+    // Under Wayland GPUI has every key too and gives the overlay its own, those after the
+    // shortcut's press, which both had; the core's go to the page only if nothing takes them.
+    if gpui_linux::give_held_keys(view) {
+        unsafe { bc::bc_give_held_keys(None, std::ptr::null_mut()) };
+        return;
     }
     let mut held: Vec<gpui::Keystroke> = Vec::new();
     unsafe { bc::bc_give_held_keys(Some(take), (&raw mut held).cast()) };
@@ -3472,6 +3550,33 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     finished_launching();
 }
 
+/// Opens Chrome's Clear browsing data dialog for `profile`, as Arc's Settings › Profiles does, in
+/// the regular window in front, showing a Space of the profile first if it shows another's. Returns
+/// whether it did: not for a profile none of the user's Spaces is in, as its tabs would have none.
+pub fn clear_browsing_data(profile: u64) -> bool {
+    let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned())
+    else {
+        return false;
+    };
+    let users = |space: bc::bc_id| {
+        let theirs = unsafe { bc::bc_space_profile(space) } == profile;
+        theirs && name(bc::bc_space_agent, space).is_empty()
+    };
+    let shown = unsafe { bc::bc_window_space(window.id) };
+    let Some(space) = std::iter::once(shown).chain(ids(bc::bc_spaces)).find(|&space| users(space))
+    else {
+        return false;
+    };
+    if space != shown {
+        unsafe { bc::bc_window_show_space(window.id, space) };
+    }
+    open_tab(window.id, CLEAR_BROWSING_DATA);
+    unsafe { platform::host_activate(window.ui_view) };
+    // check.sh reads this line.
+    log!("browser: clear browsing data of profile {profile} in space {space}");
+    true
+}
+
 /// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
 /// that's an agent's, which none of the user's tabs go in. The last one opened shows.
 fn open_links_in(window: bc::bc_id, urls: &[String]) {
@@ -3550,14 +3655,15 @@ extern "C" fn dragged(
         .map(|item| (unsafe { CStr::from_ptr(item.url) }.to_string_lossy(), item.file))
         .collect();
     let items = items.iter().map(|(url, file)| (url.as_ref(), *file));
+    let window = window_with_view(ui_view);
     let search = |text: &str| {
         url_for(text, |text, url, capacity| unsafe {
-            bc::bc_search_url(std::ptr::null(), text, url, capacity)
+            bc::bc_search_url(window, std::ptr::null(), text, url, capacity)
         })
     };
     let urls = shell::dropped_urls(items, search);
     let position = point(px(x as f32), px(y as f32));
-    let answer = update_window(window_with_view(ui_view), |shell, cx| match phase {
+    let answer = update_window(window, |shell, cx| match phase {
         platform::DRAG_OVER => !urls.is_empty() && shell.drag_in(position, cx),
         platform::DRAG_DROP => shell.drop_in(position, &urls, cx),
         _ => {
@@ -3946,6 +4052,14 @@ fn finish_opening(
             platform::host_set_overlay_growth(ICON_PICKER, x.into(), y.into());
         }
     }
+    if let Some(preview) = folder_preview::open(Rc::new(FolderPreviewHost), cx)
+        && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
+    {
+        let radius = folder_preview::RADIUS.into();
+        elevate(FOLDER_PREVIEW, Level::Popover);
+        let dismissed = folder_preview_dismissed;
+        unsafe { platform::host_add_overlay(FOLDER_PREVIEW, view, radius, dismissed) };
+    }
     if let Some(picker) = theme_picker::open(Rc::new(ThemeHost), cx)
         && let Ok(view) = picker.update(cx, |_, window, _| ns_view(window))
     {
@@ -4214,16 +4328,21 @@ fn start_updates(cx: &mut App) {
         cx.spawn(async move |cx| {
             let (portal, events) = match flatpak::Portal::open_session().await {
                 Ok(opened) => opened,
-                Err(error) => return log!("browser: no updates: {error}"),
+                Err(error) => {
+                    log!("browser: no updates: {error}");
+                    let why = format!("Flatpak’s portal didn’t answer: {error}");
+                    return cx.update(|cx| flatpak::changed(flatpak::State::Failed(why), cx));
+                }
             };
-            FLATPAK.set(Some((portal.clone(), flatpak::State::Current)));
             log!("browser: updater started");
+            let restarting = portal.clone();
+            cx.update(|cx| {
+                flatpak::on_restart(move |cx| restart_into_newest(restarting.clone(), cx), cx);
+                flatpak::changed(flatpak::State::Current, cx);
+            });
             flatpak::watch(&portal, events, |state| {
                 log!("browser: update {state:?}");
-                FLATPAK.with_borrow_mut(|known| known.as_mut().map(|known| known.1 = state.clone()));
-                if *state == flatpak::State::Ready {
-                    cx.update(offer_restart);
-                }
+                cx.update(|cx| flatpak::changed(state.clone(), cx));
             })
             .await;
         })
@@ -4231,8 +4350,8 @@ fn start_updates(cx: &mut App) {
     }
 }
 
-/// The app menu's Check for Updates…. Flatpak's portal can't be asked to look now, as it looks
-/// every half hour by itself, so on Linux this says where the update stands.
+/// The app menu's and the command bar's Check for Updates…: Sparkle's or WinSparkle's, or on Linux
+/// where the Flatpak's update stands.
 fn check_for_updates(cx: &mut App) {
     #[cfg(not(target_os = "linux"))]
     {
@@ -4240,74 +4359,18 @@ fn check_for_updates(cx: &mut App) {
         unsafe { platform::host_check_for_updates() };
     }
     #[cfg(target_os = "linux")]
-    {
-        let state = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.1.clone()));
-        let (message, detail) = match state {
-            Some(flatpak::State::Ready) => return offer_restart(cx),
-            Some(flatpak::State::Installing) => (
-                concat!(env!("APP_NAME"), " is updating"),
-                "It will offer to restart once the new version is in.".to_string(),
-            ),
-            Some(flatpak::State::Failed(error)) => {
-                (concat!(env!("APP_NAME"), " couldn’t update"), error)
-            }
-            _ => (
-                "No update yet",
-                concat!(env!("APP_NAME"), " looks for one every half hour while it’s open.").into(),
-            ),
-        };
-        dialog::pose(notice(message, detail), Box::new(|_, _| {}), cx);
-    }
+    flatpak::check(cx);
 }
 
+/// Starts the build Flatpak installed, once this one has let go of the profile, and quits.
 #[cfg(target_os = "linux")]
-thread_local! {
-    // Linux's update portal and where the update stands, once the portal has answered.
-    static FLATPAK: RefCell<Option<(flatpak::Portal, flatpak::State)>> = const { RefCell::new(None) };
-}
-
-/// A dialog that only tells, with OK.
-#[cfg(target_os = "linux")]
-fn notice(message: &str, detail: String) -> dialog::Question {
-    dialog::Question {
-        icon: None,
-        message: message.to_string().into(),
-        detail: detail.into(),
-        list: Vec::new(),
-        action: "".into(),
-        cancel: "OK".into(),
-        tone: dialog::Tone::Accent,
-        also: None,
-        fields: Vec::new(),
-        check: None,
-        return_cancels: false,
-    }
-}
-
-/// Offers to restart into the build Flatpak installed, which starts once this one has quit.
-#[cfg(target_os = "linux")]
-fn offer_restart(cx: &mut App) {
-    let question = dialog::Question {
-        action: "Restart".into(),
-        cancel: "Later".into(),
-        ..notice(
-            concat!("A new version of ", env!("APP_NAME"), " is ready"),
-            concat!("Restart ", env!("APP_NAME"), " to use it.").into(),
-        )
-    };
-    let restart = |_: Vec<String>, cx: &mut App| {
-        let Some(portal) = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.0.clone()))
-        else {
-            return;
-        };
-        let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
-        cx.spawn(async move |_| match portal.restart(&lock).await {
-            Ok(()) => unsafe { bc::bc_quit() },
-            Err(error) => log!("browser: no restart: {error}"),
-        })
-        .detach();
-    };
-    dialog::pose(question, Box::new(restart), cx);
+fn restart_into_newest(portal: flatpak::Portal, cx: &mut App) {
+    let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
+    cx.spawn(async move |_| match portal.restart(&lock).await {
+        Ok(()) => unsafe { bc::bc_quit() },
+        Err(error) => log!("browser: no restart: {error}"),
+    })
+    .detach();
 }
 
 /// The menu bar: Arc's menus, with the commands the browser has, what `bar` says of the key
@@ -4352,6 +4415,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Close Window", Command::CloseWindow),
                 item("Archive Tab", Command::CloseTab),
                 MenuItem::separator(),
+                item("Share…", Command::Share),
                 item("Capture…", Command::CapturePortion),
                 item("Capture Full Page", Command::CaptureFullPage),
                 item("Save Page As", Command::SavePage),
@@ -4374,6 +4438,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                     PasteAndMatchStyle,
                     OsAction::PasteAndMatchStyle,
                 ),
+                item("Paste URL as New Tab", Command::PasteUrlAsTab),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
@@ -4480,6 +4545,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("View History", Command::ViewHistory),
                 item("View Archive…", Command::ViewArchive),
                 item("Clear Archive", Command::ClearArchive),
+                MenuItem::separator(),
+                item("Clear Browsing Data…", Command::ClearBrowsingData),
             ],
         ),
         menu(
@@ -4676,6 +4743,21 @@ unsafe extern "C" fn agent_page_done(
         false => log!("browser: agent page {tab} {request} {}", text.len()),
     }
     agents_core::update(move |agents, cx| agents.page_done(request, text, error, cx));
+}
+
+/// The element an agent's action in a tab (bc_agent_page) is about to click or type in, for the
+/// agent's pointer over the page.
+unsafe extern "C" fn agent_page_element(_: *mut c_void, tab: bc::bc_id, request: u64, b: bc::bc_rect) {
+    // check.sh reads this line.
+    log!("browser: agent element {tab} {request} at {} {} {} {}", b.x, b.y, b.width, b.height);
+    let element = Bounds::new(
+        point(px(b.x as f32), px(b.y as f32)),
+        size(px(b.width as f32), px(b.height as f32)),
+    );
+    agents_core::update(move |agents, cx| {
+        let Some(tag) = agents.ref_of(request) else { return };
+        update_shells_in(cx, |shell, cx| shell.agent_pointing(tab, tag.clone().into(), element, cx));
+    });
 }
 
 /// The text of a tab's page that bc_tab_read_text asked for, or null if it had none.
@@ -4961,6 +5043,10 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
         let mut open = false;
         if unsafe { bc::bc_folder(row, &mut open) } {
             folders.folders.insert(row, (name(bc::bc_folder_name, row), open));
+            let icon = name(bc::bc_folder_icon, row);
+            if !icon.is_empty() {
+                folders.icons.insert(row, icon);
+            }
         }
         match unsafe { bc::bc_folder_of(row) } {
             0 => {}
@@ -5542,6 +5628,31 @@ fn logins(logins: *const bc::bc_login, count: usize) -> Vec<passwords::Login> {
         .collect()
 }
 
+/// The profile's saved addresses and cards, which Settings asked the core for.
+unsafe extern "C" fn profile_autofill_changed(
+    _: *mut c_void,
+    profile: bc::bc_id,
+    entries: *const bc::bc_autofill_entry,
+    count: usize,
+) {
+    let string = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let entries = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(entries, count) },
+    };
+    let saved: Vec<settings::Saved> = (entries.iter())
+        .map(|entry| settings::Saved {
+            title: string(entry.title),
+            detail: string(entry.detail),
+            card: entry.card,
+            key: string(entry.key),
+        })
+        .collect();
+    update_app(|cx| settings::autofill_changed(profile, saved, cx));
+}
+
 /// The profile's logins, which Settings asked the core for.
 unsafe extern "C" fn profile_logins_changed(
     _: *mut c_void,
@@ -6008,6 +6119,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_offer_changed: Some(tab_offer_changed),
         tab_passwords_changed: Some(tab_passwords_changed),
         profile_logins_changed: Some(profile_logins_changed),
+        profile_autofill_changed: Some(profile_autofill_changed),
         passwords_imported: Some(passwords_imported),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),
@@ -6025,8 +6137,11 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        agent_page_element: Some(agent_page_element),
         window_downloads_question: Some(window_downloads_question),
         archive_note_changed: Some(archive_note_changed),
+        #[cfg(target_os = "linux")]
+        window_activated: Some(window_activated),
         ..Default::default()
     };
     (args, host)
@@ -6039,6 +6154,9 @@ fn main() {
     if std::env::var_os("BROWSER_PREWARM").is_some() {
         return;
     }
+    // The time from the process's start to here is mostly macOS's check of a version it hasn't run
+    // before, which warming an update saves its first launch.
+    log!("browser: main at {:.1} ms", unsafe { platform::host_since_launch() });
     if cfg!(feature = "prod") {
         // Chromium can't read the cookie key a new signature hasn't been granted, so it asks first.
         if !unsafe { platform::host_keep_keychain_key() } {
@@ -6071,6 +6189,21 @@ fn main() {
 unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f64, height: f64) {
     if let Some(ui_view) = ui_view_of(window) {
         gpui_linux::resize_embedded(ui_view, width as f32, height as f32);
+    }
+}
+
+/// The browser window became active, as GPUI's window in it doesn't hear under X11 when a click
+/// in the page gives it the keyboard. After, as the core can tell of it inside the app's own call.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
+    // Not in an update of the app's, as key_window_changed updates the window itself.
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move {
+            if let Some(ui_view) = ui_view_of(window) {
+                key_window_changed(ui_view);
+            }
+        };
+        cx.foreground_executor().spawn(later).detach();
     }
 }
 
