@@ -281,6 +281,7 @@ mod platform {
         pub fn host_video_open(path: *const c_char, side: c_int) -> *mut c_void;
         pub fn host_video_frame(video: *mut c_void, pixels: *mut u8) -> bool;
         pub fn host_video_close(video: *mut c_void);
+        #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
@@ -2836,9 +2837,15 @@ impl Browser for Engine {
         unsafe { platform::host_watch_control(control_released) };
     }
 
-    fn copy(&self, text: &str, _: &mut App) {
-        let text = CString::new(text.replace('\0', "")).unwrap_or_default();
-        unsafe { platform::host_copy(text.as_ptr()) };
+    fn copy(&self, text: &str, cx: &mut App) {
+        #[cfg(target_os = "linux")]
+        system::copy(text, cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            let text = CString::new(text.replace('\0', "")).unwrap_or_default();
+            unsafe { platform::host_copy(text.as_ptr()) };
+        }
     }
 
     fn can_open_in_safari(&self) -> bool {
