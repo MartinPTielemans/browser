@@ -51,6 +51,7 @@
 #include "ui/platform_window/wm/wm_move_resize_handler.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
+#include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/window/non_client_view.h"
 
@@ -1075,6 +1076,22 @@ bool KeyboardInChild(views::Widget* widget) {
   aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
   aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
   return focused && focused != widget->GetNativeView() && !views->InSlot(focused);
+}
+
+std::u16string ChildTitle(views::Widget* widget) {
+  if (!KeyboardInChild(widget)) {
+    return {};
+  }
+  // The focused window is the child widget's own or one in it, as a dialog's button.
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  for (aura::Window* window = client->GetFocusedWindow();
+       window && window != widget->GetNativeView(); window = window->parent()) {
+    views::Widget* child = views::Widget::GetWidgetForNativeView(window);
+    if (child && child != widget && child->widget_delegate()) {
+      return child->widget_delegate()->GetWindowTitle();
+    }
+  }
+  return {};
 }
 
 void OverlayTakesKeyboard(views::Widget* widget, bool takes) {

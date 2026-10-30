@@ -286,6 +286,17 @@ bool bc_window_dialog(bc_id id, bc_rect* frame) {
 #endif
 }
 
+size_t bc_window_child_title(bc_id id, char* title, size_t capacity) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  return CopyString(widget ? base::UTF16ToUTF8(browser_core::platform::ChildTitle(widget))
+                           : std::string(),
+                    title, capacity);
+#else
+  return CopyString(std::string(), title, capacity);
+#endif
+}
+
 void bc_window_hold_keys(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
   if (views::Widget* widget = OpenWidget(id)) {

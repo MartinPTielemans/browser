@@ -5,6 +5,7 @@
 #define BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
 
 #include <optional>
+#include <string>
 
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -50,6 +51,10 @@ bool KeyboardIsUI(views::Widget* widget);
 // Whether a window of Chromium's own in |widget|'s window has the keyboard, such as an extension's
 // popup or a tab's dialog (bc_window_keyboard_in_child). In window_views.cc.
 bool KeyboardInChild(views::Widget* widget);
+
+// The title of the window of Chromium's own in |widget|'s with the keys (KeyboardInChild), such as
+// a tab's dialog, or an empty one. In window_views.cc.
+std::u16string ChildTitle(views::Widget* widget);
 
 // Lends the keyboard in |widget|'s window to an overlay of the app's, or takes it back
 // (bc_window_overlay_takes_keyboard).
