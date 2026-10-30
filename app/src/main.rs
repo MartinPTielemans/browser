@@ -3038,6 +3038,14 @@ impl Browser for Engine {
         settings::show_about(cx);
     }
 
+    fn updates(&self) -> bool {
+        updates_available()
+    }
+
+    fn check_for_updates(&self, cx: &mut App) {
+        check_for_updates(cx);
+    }
+
     fn import(&self, cx: &mut App) {
         settings::show_import(cx);
     }
@@ -3210,6 +3218,12 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     if matches!(command, Command::Undo | Command::Redo) && key.editing {
         return false;
     }
+    // Its field opens before GPUI has read the keys typed after it, which it holds for the field
+    // under Wayland, as for a shortcut the page gets first (gpui_linux::hold_keys).
+    #[cfg(target_os = "linux")]
+    if reserved && command.opens_field() {
+        gpui_linux::hold_keys(Some(&held_keystroke(key)));
+    }
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
@@ -3244,8 +3258,25 @@ unsafe extern "C" fn tab_key_before_page(
     });
     if holds == Some(true) {
         unsafe { platform::host_hold_keys() };
+        #[cfg(target_os = "linux")]
+        gpui_linux::hold_keys(Some(&held_keystroke(unsafe { &*key })));
     }
     false
+}
+
+/// The keystroke GPUI has for `key`, one typed in a page.
+#[cfg(target_os = "linux")]
+fn held_keystroke(key: &bc::bc_key) -> gpui::Keystroke {
+    let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+    let has = |flag| key.modifiers & flag != 0;
+    let modifiers = gpui::Modifiers {
+        control: has(bc::BC_MODIFIER_CONTROL),
+        alt: has(bc::BC_MODIFIER_ALT),
+        shift: has(bc::BC_MODIFIER_SHIFT),
+        platform: has(bc::BC_MODIFIER_META),
+        function: false,
+    };
+    shell::web_keystroke(&name, modifiers)
 }
 
 /// Gives the keys the core held from a page since a shortcut that opens a field (bc_hold_keys) to
@@ -3255,17 +3286,14 @@ fn give_held_keys(view: *mut c_void) {
     unsafe extern "C" fn take(held: *mut c_void, keys: *const bc::bc_key, count: usize) {
         let held = unsafe { &mut *held.cast::<Vec<gpui::Keystroke>>() };
         for key in unsafe { std::slice::from_raw_parts(keys, count) } {
-            let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
-            let has = |flag| key.modifiers & flag != 0;
-            let modifiers = gpui::Modifiers {
-                control: has(bc::BC_MODIFIER_CONTROL),
-                alt: has(bc::BC_MODIFIER_ALT),
-                shift: has(bc::BC_MODIFIER_SHIFT),
-                platform: has(bc::BC_MODIFIER_META),
-                function: false,
-            };
-            held.push(shell::web_keystroke(&name, modifiers));
+            held.push(held_keystroke(key));
         }
+    }
+    // Under Wayland GPUI has every key too and gives the overlay its own, those after the
+    // shortcut's press, which both had; the core's go to the page only if nothing takes them.
+    if gpui_linux::give_held_keys(view) {
+        unsafe { bc::bc_give_held_keys(None, std::ptr::null_mut()) };
+        return;
     }
     let mut held: Vec<gpui::Keystroke> = Vec::new();
     unsafe { bc::bc_give_held_keys(Some(take), (&raw mut held).cast()) };
@@ -4216,16 +4244,21 @@ fn start_updates(cx: &mut App) {
         cx.spawn(async move |cx| {
             let (portal, events) = match flatpak::Portal::open_session().await {
                 Ok(opened) => opened,
-                Err(error) => return log!("browser: no updates: {error}"),
+                Err(error) => {
+                    log!("browser: no updates: {error}");
+                    let why = format!("Flatpak’s portal didn’t answer: {error}");
+                    return cx.update(|cx| flatpak::changed(flatpak::State::Failed(why), cx));
+                }
             };
-            FLATPAK.set(Some((portal.clone(), flatpak::State::Current)));
             log!("browser: updater started");
+            let restarting = portal.clone();
+            cx.update(|cx| {
+                flatpak::on_restart(move |cx| restart_into_newest(restarting.clone(), cx), cx);
+                flatpak::changed(flatpak::State::Current, cx);
+            });
             flatpak::watch(&portal, events, |state| {
                 log!("browser: update {state:?}");
-                FLATPAK.with_borrow_mut(|known| known.as_mut().map(|known| known.1 = state.clone()));
-                if *state == flatpak::State::Ready {
-                    cx.update(offer_restart);
-                }
+                cx.update(|cx| flatpak::changed(state.clone(), cx));
             })
             .await;
         })
@@ -4233,8 +4266,8 @@ fn start_updates(cx: &mut App) {
     }
 }
 
-/// The app menu's Check for Updates…. Flatpak's portal can't be asked to look now, as it looks
-/// every half hour by itself, so on Linux this says where the update stands.
+/// The app menu's and the command bar's Check for Updates…: Sparkle's or WinSparkle's, or on Linux
+/// where the Flatpak's update stands.
 fn check_for_updates(cx: &mut App) {
     #[cfg(not(target_os = "linux"))]
     {
@@ -4242,74 +4275,18 @@ fn check_for_updates(cx: &mut App) {
         unsafe { platform::host_check_for_updates() };
     }
     #[cfg(target_os = "linux")]
-    {
-        let state = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.1.clone()));
-        let (message, detail) = match state {
-            Some(flatpak::State::Ready) => return offer_restart(cx),
-            Some(flatpak::State::Installing) => (
-                concat!(env!("APP_NAME"), " is updating"),
-                "It will offer to restart once the new version is in.".to_string(),
-            ),
-            Some(flatpak::State::Failed(error)) => {
-                (concat!(env!("APP_NAME"), " couldn’t update"), error)
-            }
-            _ => (
-                "No update yet",
-                concat!(env!("APP_NAME"), " looks for one every half hour while it’s open.").into(),
-            ),
-        };
-        dialog::pose(notice(message, detail), Box::new(|_, _| {}), cx);
-    }
+    flatpak::check(cx);
 }
 
+/// Starts the build Flatpak installed, once this one has let go of the profile, and quits.
 #[cfg(target_os = "linux")]
-thread_local! {
-    // Linux's update portal and where the update stands, once the portal has answered.
-    static FLATPAK: RefCell<Option<(flatpak::Portal, flatpak::State)>> = const { RefCell::new(None) };
-}
-
-/// A dialog that only tells, with OK.
-#[cfg(target_os = "linux")]
-fn notice(message: &str, detail: String) -> dialog::Question {
-    dialog::Question {
-        icon: None,
-        message: message.to_string().into(),
-        detail: detail.into(),
-        list: Vec::new(),
-        action: "".into(),
-        cancel: "OK".into(),
-        tone: dialog::Tone::Accent,
-        also: None,
-        fields: Vec::new(),
-        check: None,
-        return_cancels: false,
-    }
-}
-
-/// Offers to restart into the build Flatpak installed, which starts once this one has quit.
-#[cfg(target_os = "linux")]
-fn offer_restart(cx: &mut App) {
-    let question = dialog::Question {
-        action: "Restart".into(),
-        cancel: "Later".into(),
-        ..notice(
-            concat!("A new version of ", env!("APP_NAME"), " is ready"),
-            concat!("Restart ", env!("APP_NAME"), " to use it.").into(),
-        )
-    };
-    let restart = |_: Vec<String>, cx: &mut App| {
-        let Some(portal) = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.0.clone()))
-        else {
-            return;
-        };
-        let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
-        cx.spawn(async move |_| match portal.restart(&lock).await {
-            Ok(()) => unsafe { bc::bc_quit() },
-            Err(error) => log!("browser: no restart: {error}"),
-        })
-        .detach();
-    };
-    dialog::pose(question, Box::new(restart), cx);
+fn restart_into_newest(portal: flatpak::Portal, cx: &mut App) {
+    let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
+    cx.spawn(async move |_| match portal.restart(&lock).await {
+        Ok(()) => unsafe { bc::bc_quit() },
+        Err(error) => log!("browser: no restart: {error}"),
+    })
+    .detach();
 }
 
 /// The menu bar: Arc's menus, with the commands the browser has, what `bar` says of the key
@@ -6032,6 +6009,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         agent_page_done: Some(agent_page_done),
         window_downloads_question: Some(window_downloads_question),
         archive_note_changed: Some(archive_note_changed),
+        #[cfg(target_os = "linux")]
+        window_activated: Some(window_activated),
         ..Default::default()
     };
     (args, host)
@@ -6079,6 +6058,21 @@ fn main() {
 unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f64, height: f64) {
     if let Some(ui_view) = ui_view_of(window) {
         gpui_linux::resize_embedded(ui_view, width as f32, height as f32);
+    }
+}
+
+/// The browser window became active, as GPUI's window in it doesn't hear under X11 when a click
+/// in the page gives it the keyboard. After, as the core can tell of it inside the app's own call.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
+    // Not in an update of the app's, as key_window_changed updates the window itself.
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move {
+            if let Some(ui_view) = ui_view_of(window) {
+                key_window_changed(ui_view);
+            }
+        };
+        cx.foreground_executor().spawn(later).detach();
     }
 }
 

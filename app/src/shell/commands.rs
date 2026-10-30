@@ -194,6 +194,8 @@ pub enum Command {
     KeyboardShortcuts,
     /// Opens the Settings window on its About tab: the version, the engine's and the credits.
     About,
+    /// Asks the updater to look, or says where the update stands, in a build that updates itself.
+    CheckForUpdates,
     /// Opens the Settings window on its Import tab.
     Import,
     /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
@@ -413,6 +415,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
     (concat!("About ", env!("APP_NAME")), Command::About, &["version", "credits", "licence"]),
+    // The app menu's, which Linux shows no bar for.
+    ("Check for Updates…", Command::CheckForUpdates, &["update", "upgrade"]),
     ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
@@ -795,6 +799,7 @@ impl Command {
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::About => "about",
+            Command::CheckForUpdates => "check-for-updates",
             Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
@@ -837,6 +842,12 @@ pub fn bind_keys(cx: &mut App) {
         // answered first, as an alert's does.
         if crate::dialog::asking(cx) {
             return;
+        }
+        // A shortcut in the UI opens its field before GPUI has read the keys typed after it, which
+        // it holds for the field under Wayland, as for one the page has (gpui_linux::hold_keys).
+        #[cfg(target_os = "linux")]
+        if run.0.opens_field() {
+            gpui_linux::hold_keys(None);
         }
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
             shell
@@ -1036,6 +1047,7 @@ impl Shell {
             Command::SiteSearchSettings => return self.browser.site_search_settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
             Command::About => return self.browser.about(cx),
+            Command::CheckForUpdates => return self.browser.check_for_updates(cx),
             Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
@@ -1438,6 +1450,7 @@ impl Shell {
                 self.selected != 0 && !favorite && !self.sidebar_hidden
             }
             Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
+            Command::CheckForUpdates => self.browser.updates(),
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
             Command::NewFolder
