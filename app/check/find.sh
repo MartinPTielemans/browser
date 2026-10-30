@@ -194,8 +194,8 @@ send key f cmd
 expect '^browser: find bar shown$' "⌘F after the close button didn't open the find bar again"
 
 # ⌘J from the page and Edit › Find › Jump to Selection scroll the page back to the match a find
-# left selected. ⌘↑ is the page's own, to its top, and off the Mac Ctrl+Home is. It ends there, where
-# zooming doesn't scroll it.
+# left selected. ⌘↑ is the page's own, to its top, and off the Mac Ctrl+Home is. It ends there,
+# where zooming doesn't scroll it.
 top="up cmd"
 [ "$(uname)" = Linux ] && top="home cmd"
 for _ in 1 2 3; do send key backspace; done
@@ -204,7 +204,15 @@ expect_find "$first" "open 1 of 1 far" "the find didn't find the text below the 
 expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' "the find didn't scroll the page to the match"
 send key escape
 expect_find "$first" "closed" "escape didn't close the find"
-for jump in "key j cmd" "menu Jump to Selection"; do
+# Chromium centres the selection only on the Mac (WebContentsImpl::CenterSelection).
+jumps="j Jump"
+if [ "$(uname)" = Linux ]; then
+  jumps=
+  echo "skip: ⌘J and Jump to Selection: Chromium centres the selection only on the Mac."
+fi
+for each in $jumps; do
+  jump="key j cmd"
+  [ "$each" = Jump ] && jump="menu Jump to Selection"
   send key $top
   expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
   send $jump
