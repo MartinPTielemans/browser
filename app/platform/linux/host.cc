@@ -414,10 +414,6 @@ void host_window_closed(void* ui_view) {
   }
 }
 
-bool host_can_draw_emoji(const char*) {
-  return true;
-}
-
 // Under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own, and under
 // X11 Chromium's window has the focus, so a page's keys reach Chromium first and the host can't
 // keep those typed after a bar's shortcut from the page. The core holds them, and an overlay that
