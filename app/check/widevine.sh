@@ -74,7 +74,9 @@ grep -q "^browser: widevine state restart\$" "$log" || fail "the module didn't d
 ../tools/window-screenshot.sh "$pid" "$out/widevine-restart.png" || fail "no window to capture"
 quit
 
-# Launched again, Chromium loads the module and the page plays, with no note.
+# Launched again, Chromium loads the module and the page plays, with no note. The Spaces saved at
+# the quit would bring back the first launch's tab, with its error in its saved title.
+rm -f "$profile_dir/Spaces.json"
 launch_widevine "$out/widevine-played.log"
 await_load
 await_long 60 "^browser: title [0-9]+ widevine (playing|error .*)\$" ||
