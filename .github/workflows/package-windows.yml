@@ -88,6 +88,22 @@ jobs:
         run: |
           platform/windows/package/package.sh "$RUNNER_TEMP/windows-packages" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # Proof only, on this handover branch: what each package installs.
+      - name: Contents
+        run: |
+          choco install innoextract -y --no-progress > /dev/null
+          cd "$RUNNER_TEMP/windows-packages"
+          for f in *.msix; do
+            echo "== $f"
+            unzip -Z1 "$f" | grep -v '^ublock/.' || true
+            echo "ublock/: $(unzip -Z1 "$f" | grep -c '^ublock/.') files"
+          done
+          for f in *setup*.exe; do
+            echo "== $f"
+            innoextract -l "$f" | grep -v ' app/ublock/.' || true
+            echo "app/ublock/: $(innoextract -l "$f" | grep -c ' app/ublock/.') files"
+          done
+
       # For the installer a release at tag v<version> would publish. Not for Browser.dll alone.
       - name: winget manifests
         run: |
