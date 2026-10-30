@@ -13,14 +13,21 @@
 
 # The cookie page's title says whether it finds its cookie, p, never a value, since the app logs
 # every title, and "c" sets it. The cookie outlives the run, so its value is this run's start and an
-# earlier run's doesn't count. It's on localhost, as clear.sh's cookie is on 127.0.0.1.
+# earlier run's doesn't count. It's on localhost, as clear.sh's cookie is on 127.0.0.1. A key
+# sent before the page first paints can miss it, so the page draws text and says when it has
+# drawn. Its title also shows each click and key it gets, to show where one went.
 serve
 printf '%s' '<title>loading</title>
+<p>Cookie page</p>
 <a id=d download="profile.txt" href="profile.html"></a>
 <script>
 const mine = "p='"$(date +%s)"'";
-document.title = "cookie " + (document.cookie.split("; ").includes(mine) ? "p" : "none");
+const seen = "cookie " + (document.cookie.split("; ").includes(mine) ? "p" : "none");
+document.title = seen;
+requestAnimationFrame(() => setTimeout(() => document.title = seen + ", drawn"));
+onmousedown = () => document.title = "mousedown";
 onkeydown = e => {
+  document.title = "keydown " + e.key;
   if (e.key == "c") {
     document.cookie = mine + "; max-age=3600";
     document.title = "cookie set";
@@ -40,7 +47,8 @@ await_load
 first=$(space)
 a=$(today)
 await "^browser: title $a cookie none\$" ||
-  fail "the cookie page didn't draw, or found an earlier run's cookie"
+  fail "the cookie page didn't load, or found an earlier run's cookie"
+await "^browser: title $a cookie none, drawn\$" || fail "the cookie page didn't draw"
 send click $page_point
 if [ "$active" != 1 ]; then
   exec 3>&-
