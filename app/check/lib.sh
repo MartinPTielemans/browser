@@ -373,6 +373,17 @@ with open(sys.argv[1], "w") as f:
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
 }
+# Waits up to 3 s for the clipboard to hold the text $1, off the Mac, where a run's clipboard is its
+# headless session's, which wl-paste reads, Xwayland's too, as sway hands it over. The Mac's
+# pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.
+clipboard_holds() {
+  case "${BROWSER_HEADLESS:-xvfb}" in xvfb) return 0 ;; esac
+  for _ in $(seq 30); do
+    [ "$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n 2>/dev/null)" = "$1" ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
 # Waits for the check's server to log a request matching $1, as site.sh writes them.
 served() {
   for _ in $(seq 100); do

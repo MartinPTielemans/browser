@@ -441,7 +441,10 @@ void host_release_link_preview(void) {}
 
 void host_hide_link_preview(void) {}
 
-// GPUI's clipboard and its file chooser portal copy and save a capture (platform/linux/system.rs).
+// GPUI's clipboard and its file chooser portal copy text and a capture and save a capture
+// (platform/linux/system.rs).
+void host_copy(const char* text) {}
+
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
@@ -516,8 +519,6 @@ bool host_video_frame(void*, uint8_t*) {
 }
 
 void host_video_close(void*) {}
-
-void host_copy(const char* text) {}
 
 void host_open_in_safari(const char* url) {}
 
