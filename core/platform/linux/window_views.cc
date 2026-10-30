@@ -585,6 +585,19 @@ class WindowViews : public views::WidgetObserver,
     if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
     }
+    // On X11 the X server sends the UI's keys here while the input focus is on the window, not
+    // GPUI's, unless the pointer is over the UI: wlroots 0.17's Xwayland puts it back up from
+    // GPUI's window each time it's taken down (#628), as a new window it focuses keeps it. They go
+    // on to GPUI's window, where the focus would have sent them.
+    if (ui_has_keyboard_ && !overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      std::optional<x11::KeyEvent> key = X11KeyOf(*event);
+      if (x11::Window main = UIMain(); key && main != x11::Window::None) {
+        key->event = main;
+        x11::Connection* connection = x11::Connection::Get();
+        connection->SendEvent(*key, main, x11::EventMask::NoEvent);
+        connection->Flush();
+      }
+    }
     // On X11 only one typed before the overlay that took the keyboard had the input focus reaches
     // the window, as fast typing after ⌃F does once the keys held for the bar were given to it, as
     // GPUI moves the focus on its next turn. They go to the overlay once it has the focus.
