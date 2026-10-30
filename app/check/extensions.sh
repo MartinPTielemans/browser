@@ -143,9 +143,13 @@ expect "^browser: extension actions $popup:1 $clicked:7\$" \
   "the badge Check Popup's popup gave it didn't show at once"
 ../tools/window-screenshot.sh "$pid" "$out/extension-popup.png" || fail "no window to capture"
 # Closes the popup: escape, where it has the keyboard. On Linux the core gives the keyboard to a
-# page alone, not to a popup (#708), so a click on its action again closes it, as in Chrome.
+# page alone, not to a popup (#708), so a click on its action again closes it, as in Chrome, or
+# on the page, $1, where it has none.
 close_popup() {
-  if [ "$(uname)" = Linux ]; then
+  if [ "$(uname)" = Linux ] && [ -n "${1:-}" ]; then
+    send click $1
+    how="a click on the page"
+  elif [ "$(uname)" = Linux ]; then
     send click $first_place
     how="a click on its action"
   else
@@ -191,8 +195,8 @@ expect "^browser: run extension $third ran\$" "Check Third didn't run from the o
 expect "^browser: extension popup $third\$" "Check Third's popup didn't show"
 ../tools/window-screenshot.sh "$pid" "$out/extension-overflow-popup.png" ||
   fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close Check Third's popup"
+# Its action is behind the overflow button, so on Linux a click on the page closes it.
+close_popup "$page_point"
 # Check Clicked unpinned, Check Third has a place of its own, where a right-click unpins it.
 send menu "Pin to URL Field › Check Clicked"
 expect "^browser: unpin extension $clicked\$" "Pin to URL Field › Check Clicked didn't unpin it"
