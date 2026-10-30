@@ -360,8 +360,8 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   g_key_window_changed = changed;
 }
 
-// shortcut: nothing says when the browser window goes full screen, as the window manager's own
-// shortcut does it, and only Chromium's window hears it; the core's widget would report it.
+// The window's bounds change as it goes full screen or comes back, by the window manager's own
+// shortcut too, and the UI asks the core then (Shell::bounds_changed), so nothing watches here.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
 // GPUI's Wayland client hands the app the touchpad's three-finger swipes over the page
@@ -465,6 +465,8 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   return -1;
 }
 
+// Chrome's own windows, such as its Task Manager, take Ctrl+W themselves, which closes them:
+// with no menu bar taking a key for every window, as the Mac's does, the UI never gets theirs.
 bool host_close_other_window(void) {
   return false;
 }
