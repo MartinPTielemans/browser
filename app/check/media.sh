@@ -134,6 +134,9 @@ expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 1\$" \
 expect "^browser: page $b camera 0 microphone 0 sharing 0 shared 0\$" \
   "Share This Tab Instead left the first tab shared"
 
+# Chrome shows the tab a page starts sharing, unless the page asks it not to, so the call's tab is
+# shown again for its "e".
+[ "$(grep '^browser: selected ' "$log" | tail -1 | cut -d' ' -f3)" = "$a" ] || shown "$a"
 send click $page_point
 send key e
 expect "^browser: page $a camera 0 microphone 0 sharing 0 shared 0\$" \
