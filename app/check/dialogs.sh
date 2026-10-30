@@ -63,8 +63,14 @@ expect '^browser: dialog hover cancel$' "the pointer on Cancel didn't hover it"
 send move $confirm_at
 expect '^browser: dialog hover confirm$' "the pointer on OK didn't hover it"
 ../tools/window-screenshot.sh "$pid" "$out/dialog-confirm-hovered.png" || fail "no window to capture"
-send move $page_point
+# Held down, it goes a step darker again (#707), and let go of off it, it doesn't answer.
+send press $confirm_at
+expect '^browser: dialog pressed confirm$' "pressing OK didn't draw it pressed"
+../tools/window-screenshot.sh "$pid" "$out/dialog-confirm-pressed.png" || fail "no window to capture"
+send dragto $page_point
 expect '^browser: dialog hover none$' "the pointer leaving OK left it hovered"
+send release $page_point
+expect '^browser: dialog pressed none$' "letting go off OK left it pressed"
 answer return accept "confirm true"
 # The prompt's field holds the page's default, selected, so typing takes its place.
 ask p Prompt prompt

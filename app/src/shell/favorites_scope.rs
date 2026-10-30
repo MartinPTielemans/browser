@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use gpui::{AppContext, Entity, TestAppContext};
 
-use crate::shell::{Command, FavoritesScope, Folders, Shell, recorder::Recorder};
+use crate::shell::{Command, FavoritesScope, Folders, Shell, change_keys, recorder::Recorder};
 
 /// The user's Spaces 1 and 2 in profile 7 and Space 3 in profile 8, and Claude Code's Space 4 in
 /// profile 7, each with a Today tab. Space 1 shows.
@@ -120,4 +120,20 @@ fn a_change_of_scope_swaps_the_tiles_of_the_space_shown(cx: &mut TestAppContext)
     shell.update(cx, |shell, cx| shell.set_favorites(vec![(40, 7), (41, 7)], cx));
     assert_eq!(favorites(&shell, cx), [40, 41]);
     assert_eq!(first_tab(&shell, &host, cx, 2), "select 40");
+}
+
+/// With Include Favorites in ⌘1–⌘8 turned off (Settings › Shortcuts), ⌘1 is the Space's first tab
+/// after the tiles, and a number past its tabs asks for nothing. Turned on again, ⌘1 is the first
+/// tile.
+#[gpui::test]
+fn the_numbers_can_leave_the_favorites_out(cx: &mut TestAppContext) {
+    let (shell, host) = shell_with_spaces(cx);
+    shell.update(cx, |shell, cx| shell.set_favorites(vec![(40, 7), (41, 7)], cx));
+    assert_eq!(first_tab(&shell, &host, cx, 1), "select 40");
+    cx.update(|cx| change_keys(cx, |keys| keys.set_favorites_numbered(false)));
+    assert_eq!(first_tab(&shell, &host, cx, 1), "select 11");
+    shell.update(cx, |shell, cx| shell.run(Command::SelectTab(1), "ui", cx));
+    assert!(host.take().is_empty());
+    cx.update(|cx| change_keys(cx, |keys| keys.set_favorites_numbered(true)));
+    assert_eq!(first_tab(&shell, &host, cx, 1), "select 40");
 }

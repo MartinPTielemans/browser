@@ -5,7 +5,8 @@
 # says what it does. A click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its top, the list shows an
 # edge under the tile, and showing a tab under its bottom scrolls to the tab's row. Away from its
 # URL, a double-click on the tile goes back there. ⌘W unloads it and keeps the tile, showing the
-# top Today tab. The tile's menu duplicates it to the top of Today. Launched
+# top Today tab. The tile's menu hangs the icon picker under the tile, whose pick is the tile's icon
+# until Remove Icon, and duplicates it to the top of Today. Launched
 # again, the app brings the favorite back, shown, and Remove from Favorites in its menu puts it at
 # the top of Today. A row dragged onto the tiles turns into a tile, and a tile dragged into the list
 # into a row. Today rows dragged onto the tiles become favorites where they're dropped, a tile
@@ -15,7 +16,9 @@
 # menus of two pop-up buttons set how long Today tabs wait for the archive and who shares the
 # favorites (Each Space, kept across the quit and its favorite with it, then Each Profile's Spaces
 # again), and all of them stay after the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
-# Settings… opens Chromium's settings in a tab.
+# Settings… opens Chromium's settings in a tab. A Space keeps more than the 12 favorites it shows
+# at most from a list saved before there was a most, and with 12 a row dragged over the tiles stays
+# a row and a pinned tab's menu dims Add to Favorites.
 
 # Favorites, from the served page with example.org above it.
 serve
@@ -156,9 +159,35 @@ none_since "^browser: tab $a closed\$" || fail "⌘W closed a favorite"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-unloaded.png" || fail "no window to capture"
 switch "1 cmd" "$a"
 expect "^browser: loaded $a $site\$" "the unloaded favorite didn't load once shown"
+# Change Icon… in the tile's menu hangs the icon picker under the tile, its arrow at the tile's
+# middle, and the emoji picked is the tile's icon, until Remove Icon takes it out (Arc).
+post rightclick $tile
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, Change Icon…, Close Tab')\$" \
+  "a right-click on the tile didn't offer Change Icon…"
+send choose "$(cased 'Change Icon…')"
+expect "^browser: icon picker for tab $a on emoji\$" \
+  "Change Icon… on the tile didn't open the icon picker for the favorite"
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker under the tile"
+# The arrow's tip is 13 in from the picker's left, 12 under the tile's middle at $tile.
+at=$(grep '^browser: icon picker at' "$log" | tail -1 | cut -d' ' -f5-)
+echo "$at $tile" | awk '{ x = $1 + 13 - $5; y = $2 - 12 - $6; exit !(x > -2 && x < 2 && y > -2 && y < 2) }' ||
+  fail "the icon picker opened at $at, not under the tile's middle at $tile"
+../tools/window-screenshot.sh "$pid" "$out/favorite-icon-picker.png" || fail "no window to capture"
+send insert glowing star
+send key return
+expect "^browser: page $a icon 🌟\$" "the picker's pick didn't become the favorite's icon"
+expect '^browser: icon picker hidden$' "picking an emoji didn't close the icon picker"
+expect "^browser: tile $a drawn with icon 🌟\$" "the tile didn't draw the favorite's new icon"
+../tools/window-screenshot.sh "$pid" "$out/favorite-icon.png" || fail "no window to capture"
+post rightclick $tile
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, Change Icon…, Remove Icon, Close Tab')\$" \
+  "the favorite with an icon didn't offer Remove Icon"
+send choose "$(cased 'Remove Icon')"
+expect "^browser: page $a icon none\$" "Remove Icon didn't take the favorite's icon out"
+expect "^browser: tile $a drawn with icon none\$" "the tile didn't draw its favicon again"
 # The tile's menu. Duplicate Tab opens a copy at the top of Today and shows it.
 post rightclick $tile
-expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab')\$" \
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, Change Icon…, Close Tab')\$" \
   "a right-click on the tile didn't show the favorite's menu"
 send choose "$(cased 'Duplicate Tab')"
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
@@ -255,7 +284,7 @@ if [ "$active" != 1 ]; then
   exit 0
 fi
 post rightclick $tile
-expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab')\$" \
+expect "^browser: menu shown $(cased 'Back to Favorite URL (disabled), Replace Favorite URL with Current (disabled), Duplicate Tab, Remove from Favorites, Change Icon…, Close Tab')\$" \
   "a right-click on the restored tile didn't show the favorite's menu"
 send choose "$(cased 'Remove from Favorites')"
 expect '^browser: command remove-from-favorites via tab menu$' "Remove from Favorites didn't run"
@@ -480,8 +509,9 @@ post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
-# More Settings… sits under Advanced's two switch rows, the haptics' and the link previews'.
-send clickkey 120 211
+# More Settings… sits under Advanced's box of two switch rows, the haptics' and the link
+# previews', and the box of Export…'s row.
+send clickkey 120 263
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
 expect '^browser: loaded [0-9]* chrome://settings/$' \
@@ -492,4 +522,76 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: dialog shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Windows: $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+
+# A list longer than the 12 a Space shows at most, as one saved before there was a most, comes back
+# whole. With one taken out, the 12 left refuse a 13th: a pinned tab's menu dims Add to Favorites,
+# and its row dragged over the tiles stays a row. Each copy is a favorite of its own, at a pinned
+# URL of its own.
+python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    session = json.load(f)
+kept = session["favorites"]
+copies = []
+for i in range(13):
+    copy = {k: v for k, v in kept[i % len(kept)].items() if k not in ("id", "position", "site")}
+    copy["pinned_url"] = f"{sys.argv[2]}favorite-{i}.html"
+    copies.append(copy)
+session["favorites"] = copies
+with open(sys.argv[1], "w") as f:
+    json.dump(session, f)
+' "$saved" "$site" || fail "the saved favorites couldn't be made 13"
+log="$out/favorites-most.log"
+step=0
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the relaunch didn't restore the 13 favorites"
+await '^browser: favorites\( [0-9][0-9]*\)\{13\}$' ||
+  fail "the 13 favorites saved didn't all come back: \"$(favorites)\""
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: the most favorites. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# The rows are drawn by the time the driver's click is done.
+../tools/window-screenshot.sh "$pid" "$out/favorites-most.png" || fail "no window to capture"
+# Four to a row across the sidebar, the first tile's middle at 32 110.
+r=$(favorites | cut -d' ' -f1)
+post rightclick 32 110
+expect "^browser: menu shown $(cased 'Back to Favorite URL, ')" "a right-click on the first tile didn't show its menu"
+send choose "$(cased 'Remove from Favorites')"
+expect '^browser: favorites\( [0-9][0-9]*\)\{12\}$' "Remove from Favorites didn't leave 12 favorites"
+expect "^browser: today $r\( \|\$\)" "Remove from Favorites didn't put the tab at the top of Today: \"$(today)\""
+expect '^browser: tiles settled$' "the 12 tiles didn't settle"
+expect '^browser: rows settled$' "the rows didn't settle under the 12 tiles"
+twelve=$(favorites)
+# Three rows of tiles take the Space's rows 141 down.
+send click 100 $(($(row 0 | cut -d' ' -f2) + 141))
+expect "^browser: selected $r\( in .*\)\{0,1\}\$" "a click on Today's top row didn't show the tab taken out"
+send key d cmd
+expect "^browser: pinned $r\$" "⌘D didn't pin the tab taken out of the favorites"
+expect '^browser: rows settled$' "the rows didn't settle after ⌘D"
+pinned_full="100 $(($(pinned_row 0 | cut -d' ' -f2) + 141))"
+post rightclick $pinned_full
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites (disabled), ')" \
+  "with 12 favorites, a pinned tab's menu didn't dim Add to Favorites"
+../tools/window-screenshot.sh "$pid" "$out/favorites-full-menu.png" || fail "no window to capture"
+send dismiss
+send press $pinned_full
+send dragto 100 200
+send dragto 114 112
+none_since '^browser: drag shape tile$' || fail "with 12 favorites, a row dragged over the tiles turned into a tile"
+send release 114 112
+# Over the tiles it's still over its own place, so it goes back there, which moves nothing in the
+# browser and logs only the put-back.
+expect "^browser: \(dragged $r to \(pinned\|today\) \|drag put back\$\)" \
+  "the row dragged over the 12 tiles didn't drop back in the list"
+none_since "^browser: dragged $r to favorites" || fail "with 12 favorites, a row dropped on the tiles became the 13th"
+[ "$(favorites)" = "$twelve" ] || fail "with 12 favorites, the drag changed them: \"$(favorites)\""
+exec 3>&-
+quit
+echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Change Icon… on the tile hangs the icon picker under it, its pick is the tile's icon and Remove Icon takes it out. 13 favorites saved come back whole, and with 12 a pinned tab's menu dims Add to Favorites and its row dragged over the tiles stays a row. Windows: $out/favorite-icon-picker.png, $out/favorite-icon.png, $out/favorites-most.png, $out/favorites-full-menu.png, $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"

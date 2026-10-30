@@ -4,13 +4,14 @@
 use gpui::{Context, SharedString};
 
 use super::{Extension, Shell, menus::space_menu_label};
+use crate::theme::Appearance;
 
 /// What the key window's menu bar shows that changes with it.
 #[derive(Clone, Default, PartialEq)]
 pub struct MenuBar {
     /// The Spaces' names, each after its icon if it has one, for the Spaces menu.
     pub spaces: Vec<SharedString>,
-    /// The shown Space's profile's turned-on extensions, for the Extensions menu.
+    /// The shown Space's profile's extensions that run in the window, for the Extensions menu.
     pub extensions: Vec<Extension>,
     pub sidebar_hidden: bool,
     /// Whether the tab shown is pinned, or None with none shown.
@@ -18,6 +19,8 @@ pub struct MenuBar {
     /// Spaces › Change Profile: each profile by id and name, whether the Space shown can change to
     /// it and whether it's in it, then whether New Profile can be chosen. None in a private window.
     pub profiles: Option<(Vec<ProfileChoice>, bool)>,
+    /// View › Appearance's choice, which it checks.
+    pub appearance: Appearance,
 }
 
 /// A profile a Space can be in, as its menus list it.
@@ -47,12 +50,12 @@ impl MenuBar {
 
 impl Shell {
     /// What the menu bar shows for this window now.
-    fn menu_bar(&self) -> MenuBar {
+    pub(super) fn menu_bar(&self) -> MenuBar {
         let profile = self.shown_space().map_or(0, |space| space.profile);
-        // A private window lists neither Spaces nor extensions: its one Space isn't one of them,
-        // and Chrome keeps extensions out of a private session.
+        // A private window lists no Spaces, as its one Space isn't one of them, and only the
+        // extensions the user allowed in Incognito, which Chrome runs in a private session.
         let extensions = (self.extensions.get(&profile).into_iter().flatten())
-            .filter(|extension| extension.enabled && !self.private)
+            .filter(|extension| extension.runs(self.private))
             .cloned()
             .collect();
         let spaces = (self.spaces.iter())
@@ -66,6 +69,7 @@ impl Shell {
             sidebar_hidden: self.sidebar_hidden,
             pinned,
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
+            appearance: self.app_appearance,
         }
     }
 

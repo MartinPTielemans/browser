@@ -13,7 +13,8 @@
 # Library… and the footer's button open the Library, which pushes the page right at its width, and
 # its back button closes it. A right-click on an archived tab shows its menu, whose Copy URL copies
 # its URL and Delete from Archive takes it out. A click on one reopens it at the top of Today with
-# its history, and Clear Archive asks, then empties the archive. A page's question about a
+# its history, and Clear Archive, from the Archive menu and a right-click on the Archived Tabs
+# section, asks, then empties the archive, which ⌘Z brings back. A page's question about a
 # permission shows under the URL field while its tab is shown, bringing out a hidden sidebar, and
 # its ×, Block and Allow answer it. The URL field's Site Controls button and the command bar's Site
 # Controls, from the page, open a panel under the field that lists the site's permissions as
@@ -340,7 +341,7 @@ send menubar Edit
 expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Select All" \
   "the Edit menu has no Paste and Match Style after Paste"
 send menubar View
-expect "^browser: menu bar View: Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
+expect "^browser: menu bar View: \(Appearance › [^,]*, \)*Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
 send menubar Tabs
 expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Clear Today" \
   "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar or Clear Today"
@@ -352,6 +353,24 @@ expect "^browser: menu bar Archive: .*, View Archive…$maybe, " "Archive has no
 send menubar Window
 expect "^browser: menu bar Window: .*, Open Library…$maybe, View Downloads…" \
   "Window has no Open Library… and View Downloads…"
+# Help has Arc's help, the shortcuts and Report a Problem…, and Troubleshooting's Copy Build Info
+# copies this copy's version, the system's and the chip, read from the computer.
+if [ "$(uname)" = Darwin ]; then
+  send menubar Help
+  expect "^browser: menu bar Help: Welcome to [^,]*, Help Center$maybe, What's New$maybe, Essential Keyboard Shortcuts$maybe, Report a Problem…$maybe, Troubleshooting › Copy Build Info$maybe, Troubleshooting › Open Task Manager" \
+    "Help lacks Help Center, What's New, the shortcuts, Report a Problem… or Troubleshooting"
+  post openmenu Help
+  expect '^browser: menu tracked Welcome to ' "the Help menu didn't open"
+  ../tools/window-screenshot.sh "$pid" "$out/help-menu.png" || fail "no window to capture"
+  post dismiss
+  send menu "Troubleshooting › Copy Build Info"
+  expect '^browser: command copy-build-info via ui$' "Copy Build Info didn't run"
+  info=$(grep -A3 '^browser: copied [^ ]* [0-9][0-9.]*' "$log" | tail -4)
+  echo "$info" | grep -q '^macOS [0-9][0-9]*\.[0-9]' || fail "Copy Build Info has no macOS version: $info"
+  echo "$info" | grep -q '^Apple ' || fail "Copy Build Info has no chip: $info"
+  echo "ok: Help lists Help Center, What's New, the shortcuts, Report a Problem… and" \
+    "Troubleshooting, $out/help-menu.png. Copy Build Info copied: $(echo "$info" | sed 's/^browser: copied //' | tr '\n' ';')"
+fi
 # Archive Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
 expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on the top Today row didn't show Arc's tab menu"
@@ -384,7 +403,7 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Archive Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on a pinned row didn't show its tab's menu"
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Pinned URL › Replace Pinned URL with Current (disabled), Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on a pinned row didn't show its tab's menu"
 send choose "$(cased 'Unpin Tab')"
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
@@ -451,11 +470,31 @@ send choose "$(cased 'Delete from Archive')"
 expect '^browser: remove archived [0-9][0-9]*$' "Delete from Archive didn't run"
 expect "^browser: archive $((archived - 1)) tabs\$" "Delete from Archive didn't take the tab out"
 none_since '^browser: library hidden$' || fail "Delete from Archive closed the Library"
+# A right-click on the Archived Tabs section offers Clear Archive, as Arc's does, which asks as
+# the menu's does, and ⌘Z brings the tabs back. It's the last of four, 100 apart and centred 5
+# above the column's middle.
+archive_section="56 $((height / 2 + 145))"
+post rightclick $archive_section
+expect "^browser: menu shown $(cased 'Clear Archive')\$" \
+  "a right-click on the Archived Tabs section didn't offer Clear Archive"
+../tools/window-screenshot.sh "$pid" "$out/archive-section-menu.png" || fail "no window to capture"
+send choose "$(cased 'Clear Archive')"
+expect '^browser: command clear-archive via library$' "Clear Archive from the section didn't run"
+expect '^browser: dialog shown Clear the archive?$' "Clear Archive from the section didn't ask first"
+send key return
+expect '^browser: archive 0 tabs$' "Clear Archive from the section didn't empty the archive"
+send key z cmd
+expect "^browser: archive $((archived - 1)) tabs\$" "⌘Z didn't bring back the tabs Clear Archive took"
 send menu Clear Archive
 expect '^browser: dialog shown Clear the archive?$' "Clear Archive didn't ask first"
 send key return
 expect '^browser: archive 0 tabs$' "Clear Archive didn't empty the archive"
 ../tools/window-screenshot.sh "$pid" "$out/library-empty.png" || fail "no window to capture"
+# With nothing in the archive, the section's Clear Archive has nothing to do.
+post rightclick $archive_section
+expect "^browser: menu shown $(cased 'Clear Archive (disabled)')\$" \
+  "the section's Clear Archive wasn't dimmed with the archive empty"
+send dismiss
 send click 24 $((height - 24))
 expect '^browser: command view-library via library$' "the Library's back button didn't run"
 expect '^browser: library hidden$' "the back button didn't close the Library"
@@ -1162,4 +1201,4 @@ for kind in ("sites", "listed_off"):
 ' "$listed_prefs" || fail "On didn't leave the listed host as listed"
 fi
 forget_engine_sites
-echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, Arc's for a Today tab: Duplicate copies the tab with its history and icon under it, Archive Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, Window › Open Library… and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab with the site's cookies, HttpOnly too, and localStorage from Chromium there before its first request and script, keeps the site for it until the Site Controls turn it off, which brings the cookies and the item its page stored back to Chromium, gives another site back to Chromium, keeps a link whose redirects pass through another site and come back, and gives back one whose redirects end there, opens a new tab from ⌘T at the site there, gives a private window's tab there a session of its own, which the regular window doesn't see and which ends with the window, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, the click that closes the command bar reaches the page, as it does Chromium's, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. The note's × closes it for the site, which leaves it closed after a reload, in another tab and after another site and back, while another site's note still shows; from macOS 14 the Site Controls offer Safari's engine for the site instead, and On shows the page there, as they do for a site turned off. From macOS 14 a listed streaming service opens in Safari's engine on its first load, without Chromium's first, in a private window too; the Site Controls show it on, and Off shows it in Chromium after a reload, in a new tab, after another site and back and after a relaunch, where On brings it back without keeping it as the user's. ⇧⌘Z redoes Clear, and Archive Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/row-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png, $out/site-controls-engine.png, $out/site-controls-offered.png, $out/listed.png, $out/site-controls-listed-on.png and $out/site-controls-listed-off.png"
+echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, Arc's for a Today tab: Duplicate copies the tab with its history and icon under it, Archive Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, Window › Open Library… and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive, from a right-click on the Archived Tabs section and the Archive menu, asks, then empties it, ⌘Z bringing its tabs back, and the section's is dimmed once it's empty. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab with the site's cookies, HttpOnly too, and localStorage from Chromium there before its first request and script, keeps the site for it until the Site Controls turn it off, which brings the cookies and the item its page stored back to Chromium, gives another site back to Chromium, keeps a link whose redirects pass through another site and come back, and gives back one whose redirects end there, opens a new tab from ⌘T at the site there, gives a private window's tab there a session of its own, which the regular window doesn't see and which ends with the window, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, the click that closes the command bar reaches the page, as it does Chromium's, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. The note's × closes it for the site, which leaves it closed after a reload, in another tab and after another site and back, while another site's note still shows; from macOS 14 the Site Controls offer Safari's engine for the site instead, and On shows the page there, as they do for a site turned off. From macOS 14 a listed streaming service opens in Safari's engine on its first load, without Chromium's first, in a private window too; the Site Controls show it on, and Off shows it in Chromium after a reload, in a new tab, after another site and back and after a relaunch, where On brings it back without keeping it as the user's. ⇧⌘Z redoes Clear, and Archive Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/row-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/archive-section-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png, $out/site-controls-engine.png, $out/site-controls-offered.png, $out/listed.png, $out/site-controls-listed-on.png and $out/site-controls-listed-off.png"

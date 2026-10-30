@@ -17,10 +17,12 @@ if [ "$(uname -s)" = Linux ]; then
   # In the browser crate's target, which has built the same dependencies for the tests.
   # shellcheck disable=SC2086 # no features, or one flag and its value
   cargo build --release --manifest-path linux/Cargo.toml --target-dir target $features
+  # The bridge an agent's MCP client runs, which finds the browser's socket (src/agents/bridge.rs).
+  cargo build --release --bin mcp-bridge
   rm -rf build/Browser
   mkdir -p build
   cp -al "$(cd .deps/engine && pwd -P)" build/Browser
-  cp target/release/libBrowser.so build/Browser/
+  cp target/release/libBrowser.so target/release/mcp-bridge build/Browser/
   # uBlock Origin goes beside chrome, Chromium's assets folder off the Mac, where the core loads it.
   cp -R "$(./fetch-ublock.sh)" build/Browser/ublock
   # shellcheck disable=SC2086
@@ -122,7 +124,8 @@ if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
   [ -z "$features" ] || { echo "A prod build needs the whole history: git fetch --unshallow" >&2; exit 1; }
 fi
 build=$(git rev-list --count HEAD)
-cargo build --release --bin Browser $features
+# The build number, for Settings › About to show beside the version.
+APP_BUILD=$build cargo build --release --bin Browser --bin mcp-bridge $features
 
 app=build/Browser.app
 rm -rf "$app"
@@ -130,7 +133,8 @@ mkdir -p build
 # A clone, so it's instant, and rebuilding the engine leaves a built app as it was.
 cp -cR "$(cd .deps/Chromium.app && pwd -P)" "$app"
 rm "$app/Contents/MacOS/Chromium"
-cp target/release/Browser "$app/Contents/MacOS/"
+# The bridge goes beside it, where Settings › Agents points an agent's MCP client.
+cp target/release/Browser target/release/mcp-bridge "$app/Contents/MacOS/"
 # uBlock Origin goes in the framework's resources, where the core loads it into every profile.
 framework=$(echo "$app"/Contents/Frameworks/*Framework.framework)
 cp -R "$(./fetch-ublock.sh)" "$framework/Resources/ublock"
@@ -151,6 +155,9 @@ plutil -replace CFBundleName -string "$name" "$plist"
 plutil -replace CFBundleDisplayName -string "$name" "$plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$plist"
 plutil -replace CFBundleVersion -string "$build" "$plist"
+# macOS 15 (Sequoia) or later, the owner's call (#678). Below it macOS won't open the app, and
+# Sparkle's generate_appcast copies it into the feed's entry, so an older Mac is offered no update.
+plutil -replace LSMinimumSystemVersion -string 15.0 "$plist"
 rm "$app/Contents/Resources/app.icns"
 cp branding/Assets.car "branding/$name.icns" "$app/Contents/Resources/"
 plutil -replace CFBundleIconFile -string "$name" "$plist"
