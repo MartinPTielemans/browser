@@ -4143,7 +4143,7 @@ fn offer_restart(cx: &mut App) {
             concat!("Restart ", env!("APP_NAME"), " to use it.").into(),
         )
     };
-    let restart = |cx: &mut App| {
+    let restart = |_: Vec<String>, cx: &mut App| {
         let Some(portal) = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.0.clone()))
         else {
             return;
