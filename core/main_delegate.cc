@@ -19,6 +19,7 @@
 #include "browser_core/agent_autofill.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/downloads.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
@@ -116,6 +117,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
     RegisterArchivePrefs();
+    RegisterDownloadPrefs();
     widevine::Start();
   }
 
