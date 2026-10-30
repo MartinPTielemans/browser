@@ -578,6 +578,14 @@ fn remove_login(profile: bc::bc_id, login: &passwords::Login) {
     unsafe { bc::bc_profile_remove_login(profile, key.as_ptr(), username.as_ptr(), login.never) };
 }
 
+/// Saves the Spaces' favorites and pinned tabs as a Markdown file of links where the user picks,
+/// for Settings' Export…. The user's alone, as Settings is.
+fn export_spaces(cx: &mut App) {
+    if let Some(shell) = shell_with_view(front().1).upgrade() {
+        shell.update(cx, |shell, cx| shell.export_spaces(cx));
+    }
+}
+
 fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
     let core = unsafe { bc::bc_tab_window(tab) };
     WINDOWS.with_borrow(|windows| {
@@ -2042,6 +2050,29 @@ impl Browser for Engine {
         if tab != 0 {
             unsafe { bc::bc_tab_save_page(tab) };
         }
+    }
+
+    fn save_markdown(&self, name: &str, markdown: String, links: usize, cx: &mut App) {
+        let save = move |path: std::path::PathBuf| match std::fs::write(&path, markdown) {
+            // check.sh reads this line.
+            Ok(()) => log!("browser: exported {links} links to {}", path.display()),
+            Err(error) => log!("couldn't export to {}: {error}", path.display()),
+        };
+        // A check names its file, as it can't drive the system's panel.
+        if !cfg!(feature = "prod")
+            && let Some(file) = std::env::var_os("BROWSER_EXPORT_FILE")
+        {
+            return save(file.into());
+        }
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+        let chosen = cx.prompt_for_new_path(&home, Some(name));
+        cx.foreground_executor()
+            .spawn(async move {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    save(path);
+                }
+            })
+            .detach();
     }
 
     fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
@@ -4776,6 +4807,48 @@ unsafe extern "C" fn window_extension_popup(
     }
 }
 
+/// On Linux and Windows, Chrome asks whether to quit, or close the last private window, cancelling
+/// `count` downloads running. In the words of Chrome's alert on the Mac, with the app's name where
+/// it names Chromium, and ↩ on Continue Downloading, as there.
+unsafe extern "C" fn window_downloads_question(
+    _: *mut c_void,
+    window: bc::bc_id,
+    count: c_int,
+    last_private: bool,
+) {
+    let question = dialog::Question {
+        icon: None,
+        message: match count {
+            1 => "Download is in progress",
+            _ => "Downloads are in progress",
+        }
+        .into(),
+        detail: match last_private {
+            true => "Quit Incognito mode anyway?",
+            false => concat!("Quit ", env!("APP_NAME"), " anyway?"),
+        }
+        .into(),
+        list: Vec::new(),
+        action: "Quit".into(),
+        cancel: "Continue Downloading".into(),
+        // Quit cancels the downloads, which can't be taken back.
+        tone: dialog::Tone::Destructive,
+        also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: true,
+    };
+    let answered =
+        Box::new(move |cancel, _: &mut App| unsafe { bc::bc_window_answer_downloads(window, cancel) });
+    // With no UI to ask in, the browser stays open, as it does with no dialog to ask in.
+    if CX.with_borrow(Option::is_none) {
+        unsafe { bc::bc_window_answer_downloads(window, false) };
+        return;
+    }
+    // A private window's close can ask from inside the app's own call.
+    update_app_later(move |cx| dialog::ask_chrome(question, answered, cx));
+}
+
 unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
     update_window(window, |shell, cx| shell.show_downloads(cx));
 }
@@ -5309,9 +5382,10 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     const CRASH_TEST: &str = "--crash-after-start";
     // Where the user's crash reports go if they send them, a default service URL that a fork or a
     // self-hosted collector names in branding/crash-reports. Without one the build sends none, and
-    // Settings doesn't offer to. A check's own, given to the app, comes after and wins.
+    // Settings doesn't offer to. Only the prod build names it, as only it reaches users, so no dev
+    // build or check sends to the product's collector; crash.sh gives the app its own.
     let collector = include_str!("../branding/crash-reports").trim();
-    if !collector.is_empty() {
+    if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
@@ -5394,6 +5468,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        window_downloads_question: Some(window_downloads_question),
         ..Default::default()
     };
     (args, host)

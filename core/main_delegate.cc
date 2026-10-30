@@ -343,6 +343,13 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     features += features.empty() ? "" : ",";
     command_line->AppendSwitchASCII(switches::kEnableFeatures,
                                     features + features::kWebContentsDiscard.name);
+    // Blink's eye in a password field, Chrome's on Windows: it shows only once the user types into
+    // the empty field, and goes, masking it again, as the field loses focus or is filled in or set
+    // by the page, so a saved password is never shown. The core blurs a tab's page each time the
+    // tab becomes an agent's to act in, so no agent sees one the user showed (agent_session.cc).
+    std::string blink = command_line->GetSwitchValueASCII(switches::kEnableBlinkFeatures);
+    blink += blink.empty() ? "" : ",";
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures, blink + "PasswordReveal");
 #if BUILDFLAG(IS_MAC)
     platform::NameKeychainItem();
 #endif

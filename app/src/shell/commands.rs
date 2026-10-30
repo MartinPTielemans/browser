@@ -128,6 +128,8 @@ pub enum Command {
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
+    /// Saves the Space shown's pinned tabs, folders and Today tabs as Markdown links.
+    ExportSpace,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
@@ -363,6 +365,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
+    ("Export Space as Markdown…", Command::ExportSpace, &["save", "links", "backup"]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
     ("Previous Space", Command::PreviousSpace, &[]),
@@ -648,6 +651,7 @@ impl Command {
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
+            Command::ExportSpace => "export-space",
             Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
@@ -957,6 +961,7 @@ impl Shell {
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
+            Command::ExportSpace => return self.export_space(self.space, cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
@@ -1237,6 +1242,7 @@ impl Shell {
             | Command::ToggleSidebar
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::ExportSpace
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
@@ -1313,6 +1319,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::ExportSpace
             | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
             | Command::NextSpace

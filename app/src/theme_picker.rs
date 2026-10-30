@@ -20,7 +20,7 @@ use crate::{
     icon_picker,
     palette::{self, Palette, Swatch, Tone},
     shell::{KEY_CONTEXT, cubic_bezier},
-    theme::{self, Appearance, DEFAULT_INTENSITY, MAX_COLORS, Theme},
+    theme::{self, Appearance, DEFAULT_INTENSITY, MAX_COLORS, Place, Theme},
 };
 
 actions!(theme_picker, [Dismiss]);
@@ -102,7 +102,8 @@ use crate::tokens::text;
 /// Pressed, a handle grows by this in 60 ms, and shrinks back as long on release.
 const PRESSED: f32 = 48. / 44.;
 const PRESS: f32 = 0.06;
-/// With a third colour, the second glides from the main one's complement to 150° round in 0.2 s.
+/// With a third colour, the second glides from the main one's complement to 150° round in 0.2 s,
+/// and from a place of its own to its set angle as the count changes (ours).
 const GLIDE: f32 = 0.2;
 
 /// What the picker asks of its window.
@@ -154,12 +155,15 @@ struct Editing {
     drag: Option<Drag>,
     /// A handle's growth: which, since when, and whether it's pressed or let go.
     press: Option<(usize, Instant, bool)>,
-    /// The second handle's glide between offsets: from, to and since when.
-    glide: Option<(f32, f32, Instant)>,
+    /// The second handle's glide between places: from, to and since when.
+    glide: Option<(Place, Place, Instant)>,
     /// − or + while it's pressed.
     pressed: Option<Target>,
     /// Whether a frame of it has been drawn on screen since it opened.
     drawn: bool,
+    /// How many colour handles the last frame drew at rest, and what it drew held: a handle, the
+    /// wave's knob or the dial's, its grab left out.
+    drawn_handles: Option<(usize, Option<Drag>)>,
     /// What it draws with: the Space's palette as it opened, which holds while the user drags
     /// through themes that would change it.
     palette: Palette,
@@ -180,20 +184,29 @@ impl Global for ThemePickerWindow {}
 /// Opens the picker's window, hidden, for `host` to show over the browser window, ahead of time as
 /// the icon picker's is.
 pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<ThemePicker>> {
+    let bounds = Bounds::new(point(px(0.), px(0.)), size(px(WIDTH), px(HEIGHT)));
+    open_at(host, bounds, false, cx)
+}
+
+/// Opens the picker's window at `bounds`, shown if `show`, which the preview does.
+pub fn open_at(
+    host: Rc<dyn Host>,
+    bounds: Bounds<Pixels>,
+    show: bool,
+    cx: &mut App,
+) -> Option<WindowHandle<ThemePicker>> {
     cx.bind_keys([KeyBinding::new("escape", Dismiss, Some("ThemePicker"))]);
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.), px(0.)),
-            size(px(WIDTH), px(HEIGHT)),
-        ))),
-        titlebar: Some(TitlebarOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        // The preview's has none, so it hasn't the window buttons the host's takes off.
+        titlebar: (!show).then_some(TitlebarOptions {
             title: None,
             appears_transparent: true,
             traffic_light_position: None,
         }),
         kind: WindowKind::Floating,
-        show: false,
-        focus: false,
+        show,
+        focus: show,
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
@@ -274,6 +287,7 @@ pub fn show(
                 glide: None,
                 pressed: None,
                 drawn: false,
+                drawn_handles: None,
                 // The picker is a dark sheet over a dark or a light window, as the icon picker is.
                 palette: Palette::of(theme.as_ref(), Tone::Dark),
             });
@@ -423,17 +437,13 @@ impl ThemePicker {
                 self.changed(true, cx);
             }
             (Target::Remove, Some(theme)) if theme.count > 1 => {
-                if theme.count == 3 {
-                    editing.glide = Some((150., 180., now));
-                }
+                editing.glide = glide(&theme, theme.count - 1, now);
                 editing.theme = Some(theme.with_count(theme.count - 1));
                 editing.pressed = Some(target);
                 self.changed(true, cx);
             }
             (Target::Add, Some(theme)) if theme.count < MAX_COLORS => {
-                if theme.count == 2 {
-                    editing.glide = Some((180., 150., now));
-                }
+                editing.glide = glide(&theme, theme.count + 1, now);
                 editing.theme = Some(theme.with_count(theme.count + 1));
                 editing.pressed = Some(target);
                 self.changed(true, cx);
@@ -525,16 +535,25 @@ impl ThemePicker {
     }
 }
 
+/// The second handle's glide as `theme` goes to `count` colours, if its place changes.
+fn glide(theme: &Theme, count: usize, now: Instant) -> Option<(Place, Place, Instant)> {
+    let (from, to) = (theme.place(1), theme.with_count(count).place(1));
+    (theme.count > 1 && count > 1 && from != to).then_some((from, to, now))
+}
+
 impl Editing {
-    /// How far round from the main colour handle `index` shows, as the second glides.
-    fn offset(&self, index: usize, theme: &Theme) -> f32 {
-        let resting = Theme::offsets(theme.count).get(index).copied().unwrap_or(0.);
+    /// Where handle `index` shows in the field, as the second glides.
+    fn handle(&self, index: usize, theme: &Theme) -> (f32, f32) {
         match self.glide {
             Some((from, to, start)) if index == 1 => {
                 let t = (start.elapsed().as_secs_f32() / GLIDE).min(1.);
-                from + (to - from) * cubic_bezier(0.25, 0.1, 0.25, 1., t)
+                let t = cubic_bezier(0.25, 0.1, 0.25, 1., t);
+                // The short way round.
+                let turn = (to.turn - from.turn + 540.).rem_euclid(360.) - 180.;
+                let place = Place { turn: from.turn + turn * t, lift: from.lift + (to.lift - from.lift) * t };
+                theme::placed(theme.x, theme.y, place)
             }
-            _ => resting,
+            _ => theme.handle(index),
         }
     }
 
@@ -547,6 +566,36 @@ impl Editing {
                 1. + (PRESSED - 1.) * t
             }
             _ => 1.,
+        }
+    }
+
+    /// Logs the colour handles as they're drawn at rest, and what's held. GPUI draws no frame
+    /// between a press and the next mouse event, and only a frame drawn while a handle or a knob is
+    /// held listens for the drag's moves, so check.sh waits for these lines before it presses and
+    /// before it drags.
+    fn log_handles(&mut self) {
+        let gliding = self.glide.is_some_and(|(.., start)| start.elapsed().as_secs_f32() < GLIDE);
+        let held = self.drag.map(|drag| match drag {
+            Drag::Handle(index, ..) => Drag::Handle(index, 0., 0.),
+            knob => knob,
+        });
+        let handles = self.theme.filter(|_| self.open && self.drawn && !gliding);
+        let handles = handles.map(|theme| (theme.count, held));
+        if handles.is_none() || handles == self.drawn_handles {
+            return;
+        }
+        self.drawn_handles = handles;
+        if let Some((count, held)) = handles {
+            match held {
+                Some(Drag::Handle(index, ..)) => {
+                    log!("browser: theme picker handles {count} drawn, {index} held")
+                }
+                Some(Drag::Intensity) => {
+                    log!("browser: theme picker handles {count} drawn, intensity held")
+                }
+                Some(Drag::Grain) => log!("browser: theme picker handles {count} drawn, grain held"),
+                None => log!("browser: theme picker handles {count} drawn"),
+            }
         }
     }
 
@@ -709,6 +758,7 @@ impl Render for ThemePicker {
                 window.request_animation_frame();
             }
         }
+        editing.log_handles();
         let editing = &*editing;
         let theme = editing.theme;
         let palette = editing.palette;
@@ -770,10 +820,7 @@ impl Render for ThemePicker {
             Some(theme) => {
                 // The main handle last, over the others.
                 for index in (1..theme.count).chain([0]) {
-                    let offset = editing.offset(index, &theme);
-                    let (hx, hy) = theme.handle(0);
-                    let (sin, cos) = offset.to_radians().sin_cos();
-                    let (hx, hy) = (hx * cos - hy * sin, hx * sin + hy * cos);
+                    let (hx, hy) = editing.handle(index, &theme);
                     let color = (theme.third.filter(|_| index == 2))
                         .unwrap_or_else(|| theme::color_at(hx, hy, theme.saturation));
                     let size = handle_size(index) * editing.growth(index);

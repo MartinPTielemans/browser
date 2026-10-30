@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use serde_json::Value;
 
+use super::extensions;
 use super::found::{Node, Page, Tab, opens_here};
 use super::read::{Copy, Kind, Read, ReadError, folder_name, micros, pinned};
 
@@ -22,6 +23,9 @@ pub fn read(path: &Path, picked: &[Kind], since: SystemTime) -> Result<Read, Rea
     let history = path.join("History");
     if picked.contains(&Kind::History) && history.is_file() {
         read.pages = self::history(&history, since)?;
+    }
+    if picked.contains(&Kind::Extensions) {
+        read.extensions = extensions::read(path);
     }
     Ok(read)
 }

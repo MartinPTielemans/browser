@@ -51,6 +51,7 @@ mod drag;
 mod display_face;
 mod drm_note;
 mod empty;
+mod export;
 mod extensions;
 mod favorites;
 mod fly_in;
