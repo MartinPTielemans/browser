@@ -74,6 +74,15 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
     })
 }
 
+/// The browser window the Site Controls or Capture of `view` show over, by its UI's view, and
+/// where in its content, if they show: ilo's menu shows over them there (overlays::placed).
+pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter().find(|each| each.view == view))
+            .and_then(|each| each.shown.map(|shown| (shown.ui_view, shown.bounds)))
+    })
+}
+
 fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::SiteControls => "site controls",
