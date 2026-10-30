@@ -96,6 +96,9 @@ printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
 printf '%s' '<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+onmousedown = () => setTimeout(() => document.title = "diag down focus " + document.hasFocus());
+onfocus = () => setTimeout(() => document.title = "diag focus");
+onblur = () => setTimeout(() => document.title = "diag blur");
 onkeydown = e => {
   if (e.metaKey || e.ctrlKey || e.altKey) {
     return;

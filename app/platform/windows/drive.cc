@@ -326,6 +326,10 @@ void Press(const Target& target, UINT button, int modifiers, bool second) {
   HWND root = GetAncestor(target.hwnd, GA_ROOT);
   const LRESULT activate = SendMessageW(target.hwnd, WM_MOUSEACTIVATE,
                                         reinterpret_cast<WPARAM>(root), MAKELPARAM(HTCLIENT, down));
+  fprintf(stderr, "browser: diag press %s root %s activate %lld active %s focus %s\n",
+          Utf8(ClassOf(target.hwnd)).c_str(), Utf8(ClassOf(root)).c_str(),
+          static_cast<long long>(activate), Utf8(ClassOf(GetActiveWindow())).c_str(),
+          Utf8(ClassOf(GetFocus())).c_str());
   if ((activate == MA_ACTIVATE || activate == MA_ACTIVATEANDEAT) && GetActiveWindow() != root) {
     SetActiveWindow(root);
   }
