@@ -1,9 +1,9 @@
 //! An agent's Space in the UI, which shows and switches like the user's, and which the user's tabs
 //! move into only as the user gives the agent one, on a host that records what the shell asks.
 
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
-use gpui::{AppContext, Entity, SharedString, TestAppContext, point, px};
+use gpui::{AppContext, Bounds, Entity, SharedString, TestAppContext, point, px, size};
 
 use crate::shell::{AgentGrants, Command, Folders, Shell, recorder::Recorder};
 
@@ -243,4 +243,31 @@ fn an_agents_space_menu_lists_its_permissions_to_revoke(cx: &mut TestAppContext)
     let sites = vec![("shop.example".into(), true)];
     *host.agent_permissions.borrow_mut() = AgentGrants { sites, connected: true, tabs: true };
     assert_eq!(item(&menu(cx), "All Sites"), None, "one site had All Sites");
+}
+
+/// The agent's pointer comes to an element it acts on in the page the window shows in its Space,
+/// and not in a tab of its the window doesn't show or while the user's Space is shown. It goes a
+/// moment after the agent's last action.
+#[gpui::test]
+fn the_agents_pointer_shows_where_it_acts_in_the_page_shown(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with_agent(cx);
+    let element = Bounds::new(point(px(40.), px(60.)), size(px(120.), px(30.)));
+    let point_at = |shell: &Entity<Shell>, cx: &mut TestAppContext, tab| {
+        shell.update(cx, |shell, cx| {
+            shell.agent_pointing(tab, "e3".into(), element, cx);
+            shell.agent_pointer_shown()
+        })
+    };
+    assert!(!point_at(&shell, cx, 20), "the user's Space is shown");
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+        shell.set_space(2, cx);
+        shell.set_selected(20, cx);
+    });
+    assert!(!point_at(&shell, cx, 21), "the window doesn't show tab 21");
+    assert!(point_at(&shell, cx, 20));
+    cx.executor().advance_clock(Duration::from_secs(1));
+    assert!(shell.update(cx, |shell, _| shell.agent_pointer_shown()));
+    cx.executor().advance_clock(Duration::from_secs(2));
+    assert!(!shell.update(cx, |shell, _| shell.agent_pointer_shown()));
 }

@@ -170,6 +170,15 @@ expect_soon() {
   done
   fail "$2"
 }
+# Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
+# draws one ("browser: settings $1 at x y").
+drawn() {
+  for _ in $(seq 100); do
+    sed -n "s/^browser: settings $1 at //p" "$log" | tail -1 | grep . && return 0
+    sleep 0.1
+  done
+  return 1
+}
 # Nothing logged since the last command was sent matches $1.
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
@@ -332,8 +341,8 @@ space() {
 
 # The pinned tabs the app last showed, top to bottom.
 pinned() {
-  grep '^browser: pinned' "$log" | grep -v '^browser: pinned extensions ' | tail -1 |
-    sed 's/^browser: pinned *//'
+  # Only the list's lines, not "pinned extensions" or the chevron's "pinned caret".
+  grep -E '^browser: pinned( [0-9]+)* ?$' "$log" | tail -1 | sed 's/^browser: pinned *//'
 }
 # Waits for the app to show the pinned tabs $1 over Today $2. $3 says what went wrong if it doesn't.
 expect_lists() {

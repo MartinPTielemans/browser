@@ -639,6 +639,8 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
+# Ours: the sidebar's ⌥ switch, in System Settings' Desktop & Dock indigo.
+option-reveal-tile = 0x5e5ce6
 restore-windows-tile = 0x5856d6
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
@@ -719,6 +721,11 @@ name-x = 41.0
 space-icon-slot = 20.0
 # The sidebar's icon takes clicks on Arc's frame, which lights with the header's plate (ours).
 space-icon-plate = 26.0
+# The chevron after the name that collapses the Space's pinned rows and expands them, on the
+# header's hover plate: down while they show, turned to point right while they're collapsed (ours).
+pinned-caret = 12.0
+pinned-caret-plate = 20.0
+pinned-caret-gap = 2.0
 icon-placeholder = 24.0
 icon-placeholder-radius = 6.0
 icon-placeholder-line = 1.0
@@ -739,6 +746,13 @@ drop-ring-x = 7.0
 drop-line-end = 2.0
 drop = 0xffff_ffe6
 plate-radius = 12.0
+# Around the row the keyboard acts on while the sidebar has it (Focus Sidebar), inside its plate,
+# in the ink at `keyed` (ours: Arc 1.170's isn't measured).
+keyed-ring = 2.0
+# While the selected tab's row is scrolled out past the list's top or bottom, a sliver of its plate
+# this tall shows at that edge, and a click this far in from the edge scrolls back to it (ours).
+shown-marker = 4.0
+shown-marker-hit = 14.0
 favicon-x = 17.0
 favicon-size = 18.0
 # The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
@@ -860,6 +874,7 @@ sleeping-favicon = 0.5
 # the light theme is built (ours).
 tile = 0.1
 tile-ring = 0.45
+keyed = 0.45
 tile-unthemed = 0x0000_00ff
 tile-unthemed-light = 0xffff_ffff
 # A tab in Developer Mode (docs/ux-spec.md › Developer Mode; ours, as Arc's isn't recorded and its
@@ -880,6 +895,9 @@ nav-hovered = 0.077
 # and 0.35 for the others, 0.5 under the pointer (ours: Arc's isn't measured). The Space shown's
 # glyph is its accent instead, or the ink without a colour (#469); an emoji dims by these ratios.
 space-name = 0.62
+# Lit a step, to Clear's under the pointer, while its pinned tabs are collapsed: Arc turns its name
+# bold, and ours is at the scale's heaviest already.
+space-name-shut = 0.81
 space-shown = 0.6
 space-other = 0.35
 space-hovered = 0.5
@@ -904,6 +922,25 @@ window-button-glyph = 0x00000080
 window-button-close = 0xe0604f
 window-button-minimize = 0xf3bf12
 window-button-zoom = 0x58bb18
+
+[shell.agent-pointer]
+# Ours (#365), as Arc and Dia have no agents in pages: while an agent clicks or types in the page
+# the window shows, its pointer, Lucide's mouse-pointer-2, in the mark's Signal green with the
+# name of its Space beside it, and a Signal ring round the element, outset from its box, with the
+# ref the agent named it by in a chip on the ring's top left.
+color = 0x0e9f55
+text = 0xffffff
+pointer = 20.0
+label-size = 11.0
+label-height = 18.0
+label-inset = 7.0
+ring = 2.0
+ring-outset = 3.0
+ring-radius = 6.0
+tag-size = 10.0
+tag-height = 16.0
+tag-inset = 5.0
+tag-radius = 6.0
 
 [shell.assets]
 # Every Lucide outline's stroke, in its 24 grid: 1.5 pt in a 16 pt box, 1.3 at 14 and 1.69 at 18.

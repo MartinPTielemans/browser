@@ -172,6 +172,37 @@ fn a_question_stays_until_a_button_answers_it(cx: &mut TestAppContext) {
     assert_eq!(after(cx, &host, LEAVE), ["hide"]);
 }
 
+/// A question asked again while it shows, as the archive's note at launch, is the one showing,
+/// and once answered or replaced by another toast it's no longer.
+#[gpui::test]
+fn a_question_shows_until_answered_or_replaced(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let note = "Tabs unseen for 12 hours went to the archive.";
+    let ask = |cx: &mut TestAppContext| {
+        let dismiss = Button {
+            label: Label::Text("Dismiss".into()),
+            name: "dismiss",
+            run: Rc::new(|_, _| {}),
+        };
+        cx.update(|cx| show_until_answered(note, vec![dismiss], cx));
+        cx.run_until_parked();
+    };
+    assert!(!cx.update(|cx| showing(note, cx)));
+    ask(cx);
+    assert!(cx.update(|cx| showing(note, cx)));
+    assert!(!cx.update(|cx| showing("Space deleted! Use", cx)));
+    cx.update(|cx| {
+        let window = cx.global::<ToastWindow>().0;
+        window.update(cx, |toast, _, cx| toast.press(0, point(px(0.), px(0.)), cx)).unwrap();
+    });
+    cx.run_until_parked();
+    assert!(!cx.update(|cx| showing(note, cx)), "an answered question is leaving");
+    after(cx, &host, LEAVE);
+    ask(cx);
+    show_deleted(cx);
+    assert!(!cx.update(|cx| showing(note, cx)), "another toast took its place");
+}
+
 #[gpui::test]
 fn a_resting_toast_comes_back_after_another_until_its_button_takes_it(cx: &mut TestAppContext) {
     let host = open_toast(cx);

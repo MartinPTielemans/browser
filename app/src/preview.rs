@@ -499,6 +499,19 @@ impl Browser for Fake {
         self.change_folder(folder, cx, move |entry| entry.1 = open);
     }
 
+    // The preview keeps the rows of the Space shown alone.
+    fn set_pinned_open(&self, space: u64, open: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            if space != shell.space() {
+                return;
+            }
+            let folders = Folders { pinned_shut: !open, ..shell.folders() };
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
     fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App) {
         self.later(cx, move |shell, cx| move_pinned(shell, folder, to, index, cx));
     }
@@ -795,6 +808,8 @@ impl Browser for Fake {
     fn view_history(&self, _: &mut App) {}
     fn open_page(&self, _: &str, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
+
+    fn clear_browsing_data(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false
@@ -1098,6 +1113,10 @@ impl Browser for Fake {
 
     fn hide_reveal(&self, _: &mut App) {}
 
+    fn option_reveals_sidebar(&self) -> bool {
+        true
+    }
+
     // PREVIEW_SIDEBAR=<width> starts the sidebar at that width, such as its narrowest, 164.
     fn saved_sidebar_width(&self) -> Option<f32> {
         std::env::var("PREVIEW_SIDEBAR").ok()?.parse().ok()
@@ -1127,6 +1146,20 @@ impl Browser for Fake {
     fn toast_undo(&self, _: &str, _: Rc<dyn Fn(&mut App)>, _: Duration, _: &mut App) {}
 
     fn hide_undo_toast(&self, _: &mut App) {}
+
+    fn in_front(&self) -> bool {
+        true
+    }
+
+    fn toast_button(
+        &self,
+        _: &str,
+        _: (&'static str, &'static str),
+        _: Rc<dyn Fn(&mut App)>,
+        _: Duration,
+        _: &mut App,
+    ) {
+    }
 
     fn set_edit_titles(&self, _: Option<&str>, _: Option<&str>, _: &mut App) {}
 

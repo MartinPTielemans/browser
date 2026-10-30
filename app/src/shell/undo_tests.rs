@@ -1034,6 +1034,7 @@ fn a_folders_icon_goes_back_to_what_it_was(cx: &mut TestAppContext) {
         folders: HashMap::from([(5, ("Reading".into(), true))]),
         parents: HashMap::from([(6, 5)]),
         icons: HashMap::from([(5, "📚".into())]),
+        ..Default::default()
     };
     let (shell, host) = window(cx, vec![4, 5, 6], Vec::new(), folders, Vec::new());
     shell.update(cx, |shell, cx| {

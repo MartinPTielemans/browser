@@ -12,8 +12,9 @@
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
 //! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
-//! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
-//! order, layout, state, title, pasteboard, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
+//! rightrelease, dragover, dragdrop, dragleave, move, scroll, wheel, pageswipe, key, keydown, keyup,
+//! flags, type, resize, place, order, layout, state, title, pasteboard, front, menu, menubar, choose,
+//! dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
 //! them, cmd with Ctrl and alt with Alt. flags presses and lets
@@ -23,8 +24,10 @@
 //! whose buttons it presses by their labels as drive.mm does an alert's, and dismiss on the menu;
 //! Linux shows no alerts yet. fullscreen toggles the window's full screen through the core. ime on types as
 //! drive.mm's scripted input method does, in the UI's fields alone, as a page's input method is
-//! Chromium's, and it can't compose in a page. The others, such as swipe, drags from other apps
-//! and displays, the driver can't do yet, and says so as drive.mm does.
+//! Chromium's, and it can't compose in a page. dragover and dragdrop are XDND's source, as
+//! another app's drag is, to the browser window's top-level window or its proxy, and wait for its
+//! answer. The others, such as swipe and displays, the driver can't do yet, and says so as drive.mm
+//! does.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -124,6 +127,11 @@ fn after(ms: u32, task: Box<dyn FnOnce()>) {
 /// windows have drawn what the events changed.
 fn settle(n: u64) {
     sync();
+    // Until the drag's target has answered, which it does from the loop.
+    if drag_waits() {
+        after(10, Box::new(move || settle(n)));
+        return;
+    }
     gpui_linux::sync_display();
     idle(Box::new(move || {
         sync();
@@ -220,7 +228,15 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
     X.with_borrow_mut(|x| {
         if x.is_none() {
             let (connection, screen) = x11rb::connect(None).ok()?;
-            let root = connection.setup().roots[screen].root;
+            let root = &connection.setup().roots[screen];
+            // The display's own pointer, which the driver never moves otherwise, waits in the
+            // screen's corner, out of the pages: in a page, the X server tells GPUI's window the
+            // pointer left it each time its shape changes around the pages, as a panel's drag
+            // changes it, and GPUI takes that for the pointer leaving.
+            let corner = (root.width_in_pixels as i16 - 1, root.height_in_pixels as i16 - 1);
+            let root = root.root;
+            _ = connection.warp_pointer(x11rb::NONE, root, 0, 0, 0, 0, corner.0, corner.1);
+            _ = connection.flush();
             *x = Some(Rc::new((connection, root)));
         }
         x.clone()
@@ -246,7 +262,13 @@ fn sync() {
     let Some(x) = server() else { return };
     let (connection, _) = &*x;
     _ = connection.get_input_focus().map(|cookie| cookie.reply());
-    while let Ok(Some(_)) = connection.poll_for_event() {}
+    while let Ok(Some(event)) = connection.poll_for_event() {
+        match event {
+            Event::SelectionRequest(request) => serve_drag(&request),
+            Event::ClientMessage(message) if message.format == 32 => drag_answered(&message),
+            _ => {}
+        }
+    }
 }
 
 /// A browser window, as the X server has it.
@@ -687,10 +709,9 @@ fn keysym(key: &str) -> Option<u32> {
         "space" => 0x20,
         "backspace" => 0xff08,
         "delete" => 0xffff,
+        "home" => 0xff50,
         "pageup" => 0xff55,
         "pagedown" => 0xff56,
-        // Off the Mac a page's own way to its top, which ⌘↑ is on the Mac.
-        "home" => 0xff50,
         "up" => 0xff52,
         "down" => 0xff54,
         "left" => 0xff51,
@@ -847,7 +868,8 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
             .map(|hovered| hovered.window)
             .filter(|&hovered| viewable(connection, hovered) && within(connection, hovered, focus))
             .unwrap_or(focus),
-        None => driven()?.window,
+        // A window of Chromium's own, such as the Task Manager, else none of the app's has it.
+        None => chromium_focus().or_else(|| driven().map(|browser| browser.window))?,
     };
     for &kind in kinds {
         let event = KeyPressEvent {
@@ -1013,6 +1035,48 @@ fn text_property(window: xproto::Window, name: &str) -> Option<String> {
     String::from_utf8(property.value).ok()
 }
 
+/// The window with the input focus while it's in one of this process's that isn't the app's own,
+/// such as Chromium's Task Manager, by the process id its window manager hint names.
+fn chromium_focus() -> Option<xproto::Window> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let pid = connection.intern_atom(false, b"_NET_WM_PID").ok()?.reply().ok()?.atom;
+    let focus = input_focus()?;
+    let mut window = focus;
+    loop {
+        let property = connection
+            .get_property(false, window, pid, xproto::AtomEnum::CARDINAL, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?;
+        if let Some(owner) = property.value32().and_then(|mut values| values.next()) {
+            return (owner == std::process::id()).then_some(focus);
+        }
+        let tree = connection.query_tree(window).ok()?.reply().ok()?;
+        if window == tree.root || tree.parent == x11rb::NONE {
+            return None;
+        }
+        window = tree.parent;
+    }
+}
+
+/// The title of the window with the input focus, or of the first window it's in that has one.
+fn focus_title() -> Option<String> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let mut window = input_focus()?;
+    loop {
+        if let Some(title) = text_property(window, "_NET_WM_NAME").filter(|t| !t.is_empty()) {
+            return Some(title);
+        }
+        let tree = connection.query_tree(window).ok()?.reply().ok()?;
+        if window == tree.root || tree.parent == x11rb::NONE {
+            return None;
+        }
+        window = tree.parent;
+    }
+}
+
 /// Whether the window manager has `window` full screen.
 fn full_screen(window: xproto::Window) -> Option<bool> {
     let x = server()?;
@@ -1130,6 +1194,286 @@ fn find_item<'a>(
     })
 }
 
+/// A drag from another app, as dragover, dragdrop and dragleave play it: XDND's source
+/// (freedesktop.org's, version 5), with a window of the driver's own that owns the drag's
+/// selection, handing the drag to the browser window's top-level window, or the proxy that names,
+/// as another app's would.
+struct Source {
+    window: xproto::Window,
+    /// What it carries, in each type it offers.
+    data: Vec<(xproto::Atom, Vec<u8>)>,
+    /// The window its messages name, and the one they go to, its XdndProxy if it has one.
+    target: Option<(xproto::Window, xproto::Window)>,
+    /// The view under it, as the Mac's driver names AppKit's.
+    view: &'static str,
+    waiting: Option<Waiting>,
+}
+
+/// What the drag waits for its target to say.
+#[derive(Clone, Copy)]
+enum Waiting {
+    /// Whether it takes the drag there, and whether to let go once it says.
+    Status(bool, std::time::Instant),
+    /// Whether it took the drop.
+    Finished(std::time::Instant),
+}
+
+thread_local! {
+    static SOURCE: RefCell<Option<Source>> = const { RefCell::new(None) };
+    /// The driver's window that owns a drag's selection, made once.
+    static SOURCE_WINDOW: Cell<Option<xproto::Window>> = const { Cell::new(None) };
+}
+
+fn atom(name: &str) -> Option<xproto::Atom> {
+    let x = server()?;
+    Some(x.0.intern_atom(false, name.as_bytes()).ok()?.reply().ok()?.atom)
+}
+
+/// `path` as a file: URL's path, its bytes outside the unreserved ones escaped.
+fn file_url(path: &str) -> String {
+    let mut url = String::from("file://");
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                url.push(byte as char)
+            }
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
+}
+
+/// Starts a drag of `kind` carrying `value`, as drive.mm's pasteboard holds it: a URL or a file's
+/// as a URI list, a URL as text too, and text as text.
+fn start_drag(kind: &str, value: &str) -> Option<Source> {
+    let x = server()?;
+    let (connection, root) = &*x;
+    let [uris, utf8, plain] = ["text/uri-list", "UTF8_STRING", "text/plain;charset=utf-8"].map(atom);
+    let data = match kind {
+        "url" => vec![(uris?, format!("{value}\r\n").into_bytes()), (utf8?, value.into())],
+        "file" => vec![(uris?, format!("{}\r\n", file_url(value)).into_bytes())],
+        "text" => vec![(utf8?, value.into()), (plain?, value.into())],
+        _ => return None,
+    };
+    let window = match SOURCE_WINDOW.get() {
+        Some(window) => window,
+        None => {
+            let window = connection.generate_id().ok()?;
+            (connection.create_window(
+                x11rb::COPY_DEPTH_FROM_PARENT,
+                window,
+                *root,
+                -1,
+                -1,
+                1,
+                1,
+                0,
+                xproto::WindowClass::INPUT_ONLY,
+                x11rb::COPY_FROM_PARENT,
+                &xproto::CreateWindowAux::new(),
+            ))
+            .ok()?;
+            SOURCE_WINDOW.set(Some(window));
+            window
+        }
+    };
+    let types: Vec<u32> = data.iter().map(|(kind, _)| *kind).collect();
+    (connection.change_property(
+        xproto::PropMode::REPLACE,
+        window,
+        atom("XdndTypeList")?,
+        xproto::AtomEnum::ATOM,
+        32,
+        types.len() as u32,
+        &types.iter().flat_map(|atom| atom.to_ne_bytes()).collect::<Vec<u8>>(),
+    ))
+    .ok()?;
+    (connection.set_selection_owner(window, atom("XdndSelection")?, x11rb::CURRENT_TIME)).ok()?;
+    connection.flush().ok()?;
+    Some(Source {
+        window,
+        data,
+        target: None,
+        view: "nothing",
+        waiting: None,
+    })
+}
+
+fn send_xdnd(to: xproto::Window, named: xproto::Window, kind: &str, data: [u32; 5]) -> Option<()> {
+    let x = server()?;
+    let message = xproto::ClientMessageEvent::new(32, named, atom(kind)?, data);
+    x.0.send_event(false, to, EventMask::NO_EVENT, message).ok()?;
+    x.0.flush().ok()
+}
+
+/// Moves the drag to (`x`, `y`) in the driven browser window, starting it with what `carried` says
+/// if there's none, and has the target say whether it takes it there, then with `drop` let go.
+fn drag_over(x: f64, y: f64, carried: Option<(&str, &str)>, drop: bool) -> Option<()> {
+    let browser = driven()?;
+    let at = target_in(browser.window, x, y)?;
+    let mut source = match SOURCE.take() {
+        Some(source) => source,
+        None => {
+            let (kind, value) = carried?;
+            start_drag(kind, value)?
+        }
+    };
+    let x11 = server()?;
+    let (connection, _) = &*x11;
+    // AppKit's names for the views a drag there goes to: the UI's, and the page's.
+    let child = (connection.translate_coordinates(browser.window, browser.window, at.x, at.y))
+        .ok()?
+        .reply()
+        .ok()?
+        .child;
+    source.view = match child == browser.ui {
+        true => "HostUIView",
+        false => "WebContentsViewCocoa",
+    };
+    let property = |window, name: &str, kind: xproto::AtomEnum| {
+        let reply = (connection.get_property(false, window, atom(name)?, kind, 0, 1))
+            .ok()?
+            .reply()
+            .ok()?;
+        reply.value32()?.next()
+    };
+    let named = browser.window;
+    let to = property(named, "XdndProxy", xproto::AtomEnum::WINDOW).unwrap_or(named);
+    if property(to, "XdndAware", xproto::AtomEnum::ATOM).is_none() {
+        log!("browser: drag over {} refused", source.view);
+        SOURCE.set(Some(source));
+        return Some(());
+    }
+    if source.target != Some((named, to)) {
+        if let Some((named, to)) = source.target {
+            send_xdnd(to, named, "XdndLeave", [source.window, 0, 0, 0, 0])?;
+        }
+        let types = source.data.iter().map(|(kind, _)| *kind);
+        let mut offered = [0; 3];
+        offered.iter_mut().zip(types).for_each(|(each, kind)| *each = kind);
+        let [a, b, c] = offered;
+        send_xdnd(to, named, "XdndEnter", [source.window, 5 << 24, a, b, c])?;
+        source.target = Some((named, to));
+    }
+    let root = (u32::from(at.root_x as u16) << 16) | u32::from(at.root_y as u16);
+    let copy = atom("XdndActionCopy")?;
+    send_xdnd(to, named, "XdndPosition", [source.window, 0, root, 0, copy])?;
+    source.waiting = Some(Waiting::Status(drop, std::time::Instant::now()));
+    SOURCE.set(Some(source));
+    Some(())
+}
+
+/// Takes the drag away, as cancelled.
+fn drag_leave() {
+    if let Some(source) = SOURCE.take()
+        && let Some((named, to)) = source.target
+    {
+        send_xdnd(to, named, "XdndLeave", [source.window, 0, 0, 0, 0]);
+    }
+    end_drag();
+}
+
+fn end_drag() {
+    SOURCE.set(None);
+    if let Some(x) = server()
+        && let Some(selection) = atom("XdndSelection")
+    {
+        _ = x.0.set_selection_owner(x11rb::NONE, selection, x11rb::CURRENT_TIME);
+        _ = x.0.flush();
+    }
+}
+
+/// Hands the drag's target what it carries, as `request` asks for it.
+fn serve_drag(request: &xproto::SelectionRequestEvent) {
+    let Some(x) = server() else { return };
+    let (connection, _) = &*x;
+    let data = SOURCE.with_borrow(|source| {
+        (source.as_ref())
+            .filter(|source| source.window == request.owner)
+            .map(|source| source.data.clone())
+    });
+    // An old client's request names no property.
+    let property = match request.property {
+        x11rb::NONE => request.target,
+        property => property,
+    };
+    let served = data.and_then(|data| {
+        if Some(request.target) == atom("TARGETS") {
+            let types: Vec<u8> = data.iter().flat_map(|(kind, _)| kind.to_ne_bytes()).collect();
+            let count = data.len() as u32;
+            let atoms = xproto::AtomEnum::ATOM;
+            (connection.change_property(xproto::PropMode::REPLACE, request.requestor, property, atoms, 32, count, &types))
+                .ok()
+        } else {
+            let (kind, bytes) = data.iter().find(|(kind, _)| *kind == request.target)?;
+            let count = bytes.len() as u32;
+            (connection.change_property(xproto::PropMode::REPLACE, request.requestor, property, *kind, 8, count, bytes))
+                .ok()
+        }
+    });
+    let notify = xproto::SelectionNotifyEvent {
+        response_type: xproto::SELECTION_NOTIFY_EVENT,
+        sequence: 0,
+        time: request.time,
+        requestor: request.requestor,
+        selection: request.selection,
+        target: request.target,
+        property: if served.is_some() { property } else { x11rb::NONE },
+    };
+    _ = connection.send_event(false, request.requestor, EventMask::NO_EVENT, notify);
+    _ = connection.flush();
+}
+
+/// Hears the drag's target say whether it takes the drag, and whether it took the drop, and logs
+/// it as drive.mm does.
+fn drag_answered(message: &xproto::ClientMessageEvent) {
+    let Some(mut source) = SOURCE.take() else { return };
+    let data = message.data.as_data32();
+    let kind = Some(message.type_);
+    let taken = data[1] & 1 == 1;
+    let from_target = source.target.is_some_and(|(named, _)| named == data[0]);
+    match source.waiting {
+        Some(Waiting::Status(drop, _)) if from_target && kind == atom("XdndStatus") => {
+            log!("browser: drag over {} {}", source.view, if taken { "taken" } else { "refused" });
+            source.waiting = None;
+            let (named, to) = source.target.unwrap_or_default();
+            if drop && taken {
+                send_xdnd(to, named, "XdndDrop", [source.window, 0, 0, 0, 0]);
+                source.waiting = Some(Waiting::Finished(std::time::Instant::now()));
+            } else if drop {
+                send_xdnd(to, named, "XdndLeave", [source.window, 0, 0, 0, 0]);
+                log!("browser: drag refused");
+                return end_drag();
+            }
+        }
+        Some(Waiting::Finished(_)) if from_target && kind == atom("XdndFinished") => {
+            log!("browser: drag {}", if taken { "dropped" } else { "refused" });
+            return end_drag();
+        }
+        _ => {}
+    }
+    SOURCE.set(Some(source));
+}
+
+/// Whether the drag waits for its target, which gets 5 s before the driver takes its silence for
+/// a no, as AppKit's answer comes at once.
+fn drag_waits() -> bool {
+    let waiting = SOURCE.with_borrow(|source| source.as_ref().and_then(|s| s.waiting.map(|w| (w, s.view))));
+    let Some((waiting, view)) = waiting else { return false };
+    let since = match waiting {
+        Waiting::Status(_, since) | Waiting::Finished(since) => since,
+    };
+    if since.elapsed() < std::time::Duration::from_secs(5) {
+        return true;
+    }
+    match waiting {
+        Waiting::Status(..) => log!("browser: drag over {view} refused, unanswered"),
+        Waiting::Finished(_) => log!("browser: drag refused, unanswered"),
+    }
+    drag_leave();
+    false
+}
+
 /// Runs a command. Returns false for one it can't do.
 fn run(line: &str) -> bool {
     run_command(line).is_some()
@@ -1192,6 +1536,19 @@ fn run_command(line: &str) -> Option<()> {
             if action == "doubleclickkey" {
                 click(at, 1, none, true)?;
             }
+            Some(())
+        }
+        "dragover" | "dragdrop" => {
+            let (x, y) = point(&mut words)?;
+            // What it carries: its kind, then the rest of the line, which can hold spaces.
+            let carried = words.next().map(|kind| {
+                let value = line.splitn(5, ' ').nth(4).unwrap_or("");
+                (kind, value)
+            });
+            drag_over(x, y, carried, action == "dragdrop")
+        }
+        "dragleave" => {
+            drag_leave();
             Some(())
         }
         "drag" => {
@@ -1377,8 +1734,10 @@ fn run_command(line: &str) -> Option<()> {
             Some(())
         }
         // The window's content and the views the X server has in it: GPUI's, and the overlays
-        // over it, with a tab's dialog, which the core reports. shortcut: the pages are aura
-        // windows in Chromium's window, which the X server doesn't see, so they aren't listed.
+        // and floats over it, with a tab's dialog, which the core reports, as the Mac's lists its
+        // child windows. The floats, such as the zoom HUD, take no input, so they're left out of
+        // overlay_views. shortcut: the pages are aura windows in Chromium's window, which the X
+        // server doesn't see, so they aren't listed.
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
@@ -1409,13 +1768,13 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let title = match keyboard_window()? {
-                Keyboard::Overlay(window) | Keyboard::Settings(window, _) => {
+            let title = match keyboard_window() {
+                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
                     text_property(window, "_NET_WM_NAME").unwrap_or_default()
                 }
                 // A dialog of Chromium's in it is an aura window, which the X server has no title
                 // for, so the core gives it.
-                Keyboard::Browser(browser, _)
+                Some(Keyboard::Browser(browser, _))
                     if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
                 {
                     let length =
@@ -1426,9 +1785,11 @@ fn run_command(line: &str) -> Option<()> {
                     title.truncate(length);
                     String::from_utf8_lossy(&title).into_owned()
                 }
-                Keyboard::Browser(browser, _) => {
+                Some(Keyboard::Browser(browser, _)) => {
                     text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
                 }
+                // A window of Chromium's own, such as the Task Manager.
+                None => focus_title()?,
             };
             log!("browser: key window titled {title}");
             Some(())
