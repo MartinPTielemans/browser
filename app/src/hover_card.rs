@@ -17,10 +17,10 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, Context, FontWeight, Global, Image, ImageSource, ObjectFit, Pixels, RenderImage,
-    Role, SharedString, Size, Task, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, div, img, point, prelude::*, px, size,
-    svg,
+    App, Bounds, Context, DispatchPhase, FontWeight, Global, Image, ImageSource, MouseExitEvent,
+    MouseMoveEvent, ObjectFit, Pixels, RenderImage, Role, SharedString, Size, Task,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions, canvas, div, img, point, prelude::*, px, size, svg,
 };
 
 use crate::elevation::{Level, WINDOW_MARGIN};
@@ -483,12 +483,15 @@ impl HoverCard {
         }));
     }
 
+    /// The pointer moved on the card's plate, or off it. Only leaving the card lets it go: a move
+    /// off a plate it never came onto is the pointer resting on the row.
     fn on_card(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        let was = self.on_card;
         self.pointer_on(hovered && self.shown.is_some(), cx);
         match hovered {
-            true => self.wait = None,
-            false if self.shown.is_some() => self.leave_after(cx),
-            false => {}
+            true if self.shown.is_some() => self.wait = None,
+            false if was && self.shown.is_some() => self.leave_after(cx),
+            _ => {}
         }
     }
 
@@ -497,6 +500,8 @@ impl HoverCard {
         if std::mem::replace(&mut self.on_card, on) == on {
             return;
         }
+        // The buttons light under the pointer only while it's on the card.
+        cx.notify();
         if let Some(rest) = &self.shown {
             (rest.events)(rest.card.tab, Event::Pointer(on), cx);
         }
@@ -668,6 +673,7 @@ impl Render for HoverCard {
         }
         let palette = crate::palette::current(cx);
         let a11y = window.is_a11y_active();
+        let on_card = self.on_card;
         let card = &drawn.card;
         let picture_h = picture_height(card.pictured, drawn.picture.as_ref().map(|p| p.size()));
         let text_top = if picture_h > 0. { PADDING + picture_h } else { 0. };
@@ -724,7 +730,9 @@ impl Render for HoverCard {
             .top(px(row_top))
             .flex()
             .gap(px(BUTTON_GAP))
-            .children(card.actions.iter().map(|&action| button(&palette, action, a11y, cx)));
+            .children(
+                (card.actions.iter()).map(|&action| button(&palette, action, a11y, on_card, cx)),
+            );
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.
         let rim = div()
             .absolute()
@@ -732,9 +740,34 @@ impl Render for HoverCard {
             .rounded(px(RADIUS))
             .border(px(RIM))
             .border_color(Level::Popover.rim_in(&palette));
+        // Whether the pointer is on the plate, from its moves and its leaving the window alone:
+        // GPUI's hover tests, at each paint, the last place the window saw the pointer, which
+        // after a click is the button, wherever the pointer has gone since (#818).
+        let plate = Bounds::new(corner_at(), size(px(WIDTH), px(drawn.height)));
+        let card_entity = cx.entity().downgrade();
+        let pointer = canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                let moved = card_entity.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble {
+                        let on = plate.contains(&event.position);
+                        moved.update(cx, |card, cx| card.on_card(on, cx)).ok();
+                    }
+                });
+                let left = card_entity.clone();
+                window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble {
+                        left.update(cx, |card, cx| card.on_card(false, cx)).ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full();
         // It grows about its top left corner, which its row is beside.
-        let corner = point(px(WINDOW_MARGIN), px(WINDOW_MARGIN));
-        root.child(scaled(
+        let corner = corner_at();
+        root.child(pointer).child(scaled(
             div()
                 .id("hover-card")
                 .when(a11y, |plate| plate.role(Role::Group).aria_label(card.title.clone()))
@@ -745,7 +778,6 @@ impl Render for HoverCard {
                 .shadow(Level::Popover.shadow())
                 .bg(palette.overlay)
                 .opacity(pose.opacity)
-                .on_hover(cx.listener(|card, hovered: &bool, _, cx| card.on_card(*hovered, cx)))
                 .children(picture)
                 .child(title)
                 .child(host)
@@ -755,6 +787,11 @@ impl Render for HoverCard {
             corner,
         ))
     }
+}
+
+/// The plate's top left corner in its window.
+fn corner_at() -> gpui::Point<Pixels> {
+    point(px(WINDOW_MARGIN), px(WINDOW_MARGIN))
 }
 
 /// What stands for a tab with no picture, at the favicon's size.
@@ -779,6 +816,7 @@ fn button(
     palette: &Palette,
     action: Action,
     a11y: bool,
+    on_card: bool,
     cx: &mut Context<HoverCard>,
 ) -> impl IntoElement + use<> {
     let (rest, hovered) = match action.on() {
@@ -795,7 +833,8 @@ fn button(
         .justify_center()
         .rounded(px(BUTTON_RADIUS))
         .bg(palette.state(0., rest))
-        .hover(move |style| style.bg(palette.state(0., hovered)))
+        // Only with the pointer on the card, as GPUI's hover is the last place the window saw it.
+        .when(on_card, |button| button.hover(move |style| style.bg(palette.state(0., hovered))))
         .active(move |style| style.bg(palette.state(0., STATE_PRESSED)))
         .on_click(cx.listener(move |card, _, _, cx| card.press(action, cx)))
         .child(

@@ -379,3 +379,37 @@ fn a_click_on_each_button_makes_its_call(cx: &mut TestAppContext) {
         told.borrow_mut().clear();
     }
 }
+
+/// The card's window keeps the last place it saw the pointer, on the button a click left it on,
+/// while the pointer goes on over the page. The next row's card, and its picture changing its
+/// height there, don't take that for the pointer coming onto the card or leaving it, which would
+/// end the card under a pointer resting on its row (#818's VM run, a pinned tab's card).
+#[gpui::test]
+fn a_card_after_a_click_doesn_t_take_the_pointer_left_on_a_button_for_its_own(
+    cx: &mut TestAppContext,
+) {
+    let (host, told) = open_card(cx);
+    let window = card_window(cx);
+    let count = card(1, true).actions.len() as f32;
+    let first = WIDTH - BUTTON_INSET - count * BUTTON - (count - 1.) * BUTTON_GAP;
+    let top = PADDING + picture_height(true, None) + TEXT_TOP + TITLE_LINE;
+    rest_on(cx, &told, card(1, true));
+    after(cx, &host, DWELL + Duration::from_secs(1));
+    let at = point(px(WINDOW_MARGIN + first + BUTTON / 2.), px(WINDOW_MARGIN + top + BUTTON / 2.));
+    let mut window_cx = gpui::VisualTestContext::from_window(window.into(), cx);
+    window_cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    window_cx.simulate_click(at, gpui::Modifiers::none());
+    after(cx, &host, LEAVE + FADE);
+    told.borrow_mut().clear();
+    // The pointer rests on the next row; the card's window hears nothing of it.
+    let request = cx.update(|cx| asking(2, cx));
+    rest_on(cx, &told, card(2, true));
+    assert_eq!(after(cx, &host, DWELL), [shown(2, waiting_height())]);
+    // A wide page, whose picture makes the card shorter than the place the click was.
+    cx.update(|cx| answered(request, Some(picture(528, 100)), cx));
+    cx.run_until_parked();
+    let shorter = height(picture_height(true, Some((528., 100.))));
+    assert_eq!(host.0.take(), [shown(2, shorter)]);
+    assert!(after(cx, &host, (LEAVE + FADE) * 4).is_empty(), "it stays while its row is rested on");
+    assert_eq!(*told.borrow(), ["shown 2"]);
+}
