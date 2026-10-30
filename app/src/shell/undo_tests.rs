@@ -524,6 +524,142 @@ fn leaving_a_split_is_undone_by_joining_the_tab_beside_it(cx: &mut TestAppContex
     assert_eq!(host.take_edits(), ["split 10 11 true"]);
 }
 
+/// The core reports the first Space's Today tabs with one split view.
+fn report_split(
+    shell: &Entity<Shell>,
+    cx: &mut TestAppContext,
+    today: Vec<u64>,
+    tabs: Vec<u64>,
+    stacked: bool,
+) {
+    let split = Split {
+        tabs,
+        stacked,
+        ..Default::default()
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), today, vec![split], Folders::default(), cx)
+    });
+}
+
+#[gpui::test]
+fn joining_a_split_is_undone_to_the_tabs_row_with_the_page_shown_and_done_again(
+    cx: &mut TestAppContext,
+) {
+    let (shell, host) = plain(cx, vec![10, 11, 12]);
+    shell.update(cx, |shell, cx| shell.join_split(12, 10, false, false, cx));
+    assert_eq!(host.take_edits(), ["split 12 10 false"]);
+    assert_eq!(titles(&shell, cx), (Some("Split View"), None));
+    // The core moved 12 into 10's place, and the user clicked 10's page.
+    report_split(&shell, cx, vec![10, 12, 11], vec![10, 12], false);
+    shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+    host.take();
+
+    assert!(undo(&shell, cx));
+    assert_eq!(host.take_edits(), ["separate 12", "move 12 false 0 2"]);
+    assert!(host.take().contains(&"select 10".to_string()));
+    assert_eq!(titles(&shell, cx), (None, Some("Split View")));
+
+    report(&shell, cx, Vec::new(), vec![10, 11, 12]);
+    assert!(redo(&shell, cx));
+    assert_eq!(host.take_edits(), ["split 12 10 false"]);
+}
+
+#[gpui::test]
+fn a_tab_that_left_one_split_for_another_goes_back_to_the_first(cx: &mut TestAppContext) {
+    let splits = vec![
+        Split {
+            tabs: vec![10, 11],
+            ..Default::default()
+        },
+        Split {
+            tabs: vec![12, 13],
+            ..Default::default()
+        },
+    ];
+    let (shell, host) = window(cx, Vec::new(), vec![10, 11, 12, 13], Folders::default(), splits);
+    shell.update(cx, |shell, cx| shell.join_split(11, 12, true, false, cx));
+    assert_eq!(host.take_edits(), ["split 11 12 true"]);
+    report_split(&shell, cx, vec![10, 11, 12, 13], vec![11, 12, 13], false);
+    assert!(undo(&shell, cx));
+    // Joining 10 again takes it out of the other split: no separate first.
+    assert_eq!(host.take_edits(), ["split 11 10 false"]);
+}
+
+#[gpui::test]
+fn a_drop_that_stacks_a_new_split_is_one_step(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10, 11]);
+    shell.update(cx, |shell, cx| shell.join_split(11, 10, true, true, cx));
+    assert_eq!(host.take_edits(), ["split 11 10 true"]);
+    assert!(host.take().contains(&"split stacked 10 true".to_string()));
+    report_split(&shell, cx, vec![11, 10], vec![11, 10], true);
+
+    assert!(undo(&shell, cx));
+    assert_eq!(host.take_edits(), ["separate 11", "move 11 false 0 1"]);
+    report(&shell, cx, Vec::new(), vec![10, 11]);
+    host.take();
+    assert!(redo(&shell, cx));
+    assert_eq!(host.take_edits(), ["split 11 10 true"]);
+    assert!(host.take().contains(&"split stacked 10 true".to_string()));
+}
+
+#[gpui::test]
+fn a_split_that_is_full_or_has_the_tab_keeps_nothing(cx: &mut TestAppContext) {
+    let split = Split {
+        tabs: vec![10, 11, 12],
+        ..Default::default()
+    };
+    let today = vec![10, 11, 12, 13];
+    let (shell, host) = window(cx, Vec::new(), today, Folders::default(), vec![split]);
+    shell.update(cx, |shell, cx| {
+        shell.join_split(13, 10, false, false, cx);
+        shell.join_split(12, 10, false, false, cx);
+    });
+    host.take_edits();
+    assert_eq!(titles(&shell, cx), (None, None));
+}
+
+#[gpui::test]
+fn a_tab_opened_for_a_split_is_closed_by_undo(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10]);
+    shell.update(cx, |shell, cx| shell.split_opened(20, cx));
+    assert_eq!(titles(&shell, cx).0, Some("Split View"));
+    report_split(&shell, cx, vec![10, 20], vec![10, 20], false);
+    assert!(undo(&shell, cx));
+    assert_eq!(host.take_edits(), ["close 20"]);
+    report(&shell, cx, Vec::new(), vec![10]);
+    assert!(redo(&shell, cx));
+    assert_eq!(host.take_edits(), ["reopen 20 as 1001"]);
+}
+
+#[gpui::test]
+fn a_change_of_orientation_is_its_own_step(cx: &mut TestAppContext) {
+    let split = Split {
+        tabs: vec![10, 11],
+        ..Default::default()
+    };
+    let (shell, host) = window(cx, Vec::new(), vec![10, 11], Folders::default(), vec![split]);
+    shell.update(cx, |shell, cx| shell.stack_split(10, true, cx));
+    assert!(host.take().contains(&"split stacked 10 true".to_string()));
+    assert_eq!(titles(&shell, cx).0, Some("Change Orientation"));
+    report_split(&shell, cx, vec![10, 11], vec![10, 11], true);
+    assert!(undo(&shell, cx));
+    assert!(host.take().contains(&"split stacked 10 false".to_string()));
+}
+
+#[gpui::test]
+fn a_private_window_keeps_no_split_to_undo(cx: &mut TestAppContext) {
+    let host = Rc::new(Recorder::default());
+    let shell = cx.new(|cx| Shell::private_window(host.clone(), 9, "Private".into(), 1, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(9, Vec::new(), vec![10, 11], Vec::new(), Folders::default(), cx);
+        shell.join_split(11, 10, false, false, cx);
+        shell.split_opened(12, cx);
+    });
+    assert_eq!(host.take_edits(), ["split 11 10 false"]);
+    assert_eq!(titles(&shell, cx), (None, None));
+}
+
 #[gpui::test]
 fn names_icons_and_colours_go_back_to_what_they_were(cx: &mut TestAppContext) {
     let (shell, host) = plain(cx, vec![10]);
