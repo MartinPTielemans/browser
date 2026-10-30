@@ -252,6 +252,8 @@ floats() {
 mini_player() {
   send key , cmd
   expect '^browser: settings shown ' "⌘, from the page didn't show Settings"
+  # A click before its first frame finds no tabs to land on.
+  expect '^browser: settings drew ' "Settings didn't draw"
   # Settings opens at the tab it last showed.
   if ! grep '^browser: settings shown ' "$log" | tail -1 | grep -q ' Advanced$'; then
     send clickkey 491 60
