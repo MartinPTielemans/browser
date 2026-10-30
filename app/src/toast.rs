@@ -51,8 +51,12 @@ const DAMPING: f32 = 0.52;
 const FADE_IN: f32 = 0.1;
 const LEAVE: f32 = 0.07;
 /// The note a window shows as it goes full screen (Arc 1.170 rec at 2×): 41 tall, 4 from the
-/// window's top and its right edge on the card's, in the toast's look and motion, for 4.8 s.
-const NOTE: &str = "To exit full screen, press ⎋.";
+/// window's top and its right edge on the card's, in the toast's look and motion, for 4.8 s. Off
+/// the Mac, Chrome's words there, as keys are named in words off the Mac (#772).
+const NOTE: &str = match crate::shell::OFF_THE_MAC {
+    true => "Press Esc to exit full screen",
+    false => "To exit full screen, press ⎋.",
+};
 use crate::tokens::toast::NOTE_HEIGHT;
 use crate::tokens::toast::NOTE_TOP;
 const NOTE_RIGHT: f32 = CARD_INSET;
@@ -269,7 +273,7 @@ pub fn hide_held(tab: u64, cx: &mut App) {
 /// showing.
 pub fn show_undo(text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App) {
     let undo = Button {
-        label: Label::Keyed("Undo".into(), "⌘Z".into()),
+        label: Label::Keyed("Undo".into(), crate::shell::keystroke_label("cmd-z").into()),
         name: UNDO_BUTTON,
         run: Rc::new(move |_, cx| undo(cx)),
     };

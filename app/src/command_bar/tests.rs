@@ -1156,7 +1156,8 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::JavaScriptConsole, Command::ManageExtensions, Command::RenameSpace,
         Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
         Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
-        Command::Import, Command::NewSpace, Command::SiteSearchSettings,
+        Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::HelpCenter,
+        Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {
@@ -1293,6 +1294,7 @@ fn one_letter_lists_quit_after_the_suggestions(cx: &mut TestAppContext) {
 
 /// Arc's "copy": the best command above the search row, and the others a name or a hidden word
 /// starts with before the core's other rows, as "copy" finds New Window and Duplicate Current Tab.
+/// Copy Build Info is ours, for Arc's Copy Arc Info in its Help menu.
 #[gpui::test]
 fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
     let mut bar = Bar::with_commands(cx);
@@ -1301,6 +1303,7 @@ fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
         "Copy URL ⇧⌘C".to_string(),
         search("copy"),
         "Copy URL as Markdown ⌥⇧⌘C".into(),
+        "Copy Build Info".into(),
         "New Window ⌘N".into(),
         "Duplicate Current Tab".into(),
         "https://copy.com/".into(),

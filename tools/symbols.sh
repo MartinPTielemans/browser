@@ -1,9 +1,10 @@
 #!/bin/bash
 # Uploads a release's crash report symbols to the collector app/branding/crash-reports names
-# (docs/decisions.md, 9) with sentry-cli, which GlitchTip takes as Sentry does: the files and folders
-# given, which sentry-cli searches for debug files, and on Windows the engine's PDBs, which its
-# release keeps apart from it (engine/fetch.sh symbols). SENTRY_URL, SENTRY_AUTH_TOKEN, SENTRY_ORG
-# and SENTRY_PROJECT name the collector's project. With none of them, or with no collector, as in a
+# (docs/decisions.md, 9) with sentry-cli: the files and folders given, which sentry-cli searches for
+# debug files, and on Windows the engine's PDBs, which its release keeps apart from it
+# (engine/fetch.sh symbols). SENTRY_URL, SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT name the
+# collector's project: for ilo's, https://de.sentry.io, the EU region, though an organization
+# token's own URL wins over SENTRY_URL. With none of them, or with no collector, as in a
 # fork's build, it uploads nothing; with only some it stops. Given nothing, it checks only that, so
 # a release stops before it builds.
 # Usage: tools/symbols.sh [file or folder]...

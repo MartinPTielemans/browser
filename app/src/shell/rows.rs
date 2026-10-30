@@ -184,7 +184,11 @@ impl Shell {
     /// How full `row`'s hover fill is: full under the pointer or with its menu up, and for the
     /// selected row, easing back once it's left. None for none.
     pub(super) fn hover_fill(&self, row: Row) -> Option<f32> {
-        if self.pointer_row() == Some(row) || self.menu_row.is_some_and(|tab| row == Row::Tab(tab)) {
+        let onto = self.drag.as_ref().and_then(|drag| drag.onto);
+        if self.pointer_row() == Some(row)
+            || self.menu_row.is_some_and(|tab| row == Row::Tab(tab))
+            || onto.is_some_and(|tab| row == Row::Tab(tab))
+        {
             return Some(1.);
         }
         let selected = row == self.selected_row();
@@ -439,6 +443,7 @@ impl Shell {
                 self.rename_folder(tab, cx)
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
+            MouseButton::Left if event.modifiers.alt && self.alt_press_row(tab, cx) => {}
             MouseButton::Left => {
                 self.end_hovers(cx);
                 if self.is_folder(tab) {
@@ -528,6 +533,9 @@ impl Shell {
                     if event.click_count == 2 {
                         cx.stop_propagation();
                         return shell.rename_tab(tab, cx);
+                    }
+                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                        return cx.stop_propagation();
                     }
                     shell.show_row(tab, cx)
                 }),
@@ -738,6 +746,9 @@ impl Shell {
                     // The first press selected the tab (Dia).
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
+                    }
+                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                        return;
                     }
                     // On the way back to the pinned URL, the favicon's click shows the tab.
                     if !back {
@@ -1544,6 +1555,104 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(host.moves.get(), 1);
         assert!(!host.take().iter().any(|call| call.starts_with("select")));
+    }
+
+    /// A dragged row that rests on another tab's row's middle for less than SPLIT_REST still goes
+    /// where it's let go; one that rests there longer joins that tab in a split view, as Arc's
+    /// does, with the row lit and no drop line.
+    #[gpui::test]
+    fn a_rest_on_a_rows_middle_splits_and_a_short_one_reorders(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, Vec::new(), vec![2, 3, 4], 2);
+        let (x, y) = close_button(&shell, cx, 4);
+        let from = point(px(x - 100.), px(y));
+        let to = point(from.x, from.y - px(2. * ROW_PITCH));
+        let drag_and_rest = |cx: &mut VisualTestContext, rest: u64| {
+            cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+            cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+            cx.executor().advance_clock(Duration::from_millis(rest));
+            cx.run_until_parked();
+        };
+        let onto = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+            shell.read_with(cx, |shell, _| shell.drag.as_ref().map(|drag| (drag.onto, drag.line)))
+        };
+
+        drag_and_rest(cx, 200);
+        assert!(matches!(onto(&shell, cx), Some((None, Some(_)))), "a short rest keeps the line");
+        cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.moves.get(), 1, "a short rest reorders");
+        assert!(!host.take_edits().iter().any(|edit| edit.starts_with("split")));
+
+        shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, Vec::new(), vec![2, 3, 4], Vec::new(), Folders::default(), cx)
+        });
+        cx.run_until_parked();
+        drag_and_rest(cx, 500);
+        assert_eq!(onto(&shell, cx), Some((Some(2), None)));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.hover_fill(Row::Tab(2))), Some(1.));
+        cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.moves.get(), 1, "a rest doesn't reorder");
+        assert_eq!(host.take_edits(), ["split 4 2 false"]);
+    }
+
+    /// ⌥-click in the sidebar splits as Arc's does: another tab joins the page shown, the page
+    /// shown splits with a copy of itself, and a split's tab leaves it.
+    #[gpui::test]
+    fn an_option_click_on_a_row_splits_duplicates_or_separates(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, Vec::new(), vec![2, 3, 4], 2);
+        let option = Modifiers { alt: true, ..Default::default() };
+        let option_click = |cx: &mut VisualTestContext, tab: u64, inset: f32| {
+            let (x, y) = close_button(&shell, cx, tab);
+            let at = point(px(x - inset), px(y));
+            host.take();
+            host.take_edits();
+            cx.simulate_mouse_down(at, MouseButton::Left, option);
+            cx.simulate_mouse_up(at, MouseButton::Left, option);
+            cx.run_until_parked();
+            (host.take(), host.take_edits())
+        };
+
+        let (_, edits) = option_click(cx, 3, 100.);
+        assert_eq!(edits, ["split 3 2 false"]);
+
+        let (calls, edits) = option_click(cx, 2, 100.);
+        assert!(calls.contains(&"duplicate 2".to_string()), "{calls:?}");
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        assert!(edits[0].starts_with("split ") && edits[0].ends_with(" 2 false"), "{edits:?}");
+
+        shell.update(cx, |shell, cx| {
+            let split = crate::shell::Split { tabs: vec![2, 3], ..Default::default() };
+            shell.set_tabs(1, Vec::new(), vec![2, 3, 4], vec![split], Folders::default(), cx)
+        });
+        cx.run_until_parked();
+        let (_, edits) = option_click(cx, 2, 40.);
+        assert_eq!(edits, ["separate 3"], "the press on the second segment takes its tab out");
+    }
+
+    /// A row dragged onto a page shown alone finds a target at each of the card's edges, and let go
+    /// on the top one it joins the page above it in a stacked split, as Arc's does.
+    #[gpui::test]
+    fn a_row_let_go_on_the_top_target_stacks_its_split(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, Vec::new(), vec![2, 3], 2);
+        let (x, y) = close_button(&shell, cx, 3);
+        let from = point(px(x - 100.), px(y));
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        let card = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport).0);
+        let top = point(card.center().x, card.top() + px(60.));
+        for to in [point(from.x, from.y - px(ROW_PITCH)), top] {
+            cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+        }
+        host.take();
+        host.take_edits();
+        cx.simulate_mouse_up(top, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take_edits(), ["split 3 2 true"]);
+        assert!(host.take().contains(&"split stacked 2 true".to_string()));
     }
 
     /// A press on a folder's row closes it at once, as Arc's does, and a press again opens it.
