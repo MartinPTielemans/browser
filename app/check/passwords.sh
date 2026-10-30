@@ -273,12 +273,19 @@ expect "^browser: passwords [0-9]*: 127.0.0.1:$port check@example.test\$" \
   "Settings didn't list the saved login alone: $(grep '^browser: passwords ' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-passwords.png" || fail "no window to capture"
 post clickkey 574 159
-# Settings asks in the Mac's alert there, and in the app's own dialog off the Mac.
+# Settings asks in an alert, and off the Mac, which has none, in its dialog, where escape cancels.
+# The dialog covers Settings, taking its keys, until it has gone.
 asks=alert
 [ "$(uname)" = Darwin ] || asks=dialog
 expect "^browser: $asks shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
   "Remove in Settings didn't ask first"
-send choose Cancel
+if [ "$asks" = dialog ]; then
+  expect '^browser: dialog settled$' "Settings' dialog didn't settle"
+  send key escape
+  expect '^browser: dialog hidden$' "escape didn't cancel Settings' dialog"
+else
+  send choose Cancel
+fi
 none_since '^browser: remove login' || fail "Cancel removed the login"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
