@@ -60,8 +60,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, link_preview_window, menu_window, overlays, panels,
-    platform, popovers, reveal_window, settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, link_preview_window, menu_window, overlays,
+    panels, platform, popovers, reveal_window, settings_window,
 };
 
 unsafe extern "C" {

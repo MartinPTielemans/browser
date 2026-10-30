@@ -24,8 +24,9 @@ use browser::flatpak;
 use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_preview,
-    link_target, log, menu, offer, passwords, site_controls, theme_picker, toast, tooltip, zoom_hud,
+    capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
+    icon_picker, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -59,6 +60,9 @@ mod emoji;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/floats.rs"]
 mod floats;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/frames.rs"]
+mod frames;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/held_escape.rs"]
 mod held_escape;
@@ -106,8 +110,9 @@ mod settings;
 const COMMAND_BAR: c_int = 0;
 const ICON_PICKER: c_int = 1;
 const THEME_PICKER: c_int = 2;
+const FOLDER_PREVIEW: c_int = 3;
 /// The Site Controls aren't one of the host's overlays, but its elevation call takes them too.
-const SITE_CONTROLS: c_int = 3;
+const SITE_CONTROLS: c_int = 4;
 
 use browser::bc;
 
@@ -767,11 +772,22 @@ fn open_tab_behind(window: bc::bc_id, url: &str, when_shown: bool) -> u64 {
 
 /// Puts `tab` in a split view with `with`, on its right, and shows it in `window`. The pane being
 /// added for it, if there is one, gives the split its room first, so it shows at once at its place.
-fn split_tab(window: bc::bc_id, tab: u64, with: u64, cx: &mut App) {
-    shell::pane_added(cx);
+/// ⌘Z takes it back out, or closes it if it was `opened` for the split.
+fn split_tab(window: bc::bc_id, tab: u64, with: u64, opened: bool, cx: &mut App) {
+    shell::pane_added(tab, with, opened, cx);
     unsafe {
         bc::bc_tab_split_with(tab, with, false);
         bc::bc_window_select(window, tab);
+    }
+}
+
+/// `tab`, opened to join a split view in `window`, joined it: that window's ⌘Z closes it.
+fn split_opened(window: bc::bc_id, tab: u64, cx: &mut App) {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|each| each.id == window).map(|each| each.shell.clone())
+    });
+    if let Some(shell) = shell {
+        shell.update(cx, |shell, cx| shell.split_opened(tab, cx)).ok();
     }
 }
 
@@ -782,7 +798,7 @@ fn open_split(window: bc::bc_id, url: &str, with: u64, cx: &mut App) {
     };
     let tab = unsafe { bc::bc_tab_open(window, url.as_ptr(), false) };
     if tab != 0 {
-        split_tab(window, tab, with, cx);
+        split_tab(window, tab, with, true, cx);
     }
 }
 
@@ -1588,7 +1604,7 @@ impl command_bar::Host for Bar {
     }
 
     fn split(&self, tab: u64, with: u64, cx: &mut App) {
-        split_tab(front().0, tab, with, cx);
+        split_tab(front().0, tab, with, false, cx);
     }
 
     fn open_split(&self, url: &str, with: u64, cx: &mut App) {
@@ -1669,6 +1685,26 @@ fn recent_emoji() -> icon_picker::Recents {
 /// The user left the icon picker without picking.
 extern "C" fn icon_picker_dismissed() {
     update_app(icon_picker::dismissed);
+}
+
+struct FolderPreviewHost;
+
+impl folder_preview::Host for FolderPreviewHost {
+    fn show(&self, left: f32, top: f32, height: f32) {
+        let (left, top, width) = (left.into(), top.into(), folder_preview::WIDTH.into());
+        unsafe {
+            platform::host_show_overlay(FOLDER_PREVIEW, front().1, false, left, top, width);
+            platform::host_set_overlay_height(FOLDER_PREVIEW, height.into());
+        }
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_overlay(FOLDER_PREVIEW) };
+    }
+}
+
+extern "C" fn folder_preview_dismissed() {
+    update_app(folder_preview::dismissed);
 }
 
 /// The theme picker's requests, to the host's overlay window, over the window in front.
@@ -1909,6 +1945,15 @@ impl Browser for Engine {
         unsafe { bc::bc_folder_rename(folder, name.as_ptr()) };
     }
 
+    fn set_folder_icon(&self, folder: u64, icon: &str, _: &mut App) {
+        let icon = CString::new(icon).unwrap_or_default();
+        unsafe { bc::bc_folder_set_icon(folder, icon.as_ptr()) };
+    }
+
+    fn duplicate_folder(&self, folder: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_folder_duplicate(folder) }
+    }
+
     fn set_folder_open(&self, folder: u64, open: bool, _: &mut App) {
         unsafe { bc::bc_folder_set_open(folder, open) };
     }
@@ -1954,17 +1999,20 @@ impl Browser for Engine {
     fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
         let (window, url) = (self.window, url.to_string());
         // After the drop that asked, which Chromium is still handling.
-        update_app_later(move |_| {
+        update_app_later(move |cx| {
             let tab = open_tab_behind(window, &url, false);
             if tab == 0 {
                 return;
             }
+            let joined = unsafe { bc::bc_tab_split_with(tab, with, left) };
             unsafe {
-                bc::bc_tab_split_with(tab, with, left);
                 if stacked {
                     bc::bc_tab_set_split_stacked(with, true);
                 }
                 bc::bc_window_select(window, tab);
+            }
+            if joined {
+                split_opened(window, tab, cx);
             }
         });
     }
@@ -2222,6 +2270,10 @@ impl Browser for Engine {
 
     fn hand_back(&self, tab: u64, _: &mut App) {
         agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
+    }
+
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.give(tab, space, cx));
     }
 
     fn stop_agent(&self, agent: SharedString, _: &mut App) {
@@ -2945,6 +2997,10 @@ impl Browser for Engine {
 
     fn hover_card(&self, hover: hover_card::Hover, cx: &mut App) {
         hover_card::hover(hover, cx);
+    }
+
+    fn folder_preview(&self, ask: folder_preview::Ask, cx: &mut App) {
+        folder_preview::ask(ask, cx);
     }
 
     fn card_picture(&self, tab: u64, cx: &mut App) {
@@ -3884,6 +3940,14 @@ fn finish_opening(
             platform::host_set_overlay_growth(ICON_PICKER, x.into(), y.into());
         }
     }
+    if let Some(preview) = folder_preview::open(Rc::new(FolderPreviewHost), cx)
+        && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
+    {
+        let radius = folder_preview::RADIUS.into();
+        elevate(FOLDER_PREVIEW, Level::Popover);
+        let dismissed = folder_preview_dismissed;
+        unsafe { platform::host_add_overlay(FOLDER_PREVIEW, view, radius, dismissed) };
+    }
     if let Some(picker) = theme_picker::open(Rc::new(ThemeHost), cx)
         && let Ok(view) = picker.update(cx, |_, window, _| ns_view(window))
     {
@@ -4290,6 +4354,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Close Window", Command::CloseWindow),
                 item("Archive Tab", Command::CloseTab),
                 MenuItem::separator(),
+                item("Share…", Command::Share),
                 item("Capture…", Command::CapturePortion),
                 item("Capture Full Page", Command::CaptureFullPage),
                 item("Save Page As", Command::SavePage),
@@ -4312,6 +4377,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                     PasteAndMatchStyle,
                     OsAction::PasteAndMatchStyle,
                 ),
+                item("Paste URL as New Tab", Command::PasteUrlAsTab),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
@@ -4896,6 +4962,10 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
         let mut open = false;
         if unsafe { bc::bc_folder(row, &mut open) } {
             folders.folders.insert(row, (name(bc::bc_folder_name, row), open));
+            let icon = name(bc::bc_folder_icon, row);
+            if !icon.is_empty() {
+                folders.icons.insert(row, icon);
+            }
         }
         match unsafe { bc::bc_folder_of(row) } {
             0 => {}
@@ -5348,13 +5418,20 @@ unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *cons
 
 unsafe extern "C" fn tab_opened(
     _: *mut c_void,
-    _: bc::bc_id,
+    window: bc::bc_id,
     tab: bc::bc_id,
     opener: bc::bc_id,
     foreground: bool,
 ) {
     let side = if foreground { "foreground" } else { "background" };
     log!("browser: tab {tab} opened by {opener} in the {side}");
+    // A link ⌥⌘-clicked, or opened in a split view from the page's menu, joined its page's split,
+    // which ⌘Z takes back as it does the user's other ways in.
+    let mut split = [0; 3];
+    let count = unsafe { bc::bc_tab_split(tab, split.as_mut_ptr(), split.len()) };
+    if opener != 0 && count > 1 && split[..count.min(3)].contains(&opener) {
+        update_app_later(move |cx| split_opened(window, tab, cx));
+    }
 }
 
 // Called while Chromium closes the tab, which can be inside a GPUI update that asked for it, so

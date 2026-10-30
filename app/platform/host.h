@@ -141,12 +141,14 @@ double host_since_launch(void);
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
 
-// The overlays: the command bar, and the Space's icon and theme pickers. One shows at a time.
+// The overlays: the command bar, the Space's icon and theme pickers, and a closed folder's preview.
+// One shows at a time.
 #define HOST_COMMAND_BAR 0
 #define HOST_ICON_PICKER 1
 #define HOST_THEME_PICKER 2
+#define HOST_FOLDER_PREVIEW 3
 // The Site Controls take the same elevation call, though they aren't one of the overlays.
-#define HOST_SITE_CONTROLS 3
+#define HOST_SITE_CONTROLS 4
 
 // Gives the |overlay| (or the Site Controls) the shadow its elevation level draws, in Core
 // Animation's terms: a black line round its shape and a black drop shadow, each with an opacity
