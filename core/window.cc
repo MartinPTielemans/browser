@@ -1257,7 +1257,14 @@ void Window::LayOutPage() {
       gfx::Rect devtools_frame;
       ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(pane.frame.size()),
                                             &devtools_frame, &docked.page_frame);
-      pane.devtools = docked;
+      // DevTools in a window of their own leave their toolbox in the tab, under the page, where it
+      // draws only around a page device mode makes smaller. Under one filling the frame it would
+      // show nothing, so it stays out, and its renderer hidden, until device mode leaves it room.
+      const bool toolbox = !DevToolsWindow::AsDevToolsWindow(devtools);
+      const bool covered = !docked.page_under && docked.page_frame == gfx::Rect(pane.frame.size());
+      if (!toolbox || !covered) {
+        pane.devtools = docked;
+      }
     }
   }
   SidePanel* side_panel = ShownSidePanel();
