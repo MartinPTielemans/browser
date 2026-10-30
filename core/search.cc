@@ -59,10 +59,15 @@ TemplateURLService* LoadedEngines(Profile* profile) {
   return engines && engines->loaded() ? engines : nullptr;
 }
 
-// Whether the user can make |engine| the default: none while a policy or an extension picks it.
+// Whether the user can make |engine| the default, or has: none while a policy or an extension
+// picks it. Chrome's CanMakeDefault is false for the default itself, which the user's list keeps.
 bool IsChoice(TemplateURLService* engines, const TemplateURL* engine) {
-  return engine->keyword() != kNoSearch && engines->ShowInDefaultList(engine) &&
-         engines->CanMakeDefault(engine);
+  if (engine->keyword() == kNoSearch || !engines->ShowInDefaultList(engine)) {
+    return false;
+  }
+  return engine == engines->GetDefaultSearchProvider()
+             ? engines->CanDefaultSearchProviderBeModifiedByUser()
+             : engines->CanMakeDefault(engine);
 }
 
 }  // namespace
