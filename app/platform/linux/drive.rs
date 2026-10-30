@@ -10,8 +10,8 @@
 //! X11 only: under Wayland no client can hand another's surfaces input.
 //! shortcut: a core call that hands Chromium's windows the events would drive Wayland too.
 //!
-//! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
-//! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
+//! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, middleclick,
+//! clickkey, doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
 //! rightrelease, move, scroll, wheel, pageswipe, key, keydown, keyup, flags, type, resize, place,
 //! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
@@ -1156,10 +1156,14 @@ fn run_command(line: &str) -> Option<()> {
             }
             connection.flush().ok()
         }
-        "click" | "rightclick" | "doubleclick" => {
+        "click" | "rightclick" | "middleclick" | "doubleclick" => {
             let (x, y) = point(&mut words)?;
             let at = target_at(x, y)?;
-            let which = if action == "rightclick" { 3 } else { 1 };
+            let which = match action {
+                "rightclick" => 3,
+                "middleclick" => 2,
+                _ => 1,
+            };
             click(at, which, click_modifiers(words), false)?;
             if action == "doubleclick" {
                 click(at, 1, none, true)?;
