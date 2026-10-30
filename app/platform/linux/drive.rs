@@ -60,8 +60,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
-    settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, menu_window, overlays, panels, platform,
+    reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -1359,8 +1359,9 @@ fn run_command(line: &str) -> Option<()> {
             Some(())
         }
         // The window's content and the views the X server has in it: GPUI's, and the overlays
-        // over it. shortcut: the pages are aura windows in Chromium's window, which the X server
-        // doesn't see, so they aren't listed.
+        // and floats over it, as the Mac's lists its child windows. The floats, such as the zoom
+        // HUD, take no input, so they're left out of overlay_views. shortcut: the pages are aura
+        // windows in Chromium's window, which the X server doesn't see, so they aren't listed.
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
@@ -1371,7 +1372,9 @@ fn run_command(line: &str) -> Option<()> {
             );
             log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
             let [left, top, ..] = frame(browser.window)?;
-            let views = overlay_views().into_iter().map(|view| view as usize as u32);
+            let views = (overlay_views().into_iter())
+                .chain(floats::shown())
+                .map(|view| view as usize as u32);
             for view in views.chain(popups(browser.window).unwrap_or_default()) {
                 let [x, y, width, height] = frame(view)?;
                 log!(
