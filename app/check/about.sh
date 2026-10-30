@@ -14,7 +14,8 @@ for row in licence:LICENSE notices:NOTICE libraries:THIRD-PARTY.txt; do
   id=${row%%:*} file=${row#*:}
   send menu "About ilo"
   expect '^browser: settings \(shown\|tab\) About$' "About ilo didn't show Settings' About tab"
-  expect "^browser: settings open $id at " "About didn't draw the $id row's Open"
+  # About logs where each Open is once, on its first draw.
+  await "^browser: settings open $id at " || fail "About didn't draw the $id row's Open"
   [ -n "$loaded" ] || ../tools/window-screenshot.sh "$pid" "$out/about.png" all ||
     fail "no window to capture"
   # shellcheck disable=SC2046 # x and y
