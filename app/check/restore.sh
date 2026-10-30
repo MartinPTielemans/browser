@@ -116,7 +116,8 @@ expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in th
 e=$(today)
 expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
 post rightclick 100 112
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "the Space's menu didn't offer its theme"
 # The theme picker's pink swatch, and + for a second colour, which a relaunch brings back.
 send choose "$(cased 'Edit Theme Color…')"
@@ -136,7 +137,7 @@ expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
 # search and picked with ↩, which a relaunch brings back.
 post rightclick 100 112
 expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
-Delete Space")\$" "the Space's menu didn't offer Change Icon…"
+Export as Markdown…, Delete Space")\$" "the Space's menu didn't offer Change Icon…"
 send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for $second on icon\$" "Change Icon… didn't open the icon picker"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
@@ -182,15 +183,19 @@ send key return
 expect "^browser: page $c icon 🦊\$" "an emoji picked in the picker didn't become the tab's icon"
 expect '^browser: icon picker hidden$' "picking an emoji didn't close the tab's icon picker"
 ../tools/window-screenshot.sh "$pid" "$out/tab-icon.png" || fail "no window to capture"
-# With a download running, Quit in the alert ⌘Q shows asks again, in Chrome's. Continue Downloading
-# keeps the browser running and shows the Library's Downloads, and Quit quits, cancelling it.
+# With a download running, Quit in the alert ⌘Q shows asks again: on the Mac in Chrome's alert,
+# elsewhere in the app's dialog in its words. Continue Downloading keeps the browser running and
+# shows the Library's Downloads, and Quit quits, cancelling it.
+case "$(uname)" in
+  Darwin) downloads_question='^browser: modal shown Download is in progress, .*, Continue Downloading, Quit$' ;;
+  *) downloads_question='^browser: dialog shown Download is in progress$' ;;
+esac
 post key q cmd
 expect '^browser: command quit via ' "⌘Q didn't reach the UI"
 expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 post key return
-expect '^browser: modal shown Download is in progress, .*, Continue Downloading, Quit$' \
-  "⌘Q with a download running didn't ask first"
+expect "$downloads_question" "⌘Q with a download running didn't ask first"
 send choose Continue Downloading
 expect '^browser: command view-downloads via chrome$' \
   "Continue Downloading didn't show the downloads"
@@ -204,7 +209,9 @@ post key q cmd
 expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 post key return
-expect '^browser: modal shown Download is in progress, ' "⌘Q didn't ask again"
+expect "$downloads_question" "⌘Q didn't ask again"
+# The app's dialog takes a yes once it has been on screen a moment.
+[ "$(uname)" = Darwin ] || expect '^browser: dialog settled$' "the dialog asking about the download didn't settle"
 # Quit is the driver's last command: the app doesn't report it done.
 post choose Quit
 exec 3>&-

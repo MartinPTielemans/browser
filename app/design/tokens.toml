@@ -435,6 +435,9 @@ pressed = 0x1614_0f2e
 # A Space's swatch in Move to (#320), before its name: its gradient, ringed by the palette's rule
 # for a swatch's ring (palette.rs) against the panel.
 swatch = 10.0
+# A page's favicon before its title in the back and forward buttons' menu of the tab's history
+# (#675), as Arc's and Chrome's show them: the engine's 16 pt favicon.
+favicon = 16.0
 
 [offer]
 width = 320.0
@@ -597,6 +600,15 @@ popup-end = 22.5
 chevrons = 14.0
 # Buttons under the boxes are 11 below them.
 buttons-top = 11.0
+# Ours: a checkbox, as the dialog's, 8 before its name, ticked in the accent with a white tick;
+# and a disclosure, such as the import's Choose folders, its chevron 4 after its words.
+check-box = 16.0
+check-radius = 6.0
+check-gap = 8.0
+check-glyph = 12.0
+check-tick = 0xffffff
+disclosure-gap = 4.0
+disclosure-glyph = 12.0
 # Ours, for the Shortcuts tab: a header 8 over each box, 20 below the box before, and keys in
 # chips as the command bar shows them, at least 56 wide so they line up, with a command's way
 # back to its default 6 before its chip.
@@ -1233,6 +1245,19 @@ picture-top = 18.0
 picture-inset = 4.0
 # The corners of the half-filled glyph a target shows.
 half-glyph-radius = 3.5
+
+[shell.split-controls]
+# Ours, as Arc's split controls aren't measured: the handle over each page of a split view, in
+# the window's margin over the card, or the gap under the page over it stacked. Its hover plate is
+# this wide, and its strip's height less twice the inset, at the radius of half that. Its three
+# dots are this wide and this far apart, at the ink's dots alpha, or dots-hovered under the
+# pointer.
+width = 32.0
+inset = 1.0
+dot = 2.5
+dot-gap = 3.0
+dots = 0.35
+dots-hovered = 0.8
 
 [shell.swap]
 check-box = 24.0
