@@ -337,3 +337,30 @@ fn a_card_goes_beside_its_row_and_stays_inside_the_window() {
     let narrow = Anchor { window: size(px(400.), px(700.)), ..row(0) };
     assert_eq!(place(narrow, tall).0, 400. - WIDTH - EDGE);
 }
+
+/// Each button, clicked where the card draws it, as the pointer comes onto the card from the row,
+/// makes its call on that first click (#818).
+#[gpui::test]
+fn a_click_on_each_button_makes_its_call(cx: &mut TestAppContext) {
+    let (host, told) = open_card(cx);
+    let window = card_window(cx);
+    let actions = card(1, true).actions;
+    let count = actions.len() as f32;
+    let first = WIDTH - BUTTON_INSET - count * BUTTON - (count - 1.) * BUTTON_GAP;
+    let top = PADDING + picture_height(true, None) + TEXT_TOP + TITLE_LINE;
+    for (at, action) in actions.into_iter().enumerate() {
+        rest_on(cx, &told, card(1, true));
+        after(cx, &host, DWELL + Duration::from_secs(1));
+        ask(cx, Hover::Left(1));
+        let x = WINDOW_MARGIN + first + at as f32 * (BUTTON + BUTTON_GAP) + BUTTON / 2.;
+        let y = WINDOW_MARGIN + top + BUTTON / 2.;
+        let mut window_cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        window_cx.simulate_mouse_move(point(px(x), px(y)), None, gpui::Modifiers::none());
+        window_cx.simulate_click(point(px(x), px(y)), gpui::Modifiers::none());
+        cx.run_until_parked();
+        let said = format!("{} 1", action.label());
+        assert!(told.borrow().contains(&said), "{said}: {:?}", told.borrow());
+        after(cx, &host, LEAVE + FADE);
+        told.borrow_mut().clear();
+    }
+}
