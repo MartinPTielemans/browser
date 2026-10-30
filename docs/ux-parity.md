@@ -220,18 +220,19 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Panes | MVP | up to 3 side by side or stacked, sharing the card; Arc max: measure | Arc rec, Dia P§6 |
+| [ ] | The focused pane's URL, keyboard and toasts | MVP | the URL field shows the focused pane's URL, and ⌘L, a click on it and Copy URL act on that page, as Arc's address bar is its panel's (no toolbar, decision 6); a pane's page has the keyboard as it's focused or opens; toasts go at the focused pane's corner, as the find bar does. Built, and the URL field checked by `cargo test`'s `the_url_field_is_the_focused_pages`; to tick: `./check.sh split`'s `layout keyboard` steps, its ⌘L step and `split-toast.png`, run on the Mac | Arc help |
 | [x] | Gap, focus indicator | MVP | 10 pt gap; 2 pt ring inside the focused pane, ≈ 8 pt glow outside, in the Space's colour (Arc's read P3 (49, 57, 251)) | Arc 1.170.0 rec |
 | [x] | Unfocused dim | MVP | none *interim*; Arc's: measure | — |
 | [x] | Pane sizes | MVP | the gap drags them, a tenth of the card each, 50–200; snap to even within 15; double-click evens; kept after a quit; Arc's: measure | Chrome *interim* |
 | [x] | Keys | MVP | ⌃+ add, ⌃⇧- close pane; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
-| [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
+| [ ] | ⌥-click + New Tab; ⌥-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome), the owner's call over Chrome's download, which Save Link As… keeps; no ⌥⇧-click split. Built, with `chromium-core-alt-click-split.patch`; to tick: `./check.sh split`'s link clicks with `alt` and `alt cmd`, on an engine with the patch, run on the Mac | Arc help, Chrome |
 | [ ] | ⌥-click a sidebar row | MVP | another tab joins the page shown, the page shown alone splits with a copy, a split's tab leaves it. Built, and checked by `cargo test`; to tick: `./check.sh split`'s ⌥-click steps, `command split via sidebar`, run on the Mac | Arc help |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
 | [ ] | A split's menu | MVP | Mute under each tab's name; Duplicate copies the whole split. Built, and checked by `cargo test`; to tick: `./check.sh split`'s right-click on a split's row, its `menu shown` line and the two splits after Duplicate, run on the Mac | Arc help |
 | [ ] | Split controls | MVP | a handle over each pane, whose menu changes orientation, separates or closes that pane; its look and place ours *interim*. Built, and checked by `cargo test`'s `each_pages_split_controls_act_on_that_page`; to tick: `./check.sh split`'s step with `via split controls`, run on the Mac | Arc help |
-| [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh pinned`'s ⌥⇧-click on the pinned tab's link, its `browser: pinned` line holding both and `pinned-split.png` | Arc release notes |
+| [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh pinned`'s ⌥-click on the pinned tab's link, its `browser: pinned` line holding both and `pinned-split.png` | Arc release notes |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
 | [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
@@ -256,6 +257,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Boxes, rows, switch, pop-up and buttons | MVP | the spec's measures; the pop-up's menu opens over it | Arc 1.170.0 cap, ax |
 | [x] | Shortcuts tab | MVP | the browser's shortcuts by section, read-only | Ours |
 | [x] | Shortcuts search | MVP | a field over the Shortcuts tab's boxes finds a command by the starts of its name's words or by its keys, as "cmd d", "shift cmd a" or ⇧⌘A, filtering as typed; a box with nothing found hides, and "No Results" *interim*. Built; `./check.sh keys` searches by name and keys, passing on the Mac | Arc 1.170.0 Settings › Shortcuts (#682) |
+| [ ] | ⌃1–⌃9 rebindable | MVP | Go to Space 1 to 9, each its own row and keys, kept across a relaunch. Built, lib tests; not run in the app | Arc 1.170.0 (#682) |
+| [ ] | Restore windows from last session | MVP | Advanced's switch, on; off, a launch opens one window with no page, at the front one's frame, the Spaces, pinned tabs and favorites back and the Today tabs in the archive. Built; the core's part is uncompiled until an engine is built with it | Arc 1.170.0 Settings › Advanced (#684) |
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Advanced › Export… | MVP | each of the user's Spaces' favorites, pinned tabs and folders as a Markdown file of links, saved where the user picks; no agent path. Built, and checked by `cargo test` (the file's text); `./check.sh pinned` clicks Export… with the folder holding its pinned tab, reads the file the run names in place of the save panel, and captures `export.png`, passing on the Mac | Arc 1.170.0 Settings › Advanced |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
