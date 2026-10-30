@@ -28,6 +28,7 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/held_keys.h"
 #include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
@@ -307,6 +308,15 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
     browser_core::platform::SetUITextInput(widget, caret);
   }
 #endif
+}
+
+void bc_hold_keys(void) {
+  browser_core::held_keys::Hold();
+}
+
+void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                       void* context) {
+  browser_core::held_keys::Give(take, context);
 }
 
 bool bc_window_restore(bc_id id) {
@@ -965,6 +975,17 @@ bool bc_extension_remove(bc_id profile_id, const char* id) {
   return profile && id && browser_core::RemoveExtension(profile, id);
 }
 
+void bc_extension_crash_told(bc_id profile_id, const char* id) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && id) {
+    browser_core::ExtensionCrashTold(profile, id);
+  }
+}
+
+bool bc_extension_turn_on(bc_id profile_id, const char* id) {
+  Profile* profile = LoadedProfile(profile_id);
+  return profile && id && browser_core::TurnOnExtension(profile, id);
+}
+
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window && id && window->RunExtension(id, ToRect(anchor));
@@ -1025,6 +1046,23 @@ bool bc_link_previews(void) {
 void bc_set_link_previews(bool previews) {
   browser_core::UserSettings().link_previews = previews;
   browser_core::SessionChanged();
+}
+
+int bc_hover_kinds(void) {
+  return browser_core::UserSettings().hover_kinds;
+}
+
+void bc_set_hover_kinds(int kinds) {
+  browser_core::UserSettings().hover_kinds = kinds;
+  browser_core::SessionChanged();
+}
+
+bool bc_archive_note(void) {
+  return browser_core::ArchiveNoteShown();
+}
+
+void bc_dismiss_archive_note(void) {
+  browser_core::DismissArchiveNote();
 }
 
 bool bc_warn_before_quitting(void) {

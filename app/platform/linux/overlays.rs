@@ -73,6 +73,10 @@ pub(crate) fn lend_keyboard(window: bc::bc_id, view: *mut c_void, takes: bool) {
     if before != after {
         unsafe { bc::bc_window_overlay_takes_keyboard(window, after) };
     }
+    // The keys typed in the page since the shortcut that opened it are its.
+    if takes {
+        crate::give_held_keys(view);
+    }
 }
 
 /// Whether an overlay but that of `view` has the keyboard of `window`.

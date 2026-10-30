@@ -11,7 +11,9 @@ compile_error!(env!("ENGINE_HEADER_MISMATCH"));
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     ffi::{CStr, CString, c_char, c_int, c_void},
+    path::PathBuf,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -127,7 +129,6 @@ mod platform {
         pub fn host_window_closed(ui_view: *mut c_void);
         #[cfg(target_os = "linux")]
         pub fn host_window_active(ui_view: *mut c_void, active: bool, whole_window: bool);
-        #[cfg(target_os = "linux")]
         pub fn host_capture_name(name: *mut c_char, capacity: usize);
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_show_window_behind(ui_view: *mut c_void, above_ui_view: *mut c_void);
@@ -261,6 +262,9 @@ mod platform {
                 image: bool,
             ),
         );
+        pub fn host_video_open(path: *const c_char, side: c_int) -> *mut c_void;
+        pub fn host_video_frame(video: *mut c_void, pixels: *mut u8) -> bool;
+        pub fn host_video_close(video: *mut c_void);
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
@@ -1238,6 +1242,21 @@ impl capture::Host for CaptureHost {
         unsafe { platform::host_save_png(front().1, png.as_ptr(), png.len()) };
     }
 
+    fn save_to_library(&self, png: &[u8]) {
+        let (name, png) = (capture_name(), png.to_vec());
+        // After the update under way, which the capture's menu is in.
+        update_app_later(move |cx| {
+            // A picture of a whole screen is megabytes, too many to write on the main thread.
+            let saved = cx.background_spawn(async move { save_capture(&name, &png) });
+            cx.spawn(async move |cx| {
+                if saved.await {
+                    cx.update(list_captures);
+                }
+            })
+            .detach();
+        });
+    }
+
     fn share(&self, png: &[u8], share: capture::Share) {
         let (view, at, messages) = match share {
             capture::Share::Menu(at) => (front().1, at, false),
@@ -1252,6 +1271,68 @@ impl capture::Host for CaptureHost {
             platform::host_share_png(png.as_ptr(), png.len(), view, x, y, width, height, messages)
         };
     }
+}
+
+/// Where the Library's captures are.
+fn media_dir() -> PathBuf {
+    PathBuf::from(profile_dir()).join("Media")
+}
+
+/// Saves a capture into the Library as `name`, and says whether it did.
+fn save_capture(name: &str, png: &[u8]) -> bool {
+    let media = media_dir();
+    // Two captures in a second each keep theirs, as the system's screenshots do.
+    let stem = name.trim_end_matches(".png");
+    let path = (1..)
+        .map(|n| match n {
+            1 => media.join(name),
+            n => media.join(format!("{stem} ({n}).png")),
+        })
+        .find(|path| !path.exists())
+        .unwrap_or_default();
+    match std::fs::create_dir_all(&media).and_then(|_| std::fs::write(&path, png)) {
+        Ok(()) => {
+            // check.sh reads this line.
+            log!("browser: saved to library {}", path.display());
+            true
+        }
+        Err(error) => {
+            log!("couldn't save to the library at {}: {error}", path.display());
+            false
+        }
+    }
+}
+
+/// Lists the Library's captures, newest first, away from the main thread, for every window.
+fn list_captures(cx: &mut App) {
+    let listed = cx.background_spawn(async {
+        let entries = std::fs::read_dir(media_dir()).into_iter().flatten().flatten();
+        let mut captures: Vec<_> = entries
+            .filter_map(|entry| {
+                let modified = entry.metadata().ok()?.modified().ok()?;
+                let saved = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+                let name = entry.file_name().into_string().ok()?;
+                let path = entry.path().into_os_string().into_string().ok()?;
+                Some(shell::Captured { path: path.into(), name: name.into(), saved: saved as f64 })
+            })
+            .collect();
+        captures.sort_by(|a, b| b.saved.total_cmp(&a.saved));
+        captures
+    });
+    cx.spawn(async move |_| {
+        let captures = listed.await;
+        // check.sh reads this line.
+        log!("browser: library captures {}", captures.len());
+        update_shells(|shell, cx| shell.set_captures(captures.clone(), cx));
+    })
+    .detach();
+}
+
+/// A capture's file name, as the system names a screenshot.
+pub(crate) fn capture_name() -> String {
+    let mut name = [0 as c_char; 64];
+    unsafe { platform::host_capture_name(name.as_mut_ptr(), name.len()) };
+    unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned()
 }
 
 /// The user left capture mode: a click outside it, another window or another app.
@@ -1674,6 +1755,23 @@ struct Engine {
     ui_view: *mut c_void,
     /// GPUI's view, which has the keyboard when the UI does.
     view: *mut c_void,
+    /// The videos Media's tiles play, by tile.
+    videos: RefCell<HashMap<u64, Video>>,
+}
+
+/// A video a Media tile plays, from the host, with the pixels its frames are copied into.
+struct Video {
+    player: *mut c_void,
+    side: u32,
+    pixels: Vec<u8>,
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        for (_, video) in self.videos.take() {
+            unsafe { platform::host_video_close(video.player) };
+        }
+    }
 }
 
 impl Browser for Engine {
@@ -1921,6 +2019,48 @@ impl Browser for Engine {
         if let Ok(path) = CString::new(path) {
             unsafe { platform::host_file_preview(path.as_ptr(), download, file_preview) };
         }
+    }
+
+    fn open_video(&self, id: u64, path: &str, side: u32, _: &mut App) -> bool {
+        let Ok(path) = CString::new(path) else {
+            return false;
+        };
+        let player = unsafe { platform::host_video_open(path.as_ptr(), side as c_int) };
+        if player.is_null() {
+            return false;
+        }
+        let pixels = vec![0; side as usize * side as usize * 4];
+        self.videos.borrow_mut().insert(id, Video { player, side, pixels });
+        true
+    }
+
+    fn video_frame(&self, id: u64, _: &mut App) -> Option<Arc<gpui::RenderImage>> {
+        let mut videos = self.videos.borrow_mut();
+        let video = videos.get_mut(&id)?;
+        if !unsafe { platform::host_video_frame(video.player, video.pixels.as_mut_ptr()) } {
+            return None;
+        }
+        // BGRA, as GPUI draws a RenderImage's pixels.
+        let frame = image::RgbaImage::from_raw(video.side, video.side, video.pixels.clone())?;
+        Some(Arc::new(gpui::RenderImage::new(vec![image::Frame::new(frame)])))
+    }
+
+    fn close_video(&self, id: u64, _: &mut App) {
+        if let Some(video) = self.videos.borrow_mut().remove(&id) {
+            unsafe { platform::host_video_close(video.player) };
+        }
+    }
+
+    fn list_captures(&self, cx: &mut App) {
+        list_captures(cx);
+    }
+
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        unsafe { bc::bc_hover_kinds() as u32 }
+    }
+
+    fn set_hover_kinds(&self, kinds: u32, _: &mut App) {
+        unsafe { bc::bc_set_hover_kinds(kinds as c_int) };
     }
 
     fn trash(&self, path: &str, _: &mut App) -> bool {
@@ -2232,6 +2372,19 @@ impl Browser for Engine {
         unsafe { bc::bc_extension_remove(profile, id.as_ptr()) }
     }
 
+    fn turn_on_extension(&self, profile: u64, id: &str, _: &mut App) -> bool {
+        let Ok(id) = CString::new(id) else {
+            return false;
+        };
+        unsafe { bc::bc_extension_turn_on(profile, id.as_ptr()) }
+    }
+
+    fn extension_crash_told(&self, profile: u64, id: &str, _: &mut App) {
+        if let Ok(id) = CString::new(id) {
+            unsafe { bc::bc_extension_crash_told(profile, id.as_ptr()) };
+        }
+    }
+
     fn open_extension_options(&self, url: &str, _: &mut App) {
         open_tab(self.window, url);
     }
@@ -2375,6 +2528,19 @@ impl Browser for Engine {
         cx: &mut App,
     ) {
         with_overlays(move |cx| dialog::ask(message, detail, action, confirmed, cx), cx);
+    }
+
+    fn tell(
+        &self,
+        question: dialog::Question,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        cx: &mut App,
+    ) -> bool {
+        if !dialog::can_pose(cx) {
+            return false;
+        }
+        with_overlays(move |cx| dialog::pose(question, confirmed, cx), cx);
+        true
     }
 
     fn focus_ui(&self, _: &mut App) {
@@ -2671,12 +2837,13 @@ impl Browser for Engine {
         frame: Bounds<Pixels>,
         radius: f32,
         full_page: bool,
+        library: bool,
         cx: &mut App,
     ) {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, cx),
+                false => capture::start(tab, frame, radius, library, cx),
             },
             cx,
         );
@@ -2934,6 +3101,54 @@ unsafe extern "C" fn tab_key_before_page(
         unsafe { platform::host_hold_keys() };
     }
     false
+}
+
+/// Gives the keys the core held from a page since a shortcut that opens a field (bc_hold_keys) to
+/// the overlay of `view`, which now has the keyboard, in the order typed.
+#[cfg(target_os = "linux")]
+fn give_held_keys(view: *mut c_void) {
+    unsafe extern "C" fn take(held: *mut c_void, keys: *const bc::bc_key, count: usize) {
+        let held = unsafe { &mut *held.cast::<Vec<gpui::Keystroke>>() };
+        for key in unsafe { std::slice::from_raw_parts(keys, count) } {
+            let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+            let has = |flag| key.modifiers & flag != 0;
+            let modifiers = gpui::Modifiers {
+                control: has(bc::BC_MODIFIER_CONTROL),
+                alt: has(bc::BC_MODIFIER_ALT),
+                shift: has(bc::BC_MODIFIER_SHIFT),
+                platform: has(bc::BC_MODIFIER_META),
+                function: false,
+            };
+            held.push(shell::web_keystroke(&name, modifiers));
+        }
+    }
+    let mut held: Vec<gpui::Keystroke> = Vec::new();
+    unsafe { bc::bc_give_held_keys(Some(take), (&raw mut held).cast()) };
+    let Some(cx) = CX.with_borrow(Clone::clone).filter(|_| !held.is_empty()) else {
+        return;
+    };
+    // check.sh reads this line, which names the window that took them as the Mac's does.
+    log!("browser: held {} key events for GPUIPanel", held.len());
+    // After the update that showed the overlay, which a key would come inside, and before GPUI
+    // reads the keys typed since, as the task runs before it dispatches its Wayland queue.
+    let app = cx.clone();
+    cx.foreground_executor()
+        .spawn(async move {
+            app.update(|cx| {
+                let overlay = cx.windows().into_iter().find(|window| {
+                    window.update(cx, |_, window, _| ns_view(window) == view).unwrap_or(false)
+                });
+                if let Some(overlay) = overlay {
+                    let typed = |_: gpui::AnyView, window: &mut Window, cx: &mut App| {
+                        for keystroke in held {
+                            window.dispatch_keystroke(keystroke, cx);
+                        }
+                    };
+                    overlay.update(cx, typed).ok();
+                }
+            })
+        })
+        .detach();
 }
 
 unsafe extern "C" fn tab_key_unhandled(
@@ -3312,7 +3527,12 @@ fn open_window_as(
             if wayland_size.is_none() {
                 drops::take(ui_view);
             }
-            let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });
+            let engine = Rc::new(Engine {
+                window: id,
+                ui_view,
+                view: ns_view(window),
+                videos: RefCell::default(),
+            });
             match (&from_shell, private_space) {
                 (_, Some((space, profile))) => {
                     Shell::private_window(engine, space, private_name(profile), profile, cx)
@@ -3604,6 +3824,8 @@ fn finish_opening(
     {
         toast_host.view.set(view);
         unsafe { platform::host_add_toast(view) };
+        // Auto-archive at launch can come before there's a toast to show its note in.
+        show_archive_note(cx);
     }
     if let Some(capture) = capture::open(Rc::new(CaptureHost { toast: toast_host }), cx)
         && let Ok(view) = capture.update(cx, |_, window, _| ns_view(window))
@@ -4125,6 +4347,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 MenuItem::separator(),
                 item("Open Library…", Command::ViewLibrary),
                 item("View Downloads…", Command::ViewDownloads),
+                item("View Media…", Command::ViewMedia),
             ],
         ),
         menu(
@@ -4471,6 +4694,41 @@ unsafe extern "C" fn crash_report_offered(_: *mut c_void) {
     });
 }
 
+unsafe extern "C" fn archive_note_changed(_: *mut c_void) {
+    // Before the toast's window is made, as at launch, making it shows the note.
+    update_app_later(show_archive_note);
+}
+
+/// The note on the first tabs auto-archive took, as Arc's banner explains its own, while it's still
+/// to be answered: a toast that stays until one of its buttons is pressed, as the crash report's
+/// offer does, so it's never missed. Both buttons dismiss it for good.
+fn show_archive_note(cx: &mut App) {
+    if !unsafe { bc::bc_archive_note() } {
+        return;
+    }
+    let view = toast::Button {
+        label: toast::Label::Text("View Archive".into()),
+        name: "view archive",
+        run: Rc::new(|_, cx| {
+            unsafe { bc::bc_dismiss_archive_note() };
+            let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));
+            if let Some(shell) = shell {
+                let view = |shell: &mut Shell, cx: &mut Context<Shell>| {
+                    shell.run(Command::ViewArchive, "archive note", cx)
+                };
+                shell.update(cx, view).ok();
+            }
+        }),
+    };
+    let dismiss = toast::Button {
+        label: toast::Label::Glyph("icons/x.svg"),
+        name: "dismiss",
+        run: Rc::new(|_, _| unsafe { bc::bc_dismiss_archive_note() }),
+    };
+    let text = format!("Tabs unseen for {} went to the archive.", settings::archive_after_words());
+    toast::show_until_answered(&text, vec![view, dismiss], cx);
+}
+
 unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
     log!("browser: history added {added} to profile {profile}");
     update_app_later(move |cx| import_host::history_added(added, cx));
@@ -4758,6 +5016,8 @@ unsafe extern "C" fn extensions_changed(
             pinned: extension.pinned,
             options: text(extension.options),
             removable: extension.removable,
+            incognito: extension.incognito,
+            crashed: extension.crashed,
             commands: match extension.commands.is_null() {
                 true => &[][..],
                 false => unsafe {
@@ -4781,6 +5041,8 @@ unsafe extern "C" fn extensions_changed(
         })
         .collect();
     update_shells(|shell, cx| shell.set_extensions(profile, extensions.clone(), cx));
+    // Over the window in front, once.
+    update_window(front().0, |shell, cx| shell.tell_crashed_extension(profile, cx));
 }
 
 unsafe extern "C" fn window_extension_actions(
@@ -5569,6 +5831,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
         window_downloads_question: Some(window_downloads_question),
+        archive_note_changed: Some(archive_note_changed),
         ..Default::default()
     };
     (args, host)

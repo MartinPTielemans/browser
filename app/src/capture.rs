@@ -67,14 +67,17 @@ const TOAST_TIME: Duration = Duration::from_secs(5);
 /// How long "Capture in Progress" can stay, which the capture's toast replaces when it comes.
 const PROGRESS_TIME: Duration = Duration::from_secs(60);
 const COPIED: &str = "Screenshot Copied to Clipboard";
+const SAVED: &str = "Saved to Library";
 
-/// What the menu does with what's chosen, in Arc's order without Save to Library, Edit and New
-/// Easel, which aren't built: one is a variant here, a row in ROWS and an arm in `Capture::done`.
+/// What the menu does with what's chosen, in Arc's order without Edit and New Easel, which aren't
+/// built: one is a variant here, a row in ROWS and an arm in `Capture::done`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
     /// The field at the menu's top: the system's share menu (interim: Arc's field lists people and
     /// apps of its own).
     SendTo,
+    /// Into the Library's Media, which a private window has none of.
+    SaveToLibrary,
     Copy,
     Save,
     Messages,
@@ -84,9 +87,22 @@ pub enum Action {
 
 /// The menu's rows under its field, a line between groups. Messages is the Mac's alone.
 const ROWS: &[Option<Action>] = if cfg!(target_os = "macos") {
-    &[Some(Action::Copy), Some(Action::Save), Some(Action::Messages), None, Some(Action::Retake)]
+    &[
+        Some(Action::SaveToLibrary),
+        Some(Action::Copy),
+        Some(Action::Save),
+        Some(Action::Messages),
+        None,
+        Some(Action::Retake),
+    ]
 } else {
-    &[Some(Action::Copy), Some(Action::Save), None, Some(Action::Retake)]
+    &[
+        Some(Action::SaveToLibrary),
+        Some(Action::Copy),
+        Some(Action::Save),
+        None,
+        Some(Action::Retake),
+    ]
 };
 
 /// Whether the system has a share menu. Linux has none, so there sharing copies, and says so.
@@ -96,6 +112,7 @@ impl Action {
     fn label(self) -> &'static str {
         match self {
             Action::SendTo => "Send To…",
+            Action::SaveToLibrary => "Save to Library",
             Action::Copy => "Copy",
             Action::Save => "Save…",
             Action::Messages => "Send via iMessage…",
@@ -107,6 +124,7 @@ impl Action {
     fn glyph(self) -> &'static str {
         match self {
             Action::SendTo | Action::Copy => "icons/copy.svg",
+            Action::SaveToLibrary => "icons/library.svg",
             Action::Save => "icons/download.svg",
             Action::Messages => "icons/message-circle.svg",
             Action::Retake => "icons/rotate-ccw.svg",
@@ -117,6 +135,7 @@ impl Action {
     fn name(self) -> &'static str {
         match self {
             Action::SendTo => "send-to",
+            Action::SaveToLibrary => "save-to-library",
             Action::Copy => "copy",
             Action::Save => "save",
             Action::Messages => "messages",
@@ -154,6 +173,8 @@ pub trait Host {
     fn copy(&self, png: &[u8]);
     /// Asks where to save it, and saves it.
     fn save(&self, png: &[u8]);
+    /// Saves it in the Library's Media, away from the main thread.
+    fn save_to_library(&self, png: &[u8]);
     fn share(&self, png: &[u8], share: Share);
 }
 
@@ -182,6 +203,8 @@ struct Session {
     chosen: Option<Bounds<Pixels>>,
     /// The picture asked for of what's chosen, and what to do with it once it comes.
     pending: Option<(u64, Action)>,
+    /// Whether the menu offers Save to Library: not in a private window.
+    library: bool,
 }
 
 impl Session {
@@ -200,14 +223,20 @@ impl Session {
         let x = f32::from(chosen.left()) - RING + MENU_LEFT;
         let y = f32::from(chosen.top()) - RING;
         let right = f32::from(page.size.width) - MENU_WIDTH - MARGIN;
-        let bottom = f32::from(page.size.height) - menu_height() - MARGIN;
+        let bottom = f32::from(page.size.height) - self.menu_height() - MARGIN;
         point(px(x.min(right).max(MARGIN)), px(y.min(bottom).max(MARGIN)))
     }
-}
 
-fn menu_height() -> f32 {
-    let rows = ROWS.iter().map(|row| if row.is_some() { ROW } else { SEPARATOR }).sum::<f32>();
-    FIELD_TOP + FIELD_HEIGHT + ROWS_TOP + rows + MENU_BOTTOM
+    /// The menu's rows, without Save to Library where there's no Library to save to.
+    fn rows(&self) -> impl Iterator<Item = Option<Action>> + use<> {
+        let library = self.library;
+        ROWS.iter().copied().filter(move |row| library || *row != Some(Action::SaveToLibrary))
+    }
+
+    fn menu_height(&self) -> f32 {
+        let rows = self.rows().map(|row| if row.is_some() { ROW } else { SEPARATOR }).sum::<f32>();
+        FIELD_TOP + FIELD_HEIGHT + ROWS_TOP + rows + MENU_BOTTOM
+    }
 }
 
 pub struct Capture {
@@ -275,15 +304,15 @@ fn update(cx: &mut App, change: impl FnOnce(&mut Capture, &mut Window, &mut Cont
 }
 
 /// Starts capture mode over `tab`'s page, at `frame` in the browser window's content with corners
-/// of `radius`, once the core has a picture of it. If it's on, leaves it instead, as ⇧⌘2's second
-/// press does.
-pub fn start(tab: u64, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
+/// of `radius`, once the core has a picture of it, its menu offering Save to Library with
+/// `library`. If it's on, leaves it instead, as ⇧⌘2's second press does.
+pub fn start(tab: u64, frame: Bounds<Pixels>, radius: f32, library: bool, cx: &mut App) {
     // Once the update that asked is over, as off the Mac ⇧⌘2's second press comes from capture
     // mode's own window, which can't be updated inside its own update.
-    cx.defer(move |cx| start_now(tab, frame, radius, cx));
+    cx.defer(move |cx| start_now(tab, frame, radius, library, cx));
 }
 
-fn start_now(tab: u64, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
+fn start_now(tab: u64, frame: Bounds<Pixels>, radius: f32, library: bool, cx: &mut App) {
     update(cx, |capture, window, cx| {
         if capture.session.is_some() {
             return capture.leave("toggle", window, cx);
@@ -300,6 +329,7 @@ fn start_now(tab: u64, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
             drag: None,
             chosen: None,
             pending: None,
+            library,
         });
         // check.sh reads this line.
         log!("browser: capture started");
@@ -509,6 +539,10 @@ impl Capture {
                 // After this update, as the toast is another window's.
                 cx.defer(|cx| toast::show_with_buttons(COPIED, buttons, TOAST_TIME, cx));
             }
+            Action::SaveToLibrary => {
+                self.host.save_to_library(&png);
+                cx.defer(|cx| toast::show(SAVED, None, TOAST_TIME, cx));
+            }
             Action::Save => self.host.save(&png),
             Action::Messages => self.host.share(&png, Share::Messages),
             Action::SendTo | Action::Retake => {}
@@ -614,7 +648,12 @@ impl Capture {
         self.host.capture(tab, request, false, Some(chosen));
     }
 
-    fn menu(&self, origin: Point<Pixels>, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn menu(
+        &self,
+        origin: Point<Pixels>,
+        rows: Vec<Option<Action>>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let row = |action: Action, cx: &mut Context<Self>| {
             div()
                 .id(action.name())
@@ -631,8 +670,8 @@ impl Capture {
                 .child(div().ml(px(TEXT_LEFT - GLYPH_LEFT - GLYPH)).child(action.label()))
                 .into_any_element()
         };
-        let rows: Vec<_> = (ROWS.iter())
-            .map(|row_| match *row_ {
+        let rows: Vec<_> = (rows.into_iter())
+            .map(|row_| match row_ {
                 Some(action) => row(action, cx),
                 None => div()
                     .h(px(SEPARATOR))
@@ -767,7 +806,7 @@ impl Capture {
         });
         let menu = session.chosen.map(|chosen| {
             let origin = session.menu_origin(chosen);
-            self.menu(origin, cx)
+            self.menu(origin, session.rows().collect(), cx)
         });
         root.on_mouse_move(cx.listener(|capture, event: &MouseMoveEvent, _, cx| {
             capture.moved(event.position, cx)

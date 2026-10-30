@@ -1,8 +1,10 @@
 # ⇧⌘2 from the page opens capture mode over it, with the keyboard, and the pointer over an element
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
-# that box to a pasteboard of the run's own and shows the toast with Save and Share. Escape and a
-# second ⇧⌘2 leave capture mode and give the page the keyboard back. File › Capture Full Page copies
-# a picture of the whole long page, past its view.
+# that box to a pasteboard of the run's own and shows the toast with Save and Share. Save to
+# Library, the menu's first row, saves it into the profile's Media and says so, and the Library's
+# Media shows it first, opens it in a tab and deletes it from its menu. Escape and a second ⇧⌘2
+# leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
+# picture of the whole long page, past its view.
 
 # The line saying the PNG was copied to the run's own pasteboard, and the toast's buttons after it.
 # On Linux check.sh runs in a display of its own, whose clipboard is the run's, and there's no share
@@ -62,9 +64,9 @@ expect '^browser: capture element at [0-9.]* [0-9.]*: 300 200 200 100$' \
 send click $(in_page 400 250)
 expect '^browser: capture chose 300 200 200 100$' "a click on the box didn't take it"
 ../tools/window-screenshot.sh "$pid" "$out/capture-chosen.png" || fail "no window to capture"
-# The menu is 10 in from the ring's left, level with its top; Copy is its first row, 50 to 90
-# down.
-send click $(in_page 442 266)
+# The menu is 10 in from the ring's left, level with its top; Copy is its second row, 90 to 130
+# down, under Save to Library.
+send click $(in_page 442 306)
 expect '^browser: capture run copy$' "the menu's Copy didn't run"
 expect '^browser: tab [0-9]* captured [0-9]*: [0-9]*x[0-9]*, [0-9]* bytes$' \
   "Copy didn't get a picture of the box"
@@ -82,6 +84,64 @@ expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
 expect '^browser: capture hidden$' "capture mode's window didn't hide after Copy"
 send state
 in_browser RenderWidgetHostViewCocoa "after Copy"
+
+# Save to Library, 50 to 90 down, saves the box's picture without a question and says so.
+capture_mode page
+send move $(in_page 400 250)
+expect '^browser: capture element at [0-9.]* [0-9.]*: 300 200 200 100$' \
+  "the pointer over the box didn't light it the second time"
+send click $(in_page 400 250)
+expect '^browser: capture chose 300 200 200 100$' "a second click on the box didn't take it"
+send click $(in_page 442 266)
+expect '^browser: capture run save-to-library$' "the menu's Save to Library didn't run"
+expect '^browser: capture left (save-to-library)$' "capture mode didn't leave after Save to Library"
+expect '^browser: toast shown Saved to Library$' "Save to Library didn't say so"
+expect '^browser: saved to library ' "Save to Library didn't save the picture"
+library=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: saved to library ' |
+  sed 's/^browser: saved to library //')
+case "$library" in
+  "$profile_dir/Media/Capture "*.png) ;;
+  *) fail "Save to Library saved to $library, not the profile's Media" ;;
+esac
+[ -s "$library" ] || fail "Save to Library's $library is empty"
+expect '^browser: toast settled$' "Save to Library's toast didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/capture-library.png" || fail "no window to capture"
+
+# Window › View Media… opens the Library on Media, the capture its first tile, as the newest. A
+# click on the tile, under the first heading, opens it in a tab and closes the Library.
+send menu "$(cased 'View Media…')"
+expect '^browser: command view-media via ui$' "Window › View Media… didn't run"
+expect '^browser: library section media$' "View Media… didn't open the Library on Media"
+expect '^browser: library captures [1-9][0-9]*$' "Media didn't list the capture saved"
+expect '^browser: library shown$' "the Library didn't settle open on Media"
+../tools/window-screenshot.sh "$pid" "$out/library-media.png" || fail "no window to capture"
+# Rows from 112 + 8 across and 56 + 27 down, the heading over them; tiles 93.7 square.
+send click $((112 + 8 + 47)) $((56 + 27 + 47))
+expect "^browser: open media $library\$" "a click on the capture's tile didn't open it"
+expect '^browser: library hidden$' "opening the capture didn't close the Library"
+expect '^browser: loaded [0-9]* file://.*\.png$' "the capture's tab didn't load it"
+media=$(sed -n 's|^browser: loaded \([0-9]*\) file://.*\.png$|\1|p' "$log" | tail -1)
+
+# A right-click on the tile offers Open and Delete, which moves the capture to the Trash, as the
+# downloads' Move to Trash does, and out of Media.
+send menu "$(cased 'View Media…')"
+expect '^browser: library shown$' "View Media… didn't open the Library again"
+post rightclick $((112 + 8 + 47)) $((56 + 27 + 47))
+expect "^browser: menu shown $(cased 'Open, Delete')\$" \
+  "a right-click on the capture's tile didn't show its menu"
+../tools/window-screenshot.sh "$pid" "$out/media-menu.png" || fail "no window to capture"
+send choose Delete
+expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
+expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
+[ ! -e "$library" ] || fail "Delete left $library where it was"
+send menu "$(cased 'View Media…')"
+expect '^browser: library hidden$' "View Media… didn't close the Library"
+# ⌘W closes the capture's tab, back to the long page, which a click gives the keyboard.
+send key w cmd
+expect "^browser: tab $media closed\$" "⌘W didn't close the capture's tab"
+send click $page_point
+send state
+in_browser RenderWidgetHostViewCocoa "after a click on the long page"
 
 # Escape leaves, and so does ⇧⌘2 again, from capture mode's own window.
 capture_mode page
@@ -114,4 +174,6 @@ expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
 
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full. Windows: $out/capture-element.png, $out/capture-chosen.png"
+echo "ok: capture. The box's picture is $size, the full page's $full." \
+  "Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png," \
+  "$out/library-media.png, $out/media-menu.png"
