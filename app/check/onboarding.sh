@@ -93,8 +93,14 @@ send key a
 expect '^browser: onboarding left intro via key$' "dark: a key didn't skip the intro"
 expect '^browser: onboarding step import settled$' "dark: the import step didn't come"
 capture_step dark-import
-# Its words and chip end 24 in from the window's right and bottom, 20 tall.
+# Its words and chip end 24 in from the window's right and bottom, 20 tall. Linux knows no
+# window's frame (host_window_frame), so there the size is the driver's, of the window's content.
 frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
+if [ -z "$frame" ]; then
+  send layout
+  frame=$(grep '^browser: layout content ' "$log" | tail -1 |
+    sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+fi
 width=${frame% *}
 height=${frame#* }
 [ -n "$height" ] || fail "the window didn't log its frame"
@@ -152,10 +158,10 @@ expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type "${site#http://}index.html"
 send key return
 expect "^browser: loaded [0-9]* ${site}index.html\$" "the page from the command bar didn't load"
-windows=$(grep -c '^browser: window [0-9]* frame ' "$log")
+windows=$(grep -c '^browser: window opened ' "$log")
 send menu "Welcome to $app_name"
 expect '^browser: onboarding step intro settled$' "Welcome to $app_name over a page didn't play it"
-[ "$(grep -c '^browser: window [0-9]* frame ' "$log")" -gt "$windows" ] ||
+[ "$(grep -c '^browser: window opened ' "$log")" -gt "$windows" ] ||
   fail "Welcome to $app_name over a page didn't open a window for it"
 capture_step replay
 for each in $steps; do
