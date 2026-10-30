@@ -36,3 +36,8 @@ x11rb = { version = "0.13", features = ["xkb"] }
 # Its own, apart from the browser crate's, which has no workspace: Zed's crates in ../.deps would join one.
 # Seeded from ../Cargo.lock, so the two build the same versions.
 [workspace]
+
+# AT-SPI's adapter with the expanded state, as ../Cargo.toml has it
+# (patches/accesskit-atspi-expanded.patch).
+[patch.crates-io]
+accesskit_atspi_common = { path = "../.deps/accesskit_atspi_common" }

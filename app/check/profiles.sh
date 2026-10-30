@@ -1,4 +1,4 @@
-# The New Space form's Profile row makes a profile and puts the Space in it, and its Choose a Theme
+# The New Space form's Profile row makes a profile, asks for its name, and puts the Space in it, and its Choose a Theme
 # row colours the Space. The Space's tabs open in the new profile, without the first profile's
 # cookies, from a command bar opened in the first profile's Space too, which follows the Space shown. While it's empty the Space's menu moves it between profiles, and with a tab it keeps its
 # own. The first Space keeps its cookie and its favorite, which shows only in the Spaces of its
@@ -79,6 +79,13 @@ work=$(sed -n 's/^browser: create profile \([0-9]*\) .*/\1/p' "$log" | tail -1)
 expect "^browser: added profile $work Profile 2\$" "the new profile wasn't listed"
 expect "^browser: profiled space $second $work\$" "the form's Space didn't go into the new profile"
 expect '^browser: favorites $' "the new profile's Space showed the first profile's favorite"
+# The row asks for the profile's name at once, and escape keeps the numbered one.
+expect "^browser: rename profile $work\$" "the new profile's name didn't take the keyboard"
+../tools/window-screenshot.sh "$pid" "$out/profile-name.png" || fail "no window to capture"
+send type personal
+send key escape
+expect '^browser: rename cancelled$' "escape didn't leave the new profile's name"
+none_since '^browser: name profile' || fail "escape named the new profile"
 send click 100 299
 expect "^browser: theme picker for $second\$" "the form's Choose a Theme row didn't open the picker"
 expect '^browser: theme picker shown$' "the form's Choose a Theme row didn't show the picker"
