@@ -167,6 +167,9 @@ pub trait Browser {
     /// Deletes the cookies, or else the cache, the profile keeps for the site of the tab's page,
     /// then reloads it.
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
+    /// Turns Developer Mode on or off for the site of the tab's page, in its profile. The user's
+    /// view: agents get none.
+    fn set_developer_mode(&self, tab: u64, on: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
     /// Answers what an agent asks (Shell::set_agent_question), if it still asks.
@@ -196,6 +199,14 @@ pub trait Browser {
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
     /// Opens Chrome's Task Manager, with the page shown selected.
     fn task_manager(&self, cx: &mut App);
+    /// Starts recording a trace of the whole browser, and returns false if one is recording
+    /// already. The user's alone: agents get no tool for it.
+    fn start_trace(&self) -> bool;
+    /// Stops the trace, which comes back to `trace::recorded`.
+    fn stop_trace(&self);
+    /// Shows that a trace is recording in the toast, with Stop, which runs `stop`, until it's
+    /// pressed or `None` takes it away. Another toast shows in its place only for its own time.
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, cx: &mut App);
     /// Makes the menu bar show `bar`, if the window is the key one.
     fn set_menus(&self, bar: &MenuBar, cx: &mut App);
     /// Titles the window `title`, which the Window menu and Mission Control list it by.
@@ -495,7 +506,8 @@ pub trait Browser {
     );
     /// Starts capture mode over the tab's page, at `frame` in the window with corners of `radius`,
     /// or leaves it if it's on; or with `full_page` captures all of the page and copies it. Its
-    /// menu offers Save to Library with `library`, as a private window has no Library.
+    /// menu offers Save to Library with `library`, as a private window has no Library, and it
+    /// draws in the window's menus' `look`.
     fn capture(
         &self,
         tab: u64,
@@ -503,6 +515,7 @@ pub trait Browser {
         radius: f32,
         full_page: bool,
         library: bool,
+        look: crate::menu::Look,
         cx: &mut App,
     );
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers
@@ -539,6 +552,8 @@ pub trait Browser {
     fn take_over(&self, agent: SharedString, tab: u64, cx: &mut App);
     /// The user hands `tab` back to its agent.
     fn hand_back(&self, tab: u64, cx: &mut App);
+    /// The user gives the agent whose Space is `space` their `tab`, which moves there.
+    fn give_to_agent(&self, tab: u64, space: u64, cx: &mut App);
     /// The user stops the agent with the id `agent`: what it's doing and asking ends.
     fn stop_agent(&self, agent: SharedString, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
@@ -610,6 +625,8 @@ pub struct Page {
     pub trouble: Trouble,
     /// Safari's engine shows the page, in place of Chromium.
     pub system_engine: bool,
+    /// The tab shows its page in Developer Mode, for its site or as localhost.
+    pub developer_mode: bool,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the
