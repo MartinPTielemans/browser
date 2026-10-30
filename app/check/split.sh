@@ -281,7 +281,9 @@ expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send type "${site}notes.txt"
 send key return
 expect "^browser: loaded $a ${site}notes.txt\$" "the URL typed after ⌘L didn't load in the focused pane"
-expect "^browser: panes $a $b\$" "the URL typed after ⌘L changed the panes shown"
+# The panes are logged when they change, so the last line still names both.
+[ "$(grep '^browser: panes ' "$log" | tail -1)" = "browser: panes $a $b" ] ||
+  fail "the URL typed after ⌘L changed the panes shown: $(grep '^browser: panes ' "$log" | tail -1)"
 grep -q "^browser: loaded $b ${site}notes.txt\$" "$log" && fail "⌘L's URL loaded in the other pane"
 send key left cmd
 expect "^browser: loaded $a $site\$" "Back didn't take the left pane back to its page"
