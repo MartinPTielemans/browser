@@ -210,8 +210,9 @@ expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitti
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 post key return
 expect "$downloads_question" "⌘Q didn't ask again"
-# The app's dialog takes a yes once it has been on screen a moment.
-[ "$(uname)" = Darwin ] || expect '^browser: dialog settled$' "the dialog asking about the download didn't settle"
+# The app's dialog takes a yes to Chrome's question once it has been on screen a moment.
+[ "$(uname)" = Darwin ] ||
+  expect '^browser: dialog takes input$' "the dialog asking about the download never took input"
 # Quit is the driver's last command: the app doesn't report it done.
 post choose Quit
 exec 3>&-
