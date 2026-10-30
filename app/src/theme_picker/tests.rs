@@ -22,6 +22,10 @@ impl Host for Recorder {
     fn hide(&self) {
         self.calls.borrow_mut().push("hide".into());
     }
+
+    fn detent(&self) {
+        self.calls.borrow_mut().push("detent".into());
+    }
 }
 
 /// The picker, shown for Space 7 with `theme`, its arrow at (262, 300) in a window 900 tall.
@@ -433,4 +437,36 @@ fn the_field_has_no_dots_under_minus_and_plus() {
         }
         assert!(around > 0, "no dots round the target at {at}");
     }
+}
+
+/// A drag gives one detent as it reaches a stop: a handle the field's rim, the knob an end and the
+/// dial the top. Moving along the rim, held at the stop, gives no more, and leaving and coming
+/// back gives another.
+#[gpui::test]
+fn a_drag_bumps_once_as_it_reaches_a_stop(cx: &mut TestAppContext) {
+    let mut picker = Picker::new(Some(Theme::at(0.5, 0.)), cx);
+    let detents = |picker: &Picker| {
+        picker.host.calls.borrow().iter().filter(|call| *call == "detent").count()
+    };
+    let (button, none) = (MouseButton::Left, Modifiers::none());
+    let path = |picker: &mut Picker, points: &[(f32, f32)]| {
+        let (x, y) = points[0];
+        picker.cx.simulate_mouse_down(Picker::at(x, y), button, none);
+        for &(x, y) in &points[1..] {
+            picker.cx.simulate_mouse_move(Picker::at(x, y), button, none);
+            picker.cx.run_until_parked();
+        }
+        let (x, y) = points[points.len() - 1];
+        picker.cx.simulate_mouse_up(Picker::at(x, y), button, none);
+        picker.cx.run_until_parked();
+    };
+    let field = Picker::in_field;
+    path(&mut picker, &[field(0.5, 0.), field(0.8, 0.), field(1.2, 0.), field(1.2, 0.3)]);
+    assert_eq!(detents(&picker), 1);
+    let theme = picker.theme().unwrap();
+    path(&mut picker, &[field(theme.x, theme.y), field(0.5, 0.), field(1.3, 0.)]);
+    assert_eq!(detents(&picker), 2);
+    let knob = knob_x(DEFAULT_INTENSITY);
+    path(&mut picker, &[(knob, SLIDER_Y), (knob_x(0.5), SLIDER_Y), (knob_x(0.) - 20., SLIDER_Y)]);
+    assert_eq!(detents(&picker), 3);
 }

@@ -124,7 +124,7 @@ fn asking_to_quit(cx: &mut TestAppContext) -> Asking {
             check: None,
             return_cancels: false,
         };
-        pose(question, Box::new(move |_| quit.0.borrow_mut().push("quit".into())), cx);
+        pose(question, Box::new(move |_, _| quit.0.borrow_mut().push("quit".into())), cx);
     });
     let cx = VisualTestContext::from_window(window.into(), cx);
     cx.simulate_resize(size(px(800.), px(600.)));
@@ -248,6 +248,52 @@ fn a_question_chrome_takes_back_leaves_untold(cx: &mut TestAppContext) {
     // ↩ while it leaves answers nothing.
     dialog.keys("enter");
     assert_eq!(dialog.calls(), Vec::<String>::new());
+}
+
+/// Chrome's question whether to quit with a download running, where ↩ keeps it, as in Chrome's.
+fn asking_about_downloads(cx: &mut TestAppContext) -> Asking {
+    let (cx, host) = opened(cx);
+    let answers = host.clone();
+    cx.cx.update(|cx| {
+        let question = Question {
+            icon: None,
+            message: "Download is in progress".into(),
+            detail: "Quit Browser anyway?".into(),
+            list: Vec::new(),
+            action: "Quit".into(),
+            cancel: "Continue Downloading".into(),
+            tone: Tone::Destructive,
+            also: None,
+            fields: Vec::new(),
+            check: None,
+            return_cancels: true,
+        };
+        let answered = Box::new(move |quit, _: &mut App| {
+            answers.0.borrow_mut().push(if quit { "quit" } else { "continue" }.into());
+        });
+        ask_chrome(question, answered, cx);
+    });
+    cx.run_until_parked();
+    Asking { cx, host }
+}
+
+/// The drivers choose a button by its label, as they do an alert's on the Mac.
+#[gpui::test]
+fn a_driver_chooses_a_button_by_its_label(cx: &mut TestAppContext) {
+    let mut dialog = asking_about_downloads(cx);
+    dialog.settle();
+    assert!(!dialog.cx.cx.update(|cx| choose("Exit", cx)));
+    assert!(dialog.cx.cx.update(|cx| choose("Quit", cx)));
+    assert_eq!(dialog.calls(), ["show", "hide", "quit"]);
+    let mut dialog = asking_about_downloads(cx);
+    assert!(dialog.cx.cx.update(|cx| choose("Continue Downloading", cx)));
+    assert_eq!(dialog.calls(), ["show", "hide", "continue"]);
+    // With nothing asked, there's nothing to choose.
+    assert!(!dialog.cx.cx.update(|cx| choose("Quit", cx)));
+    let mut dialog = asking_about_downloads(cx);
+    dialog.settle();
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show", "hide", "continue"]);
 }
 
 #[gpui::test]

@@ -4,31 +4,56 @@
 # does. Japanese input composes in its username field, where return commits it without saving;
 # return saves the username as left in the field, and the login page fills the saved password in
 # after, with a key that opens the Site Controls. Chrome's dropdown under the username field fills
-# the login in again once the password is cleared. A changed password brings the offer to update it,
-# and escape there declines. On another site, Never answers, and that site's Site Controls list it
-# in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
-# All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
-# browser window's dialog and removes it, which Settings hears. Settings' Offer to save passwords,
-# switched off, keeps the next login from bringing the offer, and Save and fill addresses switches
-# off and on. Each run has a profile of its own,
-# which no other run or the owner's copy reaches.
+# the login in again once the password is cleared. Blink's eye in the password field shows once a
+# password is typed into it, never for the one filled in, and goes with the field's focus. A
+# changed password brings the offer to update it, and escape there declines. On another site,
+# Never answers, and that site's Site Controls list it in a Passwords row whose menu takes it off
+# Never. On the first site, the row names the login, All Passwords… lists it in Settings, whose
+# Remove asks first, and the row's Remove asks in the browser window's dialog and removes it, which
+# Settings hears. Settings' Offer to save passwords, switched off, keeps the next login from
+# bringing the offer, and Save and fill addresses switches off and on. Each run has a profile of its
+# own, which no other run or the owner's copy reaches.
 
-# The login page, in a new profile, whose passwords start empty.
+# The login page, in a new profile, whose passwords start empty, with a DevTools client that sees
+# the eye in its password field (check/cdp.py).
 serve
 log="$out/passwords.log"
+cdp_log="$out/passwords-cdp.log"
 step=0
 passwords_profile="$PWD/$out/passwords-profile"
+scratch=$(mktemp -d)
+mkfifo "$scratch/to-browser" "$scratch/from-browser" "$scratch/cdp"
+# Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+# DevTools pipe, then cdp.py's input.
 BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
-  "$browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+  4> "$scratch/from-browser" > "$log" 2>&1 &
 pid=$!
+python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /login.html \
+  < "$scratch/cdp" > "$cdp_log" 2>&1 &
 exec 3> "$out/drive"
+exec 5> "$scratch/cdp"
 await_load
 await '^browser: title [0-9]* login$' || fail "the login page didn't draw"
 tab=$(today)
+# Asks cdp.py whether the eye in the password field shows until it says $1, for up to 10 s, as the
+# page takes keys and focus a moment after they're sent, or fails with $2.
+eye() {
+  for _ in $(seq 100); do
+    asked=$(grep -c '^cdp: reveal ' "$cdp_log" || true)
+    echo "reveal pass" >&5
+    for _ in $(seq 20); do
+      [ "$(grep -c '^cdp: reveal ' "$cdp_log" || true)" -gt "$asked" ] && break
+      sleep 0.05
+    done
+    [ "$(grep '^cdp: reveal ' "$cdp_log" | tail -1)" = "cdp: reveal $1" ] && return 0
+  done
+  fail "$2: cdp.py said $(grep '^cdp: ' "$cdp_log" | tail -1)"
+}
 # The username field, across the top of the page, and the password field under it.
 send click 600 60
 if [ "$active" != 1 ]; then
-  exec 3>&-
+  exec 3>&- 5>&-
   quit
   kill "$server"
   echo "skip: passwords. Browser wasn't the active app, so the page ignored the click."
@@ -175,10 +200,18 @@ expect "^browser: title $tab filled\$" "down didn't preview the saved login"
 sleep 0.6
 send key return
 expect "^browser: title $tab chosen\$" "Chrome's dropdown didn't fill the saved login in"
+# The password filled in shows no eye in its field, and one typed into the emptied field does,
+# until the field loses focus.
 send click 600 60
 send key tab
+eye hidden "the eye showed for the password filled in"
 send key a cmd
+send key backspace
 send type hunter3.check
+eye shown "the eye didn't show once a password was typed"
+../tools/window-screenshot.sh "$pid" "$out/password-reveal.png" || fail "no window to capture"
+send click 600 60
+eye hidden "the eye stayed once the password field lost focus"
 send key return
 offered update
 ../tools/window-screenshot.sh "$pid" "$out/password-update.png" || fail "no window to capture"
@@ -290,6 +323,7 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 sed -n "/^browser: drive $off: /,\$p" "$log" | grep -q "^browser: offer $tab " &&
   fail "the login brought an offer with Offer to save passwords off"
-exec 3>&-
+exec 3>&- 5>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; Settings' Offer to save passwords switched off keeps the next login from bringing an offer, and Save and fill addresses switches off and on. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/settings-passwords-off.png, $out/password-remove.png"
+rm -rf "$scratch"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; the eye shows in the password field once one is typed, never for the one filled in, and goes with the field's focus; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; Settings' Offer to save passwords switched off keeps the next login from bringing an offer, and Save and fill addresses switches off and on. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-reveal.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/settings-passwords-off.png, $out/password-remove.png"

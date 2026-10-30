@@ -28,6 +28,10 @@ base::TimeDelta ProfileArchiveAfter(Profile* profile);
 // Sets |profile|'s time, and returns whether it did: not for no profile or a time that isn't
 // positive.
 bool SetProfileArchiveAfter(Profile* profile, base::TimeDelta after);
+// The note on the first tabs auto-archive takes: shown from then until the user dismisses it, and
+// never again after that (bc_archive_note).
+bool ArchiveNoteShown();
+void DismissArchiveNote();
 
 }  // namespace browser_core
 

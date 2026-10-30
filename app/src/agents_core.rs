@@ -193,6 +193,10 @@ impl Browser for Core {
     fn close_tab(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_close(tab, false) };
     }
+
+    fn give(&self, tab: u64, space: u64, _: &mut App) -> bool {
+        unsafe { bc::bc_tab_give_to_agent(tab, space) }
+    }
 }
 
 /// The tabs `copy` copies of `space`, as bc_space_today does.
