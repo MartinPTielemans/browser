@@ -173,6 +173,11 @@ fn dismiss(kind: Kind) {
 }
 
 fn left_popover(view: *mut c_void) {
+    // To ilo's menu over them, such as a permission's, which gives the keyboard back as it closes.
+    if crate::menu_window::over(view) {
+        gpui_linux::set_overlay_keyboard(view, true, left_popover);
+        return;
+    }
     let kind = POPOVERS.with_borrow(|all| {
         (all.iter())
             .find(|each| each.view == view && each.shown.is_some())
