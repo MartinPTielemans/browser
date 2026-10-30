@@ -988,6 +988,27 @@ bool KeyboardInChild(views::Widget* widget) {
   return focused && focused != widget->GetNativeView() && !views->InSlot(focused);
 }
 
+void StackBehind(views::Widget* widget, views::Widget* above) {
+  if (OnWayland()) {
+    return;
+  }
+  // The window manager stacks a window it maps on top, and handles this after the map, sent on
+  // the same connection. Through it, as the windows are in its frames, which a plain restack
+  // would need for siblings.
+  x11::Connection* connection = x11::Connection::Get();
+  x11::ClientMessageEvent restack{.format = 32,
+                                  .window = XWindowOf(widget),
+                                  .type = connection->GetAtom("_NET_RESTACK_WINDOW")};
+  // From a pager-like source, which window managers honour as the user's.
+  restack.data.data32 = {2, static_cast<uint32_t>(XWindowOf(above)),
+                         static_cast<uint32_t>(x11::StackMode::Below), 0, 0};
+  connection
+      ->SendEvent(restack, connection->default_root(),
+                  x11::EventMask::SubstructureNotify | x11::EventMask::SubstructureRedirect)
+      .IgnoreError();
+  connection->Flush();
+}
+
 void OverlayTakesKeyboard(views::Widget* widget, bool takes) {
   if (WindowViews* views = ViewsOf(widget)) {
     views->OverlayTakesKeyboard(takes);

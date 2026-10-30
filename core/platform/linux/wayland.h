@@ -31,6 +31,10 @@ void* WaylandSurfaceOf(views::Widget* widget, gfx::Size* size);
 // don't.
 void SetUpWindow(views::Widget::InitParams& params, views::WidgetDelegate& delegate);
 
+// Puts |widget|'s window, just shown inactive, right behind |above|'s, as the windows a relaunch
+// brings back after the first go. On X11: a compositor places windows itself. In window_views.cc.
+void StackBehind(views::Widget* widget, views::Widget* above);
+
 // The width in DIPs of the band inside |widget|'s edges that resizes it, which Chromium's hit test
 // takes (SetUpWindow) and the app's UI lets through to the window (window_views.cc). None while
 // the window is maximized or full screen.

@@ -996,6 +996,13 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind)
   platform::AddWindowViews(widget_.get(), ui_view);
   if (behind) {
     widget_->ShowInactive();
+#if BUILDFLAG(IS_LINUX)
+    // Behind the window it goes after, the last in Order until it's added.
+    auto above = Order().empty() ? Windows().end() : Windows().find(Order().back());
+    if (above != Windows().end()) {
+      platform::StackBehind(widget_.get(), above->second->widget_.get());
+    }
+#endif
   } else {
     widget_->Show();
   }
