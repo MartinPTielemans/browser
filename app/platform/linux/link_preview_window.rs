@@ -45,7 +45,8 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
 /// from the top edge, which the X server's shape takes as one polygon.
 fn outline(content: Size<Pixels>, hole: Option<(Bounds<Pixels>, f32)>) -> Vec<gpui_linux::Corner> {
     let (width, height) = (f32::from(content.width), f32::from(content.height));
-    let mut corners = vec![(0., 0., 0.), (width, 0., 0.), (width, height, 0.), (0., height, 0.)];
+    let mut corners = vec![(0., 0., 0.)];
+    // The cut leaves the top edge and comes back to it, between its corners.
     if let Some((hole, radius)) = hole {
         let (left, top) = (f32::from(hole.left()), f32::from(hole.top()));
         let (right, bottom) = (f32::from(hole.right()), f32::from(hole.bottom()));
@@ -61,6 +62,7 @@ fn outline(content: Size<Pixels>, hole: Option<(Bounds<Pixels>, f32)>) -> Vec<gp
             (middle, 0., 0.),
         ]);
     }
+    corners.extend([(width, 0., 0.), (width, height, 0.), (0., height, 0.)]);
     corners
 }
 
