@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{Context, SharedString, Window, div, point, prelude::*, px};
+use gpui::{Context, Focusable, SharedString, Window, div, point, prelude::*, px};
 
 use super::{
     undo::{Prop, Value},
@@ -124,6 +124,28 @@ impl Shell {
         cx.notify();
     }
 
+    /// Shows the pinned tab's pinned URL in a field in its row, all selected, to type another over,
+    /// as Rename Tab shows its title.
+    pub(super) fn edit_pinned_url(&mut self, tab: u64, cx: &mut Context<Self>) {
+        log!("browser: edit pinned url {tab}");
+        let url = self.browser.pinned_url(tab);
+        let field = cx.new(|cx| {
+            TextInput::new("Pinned URL", cx)
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
+                .with_text(url.into())
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::PinnedUrl(tab),
+            name: field,
+            in_library: false,
+            _blur: None,
+        });
+        self.dock(cx);
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
     /// Shows the icon picker under the tab's favicon, once its row has stopped moving, with the
     /// sidebar docked.
     pub(super) fn change_icon(&mut self, tab: u64, cx: &mut Context<Self>) {
@@ -231,11 +253,17 @@ impl Shell {
                 (icon.icon.clone(), anchor, picked)
             }
             Subject::Tab(tab) => {
-                // The favicon's middle, in from the row by the folders the tab is in.
-                let x = f32::from(row.left())
-                    + FAVICON_X
-                    + self.depth(tab) as f32 * FOLDER_INDENT
-                    + FAVICON_SIZE / 2.;
+                // The favicon's middle: a tile's, else in from the row by the folders the tab is
+                // in.
+                let x = match self.favorites.contains(&tab) {
+                    true => f32::from(row.center().x),
+                    false => {
+                        f32::from(row.left())
+                            + FAVICON_X
+                            + self.depth(tab) as f32 * FOLDER_INDENT
+                            + FAVICON_SIZE / 2.
+                    }
+                };
                 let anchor = point(x, f32::from(row.center().y));
                 let picked: Picked = Rc::new(move |icon, cx| {
                     shell
@@ -316,6 +344,30 @@ impl Shell {
         }
     }
 
+    /// Puts the new profile's name in the New Space form's Profile row, all selected, to type
+    /// another over, as Finder's New Folder does.
+    pub(super) fn name_profile(
+        &mut self,
+        profile: u64,
+        name: SharedString,
+        cx: &mut Context<Self>,
+    ) {
+        let name = cx.new(|cx| {
+            TextInput::new(name.clone(), cx)
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
+                .with_text(name)
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::Profile(profile),
+            name,
+            in_library: false,
+            _blur: None,
+        });
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
     /// The folder's name in the Space shown.
     pub(super) fn folder_name(&self, folder: u64) -> SharedString {
         let space = self.shown_space();
@@ -323,9 +375,9 @@ impl Shell {
         folder.map(|(name, _)| name.clone()).unwrap_or_default()
     }
 
-    /// Renames the Space, the tab or the folder to what the field holds, and closes the field. A
-    /// Space or a folder keeps its name rather than none, and a tab named nothing shows its page's
-    /// title again.
+    /// Renames the Space, the tab, the folder or the profile to what the field holds, and closes
+    /// the field. A Space, a folder or a profile keeps its name rather than none, and a tab named
+    /// nothing shows its page's title again.
     pub(super) fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(renaming) = self.renaming.take() else {
             return;
@@ -339,21 +391,46 @@ impl Shell {
             // Left as it was, the title stays the page's, which changes with it.
             Naming::Tab(tab) if *name == *self.title(tab) => {}
             Naming::Tab(tab) => self.change(Prop::TabName(tab), Value::Text(name), cx),
+            // Kept empty, it stays where it went back to.
+            Naming::PinnedUrl(tab) => {
+                if let Some(url) = self.browser.typed_url(&name).filter(|_| !name.is_empty()) {
+                    self.change(Prop::PinnedUrl(tab), Value::Text(url), cx)
+                }
+            }
             Naming::Folder(folder) if !name.is_empty() => {
                 self.change(Prop::FolderName(folder), Value::Text(name), cx)
             }
             Naming::Folder(_) => {}
+            Naming::Profile(profile) => {
+                let listed =
+                    self.profiles.iter().any(|(id, listed)| *id == profile && **listed == name);
+                if !name.is_empty() && !listed {
+                    // check.sh waits for this line.
+                    log!("browser: name profile {profile} {name}");
+                    self.browser.rename_profile(profile, &name, cx);
+                }
+            }
         }
-        window.focus(&self.focus_handle, cx);
-        cx.notify();
+        self.leave_name(&renaming, window, cx);
     }
 
     pub(super) fn cancel_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.renaming.take().is_some() {
+        if let Some(renaming) = self.renaming.take() {
             log!("browser: rename cancelled");
-            window.focus(&self.focus_handle, cx);
-            cx.notify();
+            self.leave_name(&renaming, window, cx);
         }
+    }
+
+    /// Gives the keyboard back from the closed field: to the New Space form's name from its
+    /// Profile row, unless a click put it elsewhere, else to the window.
+    fn leave_name(&mut self, renaming: &Renaming, window: &mut Window, cx: &mut Context<Self>) {
+        match renaming.naming {
+            Naming::Profile(_) => {
+                self.focus_form = renaming.name.focus_handle(cx).is_focused(window);
+            }
+            _ => window.focus(&self.focus_handle, cx),
+        }
+        cx.notify();
     }
 
     /// The field that renames a tab, in place of its title.
@@ -429,5 +506,34 @@ mod tests {
         cx.run_until_parked();
         assert!(shell.read_with(cx, |shell, _| shell.renaming.is_none()), "the field stayed");
         assert_eq!(host.take_edits(), ["rename space 1 Work"]);
+    }
+
+    /// Edit… puts the pinned URL in the row's field: ↩ makes what's typed the address it goes back
+    /// to, as the address bar reads it, and ⌘Z gives the old one back. Kept empty, nothing changes.
+    #[gpui::test]
+    fn an_edited_pinned_url_is_kept_and_undone(cx: &mut TestAppContext) {
+        use crate::shell::{Command, Folders};
+
+        let (shell, cx, host) = renaming(cx);
+        cx.simulate_keystrokes("escape");
+        host.pinned_urls.borrow_mut().insert(2, "https://old.test/".into());
+        let edit = |cx: &mut VisualTestContext| {
+            shell.update(cx, |shell, cx| shell.edit_pinned_url(2, cx));
+            cx.run_until_parked();
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, vec![2], vec![3], Vec::new(), Folders::default(), cx);
+            shell.set_selected(3, cx);
+        });
+        edit(cx);
+        cx.simulate_input("new.test");
+        cx.simulate_keystrokes("enter");
+        assert!(shell.read_with(cx, |shell, _| shell.renaming.is_none()), "the field stayed");
+        assert_eq!(host.take_edits(), ["pinned url 2 https://new.test/"]);
+        shell.update(cx, |shell, cx| shell.run(Command::Undo, "ui", cx));
+        assert_eq!(host.take_edits(), ["pinned url 2 https://old.test/"]);
+        edit(cx);
+        cx.simulate_keystrokes("backspace enter");
+        assert!(host.take_edits().is_empty(), "an empty field changed the pinned URL");
     }
 }

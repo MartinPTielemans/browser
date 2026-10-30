@@ -734,6 +734,11 @@ impl EntityInputHandler for TextInput {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let last_layout = self.last_layout.as_ref()?;
+        // An empty field lays out its placeholder, and its caret is at its start. An input method
+        // under Wayland composes for a field only once it knows where that is.
+        if self.content.is_empty() {
+            return Some(Bounds::new(bounds.origin, size(px(0.), bounds.size.height)));
+        }
         if last_layout.text != self.shown() {
             return None;
         }
@@ -1017,3 +1022,6 @@ impl Focusable for TextInput {
         self.focus_handle.clone()
     }
 }
+
+#[cfg(test)]
+mod tests;

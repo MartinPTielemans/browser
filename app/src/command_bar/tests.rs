@@ -374,6 +374,30 @@ fn return_goes_where_the_completion_goes(cx: &mut TestAppContext) {
     assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
 }
 
+/// The keys typed in the page after ⌃L, which the core held from it (bc_hold_keys), go in the
+/// field as typed once it opens: characters with their text and ⌫ as the key it is. A shortcut,
+/// such as ⌃A, types nothing.
+#[gpui::test]
+fn keys_held_from_the_page_go_in_as_typed(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    let shift = Modifiers { shift: true, ..Modifiers::none() };
+    let held = [
+        ("G", shift),
+        ("o", Modifiers::none()),
+        ("x", Modifiers::none()),
+        ("Backspace", Modifiers::none()),
+        (" ", Modifiers::none()),
+        ("!", shift),
+    ];
+    for (key, modifiers) in held {
+        let keystroke = shell::web_keystroke(key, modifiers);
+        bar.cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+    }
+    bar.cx.run_until_parked();
+    assert_eq!(bar.input().0, "Go !");
+    assert_eq!(shell::web_keystroke("a", Modifiers::control()).key_char, None);
+}
+
 #[gpui::test]
 fn backspace_takes_the_completion_back_until_the_next_key(cx: &mut TestAppContext) {
     let mut bar = Bar::new(cx);
@@ -1132,7 +1156,8 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::JavaScriptConsole, Command::ManageExtensions, Command::RenameSpace,
         Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
         Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
-        Command::Import, Command::NewSpace, Command::SiteSearchSettings,
+        Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::HelpCenter,
+        Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {
@@ -1269,6 +1294,7 @@ fn one_letter_lists_quit_after_the_suggestions(cx: &mut TestAppContext) {
 
 /// Arc's "copy": the best command above the search row, and the others a name or a hidden word
 /// starts with before the core's other rows, as "copy" finds New Window and Duplicate Current Tab.
+/// Copy Build Info is ours, for Arc's Copy Arc Info in its Help menu.
 #[gpui::test]
 fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
     let mut bar = Bar::with_commands(cx);
@@ -1277,6 +1303,7 @@ fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
         "Copy URL ⇧⌘C".to_string(),
         search("copy"),
         "Copy URL as Markdown ⌥⇧⌘C".into(),
+        "Copy Build Info".into(),
         "New Window ⌘N".into(),
         "Duplicate Current Tab".into(),
         "https://copy.com/".into(),
@@ -1485,6 +1512,7 @@ fn space_puts_new_space_first(cx: &mut TestAppContext) {
         search("space"),
         "https://spacex.com/".into(),
         "Rename Space".into(),
+        "Export Space as Markdown…".into(),
         "Next Space ⌥⌘→".into(),
         "Previous Space ⌥⌘←".into(),
     ];

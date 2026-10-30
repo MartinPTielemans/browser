@@ -6,8 +6,7 @@
 # notary). Without it the app is signed and packed but not notarized, and the run fails.
 # SIGN_IDENTITY=- signs ad hoc, to try the signing without the key; it stops before the DMG.
 # A build that names a crash collector (app/branding/crash-reports) uploads its symbols there at the
-# end, with sentry-cli: SENTRY_URL, SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT name the
-# collector's project (docs/decisions.md, 9).
+# end, with tools/symbols.sh, which says what it needs.
 # Usage: SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../app" && pwd)"
@@ -43,7 +42,7 @@ sign() {
 
 # Inside out and without --deep, which would sign every nested part with the outer part's
 # entitlements: the loose libraries and executables first, then each helper app, then the
-# framework that holds them, then the app.
+# framework that holds them, then the agents' bridge beside the app's executable, then the app.
 framework=$app/Contents/Frameworks/Chromium\ Framework.framework
 version=$(cd "$framework/Versions/Current" && pwd -P)
 while IFS= read -r -d '' f; do
@@ -57,6 +56,7 @@ for helper in "$version"/Helpers/*.app; do
   esac
 done
 sign "$framework"
+sign "$app/Contents/MacOS/mcp-bridge"
 # Sparkle's installer and its window, then Sparkle, as Sparkle's documentation signs them.
 sparkle=$app/Contents/Frameworks/Sparkle.framework
 if [ -d "$sparkle" ]; then
@@ -109,9 +109,6 @@ spctl -a -t open --context context:primary-signature -vv "$dmg"
 
 # Without them the collector has addresses and no functions. The Release engine writes the
 # framework's and helpers' dSYMs beside Chromium.app; the app's executable keeps its symbol table.
-# A build with a collector but no token to upload with, such as a fork's, skips the upload.
-if [ -n "$(tr -d '[:space:]' < "$root/branding/crash-reports")" ] && [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
-  engine_out=$(dirname "$(cd "$root/.deps/Chromium.app" && pwd -P)")
-  sentry-cli debug-files upload --wait "$engine_out"/*.dSYM "$app/Contents/MacOS/Browser"
-fi
+engine_out=$(dirname "$(cd "$root/.deps/Chromium.app" && pwd -P)")
+"$(dirname "$0")/symbols.sh" "$engine_out"/*.dSYM "$app/Contents/MacOS/Browser"
 echo "$dmg"

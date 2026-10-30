@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
@@ -11,6 +12,7 @@
 
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
@@ -33,6 +35,7 @@
 #include "ui/compositor/layer_solid_color.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -102,6 +105,26 @@ void SetInputFocus(x11::Window window) {
   x11::Connection::Get()
       ->SetInputFocus({x11::InputFocus::Parent, window, x11::Time::CurrentTime})
       .IgnoreError();
+}
+
+// |event| as the X server sends a key typed, but for the window it goes to.
+std::optional<x11::KeyEvent> X11KeyOf(const ui::KeyEvent& event) {
+  const int code = ui::KeycodeConverter::DomCodeToNativeKeycode(event.code());
+  if (code == ui::KeycodeConverter::InvalidNativeKeycode()) {
+    return std::nullopt;
+  }
+  constexpr auto kNone = x11::KeyButMask{};
+  return x11::KeyEvent{
+      .opcode = event.type() == ui::EventType::kKeyPressed ? x11::KeyEvent::Press
+                                                           : x11::KeyEvent::Release,
+      .detail = static_cast<x11::KeyCode>(code),
+      .root = x11::Connection::Get()->default_root(),
+      .state = (event.IsShiftDown() ? x11::KeyButMask::Shift : kNone) |
+               (event.IsCapsLockOn() ? x11::KeyButMask::Lock : kNone) |
+               (event.IsControlDown() ? x11::KeyButMask::Control : kNone) |
+               (event.IsAltDown() ? x11::KeyButMask::Mod1 : kNone),
+      .same_screen = true,
+  };
 }
 
 ui::PlatformWindow* PlatformWindowOf(views::Widget* widget) {
@@ -231,6 +254,37 @@ class WindowViews : public views::WidgetObserver,
         view->Hide();
       }
       holder->RemoveChild(view);
+    }
+  }
+
+  // Holds |page|, which no window shows, hidden in the window under its slots until the runner
+  // returned runs, so it has the window's compositor: a page out of every window has none, and a
+  // copy of it waits for a frame until it's shown again (#745). Hidden, it costs no frames unless
+  // it's captured.
+  base::ScopedClosureRunner DrawUnseen(aura::Window* page) {
+    page->Hide();
+    content()->AddChild(page);
+    content()->StackChildAtBottom(page);
+    unseen_.Add(page);
+    auto tracked = std::make_unique<aura::WindowTracker>();
+    tracked->Add(page);
+    return base::ScopedClosureRunner(base::BindOnce(
+        [](base::WeakPtr<WindowViews> views, std::unique_ptr<aura::WindowTracker> tracked) {
+          if (views && !tracked->windows().empty()) {
+            views->Unsee(tracked->windows().front());
+          }
+        },
+        weak_factory_.GetWeakPtr(), std::move(tracked)));
+  }
+
+  // Takes |page| out of the window, unless a slot has shown it since DrawUnseen held it.
+  void Unsee(aura::Window* page) {
+    if (!unseen_.Contains(page)) {
+      return;
+    }
+    unseen_.Remove(page);
+    if (page->parent() == content()) {
+      content()->RemoveChild(page);
     }
   }
 
@@ -370,6 +424,7 @@ class WindowViews : public views::WidgetObserver,
   // showed may have moved it.
   void OverlayTakesKeyboard(bool takes) {
     overlay_has_keyboard_ = takes;
+    early_keys_.clear();
     ui_text_input_.SetKeyboard(ui_has_keyboard_ || overlay_has_keyboard_);
     if (!takes && ui_ != x11::Window::None && !ui_has_keyboard_ && IsWithin(InputFocus(), ui_)) {
       UITakesKeyboard();
@@ -454,6 +509,9 @@ class WindowViews : public views::WidgetObserver,
       Empty(slot);
     }
     Empty(side_panel_);
+    while (!unseen_.windows().empty()) {
+      Unsee(unseen_.windows().front());
+    }
     panes_.clear();
     side_panel_ = Slot();
     kept_.RemoveAllObservations();
@@ -488,6 +546,15 @@ class WindowViews : public views::WidgetObserver,
     if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
     }
+    // On X11 only one typed before the overlay that took the keyboard had the input focus reaches
+    // the window, as fast typing after ⌃F does once the keys held for the bar were given to it, as
+    // GPUI moves the focus on its next turn. They go to the overlay once it has the focus.
+    if (overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      if (std::optional<x11::KeyEvent> key = X11KeyOf(*event)) {
+        early_keys_.push_back(*key);
+        SendEarlyKeys();
+      }
+    }
   }
 
   void OnMouseEvent(ui::MouseEvent* event) override {
@@ -508,6 +575,9 @@ class WindowViews : public views::WidgetObserver,
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
     if (auto* focus = event.As<x11::FocusEvent>()) {
+      if (focus->opcode == x11::FocusEvent::Out) {
+        SendEarlyKeys();
+      }
       // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
           focus->mode == x11::NotifyMode::Ungrab || overlay_has_keyboard_) {
@@ -551,9 +621,11 @@ class WindowViews : public views::WidgetObserver,
       return;
     }
     // A child X window the core didn't put in the browser window, mapped there, is Chromium's
-    // output for the window, opaque and over the UI until it's sent under it.
+    // output for the window, opaque and over the UI until it's sent under it. The window's own map
+    // comes with the same |event|, and sending it under would put a new window under the others
+    // once the window manager has raised it (#712).
     auto* map = event.As<x11::MapNotifyEvent>();
-    if (map && map->event == window() && map->window != ui_) {
+    if (map && map->event == window() && map->window != window() && map->window != ui_) {
       x11::Connection::Get()->ConfigureWindow(
           {.window = map->window, .stack_mode = x11::StackMode::Below});
     }
@@ -565,6 +637,27 @@ class WindowViews : public views::WidgetObserver,
       return slot.holder && slot.holder->Contains(window);
     };
     return std::ranges::any_of(panes_, holds) || holds(side_panel_);
+  }
+
+  // Sends the keys typed before the overlay with the keyboard had the input focus to the window
+  // that has it, unless that's still this one or the UI's. A bar is a child of this one.
+  void SendEarlyKeys() {
+    if (early_keys_.empty()) {
+      return;
+    }
+    const x11::Window focus = InputFocus();
+    if (focus == x11::Window::None || focus == window() || IsWithin(focus, ui_)) {
+      return;
+    }
+    x11::Connection* connection = x11::Connection::Get();
+    for (x11::KeyEvent& key : early_keys_) {
+      key.event = focus;
+      connection->SendEvent(key, focus, x11::EventMask::NoEvent);
+    }
+    connection->Flush();
+    fprintf(stderr, "browser: sent %zu key events typed before the overlay had the input focus\n",
+            early_keys_.size());
+    early_keys_.clear();
   }
 
   // Sizes the UI to the window's content.
@@ -603,12 +696,16 @@ class WindowViews : public views::WidgetObserver,
   bool held_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // The keys typed while the overlay with the keyboard didn't have the input focus yet.
+  std::vector<x11::KeyEvent> early_keys_;
   // Whether the core took the input focus back down to the UI's window since the focus last left or
   // entered the window.
   bool retook_ = false;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
+  // The pages DrawUnseen holds.
+  aura::WindowTracker unseen_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
   base::ScopedMultiSourceObservation<aura::Window, aura::WindowObserver> kept_{this};
   base::ScopedObservation<aura::client::FocusClient, aura::client::FocusChangeObserver>
@@ -785,6 +882,14 @@ void HidePages(views::Widget* widget) {
     views->side_panel().holder->Hide();
   }
   views->ShowThrough();
+}
+
+base::ScopedClosureRunner DrawUnseen(views::Widget* widget, gfx::NativeView page) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || !page || page->GetRootWindow()) {
+    return base::ScopedClosureRunner();
+  }
+  return views->DrawUnseen(page);
 }
 
 // The app's host has no view for a link preview's page here yet, so nothing calls it with one.
