@@ -571,6 +571,26 @@ impl Browser for Fake {
     // And no previews.
     fn file_preview(&self, _: u64, _: &str, _: &mut App) {}
 
+    // Nor videos.
+    fn open_video(&self, _: u64, _: &str, _: u32, _: &mut App) -> bool {
+        false
+    }
+
+    fn video_frame(&self, _: u64, _: &mut App) -> Option<Arc<gpui::RenderImage>> {
+        None
+    }
+
+    fn close_video(&self, _: u64, _: &mut App) {}
+
+    // Nor captures.
+    fn list_captures(&self, _: &mut App) {}
+
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        browser::shell::HOVER_ALL
+    }
+
+    fn set_hover_kinds(&self, _: u32, _: &mut App) {}
+
     // The made-up downloads have no files, so each is gone already and none drags.
     fn trash(&self, _: &str, _: &mut App) -> bool {
         true
@@ -691,6 +711,12 @@ impl Browser for Fake {
         false
     }
 
+    fn turn_on_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
+        false
+    }
+
+    fn extension_crash_told(&self, _: u64, _: &str, _: &mut App) {}
+
     fn open_extension_options(&self, _: &str, _: &mut App) {}
 
     fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
@@ -774,7 +800,7 @@ impl Browser for Fake {
     ) {
     }
 
-    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
+    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: bool, _: &mut App) {}
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 
@@ -824,12 +850,15 @@ impl Browser for Fake {
         0
     }
 
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
         let entry =
             (space, name.to_string().into(), None, profile, "".into(), "".into(), "".into());
-        self.spaces.borrow_mut().push(entry);
+        let mut spaces = self.spaces.borrow_mut();
+        let at = spaces.iter().position(|(id, ..)| *id == after).map_or(spaces.len(), |at| at + 1);
+        spaces.insert(at, entry);
+        drop(spaces);
         self.report_spaces(cx);
         space
     }
@@ -1069,6 +1098,10 @@ impl Browser for Fake {
         let look = menu::Look { light: light || look.light, ..look };
         let area = Bounds::new(point(px(0.), px(0.)), PREVIEW_AREA.get());
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
+    }
+
+    fn tell(&self, _: dialog::Question, _: Box<dyn FnOnce(&mut App)>, _: &mut App) -> bool {
+        false
     }
 
     // The dialog's window is one the app's host lays over the browser window. With PREVIEW_DIALOG=1
@@ -1735,6 +1768,8 @@ impl theme_picker::Host for PreviewPicker {
     fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
 
     fn hide(&self) {}
+
+    fn detent(&self) {}
 }
 
 /// The dialog over the preview's window, which it covers, for its host can't move it.

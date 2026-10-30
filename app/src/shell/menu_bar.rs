@@ -11,7 +11,7 @@ use crate::theme::Appearance;
 pub struct MenuBar {
     /// The Spaces' names, each after its icon if it has one, for the Spaces menu.
     pub spaces: Vec<SharedString>,
-    /// The shown Space's profile's turned-on extensions, for the Extensions menu.
+    /// The shown Space's profile's extensions that run in the window, for the Extensions menu.
     pub extensions: Vec<Extension>,
     pub sidebar_hidden: bool,
     /// Whether the tab shown is pinned, or None with none shown.
@@ -67,12 +67,12 @@ impl MenuBar {
 
 impl Shell {
     /// What the menu bar shows for this window now.
-    fn menu_bar(&self, cx: &App) -> MenuBar {
+    pub(super) fn menu_bar(&self, cx: &App) -> MenuBar {
         let profile = self.shown_space().map_or(0, |space| space.profile);
-        // A private window lists neither Spaces nor extensions: its one Space isn't one of them,
-        // and Chrome keeps extensions out of a private session.
+        // A private window lists no Spaces, as its one Space isn't one of them, and only the
+        // extensions the user allowed in Incognito, which Chrome runs in a private session.
         let extensions = (self.extensions.get(&profile).into_iter().flatten())
-            .filter(|extension| extension.enabled && !self.private)
+            .filter(|extension| extension.runs(self.private))
             .cloned()
             .collect();
         let spaces = (self.spaces.iter())

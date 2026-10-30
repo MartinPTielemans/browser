@@ -25,7 +25,8 @@ archive=.deps/publish/Chromium-arm64.tar.xz
 tar -cJf "$archive" --no-mac-metadata --options xz:threads=0 -C .deps/src/out/Release Chromium.app
 sha256=$(shasum -a 256 "$archive" | cut -d' ' -f1)
 
-gh release create "$tag" "$archive" --title "Engine ${commit:0:12}" \
+# Never GitHub's Latest, which releases/latest/download/<name> links mean as ilo's own (#804).
+gh release create "$tag" "$archive" --title "Engine ${commit:0:12}" --latest=false \
   --notes "The Release engine (Chromium $(git config -f pins.ini chromium.version), Apple silicon) built from $commit, which holds its source."
 cat >prebuilt.ini <<EOF
 ; The prebuilt engine fetch.sh downloads, written by publish.sh: the Release Chromium.app built
