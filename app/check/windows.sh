@@ -154,8 +154,10 @@ send window 1
 send fullscreen
 expect '^browser: window left full screen$' "the first window didn't leave full screen"
 # AppKit says so before the desktop's Space has slid back, and until it has, the first window still
-# covers the second and clicks go nowhere.
-expect '^browser: desktop space changed$' "the desktop's Space didn't come back after full screen"
+# covers the second and clicks go nowhere. Elsewhere full screen is no Space of its own.
+if [ "$(uname)" = Darwin ]; then
+  expect '^browser: desktop space changed$' "the desktop's Space didn't come back after full screen"
+fi
 send window 2
 
 # A click on the page's row in the new window moves the page there, live.

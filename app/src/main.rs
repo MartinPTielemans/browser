@@ -6032,6 +6032,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         agent_page_done: Some(agent_page_done),
         window_downloads_question: Some(window_downloads_question),
         archive_note_changed: Some(archive_note_changed),
+        #[cfg(target_os = "linux")]
+        window_activated: Some(window_activated),
         ..Default::default()
     };
     (args, host)
@@ -6079,6 +6081,21 @@ fn main() {
 unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f64, height: f64) {
     if let Some(ui_view) = ui_view_of(window) {
         gpui_linux::resize_embedded(ui_view, width as f32, height as f32);
+    }
+}
+
+/// The browser window became active, as GPUI's window in it doesn't hear under X11 when a click
+/// in the page gives it the keyboard. After, as the core can tell of it inside the app's own call.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
+    // Not in an update of the app's, as key_window_changed updates the window itself.
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move {
+            if let Some(ui_view) = ui_view_of(window) {
+                key_window_changed(ui_view);
+            }
+        };
+        cx.foreground_executor().spawn(later).detach();
     }
 }
 
