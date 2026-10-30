@@ -110,6 +110,9 @@ pub struct Suggestion {
     /// The keyword of the search engine whose site search Tab enters on this row, and its name.
     pub keyword: String,
     pub site: SharedString,
+    /// A .new address typed, whose new document ↩ opens in a new tab even from a tab's URL, as
+    /// it's a document of its own rather than the page edited.
+    pub new_document: bool,
 }
 
 /// What a row's icon stands for.
@@ -738,7 +741,7 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                     let open = bar.take_open_tab(&text, &mut rows);
                     let mut rows = with_calculation(&text, bar.with_commands(&text, rows, cx));
                     rows.splice(0..0, open);
-                    rows
+                    with_new_document(&text, rows)
                 }
             };
             rows.truncate(shell::BAR_ROWS);
@@ -782,6 +785,28 @@ fn names_tab(tab: &shell::BarTab, typed: &str) -> bool {
     let labels: Vec<&str> = host.strip_prefix("www.").unwrap_or(&host).split('.').collect();
     let named = &labels[..labels.len().saturating_sub(1).max(1)];
     named.iter().flat_map(|label| label.split('-')).any(|word| word.starts_with(typed))
+}
+
+/// Puts the row for the .new address `text` names, if it does, in place of the rows going there:
+/// first, unless the first completes what's typed, which keeps its place.
+fn with_new_document(text: &str, mut rows: Vec<Suggestion>) -> Vec<Suggestion> {
+    let Some((address, name)) = crate::notes::typed_new(text) else {
+        return rows;
+    };
+    let url = format!("https://{address}/");
+    // check.sh reads this line.
+    log!("browser: command bar new document {address}: {name}");
+    rows.retain(|row| row.url != url || row.tab != 0);
+    let at = usize::from(rows.first().is_some_and(|row| !row.completion.is_empty()));
+    let row = Suggestion {
+        url,
+        text: name.into(),
+        detail: address.into(),
+        new_document: true,
+        ..Suggestion::default()
+    };
+    rows.insert(at, row);
+    rows
 }
 
 /// Puts what `text` comes to, if it's a sum, after the first of `rows`, as Dia's bar does.
@@ -1497,6 +1522,11 @@ impl CommandBar {
             return;
         }
         match (row.tab, self.target) {
+            (0, Target::Tab(_)) if row.new_document => {
+                // check.sh reads this line.
+                log!("browser: command bar new tab {}", row.url);
+                self.host.open_tab(&row.url, false);
+            }
             (0, _) => return self.go_to(&row.url, cx),
             (tab, Target::Beside(with)) => {
                 log!("browser: command bar split with tab {tab}");
