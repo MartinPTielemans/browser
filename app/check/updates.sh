@@ -263,6 +263,11 @@ flatpak_updates_check() {
   await '^browser: UI shown' || fail "the new build's window didn't come up"
   ../tools/window-screenshot.sh "$pid" "$out/updates-restarted.png" || fail "no window to capture"
   flatpak kill "$id" 2> /dev/null || true
+  # Gone before the run ends, which cleanup would otherwise race to kill.
+  for _ in $(seq 100); do
+    kill -0 "$pid" 2> /dev/null || break
+    sleep 0.1
+  done
   kill $buses 2> /dev/null || true
   buses=
   export HOME=$saved_home DBUS_SESSION_BUS_ADDRESS=$saved_bus
