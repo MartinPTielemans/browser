@@ -110,6 +110,8 @@ pub(super) struct Recorder {
     pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
     pub(super) bar_open: Cell<bool>,
+    /// Each New Note: the Space whose profile's service it opens, and the tab it splits with.
+    pub(super) notes: RefCell<Vec<(u64, Option<u64>)>>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
     /// The pages `open_page` opened, in order.
@@ -663,6 +665,9 @@ impl Browser for Recorder {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+    fn new_note(&self, space: u64, beside: Option<u64>, _: &mut App) {
+        self.notes.borrow_mut().push((space, beside));
+    }
 
     fn open_page(&self, url: &str, _: &mut App) {
         self.opened_pages.borrow_mut().push(url.to_owned());

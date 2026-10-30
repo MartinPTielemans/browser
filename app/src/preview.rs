@@ -726,6 +726,7 @@ impl Browser for Fake {
 
     fn view_history(&self, _: &mut App) {}
     fn open_page(&self, _: &str, _: &mut App) {}
+    fn new_note(&self, _: u64, _: Option<u64>, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
