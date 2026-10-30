@@ -116,6 +116,13 @@ full_screen_done() {
     expect "^browser: full screen $1 $each " "a page's full screen $1 had no \"$each\" step"
   done
 }
+# Waits for macOS to slide to the $1 Space, desktop or full-screen, else fails with $2. AppKit says a
+# window is in full screen or out, or closed, before then, and until then the window server drops
+# clicks and a way back in or out bounces. Off the Mac there are no Spaces to slide.
+space_changed() {
+  [ "$(uname)" = Darwin ] || return 0
+  expect "^browser: $1 space changed\$" "$2"
+}
 # The medians, in milliseconds, of the steps of a page's full screen $3 (enter or exit) in the log's
 # lines $1 to $2: the core's request to the app's report (report), to the window's start
 # (toggle), the window's start to the page placed (placed), to the UI's first frame at the new size
@@ -250,9 +257,11 @@ send key n cmd
 expect '^browser: window opened [0-9]' "⌘N in full screen didn't open a window"
 newest=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
 expect '^browser: window entered full screen$' "⌘N's window from full screen didn't go full screen"
+space_changed full-screen "⌘N's full-screen window's Space didn't slide in"
 send window 2
 send key w cmd shift
 expect "^browser: window closed $newest\$" "⇧⌘W didn't close ⌘N's full-screen window"
+space_changed full-screen "the first window's full-screen Space didn't come back after ⌘N's window closed"
 send window 1
 # The + took the keyboard for the UI, and the page's keys below need it back.
 send click $page_point
@@ -266,6 +275,7 @@ send key escape
 sed -n "/^browser: drive $((step - 1)): /,/^browser: drive $step: /p" "$log" |
   grep -q '^browser: full screen exit will ' && fail "the first escape took the window out of full screen"
 expect '^browser: window left full screen$' "a second escape didn't take the window out of full screen"
+space_changed desktop "the desktop's Space didn't come back after the second escape"
 check_layout "after full screen"
 check_buttons "after full screen"
 
@@ -285,6 +295,7 @@ resizes=$(page_resizes)
 send key escape
 expect '^browser: page left full screen$' "escape didn't take the page out of full screen"
 expect '^browser: window left full screen$' "the window didn't leave full screen with the page"
+space_changed desktop "the desktop's Space didn't come back after the page's full screen"
 check_layout "after the page's full screen"
 check_buttons "after the page's full screen"
 resized_once "leaving full screen by escape" "${view#* }"
@@ -299,6 +310,7 @@ resizes=$(page_resizes)
 send key x
 expect '^browser: page left full screen$' "exitFullscreen didn't take the page out of full screen"
 expect '^browser: window left full screen$' "the window stayed full screen after the page left it"
+space_changed desktop "the desktop's Space didn't come back after the page left full screen"
 left=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: page left full screen$')
 [ "$left" = 1 ] || fail "the page leaving full screen itself was reported $left times"
 check_layout "after the page left full screen itself"
@@ -327,6 +339,7 @@ send fullscreen
 expect '^browser: page left full screen$' "the green button took the window out and left the page full screen"
 expect '^browser: title [0-9]* fullscreen 0$' "the page's document stayed full screen after the green button"
 expect '^browser: window left full screen$' "the green button didn't take the window out of full screen"
+space_changed desktop "the desktop's Space didn't come back after the green button"
 check_layout "after the green button took the page's window out of full screen"
 check_buttons "after the green button took the page's window out of full screen"
 [ "$content" = "$windowed" ] ||
@@ -341,6 +354,7 @@ check_layout "with the page full screen after the green button" fills
 send key escape
 expect '^browser: page left full screen$' "escape didn't take the page out of full screen after the green button"
 expect '^browser: window left full screen$' "the window didn't leave full screen with the page after the green button"
+space_changed desktop "the desktop's Space didn't come back after the page's full screen after the green button"
 check_layout "after the page's full screen after the green button"
 check_buttons "after the page's full screen after the green button"
 ../tools/window-screenshot.sh "$pid" "$out/green-button-again.png" || fail "no window to capture"
@@ -462,6 +476,7 @@ for _ in 1 2 3; do
   send key x
   expect '^browser: page left full screen$' "exitFullscreen didn't take the page out of full screen to be timed"
   full_screen_done exit
+  space_changed desktop "the desktop's Space didn't come back after the page left full screen to be timed"
 done
 timed_escape=$(($(wc -l < "$log") + 1))
 for _ in 1 2 3; do
@@ -471,6 +486,7 @@ for _ in 1 2 3; do
   send key escape
   expect '^browser: page left full screen$' "escape didn't take the page out of full screen to be timed"
   full_screen_done exit
+  space_changed desktop "the desktop's Space didn't come back after escape took the page out of full screen to be timed"
 done
 timed_to=$(($(wc -l < "$log")))
 enter_ms=$(full_screen_times "$timed_from" "$timed_to" enter)

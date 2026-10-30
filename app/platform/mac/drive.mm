@@ -149,9 +149,9 @@
 // command n arrives and "browser: drive <n> done, key <window class>, focus <view class>, active
 // <0|1>, marked <location,length|none>" once AppKit has handled its events, "browser: menu tracked
 // <titles>" as a menu AppKit tracks opens, such as DevTools' page's, "browser: modal shown <texts
-// and buttons>" as an alert does, and "browser: desktop space changed" once macOS has slid to
-// another Space. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
-// background process make it active.
+// and buttons>" as an alert does, and "browser: <desktop|full-screen> space changed" once macOS has
+// slid to another Space, a full-screen window's own or not. A page ignores clicks while the app
+// isn't the active app, and macOS doesn't let a background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
@@ -1702,7 +1702,13 @@ void drive_start(void) {
                   object:nil
                    queue:nil
               usingBlock:^(NSNotification*) {
-                fprintf(stderr, "browser: desktop space changed\n");
+                bool full_screen = false;
+                for (NSWindow* window in NSApp.windows) {
+                  full_screen |= (window.styleMask & NSWindowStyleMaskFullScreen) &&
+                                 window.isOnActiveSpace;
+                }
+                fprintf(stderr, "browser: %s space changed\n",
+                        full_screen ? "full-screen" : "desktop");
               }];
   // Full-screen transitions animate, and end well after the command's done.
   for (NSNotificationName name :
