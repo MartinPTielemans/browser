@@ -118,7 +118,11 @@ jobs:
             ":"*" $run "*)
               start=$SECONDS
               status=0
+              echo "diag before $run: $(ls -la --time-style=full-iso "$(cygpath -u "$LOCALAPPDATA")/browser-app/" 2>&1 | grep -i spaces)"
+              echo "diag procs before $run: $(powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "browser" } | ForEach-Object { "$($_.ProcessId) $($_.Name) $($_.CommandLine)" }' | tr -d '\r' | head -20)"
               timeout 20m ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
+              echo "diag after $run: $(ls -la --time-style=full-iso "$(cygpath -u "$LOCALAPPDATA")/browser-app/" 2>&1 | grep -i spaces)"
+              grep -n "saved=\|profile_dir=" check.sh | head -3
               # By the app's path, never by image name, which would reach any other Chrome. Before
               # the move, as Windows won't move a folder a process still has a file open in.
               pkill -9 -f "$(cygpath -m "$PWD/build/Browser")/" || true

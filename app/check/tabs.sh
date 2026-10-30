@@ -62,7 +62,9 @@ onkeydown = e => {
 log="$out/tabs.log"
 trace="$PWD/$out/trace.json"
 step=0
+echo "diag saved=$saved"; ls -la "$saved" || true
 rm -f "$saved" "$launch_frame"
+ls -la "$saved" || true
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" --enable-tracing=latency \
   --enable-tracing-format=json --trace-startup-file="$trace" < "$out/drive" > "$log" 2>&1 &
 pid=$!
