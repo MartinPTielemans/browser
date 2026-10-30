@@ -73,7 +73,8 @@ if [ "${1:-}" = --steps ]; then
     await '^drag: started$' 0 "$dlog"
   }
 
-  drag text/uri-list $'https://example.com/\r\n'
+  # As a browser drags a link: Chromium reads a URI list as files alone.
+  drag text/x-moz-url $'https://example.com/\r\nExample' text/uri-list $'https://example.com/\r\n'
   at=$(mark)
   to $((ww * 2 / 3)) $((wh / 2))
   await '^browser: drop targets for ' "$at"

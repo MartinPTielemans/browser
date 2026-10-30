@@ -2,7 +2,7 @@
 //! starts from, and a virtual pointer, which a headless sway seat has no other of.
 //! Usage: drag <width>x<height> <type> <data> [<type> <data>...]
 //! The size is the output's, in logical pixels, which the pointer moves on. The drag carries each
-//! type with its data. Each line on stdin is a step: `move <x> <y>` puts the pointer there, `press`
+//! type with its data, text/x-moz-url's in UTF-16 as browsers' drags carry a link. Each line on stdin is a step: `move <x> <y>` puts the pointer there, `press`
 //! presses its left button, which over the window starts the drag, and `release` lets it go. What
 //! happens comes on stdout: `drag: ready` once the window shows, `drag: entered` as the pointer
 //! comes into it, `drag: started`, `drag: target <type>` or `drag: target none` as the surface under
@@ -55,7 +55,13 @@ fn main() {
         std::process::exit(2);
     };
     let data: Vec<(String, Vec<u8>)> = (args[1..].chunks(2))
-        .map(|pair| (pair[0].clone(), pair[1].clone().into_bytes()))
+        .map(|pair| {
+            let data = match pair[0].as_str() {
+                "text/x-moz-url" => pair[1].encode_utf16().flat_map(u16::to_le_bytes).collect(),
+                _ => pair[1].clone().into_bytes(),
+            };
+            (pair[0].clone(), data)
+        })
         .collect();
 
     let connection = Connection::connect_to_env().expect("no Wayland display");
@@ -78,11 +84,17 @@ fn main() {
 
     // One opaque square, in a file that's gone once mapped.
     let path = std::env::temp_dir().join(format!("ilo-drag-{}", std::process::id()));
-    let mut file = (std::fs::File::options().create(true).truncate(true).read(true).write(true))
-        .open(&path)
-        .unwrap();
+    let mut file = (std::fs::File::options()
+        .create(true)
+        .truncate(true)
+        .read(true)
+        .write(true))
+    .open(&path)
+    .unwrap();
     _ = std::fs::remove_file(&path);
-    let pixels: Vec<u8> = (0..SIZE * SIZE).flat_map(|_| 0xff3366ccu32.to_le_bytes()).collect();
+    let pixels: Vec<u8> = (0..SIZE * SIZE)
+        .flat_map(|_| 0xff3366ccu32.to_le_bytes())
+        .collect();
     file.write_all(&pixels).unwrap();
     let pool = shm.create_pool(file.as_fd(), pixels.len() as i32, &qh, ());
     let buffer = pool.create_buffer(0, SIZE, SIZE, SIZE * 4, wl_shm::Format::Argb8888, &qh, ());
@@ -125,7 +137,9 @@ fn main() {
     let start = Instant::now();
     let mut ready = false;
     loop {
-        queue.blocking_dispatch(&mut state).expect("the display went");
+        queue
+            .blocking_dispatch(&mut state)
+            .expect("the display went");
         if !ready && state.shown && state.pointer.is_some() {
             ready = true;
             println!("drag: ready");
@@ -142,9 +156,7 @@ fn main() {
                     pointer.motion_absolute(time, x, y, width, height);
                 }
                 ["press"] => pointer.button(time, BUTTON_LEFT, wl_pointer::ButtonState::Pressed),
-                ["release"] => {
-                    pointer.button(time, BUTTON_LEFT, wl_pointer::ButtonState::Released)
-                }
+                ["release"] => pointer.button(time, BUTTON_LEFT, wl_pointer::ButtonState::Released),
                 ["quit"] => return,
                 _ => {
                     eprintln!("drag: no step {step}");
