@@ -189,6 +189,12 @@ typedef struct bc_extension {
   // Whether the user may remove it (bc_extension_remove). The ad blocker the browser comes with is
   // turned off in Settings instead (bc_set_ad_blocking).
   bool removable;
+  // Whether the user allowed it in Incognito, as Chrome's extensions page does: it runs in private
+  // windows, where the others don't, and its action and commands work there.
+  bool incognito;
+  // Whether the browser turned it off as its process crashed twice and the user hasn't been told
+  // (bc_extension_crash_told). It stays set across launches until they are.
+  bool crashed;
 } bc_extension;
 
 // An extension's action as a window shows it, for the tab it shows.
@@ -781,6 +787,8 @@ typedef struct bc_host {
   // took the drop, opening the link itself. The user's alone: agents don't drag.
   bool (*tab_link_dragged)(void* context, bc_id tab, int phase, const char* url, double x,
                            double y);
+  // The note on the first Today tabs auto-archive took came or went (bc_archive_note).
+  void (*archive_note_changed)(void* context);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -870,6 +878,20 @@ BC_EXPORT void bc_window_toggle_maximized(bc_id window);
 // page's field does.
 BC_EXPORT void bc_window_ui_text_input(bc_id window, bool focused, double x, double y,
                                        double height);
+
+// During tab_key_before_page: holds the keys typed in the tab's page after the one asked about,
+// which opens a field of the app's, such as ⌃L's address field. A shortcut the page gets first
+// comes back to the app only after the keys typed behind it reached the page, and they belong in
+// the field. bc_give_held_keys gives them to the field once it has the keyboard. If nothing takes
+// them in 400 ms, the page kept the shortcut, and it gets them as typed. Keys an input method
+// composes aren't held. For hosts that can't hold the keys themselves, as on Linux, where a page's
+// keys reach Chromium's window first.
+BC_EXPORT void bc_hold_keys(void);
+
+// Ends a hold (bc_hold_keys): |take| gets the keys held, |count| of them in the order typed, during
+// the call, for the field that now has the keyboard. Not called if nothing was held.
+BC_EXPORT void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                                 void* context);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its
@@ -1385,6 +1407,14 @@ BC_EXPORT void bc_extension_set_pinned(bc_id profile, const char* id, bool pinne
 // installed or the ad blocker the browser comes with. Then extensions_changed.
 BC_EXPORT bool bc_extension_remove(bc_id profile, const char* id);
 
+// The user was told the browser turned the extension off as it crashed (bc_extension.crashed), so
+// it isn't reported crashed again. Then extensions_changed.
+BC_EXPORT void bc_extension_crash_told(bc_id profile, const char* id);
+
+// Turns the extension on again, as Chrome's extensions page's switch does, its crashes counted
+// from none. Returns whether it's on. Then extensions_changed.
+BC_EXPORT bool bc_extension_turn_on(bc_id profile, const char* id);
+
 // Answers the question window_extension_question put, accepting it or not, if it's still asked:
 // the extension installs, is turned on again or gets the permissions, or not. Then
 // window_extension_question, and extensions_changed once the extension is added or turned on.
@@ -1418,10 +1448,20 @@ BC_EXPORT size_t bc_archive_undo_remove(bc_id removal);
 BC_EXPORT double bc_archive_after(void);
 BC_EXPORT void bc_set_archive_after(double seconds);
 
+// Whether to show the note that auto-archive took Today tabs: from the first time it takes some
+// until the user dismisses it with bc_dismiss_archive_note, after which it never shows again, as
+// the core keeps that with the Spaces. Each change comes with archive_note_changed.
+BC_EXPORT bool bc_archive_note(void);
+BC_EXPORT void bc_dismiss_archive_note(void);
+
 // Whether the app taps the trackpad at its detents, as the user chose. The core keeps it with the
 // Spaces.
 BC_EXPORT bool bc_haptics(void);
 BC_EXPORT void bc_set_haptics(bool haptics);
+// View › Appearance's choice, which pages' prefers-color-scheme follows: 0 the system's, 1 light,
+// 2 dark. The app gives it at launch and when it changes, except on the Mac, where pages follow
+// the app's NSAppearance instead.
+BC_EXPORT void bc_set_appearance(int appearance);
 // Whether the app asks before the user's Quit quits, as the user chose. The core keeps it with the
 // Spaces.
 BC_EXPORT bool bc_warn_before_quitting(void);
@@ -1430,6 +1470,11 @@ BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);
 BC_EXPORT void bc_set_link_previews(bool previews);
+// What the Library button's hover lists, as the user picked from the button's menu: bits for
+// images (1), videos (2), other files (4) and the captures saved to the Library (8), all by
+// default. The core keeps it with the Spaces.
+BC_EXPORT int bc_hover_kinds(void);
+BC_EXPORT void bc_set_hover_kinds(int kinds);
 // Whether the app warns before moving a tab to another profile's Space, which it does once, as Dia
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);

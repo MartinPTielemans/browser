@@ -149,6 +149,8 @@ pub enum Command {
     ClearArchive,
     /// Opens the Library on the downloads, or closes it there.
     ViewDownloads,
+    /// Opens the Library on its media, or closes it there.
+    ViewMedia,
     /// Opens the command bar over a new pane beside the pages shown, for a split view.
     AddSplit,
     /// Closes the split view's focused page.
@@ -372,6 +374,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Open Library…", Command::ViewLibrary, &["view library"]),
     ("View Archive…", Command::ViewArchive, &[]),
     ("View Downloads…", Command::ViewDownloads, &[]),
+    ("View Media…", Command::ViewMedia, &["screenshots", "captures"]),
     ("View History", Command::ViewHistory, &[]),
     ("Site Search Settings", Command::SiteSearchSettings, &["search engines", "keywords"]),
     ("Settings", Command::Settings, &["preferences"]),
@@ -713,6 +716,7 @@ impl Command {
             Command::ViewArchive => "view-archive",
             Command::ClearArchive => "clear-archive",
             Command::ViewDownloads => "view-downloads",
+            Command::ViewMedia => "view-media",
             Command::AddSplit => "add-split",
             Command::CloseSplitPane => "close-split-pane",
             Command::SeparatePane => "separate-pane",
@@ -1018,6 +1022,7 @@ impl Shell {
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
+            Command::ViewMedia => return self.view_section(Section::Media, cx),
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
@@ -1048,7 +1053,14 @@ impl Shell {
             Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
-            Command::SelectTab(index) => (index < count).then_some(index),
+            Command::SelectTab(index) => {
+                // Past the favorites, which sidebar_rows puts first, if the user left them out.
+                let index = match user_keys(cx).favorites_numbered() {
+                    true => index,
+                    false => index + self.favorites.len(),
+                };
+                (index < count).then_some(index)
+            }
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
@@ -1250,7 +1262,7 @@ impl Shell {
         let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
         let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
         let pane = pane_frames(frame, panes.len(), stacked, &shares)[focused];
-        self.browser.capture(self.selected, pane, radius, full_page, cx);
+        self.browser.capture(self.selected, pane, radius, full_page, !self.private, cx);
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.
@@ -1308,6 +1320,7 @@ impl Shell {
             | Command::ViewArchive
             | Command::ClearArchive
             | Command::ViewDownloads
+            | Command::ViewMedia
             | Command::ManageExtensions
             | Command::AddExtension
             | Command::ViewHistory
@@ -1427,6 +1440,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ViewArchive
             | Command::ClearArchive
             | Command::ViewDownloads
+            | Command::ViewMedia
             | Command::ViewHistory
             | Command::SiteSearchSettings
             | Command::ManageExtensions

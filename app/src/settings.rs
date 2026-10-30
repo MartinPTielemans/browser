@@ -104,6 +104,15 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
     ("30 days", 30. * 24. * 3600.),
 ];
 
+/// How long a Today tab waits unseen before it's archived, in words: "12 hours".
+pub(crate) fn archive_after_words() -> String {
+    let after = unsafe { bc::bc_archive_after() };
+    match ARCHIVE_AFTER.iter().find(|&&(_, seconds)| seconds == after) {
+        Some((label, _)) => label.trim_end_matches(" (default)").to_owned(),
+        None => format!("{:.0} hours", after / 3600.),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     General,
@@ -167,19 +176,21 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
+/// Or the switch for whether those keys count the favorites.
 enum Keys {
     Of(Command),
     /// Keys no command holds, which can't be changed: a binding's keystroke.
     Fixed(&'static str),
     /// A run of them, from the first keystroke to the last.
     Span(&'static str, &'static str),
+    FavoritesNumbered,
 }
 
 impl Keys {
     /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
     fn fixed(&self) -> Option<String> {
         match *self {
-            Keys::Of(_) => None,
+            Keys::Of(_) | Keys::FavoritesNumbered => None,
             Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
             Keys::Span(first, last) => {
                 Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
@@ -205,6 +216,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
             ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
+            ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -1673,7 +1685,7 @@ impl Settings {
 
     /// The search, then the commands it finds by section, each with its keys in a chip. A click on
     /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
-    /// a command its default back, and Restore Defaults every command.
+    /// a command its default back, and Restore Defaults every command, with the favorites numbered.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let typed = self.search.read(cx).text().to_string();
         let found = found(&typed, cx);
@@ -1684,6 +1696,10 @@ impl Settings {
                 .map(|(name, keys)| {
                     let control = match (keys, keys.fixed()) {
                         (Keys::Of(command), _) => self.shortcut(*command, accent, cx),
+                        (Keys::FavoritesNumbered, _) => {
+                            let on = shell::user_keys(cx).favorites_numbered();
+                            self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
+                        }
                         (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
                             .into_any_element(),
                     };
@@ -2105,6 +2121,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
+            Keys::FavoritesNumbered => None,
             _ => keys.fixed(),
         };
         shell::shortcut_found(typed, name, label.as_deref())
@@ -2145,6 +2162,12 @@ pub fn save_appearance(appearance: Appearance) {
     if let Err(error) = std::fs::write(appearance_path(), appearance.name()) {
         log!("couldn't save the appearance: {error}");
     }
+}
+
+/// Include Favorites in ⌘1–⌘8, kept with the user's keys.
+fn set_favorites_numbered(numbered: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_favorites_numbered(numbered));
+    save_shortcuts(cx);
 }
 
 fn save_shortcuts(cx: &App) {
