@@ -37,9 +37,13 @@ case ${1:-} in
 install)
   [ -d "$tree" ] || fail "$checkout has no engine tree in engine/.deps/src. Make it with engine/setup.sh."
   mkdir -p "$(dirname "$agent")" "$(dirname "$log")"
-  # The agent runs the worktree's copy of this script, main's after the first night, so the
-  # checkout's branch doesn't matter.
-  [ -d "$work" ] || git -C "$checkout" worktree add -q --detach "$work" HEAD
+  # The agent runs the worktree's copy of this script, main's, so the commit the checkout is on
+  # doesn't matter: the integrator's builds leave it detached on commits from before this script.
+  repo=$(git -C "$checkout" config -f engine/prebuilt.ini prebuilt.repository)
+  git -C "$checkout" fetch -q "$repo.git" +refs/heads/main:refs/ilo-nightly/main
+  git -C "$checkout" cat-file -e refs/ilo-nightly/main:tools/mac-nightly.sh 2>/dev/null ||
+    fail "main has no tools/mac-nightly.sh yet."
+  [ -d "$work" ] || git -C "$checkout" worktree add -q --detach "$work" refs/ilo-nightly/main
   cat >"$agent" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -103,9 +107,9 @@ run)
   echo "mac-nightly: $(date -u +%FT%RZ) started"
   [ -d "$work" ] || fail "it isn't installed. Install it with tools/mac-nightly.sh install."
   [ -d "$tree" ] || skip "there's no engine tree in $tree."
-  # The integrator's builds and the prod updater use the same tree, run as engine/build.sh or as
-  # ninja on its out directories.
-  if pgrep -f 'engine/(build|setup)[.]sh|ninja -C [.]deps/src/out/' >/dev/null; then
+  # The integrator's builds and the prod updater use the same tree, run as engine/build.sh, the
+  # memory guard engine-build.sh around it, or ninja on its out directories.
+  if pgrep -f 'engine/(build|setup)[.]sh|engine-build[.]sh|ninja -C [.]deps/src/out/' >/dev/null; then
     skip "an engine build or setup is running in the tree."
   fi
   repo=$(git -C "$checkout" config -f engine/prebuilt.ini prebuilt.repository)
@@ -140,6 +144,9 @@ run)
   [ "$built" = "$version" ] ||
     skip "the tree has Chromium $built and main pins $version, which engine/setup.sh update takes in."
   [ -e "$work/engine/.deps" ] || ln -s "$checkout/engine/.deps" "$work/engine/.deps"
+  # build.sh links the worktree's core into the tree. The checkout's goes back after, as the
+  # integrator's scripts expect it, even when the night fails.
+  trap 'ln -sfn "$checkout/core" "$tree/browser_core"' EXIT
   # Hours, with the Mac idle, which would otherwise sleep halfway.
   caffeinate -i "$work/engine/build.sh"
   "$work/tools/mac-engine-publish.sh"
