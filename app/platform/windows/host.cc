@@ -1555,6 +1555,16 @@ void host_copy_png(const uint8_t* png, size_t size) {
   CloseClipboard();
 }
 
+void host_capture_name(char* name, size_t capacity) {
+  SYSTEMTIME now;
+  GetLocalTime(&now);
+  if (capacity && snprintf(name, capacity, "Capture %04d-%02d-%02d at %02d.%02d.%02d.png",
+                           now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+                           now.wSecond) < 0) {
+    name[0] = 0;
+  }
+}
+
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
   wchar_t path[MAX_PATH];
   SYSTEMTIME now;
@@ -2073,6 +2083,17 @@ void host_file_preview(const char* path,
     });
   }).detach();
 }
+
+// shortcut: no video playback yet; Media's video tiles show their preview.
+void* host_video_open(const char*, int) {
+  return nullptr;
+}
+
+bool host_video_frame(void*, uint8_t*) {
+  return false;
+}
+
+void host_video_close(void*) {}
 
 void host_copy(const char* text) {
   std::wstring wide = Wide(text);

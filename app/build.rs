@@ -114,6 +114,9 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreText");
         println!("cargo:rustc-link-lib=framework=ImageIO");
         println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");
+        println!("cargo:rustc-link-lib=framework=AVFoundation");
+        println!("cargo:rustc-link-lib=framework=CoreMedia");
+        println!("cargo:rustc-link-lib=framework=VideoToolbox");
     }
 
     // A local engine built from another header would run with shifted calls and layouts. Only the

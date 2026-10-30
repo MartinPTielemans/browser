@@ -5,10 +5,11 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     rc::Rc,
+    sync::Arc,
     time::Duration,
 };
 
-use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
+use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size, WeakEntity};
 
 use crate::theme::Appearance;
 
@@ -158,6 +159,10 @@ pub(super) struct Recorder {
     pub(super) replies: RefCell<Vec<PageReply>>,
     /// What it says every agent's Space's menu lists.
     pub(super) agent_permissions: RefCell<super::AgentGrants>,
+    /// What the Library button's hover leaves out, none at first, as the core's default.
+    hover_kinds_off: Cell<u32>,
+    /// The videos opened that haven't given their first frame yet.
+    videos_starting: RefCell<Vec<u64>>,
 }
 
 impl Recorder {
@@ -268,7 +273,8 @@ impl Browser for Recorder {
         self.moves.set(self.moves.get() + 1);
     }
 
-    fn open_at(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
+    fn open_at(&self, urls: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
+        self.record(format!("open {}", urls.join(" ")));
         Default::default()
     }
 
@@ -444,8 +450,40 @@ impl Browser for Recorder {
         self.record(format!("file preview {download}"))
     }
 
-    fn trash(&self, _: &str, _: &mut App) -> bool {
-        Default::default()
+    fn open_video(&self, id: u64, _: &str, side: u32, _: &mut App) -> bool {
+        self.record(format!("open video {id} {side}"));
+        self.videos_starting.borrow_mut().push(id);
+        true
+    }
+
+    /// A pixel, the first time.
+    fn video_frame(&self, id: u64, _: &mut App) -> Option<Arc<RenderImage>> {
+        let mut starting = self.videos_starting.borrow_mut();
+        let at = starting.iter().position(|&each| each == id)?;
+        starting.remove(at);
+        let pixel = image::RgbaImage::from_raw(1, 1, vec![0; 4])?;
+        Some(Arc::new(RenderImage::new(vec![image::Frame::new(pixel)])))
+    }
+
+    fn close_video(&self, id: u64, _: &mut App) {
+        self.record(format!("close video {id}"))
+    }
+
+    fn list_captures(&self, _: &mut App) {
+        self.record("list captures".into())
+    }
+
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        super::recent_downloads::HOVER_ALL & !self.hover_kinds_off.get()
+    }
+
+    fn set_hover_kinds(&self, kinds: u32, _: &mut App) {
+        self.hover_kinds_off.set(super::recent_downloads::HOVER_ALL & !kinds);
+    }
+
+    fn trash(&self, path: &str, _: &mut App) -> bool {
+        self.record(format!("trash {path}"));
+        true
     }
 
     fn drag_file(&self, _: &str, _: &mut App) -> bool {
@@ -948,7 +986,15 @@ impl Browser for Recorder {
         self.site_controls_extensions.borrow_mut().push(ids);
     }
 
-    fn capture(&self, tab: u64, frame: Bounds<Pixels>, _: f32, full_page: bool, _: &mut App) {
+    fn capture(
+        &self,
+        tab: u64,
+        frame: Bounds<Pixels>,
+        _: f32,
+        full_page: bool,
+        _: bool,
+        _: &mut App,
+    ) {
         let (x, y) = (f32::from(frame.origin.x), f32::from(frame.origin.y));
         let (width, height) = (f32::from(frame.size.width), f32::from(frame.size.height));
         let what = if full_page { "full page" } else { "portion" };

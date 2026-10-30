@@ -506,6 +506,17 @@ void host_file_preview(const char*,
   Later([done, id] { done(id, nullptr, 0, 0, 0, false); });
 }
 
+// shortcut: no video playback yet; Media's video tiles show their icon.
+void* host_video_open(const char*, int) {
+  return nullptr;
+}
+
+bool host_video_frame(void*, uint8_t*) {
+  return false;
+}
+
+void host_video_close(void*) {}
+
 void host_copy(const char* text) {}
 
 void host_open_in_safari(const char* url) {}
