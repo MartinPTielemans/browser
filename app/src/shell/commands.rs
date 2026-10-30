@@ -1005,19 +1005,24 @@ impl Shell {
             Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
-            Command::SelectTab(index) => {
-                // Past the favorites, which sidebar_rows puts first, if the user left them out.
-                let index = match user_keys(cx).favorites_numbered() {
-                    true => index,
-                    false => index + self.favorites.len(),
-                };
-                (index < count).then_some(index)
-            }
+            Command::SelectTab(index) => self.numbered(index, count, cx),
+            // Or the ninth, as ⌘1–⌘8 count, if the user picked it.
+            Command::SelectLastTab if user_keys(cx).ninth_tab() => self.numbered(8, count, cx),
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
             self.select(self.row_tab(rows[index]), cx);
         }
+    }
+
+    /// The row ⌘ and `index` + 1 shows, of `count`: past the favorites, which sidebar_rows puts
+    /// first, if the user left them out of the numbers.
+    fn numbered(&self, index: usize, count: usize, cx: &App) -> Option<usize> {
+        let index = match user_keys(cx).favorites_numbered() {
+            true => index,
+            false => index + self.favorites.len(),
+        };
+        (index < count).then_some(index)
     }
 
     /// ⌃Tab, as in Arc: shows the Space's tab shown before this one at once, with no switcher.

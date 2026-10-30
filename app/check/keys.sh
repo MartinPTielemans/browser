@@ -15,9 +15,10 @@
 # while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
 # history page from the page and the UI. A page whose renderer crashes leaves the browser running,
 # and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
-# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
-# Settings' About tab, with Settings key and with About already showing. ⌘T as the window comes on
-# screen, before the overlays' windows are made, makes them and opens the bar.
+# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back; its Last Tab Goes to
+# the Ninth has ⌘9 show no tab of fewer than nine, until it's off again. About ilo shows Settings'
+# About tab, with Settings key and with About already showing. ⌘T as the window comes on screen,
+# before the overlays' windows are made, makes them and opens the bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -314,6 +315,17 @@ expect '^browser: shortcuts search "cmd t" finds New Tab, Restore Last Closed Ta
 send key a cmd
 send key backspace
 expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
+# Last Tab Goes to the Ninth, under Last Tab, is a switch at its row's right, off by default.
+send type ninth
+expect '^browser: shortcuts search "ninth" finds Last Tab Goes to the Ninth$' \
+  "the search didn't find Last Tab's option by name"
+send clickkey 592 203
+expect '^browser: last tab ninth on$' "a click on Last Tab Goes to the Ninth didn't turn it on"
+../tools/window-screenshot.sh "$pid" "$out/shortcuts-ninth.png" || fail "no window to capture"
+send clickkey 300 120
+send key a cmd
+send key backspace
+expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
 send clickkey 581 203
 expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"
 send key t cmd ctrl
@@ -321,6 +333,10 @@ expect '^browser: shortcut new-tab ctrl-cmd-t$' "⌃⌘T didn't become New Tab's
 ../tools/window-screenshot.sh "$pid" "$out/shortcuts.png" || fail "no window to capture"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+# With it on, ⌘9 goes to the ninth tab, and with fewer tabs shows none.
+send key 9 cmd
+expect '^browser: command select-last-tab via ' "⌘9 didn't run Last Tab"
+none_since '^browser: selected' || fail "⌘9 showed a tab with fewer than nine, Last Tab the ninth"
 # New Tab's new key is reserved, as ⌘T was: the page never sees it.
 send click $page_point
 send key t cmd ctrl
@@ -346,10 +362,20 @@ expect '^browser: command new-tab via ui$' "⌃⌘T with the UI focused didn't r
 expect '^browser: command bar shown$' "⌃⌘T with the UI focused didn't open the command bar"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
-# ↺ gives New Tab ⌘T back, so later runs have the defaults.
+# Last Tab is the last again, and ↺ gives New Tab ⌘T back, so later runs have the defaults.
 send menu Settings…
 expect '^browser: settings shown Shortcuts$' \
   "Settings… didn't show the Shortcuts tab it showed last"
+send clickkey 300 120
+send type ninth
+expect '^browser: shortcuts search "ninth" finds Last Tab Goes to the Ninth$' \
+  "the search didn't find Last Tab's option by name"
+send clickkey 592 203
+expect '^browser: last tab ninth off$' "a click on Last Tab Goes to the Ninth didn't turn it off"
+send clickkey 300 120
+send key a cmd
+send key backspace
+expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
 send clickkey 537 203
 expect '^browser: shortcut new-tab cmd-t$' "↺ didn't give New Tab ⌘T back"
 # The app menu's About opens Settings on its About tab: the version, the engine's and the credits.
@@ -477,5 +503,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts.png, $out/about.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, Last Tab Goes to the Ninth has ⌘9 show no tab of fewer than nine, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts-ninth.png, $out/shortcuts.png, $out/about.png"
 echo "$launch_bar"
