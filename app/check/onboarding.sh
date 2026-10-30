@@ -23,6 +23,8 @@ if [ "$(uname)" != Darwin ]; then
   printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' \
     > "$fixture/.config/google-chrome/Local State"
   printf '%s' '{}' > "$fixture/.config/google-chrome/Default/Preferences"
+  # The import lists a browser only once it has bookmarks or history to bring in.
+  printf '%s' '{"roots":{}}' > "$fixture/.config/google-chrome/Default/Bookmarks"
 fi
 # Captures the window as onboarding-$1.png.
 capture_step() {
