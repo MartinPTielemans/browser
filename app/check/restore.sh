@@ -213,8 +213,9 @@ expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitti
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 post key return
 expect "$downloads_question" "⌘Q didn't ask again"
-# The app's dialog takes a yes once it has been on screen a moment.
-[ "$(uname)" = Darwin ] || expect '^browser: dialog settled$' "the dialog asking about the download didn't settle"
+# The app's dialog takes a yes to Chrome's question once it has been on screen a moment.
+[ "$(uname)" = Darwin ] ||
+  expect '^browser: dialog takes input$' "the dialog asking about the download never took input"
 # Quit is the driver's last command: the app doesn't report it done.
 post choose Quit
 exec 3>&-
@@ -369,6 +370,10 @@ expect "^browser: menu shown $(cased 'Images (checked), Videos (checked), Other 
   "the Library button's menu didn't untick Other Files"
 send choose "$(cased 'Other Files')"
 expect '^browser: hover kinds images, videos, other files, captures$' "Other Files didn't turn on"
+# A finished download's menu, with Chrome's word off the Mac for the file manager there.
+file_manager=Finder
+[ "$(uname)" = Darwin ] || file_manager=Folder
+finished_menu=$(cased "Open, Show in $file_manager, Move to Trash, Remove from List, Clear List")
 # Remove from List in the cancelled download's menu takes it off the list, and Clear List in the
 # finished one's takes off every download that isn't running and keeps their files.
 send key j cmd shift
@@ -382,7 +387,7 @@ send choose "$(cased 'Remove from List')"
 expect "^browser: download $s Remove via download menu\$" "Remove from List didn't reach it"
 expect "^browser: downloads $((listed - 1))\$" "Remove from List didn't take the download off"
 post rightclick 300 111
-expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
+expect "^browser: menu shown $finished_menu\$" \
   "a right-click on the finished download's row didn't show its menu"
 send choose "$(cased 'Clear List')"
 expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
@@ -406,6 +411,10 @@ press=$((step + 1))
 send press 300 111
 send dragto 300 140
 expect "^browser: download $t drag\$" "dragging the download's row didn't start the system's drag"
+# Off the Mac a user holds the drag until the Library has gone, as the release waits for it there.
+# On the Mac the release lands as the Library closes, where nothing takes the file, not on the page.
+[ "$(uname)" = Darwin ] ||
+  expect '^browser: library hidden$' "the Library didn't close for the download's drag"
 send release 300 140
 # No real button holds the system's drag, so it may end before the release reaches it.
 dragged() {
@@ -429,7 +438,7 @@ send move 24 $((height - 25))
 expect '^browser: recent downloads shown 1$' \
   "resting on the Library button didn't show the second download"
 post rightclick 120 $((height - 78))
-expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
+expect "^browser: menu shown $finished_menu\$" \
   "a right-click on the recent download's row didn't show its menu"
 send choose "$(cased 'Move to Trash')"
 expect "^browser: download $t Trash via download menu\$" "Move to Trash didn't reach the download"
