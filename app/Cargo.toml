@@ -78,7 +78,9 @@ gpui = { path = ".deps/zed/crates/gpui", features = ["test-support"] }
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 zbus = { version = "5.13", default-features = false, features = ["async-io", "p2p"] }
 
-# The macOS accessibility adapter GPUI uses, with VO-Shift-M's menu and a folder's open state,
-# which it lacks upstream (setup.sh, patches/accesskit-macos-actions.patch).
+# The accessibility adapters GPUI uses, with what they lack upstream (setup.sh): the Mac's with
+# VO-Shift-M's menu and a folder's open state (patches/accesskit-macos-actions.patch), and AT-SPI's
+# with the expanded state (patches/accesskit-atspi-expanded.patch).
 [patch.crates-io]
 accesskit_macos = { path = ".deps/accesskit_macos" }
+accesskit_atspi_common = { path = ".deps/accesskit_atspi_common" }

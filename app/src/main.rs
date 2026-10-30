@@ -2877,12 +2877,13 @@ impl Browser for Engine {
         radius: f32,
         full_page: bool,
         library: bool,
+        look: menu::Look,
         cx: &mut App,
     ) {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, library, cx),
+                false => capture::start(tab, frame, radius, library, look, cx),
             },
             cx,
         );
@@ -4647,6 +4648,15 @@ fn save_launch_picture(cx: &mut App) {
         return;
     };
     save_launch_frame(window.ui_view);
+    // A launch that doesn't bring the windows back shows their Spaces without Today tabs, so a
+    // picture of this sidebar would show tabs that aren't there. Without one it shows the plain
+    // window, as a new profile's first launch does.
+    if !unsafe { bc::bc_restore_windows() } {
+        forget_launch_pictures();
+        // check.sh reads this line.
+        log!("browser: launch picture not taken");
+        return;
+    }
     let width = window.shell.upgrade().map_or(0., |shell| shell.read(cx).card_left());
     let Ok(profile) = CString::new(profile_dir()) else {
         return;
@@ -4655,6 +4665,20 @@ fn save_launch_picture(cx: &mut App) {
     let taken = unsafe { platform::host_save_launch_picture(window.ui_view, profile, width.into()) };
     // check.sh reads this line.
     log!("browser: launch picture {}", if taken { "taken" } else { "not taken" });
+}
+
+/// Deletes the launch pictures the host kept in the profile directory, one a window size
+/// (LaunchPicturePath in platform/mac/host.mm).
+fn forget_launch_pictures() {
+    let Ok(files) = std::fs::read_dir(profile_dir()) else {
+        return;
+    };
+    for file in files.flatten() {
+        let name = file.file_name();
+        if name.to_string_lossy().starts_with("launch-picture-") {
+            _ = std::fs::remove_file(file.path());
+        }
+    }
 }
 
 /// Keeps the frame of the browser window of `ui_view` for the next launch's first window to open
@@ -5620,7 +5644,7 @@ unsafe extern "C" fn tab_media_unsupported(
 /// Google's Widevine module moved along: the notes that offer it and Settings' row say where to.
 /// Later, as the user's yes in a note or Settings calls back from inside their update.
 unsafe extern "C" fn widevine_changed(_: *mut c_void, state: c_int) {
-    // check-widevine.sh reads this line.
+    // check/widevine.sh reads this line.
     log!("browser: widevine state {}", Widevine::from_core(state).name());
     update_app_later(|cx| {
         let shells: Vec<_> = WINDOWS
