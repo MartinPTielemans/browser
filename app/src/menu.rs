@@ -38,15 +38,15 @@ const SAFE_TIMEOUT: Duration = Duration::from_millis(300);
 /// Type-to-select starts over after this long without a key.
 const TYPE_RESET: Duration = Duration::from_millis(1000);
 
-/// The colours of one look, 0xRRGGBBAA.
-struct Palette {
-    fill: u32,
-    rim: u32,
-    label: u32,
-    secondary: u32,
-    line: u32,
-    disabled: u32,
-    destructive: u32,
+/// The colours of one look, 0xRRGGBBAA, which capture's menu shares.
+pub struct Palette {
+    pub fill: u32,
+    pub rim: u32,
+    pub label: u32,
+    pub secondary: u32,
+    pub line: u32,
+    pub disabled: u32,
+    pub destructive: u32,
 }
 
 const DARK: Palette = Palette {
@@ -113,7 +113,7 @@ impl Look {
         Look { light: false, highlight: Highlight::of(&crate::palette::Palette::default()) }
     }
 
-    fn palette(self) -> &'static Palette {
+    pub fn palette(self) -> &'static Palette {
         if self.light { &LIGHT } else { &DARK }
     }
 }
