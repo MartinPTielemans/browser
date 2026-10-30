@@ -1966,6 +1966,10 @@ fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
 }
 
+thread_local! {
+    static ABOUT_LOGGED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built
 /// from, each of which opens in a tab.
 fn about() -> AnyElement {
@@ -1975,7 +1979,22 @@ fn about() -> AnyElement {
     }
     let open = |id: &'static str, url: Option<String>| {
         url.map(|url| {
-            let open = button(&RowLook::settings(), id, "Open");
+            // check.sh clicks Open where this line says it is.
+            let at = canvas(
+                |_, _, _| {},
+                move |bounds, _, _, _| {
+                    let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
+                    let line = format!("browser: settings open {id} at {x:.0} {y:.0}");
+                    ABOUT_LOGGED.with_borrow_mut(|logged| {
+                        if logged.insert(line.clone()) {
+                            log!("{line}");
+                        }
+                    });
+                },
+            )
+            .absolute()
+            .inset_0();
+            let open = button(&RowLook::settings(), id, "Open").relative().child(at);
             open.on_click(move |_, _, cx| open_notice(&url, cx)).into_any_element()
         })
     };

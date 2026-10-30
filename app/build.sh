@@ -44,6 +44,8 @@ case "$(uname -s)" in
     cp -al .deps/engine build/Browser
     cp target/release/Browser.dll build/Browser/
     cp -R "$(./fetch-ublock.sh)" build/Browser/ublock
+    # shellcheck disable=SC2086
+    ../tools/licences.sh build/Browser windows/Cargo.toml "$(rustc -vV | sed -n 's/^host: //p')" $features
     exit 0
     ;;
 esac
