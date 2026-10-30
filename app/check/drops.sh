@@ -123,7 +123,8 @@ out=$PWD/build/check/drops
 rm -rf "$out"
 mkdir -p "$out"
 home=$(mktemp -d)
-trap 'rm -rf "$home"' EXIT
+# Chromium's sandboxed helpers may still be writing the profile as they go.
+trap 'rm -rf "$home" 2> /dev/null || true' EXIT
 env BROWSER_PROFILE_DIR="$home/profile" BROWSER_URL='data:text/html,<title>drops</title>' \
   BROWSER_ONBOARDING=skip \
   ../tools/headless.sh --run check/drops.sh --steps "$out" > "$out/run.log" 2>&1 || true
