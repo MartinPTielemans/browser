@@ -1428,7 +1428,9 @@ impl Shell {
         let behind = Hsla::from(self.space_color_at(space, 0.5, 0.));
         let behind = Hsla::from(palette.underlay).blend(behind);
         let label = title(&palette, self.title(tab), true).pr(px(PLATE_INSET));
-        let row = selected_plate(&palette, plate(self.tab_icon_in(&palette, tab), label), 1., 0.);
+        // A row lifted off its card, not the shown tab, so never Developer Mode's firmer fill.
+        let row = plate(self.tab_icon_in(&palette, tab), label);
+        let row = selected_plate(&palette, row, 1., 0., false);
         div()
             .w(px(CARD_WIDTH - 2. * PLATE_INSET - depth as f32 * FOLDER_INDENT))
             .h(px(PLATE_HEIGHT))

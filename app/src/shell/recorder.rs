@@ -526,6 +526,10 @@ impl Browser for Recorder {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn set_developer_mode(&self, tab: u64, on: bool, _: &mut App) {
+        self.record(format!("developer mode {tab} {on}"))
+    }
+
     fn answer_permission(&self, tab: u64, answer: Answer, _: &mut App) {
         self.record(format!("answer {tab} {answer:?}"))
     }
@@ -610,6 +614,19 @@ impl Browser for Recorder {
     fn devtools(&self, _: u64, _: i32, _: &mut App) {}
 
     fn task_manager(&self, _: &mut App) {}
+
+    fn start_trace(&self) -> bool {
+        self.record("start trace".into());
+        true
+    }
+
+    fn stop_trace(&self) {
+        self.record("stop trace".into());
+    }
+
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, _: &mut App) {
+        self.record(format!("trace note {}", if stop.is_some() { "shown" } else { "hidden" }));
+    }
 
     fn set_menus(&self, bar: &MenuBar, _: &mut App) {
         *self.menu_bar.borrow_mut() = bar.clone();
