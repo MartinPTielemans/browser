@@ -5,6 +5,7 @@
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites cards extensions adblock adblock-lists windows private capture passwords
 #   links preview access trouble dialogs crash import quit onboarding passkeys mcp appearance
+#   about
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
 # Updates runs only when named too, until it passes on the Mac.
@@ -55,7 +56,7 @@ fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
 runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
-runs="$runs appearance"
+runs="$runs appearance about"
 named="store adblock-live updates"
 for run in "$@"; do
   case " $runs $named " in
