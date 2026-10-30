@@ -27,7 +27,8 @@
 //! have yet, finds a video's Picture in Picture window, the Mini Player, and logs "browser: pip at
 //! <x> <y> <width> <height>" as it is and each time it moves or resizes, then "browser: pip gone",
 //! or "browser: pip none" without one. pip doubleclick, pip wheel and pip drag work in it, at points
-//! from its top-left corner as the command finds it.
+//! from its top-left corner as the command finds it. pip drag alone moves the display's pointer,
+//! through XTest, onto the Mini Player only, and back after.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -56,6 +57,7 @@ use x11rb::{
     connection::Connection,
     protocol::{
         Event,
+        xtest::ConnectionExt as _,
         xproto::{
             self, ButtonPressEvent, ChangeWindowAttributesAux, ConfigureWindowAux,
             ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent,
@@ -1570,24 +1572,38 @@ fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<(
             }
             Some(())
         }
-        // pip drag <x> <y> <x2> <y2>: from (x, y) to (x2, y2), both where the window was, as the
-        // window moves under the pointer.
+        // pip drag <x> <y> <x2> <y2>: from (x, y) to (x2, y2), both where the window was, with
+        // the display's own pointer, through XTest. Sent events can't drag it: the move loop
+        // follows the pointer the X server has, grabbed, as a hand drags it.
         "drag" => {
             let (x2, y2) = point(&mut words)?;
             let scale = scale();
-            // In the window too: the core starts the move once the pointer has gone far enough in
-            // it, and the move follows the pointer on the screen from then.
             let by = |dx: f64, dy: f64| {
-                let (dx, dy) = ((dx * scale).round() as i16, (dy * scale).round() as i16);
-                let (x, y) = (at.x + dx, at.y + dy);
-                Target { x, y, root_x: at.root_x + dx, root_y: at.root_y + dy, ..at }
+                (at.root_x + (dx * scale).round() as i16, at.root_y + (dy * scale).round() as i16)
             };
-            let held = button_mask(1);
+            let server = server()?;
+            let (connection, root) = &*server;
+            let fake = |kind: u8, button: u8, (x, y): (i16, i16)| {
+                (connection.xtest_fake_input(kind, button, x11rb::CURRENT_TIME, *root, x, y, 0))
+                    .ok()?;
+                connection.get_input_focus().ok()?.reply().ok().map(drop)
+            };
+            let pointer = || connection.query_pointer(*root).ok()?.reply().ok();
+            let was = pointer()?;
+            let back = (was.root_x, was.root_y);
+            fake(xproto::MOTION_NOTIFY_EVENT, 0, by(0., 0.))?;
+            // The pointer is the display's, so a press anywhere but on the Mini Player would be
+            // another window's.
+            if !within(connection, window, pointer()?.child) {
+                log!("browser: pip drag: another window is over the Mini Player there");
+                return fake(xproto::MOTION_NOTIFY_EVENT, 0, back);
+            }
             first_press(at, 1, false);
-            button(at, 1, true, 0)?;
-            motion(by((x2 - x) / 2., (y2 - y) / 2.), held)?;
-            motion(by(x2 - x, y2 - y), held)?;
-            button(by(x2 - x, y2 - y), 1, false, held)
+            fake(xproto::BUTTON_PRESS_EVENT, 1, by(0., 0.))?;
+            fake(xproto::MOTION_NOTIFY_EVENT, 0, by((x2 - x) / 2., (y2 - y) / 2.))?;
+            fake(xproto::MOTION_NOTIFY_EVENT, 0, by(x2 - x, y2 - y))?;
+            fake(xproto::BUTTON_RELEASE_EVENT, 1, by(x2 - x, y2 - y))?;
+            fake(xproto::MOTION_NOTIFY_EVENT, 0, back)
         }
         _ => None,
     }
