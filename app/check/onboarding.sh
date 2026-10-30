@@ -99,6 +99,9 @@ expect '^browser: onboarding step import settled$' "dark: the import step didn't
 capture_step dark-import
 # Its words and chip end 24 in from the window's right and bottom, 20 tall.
 frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
+# Linux's host doesn't say where its window is yet, but its window has no frame, so it's the size
+# the launch gave it.
+[ -n "$frame" ] || frame=$(grep -m1 '^browser: launch window frame ' "$log" | cut -d' ' -f7-8)
 width=${frame% *}
 height=${frame#* }
 [ -n "$height" ] || fail "the window didn't log its frame"
@@ -156,10 +159,14 @@ expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type "${site#http://}index.html"
 send key return
 expect "^browser: loaded [0-9]* ${site}index.html\$" "the page from the command bar didn't load"
-windows=$(grep -c '^browser: window [0-9]* frame ' "$log")
+# The windows by their ids, which every window's lines carry.
+count_windows() {
+  grep -o '^browser: window [0-9]* ' "$log" | sort -u | wc -l
+}
+windows=$(count_windows)
 send menu "Welcome to $app_name"
 expect '^browser: onboarding step intro settled$' "Welcome to $app_name over a page didn't play it"
-[ "$(grep -c '^browser: window [0-9]* frame ' "$log")" -gt "$windows" ] ||
+[ "$(count_windows)" -gt "$windows" ] ||
   fail "Welcome to $app_name over a page didn't open a window for it"
 capture_step replay
 for each in $steps; do
