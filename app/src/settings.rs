@@ -1270,7 +1270,7 @@ impl Settings {
 
     /// The profile's logins: the saved ones in a box, each with its username under its site, and
     /// the sites set to Never in another, each removable. A pop-up picks the profile, if there are
-    /// more than one, as each keeps its own.
+    /// more than one, as each keeps its own. Manage Passwords… under them opens Chrome's page.
     fn passwords(&mut self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
         let Some(profile) = self.passwords_profile(profiles) else {
             return div().into_any_element();
@@ -1353,6 +1353,8 @@ impl Settings {
             group(&RowLook::settings(), [row(icon, "Profile", popup.into_any_element())])
         });
         let first = chooser.is_none();
+        let manage = button(&RowLook::settings(), "manage-passwords", "Manage Passwords…")
+            .on_click(move |_, _, cx| manage_passwords(profile, cx));
         div()
             .children(chooser)
             .child(header("Saved", first))
@@ -1360,6 +1362,7 @@ impl Settings {
             .when(!never.is_empty(), |tab| {
                 tab.child(header("Never Saved", false)).child(group(&RowLook::settings(), never))
             })
+            .child(div().mt(px(BUTTONS_TOP)).flex().child(manage))
             .into_any_element()
     }
 
@@ -2011,6 +2014,16 @@ fn more_settings(cx: &mut App) {
     // check.sh waits for this line.
     log!("browser: more settings");
     crate::open_tab(crate::front().0, "chrome://settings");
+    hide(cx);
+}
+
+/// Opens Chrome's password manager page in a new tab of one of `profile`'s Spaces and goes to it.
+/// It's the one place a password is shown, copied, edited or exported, after the device's check,
+/// which the page asks for itself and keeps for five minutes, as Chrome's does.
+fn manage_passwords(profile: u64, cx: &mut App) {
+    // check.sh waits for this line.
+    log!("browser: manage passwords {profile}");
+    crate::open_in_profile(profile, "chrome://password-manager/passwords");
     hide(cx);
 }
 

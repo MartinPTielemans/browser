@@ -9,8 +9,9 @@
 # changed password brings the offer to update it, and escape there declines. On another site,
 # Never answers, and that site's Site Controls list it in a Passwords row whose menu takes it off
 # Never. On the first site, the row names the login, All Passwords… lists it in Settings, whose
-# Remove asks first, and the row's Remove asks in the browser window's dialog and removes it, which
-# Settings hears. Each run has a profile of its own, which no other run or the owner's copy reaches.
+# Remove asks first and whose Manage Passwords… opens Chrome's page listing it, and the row's
+# Remove asks in the browser window's dialog and removes it, which Settings hears. Each run has a
+# profile of its own, which no other run or the owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty, with a DevTools client that sees
 # the eye in its password field (check/cdp.py).
@@ -277,8 +278,37 @@ expect "^browser: alert shown Remove the password for “check@example.test” o
   "Remove in Settings didn't ask first"
 send choose Cancel
 none_since '^browser: remove login' || fail "Cancel removed the login"
+# Manage Passwords…, under the box of the login's row, opens Chrome's password manager page in a
+# new tab, where a search for the username finds the login. Its device check guards only Show,
+# Copy, a login's details and Export, which the run never asks for, so no prompt comes. ⌘W closes
+# it and shows the login page's tab again.
+post clickkey 100 203
+expect '^browser: manage passwords [0-9]*$' "a click on Manage Passwords… didn't run it"
+expect '^browser: settings hidden$' "Manage Passwords… didn't hide Settings"
+await '^browser: loaded [0-9]* chrome://password-manager/passwords$' ||
+  fail "Manage Passwords… didn't open Chrome's password manager page"
+manager=$(grep '^browser: loaded [0-9]* chrome://password-manager/passwords$' "$log" | tail -1 |
+  cut -d' ' -f3)
+[ "$manager" != "$tab" ] || fail "Manage Passwords… opened Chrome's page in the login's tab"
+go_from_bar 'chrome://password-manager/passwords?q=check@example.test'
+await "^browser: loaded $manager chrome://password-manager/passwords?q=check@example.test\$" ||
+  fail "Chrome's password manager page didn't search for the login"
+# Asks cdp.py, for up to 10 s, until the page has drawn its list.
+for _ in $(seq 100); do
+  asked=$(grep -c '^cdp: shows ' "$cdp_log" || true)
+  echo "shows chrome://password-manager/ check@example.test" >&5
+  for _ in $(seq 20); do
+    [ "$(grep -c '^cdp: shows ' "$cdp_log" || true)" -gt "$asked" ] && break
+    sleep 0.05
+  done
+  [ "$(grep '^cdp: shows ' "$cdp_log" | tail -1)" = "cdp: shows yes" ] && break
+done
+[ "$(grep '^cdp: shows ' "$cdp_log" | tail -1)" = "cdp: shows yes" ] ||
+  fail "Chrome's password manager page didn't list the login: cdp.py said $(tail -1 "$cdp_log")"
+../tools/window-screenshot.sh "$pid" "$out/password-manager.png" || fail "no window to capture"
 send key w cmd
-expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+expect "^browser: selected $tab\( in .*\)\{0,1\}\$" \
+  "closing Chrome's page didn't show the login's tab"
 
 # The row's Remove closes the panel and asks in the browser window's dialog, where return removes
 # the login, and Settings, which asked for the logins, hears that it's gone. A click on the page
@@ -302,4 +332,4 @@ expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was 
 exec 3>&- 5>&-
 quit
 rm -rf "$scratch"
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; the eye shows in the password field once one is typed, never for the one filled in, and goes with the field's focus; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-reveal.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; the eye shows in the password field once one is typed, never for the one filled in, and goes with the field's focus; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it and Manage Passwords… opens Chrome's password manager page listing it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-reveal.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-manager.png, $out/password-remove.png"

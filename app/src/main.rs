@@ -3325,6 +3325,32 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     finished_launching();
 }
 
+/// Opens a tab loading `url` in the front window and shows it: in the Space the window shows if
+/// it's one of the user's in `profile`, else in the first of theirs that is, which the window then
+/// shows, as a profile's own page, such as Chrome's password manager, shows that profile's data.
+/// With none, in the Space shown, unless it's an agent's, which none of the user's tabs go in.
+fn open_in_profile(profile: bc::bc_id, url: &str) {
+    let window = front().0;
+    if window == 0 {
+        return;
+    }
+    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
+    let theirs =
+        |space: bc::bc_id| users(space) && unsafe { bc::bc_space_profile(space) } == profile;
+    let shown = unsafe { bc::bc_window_space(window) };
+    let space = match theirs(shown) {
+        true => Some(shown),
+        false => ids(bc::bc_spaces).into_iter().find(|&space| theirs(space)),
+    };
+    let Some(space) = space.or(users(shown).then_some(shown)) else {
+        return;
+    };
+    if space != shown {
+        unsafe { bc::bc_window_show_space(window, space) };
+    }
+    open_tab(window, url);
+}
+
 /// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
 /// that's an agent's, which none of the user's tabs go in. The last one opened shows.
 fn open_links_in(window: bc::bc_id, urls: &[String]) {
