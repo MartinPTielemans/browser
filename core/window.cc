@@ -2374,12 +2374,12 @@ void Window::ShowActivated(base::WeakPtr<content::WebContents> contents) {
   // An agent's page never takes the user to the agent's Space: the core can't tell a click on its
   // notification from the page focusing a tab by itself, so the window follows it only within the
   // Space it shows.
-  const bc_id tab = Tab::IdOf(contents.get());
-  const Space* space = Space::Holding(tab);
+  const bc_id id = Tab::IdOf(contents.get());
+  const Space* space = Space::Holding(id);
   if (space && space->agent() && space->id() != space_) {
     return;
   }
-  Select(tab);
+  Select(id);
 }
 
 void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with) {
