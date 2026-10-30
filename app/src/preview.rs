@@ -571,6 +571,26 @@ impl Browser for Fake {
     // And no previews.
     fn file_preview(&self, _: u64, _: &str, _: &mut App) {}
 
+    // Nor videos.
+    fn open_video(&self, _: u64, _: &str, _: u32, _: &mut App) -> bool {
+        false
+    }
+
+    fn video_frame(&self, _: u64, _: &mut App) -> Option<Arc<gpui::RenderImage>> {
+        None
+    }
+
+    fn close_video(&self, _: u64, _: &mut App) {}
+
+    // Nor captures.
+    fn list_captures(&self, _: &mut App) {}
+
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        browser::shell::HOVER_ALL
+    }
+
+    fn set_hover_kinds(&self, _: u32, _: &mut App) {}
+
     // The made-up downloads have no files, so each is gone already and none drags.
     fn trash(&self, _: &str, _: &mut App) -> bool {
         true
@@ -635,6 +655,8 @@ impl Browser for Fake {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn set_developer_mode(&self, _: u64, _: bool, _: &mut App) {}
+
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 
@@ -661,6 +683,15 @@ impl Browser for Fake {
 
     fn task_manager(&self, _: &mut App) {}
 
+    // The preview has no engine to trace, nor the toast's window.
+    fn start_trace(&self) -> bool {
+        false
+    }
+
+    fn stop_trace(&self) {}
+
+    fn trace_note(&self, _: Option<Rc<dyn Fn(&mut App)>>, _: &mut App) {}
+
     // The preview has no menu bar and no extensions.
     fn set_menus(&self, _: &MenuBar, _: &mut App) {}
 
@@ -679,6 +710,12 @@ impl Browser for Fake {
     fn remove_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
         false
     }
+
+    fn turn_on_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
+        false
+    }
+
+    fn extension_crash_told(&self, _: u64, _: &str, _: &mut App) {}
 
     fn open_extension_options(&self, _: &str, _: &mut App) {}
 
@@ -763,7 +800,17 @@ impl Browser for Fake {
     ) {
     }
 
-    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
+    fn capture(
+        &self,
+        _: u64,
+        _: Bounds<Pixels>,
+        _: f32,
+        _: bool,
+        _: bool,
+        _: menu::Look,
+        _: &mut App,
+    ) {
+    }
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 
@@ -813,12 +860,15 @@ impl Browser for Fake {
         0
     }
 
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
         let entry =
             (space, name.to_string().into(), None, profile, "".into(), "".into(), "".into());
-        self.spaces.borrow_mut().push(entry);
+        let mut spaces = self.spaces.borrow_mut();
+        let at = spaces.iter().position(|(id, ..)| *id == after).map_or(spaces.len(), |at| at + 1);
+        spaces.insert(at, entry);
+        drop(spaces);
         self.report_spaces(cx);
         space
     }
@@ -876,6 +926,8 @@ impl Browser for Fake {
     fn create_profile(&self, _: &str, _: &mut App) -> u64 {
         0
     }
+
+    fn rename_profile(&self, _: u64, _: &str, _: &mut App) {}
 
     // The tests' made-up Arc, so the import's step shows a browser to pick.
     fn import_host(&self) -> Rc<dyn browser::import::Host> {
@@ -1058,6 +1110,15 @@ impl Browser for Fake {
         let look = menu::Look { light: light || look.light, ..look };
         let area = Bounds::new(point(px(0.), px(0.)), PREVIEW_AREA.get());
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
+    }
+
+    fn tell(
+        &self,
+        _: dialog::Question,
+        _: Box<dyn FnOnce(Vec<String>, &mut App)>,
+        _: &mut App,
+    ) -> bool {
+        false
     }
 
     // The dialog's window is one the app's host lays over the browser window. With PREVIEW_DIALOG=1
@@ -1521,6 +1582,14 @@ fn main() {
                 if let Some((tab, trouble)) = trouble {
                     shell.set_page(tab, Page { trouble, ..shell.page(tab) }, cx);
                 }
+                // PREVIEW_DEVELOPER_MODE=1 has the tab shown, the third tab and the GitHub
+                // favorite in Developer Mode, so its outline and contrast show.
+                if std::env::var_os("PREVIEW_DEVELOPER_MODE").is_some() {
+                    for tab in [shell.selected(), 3, favorites[2]] {
+                        let page = Page { developer_mode: true, ..shell.page(tab) };
+                        shell.set_page(tab, page, cx);
+                    }
+                }
                 if welcome {
                     shell.set_welcome(cx);
                 }
@@ -1716,6 +1785,8 @@ impl theme_picker::Host for PreviewPicker {
     fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
 
     fn hide(&self) {}
+
+    fn detent(&self) {}
 }
 
 /// The dialog over the preview's window, which it covers, for its host can't move it.
@@ -1755,6 +1826,7 @@ impl site_controls::Host for PreviewSiteControls {
     fn allow_saving(&self, _: u64, _: &browser::passwords::Login) {}
 
     fn set_ad_blocking(&self, _: u64, _: bool) {}
+    fn set_developer_mode(&self, _: u64, _: bool) {}
 
     fn run(&self, _: site_controls::Run, _: u64, _: &mut App) {}
 
@@ -1801,5 +1873,6 @@ fn preview_site() -> Site {
         system_engine: None,
         logins: Vec::new(),
         ad_blocking: Some(true),
+        developer_mode: Some(false),
     }
 }

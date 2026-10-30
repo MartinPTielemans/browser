@@ -83,6 +83,7 @@ use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::RESTORE_WINDOWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
@@ -103,6 +104,15 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
     ("7 days", 7. * 24. * 3600.),
     ("30 days", 30. * 24. * 3600.),
 ];
+
+/// How long a Today tab waits unseen before it's archived, in words: "12 hours".
+pub(crate) fn archive_after_words() -> String {
+    let after = unsafe { bc::bc_archive_after() };
+    match ARCHIVE_AFTER.iter().find(|&&(_, seconds)| seconds == after) {
+        Some((label, _)) => label.trim_end_matches(" (default)").to_owned(),
+        None => format!("{:.0} hours", after / 3600.),
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -167,19 +177,21 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
+/// Or the switch for whether those keys count the favorites.
 enum Keys {
     Of(Command),
     /// Keys no command holds, which can't be changed: a binding's keystroke.
     Fixed(&'static str),
     /// A run of them, from the first keystroke to the last.
     Span(&'static str, &'static str),
+    FavoritesNumbered,
 }
 
 impl Keys {
     /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
     fn fixed(&self) -> Option<String> {
         match *self {
-            Keys::Of(_) => None,
+            Keys::Of(_) | Keys::FavoritesNumbered => None,
             Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
             Keys::Span(first, last) => {
                 Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
@@ -205,6 +217,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
             ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
+            ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -244,7 +257,15 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
-            ("Spaces 1 to 9", Keys::Span("ctrl-1", "ctrl-9")),
+            ("Go to Space 1", Keys::Of(Command::SelectSpace(0))),
+            ("Go to Space 2", Keys::Of(Command::SelectSpace(1))),
+            ("Go to Space 3", Keys::Of(Command::SelectSpace(2))),
+            ("Go to Space 4", Keys::Of(Command::SelectSpace(3))),
+            ("Go to Space 5", Keys::Of(Command::SelectSpace(4))),
+            ("Go to Space 6", Keys::Of(Command::SelectSpace(5))),
+            ("Go to Space 7", Keys::Of(Command::SelectSpace(6))),
+            ("Go to Space 8", Keys::Of(Command::SelectSpace(7))),
+            ("Go to Space 9", Keys::Of(Command::SelectSpace(8))),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
@@ -281,7 +302,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Developer Tools", Keys::Of(Command::DevTools)),
             ("Inspect Elements", Keys::Of(Command::InspectElements)),
             ("JavaScript Console", Keys::Of(Command::JavaScriptConsole)),
+            ("Toggle Developer Mode", Keys::Of(Command::ToggleDeveloperMode)),
             ("Open Task Manager", Keys::Of(Command::TaskManager)),
+            ("Record a Trace", Keys::Of(Command::RecordTrace)),
             ("Manage Extensions", Keys::Of(Command::ManageExtensions)),
             ("Add Extension", Keys::Of(Command::AddExtension)),
         ],
@@ -1596,6 +1619,8 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let restore = unsafe { bc::bc_restore_windows() };
+        let restore = self.toggle("restore windows", restore, set_restore_windows, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
         let widevine = self.widevine.read(cx).shown().then(|| {
@@ -1628,6 +1653,11 @@ impl Settings {
                     Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
                     "Preview links to other sites from pinned tabs and favorites",
                     previews,
+                ),
+                row(
+                    Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
+                    "Restore windows from last session",
+                    restore,
                 ),
             ]))
             .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
@@ -1673,7 +1703,7 @@ impl Settings {
 
     /// The search, then the commands it finds by section, each with its keys in a chip. A click on
     /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
-    /// a command its default back, and Restore Defaults every command.
+    /// a command its default back, and Restore Defaults every command, with the favorites numbered.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let typed = self.search.read(cx).text().to_string();
         let found = found(&typed, cx);
@@ -1684,6 +1714,10 @@ impl Settings {
                 .map(|(name, keys)| {
                     let control = match (keys, keys.fixed()) {
                         (Keys::Of(command), _) => self.shortcut(*command, accent, cx),
+                        (Keys::FavoritesNumbered, _) => {
+                            let on = shell::user_keys(cx).favorites_numbered();
+                            self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
+                        }
                         (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
                             .into_any_element(),
                     };
@@ -1760,7 +1794,7 @@ impl Settings {
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
         let restore = user.is_set(command).then(|| {
             div()
-                .id(SharedString::from(format!("restore-{}", command.name())))
+                .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
                 .flex()
                 .items_center()
@@ -1772,7 +1806,7 @@ impl Settings {
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
-            .id(command.name())
+            .id(SharedString::from(command.key_name()))
             .when(recording, |chip| chip.border_1().border_color(accent))
             .hover(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_HOVERED))))
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
@@ -1796,7 +1830,7 @@ impl Settings {
             true => None,
             false => {
                 // check.sh waits for this line.
-                log!("browser: shortcut recording {}", command.name());
+                log!("browser: shortcut recording {}", command.key_name());
                 Some(command)
             }
         };
@@ -1893,6 +1927,11 @@ fn set_unload_idle_tabs(unload: bool, _: &mut App) {
 /// In every profile; a site's own stays as the user set it in the Site Controls.
 fn set_ad_blocking(on: bool, _: &mut App) {
     unsafe { bc::bc_set_ad_blocking(on) };
+}
+
+/// Off, the next launch opens one window with no Today tabs, theirs going in the archive.
+fn set_restore_windows(restore: bool, _: &mut App) {
+    unsafe { bc::bc_set_restore_windows(restore) };
 }
 
 fn set_haptics(haptics: bool, _: &mut App) {
@@ -2085,7 +2124,6 @@ fn command_name(command: Command) -> &'static str {
     });
     named.chain(match command {
         Command::SelectTab(_) => Some("Tabs 1 to 8"),
-        Command::SelectSpace(_) => Some("Spaces 1 to 9"),
         Command::RecentTabBack => Some("Last Used Tab"),
         Command::Undo => Some("Undo"),
         Command::Redo => Some("Redo"),
@@ -2105,6 +2143,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
+            Keys::FavoritesNumbered => None,
             _ => keys.fixed(),
         };
         shell::shortcut_found(typed, name, label.as_deref())
@@ -2145,6 +2184,12 @@ pub fn save_appearance(appearance: Appearance) {
     if let Err(error) = std::fs::write(appearance_path(), appearance.name()) {
         log!("couldn't save the appearance: {error}");
     }
+}
+
+/// Include Favorites in ⌘1–⌘8, kept with the user's keys.
+fn set_favorites_numbered(numbered: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_favorites_numbered(numbered));
+    save_shortcuts(cx);
 }
 
 fn save_shortcuts(cx: &App) {

@@ -84,6 +84,9 @@ class Tab : public content::WebContentsObserver,
                              bc_id tab,
                              const input::NativeWebKeyboardEvent& event,
                              bool editing);
+  // What the web names the key |event| is, as the app's shortcuts do, with its BC_MODIFIER_ flags
+  // held in |modifiers|.
+  static std::string KeyName(const input::NativeWebKeyboardEvent& event, uint32_t* modifiers);
 
   // A tab without its page, in |profile| and in no Space, as |saved| keeps it: its history, name,
   // icon, mute and when it was last seen. Tells the app its state, title and the favicon the
@@ -197,9 +200,6 @@ class Tab : public content::WebContentsObserver,
   // place of the page until it's loaded again.
   bool crashed() const { return crashed_; }
 
-  // The modifier keys held at the user's last click or key in the page, as blink::WebInputEvent's
-  // flags: what a link it opens was opened with.
-  int input_modifiers() const { return input_modifiers_; }
   // Where the user last pressed the mouse in the page, in points from the top-left of its view:
   // where a link it opens was clicked.
   gfx::PointF last_click() const { return last_click_; }
@@ -299,7 +299,6 @@ class Tab : public content::WebContentsObserver,
   base::Time last_seen_ = base::Time::Now();
   std::optional<SkColor> page_color_;
   bool state_report_posted_ = false;
-  int input_modifiers_ = 0;
   gfx::PointF last_click_;
   // Whether the app was last told the page is full screen.
   bool fullscreen_ = false;

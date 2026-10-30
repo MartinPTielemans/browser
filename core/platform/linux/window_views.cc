@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,6 +35,7 @@
 #include "ui/compositor/layer_solid_color.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -106,6 +108,26 @@ void SetInputFocus(x11::Window window) {
       .IgnoreError();
 }
 
+// |event| as the X server sends a key typed, but for the window it goes to.
+std::optional<x11::KeyEvent> X11KeyOf(const ui::KeyEvent& event) {
+  const int code = ui::KeycodeConverter::DomCodeToNativeKeycode(event.code());
+  if (code == ui::KeycodeConverter::InvalidNativeKeycode()) {
+    return std::nullopt;
+  }
+  constexpr auto kNone = x11::KeyButMask{};
+  return x11::KeyEvent{
+      .opcode = event.type() == ui::EventType::kKeyPressed ? x11::KeyEvent::Press
+                                                           : x11::KeyEvent::Release,
+      .detail = static_cast<x11::KeyCode>(code),
+      .root = x11::Connection::Get()->default_root(),
+      .state = (event.IsShiftDown() ? x11::KeyButMask::Shift : kNone) |
+               (event.IsCapsLockOn() ? x11::KeyButMask::Lock : kNone) |
+               (event.IsControlDown() ? x11::KeyButMask::Control : kNone) |
+               (event.IsAltDown() ? x11::KeyButMask::Mod1 : kNone),
+      .same_screen = true,
+  };
+}
+
 ui::PlatformWindow* PlatformWindowOf(views::Widget* widget) {
   return static_cast<aura::WindowTreeHostPlatform*>(widget->GetNativeWindow()->GetHost())
       ->platform_window();
@@ -136,6 +158,8 @@ struct Slot {
   gfx::Rect page_in_devtools;
   // Only the bottom corners are round, for the side panel under the app's header.
   bool bottom_corners_only = false;
+  // Its corners' own, for a link preview's page, else the window's.
+  std::optional<double> corner_radius;
 };
 
 // The pages and DevTools a window shows once it changes, which move between its slots unhidden.
@@ -201,9 +225,11 @@ class WindowViews : public views::WidgetObserver,
   bool overlay_has_keyboard() const { return overlay_has_keyboard_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
+  Slot& preview() { return preview_; }
   FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
   void set_held(bool held) { held_ = held; }
+  void set_preview_color(SkColor4f color) { preview_color_ = color; }
   UITextInput& ui_text_input() { return ui_text_input_; }
 
   // A slot's holder, made the first time it's needed, over the window's own views.
@@ -290,6 +316,30 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // Shows |page|, a link preview's, at |frame| over the pages shown, in place of the preview it
+  // shows. The app's overlay over the window has a hole where it shows, and its card round that.
+  void ShowPreview(aura::Window* page, const gfx::Rect& frame, double corner_radius) {
+    aura::Window* holder = HolderFor(preview_);
+    if (preview_.page != page) {
+      Empty(preview_);
+      if (page->parent()) {
+        page->parent()->RemoveChild(page);
+      }
+      holder->AddChild(page);
+      Keep(preview_, page, nullptr);
+    }
+    page->Show();
+    holder->layer()->AsSolidColor()->SetColor(preview_color_);
+    preview_.corner_radius = corner_radius;
+    const gfx::Size size = ContentSizeOf(widget_);
+    preview_.insets = gfx::Insets::TLBR(frame.y(), frame.x(), size.height() - frame.bottom(),
+                                        size.width() - frame.right());
+    content()->StackChildAtTop(holder);
+    holder->Show();
+    LayOut(preview_, size);
+    ShowThrough();
+  }
+
   // Sizes each slot to its insets.
   void LayOut() {
     const gfx::Size size = ContentSizeOf(widget_);
@@ -297,6 +347,7 @@ class WindowViews : public views::WidgetObserver,
       LayOut(slot, size);
     }
     LayOut(side_panel_, size);
+    LayOut(preview_, size);
     ring_.Fit();
   }
 
@@ -316,7 +367,7 @@ class WindowViews : public views::WidgetObserver,
     } else {
       slot.page->SetBounds(bounds);
     }
-    const float r = corner_radius_;
+    const float r = slot.corner_radius.value_or(corner_radius_);
     slot.holder->layer()->SetRoundedCornerRadius(
         slot.bottom_corners_only ? gfx::RoundedCornersF(0, 0, r, r) : gfx::RoundedCornersF(r));
   }
@@ -337,6 +388,7 @@ class WindowViews : public views::WidgetObserver,
       add(slot);
     }
     add(side_panel_);
+    add(preview_);
     if (OnWayland()) {
       std::vector<gfx::Rect> region;
       for (const Slot* slot : shown) {
@@ -385,7 +437,8 @@ class WindowViews : public views::WidgetObserver,
       const gfx::Rect frame = gfx::ScaleToEnclosingRect(slot->holder->bounds(), scale);
       std::vector<x11::Rectangle> hole;
       for (gfx::Rect row :
-           RoundShape(frame.size(), corner_radius_ * scale, slot->bottom_corners_only)) {
+           RoundShape(frame.size(), slot->corner_radius.value_or(corner_radius_) * scale,
+                      slot->bottom_corners_only)) {
         row.Offset(frame.OffsetFromOrigin());
         hole.push_back(XRectangle(row));
       }
@@ -404,6 +457,7 @@ class WindowViews : public views::WidgetObserver,
   // showed may have moved it.
   void OverlayTakesKeyboard(bool takes) {
     overlay_has_keyboard_ = takes;
+    early_keys_.clear();
     ui_text_input_.SetKeyboard(ui_has_keyboard_ || overlay_has_keyboard_);
     if (!takes && ui_ != x11::Window::None && !ui_has_keyboard_ && IsWithin(InputFocus(), ui_)) {
       UITakesKeyboard();
@@ -494,11 +548,13 @@ class WindowViews : public views::WidgetObserver,
       Empty(slot);
     }
     Empty(side_panel_);
+    Empty(preview_);
     while (!unseen_.windows().empty()) {
       Unsee(unseen_.windows().front());
     }
     panes_.clear();
     side_panel_ = Slot();
+    preview_ = Slot();
     kept_.RemoveAllObservations();
     observation_.Reset();
   }
@@ -516,6 +572,12 @@ class WindowViews : public views::WidgetObserver,
     };
     std::ranges::for_each(panes_, forget);
     forget(side_panel_);
+    forget(preview_);
+    // A link preview's page goes as its tab closes, and its hole with it.
+    if (preview_.holder && !preview_.page && preview_.holder->IsVisible()) {
+      preview_.holder->Hide();
+      ShowThrough();
+    }
   }
 
   // aura::client::FocusChangeObserver: the core focusing a page gives it the keyboard, as Chromium
@@ -550,6 +612,28 @@ class WindowViews : public views::WidgetObserver,
     if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
     }
+    // On X11 the X server sends the UI's keys here while the input focus is on the window, not
+    // GPUI's, unless the pointer is over the UI: wlroots 0.17's Xwayland puts it back up from
+    // GPUI's window each time it's taken down (#628), as a new window it focuses keeps it. They go
+    // on to GPUI's window, where the focus would have sent them.
+    if (ui_has_keyboard_ && !overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      std::optional<x11::KeyEvent> key = X11KeyOf(*event);
+      if (x11::Window main = UIMain(); key && main != x11::Window::None) {
+        key->event = main;
+        x11::Connection* connection = x11::Connection::Get();
+        connection->SendEvent(*key, main, x11::EventMask::NoEvent);
+        connection->Flush();
+      }
+    }
+    // On X11 only one typed before the overlay that took the keyboard had the input focus reaches
+    // the window, as fast typing after ⌃F does once the keys held for the bar were given to it, as
+    // GPUI moves the focus on its next turn. They go to the overlay once it has the focus.
+    if (overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      if (std::optional<x11::KeyEvent> key = X11KeyOf(*event)) {
+        early_keys_.push_back(*key);
+        SendEarlyKeys();
+      }
+    }
   }
 
   void OnMouseEvent(ui::MouseEvent* event) override {
@@ -570,6 +654,9 @@ class WindowViews : public views::WidgetObserver,
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
     if (auto* focus = event.As<x11::FocusEvent>()) {
+      if (focus->opcode == x11::FocusEvent::Out) {
+        SendEarlyKeys();
+      }
       // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
           focus->mode == x11::NotifyMode::Ungrab || overlay_has_keyboard_) {
@@ -628,7 +715,28 @@ class WindowViews : public views::WidgetObserver,
     auto holds = [window](const Slot& slot) {
       return slot.holder && slot.holder->Contains(window);
     };
-    return std::ranges::any_of(panes_, holds) || holds(side_panel_);
+    return std::ranges::any_of(panes_, holds) || holds(side_panel_) || holds(preview_);
+  }
+
+  // Sends the keys typed before the overlay with the keyboard had the input focus to the window
+  // that has it, unless that's still this one or the UI's. A bar is a child of this one.
+  void SendEarlyKeys() {
+    if (early_keys_.empty()) {
+      return;
+    }
+    const x11::Window focus = InputFocus();
+    if (focus == x11::Window::None || focus == window() || IsWithin(focus, ui_)) {
+      return;
+    }
+    x11::Connection* connection = x11::Connection::Get();
+    for (x11::KeyEvent& key : early_keys_) {
+      key.event = focus;
+      connection->SendEvent(key, focus, x11::EventMask::NoEvent);
+    }
+    connection->Flush();
+    fprintf(stderr, "browser: sent %zu key events typed before the overlay had the input focus\n",
+            early_keys_.size());
+    early_keys_.clear();
   }
 
  private:
@@ -675,6 +783,11 @@ class WindowViews : public views::WidgetObserver,
   x11::Window ui_;
   std::vector<Slot> panes_;
   Slot side_panel_;
+  // A link preview's page, over the panes, and the colour where it hasn't drawn: the one under the
+  // window's page, as the app's card is, else a page's white, as the hole would show the pages
+  // under it.
+  Slot preview_;
+  SkColor4f preview_color_ = SkColors::kWhite;
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
@@ -687,6 +800,8 @@ class WindowViews : public views::WidgetObserver,
   // A window of Chromium's own has the keyboard the UI or a page had, and gives it back as it goes.
   bool ui_lent_ = false;
   aura::WindowTracker page_lent_;
+  // The keys typed while the overlay with the keyboard didn't have the input focus yet.
+  std::vector<x11::KeyEvent> early_keys_;
   // Whether the core took the input focus back down to the UI's window since the focus last left or
   // entered the window.
   bool retook_ = false;
@@ -791,6 +906,12 @@ void ShowPages(views::Widget* widget,
     staying.push_back(side_panel->page);
   }
 
+  // A link preview's page kept as a tab shows in a pane now.
+  Slot& preview = views->preview();
+  if (preview.page && std::ranges::contains(staying, preview.page.get())) {
+    views->Empty(preview, staying);
+  }
+
   std::vector<Slot>& slots = views->panes();
   // Pages that stay in the same pane keep their slot.
   for (size_t i = panes.size(); i < slots.size(); ++i) {
@@ -818,10 +939,15 @@ void ShowPages(views::Widget* widget,
       }
     }
     views->Keep(slot, pane.page, devtools);
-    holder->layer()->AsSolidColor()->SetColor(
-        pane.color ? SkColor4f::FromColor(SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff,
-                                                        *pane.color & 0xff))
-                   : SkColors::kTransparent);
+    SkColor4f color = SkColors::kTransparent;
+    if (pane.color) {
+      color = SkColor4f::FromColor(
+          SkColorSetRGB(*pane.color >> 16, *pane.color >> 8 & 0xff, *pane.color & 0xff));
+      if (i == 0) {
+        views->set_preview_color(color);
+      }
+    }
+    holder->layer()->AsSolidColor()->SetColor(color);
     slot.insets = InsetsOf(pane.frame, size);
     hidden ? holder->Hide() : holder->Show();
   }
@@ -881,8 +1007,19 @@ base::ScopedClosureRunner DrawUnseen(views::Widget* widget, gfx::NativeView page
   return views->DrawUnseen(page);
 }
 
-// The app's host has no view for a link preview's page here yet, so nothing calls it with one.
-void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+// The app's view for a link preview is an overlay of its own over the window, which can't hold a
+// page, so the page shows in the window over its pages, where the overlay leaves a hole, and the
+// card the app draws round that.
+void ShowPageIn(views::Widget* widget,
+                gfx::NativeView page,
+                void*,
+                const gfx::Rect& frame,
+                double corner_radius) {
+  WindowViews* views = widget ? ViewsOf(widget) : nullptr;
+  if (views && page) {
+    views->ShowPreview(page, frame, corner_radius);
+  }
+}
 
 std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
@@ -914,8 +1051,9 @@ bool KeyboardForPage(views::Widget* widget) {
       return !slot.devtools || !slot.devtools->Contains(focused);
     }
   }
-  // The side panel, or a window of Chromium's own, such as an extension's popup.
-  return false;
+  // A link preview's, or else the side panel or a window of Chromium's own, such as an
+  // extension's popup.
+  return views->preview().holder && views->preview().holder->Contains(focused);
 }
 
 void ReleaseKeyboard(views::Widget* widget) {

@@ -182,17 +182,15 @@ fn states(palette: &Palette, theme: Option<&Theme>) -> Vec<(String, Hsla, f32, V
         ("site controls …", palette.on_overlay_glyph(site_controls::TEXT), GLYPH, lay(&overlay, site_controls::MORE_FILL, &PRESSABLE)),
         ("theme picker appearance", palette.on_overlay_glyph(crate::tokens::theme_picker::APPEARANCE_COLOR), GLYPH, lay(&overlay, 0., &[crate::tokens::theme_picker::APPEARANCE_CHOSEN])),
     ];
-    // Dark on any theme: the find bar, the capture menu, and the icon picker, on the pickers' card
-    // over the window, its segments on their track.
-    use crate::tokens::{capture, find_bar, icon_picker};
+    // Dark on any theme: the find bar, and the icon picker, on the pickers' card over the window,
+    // its segments on their track.
+    use crate::tokens::{find_bar, icon_picker};
     let cards: Vec<Rgba> = window.iter().map(|&at| over(at, palette.card, palette.card.a)).collect();
     let track: Vec<Rgba> = cards.iter().map(|&at| over(at, WHITE, rgba(CARD_SEGMENTS).a)).collect();
     let label = Hsla::from(rgb(icon_picker::LABEL));
     let chosen = Rgba::from(gpui::rgba(icon_picker::CHOSEN)).a;
     states.extend([
         ("find bar button", white(Rgba::from(gpui::rgba(find_bar::GLYPH_COLOR)).a), GLYPH, lay_dark(rgb(find_bar::FILL), 0., &PRESSABLE)),
-        ("capture menu row", white(1.), TEXT, lay_dark(rgb(capture::MENU_FILL >> 8), 0., &PRESSABLE)),
-        ("capture menu glyph", white(capture::GLYPH_COLOR), GLYPH, lay_dark(rgb(capture::MENU_FILL >> 8), 0., &PRESSABLE)),
         ("icon picker segment", label, TEXT, track.iter().flat_map(|&at| PRESSABLE.map(|state| over(at, rgb(INK), state))).collect()),
         ("icon picker glyph", label, GLYPH, cards.iter().flat_map(|&at| lay_dark(at, 0., &[STATE_PRESSED, STATE_HOVERED, chosen])).collect()),
     ]);
@@ -282,16 +280,23 @@ fn the_window_is_shaded_only_where_paper_needs_it() {
     assert!(fails, "a step less shade would have read");
 }
 
-/// The pickers' card keeps Arc's measured grey where its text reads, and Capture's glyphs reach
-/// 3:1 on its menu and a hovered row.
+/// The pickers' card keeps Arc's measured grey where its text reads, and Capture's menu, ilo's
+/// menu's panel, reads in both looks: its glyphs, in the secondary colour, at 3:1, and its field's
+/// words as text on the field's tint of the line colour, which the secondary colour doesn't reach
+/// in the dark look.
 #[test]
-fn the_pickers_card_and_captures_glyphs_read() {
+fn the_pickers_card_and_captures_menu_read() {
     let black = Palette::of(Some(&Theme::at(0., 0.)), Tone::Dark);
     assert_eq!(hex(black.card), hex(rgba(CARD)), "the measured grey over the black Space");
     assert_eq!(Palette::of(None, Tone::Dark).card, rgba(CARD), "the measured grey with no theme");
-    use crate::tokens::capture::{GLYPH_COLOR, MENU_FILL};
-    for ground in [0., STATE_HOVERED, STATE_PRESSED].map(|state| over(rgba(MENU_FILL), WHITE, state)) {
-        assert!(contrast(over(ground, rgb(PAPER), GLYPH_COLOR), ground) >= GLYPH);
+    let lay = |at: Rgba, colour: u32| over(at, rgb(colour >> 8), (colour & 0xff) as f32 / 255.);
+    for light in [false, true] {
+        let menu = crate::menu::Look { light, ..crate::menu::Look::dark() }.palette();
+        let panel = rgb(menu.fill >> 8);
+        let field = lay(panel, menu.line);
+        assert!(contrast(lay(panel, menu.secondary), panel) >= GLYPH, "glyphs, light {light}");
+        assert!(contrast(lay(field, menu.label), field) >= TEXT, "Send To…, light {light}");
+        assert!(light || contrast(lay(field, menu.secondary), field) < TEXT);
     }
 }
 

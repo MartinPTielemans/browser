@@ -1,0 +1,39 @@
+Lets the core have ⌥-click on a link open it in a split view, as Arc's does, where Chromium
+downloads it (issue #694). Blink picks a click's policy in the renderer, so the core can't see an
+⌥-click as anything but a download. A hook only: a runtime feature, off unless the core turns it
+on with --enable-blink-features (//browser_core/main_delegate.cc), makes ⌥-click the split view
+policy ⌥⌘-click already has, which the core opens in a pane. ⇧-click stays a new window, and the
+link's context menu keeps Save Link As….
+
+--- a/third_party/blink/renderer/core/loader/navigation_policy.cc
++++ b/third_party/blink/renderer/core/loader/navigation_policy.cc
+@@ -67,7 +67,13 @@
+     return shift ? kNavigationPolicyNewForegroundTab
+                  : kNavigationPolicyNewBackgroundTab;
+   }
+-  return shift ? kNavigationPolicyNewWindow : kNavigationPolicyDownload;
++  if (shift) {
++    return kNavigationPolicyNewWindow;
++  }
++  // browser_core: ⌥-click opens a link in a split view, as Arc's does, where the core turns this
++  // on; the link's context menu keeps Save Link As….
++  return RuntimeEnabledFeatures::AltClickSplitViewEnabled() ? kNavigationPolicySplitView
++                                                            : kNavigationPolicyDownload;
+ }
+ 
+ NavigationPolicy NavigationPolicyFromEventInternal(const Event* event) {
+--- a/third_party/blink/renderer/platform/runtime_enabled_features.json5
++++ b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+@@ -608,6 +608,12 @@
+       base_feature: "none",
+     },
+     {
++      // browser_core: ⌥-click on a link opens it in a split view rather than downloading it
++      // (navigation_policy.cc). Off unless the core turns it on.
++      name: "AltClickSplitView",
++      base_feature: "none",
++    },
++    {
+       // Instead of creating a new DOMStringList on every access to
+       // location.ancestorOrigins, return the ancestor origins list
+       // stored on Document.

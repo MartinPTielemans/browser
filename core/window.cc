@@ -77,7 +77,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/mojom/api_permission_id.mojom-shared.h"
 #include "extensions/common/permissions/permissions_data.h"
-#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -178,6 +177,8 @@ struct DeletedSpace {
   std::vector<bc_id> today;
   // The tab or favorite the window showed there, or 0.
   bc_id shown = 0;
+  // Its place among the Spaces, which it comes back to.
+  size_t at = 0;
 };
 
 // The Spaces deleted, newest last, as many as the closed tabs.
@@ -628,13 +629,10 @@ void Window::AdjustNavigate(NavigateParams& params) {
             ProfileId(DirOf(profile->GetOriginalProfile())), private_window));
     return;
   }
-  // ⌥⌘-click on a link opens it beside its page in a split view, as Chrome's does, and so does
-  // ⌥⇧-click, as Dia's does, which the page asks for as a new window.
-  constexpr int kAltShift = blink::WebInputEvent::kAltKey | blink::WebInputEvent::kShiftKey;
+  // ⌥-click on a link opens it beside its page in a split view, as Arc's does, and so does
+  // ⌥⌘-click, as Chrome's does (chromium-core-alt-click-split.patch).
   Tab* source = params.source_contents ? Tab::FromWebContents(params.source_contents) : nullptr;
-  const bool split = source && (params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW ||
-                                (params.disposition == WindowOpenDisposition::NEW_WINDOW &&
-                                 (source->input_modifiers() & kAltShift) == kAltShift));
+  const bool split = source && params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW;
   window->split_with_ = split ? Tab::IdOf(params.source_contents) : 0;
   // Popups become tabs (decision 3). So do new windows: the app opens its own.
   if (split || params.disposition == WindowOpenDisposition::NEW_POPUP ||
@@ -938,6 +936,8 @@ bool Window::DeleteSpace(bc_id space) {
   // Before the windows leave it, so it keeps the tab the one active last showed there.
   DeletedSpace& deleted = DeletedSpaces().emplace_back();
   deleted.id = space;
+  const std::vector<Space*> all = Space::All();
+  deleted.at = static_cast<size_t>(std::ranges::find(all, space, &Space::id) - all.begin());
   deleted.shown = Order().empty() ? 0 : FromId(Order().front())->SelectedIn(space);
   deleted.saved = SaveSpace(**it, deleted.shown, &deleted.today);
   if (DeletedSpaces().size() > kMaxClosedTabs) {
@@ -1264,7 +1264,14 @@ void Window::LayOutPage() {
       gfx::Rect devtools_frame;
       ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(pane.frame.size()),
                                             &devtools_frame, &docked.page_frame);
-      pane.devtools = docked;
+      // DevTools in a window of their own leave their toolbox in the tab, under the page, where it
+      // draws only around a page device mode makes smaller. Under one filling the frame it would
+      // show nothing, so it stays out, and its renderer hidden, until device mode leaves it room.
+      const bool toolbox = !DevToolsWindow::AsDevToolsWindow(devtools);
+      const bool covered = !docked.page_under && docked.page_frame == gfx::Rect(pane.frame.size());
+      if (!toolbox || !covered) {
+        pane.devtools = docked;
+      }
     }
   }
   SidePanel* side_panel = ShownSidePanel();
@@ -1670,7 +1677,7 @@ bc_id Window::UndoDeleteSpace(bc_id id) {
     above = true;
   }
   space.saved.today = std::move(today);
-  RestoreSpace(*this, profile, space.saved, space.id);
+  RestoreSpace(*this, profile, space.saved, space.id, space.at);
   // Not one of the Space's own, which closed with it and came back as other tabs.
   if (Favorites::Has(space.shown) && !Favorites::SpaceOf(space.shown)) {
     SetSelectedIn(space.id, space.shown);

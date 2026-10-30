@@ -26,9 +26,7 @@ pub fn copy_png(png: &[u8]) {
 
 /// Asks where to save the capture, through the desktop's file chooser portal, and saves it there.
 pub fn save_png(png: &[u8]) {
-    let mut name = [0 as c_char; 64];
-    unsafe { platform::host_capture_name(name.as_mut_ptr(), name.len()) };
-    let name = unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned();
+    let name = crate::capture_name();
     let png = png.to_vec();
     crate::update_app_later(move |cx| {
         // The portal opens in the folder given, and GPUI asks for one; the home folder is always

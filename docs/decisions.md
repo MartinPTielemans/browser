@@ -33,7 +33,7 @@ Revisit if cherry-picking from Helium costs more per release than taking its who
 
 ## 3. Architecture: Chrome's framework plus our own window host
 
-Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. One native window holds a Chrome `Browser` per profile, each with a stand-in `BrowserWindow` that has no UI. Tab views are parented directly into our window, and popups become tabs. The window is the core's, a Chrome Views widget as in Ardia, and GPUI draws as a view inside it, under the tab views.
+Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. One native window, the core's Views widget, holds a Chrome `Browser` per profile, each with a UI-less stand-in `BrowserWindow`. Tab views are parented into it, GPUI draws in it under them, and pages' popups become tabs. Extensions' windows stay Chrome's, like undocked DevTools (owner, 2026-10-29).
 
 - This keeps the whole `chrome/` layer, so extensions, the Web Store, autofill, passkeys and DevTools keep working.
 - Ardia ships on this design today.
@@ -109,6 +109,6 @@ Consequences now:
 
 ## 9. Crash reports: opt-in, to Sentry (EU region)
 
-No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. Its stacks can hold a URL or page text. Official builds send them to ilo's project in Sentry's EU region, which takes Chromium's bare minidumps, as self-hosted collectors do. The collector is a default service URL: a fork names its own or none.
+No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. A report can hold a URL or page text but no user folder, and it asks Sentry to infer no IP. Official builds send them to ilo's Sentry in the EU, which takes minidumps. The collector is a default service URL: a fork names its own or none.
 
 Revisit if Sentry stops taking minidumps or keeping them in the EU.

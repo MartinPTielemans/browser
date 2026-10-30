@@ -374,6 +374,30 @@ fn return_goes_where_the_completion_goes(cx: &mut TestAppContext) {
     assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
 }
 
+/// The keys typed in the page after ⌃L, which the core held from it (bc_hold_keys), go in the
+/// field as typed once it opens: characters with their text and ⌫ as the key it is. A shortcut,
+/// such as ⌃A, types nothing.
+#[gpui::test]
+fn keys_held_from_the_page_go_in_as_typed(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    let shift = Modifiers { shift: true, ..Modifiers::none() };
+    let held = [
+        ("G", shift),
+        ("o", Modifiers::none()),
+        ("x", Modifiers::none()),
+        ("Backspace", Modifiers::none()),
+        (" ", Modifiers::none()),
+        ("!", shift),
+    ];
+    for (key, modifiers) in held {
+        let keystroke = shell::web_keystroke(key, modifiers);
+        bar.cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+    }
+    bar.cx.run_until_parked();
+    assert_eq!(bar.input().0, "Go !");
+    assert_eq!(shell::web_keystroke("a", Modifiers::control()).key_char, None);
+}
+
 #[gpui::test]
 fn backspace_takes_the_completion_back_until_the_next_key(cx: &mut TestAppContext) {
     let mut bar = Bar::new(cx);
@@ -1491,6 +1515,7 @@ fn space_puts_new_space_first(cx: &mut TestAppContext) {
         "Export Space as Markdown…".into(),
         "Next Space ⌥⌘→".into(),
         "Previous Space ⌥⌘←".into(),
+        "Stop Recording Trace".into(),
     ];
     assert_eq!(bar.listed(), expected);
 }

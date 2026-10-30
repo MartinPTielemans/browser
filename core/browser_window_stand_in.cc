@@ -11,6 +11,7 @@
 
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/held_keys.h"
 #include "build/build_config.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
@@ -537,6 +538,12 @@ void BrowserWindowStandIn::ConfirmBrowserCloseWithPendingDownloads(
 
 content::KeyboardEventProcessingResult BrowserWindowStandIn::PreHandleKeyboardEvent(
     const input::NativeWebKeyboardEvent& event) {
+  content::WebContents* contents =
+      browser_ ? browser_->GetTabStripModel()->GetActiveWebContents() : nullptr;
+  // Typed after a shortcut that opens a field of the app's, for the field.
+  if (contents && held_keys::Holds(Tab::IdOf(contents), event)) {
+    return content::KeyboardEventProcessingResult::HANDLED;
+  }
   return AskApp(Host().tab_key_before_page, browser_, event)
              ? content::KeyboardEventProcessingResult::HANDLED
              : content::KeyboardEventProcessingResult::NOT_HANDLED;

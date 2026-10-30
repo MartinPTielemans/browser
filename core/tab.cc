@@ -17,12 +17,14 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/favorites.h"
+#include "browser_core/held_keys.h"
 #include "browser_core/host.h"
 #include "browser_core/link_target.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/platform/keyboard.h"
 #include "browser_core/script_dialog.h"
 #include "browser_core/session.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/site_controls.h"
 #include "browser_core/space.h"
@@ -367,6 +369,22 @@ bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
       event.skip_if_unhandled) {
     return false;
   }
+  uint32_t modifiers = 0;
+  const std::string name = KeyName(event, &modifiers);
+  // ⌘'s shortcuts, which are Ctrl's off the Mac, by the Latin layout's key, chosen by the app. Read
+  // only with it held, as every key the page gets comes here.
+  const int command =
+      BUILDFLAG(IS_MAC) ? blink::WebInputEvent::kMetaKey : blink::WebInputEvent::kControlKey;
+  const std::string latin =
+      (event.GetModifiers() & command) ? platform::LatinKey(event) : std::string();
+  const bc_key key = {name.c_str(), modifiers, editing, latin.c_str()};
+  // A shortcut that opens a field of the app's holds the page's keys after it (bc_hold_keys).
+  auto asking = held_keys::AskingAbout(tab);
+  return callback(Host().context, tab, &key);
+}
+
+// static
+std::string Tab::KeyName(const input::NativeWebKeyboardEvent& event, uint32_t* modifiers) {
   std::string name = ui::KeycodeConverter::DomKeyToKeyString(ui::DomKey(event.dom_key));
   const int held = event.GetModifiers();
   // With ⌥ held, a Mac's key is the character ⌥ types with it, such as ⌥I's "ˆ", which no shortcut
@@ -376,22 +394,16 @@ bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
       ((code >= ui::VKEY_A && code <= ui::VKEY_Z) || (code >= ui::VKEY_0 && code <= ui::VKEY_9))) {
     name = std::string(1, static_cast<char>(code));
   }
-  uint32_t modifiers = 0;
+  *modifiers = 0;
   for (auto [web, flag] : {std::pair{blink::WebInputEvent::kShiftKey, BC_MODIFIER_SHIFT},
                            std::pair{blink::WebInputEvent::kControlKey, BC_MODIFIER_CONTROL},
                            std::pair{blink::WebInputEvent::kAltKey, BC_MODIFIER_ALT},
                            std::pair{blink::WebInputEvent::kMetaKey, BC_MODIFIER_META}}) {
     if (held & web) {
-      modifiers |= flag;
+      *modifiers |= flag;
     }
   }
-  // ⌘'s shortcuts, which are Ctrl's off the Mac, by the Latin layout's key, chosen by the app. Read
-  // only with it held, as every key the page gets comes here.
-  const int command =
-      BUILDFLAG(IS_MAC) ? blink::WebInputEvent::kMetaKey : blink::WebInputEvent::kControlKey;
-  const std::string latin = (held & command) ? platform::LatinKey(event) : std::string();
-  const bc_key key = {name.c_str(), modifiers, editing, latin.c_str()};
-  return callback(Host().context, tab, &key);
+  return name;
 }
 
 GURL Tab::Url() const {
@@ -982,6 +994,7 @@ void Tab::ReportState() {
         .trouble = BC_PAGE_FINE,
         .net_error = 0,
         .system_engine = false,
+        .developer_mode = developer_mode::On(profile(), Url()),
     };
     Host().tab_state_changed(Host().context, id_, &state);
     return;
@@ -1007,6 +1020,7 @@ void Tab::ReportState() {
       .trouble = Trouble(),
       .net_error = Trouble() == BC_PAGE_NETWORK_ERROR ? net_error_ : 0,
       .system_engine = page != nullptr,
+      .developer_mode = developer_mode::On(profile(), GURL(url)),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
@@ -1153,7 +1167,6 @@ void Tab::ReportTitle() {
 }
 
 void Tab::DidGetUserInteraction(const blink::WebInputEvent& event) {
-  input_modifiers_ = event.GetModifiers();
   // A click, not the keyboard coming to the page: the core moves the keyboard between the pages of
   // a split view itself, and focus reports posted from those moves arrive after the next one.
   if (event.GetType() == blink::WebInputEvent::Type::kMouseDown) {

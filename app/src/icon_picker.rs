@@ -27,6 +27,7 @@ use crate::{
 mod emoji;
 
 use emoji::{Drawable, Grid, Row};
+use emojis::SkinTone;
 pub use emoji::Recents;
 
 actions!(icon_picker, [Dismiss, Keep, Up, Down]);
@@ -131,6 +132,8 @@ struct Picking {
     query: String,
     grid: Grid,
     selected: Option<usize>,
+    /// Whether the six skin tones are out along the search.
+    tones: bool,
     /// While the content slides from one tab's to the other's: the tab it slides from, and when.
     slide: Option<(Tab, Instant)>,
     _edit: Option<Subscription>,
@@ -274,6 +277,7 @@ pub fn show(
                 query: String::new(),
                 grid: Grid::default(),
                 selected: None,
+                tones: false,
                 slide: None,
                 _edit: None,
             });
@@ -340,6 +344,7 @@ impl IconPicker {
             picking.slide = Some((picking.tab, Instant::now()));
         }
         picking.tab = tab;
+        picking.tones = false;
         picking._edit = None;
         if tab == Tab::Icon {
             window.focus(&self.focus, cx);
@@ -352,6 +357,7 @@ impl IconPicker {
         let host = &self.host;
         let drawable =
             self.drawable.get_or_insert_with(|| Drawable::new(|emoji| host.draws(emoji)));
+        drawable.ask_tone(self.recents.tone(), |emoji| host.draws(emoji));
         picking.grid = Grid::new("", &self.recents, drawable);
         picking.selected = current(&picking.icon, &picking.grid);
         self.search.update(cx, |field, cx| field.reset(SharedString::default(), window, cx));
@@ -376,10 +382,19 @@ impl IconPicker {
             return;
         }
         // Asked for when the tab showed, which any search follows.
-        let Some(drawable) = &self.drawable else {
+        if self.drawable.is_none() {
+            return;
+        }
+        picking.query = text.to_string();
+        self.regrid(cx);
+    }
+
+    /// Lists the emoji again for the search, as when it changes.
+    fn regrid(&mut self, cx: &mut Context<Self>) {
+        let (Some(picking), Some(drawable)) = (&mut self.picking, &self.drawable) else {
             return;
         };
-        picking.query = text.to_string();
+        let text = picking.query.as_str();
         picking.grid = Grid::new(text, &self.recents, drawable);
         picking.selected = if text.trim().is_empty() {
             current(&picking.icon, &picking.grid)
@@ -438,6 +453,64 @@ impl IconPicker {
         if self.search.read(cx).text().is_empty() && self.go(1, 0, cx) {
             cx.stop_propagation();
         }
+    }
+
+    /// Shows the grid's emoji in `tone`, and keeps it with the recents for the next time.
+    fn pick_tone(&mut self, tone: SkinTone, cx: &mut Context<Self>) {
+        let Some(picking) = &mut self.picking else {
+            return;
+        };
+        picking.tones = false;
+        if tone != self.recents.tone() {
+            let host = &self.host;
+            if let Some(drawable) = &mut self.drawable {
+                drawable.ask_tone(tone, |emoji| host.draws(emoji));
+            }
+            self.recents.set_tone(tone);
+            self.host.keep_recents(&self.recents.to_text());
+            self.regrid(cx);
+        }
+        cx.notify();
+    }
+
+    /// The tone button at the search's right end, or the six tones along it once it's clicked.
+    fn tone_button(&self, picking: &Picking, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let plate = |id: (&'static str, usize), tone: SkinTone| {
+            div()
+                .id(id)
+                .size(px(emoji::TONE_PLATE))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(SEGMENTS_RADIUS))
+                .hover(|plate| plate.bg(Palette::on_dark(STATE_HOVERED)))
+                .active(|plate| plate.bg(Palette::on_dark(STATE_PRESSED)))
+                .text_size(px(emoji::TONE_EMOJI))
+                .child(emoji::hand(tone))
+        };
+        let shown = self.recents.tone();
+        let tones = picking.tones.then(|| {
+            emoji::TONES.iter().enumerate().map(|(index, &tone)| {
+                plate(("icon-picker-tone", index), tone)
+                    .when(tone == shown, |plate| plate.bg(rgba(CHOSEN)))
+                    .on_click(cx.listener(move |picker, _, window, cx| {
+                        picker.pick_tone(tone, cx);
+                        window.focus(&picker.search.focus_handle(cx), cx);
+                    }))
+            })
+        });
+        let button = (!picking.tones).then(|| {
+            plate(("icon-picker-tones", 0), shown).on_click(cx.listener(|picker, _, window, cx| {
+                if let Some(picking) = &mut picker.picking {
+                    picking.tones = true;
+                    cx.notify();
+                }
+                // The picker takes the keyboard on the press, and typing goes on in the search.
+                window.focus(&picker.search.focus_handle(cx), cx);
+            }))
+        });
+        div().flex().flex_none().children(tones.into_iter().flatten()).children(button)
     }
 
     /// Gives the Space the emoji at `item` in the list, and puts it first among the recents.
@@ -615,12 +688,14 @@ impl IconPicker {
                     .left(px(GRID_X))
                     .w(px(PITCH * COLUMNS as f32))
                     .h(px(emoji::SEARCH_HEIGHT))
-                    .px(px(emoji::SEARCH_PADDING))
+                    .pl(px(emoji::SEARCH_PADDING))
+                    .pr(px((emoji::SEARCH_HEIGHT - emoji::TONE_PLATE) / 2.))
                     .flex()
                     .items_center()
                     .rounded(px(emoji::SEARCH_RADIUS))
                     .bg(rgba(SEGMENTS_FILL))
-                    .child(self.search.clone()),
+                    .child(div().flex_1().min_w_0().child(self.search.clone()))
+                    .child(self.tone_button(picking, cx)),
             )
             .child(
                 div()

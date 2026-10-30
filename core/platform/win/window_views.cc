@@ -475,7 +475,7 @@ void HidePages(views::Widget* widget) {
 }
 
 // The app's host has no view for a link preview's page here yet, so nothing calls it with one.
-void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+void ShowPageIn(views::Widget*, gfx::NativeView, void*, const gfx::Rect&, double) {}
 
 std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
