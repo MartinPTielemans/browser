@@ -1077,6 +1077,15 @@ void bc_set_warn_before_quitting(bool warn) {
   browser_core::SessionChanged();
 }
 
+bool bc_restore_windows(void) {
+  return browser_core::UserSettings().restore_windows;
+}
+
+void bc_set_restore_windows(bool restore) {
+  browser_core::UserSettings().restore_windows = restore;
+  browser_core::SessionChanged();
+}
+
 bool bc_warn_moving_profiles(void) {
   return browser_core::UserSettings().warn_moving_profiles;
 }
@@ -1191,7 +1200,9 @@ void bc_tab_show_in(bc_id id, void* view, bc_rect frame, double corner_radius) {
   if (!contents || !view || browser_core::Window::Showing(id)) {
     return;
   }
-  browser_core::platform::ShowPageIn(contents->GetNativeView(), view, ToRect(frame),
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  browser_core::platform::ShowPageIn(window ? window->widget() : nullptr,
+                                     contents->GetNativeView(), view, ToRect(frame),
                                      corner_radius);
   contents->Focus();
 }
