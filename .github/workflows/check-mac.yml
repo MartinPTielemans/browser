@@ -22,9 +22,11 @@ on:
         description: The runs to do, such as "load tabs", or "all"; empty for the ones the Mac runner passes
         default: ''
 
+# Main's running check finishes, with only the newest push waiting behind it, so a train of merges
+# still gets a Mac result; a branch's dispatch replaces the one before it.
 concurrency:
   group: check-mac-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
