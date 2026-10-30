@@ -549,6 +549,9 @@ asks "${site%/}" "the site couldn't ask again after ×"
 send move 600 400
 none_since '^browser: reveal hidden$' || fail "the pointer leaving sent the question away"
 ../tools/window-screenshot.sh "$pid" "$out/question-reveal.png" || fail "no window to capture"
+# The pointer comes over the panel to Block, as a hand's does: on Linux the panel hears the pointer
+# leave only once it has had it moving over it.
+send move $((qx + qw / 4)) $((qy + qh - 26))
 send click $((qx + qw / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Block didn't take the question down"
 expect "^browser: title $r refused NotAllowedError\$" "Block didn't refuse the page"
