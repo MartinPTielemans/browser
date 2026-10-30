@@ -125,6 +125,34 @@ send choose Delete
 expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
 expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
 [ ! -e "$library" ] || fail "Delete left $library where it was"
+# Media also tiles the profile's downloaded pictures and videos, and the captures a run that
+# failed kept, which an earlier run can leave in a dev profile (restore's clip.mp4 on a VM). The
+# app clears them, as a user would: Downloads' Clear List takes the downloads off the list and
+# keeps their files, and each capture left goes by its tile's Delete.
+listed=$(grep '^browser: downloads ' "$log" | tail -1 | cut -d' ' -f3)
+if [ "${listed:-0}" -gt 0 ]; then
+  send key j cmd shift
+  expect '^browser: library section downloads$' "⇧⌘J didn't move the Library to Downloads"
+  # The first row, under the heading.
+  post rightclick 300 111
+  expect "^browser: menu shown .*$(cased 'Clear List')\$" \
+    "a right-click on the first download's row didn't show its menu"
+  send choose "$(cased 'Clear List')"
+  expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
+  expect '^browser: downloads 0$' "Clear List didn't take the $listed downloads off the list"
+  send menu "$(cased 'View Media…')"
+  expect '^browser: library section media$' "View Media… didn't move the Library back to Media"
+fi
+left=$(grep '^browser: library captures ' "$log" | tail -1 | cut -d' ' -f4)
+while [ "$left" -gt 0 ]; do
+  post rightclick $((112 + 8 + 47)) $((56 + 27 + 47))
+  expect "^browser: menu shown $(cased 'Open, Delete')\$" \
+    "a right-click on a capture left in Media didn't show its menu"
+  send choose Delete
+  expect '^browser: delete capture ' "Delete didn't take a capture left in Media"
+  expect "^browser: library captures $((left - 1))\$" "Media wasn't listed again after Delete"
+  left=$((left - 1))
+done
 # Emptied, Media says what fills it in a line that wraps in the list's width, 12 in from its
 # edges at 112 and 416 (#828), as the window's light and dark, narrow and wide, show it.
 expect '^browser: library empty media at ' "Media emptied didn't draw its line"
