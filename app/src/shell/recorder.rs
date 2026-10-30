@@ -996,12 +996,14 @@ impl Browser for Recorder {
         _: f32,
         full_page: bool,
         _: bool,
+        look: crate::menu::Look,
         _: &mut App,
     ) {
         let (x, y) = (f32::from(frame.origin.x), f32::from(frame.origin.y));
         let (width, height) = (f32::from(frame.size.width), f32::from(frame.size.height));
         let what = if full_page { "full page" } else { "portion" };
-        self.record(format!("capture {what} {tab} at {x} {y} {width} {height}"));
+        let tone = if look.light { "light" } else { "dark" };
+        self.record(format!("capture {what} {tab} at {x} {y} {width} {height} {tone}"));
     }
 
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App) {

@@ -2869,12 +2869,13 @@ impl Browser for Engine {
         radius: f32,
         full_page: bool,
         library: bool,
+        look: menu::Look,
         cx: &mut App,
     ) {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, library, cx),
+                false => capture::start(tab, frame, radius, library, look, cx),
             },
             cx,
         );
