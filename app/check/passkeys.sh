@@ -135,38 +135,57 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
     grep -q '^cdp: presence 0$' "$cdp_log" || fail "cdp.py didn't stop the key's touches"
     send key s
     expect "^browser: title $tab signing in\$" "\"s\" didn't start signing in again"
-    # Chrome's dialog, a child window more than the browser window had.
-    for _ in $(seq 100); do
-      send layout
-      [ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child')" \
-        -gt "$children" ] && break
-      sleep 0.1
-    done
-    lines=$(sed -n "/^browser: drive $step: /,\$p" "$log")
-    dialog=$(echo "$lines" | grep '^browser: layout child' | sed -n "$((children + 1))p" |
-      sed 's/^browser: layout child //')
-    ../tools/window-screenshot.sh "$pid" "$out/passkeys-dialog.png" all ||
-      fail "no window to capture"
-    [ -n "$dialog" ] ||
-      fail "signing in, Chrome's passkey dialog wasn't a child window: $out/passkeys-dialog.png"
-    # Centred across the page: its middle and the page view's within a point.
-    view=$(echo "$lines" | grep -m1 '^browser: layout content' |
-      sed -n 's/.*, WebContentsViewCocoa \([0-9-]*\),[0-9-]* \([0-9]*\)x.*/\1 \2/p')
-    [ -n "$view" ] || fail "the layout had no page view under Chrome's passkey dialog"
-    x=${dialog%%,*}
-    width=${dialog#* }
-    width=${width%%x*}
-    offset=$(((2 * x + width) - (2 * ${view% *} + ${view#* })))
-    [ "$offset" -ge -2 ] && [ "$offset" -le 2 ] ||
-      fail "Chrome's passkey dialog at $dialog isn't centred across the page at $view (#611)"
+    # Chrome's dialog, a child window more than the browser window had. On Linux, Chrome draws it
+    # in its own window, which the X server doesn't see, so only escape below finds it there.
+    if [ "$(uname)" = Darwin ]; then
+      for _ in $(seq 100); do
+        send layout
+        [ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child')" \
+          -gt "$children" ] && break
+        sleep 0.1
+      done
+      lines=$(sed -n "/^browser: drive $step: /,\$p" "$log")
+      dialog=$(echo "$lines" | grep '^browser: layout child' | sed -n "$((children + 1))p" |
+        sed 's/^browser: layout child //')
+      ../tools/window-screenshot.sh "$pid" "$out/passkeys-dialog.png" all ||
+        fail "no window to capture"
+      [ -n "$dialog" ] ||
+        fail "signing in, Chrome's passkey dialog wasn't a child window: $out/passkeys-dialog.png"
+      # Centred across the page: its middle and the page view's within a point.
+      view=$(echo "$lines" | grep -m1 '^browser: layout content' |
+        sed -n 's/.*, WebContentsViewCocoa \([0-9-]*\),[0-9-]* \([0-9]*\)x.*/\1 \2/p')
+      [ -n "$view" ] || fail "the layout had no page view under Chrome's passkey dialog"
+      x=${dialog%%,*}
+      width=${dialog#* }
+      width=${width%%x*}
+      offset=$(((2 * x + width) - (2 * ${view% *} + ${view#* })))
+      [ "$offset" -ge -2 ] && [ "$offset" -le 2 ] ||
+        fail "Chrome's passkey dialog at $dialog isn't centred across the page at $view (#611)"
+    else
+      ../tools/window-screenshot.sh "$pid" "$out/passkeys-dialog.png" ||
+        fail "no window to capture"
+      dialog= view=
+      echo "skip: passkeys' dialog placement. On Linux Chrome draws the dialog in its own window," \
+        "where the X server can't find it."
+    fi
+    # Where the dialog can't be seen, escape goes again until it's up and closes it: the page does
+    # nothing with one.
     send key escape
+    if [ -z "$dialog" ]; then
+      from=$step
+      for _ in $(seq 100); do
+        sed -n "/^browser: drive $from: /,\$p" "$log" | grep -q "^browser: title $tab failed " && break
+        sleep 0.1
+        send key escape
+      done
+    fi
     expect "^browser: title $tab failed NotAllowedError\$" \
       "escape didn't close Chrome's passkey dialog and fail the page's request"
     exec 3>&- 5>&-
     quit
     echo "ok: a local page registered a passkey on a virtual security key and signed in with it," \
-      "and untouched, the key left Chrome's dialog up, a child window at $dialog centred across" \
-      "the page at $view, which escape closed. Window: $out/passkeys-dialog.png"
+      "and untouched, the key left Chrome's dialog up${dialog:+, a child window at $dialog centred}" \
+      "${view:+across the page at $view,} which escape closed. Window: $out/passkeys-dialog.png"
   fi
   kill "$helper" 2>/dev/null || true
   helper=

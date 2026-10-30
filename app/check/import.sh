@@ -199,7 +199,8 @@ send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $passwords_row
 expect '^browser: import passwords$' "Choose File… didn't import the passwords file"
-await '^browser: import done: 2 passwords came in to Default from passwords\.csv\.$' ||
+# It names the profile only where there are two, as Arc's import makes Work.
+await "^browser: import done: 2 passwords came in${arc:+ to Default} from passwords\\.csv\\.\$" ||
   fail "the import didn't say the file's 2 passwords came in: $(grep '^browser: import done' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords.png" || fail "no window to capture"
 [ -e "$passwords" ] || fail "the import deleted the passwords file before the user asked"
@@ -216,7 +217,7 @@ send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $passwords_row
 expect '^browser: import passwords$' "Choose File… didn't import the second passwords file"
-await '^browser: import done: 1 password came in to Default from passwords\.csv\. 1 conflicted with a saved password, which was kept\.$' ||
+await "^browser: import done: 1 password came in${arc:+ to Default} from passwords\.csv\. 1 conflicted with a saved password, which was kept\.\$" ||
   fail "the import didn't say 1 came in and 1 conflicted: $(grep '^browser: import done' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords-conflict.png" || fail "no window to capture"
 rm -f "$passwords"
