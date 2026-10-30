@@ -453,7 +453,10 @@ echo "ok: the Extensions menu lists the profile's extensions by name, and choosi
 # the real home.) A click on the extension's action asks the host, whose answer opens a page.
 home="$PWD/$out/native-home"
 rm -rf "$home"
-host_dir="$home/browsers/Google/Chrome Beta/NativeMessagingHosts"
+# Chrome Beta's folder is google-chrome-beta in ~/.config off the Mac.
+beta="Google/Chrome Beta"
+[ "$(uname)" = Darwin ] || beta=google-chrome-beta
+host_dir="$home/browsers/$beta/NativeMessagingHosts"
 mkdir -p "$host_dir" "$home/extension" "$home/profile"
 cat > "$home/host.sh" << 'EOF'
 #!/bin/sh
