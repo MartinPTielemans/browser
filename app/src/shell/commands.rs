@@ -344,9 +344,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
-    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
-    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
-    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
+    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "app theme"]),
+    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "app theme"]),
+    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "app theme"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
@@ -361,8 +361,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
-    // Arc's bar's name, where its Space menu says Edit Theme Color….
-    ("Edit Theme…", Command::EditTheme, &["color", "colour"]),
+    // Arc's bar's name, where its Space menu says Edit Theme Color…. "theme" finds it before the
+    // Appearance rows, whose "app theme" it finds as a later word.
+    ("Edit Theme…", Command::EditTheme, &["theme", "color", "colour"]),
     ("Export Space as Markdown…", Command::ExportSpace, &["save", "links", "backup"]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
