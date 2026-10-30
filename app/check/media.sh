@@ -418,6 +418,11 @@ if [ "$(uname)" = Linux ]; then
     x <= px && x + w >= px + pw && 2 * x + w <= 2 * px + pw + 4" \
     "Ctrl with a scroll didn't grow the Mini Player in place"
   ../tools/window-screenshot.sh "$pid" "$out/mini-player.png" || fail "no window to capture"
+  # Opened from the page's menu, it may have the keyboard, as the window manager gives a window as
+  # it shows: the browser window takes it back, as a click on it would.
+  if grep -q '^browser: pip keyboard 1$' "$log"; then
+    send window 1
+  fi
   shown "$b"
   send pip doubleclick $((pw / 2)) $((ph / 4))
   expect "^browser: selected $v\( in .*\)\{0,1\}\$" \
