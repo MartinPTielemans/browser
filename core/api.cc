@@ -248,6 +248,14 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 #endif
 }
 
+bool bc_window_keyboard_in_child(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  return browser_core::platform::KeyboardInChild(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
 bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
@@ -258,6 +266,22 @@ bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
   }
   *frame = {static_cast<double>(ring->x()), static_cast<double>(ring->y()),
             static_cast<double>(ring->width()), static_cast<double>(ring->height())};
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool bc_window_dialog(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> dialog =
+      widget ? browser_core::platform::DialogFrame(widget) : std::nullopt;
+  if (!dialog) {
+    return false;
+  }
+  *frame = {static_cast<double>(dialog->x()), static_cast<double>(dialog->y()),
+            static_cast<double>(dialog->width()), static_cast<double>(dialog->height())};
   return true;
 #else
   return false;
