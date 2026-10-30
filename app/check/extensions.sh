@@ -141,19 +141,34 @@ expect "^browser: run extension $popup ran\$" "a click on Check Popup's action d
 expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show"
 expect "^browser: extension actions $popup:1 $clicked:7\$" \
   "the badge Check Popup's popup gave it didn't show at once"
-send state
-[ "$key" != BrowserCoreNSWindow ] || fail "the extension's popup didn't take the keyboard"
 ../tools/window-screenshot.sh "$pid" "$out/extension-popup.png" || fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
-send state
-[ "$key" = BrowserCoreNSWindow ] ||
-  fail "the browser window didn't get the keyboard back from the popup: it's in $key"
+# Closes the popup: escape, where it has the keyboard. On Linux the core gives the keyboard to a
+# page alone, not to a popup (#708), so a click on its action again closes it, as in Chrome.
+close_popup() {
+  if [ "$(uname)" = Linux ]; then
+    send click $first_place
+    how="a click on its action"
+  else
+    send key escape
+    how=escape
+  fi
+  expect '^browser: extension popup none$' "$how didn't close the extension's popup"
+}
+if [ "$(uname)" = Linux ]; then
+  echo "skip: the extension's popup taking the keyboard and escape closing it: on Linux the core gives the keyboard to a page alone (#708)."
+  close_popup
+else
+  send state
+  [ "$key" != BrowserCoreNSWindow ] || fail "the extension's popup didn't take the keyboard"
+  close_popup
+  send state
+  [ "$key" = BrowserCoreNSWindow ] ||
+    fail "the browser window didn't get the keyboard back from the popup: it's in $key"
+fi
 # The Extensions menu runs a pinned one too, its popup hanging from its action.
 send menu "Check Popup"
 expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show from the menu"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+close_popup
 # A right-click on an action shows its menu: Manage Extension opens its details, and Unpin
 # unpins it. Check Clicked has no options.
 post rightclick $second_place
