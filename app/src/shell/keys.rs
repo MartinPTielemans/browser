@@ -48,11 +48,14 @@ pub enum Refused {
     Taken(Holder),
 }
 
-/// The commands the user gave keys of their own, or none, and whether ⌘1–⌘8 leave the favorites
-/// out.
+/// The commands the user gave keys of their own, or none, the ones that reach the browser before
+/// the page, and whether ⌘1–⌘8 leave the favorites out.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct UserKeys {
     set: Vec<(Command, Vec<String>)>,
+    /// Shared commands set to Prefer ilo, which the page never gets; the others are Prefer
+    /// Websites, as Chrome's are.
+    prefer_ilo: Vec<Command>,
     /// Off by default, so ⌘1 is the first favorite, as in Arc.
     favorites_unnumbered: bool,
     /// Off by default, so Last Tab (⌘9) is the last tab, as Chrome's and Arc's are.
@@ -63,11 +66,17 @@ pub struct UserKeys {
 const FAVORITES_UNNUMBERED: &str = "favorites-unnumbered";
 /// The line for ninth_tab.
 const NINTH_TAB: &str = "ninth-tab";
+/// The word before a command's name on the line for each of prefer_ilo.
+const PREFER_ILO: &str = "prefer-ilo";
 
 impl Global for UserKeys {}
 
-static DEFAULTS: UserKeys =
-    UserKeys { set: Vec::new(), favorites_unnumbered: false, ninth_tab: false };
+static DEFAULTS: UserKeys = UserKeys {
+    set: Vec::new(),
+    prefer_ilo: Vec::new(),
+    favorites_unnumbered: false,
+    ninth_tab: false,
+};
 
 /// The user's keys, or the defaults before they're read.
 pub fn user_keys(cx: &App) -> &UserKeys {
@@ -95,13 +104,75 @@ pub fn rebindable(command: Command) -> bool {
     )
 }
 
-/// Whether `command` reaches the browser before the page, on whichever key it has.
+/// Whether `command` reaches the browser before the page, on whichever key it has, by default.
 pub fn reserved(command: Command) -> bool {
     SHORTCUTS.iter().any(|&(_, each, reserved)| each == command && reserved)
 }
 
 /// Chrome's keys on Linux and Windows that the Mac's Chrome and Arc have no key for.
 const OFF_THE_MAC_ONLY: &[&str] = &["shift-escape"];
+
+/// Whether a page may keep `command`'s keys, so the user picks who gets them first, Prefer
+/// Websites or Prefer ilo, as in Arc. Not a reserved command's, which never go to a page, and not
+/// one that can't be rebound: Undo and Redo, which pages keep by the press, and ⌘1–⌘8.
+pub fn shared(command: Command) -> bool {
+    rebindable(command) && !reserved(command)
+}
+
+/// How soon after the page kept a shared shortcut the same keys are the browser's.
+pub const SECOND_PRESS: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The last press of a shared shortcut the page got first, which a second press within
+/// SECOND_PRESS takes from it, as Arc's does.
+#[derive(Default)]
+pub struct SecondPress {
+    first: Option<(u64, String, std::time::Instant)>,
+}
+
+impl SecondPress {
+    /// Whether `keystroke`, a shared shortcut pressed `now` in `tab`'s page, is the browser's, as
+    /// the page kept its first press. Otherwise it's the first. A key held down repeats, which is
+    /// no second press. In a text field, ⌘← and ⌘→ move the caret, as often twice as once, so
+    /// they stay the field's.
+    pub fn second(
+        &mut self,
+        tab: u64,
+        keystroke: &str,
+        key: &Press,
+        now: std::time::Instant,
+    ) -> bool {
+        if key.repeat {
+            return false;
+        }
+        let caret = ["left", "right", "up", "down"].iter().any(|arrow| keystroke.ends_with(arrow));
+        let first = self.first.take();
+        if key.editing && caret {
+            return false;
+        }
+        let second = first.is_some_and(|(first_tab, first, at)| {
+            first_tab == tab && first == keystroke && now.duration_since(at) < SECOND_PRESS
+        });
+        if !second {
+            self.first = Some((tab, keystroke.to_string(), now));
+        }
+        second
+    }
+
+    /// The page didn't keep `keystroke`, so the browser ran it, and the next press is a first.
+    pub fn unhandled(&mut self, keystroke: &str) {
+        if self.first.as_ref().is_some_and(|(_, first, _)| first == keystroke) {
+            self.first = None;
+        }
+    }
+}
+
+/// What the core says of a key the page has (bc_key), besides which it is.
+pub struct Press {
+    /// The page's focused element takes text.
+    pub editing: bool,
+    /// The key is held down.
+    pub repeat: bool,
+}
 
 fn defaults(command: Command) -> Vec<String> {
     (SHORTCUTS.iter())
@@ -353,9 +424,28 @@ impl UserKeys {
         self.set.iter().any(|(each, _)| *each == command)
     }
 
-    /// The command `keystroke` runs, if it's a shortcut that is `reserved` or isn't.
+    /// The command `keystroke` runs, if it's a shortcut that is `reserved` or isn't: by default,
+    /// or as the user set it to Prefer ilo.
     pub fn command_for(&self, keystroke: &str, reserved: bool) -> Option<Command> {
-        self.command_with(keystroke).filter(|&command| self::reserved(command) == reserved)
+        self.command_with(keystroke).filter(|&command| self.reserves(command) == reserved)
+    }
+
+    fn reserves(&self, command: Command) -> bool {
+        reserved(command) || self.prefers_ilo(command)
+    }
+
+    /// Whether the shared `command`'s keys reach the browser before the page (Settings ›
+    /// Shortcuts).
+    pub fn prefers_ilo(&self, command: Command) -> bool {
+        self.prefer_ilo.contains(&command)
+    }
+
+    /// Sets the shared `command` to Prefer ilo, or back to Prefer Websites.
+    pub fn set_prefers_ilo(&mut self, command: Command, ilo: bool) {
+        self.prefer_ilo.retain(|&each| each != command);
+        if ilo && shared(command) {
+            self.prefer_ilo.push(command);
+        }
     }
 
     /// Whether `keystroke` is a shortcut the page gets first, and may keep, that opens a field over
@@ -431,7 +521,8 @@ impl UserKeys {
         self.set(command, defaults(command))
     }
 
-    /// Every command's default keys, and the favorites numbered again.
+    /// Every command's default keys, each shared one Prefer Websites, and the favorites numbered
+    /// again.
     pub fn reset_all(&mut self) {
         *self = UserKeys::default();
     }
@@ -462,17 +553,20 @@ impl UserKeys {
         }
     }
 
-    /// As Settings saves them: a line a command, its name, then its keys, if any, and a line saying
-    /// the favorites are left out of ⌘1–⌘8 when they are, and one that Last Tab is the ninth.
+    /// As Settings saves them: a line a command, its name, then its keys, if any, a line for each
+    /// command set to Prefer ilo, and a line saying the favorites are left out of ⌘1–⌘8 when they
+    /// are, and one that Last Tab is the ninth.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
             let name = command.key_name();
             let words = std::iter::once(name.as_str()).chain(keys.iter().map(String::as_str));
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
+        let ilo = self.prefer_ilo.iter();
+        let ilo = ilo.map(|command| format!("{PREFER_ILO} {}\n", command.key_name()));
         let unnumbered = self.favorites_unnumbered.then(|| format!("{FAVORITES_UNNUMBERED}\n"));
         let ninth = self.ninth_tab.then(|| format!("{NINTH_TAB}\n"));
-        lines.chain(unnumbered).chain(ninth).collect()
+        lines.chain(ilo).chain(unnumbered).chain(ninth).collect()
     }
 
     /// What to_text wrote. A line it can't read, or keys another command keeps, is left out.
@@ -488,7 +582,14 @@ impl UserKeys {
                 continue;
             }
             let mut words = line.split_whitespace();
-            let Some(command) = words.next().and_then(named) else {
+            let first = words.next();
+            if first == Some(PREFER_ILO) {
+                if let Some(command) = words.next().and_then(named) {
+                    keys.set_prefers_ilo(command, true);
+                }
+                continue;
+            }
+            let Some(command) = first.and_then(named) else {
                 continue;
             };
             let set = words.filter(|key| valid(key)).map(str::to_string);
@@ -1083,6 +1184,82 @@ mod tests {
         assert_eq!(user.to_text(), "ninth-tab\n");
         user.reset_all();
         assert!(!user.ninth_tab());
+    }
+
+    /// Settings › Shortcuts offers Prefer Websites or Prefer ilo on a shortcut a page may keep,
+    /// and none on a reserved one, which the page never gets, or one that can't be rebound.
+    #[test]
+    fn only_shared_shortcuts_offer_who_gets_them() {
+        for command in [Command::Find, Command::EditUrl, Command::Back, Command::SelectSpace(0)] {
+            assert!(shared(command), "{command:?}");
+        }
+        for command in [Command::NewTab, Command::CloseTab, Command::Quit, Command::Undo] {
+            assert!(!shared(command), "{command:?}");
+        }
+        assert!(!shared(Command::SelectTab(0)));
+    }
+
+    /// Prefer ilo makes a shared shortcut reserved, so the page never gets it, and is kept with
+    /// the user's keys until Restore Defaults sets it back to Prefer Websites.
+    #[test]
+    fn prefer_ilo_reserves_a_shortcut_until_restored() {
+        let mut user = UserKeys::default();
+        assert_eq!(user.command_for("cmd-f", false), Some(Command::Find));
+        assert!(user.holds_keys("cmd-f"));
+        user.set_prefers_ilo(Command::Find, true);
+        assert!(user.prefers_ilo(Command::Find));
+        assert_eq!(user.command_for("cmd-f", true), Some(Command::Find));
+        assert_eq!(user.command_for("cmd-f", false), None);
+        // Its find bar opens before the page sees the keys, so none wait for it.
+        assert!(!user.holds_keys("cmd-f"));
+        // On whichever keys it has.
+        user.set(Command::Find, keys(&["cmd-e"])).unwrap();
+        assert_eq!(user.command_for("cmd-e", true), Some(Command::Find));
+        let text = user.to_text();
+        assert_eq!(text, "find cmd-e\nprefer-ilo find\n");
+        assert_eq!(UserKeys::parse(&text), user);
+        user.set_prefers_ilo(Command::Find, false);
+        assert_eq!(user.command_for("cmd-e", false), Some(Command::Find));
+        user.set_prefers_ilo(Command::Find, true);
+        user.reset_all();
+        assert!(!user.prefers_ilo(Command::Find));
+        assert_eq!(user.command_for("cmd-f", false), Some(Command::Find));
+        // A reserved command is ilo's already, and the file can't make one that can't be rebound
+        // the page's.
+        user.set_prefers_ilo(Command::NewTab, true);
+        assert!(!user.prefers_ilo(Command::NewTab));
+        assert_eq!(UserKeys::parse("prefer-ilo quit\nprefer-ilo nothing\n"), UserKeys::default());
+    }
+
+    /// With Prefer Websites, the page gets a shortcut first, and pressing it again within
+    /// SECOND_PRESS, in the same tab, is ilo's, once; a held key's repeats aren't a press.
+    #[test]
+    fn a_second_press_of_a_kept_shortcut_is_ilos() {
+        let start = std::time::Instant::now();
+        let at = |ms| start + std::time::Duration::from_millis(ms);
+        let press = Press { editing: false, repeat: false };
+        let held = Press { editing: false, repeat: true };
+        let mut presses = SecondPress::default();
+        assert!(!presses.second(1, "cmd-f", &press, at(0)));
+        assert!(!presses.second(1, "cmd-f", &held, at(300)));
+        assert!(presses.second(1, "cmd-f", &press, at(600)));
+        // A third press is the page's again.
+        assert!(!presses.second(1, "cmd-f", &press, at(700)));
+        // Too late, another key's or another tab's isn't the second.
+        assert!(!presses.second(1, "cmd-f", &press, at(1700)));
+        assert!(!presses.second(1, "cmd-g", &press, at(1800)));
+        assert!(!presses.second(2, "cmd-g", &press, at(1900)));
+        assert!(presses.second(2, "cmd-g", &press, at(2000)));
+        // The page didn't keep the first, which ilo ran then.
+        assert!(!presses.second(1, "cmd-f", &press, at(3000)));
+        presses.unhandled("cmd-f");
+        assert!(!presses.second(1, "cmd-f", &press, at(3100)));
+        // In a field, ⌘← moves the caret, twice as well as once.
+        let editing = Press { editing: true, repeat: false };
+        assert!(!presses.second(1, "cmd-left", &editing, at(4000)));
+        assert!(!presses.second(1, "cmd-left", &editing, at(4100)));
+        assert!(!presses.second(1, "cmd-left", &press, at(5000)));
+        assert!(presses.second(1, "cmd-left", &press, at(5100)));
     }
 
     /// A key needs ⌘ or ⌃, as one without would type, and ⇧ with a character a page names its

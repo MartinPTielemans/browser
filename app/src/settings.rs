@@ -341,6 +341,10 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     ),
 ];
 
+/// Who gets a shared shortcut first, as each row's pop-up button offers it: the page, which may
+/// keep it until a second press, or ilo, before the page.
+const PREFERENCES: [&str; 2] = ["Prefer Websites", concat!("Prefer ", env!("APP_NAME"))];
+
 /// The pop-up buttons.
 #[derive(Clone, Copy, PartialEq)]
 enum Popup {
@@ -352,6 +356,8 @@ enum Popup {
     ProfileArchiveAfter(u64),
     /// A profile's New Documents.
     Notes(u64),
+    /// Who gets a shortcut's keys first, in the Shortcuts tab.
+    Prefer(Command),
 }
 
 pub struct Settings {
@@ -2259,6 +2265,23 @@ impl Settings {
                 .child("↺")
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
+        let prefer = shell::shared(command).then(|| {
+            let ilo = user.prefers_ilo(command);
+            let label = MenuEntry::label(PREFERENCES[usize::from(ilo)]);
+            self.popup(
+                Popup::Prefer(command),
+                label,
+                POPUP_WIDTH,
+                cx.listener(move |settings, _, window, cx| {
+                    settings.choose_preference(command, ilo, window, cx)
+                }),
+            )
+            // As tall as the chip, so the rows stay even, and in its size of text.
+            .h(px(CHIP_HEIGHT))
+            .mr_0()
+            .text_size(px(text::SMALL))
+            .child(self.drawn(format!("prefer {}", command.key_name())))
+        });
         let chip = chip(keys, color)
             .id(SharedString::from(command.key_name()))
             .when(recording, |chip| chip.border_1().border_color(accent))
@@ -2272,9 +2295,43 @@ impl Settings {
             .items_center()
             .gap(px(CHIP_GAP))
             .children(refused)
+            .children(prefer)
             .children(restore)
             .child(chip)
             .into_any_element()
+    }
+
+    /// Opens the menu of who gets `command`'s keys first, the page or ilo, `ilo` now, over its
+    /// button as the other pop-ups' do, and sets the one picked.
+    fn choose_preference(
+        &mut self,
+        command: Command,
+        ilo: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (PREFERENCES.iter().enumerate())
+            .map(|(index, &title)| {
+                let on = (index == 1) == ilo;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(title, true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some(index) = picked {
+                let ilo = index == 1;
+                // check.sh waits for this line.
+                log!(
+                    "browser: shortcut {} prefers {}",
+                    command.key_name(),
+                    if ilo { "ilo" } else { "websites" }
+                );
+                shell::change_keys(cx, |keys| keys.set_prefers_ilo(command, ilo));
+                save_shortcuts(cx);
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::Prefer(command), items, picked, window, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.

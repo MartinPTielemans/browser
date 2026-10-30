@@ -377,7 +377,8 @@ bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
       BUILDFLAG(IS_MAC) ? blink::WebInputEvent::kMetaKey : blink::WebInputEvent::kControlKey;
   const std::string latin =
       (event.GetModifiers() & command) ? platform::LatinKey(event) : std::string();
-  const bc_key key = {name.c_str(), modifiers, editing, latin.c_str()};
+  const bool repeat = (event.GetModifiers() & blink::WebInputEvent::kIsAutoRepeat) != 0;
+  const bc_key key = {name.c_str(), modifiers, editing, latin.c_str(), repeat};
   // A shortcut that opens a field of the app's holds the page's keys after it (bc_hold_keys).
   auto asking = held_keys::AskingAbout(tab, event);
   const bool used = callback(Host().context, tab, &key);

@@ -258,7 +258,7 @@ void Give(void (*take)(void* context, const bc_key* keys, size_t count), void* c
   // Not the page's: they go to the app's field.
   std::vector<bc_key> given;
   for (size_t i = 0; i < keys.size(); i++) {
-    given.push_back({names[i].c_str(), modifiers[i], false, ""});
+    given.push_back({names[i].c_str(), modifiers[i], false, "", false});
   }
   take(context, given.data(), given.size());
 }

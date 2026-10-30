@@ -3346,6 +3346,36 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
+thread_local! {
+    static SECOND_PRESS: RefCell<shell::SecondPress> = RefCell::default();
+}
+
+/// Runs the shared shortcut `key`, `keystroke`, is if the page kept its first press just before,
+/// as the second press is the browser's (Prefer Websites), and otherwise takes it as the first.
+fn second_press(tab: bc::bc_id, key: *const bc::bc_key, keystroke: &str) -> bool {
+    let key = unsafe { &*key };
+    let cx = CX.with_borrow(Clone::clone);
+    let command = cx.and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(keystroke, false))
+    });
+    let Some(command) = command.flatten().filter(|&command| shell::shared(command)) else {
+        return false;
+    };
+    let press = shell::Press { editing: key.editing, repeat: key.repeat };
+    let now = std::time::Instant::now();
+    if !SECOND_PRESS.with_borrow_mut(|first| first.second(tab, keystroke, &press, now)) {
+        return false;
+    }
+    // check.sh waits for this line.
+    log!("browser: second press {keystroke}");
+    // Before the page, as a reserved shortcut's, so its field holds the keys typed after it.
+    #[cfg(target_os = "linux")]
+    if command.opens_field() {
+        gpui_linux::hold_keys(Some(&held_keystroke(key)));
+    }
+    update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
+}
+
 unsafe extern "C" fn tab_key_before_page(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -3374,6 +3404,9 @@ unsafe extern "C" fn tab_key_before_page(
     if update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
         .unwrap_or(false)
     {
+        return true;
+    }
+    if second_press(tab, key, &keystroke) {
         return true;
     }
     // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
@@ -3463,6 +3496,8 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    let keystroke = keystroke(unsafe { &*key });
+    SECOND_PRESS.with_borrow_mut(|first| first.unhandled(&keystroke));
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 
@@ -5464,6 +5499,7 @@ unsafe extern "C" fn extensions_changed(
                     modifiers: command.modifiers,
                     editing: false,
                     latin_key: std::ptr::null(),
+                    repeat: false,
                 })
                 .into(),
                 suggested: command.suggested,
