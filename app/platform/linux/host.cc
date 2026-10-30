@@ -492,8 +492,6 @@ bool host_close_other_window(void) {
 
 void host_detent(void) {}
 
-void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y, const host_dragged* items, size_t count)) {}
-
 // GIO's, from the chrome that loads the app, as GLib's are: its trash is the freedesktop.org one the
 // file managers share, in the home's or in the file's own volume's.
 extern "C" void* g_file_new_for_path(const char* path) __attribute__((weak));

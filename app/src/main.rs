@@ -54,6 +54,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/drops.rs"]
+mod drops;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/emoji.rs"]
 mod emoji;
 #[cfg(target_os = "linux")]
@@ -3559,6 +3562,11 @@ fn open_window_as(
             .detach();
             #[cfg(target_os = "linux")]
             system::watch_activation(window, ui_view, wayland_size.is_some(), cx);
+            // Once GPUI's window is in the UI's, where Chromium's own drags may go.
+            #[cfg(target_os = "linux")]
+            if wayland_size.is_none() {
+                drops::take(ui_view);
+            }
             let engine = Rc::new(Engine {
                 window: id,
                 ui_view,
