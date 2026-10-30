@@ -1264,7 +1264,7 @@ LRESULT CALLBACK LaunchProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 bool Sidebar(HWND window, LONG width, std::vector<uint8_t>* pixels, LONG* high) {
   RECT client{};
   GetClientRect(window, &client);
-  width = std::min(width, client.right);
+  width = width < client.right ? width : client.right;
   *high = client.bottom;
   if (width < 1 || *high < 1) {
     return false;
