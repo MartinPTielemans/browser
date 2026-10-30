@@ -1521,14 +1521,22 @@ fn mini_player() -> Option<xproto::Window> {
     let x = server()?;
     let (connection, root) = &*x;
     let client = !connection.setup().resource_id_mask;
-    let tops = connection.query_tree(*root).ok()?.reply().ok()?.children;
-    tops.into_iter().find(|&top| {
-        top & client == browser.window & client
-            && (text_property(top, "_NET_WM_NAME"))
+    let ours = |window: xproto::Window| {
+        window & client == browser.window & client
+            && (text_property(window, "_NET_WM_NAME"))
                 .is_some_and(|title| title.eq_ignore_ascii_case("Picture in Picture"))
-            && (connection.get_window_attributes(top).ok())
+            && (connection.get_window_attributes(window).ok())
                 .and_then(|cookie| cookie.reply().ok())
                 .is_some_and(|a| a.map_state == xproto::MapState::VIEWABLE)
+    };
+    let tops = connection.query_tree(*root).ok()?.reply().ok()?.children;
+    // A window manager that reparents, as openbox does, holds it in a frame of its own.
+    tops.into_iter().find_map(|top| {
+        if ours(top) {
+            return Some(top);
+        }
+        let children = connection.query_tree(top).ok()?.reply().ok()?.children;
+        children.into_iter().find(|&child| ours(child))
     })
 }
 
@@ -1591,17 +1599,23 @@ fn watch_mini_player(window: xproto::Window) {
     static SCALE: AtomicU64 = AtomicU64::new(0);
     SCALE.store(scale().to_bits(), Ordering::Relaxed);
     let watcher = WATCHER.get_or_init(|| {
-        let (connection, _) = x11rb::connect(None).ok()?;
+        let (connection, screen) = x11rb::connect(None).ok()?;
+        let root = connection.setup().roots.get(screen)?.root;
         let connection = Arc::new(connection);
         let reader = connection.clone();
         std::thread::spawn(move || {
             while let Ok(event) = reader.wait_for_event() {
                 match event {
-                    // A window no window manager reparents, as none does in sway, is placed in the
-                    // root's terms.
+                    // Placed in the root's terms, as the event places it only where no window
+                    // manager reparents it, as none does in sway, but openbox does.
                     Event::ConfigureNotify(e) => {
+                        let Some(at) = (reader.translate_coordinates(e.window, root, 0, 0).ok())
+                            .and_then(|cookie| cookie.reply().ok())
+                        else {
+                            continue;
+                        };
                         let scale = f64::from_bits(SCALE.load(Ordering::Relaxed));
-                        let [x, y] = [e.x, e.y].map(|n| f64::from(n) / scale);
+                        let [x, y] = [at.dst_x, at.dst_y].map(|n| f64::from(n) / scale);
                         let [width, height] = [e.width, e.height].map(|n| f64::from(n) / scale);
                         log!("browser: pip at {x:.0} {y:.0} {width:.0} {height:.0}");
                     }
