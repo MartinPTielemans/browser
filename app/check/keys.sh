@@ -16,9 +16,11 @@
 # history page from the page and the UI. A page whose renderer crashes leaves the browser running,
 # and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
 # the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back; its Last Tab Goes to
-# the Ninth has ⌘9 show no tab of fewer than nine, until it's off again. About ilo shows Settings'
-# About tab, with Settings key and with About already showing. ⌘T as the window comes on screen,
-# before the overlays' windows are made, makes them and opens the bar.
+# the Ninth has ⌘9 show no tab of fewer than nine, until it's off again. A page that keeps ⌘F gets
+# it, and a second press opens the find bar, until Find is set to Prefer ilo there, which opens it
+# at once. About ilo shows Settings' About tab, with Settings key and with About already showing.
+# ⌘T as the window comes on screen, before the overlays' windows are made, makes them and opens the
+# bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -401,6 +403,69 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 
+# Who gets a shortcut a page may keep (#682). Find is Prefer Websites by default, so the page,
+# which keeps ⌘F, gets it, and ⌘F again within a second opens the find bar. Find's pop-up button
+# in Settings › Shortcuts, before its keys, sets it to Prefer ilo, and then the first ⌘F opens
+# the find bar and the page never sees it, until the pop-up sets it back.
+send key f cmd
+expect '^browser: title [0-9]* page saw cmd-f$' "⌘F with the page focused didn't reach the page"
+none_since '^browser: command find' || fail "⌘F ran Find though the page kept it"
+send key f cmd
+expect '^browser: second press cmd-f$' "⌘F again wasn't taken as its second press"
+expect '^browser: command find via page$' "⌘F's second press didn't run Find"
+expect '^browser: find bar shown$' "⌘F's second press didn't open the find bar"
+send key escape
+expect '^browser: find bar hidden$' "escape didn't close the find bar"
+# The search finds Find first, so its row is the first, and its pop-up button ends 6 before
+# the chip, 155 wide.
+prefer() {
+  send menu Settings…
+  expect '^browser: settings shown Shortcuts$' \
+    "Settings… didn't show the Shortcuts tab it showed last"
+  send clickkey 300 120
+  send type find
+  expect '^browser: shortcuts search "find" finds Find, Find Next, Find Previous$' \
+    "the search didn't find Find by name"
+  post clickkey 470 203
+  expect "^browser: menu shown $2\$" "a click on Find's pop-up button didn't show its choices"
+  send choose "$1"
+}
+prefer "Prefer $app_name" "$(cased 'Prefer Websites') (checked), Prefer $app_name"
+expect '^browser: shortcut find prefers ilo$' "choosing Prefer $app_name didn't set Find to it"
+../tools/window-screenshot.sh "$pid" "$out/shortcuts-prefer.png" || fail "no window to capture"
+send clickkey 300 120
+send key a cmd
+send key backspace
+expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "after a click on the page"
+# A key the page gets changes its title, so a ⌘F it saw would show.
+send type w
+expect '^browser: title [0-9]* value [a-z]*w$' "typing didn't reach the page"
+send key f cmd
+pressed=$step
+expect '^browser: command find via page$' "⌘F set to Prefer $app_name didn't run Find at once"
+expect '^browser: find bar shown$' "⌘F set to Prefer $app_name didn't open the find bar"
+send key escape
+expect '^browser: find bar hidden$' "escape didn't close the find bar"
+in_browser RenderWidgetHostViewCocoa "after the find bar closed"
+send type w
+expect '^browser: title [0-9]* value [a-z]*ww$' "typing didn't reach the page after the find bar"
+sed -n "/^browser: drive $pressed: /,\$p" "$log" |
+  grep -q '^browser: title [0-9]* page saw cmd-f$' && fail "the page saw ⌘F, set to Prefer $app_name"
+prefer "$(cased 'Prefer Websites')" "$(cased 'Prefer Websites'), Prefer $app_name (checked)"
+expect '^browser: shortcut find prefers websites$' "choosing Prefer Websites didn't set Find back"
+send clickkey 300 120
+send key a cmd
+send key backspace
+expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "after a click on the page"
+
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send ime on
@@ -503,5 +568,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, Last Tab Goes to the Ninth has ⌘9 show no tab of fewer than nine, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts-ninth.png, $out/shortcuts.png, $out/about.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, Last Tab Goes to the Ninth has ⌘9 show no tab of fewer than nine, a page that keeps ⌘F gets it and a second press opens the find bar, which Prefer $app_name opens at once, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts-ninth.png, $out/shortcuts-prefer.png, $out/shortcuts.png, $out/about.png"
 echo "$launch_bar"

@@ -48,6 +48,8 @@ typedef struct bc_key {
   // user's Latin layout types it, with ⇧ if it's held, as the Mac's menus match ⌘ shortcuts: "t"
   // for the key Hebrew types "א" with. Empty otherwise, and null for an extension's command.
   const char* latin_key;
+  // The key is held and repeating, so it isn't a second press of the shortcut it is.
+  bool repeat;
 } bc_key;
 
 // What's wrong with a tab's page, if anything.

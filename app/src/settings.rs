@@ -323,6 +323,10 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     ),
 ];
 
+/// Who gets a shared shortcut first, as each row's pop-up button offers it: the page, which may
+/// keep it until a second press, or ilo, before the page.
+const PREFERENCES: [&str; 2] = ["Prefer Websites", concat!("Prefer ", env!("APP_NAME"))];
+
 /// The pop-up buttons in General, top to bottom after the switch.
 #[derive(Clone, Copy, PartialEq)]
 enum Popup {
@@ -346,6 +350,8 @@ pub struct Settings {
     focus_renaming: bool,
     /// The command whose next key the Shortcuts tab takes.
     recording: Option<Command>,
+    /// The command whose Prefer Websites or Prefer ilo menu is open.
+    preferring: Option<Command>,
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
     /// The Shortcuts tab's search, which narrows its rows to what it finds.
@@ -698,6 +704,7 @@ fn open(cx: &mut App) {
                 renaming: None,
                 focus_renaming: false,
                 recording: None,
+                preferring: None,
                 refused: None,
                 search,
                 off_sites_logged: None,
@@ -855,7 +862,7 @@ impl Settings {
             None => format!("{:.0} hours", after / 3600.).into(),
         };
         let archive = self.popup(
-            Popup::ArchiveAfter,
+            self.choosing == Some(Popup::ArchiveAfter),
             label,
             POPUP_WIDTH,
             cx.listener(move |settings, _, window, cx| {
@@ -864,7 +871,7 @@ impl Settings {
         );
         let scope = favorites_scope();
         let favorites = self.popup(
-            Popup::Favorites,
+            self.choosing == Some(Popup::Favorites),
             MenuEntry::label(scope.title()),
             FAVORITES_POPUP_WIDTH,
             cx.listener(move |settings, _, window, cx| {
@@ -979,10 +986,10 @@ impl Settings {
     }
 
     /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
-    /// pressed while its menu is open.
+    /// `pressed` while its menu is open.
     fn popup(
         &self,
-        which: Popup,
+        pressed: bool,
         label: SharedString,
         width: f32,
         press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
@@ -998,7 +1005,7 @@ impl Settings {
             .items_center()
             .justify_between()
             .rounded(px(CONTROL_RADIUS))
-            .bg(rgb(if self.choosing == Some(which) { CONTROL_PRESSED } else { CONTROL }))
+            .bg(rgb(if pressed { CONTROL_PRESSED } else { CONTROL }))
             .on_mouse_down(MouseButton::Left, press)
             .child(label)
             .child(
@@ -1353,7 +1360,8 @@ impl Settings {
             let ids: Vec<u64> = profiles.iter().map(|each| each.id).collect();
             let label = chosen.map(|index| names[index].clone()).unwrap_or_default();
             let view = cx.entity().downgrade();
-            let popup = self.popup(Popup::PasswordsProfile, label, POPUP_WIDTH, move |_, window, cx| {
+            let pressed = self.choosing == Some(Popup::PasswordsProfile);
+            let popup = self.popup(pressed, label, POPUP_WIDTH, move |_, window, cx| {
                 let (names, ids) = (names.clone(), ids.clone());
                 let choose = |settings: &mut Settings, cx: &mut Context<Settings>| {
                     settings.choose_profile(names, ids, chosen, window, cx)
@@ -1809,6 +1817,23 @@ impl Settings {
                 .child("↺")
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
+        let prefer = shell::shared(command).then(|| {
+            let ilo = user.prefers_ilo(command);
+            let pressed = self.preferring == Some(command);
+            let label = MenuEntry::label(PREFERENCES[usize::from(ilo)]);
+            self.popup(
+                pressed,
+                label,
+                POPUP_WIDTH,
+                cx.listener(move |settings, event: &MouseDownEvent, window, cx| {
+                    settings.choose_preference(command, ilo, event.position, window, cx)
+                }),
+            )
+            // As tall as the chip, so the rows stay even, and in its size of text.
+            .h(px(CHIP_HEIGHT))
+            .mr_0()
+            .text_size(px(text::SMALL))
+        });
         let chip = chip(keys, color)
             .id(SharedString::from(command.key_name()))
             .when(recording, |chip| chip.border_1().border_color(accent))
@@ -1822,9 +1847,51 @@ impl Settings {
             .items_center()
             .gap(px(CHIP_GAP))
             .children(refused)
+            .children(prefer)
             .children(restore)
             .child(chip)
             .into_any_element()
+    }
+
+    /// Opens the menu of who gets `command`'s keys first, the page or ilo, `ilo` now, with the one
+    /// chosen at `at`, where the press was, and sets the one picked.
+    fn choose_preference(
+        &mut self,
+        command: Command,
+        ilo: bool,
+        at: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (PREFERENCES.iter().enumerate())
+            .map(|(index, &title)| {
+                let on = (index == 1) == ilo;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(title, true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some(index) = picked {
+                let ilo = index == 1;
+                // check.sh waits for this line.
+                log!(
+                    "browser: shortcut {} prefers {}",
+                    command.key_name(),
+                    if ilo { "ilo" } else { "websites" }
+                );
+                shell::change_keys(cx, |keys| keys.set_prefers_ilo(command, ilo));
+                save_shortcuts(cx);
+            }
+            settings
+                .update(cx, |settings, cx| {
+                    settings.preferring = None;
+                    cx.notify();
+                })
+                .ok();
+        });
+        self.preferring = Some(command);
+        cx.notify();
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.
