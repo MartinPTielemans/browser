@@ -1699,3 +1699,28 @@ fn shift_f10_opens_the_fields_menu_on_its_first_item(cx: &mut TestAppContext) {
     let text = bar.window.update(&mut bar.cx.cx, |bar, _, cx| bar.input.read(cx).text().to_owned());
     assert_eq!(text.unwrap(), "docs.test");
 }
+
+/// A .new address typed to its dot gets its row first, named by what it makes, in place of the
+/// core's row for the same page (#698). ↩ opens it in a new tab, even from a tab's URL, which it
+/// leaves. The word alone stays a search.
+#[gpui::test]
+fn a_typed_new_address_opens_its_new_document_in_a_new_tab(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("meet");
+    bar.suggest("meet", vec![searching("meet")]);
+    assert_eq!(bar.listed(), [search("meet")]);
+    bar.type_text(".");
+    bar.suggest("meet.", vec![page("https://meet./"), searching("meet.")]);
+    assert_eq!(bar.listed(), ["https://meet.new/", "https://meet./", &search("meet.")]);
+    let named = bar.window.read_with(&bar.cx.cx, |bar, _| bar.rows[0].text.clone()).unwrap();
+    assert_eq!(named, "New Google Meet");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://meet.new/", "hide"]);
+
+    bar.edit("https://example.com/", None);
+    bar.type_text("docs.new");
+    bar.suggest("docs.new", vec![page("https://docs.new/"), searching("docs.new")]);
+    assert_eq!(bar.listed(), ["https://docs.new/", &search("docs.new")]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://docs.new/", "hide"]);
+}
