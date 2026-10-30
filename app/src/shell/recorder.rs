@@ -97,7 +97,7 @@ pub(super) struct Recorder {
     /// The questions the dialog was asked through `tell`, each as its message, its buttons and
     /// its other answer's, and what the last one's action does.
     pub(super) told: RefCell<Vec<String>>,
-    pub(super) told_action: RefCell<Option<Box<dyn FnOnce(&mut App)>>>,
+    pub(super) told_action: RefCell<Option<Box<dyn FnOnce(Vec<String>, &mut App)>>>,
     /// The dialog asks something else, so `tell` doesn't ask.
     pub(super) dialog_busy: Cell<bool>,
     /// Each time the shell opened the Site Controls: the tab, and where they hang from.
@@ -686,9 +686,10 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    // The Space it makes is always 7.
     fn create_space(&self, name: &str, _: u64, after: u64, _: &mut App) -> u64 {
         self.record(format!("create space {name} after {after}"));
-        Default::default()
+        7
     }
 
     fn rename_space(&self, space: u64, name: &str, _: &mut App) {
@@ -730,10 +731,18 @@ impl Browser for Recorder {
         self.record(format!("space theme {space} {theme}"))
     }
 
-    fn set_space_profile(&self, _: u64, _: u64, _: &mut App) {}
+    fn set_space_profile(&self, space: u64, profile: u64, _: &mut App) {
+        self.edit(format!("space {space} profile {profile}"));
+    }
 
-    fn create_profile(&self, _: &str, _: &mut App) -> u64 {
-        Default::default()
+    // The profile it makes is always 9.
+    fn create_profile(&self, name: &str, _: &mut App) -> u64 {
+        self.edit(format!("create profile {name}"));
+        9
+    }
+
+    fn rename_profile(&self, profile: u64, name: &str, _: &mut App) {
+        self.edit(format!("rename profile {profile} {name}"));
     }
 
     // The import's made-up Arc, so the first launch has a browser to import from, unless a test
@@ -775,7 +784,7 @@ impl Browser for Recorder {
     fn tell(
         &self,
         question: crate::dialog::Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         _: &mut App,
     ) -> bool {
         if self.dialog_busy.get() {

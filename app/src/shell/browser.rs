@@ -269,6 +269,8 @@ pub trait Browser {
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.
     fn create_profile(&self, name: &str, cx: &mut App) -> u64;
+    /// Names `profile` `name`.
+    fn rename_profile(&self, profile: u64, name: &str, cx: &mut App);
     /// What the import view (crate::import) reads and adds through, for the first launch's step.
     fn import_host(&self) -> Rc<dyn crate::import::Host>;
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
@@ -299,12 +301,13 @@ pub trait Browser {
         confirmed: Box<dyn FnOnce(&mut App)>,
         cx: &mut App,
     );
-    /// Asks `question` in the browser's dialog, and calls `confirmed` if the user chooses its
-    /// action, once the dialog has gone. Returns whether it asks: not while it asks another.
+    /// Asks `question` in the browser's dialog, and calls `confirmed` with what its fields hold if
+    /// the user chooses its action, once the dialog has gone. Returns whether it asks: not while it
+    /// asks another.
     fn tell(
         &self,
         question: crate::dialog::Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         cx: &mut App,
     ) -> bool;
     /// Gives the UI the keyboard, from the page if the page has it.
