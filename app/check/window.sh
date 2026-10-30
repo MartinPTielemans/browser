@@ -171,12 +171,21 @@ expect "^browser: tab [0-9]* opened by $first in the foreground\$" "the page did
 tab=$(grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: page $tab back 0 forward 0 loading 1 \$" \
   "a tab opened to a page that hasn't come doesn't say it's loading"
+# Whether the colour "r g b" is the card's (tokens.toml › shell › card): dark on a dark window, as
+# the Mac's check VM runs it, and on a light one, as Linux's is, white at 0.7 over any colour, but
+# never the white of a page.
+card_color() {
+  [ "$(grep '^browser: window light ' "$log" | tail -1)" = "browser: window light true" ] ||
+    { dark "$1"; return; }
+  set -- $1
+  [ "$1" -ge 179 ] && [ "$2" -ge 179 ] && [ "$3" -ge 179 ] && [ "$1 $2 $3" != "255 255 255" ]
+}
 for _ in $(seq 20); do
   ../tools/window-screenshot.sh "$pid" "$out/before-paint.png" || fail "no window to capture"
   color=$(pixel "$out/before-paint.png" 0.6 0.5)
-  dark "$color" && break
+  card_color "$color" && break
 done
-dark "$color" || fail "a page that hasn't drawn shows $color, not the card's colour"
+card_color "$color" || fail "a page that hasn't drawn shows $color, not the card's colour"
 send key w cmd
 expect_tabs "$first" "$first" "after closing the tab of the page that hasn't come"
 send click $page_point

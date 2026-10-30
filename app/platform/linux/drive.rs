@@ -709,10 +709,9 @@ fn keysym(key: &str) -> Option<u32> {
         "space" => 0x20,
         "backspace" => 0xff08,
         "delete" => 0xffff,
+        "home" => 0xff50,
         "pageup" => 0xff55,
         "pagedown" => 0xff56,
-        // Off the Mac a page's own way to its top, which ⌘↑ is on the Mac.
-        "home" => 0xff50,
         "up" => 0xff52,
         "down" => 0xff54,
         "left" => 0xff51,
@@ -869,7 +868,8 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
             .map(|hovered| hovered.window)
             .filter(|&hovered| viewable(connection, hovered) && within(connection, hovered, focus))
             .unwrap_or(focus),
-        None => driven()?.window,
+        // A window of Chromium's own, such as the Task Manager, else none of the app's has it.
+        None => chromium_focus().or_else(|| driven().map(|browser| browser.window))?,
     };
     for &kind in kinds {
         let event = KeyPressEvent {
@@ -1033,6 +1033,48 @@ fn text_property(window: xproto::Window, name: &str) -> Option<String> {
         .reply()
         .ok()?;
     String::from_utf8(property.value).ok()
+}
+
+/// The window with the input focus while it's in one of this process's that isn't the app's own,
+/// such as Chromium's Task Manager, by the process id its window manager hint names.
+fn chromium_focus() -> Option<xproto::Window> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let pid = connection.intern_atom(false, b"_NET_WM_PID").ok()?.reply().ok()?.atom;
+    let focus = input_focus()?;
+    let mut window = focus;
+    loop {
+        let property = connection
+            .get_property(false, window, pid, xproto::AtomEnum::CARDINAL, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?;
+        if let Some(owner) = property.value32().and_then(|mut values| values.next()) {
+            return (owner == std::process::id()).then_some(focus);
+        }
+        let tree = connection.query_tree(window).ok()?.reply().ok()?;
+        if window == tree.root || tree.parent == x11rb::NONE {
+            return None;
+        }
+        window = tree.parent;
+    }
+}
+
+/// The title of the window with the input focus, or of the first window it's in that has one.
+fn focus_title() -> Option<String> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let mut window = input_focus()?;
+    loop {
+        if let Some(title) = text_property(window, "_NET_WM_NAME").filter(|t| !t.is_empty()) {
+            return Some(title);
+        }
+        let tree = connection.query_tree(window).ok()?.reply().ok()?;
+        if window == tree.root || tree.parent == x11rb::NONE {
+            return None;
+        }
+        window = tree.parent;
+    }
 }
 
 /// Whether the window manager has `window` full screen.
@@ -1692,8 +1734,10 @@ fn run_command(line: &str) -> Option<()> {
             Some(())
         }
         // The window's content and the views the X server has in it: GPUI's, and the overlays
-        // over it, with a tab's dialog, which the core reports. shortcut: the pages are aura
-        // windows in Chromium's window, which the X server doesn't see, so they aren't listed.
+        // and floats over it, with a tab's dialog, which the core reports, as the Mac's lists its
+        // child windows. The floats, such as the zoom HUD, take no input, so they're left out of
+        // overlay_views. shortcut: the pages are aura windows in Chromium's window, which the X
+        // server doesn't see, so they aren't listed.
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
@@ -1724,11 +1768,16 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let window = match keyboard_window()? {
-                Keyboard::Overlay(window) | Keyboard::Settings(window, _) => window,
-                Keyboard::Browser(browser, _) => browser.window,
+            let title = match keyboard_window() {
+                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
+                    text_property(window, "_NET_WM_NAME").unwrap_or_default()
+                }
+                Some(Keyboard::Browser(browser, _)) => {
+                    text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
+                }
+                // A window of Chromium's own, such as the Task Manager.
+                None => focus_title()?,
             };
-            let title = text_property(window, "_NET_WM_NAME").unwrap_or_default();
             log!("browser: key window titled {title}");
             Some(())
         }
