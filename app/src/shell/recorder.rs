@@ -109,6 +109,8 @@ pub(super) struct Recorder {
     pub(super) site_controls_extensions: RefCell<Vec<Vec<SharedString>>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
+    /// And the tab whose URL it edits, if any.
+    pub(super) bar_edits: RefCell<Vec<Option<u64>>>,
     /// Each time the shell opened Search Tabs: the tabs it lists, in order.
     pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
@@ -527,6 +529,10 @@ impl Browser for Recorder {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn set_developer_mode(&self, tab: u64, on: bool, _: &mut App) {
+        self.record(format!("developer mode {tab} {on}"))
+    }
+
     fn answer_permission(&self, tab: u64, answer: Answer, _: &mut App) {
         self.record(format!("answer {tab} {answer:?}"))
     }
@@ -608,9 +614,24 @@ impl Browser for Recorder {
 
     fn print(&self, _: u64, _: &mut App) {}
 
-    fn devtools(&self, _: u64, _: i32, _: &mut App) {}
+    fn devtools(&self, tab: u64, what: i32, _: &mut App) {
+        self.record(format!("devtools {tab} {what}"));
+    }
 
     fn task_manager(&self, _: &mut App) {}
+
+    fn start_trace(&self) -> bool {
+        self.record("start trace".into());
+        true
+    }
+
+    fn stop_trace(&self) {
+        self.record("stop trace".into());
+    }
+
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, _: &mut App) {
+        self.record(format!("trace note {}", if stop.is_some() { "shown" } else { "hidden" }));
+    }
 
     fn set_menus(&self, bar: &MenuBar, _: &mut App) {
         *self.menu_bar.borrow_mut() = bar.clone();
@@ -946,12 +967,13 @@ impl Browser for Recorder {
 
     fn command_bar(
         &self,
-        _: Option<(u64, SharedString)>,
+        editing: Option<(u64, SharedString)>,
         _: Vec<BarTab>,
         field: Option<Bounds<Pixels>>,
         _: &mut App,
     ) {
         self.command_bars.borrow_mut().push(field);
+        self.bar_edits.borrow_mut().push(editing.map(|(tab, _)| tab));
         self.bar_open.set(true);
     }
 
@@ -1072,6 +1094,10 @@ impl Browser for Recorder {
 
     fn hand_back(&self, tab: u64, _: &mut App) {
         self.record(format!("hand back {tab}"));
+    }
+
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        self.record(format!("give {tab} to {space}"));
     }
 
     fn stop_agent(&self, agent: SharedString, _: &mut App) {

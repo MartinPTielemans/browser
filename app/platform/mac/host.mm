@@ -769,11 +769,13 @@ void SetCaptureCursor() {
   [(g_capture_camera ? g_capture_cursor : NSCursor.arrowCursor) set];
 }
 
-// At the browser window's top right corner, where the toast draws itself.
+// At the browser window's top right corner, where the toast draws itself, or in a split view at the
+// focused pane's (host_set_pane_corner).
 void PlaceToast() {
   NSRect frame = g_toast_over->window.frame;
   NSSize size = g_toast.frame.size;
-  [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - size.width, NSMaxY(frame) - size.height)];
+  [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - g_toast_over->page_right - size.width,
+                                      NSMaxY(frame) - g_toast_over->page_top - size.height)];
 }
 
 // Where the UI asked, which it has kept inside the browser window: its window is wider than the
@@ -2241,6 +2243,9 @@ void host_set_pane_corner(void* ui_view, double right, double top) {
   if (g_hud_shown && g_hud_over == browser) {
     PlaceHud();
   }
+  if (g_toast_shown && g_toast_over == browser) {
+    PlaceToast();
+  }
 }
 
 void host_add_hud(void* hud_view, double right, double top, double margin) {
@@ -2660,7 +2665,11 @@ void host_show_link_preview(void* ui_view) {
   });
 }
 
-void host_link_preview_drew(double left, double top, double width, double height,
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double,
                             double opacity) {
   // Posted, so the page takes the frame the UI is drawing now.
   dispatch_async(dispatch_get_main_queue(), ^{

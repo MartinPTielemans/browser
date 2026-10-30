@@ -9,7 +9,11 @@
 # and, in the run rather than the release, winget's manifests for the Windows installer.
 # On a pushed v* tag, or by hand with the tag's name. The tag must be app/Cargo.toml's version, and
 # its message is the release's notes. Each job builds on its OS's prebuilt engine for the commit,
-# which engine/fetch.sh finds or fails on; a release never builds an engine. The owner publishes
+# which engine/fetch.sh finds or fails on; a release never builds an engine. The Windows engine is
+# built nightly, not for each core change, so before pushing the tag, dispatch Engine on Windows
+# (cross-compiled) on its commit (gh workflow run engine-windows-cross.yml --ref main, with main at
+# that commit) and wait for its release engine-windows-<commit>; otherwise the Windows job stops at
+# "No Windows engine release for this commit", or packs an older core. The owner publishes
 # the draft, which puts its Linux build in the Flatpak repository (the publish job). README.md ›
 # Releases names the secrets it needs. GitHub's hosted runners only.
 name: Release
@@ -74,8 +78,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # Crash reports' symbols, which each OS's job uploads to the collector app/branding/crash-reports
-      # names (tools/symbols.sh). Optional: with none of these no symbols are uploaded, and with only
-      # some the release stops here rather than after its builds.
+      # names (tools/symbols.sh). Optional: without the token no symbols are uploaded, and with the
+      # token but not the rest the release stops here rather than after its builds.
       - name: Crash reports' symbols
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -389,17 +393,17 @@ jobs:
             --key-id "$MAC_NOTARY_KEY_ID" --issuer "$MAC_NOTARY_ISSUER_ID"
           rm "$RUNNER_TEMP/notary.p8"
 
+      # It uploads the crash reports' symbols too (tools/symbols.sh).
       - name: Build
         env:
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
-        run: ./build.sh prod
-
-      - name: Sign and notarize
-        env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_URL: ${{ vars.SENTRY_URL }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: ./build.sh prod
+
+      - name: Sign and notarize
         run: ../tools/release.sh
 
       - uses: actions/download-artifact@v4

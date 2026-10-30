@@ -18,6 +18,7 @@ use super::{
     browser::WindowButton,
     clean_link, drm_note, extensions, keys,
     panes::pane_frames,
+    trace,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -117,6 +118,10 @@ pub enum Command {
     JavaScriptConsole,
     /// Opens Chrome's Task Manager.
     TaskManager,
+    /// Starts recording a trace of the whole browser, or stops it and asks where to save it.
+    RecordTrace,
+    /// Turns Developer Mode on or off for the page's site.
+    ToggleDeveloperMode,
     /// Opens Chrome's extensions page in a new tab.
     ManageExtensions,
     /// Opens the Web Store in a new tab, as Dia's Add Extension… does.
@@ -272,6 +277,9 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("f12", Command::DevTools, false),
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
+    // Arc's, unreserved: a page or field that uses ⌃D, as a Mac text field's forward delete,
+    // keeps it. Off the Mac it would be Alt+D, Chrome's, so it has none there.
+    ("ctrl-d", Command::ToggleDeveloperMode, false),
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
@@ -301,6 +309,16 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
 /// The name of the sidebar's second row in the command bar, which it lists only while there's a
 /// sidebar to hide.
 const HIDE_SIDEBAR: &str = "Hide Sidebar";
+
+/// The page's Developer Mode's rows in the command bar, of which it lists the one that would change
+/// it (Arc's, in sentence case).
+const DEVELOPER_MODE_ON: &str = "Turn on Developer Mode for this site";
+const DEVELOPER_MODE_OFF: &str = "Turn off Developer Mode for this site";
+
+/// What turns Developer Mode the other way, for a page in it or not.
+pub(super) fn developer_mode_title(on: bool) -> &'static str {
+    if on { DEVELOPER_MODE_OFF } else { DEVELOPER_MODE_ON }
+}
 
 /// The commands the command bar finds, with the words besides their names' that find them, in
 /// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
@@ -360,7 +378,11 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Developer Tools", Command::DevTools, &["devtools"]),
     ("Inspect Elements", Command::InspectElements, &[]),
     ("JavaScript Console", Command::JavaScriptConsole, &[]),
+    (DEVELOPER_MODE_ON, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
+    (DEVELOPER_MODE_OFF, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
     ("Open Task Manager", Command::TaskManager, &[]),
+    (trace::RECORD, Command::RecordTrace, &["performance", "tracing"]),
+    (trace::STOP_RECORDING, Command::RecordTrace, &["performance", "tracing"]),
     ("Manage Extensions…", Command::ManageExtensions, &["plugins"]),
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
@@ -445,7 +467,7 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
     };
     let shell = shell.read(cx);
     let keys = user_keys(cx);
-    let found = find_commands(typed, keys, |name, command| shell.bar_name(name, command));
+    let found = find_commands(typed, keys, |name, command| shell.bar_name(name, command, cx));
     with_named_rows(found, typed, &shell.named_bar_rows(), keys)
 }
 
@@ -646,7 +668,16 @@ impl Command {
         )
     }
 
-    /// The command's name in the log and in the user's saved keys.
+    /// The command's name as Settings knows it, in the user's saved keys and the lines it logs:
+    /// its name, with the number of a Space's, as each of ⌃1–⌃9 has keys of its own.
+    pub fn key_name(self) -> String {
+        match self {
+            Command::SelectSpace(index) => format!("select-space-{}", index + 1),
+            _ => self.name().to_string(),
+        }
+    }
+
+    /// The command's name in the log.
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
@@ -702,6 +733,8 @@ impl Command {
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
             Command::TaskManager => "task-manager",
+            Command::RecordTrace => "record-trace",
+            Command::ToggleDeveloperMode => "toggle-developer-mode",
             Command::ManageExtensions => "manage-extensions",
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
@@ -794,15 +827,20 @@ pub fn bind_keys(cx: &mut App) {
     drm_note::bind(cx);
 }
 
-/// The command bar is about to show a page in the pane being added, if one is: the pages shown take
-/// back its room first, so the split view shows at its place at once.
-pub fn pane_added(cx: &mut App) {
+/// The command bar is about to put `tab` in a split view with `with`: the pages shown take back the
+/// room of the pane being added, if one is, so the split view shows at its place at once. ⌘Z takes
+/// `tab` back out, or closes it if it was `opened` for the split.
+pub fn pane_added(tab: u64, with: u64, opened: bool, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
         shell
             .update(cx, |shell, cx| {
                 if shell.adding_pane.take().is_some() {
                     shell.lay_out_page(cx);
                     cx.notify();
+                }
+                match opened {
+                    true => shell.split_opened(tab, cx),
+                    false => shell.keep_split(tab, with, cx),
                 }
             })
             .ok();
@@ -954,6 +992,14 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
+            Command::RecordTrace => {
+                trace::toggle(self.browser.clone(), cx);
+                return self.update_menus(cx);
+            }
+            Command::ToggleDeveloperMode => {
+                let on = !self.page(self.selected).developer_mode;
+                return self.browser.set_developer_mode(self.selected, on, cx);
+            }
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
@@ -1006,7 +1052,7 @@ impl Shell {
             }
             Command::ChangeOrientation => {
                 let stacked = self.stacked(self.selected);
-                return self.browser.set_split_stacked(self.selected, !stacked, cx);
+                return self.stack_split(self.selected, !stacked, cx);
             }
             Command::ExpandSplit => return self.expand_split(cx),
             Command::MovePaneLeft | Command::MovePaneRight => {
@@ -1272,6 +1318,14 @@ impl Shell {
         self.browser.capture(self.selected, pane, radius, full_page, !self.private, look, cx);
     }
 
+    /// Whether `tab`'s page is in Developer Mode, or None where the user can't change it: a page
+    /// that isn't http(s), or a private window.
+    pub(super) fn developer_mode(&self, tab: u64) -> Option<bool> {
+        let page = self.page(tab);
+        let web = page.url.starts_with("http://") || page.url.starts_with("https://");
+        (tab != 0 && web && !self.private).then_some(page.developer_mode)
+    }
+
     /// Whether `command` would do something now, for the command bar to offer it.
     pub(super) fn offers(&self, command: Command) -> bool {
         if self.private && !private_runs(command) {
@@ -1283,10 +1337,11 @@ impl Shell {
             Command::Back => page.can_go_back,
             Command::Forward => page.can_go_forward,
             Command::Stop => page.loading,
-            // Only a web page has a site to clear.
+            // Only a web page has a site to clear, or to show in Developer Mode.
             Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
+            Command::ToggleDeveloperMode => self.developer_mode(self.selected).is_some(),
             Command::BackToPinnedUrl => page.away_from_pinned_url || self.agent_bar().is_some(),
             Command::CloseSplitPane
             | Command::SeparatePane
@@ -1339,6 +1394,7 @@ impl Shell {
             | Command::Passwords
             | Command::Welcome
             | Command::Appearance(_)
+            | Command::RecordTrace
             | Command::ReportProblem
             | Command::CopyBuildInfo
             | Command::HelpCenter
@@ -1362,7 +1418,7 @@ impl Shell {
 
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
     /// says what it would do.
-    fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
+    fn bar_name(&self, name: &'static str, command: Command, cx: &App) -> Option<&'static str> {
         if !self.offers(command) {
             return None;
         }
@@ -1373,6 +1429,11 @@ impl Shell {
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
+            Command::ToggleDeveloperMode => {
+                let on = self.page(self.selected).developer_mode;
+                (name == developer_mode_title(on)).then_some(name)
+            }
+            Command::RecordTrace => (name == trace::title(trace::recording(cx))).then_some(name),
             _ => Some(name),
         }
     }
@@ -1453,6 +1514,7 @@ fn private_runs(command: Command) -> bool {
             | Command::SiteSearchSettings
             | Command::ManageExtensions
             | Command::AddExtension
+            | Command::ToggleDeveloperMode
     )
 }
 
@@ -1672,9 +1734,9 @@ mod tests {
         let private =
             cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
         let found = |shell: &gpui::Entity<Shell>, typed: &str, cx: &mut gpui::TestAppContext| {
-            shell.read_with(cx, |shell, _| {
+            shell.read_with(cx, |shell, cx| {
                 find_commands(typed, &UserKeys::default(), |name, command| {
-                    shell.bar_name(name, command)
+                    shell.bar_name(name, command, cx)
                 })
                 .into_iter()
                 .map(|row| row.name.to_string())
@@ -1691,5 +1753,98 @@ mod tests {
         assert_eq!(host.site_search_settings.get(), 1);
         private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
         assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
+    }
+
+    /// The command bar offers to turn Developer Mode on for a web page and off for one in it, and
+    /// neither for a page with no site or in a private window, which can't change it.
+    #[gpui::test]
+    fn developer_mode_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
+            (find_commands("developer mode", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::ToggleDeveloperMode)
+                .map(|found| if found.name == DEVELOPER_MODE_ON { "on" } else { "off" })
+                .collect()
+        };
+        let page = |url: &str, developer_mode| Page {
+            url: url.to_string().into(),
+            developer_mode,
+            ..Page::default()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| {
+            let mut shell = Shell::new(browser, cx);
+            let space = (1, "One".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("https://example.com/", false), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell, cx), ["on"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            assert_eq!(listed(shell, cx), ["off"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("chrome://settings/", false), cx);
+            assert!(listed(shell, cx).is_empty());
+        });
+        let calls = host.take();
+        let changes: Vec<&String> = calls.iter().filter(|call| call.contains("developer")).collect();
+        assert_eq!(changes, ["developer mode 10 true", "developer mode 10 false"]);
+
+        let browser = host.clone();
+        let private = cx.new(|cx| {
+            let mut shell = Shell::private_window(browser, 1, "Private".into(), 0, cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        private.update(cx, |shell, cx| assert!(listed(shell, cx).is_empty()));
+    }
+
+    /// Record a Trace starts one, and while it records the command bar and Help › Troubleshooting
+    /// offer Stop Recording Trace in its place, which stops it.
+    #[gpui::test]
+    fn record_a_trace_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::recorder::Recorder;
+
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
+            (find_commands("trace", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::RecordTrace)
+                .map(|found| if found.name == trace::RECORD { "record" } else { "stop" })
+                .collect()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell, cx), ["record"]);
+            shell.run(Command::RecordTrace, "bar", cx);
+            assert_eq!(listed(shell, cx), ["stop"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::STOP_RECORDING);
+        shell.update(cx, |shell, cx| {
+            shell.run(Command::RecordTrace, "ui", cx);
+            assert_eq!(listed(shell, cx), ["record"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::RECORD);
+        let calls = host.take();
+        let traced: Vec<&String> = calls.iter().filter(|call| call.contains("trace")).collect();
+        assert_eq!(traced, ["start trace", "trace note shown", "trace note hidden", "stop trace"]);
     }
 }

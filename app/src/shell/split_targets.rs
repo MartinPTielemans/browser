@@ -300,11 +300,8 @@ impl Shell {
         self.dragged = true;
         self.settle_drag();
         if let Some(edge) = edge {
-            self.browser.split_with(tab, with, edge.first(), cx);
             // A page alone has every target, and the top and bottom ones stack its new split.
-            if alone && edge.stacked() {
-                self.browser.set_split_stacked(with, true, cx);
-            }
+            self.join_split(tab, with, edge.first(), alone && edge.stacked(), cx);
         }
         cx.notify();
         true

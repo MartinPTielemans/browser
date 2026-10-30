@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/host.h"
 #include "browser_core/passwords.h"
@@ -143,6 +144,16 @@ const char* KeyOf(ContentSettingsType type) {
 int AdBlockingOf(content::WebContents* contents) {
   const std::optional<bool> on = AdBlockingOnSite(contents);
   return !on ? BC_AD_BLOCKING_NONE : *on ? BC_AD_BLOCKING_ON : BC_AD_BLOCKING_OFF;
+}
+
+// A BC_DEVELOPER_MODE_ value for the site of |contents|'s page.
+int DeveloperModeOf(content::WebContents* contents) {
+  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
+  const GURL& url = contents->GetLastCommittedURL();
+  if (!developer_mode::Switchable(profile, url)) {
+    return BC_DEVELOPER_MODE_NONE;
+  }
+  return developer_mode::On(profile, url) ? BC_DEVELOPER_MODE_ON : BC_DEVELOPER_MODE_OFF;
 }
 
 }  // namespace
@@ -420,6 +431,7 @@ void SiteControls::Report() {
       // uBlock Origin never sees the pages the system's engine shows.
       .ad_blocking = SystemPageOf(web_contents()) ? BC_AD_BLOCKING_NONE
                                                   : AdBlockingOf(web_contents()),
+      .developer_mode = DeveloperModeOf(web_contents()),
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }
