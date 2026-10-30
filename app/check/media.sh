@@ -182,8 +182,10 @@ send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $f in a call\$" "Allow didn't give the floating call the camera"
 shown "$b"
 expect "^browser: title $f floating\$" "the call didn't float with its tab hidden"
-shown_again "$f"
+# It lands as its tab is shown, so before the click that gives its page the keyboard.
+shown "$f"
 expect "^browser: title $f landed\$" "the floating call didn't come back with its tab"
+send click $page_point
 send key e
 expect "^browser: title $f ended\$" "e didn't end the floating call"
 shown_again "$a"
