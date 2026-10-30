@@ -310,9 +310,7 @@ size_t host_screens(double* frames, size_t count) {
   return 0;
 }
 
-bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
-  return false;
-}
+// host_window_frame is system.rs's, through the X server the driver reads the windows from.
 
 // shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
 void host_watch_finished_launching(void (*finished)(void)) {

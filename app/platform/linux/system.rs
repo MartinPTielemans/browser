@@ -1,6 +1,6 @@
 //! What the Linux host does through GPUI's Linux platform rather than in host.cc, as GPUI already
 //! has it: the clipboard, the file chooser portal, the browser window's activation, the touchpad's
-//! swipes over the page, Control's release and a file's drag.
+//! swipes over the page, Control's release and a file's drag, and on X11 a window's frame.
 
 use std::{
     ffi::{CStr, c_char, c_void},
@@ -60,6 +60,30 @@ pub fn watch_activation<T: 'static>(
         platform::host_window_active(ui_view, window.is_window_active(), whole_window)
     })
     .detach();
+}
+
+/// The frame of the browser window of `ui_view`, as host.h says: Chromium's window, which the UI's
+/// is in, in points from the screen's top-left corner, for the next launch to open at. None under
+/// Wayland, which keeps windows' places from their apps, nor while the window is full screen.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_window_frame(
+    ui_view: *mut c_void,
+    x: *mut f64,
+    y: *mut f64,
+    width: *mut f64,
+    height: *mut f64,
+) -> bool {
+    let window = crate::WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|window| window.ui_view == ui_view).map(|window| window.id)
+    });
+    if window.is_some_and(|window| unsafe { crate::bc::bc_window_is_full_screen(window) }) {
+        return false;
+    }
+    let Some(frame) = crate::drive::browser_frame(ui_view as usize as u32) else {
+        return false;
+    };
+    unsafe { [*x, *y, *width, *height] = frame };
+    true
 }
 
 /// Starts the system's drag of the file at `path`, as host.h says: XDND on X11, the data device's

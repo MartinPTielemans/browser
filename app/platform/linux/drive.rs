@@ -991,6 +991,14 @@ fn frame(window: xproto::Window) -> Option<[f64; 4]> {
     )
 }
 
+/// The frame of Chromium's window, which the UI's window `ui` is in (host_window_frame). None
+/// under Wayland, where `ui` is a surface the X server doesn't know.
+pub(crate) fn browser_frame(ui: xproto::Window) -> Option<[f64; 4]> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    frame(connection.query_tree(ui).ok()?.reply().ok()?.parent)
+}
+
 /// The text property `name` of `window`, as UTF-8.
 fn text_property(window: xproto::Window, name: &str) -> Option<String> {
     let x = server()?;
