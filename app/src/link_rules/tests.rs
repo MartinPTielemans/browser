@@ -41,6 +41,26 @@ fn rules_send_links_to_their_spaces() {
     assert_eq!(gone.route("https://news.example/", &spaces), (0, None));
 }
 
+/// A link that would open in a link preview goes by the rules too, but only to another Space than
+/// the one shown, and only by a rule: everything else's Space is for links from other apps.
+#[test]
+fn a_rule_sends_a_previews_link_to_another_space() {
+    let rules = Rules {
+        rules: vec![
+            rule(Condition::Contains, "work.example", WORK),
+            rule(Condition::Contains, "home.example", HOME),
+        ],
+        otherwise: HOME,
+    };
+    let spaces = [WORK, HOME];
+    assert_eq!(rules.preview_route("https://work.example/doc", &spaces, HOME), Some((WORK, 0)));
+    // Its rule's Space is the one shown, so it stays in the preview, and the next rule isn't tried.
+    assert_eq!(rules.preview_route("https://work.example/home.example", &spaces, WORK), None);
+    assert_eq!(rules.preview_route("https://news.example/", &spaces, WORK), None);
+    let gone = Rules { rules: vec![rule(Condition::Contains, "work", 9)], otherwise: 0 };
+    assert_eq!(gone.preview_route("https://work.example/", &spaces, HOME), None);
+}
+
 /// The file keeps each rule's Space by its place among the user's Spaces, which come back in
 /// their order under new ids, and a Space that's gone as none.
 #[test]

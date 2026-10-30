@@ -1034,7 +1034,8 @@ thread_local! {
 }
 
 /// A link clicked in `tab`'s page leads to another site. A pinned tab's or a favorite's opens in
-/// the link preview, over the window showing the tab, unless the user turned previews off.
+/// the link preview, over the window showing the tab, unless the user turned previews off or a link
+/// rule sends it to another Space.
 unsafe extern "C" fn tab_link_to_site(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -1053,12 +1054,34 @@ unsafe extern "C" fn tab_link_to_site(
         let shell = window.shell.upgrade()?;
         let shell = shell.read(cx);
         let page = shell.page_laid().filter(|_| shell.shows(tab) && shell.previews_links_of(tab));
-        Some((window.id, page?))
+        Some((window.id, window.private, page?))
     });
-    let Some((window, page)) = over else {
+    let Some((window, private, page)) = over else {
         return false;
     };
     let url = unsafe { CStr::from_ptr(url) }.to_owned();
+    // A link rule sends it to its Space instead, as one from another app, when that's another than
+    // the one shown. Never from a private window, whose links stay off the record.
+    let shown = unsafe { bc::bc_window_space(window) };
+    let routed = match private {
+        true => 0,
+        false => link_rules_host::preview_route(&url.to_string_lossy(), shown),
+    };
+    if routed != 0 {
+        update_app_later(move |_| {
+            let url = url.to_string_lossy();
+            let (to, opened, space) = open_link_in(window, &url, routed);
+            // check.sh reads this line.
+            log!("browser: link from {tab} {url}: tab {opened} in space {space} of window {to}");
+            let ui_view = WINDOWS.with_borrow(|windows| {
+                windows.iter().find(|w| w.id == to).map(|w| w.ui_view)
+            });
+            if let Some(ui_view) = ui_view.filter(|_| to != window) {
+                unsafe { platform::host_activate(ui_view) };
+            }
+        });
+        return true;
+    }
     // Outside the navigation that asked, which the core cancels once this returns.
     update_app_later(move |cx| {
         let preview = unsafe { bc::bc_tab_open_preview(tab, url.as_ptr()) };
@@ -2893,38 +2916,48 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
 }
 
 /// Opens `urls` as new tabs in `front`, the regular window in front, in the Space it shows, or in
-/// the user's it showed last if that's an agent's, which none of the user's tabs go in. A link a
-/// rule sends to another Space opens in the regular window showing it, else in `front` switched to
-/// it. The last one opened shows, and the window it's in is returned.
+/// the user's it showed last if that's an agent's, which none of the user's tabs go in. The last
+/// one opened shows, and the window it's in is returned.
 fn open_links_in(front: bc::bc_id, urls: &[String]) -> bc::bc_id {
     let mut window = front;
     for url in urls {
-        let routed = link_rules_host::route(url);
-        let showing = (routed != 0).then(|| {
-            WINDOWS.with_borrow(|windows| {
-                let shows = |w: &&BrowserWindow| unsafe { bc::bc_window_space(w.id) } == routed;
-                windows.iter().filter(|w| !w.private).find(shows).map(|w| w.id)
-            })
-        });
-        window = showing.flatten().unwrap_or(front);
-        let space = match routed {
-            0 => users_space_of(window),
-            routed => routed,
-        };
+        let (shown, tab, space) = open_link_in(front, url, link_rules_host::route(url));
+        window = shown;
         if space == 0 {
             continue;
-        }
-        if space != unsafe { bc::bc_window_space(window) } {
-            unsafe { bc::bc_window_show_space(window, space) };
-        }
-        let tab = open_tab_behind(window, url, false);
-        if tab != 0 {
-            unsafe { bc::bc_window_select(window, tab) };
         }
         // check.sh reads this line.
         log!("browser: link from another app {url}: tab {tab} in space {space} of window {window}");
     }
     window
+}
+
+/// Opens `url` as a new tab, shown, in the Space `routed`, a link rule's, in the regular window
+/// showing it, else in `front` switched to it; with `routed` 0, in `front`'s user's Space. Returns
+/// the window, the tab and the Space, 0 if there's no Space for it.
+fn open_link_in(front: bc::bc_id, url: &str, routed: bc::bc_id) -> (bc::bc_id, u64, bc::bc_id) {
+    let showing = (routed != 0).then(|| {
+        WINDOWS.with_borrow(|windows| {
+            let shows = |w: &&BrowserWindow| unsafe { bc::bc_window_space(w.id) } == routed;
+            windows.iter().filter(|w| !w.private).find(shows).map(|w| w.id)
+        })
+    });
+    let window = showing.flatten().unwrap_or(front);
+    let space = match routed {
+        0 => users_space_of(window),
+        routed => routed,
+    };
+    if space == 0 {
+        return (window, 0, 0);
+    }
+    if space != unsafe { bc::bc_window_space(window) } {
+        unsafe { bc::bc_window_show_space(window, space) };
+    }
+    let tab = open_tab_behind(window, url, false);
+    if tab != 0 {
+        unsafe { bc::bc_window_select(window, tab) };
+    }
+    (window, tab, space)
 }
 
 /// The Space `window` shows, or the user's it showed last if that's an agent's, else the user's
