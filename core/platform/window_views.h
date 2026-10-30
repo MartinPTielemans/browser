@@ -81,8 +81,14 @@ void HidePages(views::Widget* widget);
 
 // Shows |page| in |view|, a view of the app's, which keeps it: at |frame| from the view's top-left,
 // over what the view draws, with corners of |corner_radius|. For a page no window shows, such as a
-// link preview's.
-void ShowPageIn(gfx::NativeView page, void* view, const gfx::Rect& frame, double corner_radius);
+// link preview's. Where the app can't hold a page in a view of its own, as on Linux, it shows over
+// the pages of |widget|'s window, the one whose Browser holds it, at |frame| in its content, and
+// the app's view over the window leaves it a hole.
+void ShowPageIn(views::Widget* widget,
+                gfx::NativeView page,
+                void* view,
+                const gfx::Rect& frame,
+                double corner_radius);
 
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools or the side

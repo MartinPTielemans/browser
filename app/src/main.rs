@@ -63,6 +63,9 @@ mod floats;
 #[path = "../platform/linux/held_escape.rs"]
 mod held_escape;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/link_preview_window.rs"]
+mod link_preview_window;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/menu_window.rs"]
 mod menu_window;
 #[cfg(target_os = "linux")]
@@ -335,7 +338,14 @@ mod platform {
             dismissed: extern "C" fn(),
         ) -> *mut c_void;
         pub fn host_show_link_preview(ui_view: *mut c_void);
-        pub fn host_link_preview_drew(left: f64, top: f64, width: f64, height: f64, opacity: f64);
+        pub fn host_link_preview_drew(
+            left: f64,
+            top: f64,
+            width: f64,
+            height: f64,
+            radius: f64,
+            opacity: f64,
+        );
         pub fn host_release_link_preview();
         pub fn host_hide_link_preview();
         pub fn host_add_capture(view: *mut c_void, dismissed: extern "C" fn());
@@ -1028,10 +1038,16 @@ impl link_preview::Host for LinkPreviewHost {
         }
     }
 
-    fn drew(&self, page: Bounds<Pixels>, opacity: f32) {
+    fn drew(&self, page: Bounds<Pixels>, radius: f32, opacity: f32) {
         let (left, top) = (f64::from(page.origin.x), f64::from(page.origin.y));
         let (width, height) = (f64::from(page.size.width), f64::from(page.size.height));
-        unsafe { platform::host_link_preview_drew(left, top, width, height, f64::from(opacity)) };
+        let (radius, opacity) = (f64::from(radius), f64::from(opacity));
+        unsafe { platform::host_link_preview_drew(left, top, width, height, radius, opacity) };
+    }
+
+    fn page_under(&self) -> bool {
+        // No window of the app's holds a page on Linux (link_preview_window.rs).
+        cfg!(target_os = "linux")
     }
 
     fn release(&self) {
@@ -3525,6 +3541,7 @@ fn open_window_as(
                     overlays::place_dialog(ui_view);
                     menu_window::resized(ui_view);
                     popovers::resized(ui_view);
+                    link_preview_window::resized(ui_view);
                     reveal_window::place(ui_view);
                 }
             })
