@@ -19,7 +19,11 @@ agent=$HOME/Library/LaunchAgents/$label.plist
 log=$HOME/Library/Logs/ilo-mac-nightly.log
 work=$HOME/.cache/ilo-mac-nightly
 # The checkout whose engine/.deps holds the tree: this one, or the one install named.
-checkout=${ILO_CHECKOUT:-$(cd "$(dirname "$0")/.." && pwd)}
+here=$(cd "$(dirname "$0")/.." && pwd)
+checkout=${ILO_CHECKOUT:-$here}
+# The repository comes from this script's own checkout, main's once installed: the integrator's builds
+# leave the engine's checkout on commits whose prebuilt.ini predates it.
+repo=$(git config -f "$here/engine/prebuilt.ini" prebuilt.repository)
 tree=$checkout/engine/.deps/src
 
 fail() {
@@ -39,7 +43,6 @@ install)
   mkdir -p "$(dirname "$agent")" "$(dirname "$log")"
   # The agent runs the worktree's copy of this script, main's, so the commit the checkout is on
   # doesn't matter: the integrator's builds leave it detached on commits from before this script.
-  repo=$(git -C "$checkout" config -f engine/prebuilt.ini prebuilt.repository)
   git -C "$checkout" fetch -q "$repo.git" +refs/heads/main:refs/ilo-nightly/main
   git -C "$checkout" cat-file -e refs/ilo-nightly/main:tools/mac-nightly.sh 2>/dev/null ||
     fail "main has no tools/mac-nightly.sh yet."
@@ -112,7 +115,6 @@ run)
   if pgrep -f 'engine/(build|setup)[.]sh|engine-build[.]sh|ninja -C [.]deps/src/out/' >/dev/null; then
     skip "an engine build or setup is running in the tree."
   fi
-  repo=$(git -C "$checkout" config -f engine/prebuilt.ini prebuilt.repository)
   # Main, and only the engine-mac tags, so the checkout gets no one else's.
   git -C "$work" fetch -q "$repo.git" +refs/heads/main:refs/ilo-nightly/main \
     '+refs/tags/engine-mac-*:refs/tags/engine-mac-*'
