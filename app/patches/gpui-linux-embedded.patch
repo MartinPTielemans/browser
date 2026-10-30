@@ -4832,7 +4832,7 @@ index 0000000000..84f66f7604
 +        .log_err();
 +}
 diff --git a/crates/gpui_linux/src/linux/x11/window.rs b/crates/gpui_linux/src/linux/x11/window.rs
-index f6ee76ae8c..a017eca041 100644
+index f6ee76ae8c..2a6177de11 100644
 --- a/crates/gpui_linux/src/linux/x11/window.rs
 +++ b/crates/gpui_linux/src/linux/x11/window.rs
 @@ -75,6 +75,7 @@ x11rb::atom_manager! {
@@ -5126,7 +5126,7 @@ index f6ee76ae8c..a017eca041 100644
      pub fn should_close(&self) -> bool {
          let mut cb = self.callbacks.borrow_mut();
          if let Some(mut should_close) = cb.should_close.take() {
-@@ -1194,6 +1379,15 @@ impl X11WindowStatePtr {
+@@ -1194,12 +1379,29 @@ impl X11WindowStatePtr {
      }
  
      pub fn handle_input(&self, input: PlatformInput) {
@@ -5139,10 +5139,24 @@ index f6ee76ae8c..a017eca041 100644
 +        if pointer.is_some() {
 +            self.state.borrow_mut().pointer = pointer;
 +        }
++        if let PlatformInput::KeyDown(event) = &input {
++            let callback = self.callbacks.borrow().input.is_some();
++            let blocked = self.is_blocked();
++            eprintln!("browser: gpui key down {} {:?}, blocked {blocked}, callback {callback}", event.keystroke.key, event.keystroke.modifiers);
++        }
          if self.is_blocked() {
              return;
          }
-@@ -1221,6 +1415,14 @@ impl X11WindowStatePtr {
+         let callback = self.callbacks.borrow_mut().input.take();
+         if let Some(mut fun) = callback {
+             let result = fun(input.clone());
++            if let PlatformInput::KeyDown(event) = &input {
++                eprintln!("browser: gpui key down {} propagates {}", event.keystroke.key, result.propagate);
++            }
+             self.callbacks.borrow_mut().input = Some(fun);
+             if !result.propagate {
+                 return;
+@@ -1221,6 +1423,14 @@ impl X11WindowStatePtr {
          }
      }
  
@@ -5157,7 +5171,7 @@ index f6ee76ae8c..a017eca041 100644
      pub fn handle_ime_commit(&self, text: String) {
          if self.is_blocked() {
              return;
-@@ -1384,7 +1586,30 @@ impl X11WindowStatePtr {
+@@ -1384,7 +1594,30 @@ impl X11WindowStatePtr {
      }
  }
  
@@ -5188,7 +5202,7 @@ index f6ee76ae8c..a017eca041 100644
      fn bounds(&self) -> Bounds<Pixels> {
          self.0.state.borrow().bounds
      }
-@@ -1473,6 +1698,9 @@ impl PlatformWindow for X11Window {
+@@ -1473,6 +1706,9 @@ impl PlatformWindow for X11Window {
      }
  
      fn mouse_position(&self) -> Point<Pixels> {
@@ -5198,7 +5212,7 @@ index f6ee76ae8c..a017eca041 100644
          get_reply(
              || "X11 QueryPointer failed.",
              self.0.xcb.query_pointer(self.0.x_window),
-@@ -1528,6 +1756,10 @@ impl PlatformWindow for X11Window {
+@@ -1528,6 +1764,10 @@ impl PlatformWindow for X11Window {
      }
  
      fn activate(&self) {
@@ -5209,7 +5223,7 @@ index f6ee76ae8c..a017eca041 100644
          let data = [1, xproto::Time::CURRENT_TIME.into(), 0, 0, 0];
          let message = xproto::ClientMessageEvent::new(
              32,
-@@ -1615,6 +1847,9 @@ impl PlatformWindow for X11Window {
+@@ -1615,6 +1855,9 @@ impl PlatformWindow for X11Window {
      }
  
      fn map_window(&mut self) -> anyhow::Result<()> {
@@ -5219,7 +5233,7 @@ index f6ee76ae8c..a017eca041 100644
          check_reply(
              || "X11 MapWindow failed.",
              self.0.xcb.map_window(self.0.x_window),
-@@ -1772,6 +2007,7 @@ impl PlatformWindow for X11Window {
+@@ -1772,6 +2015,7 @@ impl PlatformWindow for X11Window {
              }
  
              inner.force_render_after_recovery = true;
@@ -5227,7 +5241,7 @@ index f6ee76ae8c..a017eca041 100644
              return;
          }
  
-@@ -1779,6 +2015,7 @@ impl PlatformWindow for X11Window {
+@@ -1779,6 +2023,7 @@ impl PlatformWindow for X11Window {
  
          if renderer.needs_redraw() {
              inner.force_render_after_recovery = true;
@@ -5235,7 +5249,7 @@ index f6ee76ae8c..a017eca041 100644
          }
      }
  
-@@ -1842,11 +2079,6 @@ impl PlatformWindow for X11Window {
+@@ -1842,11 +2087,6 @@ impl PlatformWindow for X11Window {
      fn window_decorations(&self) -> gpui::Decorations {
          let state = self.0.state.borrow();
  
@@ -5247,7 +5261,7 @@ index f6ee76ae8c..a017eca041 100644
          match state.decorations {
              WindowDecorations::Server => Decorations::Server,
              WindowDecorations::Client => {
-@@ -1915,16 +2147,16 @@ impl PlatformWindow for X11Window {
+@@ -1915,16 +2155,16 @@ impl PlatformWindow for X11Window {
          }
      }
  
