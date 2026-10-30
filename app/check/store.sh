@@ -99,14 +99,26 @@ await 'parsing manifest succeeded (https://clients2.google.com/service/update2/c
 # loaded. Its default button removes.
 focus_button "remove from chrome"
 send key return
-for _ in $(seq 100); do
-  send title
-  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: key window titled Remove ' &&
-    break
-  sleep 0.1
-done
-sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: key window titled Remove ' ||
-  fail "the store's Remove from Chrome didn't ask: $(grep 'key window titled' "$log" | tail -1)"
+if [ "$(uname)" = Linux ]; then
+  # There the dialog is an aura window in the browser window's, whose title the X server doesn't
+  # have (drive.rs), so the check sees it take the keyboard, and Return below removes.
+  for _ in $(seq 100); do
+    send state
+    [ "$key" = NativeWidgetMacNSWindow ] && break
+    sleep 0.1
+  done
+  [ "$key" = NativeWidgetMacNSWindow ] ||
+    fail "the store's Remove from Chrome didn't ask: the keyboard is in $key, on $focus"
+else
+  for _ in $(seq 100); do
+    send title
+    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: key window titled Remove ' &&
+      break
+    sleep 0.1
+  done
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: key window titled Remove ' ||
+    fail "the store's Remove from Chrome didn't ask: $(grep 'key window titled' "$log" | tail -1)"
+fi
 ../tools/window-screenshot.sh "$pid" "$out/store-remove.png" || fail "no window to capture"
 send key return
 for _ in $(seq 100); do
