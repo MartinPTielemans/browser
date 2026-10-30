@@ -411,8 +411,10 @@ press=$((step + 1))
 send press 300 111
 send dragto 300 140
 expect "^browser: download $t drag\$" "dragging the download's row didn't start the system's drag"
-# A user holds the drag until the Library has gone, as the release waits for it here.
-expect '^browser: library hidden$' "the Library didn't close for the download's drag"
+# Off the Mac a user holds the drag until the Library has gone, as the release waits for it there.
+# On the Mac the release lands as the Library closes, where nothing takes the file, not on the page.
+[ "$(uname)" = Darwin ] ||
+  expect '^browser: library hidden$' "the Library didn't close for the download's drag"
 send release 300 140
 # No real button holds the system's drag, so it may end before the release reaches it.
 dragged() {
@@ -422,6 +424,8 @@ dragged() {
   done
   return 1
 }
+dragged "download $t drag" '^browser: library hidden$' ||
+  fail "the Library didn't close for the download's drag"
 dragged "download $t drag" '^browser: file drag ended nowhere$' ||
   fail "the download's drag didn't end where nothing took it"
 dragged 'file drag ended' '^browser: library shown$' ||
