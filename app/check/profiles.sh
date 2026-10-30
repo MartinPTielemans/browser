@@ -197,6 +197,18 @@ step=0
 work_downloads="$PWD/$out/work-downloads"
 mkdir -p "$work_downloads"
 rm -f "$work_downloads/profile.txt"
+# A profile Chrome makes asks where each download goes, as ungoogled-chromium's default is, in a
+# panel no run can answer, so the second profile's doesn't ask, as check.sh has the first's not.
+for prefs in "$profile_dir"/*/Preferences; do
+  python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    prefs = json.load(f)
+prefs.setdefault("download", {})["prompt_for_download"] = False
+with open(sys.argv[1], "w") as f:
+    json.dump(prefs, f)
+' "$prefs" || fail "the profile's download prompt wouldn't turn off: $prefs"
+done
 BROWSER_DOWNLOAD_FOLDER="$work_downloads" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
