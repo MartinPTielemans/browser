@@ -252,8 +252,11 @@ floats() {
 mini_player() {
   send key , cmd
   expect '^browser: settings shown ' "⌘, from the page didn't show Settings"
-  send clickkey 491 60
-  expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+  # Settings opens at the tab it last showed.
+  if ! grep '^browser: settings shown ' "$log" | tail -1 | grep -q ' Advanced$'; then
+    send clickkey 491 60
+    expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+  fi
   send clickkey 592 208
   expect "^browser: mini player $1\$" "a click on the Mini Player's switch didn't turn it $1"
   [ "$1" = on ] || ../tools/window-screenshot.sh "$pid" "$out/settings-mini-player.png" ||
