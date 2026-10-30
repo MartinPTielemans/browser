@@ -606,9 +606,9 @@ went=$(grep '^browser: command bar go' "$log" | tail -1)
 expect '^browser: command bar go https://duckduckgo.com/?q=dogs' \
   "↩ in the site search didn't search DuckDuckGo: $went"
 expect '^browser: command bar hidden$' "↩ in the site search didn't close the command bar"
-# History has the search once its page commits, which can come after the next ⌘T.
-expect '^browser: page [0-9]* back [0-9]* forward [0-9]* loading [01] https://duckduckgo.com/?q=dogs' \
-  "the search for dogs didn't reach DuckDuckGo"
+# History has the search once its page commits, which can come after the next ⌘T. The page's
+# title says it has: its first page line comes as it starts.
+expect '^browser: title [0-9]* .*dogs' "the search for dogs didn't reach DuckDuckGo"
 # ⌥⌘⌫ takes the selected row out too, beside ⇧⌦, as Arc's does: here the search for dogs, typed
 # before. Off the Mac it would be Ctrl+Alt+Backspace, which X11 can take to end the session, so
 # there ⇧⌦ alone does (command_bar.rs).
