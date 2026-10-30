@@ -148,6 +148,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Space icon picker | MVP | popover 273 × 273 at radius 20 under the name, arrow at the icon; Emoji \| Icon and a trash; 56 glyphs 8 × 7 on a 31 pitch (Lucide's outlines), the Space's on a white 0.25 plate; Emoji tab a search and a scrolling 8-column grid of Unicode's groups, recents first, picked by click or ↩ (ours), only the emoji the system's font draws (CoreText, asked once a launch); grows in from the arrow and goes in one frame; Emoji ↔ Icon slides the content 273 over 0.2 s; hover white 0.12 on a glyph, the trash and the other segment *interim*, Arc's: measure | Arc 1.170.0 cap, Arc 1.170 rec |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
 | [x] | Undo delete | MVP | the toast says "Space deleted! Use ⌘Z to undo." for 5 s; ⌘Z brings the Space back where it was, with its tabs, and pages to it | Arc 1.170 rec |
+| [ ] | Export a Space as Markdown | MVP | the Space's menu and the command bar save its pinned tabs, folders nested, and Today tabs as a list of links, through the save panel; one Space a file where Arc's Export Data saves all in one. To tick: `./check.sh pinned`, which saves one and reads it back | Arc Settings, ours |
 | [x] | Undo delete motion | MVP | the switch's slide *interim*; Arc's: measure | Arc |
 | [x] | Agent Space kind in the data model | MVP | a Space is the user's or an agent's (the id and name its client gives) from when it's made, saved with the Spaces; no tab moves into an agent's; New Space makes the user's | decision 8, roadmap |
 | [ ] | Agent Space UI: switcher mark, confirm card, handoff card, take over, status, activity log, allowed sites with Revoke | 4 | ours to design; confirm times out 5 min, handoff 15 min | decision 8, Ours (prototype) |
@@ -237,6 +238,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Shortcuts tab | MVP | the browser's shortcuts by section, read-only | Ours |
 | [x] | Shortcuts search | MVP | a field over the Shortcuts tab's boxes finds a command by the starts of its name's words or by its keys, as "cmd d", "shift cmd a" or ⇧⌘A, filtering as typed; a box with nothing found hides, and "No Results" *interim*. Built; `./check.sh keys` searches by name and keys, passing on the Mac | Arc 1.170.0 Settings › Shortcuts (#682) |
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
+| [x] | Advanced › Export… | MVP | each of the user's Spaces' favorites, pinned tabs and folders as a Markdown file of links, saved where the user picks; no agent path. Built, and checked by `cargo test` (the file's text); `./check.sh pinned` clicks Export… with the folder holding its pinned tab, reads the file the run names in place of the save panel, and captures `export.png`, passing on the Mac | Arc 1.170.0 Settings › Advanced |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
 | [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit ilo?" in the dialog: "Quit, and don't ask again" at the left, Cancel ESC and a blue Quit ↩ at the right; no icon, so 172 tall where Arc's is 249; Dock and logout quits don't | Arc 1.170.0 cap, bin; Arc 1.170 rec |
 | [x] | Profiles tab | MVP | ours: a row per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile *interim*; Arc's: measure | Arc 1.170.0 cap |
@@ -309,10 +311,10 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
-| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
+| [x] | Eye reveal in pages | MVP | once the user types, never for a filled password. The core turns on Blink's PasswordReveal, and blurs an agent's tab's page as its session starts and as it's handed back. `./check.sh passwords` passes on the Mac: cdp.py sees the eye hidden for the password filled in, shown once one is typed, and hidden again with the field's focus (`password-reveal.png`) | Dia |
 | [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: our Settings' Passwords lists usernames only, so nothing asks for a check; Chrome's page should do it in a tab, unverified | Chrome |
 | [x] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. `check/passkeys.sh` registers and signs in on a local page with a virtual security key (DevTools' WebAuthn domain, in the check only), and checks the dialog that waits for the key is a child window centred across the page, which escape closes, with a capture (passkeys-dialog). Security keys need no entitlement; iCloud Keychain's passkeys need Apple's `com.apple.developer.web-browser.public-key-credential` | Chrome |
-| [ ] | No agent path | MVP | agents never read or fill these. Holds today, since no call returns them and there is no MCP server; ticks with its allowlist test | decision 8 |
+| [x] | No agent path | MVP | agents never read or fill these. Holds: no core call an agent makes returns them, Chrome fills and offers nothing in an agent's tab (chromium-core-agent-no-autofill.patch), and the MCP server's tools are a fixed list, each asking the core only for an action its allowlist has (agent_session.cc's RefusedAction). `cargo test`'s `agents_get_only_the_allowlisted_tools` calls each tool and fails on a new one or one asking for another action | decision 8 |
 
 ## Downloads
 
@@ -325,7 +327,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Recent downloads over the Library button | MVP | up to 4 finished, newest at the bottom, 56 apart: 40 pt preview or 26 pt icon at 8, name 15 pt at 61 over its age; ours: after a 0.5 s rest (its own, not the tooltip's 0.73 s), 0.15 s fade, a row acts as the Library's *interim*; tooltip with key chips and glyph motion: #189 | owner's Arc cap |
 | [x] | Fly-in | MVP | ours: 32 → 16 pt icon from under the URL field to the button on a slight arc, 0.45 s on cubic-bezier(0.55, 0, 0.85, 0.4), fading over the last 30 %; Arc's: measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
 | [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
-| [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
+| [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert on the Mac and the app's dialog in its words on Linux and Windows; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
 
 ## Find in page
 
@@ -382,7 +384,11 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Chrome: cookies | MVP | not imported: no other browser's cookies or passwords are decrypted, and the user signs in again | #453 |
 | [x] | Firefox, Zen, LibreWolf: bookmarks, history | MVP | ours: as Chrome's family's, from `places.sqlite` | ours |
 | [x] | Safari: bookmarks, Reading List, history | MVP | ours: as Chrome's family's, the Reading List as a folder | ours |
-| [ ] | Chrome: extensions | MVP | listed with store links, not installed. Not built. Next: the import reads the profile's extensions from its Preferences and lists the Web Store's with their store links, checked with an extension in the import run's made-up Chrome | P§20 |
+| [ ] | Chrome: extensions | MVP | listed with store links, not installed. Built for Chrome's family and Arc, from each profile's `Extensions` folder, and checked by `cargo test`. To tick: an extension in the import run's made-up Chrome, and a capture of the list | P§20 |
+| [ ] | Extensions keep their pins | MVP | one pinned in the other browser is pinned once it's added from the list (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a run that adds one from the store | Arc help |
+| [ ] | Another ad blocker | MVP | left off the extension list, as uBlock Origin is built in, said once with Add Anyway (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a capture of the line | Arc help |
+| [ ] | Choose bookmark folders | MVP | Choose folders, a checkbox a folder, all ticked (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a capture of the box and an import run that unticks one | Arc help |
+| [ ] | Suggested favorites | MVP | the first launch's Your favorites, after the import: the sites its history visited most, ticked, worked out on the machine and sent nowhere (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: the onboarding run with a made-up Chrome's history, and a capture of the step | Arc help |
 | [x] | Full Disk Access | MVP | explain, link to System Settings, re-check on return; Safari's | P§20 |
 | [x] | Rerun | MVP | adds nothing | P§20 |
 | [x] | Where Chrome bookmarks land | MVP | ours: a Space named after the browser, the bar's bookmarks pinned, or in a folder past 12; measure Arc's | ours |
@@ -395,6 +401,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Automatic checks | MVP | every 8 h (Ardia). Built: `SUScheduledCheckInterval` 28800. The updates run reads Sparkle's next check, 8 h from the last; needs its Mac run | Ardia |
 | [ ] | No install during full screen | MVP | waits. Built: `platform/mac/updates.mm` holds a scheduled check's update while a window is full screen and shows it once none is. The updates run checks both; needs its Mac run | Ardia P§24 |
 | [ ] | Release notes after an update | MVP | first launch. Built: `platform/mac/updates.mm` keeps the notes for `host_take_update_notes`. Not checked: only a prod build opens them, for https notes, and an update needs a signed app to install, so the updates run checks only the alert's notes | Ardia P§24 |
+| [ ] | Minimum macOS | MVP | 15 (Sequoia), the owner's call; Arc: 13. Built: `build.sh` sets `LSMinimumSystemVersion`, which generate_appcast puts in the feed's entry; README.md and release.yml's notes name it. To tick: `plutil -extract LSMinimumSystemVersion raw build/Browser.app/Contents/Info.plist` reads 15.0, and the next appcast's entry has `sparkle:minimumSystemVersion` | Arc help, #678 |
 | [ ] | Feed URL is a default service URL | MVP | forks can change it. Built: `branding/update-feed`, which `build.sh` puts in the prod build; the updates run's build checks a feed of its own the same way. No run reads the product's | principle 2 |
 
 ## Keyboard
