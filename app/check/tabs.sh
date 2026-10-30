@@ -607,7 +607,8 @@ expect '^browser: command bar go https://duckduckgo.com/?q=dogs' \
   "↩ in the site search didn't search DuckDuckGo: $went"
 expect '^browser: command bar hidden$' "↩ in the site search didn't close the command bar"
 # ⌥⌘⌫ takes the selected row out too, beside ⇧⌦, as Arc's does: here the search for dogs, typed
-# before.
+# before. Off the Mac it would be Ctrl+Alt+Backspace, which X11 can take to end the session, so
+# there ⇧⌦ alone does (command_bar.rs).
 dogs='https://duckduckgo.com/?q=dogs'
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
@@ -618,9 +619,14 @@ for _ in 1 2 3 4 5 6 7 8; do
   send key down
   grep '^browser: command bar selected' "$log" | tail -1 | grep -q " $dogs" && break
 done
-send key backspace alt cmd
-expect "^browser: command bar removes $dogs" "⌥⌘⌫ didn't take the search for dogs out"
-expect '^browser: command bar suggestions "dog" in ' "the command bar didn't list its rows again after ⌥⌘⌫"
+if [ "$(uname)" = Darwin ]; then
+  remove="backspace alt cmd" removed=⌥⌘⌫
+else
+  remove="delete shift" removed=⇧⌦
+fi
+send key $remove
+expect "^browser: command bar removes $dogs" "$removed didn't take the search for dogs out"
+expect '^browser: command bar suggestions "dog" in ' "the command bar didn't list its rows again after $removed"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # A sum's result is the row after the first, and ↩ on it copies the result, to a pasteboard of the
