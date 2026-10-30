@@ -109,7 +109,7 @@ expect '^browser: toast settled$' "Save to Library's toast didn't settle"
 
 # Window › View Media… opens the Library on Media, the capture its first tile, as the newest. A
 # click on the tile, under the first heading, opens it in a tab and closes the Library.
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: command view-media via ui$' "Window › View Media… didn't run"
 expect '^browser: library section media$' "View Media… didn't open the Library on Media"
 expect '^browser: library captures [1-9][0-9]*$' "Media didn't list the capture saved"
@@ -124,7 +124,7 @@ media=$(sed -n 's|^browser: loaded \([0-9]*\) file://.*\.png$|\1|p' "$log" | tai
 
 # A right-click on the tile offers Open and Delete, which moves the capture to the Trash, as the
 # downloads' Move to Trash does, and out of Media.
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: library shown$' "View Media… didn't open the Library again"
 post rightclick $((112 + 8 + 47)) $((56 + 27 + 47))
 expect "^browser: menu shown $(cased 'Open, Delete')\$" \
@@ -134,7 +134,7 @@ send choose Delete
 expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
 expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
 [ ! -e "$library" ] || fail "Delete left $library where it was"
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 # ⌘W closes the capture's tab, back to the long page, which a click gives the keyboard.
 send key w cmd
