@@ -178,6 +178,8 @@ struct DeletedSpace {
   std::vector<bc_id> today;
   // The tab or favorite the window showed there, or 0.
   bc_id shown = 0;
+  // Its place among the Spaces, which it comes back to.
+  size_t at = 0;
 };
 
 // The Spaces deleted, newest last, as many as the closed tabs.
@@ -939,6 +941,8 @@ bool Window::DeleteSpace(bc_id space) {
   // Before the windows leave it, so it keeps the tab the one active last showed there.
   DeletedSpace& deleted = DeletedSpaces().emplace_back();
   deleted.id = space;
+  const std::vector<Space*> all = Space::All();
+  deleted.at = static_cast<size_t>(std::ranges::find(all, space, &Space::id) - all.begin());
   deleted.shown = Order().empty() ? 0 : FromId(Order().front())->SelectedIn(space);
   deleted.saved = SaveSpace(**it, deleted.shown, &deleted.today);
   if (DeletedSpaces().size() > kMaxClosedTabs) {
@@ -1664,7 +1668,7 @@ bc_id Window::UndoDeleteSpace(bc_id id) {
     above = true;
   }
   space.saved.today = std::move(today);
-  RestoreSpace(*this, profile, space.saved, space.id);
+  RestoreSpace(*this, profile, space.saved, space.id, space.at);
   // Not one of the Space's own, which closed with it and came back as other tabs.
   if (Favorites::Has(space.shown) && !Favorites::SpaceOf(space.shown)) {
     SetSelectedIn(space.id, space.shown);

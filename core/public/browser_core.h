@@ -939,9 +939,10 @@ BC_EXPORT void bc_window_set_title(bc_id window, const char* title);
 // takes the user's focus.
 BC_EXPORT void bc_window_activate(bc_id window);
 
-// Makes an empty Space named |name|, in the profile the core started with, after the others. Any
-// window can show it. It's the user's. Then spaces_changed.
-BC_EXPORT bc_id bc_space_create(const char* name);
+// Makes an empty Space named |name|, in the profile the core started with, right after the Space
+// |after|, as Arc puts a new Space after the one shown, or after the others if |after| is 0 or
+// gone. Any window can show it. It's the user's. Then spaces_changed.
+BC_EXPORT bc_id bc_space_create(const char* name, bc_id after);
 
 // A Space is the user's or an agent's, from when it's made for as long as it lives, and saved with
 // it (decision 8). An agent is an AI client, such as Claude Code, driving the browser through the
