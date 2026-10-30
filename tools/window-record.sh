@@ -3,9 +3,30 @@
 # recording (menus, the command bar), as on screen, but nothing from other apps. For PRs whose
 # change moves: a screen recording would include whatever else is open on the owner's Mac.
 # Prints "recording" once frames are being written, so a caller can start the motion then.
+# On Linux it records check.sh's Xvfb, which holds nothing but the app, and refuses outside it.
 # Usage: tools/window-record.sh <pid> <seconds> <output.mp4>
 set -e
 [ $# -eq 3 ] || { echo "usage: $0 <pid> <seconds> <output.mp4>" >&2; exit 2; }
+if [ "$(uname)" = Linux ]; then
+  [ "${BROWSER_HEADLESS:-}" = xvfb ] ||
+    { echo "Records only check.sh's Xvfb (BROWSER_XVFB)." >&2; exit 1; }
+  kill -0 "$1" 2>/dev/null || { echo "process $1 isn't running" >&2; exit 1; }
+  progress=$(mktemp)
+  # The fastest preset, as the app draws on the same CPU, with lavapipe, while it records.
+  ffmpeg -nostdin -loglevel error -y -f x11grab -draw_mouse 0 -framerate 60 -i "$DISPLAY" \
+    -t "$2" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -progress "$progress" "$3" &
+  recorder=$!
+  # ffmpeg reports its frames each half second, the first report once it has written some.
+  until grep -q '^frame=[1-9]' "$progress"; do
+    kill -0 "$recorder" 2>/dev/null || break
+    sleep 0.05
+  done
+  status=0
+  grep -q '^frame=[1-9]' "$progress" && echo recording
+  wait "$recorder" || status=$?
+  rm -f "$progress"
+  exit "$status"
+fi
 PID="$1" SECONDS_LONG="$2" OUT="$3" swift - <<'SWIFT'
 import Foundation
 import ScreenCaptureKit
