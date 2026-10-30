@@ -280,6 +280,17 @@ pub fn show_undo(text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mu
     show_with_buttons(text, vec![undo], time, cx);
 }
 
+/// Whether a toast with `text` shows and isn't leaving, so a question asked again isn't shown
+/// twice.
+pub fn showing(text: &str, cx: &App) -> bool {
+    let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
+        return false;
+    };
+    (window.read(cx).ok())
+        .and_then(|toast| toast.shown.as_ref())
+        .is_some_and(|shown| shown.leaving.is_none() && shown.text == text)
+}
+
 /// The undo it offered has been done some other way: its toast goes, if it shows.
 pub fn hide_undo(cx: &mut App) {
     let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
