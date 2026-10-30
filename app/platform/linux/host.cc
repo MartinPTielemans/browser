@@ -498,7 +498,9 @@ bool host_trash(const char* path) {
   return access(path, F_OK) != 0 && errno == ENOENT;
 }
 
-// shortcut: no video playback yet; Media's video tiles show their icon.
+// shortcut: no video playback yet; Media's video tiles show their icon. When they play, it's to be
+// through Chromium's own decoder in the core, not a system library such as GStreamer, whose
+// codecs vary by distribution.
 void* host_video_open(const char*, int) {
   return nullptr;
 }
