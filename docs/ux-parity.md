@@ -114,6 +114,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
 | [x] | ⌃Tab | MVP | the tab used last, at once, no switcher; with ⌃ held, on back (ours) | Arc rec |
 | [x] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
+| [ ] | Include Favorites in ⌘1–⌘8 | MVP | Settings › Shortcuts switch, on by default; off, ⌘1–⌘8 start after the favorites. Built (#682): `shell/favorites_scope.rs`, `shell/keys.rs`; needs its Mac run | Arc 1.170 Settings, owner (2026-10-29) |
 | [x] | Rename | MVP | double-click or Rename Tab renames inline; the name shows over the page's title and is kept across a quit; an empty one gives the title back | Dia P§2, ours |
 | [x] | Emoji icon | MVP | Change Icon… hangs the Space icon picker's Emoji tab (search, recents, grid) under the favicon; the emoji picked is the icon, kept as a name is, and Remove Icon or the picker's trash gives the favicon back. Dia's picker: measure | Dia P§2, ours |
 | [x] | Tab context menu | MVP | shortcut hints. A Today tab's is Arc's: Copy Link ⇧⌘C, Share › · Change Icon…, Rename…, Mute · Add Split View, Duplicate, Move to › (Spaces, New Space…) · Archive Tab, Archive Tabs Below, without Customize Page… until its feature. A pinned tab's: Unpin, Add to Favorites, Back to Pinned URL, Pinned URL › (Arc's), Rename, Duplicate, Move to Space, Close *interim* until Arc's is measured | Dia P§2, Arc 1.170.0 ax |
