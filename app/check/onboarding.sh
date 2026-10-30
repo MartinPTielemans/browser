@@ -1,7 +1,7 @@
 # A new profile's first launch plays the onboarding over the window, captured at each step in a
 # light and a dark appearance: the intro draws ilo's wordmark and its line and goes on by itself,
-# or at any key; the import step lists the made-up Arc in src/import/fixture, never the Mac's own
-# browsers; Esc or Skip goes on from a step, the colour step's Return gives the first Space the
+# or at any key; the import step lists the made-up Arc in src/import/fixture on the Mac and a
+# made-up Chrome elsewhere, never the machine's own browsers; Esc or Skip goes on from a step, the colour step's Return gives the first Space the
 # swatch picked, and the last step leaves the flow for the first Space's welcome with the command
 # bar up and a line under it. The default browser's step shows only while ilo isn't the default,
 # and the opt-ins' only once the build offers one; both are only ever skipped, so the run changes
@@ -12,7 +12,21 @@
 
 serve
 # The import step reads the fixture's home, set for each launch so the runs after keep their own.
+# The fixture is a Mac's home, so on Linux the home is one with a Chrome holding a bookmark, written
+# here, as the import run writes its own.
 fixture="$PWD/src/import/fixture"
+fixture_browser=Arc
+if [ "$(uname)" = Linux ]; then
+  fixture="$out/onboarding-home"
+  chrome="$fixture/.config/google-chrome"
+  mkdir -p "$chrome/Default"
+  printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' > "$chrome/Local State"
+  printf '%s' '{}' > "$chrome/Default/Preferences"
+  printf '%s' '{"roots": {"bookmark_bar": {"type": "folder", "name": "Bookmarks bar", "children":
+    [{"type": "url", "name": "Example", "url": "https://example.org/"}]}}, "version": 1}' \
+    > "$chrome/Default/Bookmarks"
+  fixture_browser=Chrome
+fi
 # Captures the window as onboarding-$1.png.
 capture_step() {
   ../tools/window-screenshot.sh "$pid" "$out/onboarding-$1.png" || fail "no window to capture"
@@ -24,7 +38,7 @@ launch_new() {
   step=0
   rm -f "$saved"
   BROWSER_IMPORT_HOME="$fixture" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
-    "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+    "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await '^browser: onboarding step intro settled$' || fail "$1: the intro didn't draw"
@@ -41,7 +55,8 @@ grep -q '^browser: onboarding started$' "$log" || fail "a new profile didn't sta
 capture_step light-intro
 await '^browser: onboarding left intro via time$' || fail "light: the intro didn't go on by itself"
 await '^browser: onboarding step import settled$' || fail "light: the import step didn't come"
-grep -q '^browser: import found Arc$' "$log" || fail "light: the import step didn't find the fixture's Arc"
+grep -q "^browser: import found $fixture_browser\$" "$log" ||
+  fail "light: the import step didn't find the fixture's $fixture_browser"
 for each in $steps; do
   [ "$each" = intro ] && continue
   # The import came before any key, so it's been waited for already.
@@ -63,7 +78,7 @@ quit
 # the run not skipping it.
 log="$out/onboarding-relaunch.log"
 step=0
-BROWSER_DRIVE=1 BROWSER_ONBOARDING=light "$app/Contents/MacOS/Browser" < "$out/drive" \
+BROWSER_DRIVE=1 BROWSER_ONBOARDING=light "$browser" < "$out/drive" \
   > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -155,4 +170,4 @@ expect '^browser: command bar shown$' "the replay in its own window didn't end w
 exec 3>&-
 quit
 
-echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's Arc, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"
+echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's $fixture_browser, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"
