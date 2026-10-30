@@ -97,8 +97,9 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
       done
       ../tools/window-screenshot.sh "$pid" "$out/passkeys-stuck.png" all || true
       title=$(grep "^browser: title $tab " "$log" | tail -1 | cut -d' ' -f4-)
-      fail "$3, its title $title, the keyboard in $sent_key on $sent_focus as the key went:" \
-        "$out/passkeys-stuck.png"
+      heard=$(grep '^cdp: ' "$cdp_log" | tail -2 | tr '\n' ';')
+      fail "$3, its title $title, the keyboard in $sent_key on $sent_focus as the key went," \
+        "DevTools' last: $heard $out/passkeys-stuck.png"
     }
     # Chrome closes its dialog once the request is over, a moment after the page hears, and until
     # it has gone the dialog has the keyboard and the page ignores keys (Chromium's
@@ -117,17 +118,28 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
       fail "after $1, Chrome's dialog didn't give the page back the keyboard: $now child windows" \
         "where there were $children, the keyboard in $key on $focus: $out/passkeys-stuck.png"
     }
-    # A key for the page, noting where the keyboard was as it went.
+    # A key for the page, noting where the keyboard was as it went. The page's title says $2 as
+    # it takes the key, so a key whose title doesn't come in 2 s was lost, and goes once more,
+    # which the run then reports.
+    lost=
     page_key() {
+      send key "$1"
+      sent_key=$key
+      sent_focus=$focus
+      for _ in $(seq 20); do
+        none_since "^browser: title $tab $2\$" || return 0
+        sleep 0.1
+      done
+      lost="$lost; \"$1\" with the keyboard in $sent_key on $sent_focus"
       send key "$1"
       sent_key=$key
       sent_focus=$focus
     }
     # The key is touched for each, so its dialog shows only as long as Chrome takes.
-    page_key r
+    page_key r registering
     ceremony registered "credential added" "the page didn't register a passkey"
     page_has_keyboard registering
-    page_key s
+    page_key s "signing in"
     ceremony "signed in" "credential asserted" "the page didn't sign in with its passkey"
     page_has_keyboard "signing in"
     # Untouched, the key leaves Chrome's dialog up, asking for it.
@@ -170,7 +182,8 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
     quit
     echo "ok: a local page registered a passkey on a virtual security key and signed in with it," \
       "and untouched, the key left Chrome's dialog up, a child window at $dialog centred across" \
-      "the page at $view, which escape closed. Window: $out/passkeys-dialog.png"
+      "the page at $view, which escape closed${lost:+. The page lost a key, sent again$lost}." \
+      "Window: $out/passkeys-dialog.png"
   fi
   kill "$helper" 2>/dev/null || true
   helper=
