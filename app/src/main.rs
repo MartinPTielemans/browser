@@ -2802,31 +2802,7 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
-/// Diagnostic for #683's profiles check: with BROWSER_DRIVE, each key Chromium asks the app about,
-/// and whether the app took it, logged before as well, in case answering never returns.
-fn log_page_key(when: &str, tab: bc::bc_id, key: *const bc::bc_key, taken: Option<bool>) {
-    static DRIVEN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *DRIVEN.get_or_init(|| std::env::var_os("BROWSER_DRIVE").is_some()) {
-        let keystroke = keystroke(unsafe { &*key });
-        match taken {
-            None => log!("browser: page key {when} {tab} {keystroke:?} asked"),
-            Some(taken) => log!("browser: page key {when} {tab} {keystroke:?} taken {taken}"),
-        }
-    }
-}
-
 unsafe extern "C" fn tab_key_before_page(
-    context: *mut c_void,
-    tab: bc::bc_id,
-    key: *const bc::bc_key,
-) -> bool {
-    log_page_key("before", tab, key, None);
-    let taken = unsafe { take_key_before_page(context, tab, key) };
-    log_page_key("before", tab, key, Some(taken));
-    taken
-}
-
-unsafe fn take_key_before_page(
     _: *mut c_void,
     tab: bc::bc_id,
     key: *const bc::bc_key,
@@ -2866,11 +2842,7 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
-    log_page_key("after", tab, key, None);
-    let taken =
-        link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false));
-    log_page_key("after", tab, key, Some(taken));
-    taken
+    link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 
 /// Opens a browser window and returns its id, with `ui_view` filling it under the page: the first
