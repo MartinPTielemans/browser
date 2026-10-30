@@ -4998,6 +4998,10 @@ fn show_archive_note(cx: &mut App) {
         run: Rc::new(|_, _| unsafe { bc::bc_dismiss_archive_note() }),
     };
     let text = format!("Tabs unseen for {} went to the archive.", settings::archive_after_words());
+    // Launch shows it once the toast's window is made, and the core's change can ask again.
+    if toast::showing(&text, cx) {
+        return;
+    }
     toast::show_until_answered(&text, vec![view, dismiss], cx);
 }
 
