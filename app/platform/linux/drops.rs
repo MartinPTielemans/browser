@@ -1,12 +1,13 @@
-//! Drags from other apps onto the UI under X11, as host_take_drops says (freedesktop.org's XDND,
-//! version 5). A source hands its drag to the top-level window under the pointer, which is
-//! Chromium's, whose Aura hands drops only to pages, and Chromium's own drags go to the deepest
-//! named window, which may be the UI's. So the XdndProxy of each browser window and of its UI's
-//! windows names a window of the app's, which takes the drag where the UI is and hands it on to
-//! Chromium's window where a page is. Chromium answers whichever window its messages say they come
-//! from, so the proxy stands in for the source there, and passes Chromium's answers back.
-//! shortcut: under Wayland, where the UI's surface would take drags through the data device, the
-//! UI takes none yet.
+//! Drags from other apps onto the UI, as host_take_drops says.
+//! Under X11 (freedesktop.org's XDND, version 5), a source hands its drag to the top-level window
+//! under the pointer, which is Chromium's, whose Aura hands drops only to pages, and Chromium's own
+//! drags go to the deepest named window, which may be the UI's. So the XdndProxy of each browser
+//! window and of its UI's windows names a window of the app's, which takes the drag where the UI is
+//! and hands it on to Chromium's window where a page is. Chromium answers whichever window its
+//! messages say they come from, so the proxy stands in for the source there, and passes Chromium's
+//! answers back.
+//! Under Wayland the compositor hands a drag to the surface under the pointer, the page's
+//! Chromium's and the UI's GPUI's, whose data device hands it here (`take_embedder_drops`).
 
 use std::{
     cell::{Cell, RefCell},
@@ -96,6 +97,42 @@ thread_local! {
 #[unsafe(no_mangle)]
 pub extern "C" fn host_take_drops(dragged: Dragged) {
     DRAGGED.set(Some(dragged));
+    gpui_linux::take_embedder_drops(&TYPES, dropped);
+}
+
+/// The types the UI reads a drag as: its links and files, else its text.
+const TYPES: [&str; 4] = [
+    "text/uri-list",
+    "UTF8_STRING",
+    "text/plain;charset=utf-8",
+    "text/plain",
+];
+
+/// A drag under Wayland, over the UI in the browser window whose surface is `view`.
+fn dropped(
+    view: *mut c_void,
+    drag: gpui_linux::EmbedderDrag,
+    x: f32,
+    y: f32,
+    carried: Option<(&str, &[u8])>,
+) -> bool {
+    let items = carried.map_or_else(Vec::new, |(kind, data)| items(kind == TYPES[0], data));
+    let (x, y) = (f64::from(x), f64::from(y));
+    match drag {
+        gpui_linux::EmbedderDrag::Over => {
+            !items.is_empty() && tell(view, platform::DRAG_OVER, x, y, &items)
+        }
+        gpui_linux::EmbedderDrag::Left => {
+            tell(view, DRAG_LEFT, x, y, &[]);
+            false
+        }
+        gpui_linux::EmbedderDrag::Dropped => {
+            let taken = !items.is_empty() && tell(view, platform::DRAG_DROP, x, y, &items);
+            // After a drop too, as the Mac's draggingEnded, which the UI keeps.
+            tell(view, DRAG_LEFT, x, y, &[]);
+            taken
+        }
+    }
 }
 
 fn proxy() -> Option<Rc<Proxy>> {
@@ -304,9 +341,9 @@ fn handle(proxy: &Proxy, message: &ClientMessageEvent) {
                 let taken = drag
                     .items
                     .as_ref()
-                    .is_some_and(|items| tell(ui, platform::DRAG_DROP, x, y, items));
+                    .is_some_and(|items| tell_ui(ui, platform::DRAG_DROP, x, y, items));
                 // After a drop too, as the Mac's draggingEnded, which the UI keeps.
-                tell(ui, DRAG_LEFT, x, y, &[]);
+                tell_ui(ui, DRAG_LEFT, x, y, &[]);
                 let action = if taken { atoms.XdndActionCopy } else { 0 };
                 to_source(
                     proxy,
@@ -337,7 +374,7 @@ fn leave(proxy: &Proxy, drag: &mut Drag, over: Option<Over>) {
         to_page(proxy, left, proxy.atoms.XdndLeave, [0; 5]);
     }
     if let Some(left) = ui(drag.over).filter(|&left| ui(over) != Some(left)) {
-        tell(left, DRAG_LEFT, 0, 0, &[]);
+        tell_ui(left, DRAG_LEFT, 0, 0, &[]);
     }
     if let Some(came) = page(over).filter(|&came| page(drag.over) != Some(came)) {
         to_page(proxy, came, proxy.atoms.XdndEnter, drag.enter);
@@ -396,7 +433,7 @@ fn type_list(proxy: &Proxy, source: xproto::Window) -> Vec<xproto::Atom> {
         .unwrap_or_default()
 }
 
-/// The type the UI reads the drag as: its links and files, else its text.
+/// The first of TYPES the drag has.
 fn wanted(proxy: &Proxy, drag: &Drag) -> Option<xproto::Atom> {
     let atoms = &proxy.atoms;
     [
@@ -432,7 +469,9 @@ fn read_items(proxy: &Proxy, property: xproto::Atom) {
                 .ok()
         })
         .flatten();
-    let items = reply.map_or_else(Vec::new, |reply| items(proxy, reply.type_, &reply.value));
+    let items = reply.map_or_else(Vec::new, |reply| {
+        items(reply.type_ == proxy.atoms.URI_LIST, &reply.value)
+    });
     read_done(proxy, items);
 }
 
@@ -446,11 +485,12 @@ fn read_done(proxy: &Proxy, items: Vec<(String, bool)>) {
     });
 }
 
-/// The links and files in `data`, of type `kind`, as the Mac's HostUIView reads them: the files a
-/// URI list holds, else its links, else the text, trimmed, which the UI opens only if it's a link.
-fn items(proxy: &Proxy, kind: xproto::Atom, data: &[u8]) -> Vec<(String, bool)> {
+/// The links and files in `data`, a URI list or text, as the Mac's HostUIView reads them: the
+/// files a URI list holds, else its links, else the text, trimmed, which the UI opens only if it's
+/// a link.
+fn items(uri_list: bool, data: &[u8]) -> Vec<(String, bool)> {
     let text = String::from_utf8_lossy(data);
-    if kind == proxy.atoms.URI_LIST {
+    if uri_list {
         let urls: Vec<&str> = (text.lines().map(str::trim))
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
             .collect();
@@ -479,7 +519,7 @@ fn answer(proxy: &Proxy, drag: &Drag) {
         return;
     };
     let items = drag.items.as_deref().unwrap_or_default();
-    let taken = !items.is_empty() && tell(ui, platform::DRAG_OVER, x, y, items);
+    let taken = !items.is_empty() && tell_ui(ui, platform::DRAG_OVER, x, y, items);
     let action = if taken { proxy.atoms.XdndActionCopy } else { 0 };
     // Bit 1 asks for each move, as the UI's drop line follows the pointer.
     to_source(
@@ -491,7 +531,14 @@ fn answer(proxy: &Proxy, drag: &Drag) {
 }
 
 /// Calls the UI's `dragged` for the UI's window `ui`, at (`x`, `y`) in its pixels.
-fn tell(ui: xproto::Window, phase: c_int, x: i16, y: i16, items: &[(String, bool)]) -> bool {
+fn tell_ui(ui: xproto::Window, phase: c_int, x: i16, y: i16, items: &[(String, bool)]) -> bool {
+    let scale = unsafe { bc::bc_display_scale() };
+    let (x, y) = (f64::from(x) / scale, f64::from(y) / scale);
+    tell(ui as usize as *mut c_void, phase, x, y, items)
+}
+
+/// Calls the UI's `dragged` for the UI's view `view`, at (`x`, `y`) in its points.
+fn tell(view: *mut c_void, phase: c_int, x: f64, y: f64, items: &[(String, bool)]) -> bool {
     let Some(dragged) = DRAGGED.get() else {
         return false;
     };
@@ -504,13 +551,5 @@ fn tell(ui: xproto::Window, phase: c_int, x: i16, y: i16, items: &[(String, bool
             file,
         })
         .collect();
-    let scale = unsafe { bc::bc_display_scale() };
-    dragged(
-        ui as usize as *mut c_void,
-        phase,
-        f64::from(x) / scale,
-        f64::from(y) / scale,
-        items.as_ptr(),
-        items.len(),
-    )
+    dragged(view, phase, x, y, items.as_ptr(), items.len())
 }

@@ -309,7 +309,9 @@ send clickkey 373 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 300 120
 send type new tab
-expect '^browser: shortcuts search "new tab" finds New Tab$' "the search didn't find New Tab by name"
+# Paste URL as New Tab has the words too, under it.
+expect '^browser: shortcuts search "new tab" finds New Tab, Paste URL as New Tab$' \
+  "the search didn't find New Tab by name"
 send key a cmd
 send type cmd t
 expect '^browser: shortcuts search "cmd t" finds New Tab, Restore Last Closed Tab$' \
