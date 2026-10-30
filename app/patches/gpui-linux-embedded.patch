@@ -142,10 +142,10 @@ index 0000000000..846d17431f
 +}
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..bf131e70a1
+index 0000000000..aa227363dd
 --- /dev/null
 +++ b/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,875 @@
+@@ -0,0 +1,903 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -887,6 +887,22 @@ index 0000000000..bf131e70a1
 +    });
 +}
 +
++/// The overlay but `view` that takes the keys in an op still to run.
++#[cfg(feature = "x11")]
++fn next_to_take_keys(view: usize) -> Option<usize> {
++    OPS.with_borrow(|ops| {
++        ops.iter().find_map(|op| match op {
++            Op::Show { view: next, keyboard: true, .. }
++            | Op::Keyboard { view: next, keyboard: true }
++                if *next != view =>
++            {
++                Some(*next)
++            }
++            _ => None,
++        })
++    })
++}
++
 +/// Stacks the overlay `under` directly under the overlay `over`, both showing.
 +#[allow(unused_variables)]
 +fn place_under(under: usize, over: usize, connection: &DisplayConnection) {
@@ -981,6 +997,18 @@ index 0000000000..bf131e70a1
 +                        Some(all.remove(at).1)
 +                    });
 +                    let from = from.unwrap_or(0);
++                    // The overlay that takes the keys next, such as the command bar a menu's item
++                    // opens, takes them from this one, to give back where this one had them from.
++                    // Given back in between, wlroots 0.17's Xwayland would put the input focus on
++                    // that window's top-level once the next overlay had it, as it does each time
++                    // the focus comes into a top-level, and the next one would close.
++                    if from != x11rb::NONE
++                        && let Some(next) = next_to_take_keys(view)
++                    {
++                        focus_from(next, from);
++                        x11.hide_overlay(view as _, x11rb::NONE).log_err();
++                        return;
++                    }
 +                    // The user left the overlay that had the keys before, such as a find bar under
 +                    // the command bar, which would wait for them back.
 +                    if x11.hide_overlay(view as _, from).log_err() == Some(true) {
