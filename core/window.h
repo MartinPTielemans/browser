@@ -104,7 +104,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // pane to the app's card under it.
   static void LayOutShowing(bc_id tab);
   // Has each window showing |tab| show its page's view, which went from one engine's to the
-  // other's (Tab::PageViewOf).
+  // other's (Tab::PageViewOf), or to a new renderer's after Reload ended a hung one.
   static void PageViewChanged(bc_id tab);
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.

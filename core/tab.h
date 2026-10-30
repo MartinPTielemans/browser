@@ -320,6 +320,8 @@ class Tab : public content::WebContentsObserver,
   int hung_process_ = 0;
   // A reload waiting for the hung renderer Reload ended to go.
   std::optional<bool> reload_after_kill_;
+  // That reload's page gets the keyboard back once its new renderer is ready.
+  bool focus_when_ready_ = false;
   // Chromium's net error code while the page is its error page, else 0.
   int net_error_ = 0;
   // The page base colour the tab last gave its pages, if not Chrome's.
