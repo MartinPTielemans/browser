@@ -20,9 +20,9 @@
 # a new tab.
 
 # Four unpacked extensions of the check's own, loaded as a developer loads one. A click on the
-# first gives the tab it's on a badge, opens a pop-up window of its own as MetaMask's confirmations
-# do, which it closes once it has seen it's a window with one tab, then opens its page, which says
-# what it saw, and its command ⇧⌘Y opens another. The
+# first gives the tab it's on a badge, then opens its page, which opens a pop-up window of its own
+# as MetaMask's confirmations do and closes it once it has seen it's a window with one tab, saying
+# so in its title, and its command ⇧⌘Y opens another. The
 # second's popup gives it a badge on every tab, and ⌥⇧P opens it. The third has a popup and
 # options, and suggests ⌘J, Jump to Selection's key, which Chrome gives away, for a command. The
 # check removes it, and the next loads it again, as Chrome leaves an unpacked extension's folder.
@@ -31,15 +31,12 @@
 extensions="$PWD/$out/extensions"
 script='chrome.action.onClicked.addListener(async tab => {
   await chrome.action.setBadgeText({tabId: tab.id, text: "7"});
-  const made = await chrome.windows.create(
-    {type: "popup", url: "made.html", width: 360, height: 240, focused: false});
-  const tabs = await chrome.tabs.query({windowId: made.id});
-  await chrome.windows.remove(made.id);
-  chrome.tabs.create({url: `clicked.html#${made.type}-${tabs.length}`});
+  chrome.tabs.create({url: "clicked.html"});
 });
 chrome.commands.onCommand.addListener(() => chrome.tabs.create({url: "command.html"}));'
 # Chrome keeps running the script it first registered for an extension, so a changed script is a
-# new extension, in a folder of its own.
+# new extension, in a folder of its own. In a profile the check ran in before, the old one still
+# holds ⇧⌘Y and the new one gets no key, so what changes goes in its page's script instead.
 clicked_dir="$extensions/clicked-$(printf %s "$script" | cksum | cut -d' ' -f1)"
 mkdir -p "$clicked_dir" "$extensions/popup" "$extensions/third" "$extensions/panel"
 printf '%s\n' "$script" > "$clicked_dir/background.js"
@@ -48,7 +45,16 @@ cat > "$clicked_dir/manifest.json" << 'EOF'
  "background": {"service_worker": "background.js"},
  "commands": {"hello": {"suggested_key": {"default": "Ctrl+Shift+Y"}, "description": "Hello"}}}
 EOF
-echo '<title>clicked</title>' > "$clicked_dir/clicked.html"
+echo '<title>clicked</title><script src="clicked.js"></script>' > "$clicked_dir/clicked.html"
+cat > "$clicked_dir/clicked.js" << 'EOF'
+(async () => {
+  const made = await chrome.windows.create(
+    {type: "popup", url: "made.html", width: 360, height: 240, focused: false});
+  const tabs = await chrome.tabs.query({windowId: made.id});
+  await chrome.windows.remove(made.id);
+  document.title = `clicked ${made.type}-${tabs.length}`;
+})();
+EOF
 echo '<title>made</title>' > "$clicked_dir/made.html"
 echo '<title>command</title>' > "$clicked_dir/command.html"
 cat > "$extensions/popup/manifest.json" << 'EOF'
@@ -114,7 +120,7 @@ echo "$pinned" | grep -q '^browser: pinned extensions [0-9]* $' ||
 first=$(today | cut -d' ' -f1)
 # A just-installed extension's script adds its listener once it has run, and a click before then
 # goes unheard, so on a fresh profile it's chosen until it's heard.
-heard="^browser: loaded [0-9]* chrome-extension://$clicked/clicked.html#"
+heard="^browser: loaded [0-9]* chrome-extension://$clicked/clicked.html\$"
 for _ in $(seq 10); do
   send menu "Check Clicked"
   expect "^browser: run extension $clicked ran\$" \
@@ -126,8 +132,10 @@ for _ in $(seq 10); do
 done
 none_since "$heard" && fail "Check Clicked didn't hear its click: it didn't open its page"
 # Its pop-up window is a window of its own, in its profile, as Chrome makes one, and not a tab.
-grep -q "^browser: loaded [0-9]* chrome-extension://$clicked/clicked.html#popup-1\$" "$log" ||
-  fail "Check Clicked's pop-up window wasn't a window with its one tab: $(grep clicked.html "$log")"
+await '^browser: title [0-9]* clicked [a-z]*-[0-9]*$' ||
+  fail "Check Clicked's page didn't open its pop-up window"
+grep -q '^browser: title [0-9]* clicked popup-1$' "$log" ||
+  fail "Check Clicked's pop-up window wasn't a window with its one tab: $(grep 'title [0-9]* clicked ' "$log")"
 grep -q "chrome-extension://$clicked/made.html" "$log" &&
   fail "Check Clicked's pop-up window opened as a tab"
 # Pinned in the order pinned, on the extension's page's tab, where Check Clicked has no badge.
