@@ -972,10 +972,10 @@ BC_EXPORT bc_id bc_space_create(const char* name, bc_id after);
 // it (decision 8). An agent is an AI client, such as Claude Code, driving the browser through the
 // core. The rules its calls keep, once there are any:
 // - It works only in its own Space: bc_agent_may_act answers which tabs are its to act on, and
-//   bc_agent_list_tabs lists that Space's tabs alone. The user's tabs and favorites never are, and
-//   no tab moves into an agent's Space, by bc_tab_move_to_space or bc_tab_move, until the user can
-//   give an agent a tab, with its activity-log entry. A tab the user opens in one, while a window
-//   shows it, is the agent's like the rest.
+//   bc_agent_list_tabs lists that Space's tabs alone. The user's tabs and favorites never are,
+//   until the user gives an agent one (bc_tab_give_to_agent), and no tab moves into an agent's
+//   Space by bc_tab_move_to_space or bc_tab_move. A tab the user opens in one, while a window shows
+//   it, is the agent's like the rest.
 // - Its actions never move the user's focus: no window shows another Space or tab, and no page
 //   takes the keyboard, because of one.
 // - The user can watch it, as an agent's Space shows in the windows like the others, take over in
@@ -1072,7 +1072,10 @@ BC_EXPORT size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capac
 // in the agent's Space or its page isn't http(s). Through Chromium's DevTools protocol, inside the
 // browser, never a remote-debugging port, and never with the agent's own script. The tree leaves
 // out what fields hold: no node's value, and nothing under a field, where Chromium puts the text
-// typed or filled into it, and it marks password fields. A tab whose page the browser unloaded gets
+// typed or filled into it, and it marks password fields. It has the page's frames, each under the
+// element it's in, those from http(s) origins only: never an extension's or the browser's, nor
+// what's in one. An element in a frame in a process of its own has its frame above its DOM node's
+// id in the backendDOMNodeId, so ids stay unique. A tab whose page the browser unloaded gets
 // it back, not shown. While an agent works in a tab its page keeps drawing, hidden, as a tab Chrome
 // captures does, until a while after its last action or the end of its session there. Chrome's
 // autofill suggestions close before each input, so an agent's keys never fill the user's data.
@@ -1102,6 +1105,14 @@ BC_EXPORT bool bc_tab_hand_back(bc_id tab);
 
 // Whether the user holds |tab| from agents.
 BC_EXPORT bool bc_tab_held(bc_id tab);
+
+// The user gives the agent whose Space is |space| their |tab|, which moves there as
+// bc_tab_move_to_space moves a tab, and the agent may act in it as in its own from then on. Only
+// one of the user's tabs, into an agent's Space of the same profile, as the page goes as it is. A
+// hold on it from an earlier agent ends. Returns whether it moved. The user's: an agent never
+// takes the user's tabs, so agents get none. Moving the tab to a Space of the user's takes it
+// back.
+BC_EXPORT bool bc_tab_give_to_agent(bc_id tab, bc_id space);
 
 // The profile the Space's tabs open in, which its favorites are in.
 BC_EXPORT bc_id bc_space_profile(bc_id space);
@@ -2029,7 +2040,8 @@ BC_EXPORT void bc_tab_close_below(bc_id tab);
 // with it. A page can't take its cookies and logins to another profile, so into another profile's
 // Space the tab goes as a new one, with its history, name and mute, which loads once it's shown.
 // The old one closes, kept out of the archive and ⇧⌘T's tabs, as it lives on in the new one; then
-// tab_closed. Nothing moves into an agent's Space: a tab leaves one only.
+// tab_closed. Nothing moves into an agent's Space: a tab leaves one only, unless the user gives an
+// agent the tab (bc_tab_give_to_agent).
 BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 
 // Zooms the tab's page in (|step| 1) or out (-1) to Chrome's next level, or back to 100 % (0), for

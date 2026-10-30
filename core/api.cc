@@ -497,6 +497,23 @@ bool bc_tab_take_back(bc_id tab) {
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
 }
 
+bool bc_tab_give_to_agent(bc_id tab, bc_id space) {
+  browser_core::Space* from = browser_core::Space::Holding(tab);
+  browser_core::Space* to = browser_core::Space::FromId(space);
+  // The page goes as it is, with its profile's logins, so never into another profile's Space,
+  // where it would load again.
+  if (!from || from->agent() || !to || !to->agent() || from->profile() != to->profile()) {
+    return false;
+  }
+  browser_core::Window::MoveToSpace(tab, space, /*to_agent=*/true);
+  if (browser_core::Space::Holding(tab) != to) {
+    return false;
+  }
+  // One the user took back from an agent before is the agent's now.
+  browser_core::HandBack(tab);
+  return true;
+}
+
 bool bc_agent_hand_off(const char* agent, bc_id tab) {
   if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || browser_core::IsHeld(tab)) {
     return false;

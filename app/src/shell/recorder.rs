@@ -1083,6 +1083,10 @@ impl Browser for Recorder {
         self.record(format!("hand back {tab}"));
     }
 
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        self.record(format!("give {tab} to {space}"));
+    }
+
     fn stop_agent(&self, agent: SharedString, _: &mut App) {
         self.record(format!("stop agent {agent}"));
     }
