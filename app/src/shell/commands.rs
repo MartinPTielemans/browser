@@ -1281,7 +1281,8 @@ impl Shell {
     /// The clipboard's web link, read now, as one URL to open, or None for anything else.
     pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
         let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
-        let urls = dropped_urls([(text.trim(), false)]);
+        // Text that isn't a web link opens nothing here, not a search, as Arc's ⌥⌘V does.
+        let urls = dropped_urls([(text.trim(), false)], |_| None);
         if urls.is_empty() {
             // check.sh reads this line.
             log!("browser: pasted no URL");
