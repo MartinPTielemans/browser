@@ -365,8 +365,18 @@ done
 ../tools/window-screenshot.sh "$pid" "$out/task-manager.png" all || fail "no window to capture"
 expect "$managed" "Open Task Manager didn't show Chrome's"
 send key w cmd
-expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"
-send state
+if [ "$(uname)" = Linux ]; then
+  # Off the Mac the Task Manager is Chromium's own window, which takes Ctrl+W itself, as Chrome's,
+  # and the window manager gives the keyboard back once it's gone.
+  for _ in $(seq 100); do
+    send state
+    [ "$key" = BrowserCoreNSWindow ] && break
+    sleep 0.1
+  done
+else
+  expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"
+  send state
+fi
 in_browser RenderWidgetHostViewCocoa "after ⌘W closed the Task Manager"
 [ "$(today)" = "$second $first $source" ] || fail "⌘W in the Task Manager closed a tab"
 quit_by_key
