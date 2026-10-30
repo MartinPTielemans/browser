@@ -418,8 +418,9 @@ if [ "$(uname)" = Linux ]; then
     x <= px && x + w >= px + pw && 2 * x + w <= 2 * px + pw + 4" \
     "Ctrl with a scroll didn't grow the Mini Player in place"
   ../tools/window-screenshot.sh "$pid" "$out/mini-player.png" || fail "no window to capture"
-  send click $page_point
-  shown "$b"
+  # By its row: ⌘ and a number in the page whose video floats shows no tab on Linux yet.
+  send click $(row $(($(today | tr ' ' '\n' | grep -nx "$b" | cut -d: -f1) - 1)))
+  expect "^browser: selected $b in " "a click on its row didn't show tab $b of \"$(today)\""
   send pip doubleclick $((pw / 2)) $((ph / 4))
   expect "^browser: selected $v\( in .*\)\{0,1\}\$" \
     "a double-click on the Mini Player didn't show its tab"
