@@ -2660,7 +2660,11 @@ void host_show_link_preview(void* ui_view) {
   });
 }
 
-void host_link_preview_drew(double left, double top, double width, double height,
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double,
                             double opacity) {
   // Posted, so the page takes the frame the UI is drawing now.
   dispatch_async(dispatch_get_main_queue(), ^{

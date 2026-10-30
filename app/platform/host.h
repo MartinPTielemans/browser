@@ -316,8 +316,14 @@ void* host_add_link_preview(void* view, void (*dismissed)(void));
 void host_show_link_preview(void* ui_view);
 
 // The UI drew a frame of the link preview's motion, with its page at |left|, |top|, |width| by
-// |height| from the window's top left and at |opacity|, which the page's view follows.
-void host_link_preview_drew(double left, double top, double width, double height, double opacity);
+// |height| from the window's top left, with corners of |radius|, and at |opacity|, which the page's
+// view follows. Where the page shows under the preview's window, it's the hole the window has.
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double radius,
+                            double opacity);
 
 // The link preview takes no more clicks or keys as it leaves: the mouse goes through it, and the
 // browser window gets the keyboard back, with the focus where it was, if it had it.

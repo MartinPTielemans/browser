@@ -1517,7 +1517,7 @@ void* host_add_link_preview(void*, void (*)(void)) {
 
 void host_show_link_preview(void*) {}
 
-void host_link_preview_drew(double, double, double, double, double) {}
+void host_link_preview_drew(double, double, double, double, double, double) {}
 
 void host_release_link_preview(void) {}
 
