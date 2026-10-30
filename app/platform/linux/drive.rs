@@ -316,6 +316,13 @@ fn within(
     false
 }
 
+/// Whether `window` and the windows it's in are mapped.
+fn viewable(connection: &RustConnection, window: xproto::Window) -> bool {
+    (connection.get_window_attributes(window).ok())
+        .and_then(|cookie| cookie.reply().ok())
+        .is_some_and(|a| a.map_state == xproto::MapState::VIEWABLE)
+}
+
 /// The overlay, Settings or the browser window the X server's input focus is in, if it's the
 /// app's, with the focus, and Settings' window.
 enum Keyboard {
@@ -821,13 +828,14 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
     let x = server()?;
     let (connection, root) = &*x;
     // As the X server picks it: the window under the pointer when that's in the focus window, else
-    // the focus window.
+    // the focus window. A panel hidden under the pointer, as the find bar after its close button,
+    // is under it no more.
     let window = match keyboard_window() {
         Some(
             Keyboard::Overlay(focus) | Keyboard::Settings(_, focus) | Keyboard::Browser(_, focus),
         ) => (HOVERED.get())
             .map(|hovered| hovered.window)
-            .filter(|&hovered| within(connection, hovered, focus))
+            .filter(|&hovered| viewable(connection, hovered) && within(connection, hovered, focus))
             .unwrap_or(focus),
         None => driven()?.window,
     };
