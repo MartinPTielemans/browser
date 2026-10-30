@@ -10,6 +10,9 @@ use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
 };
 
+use crate::theme::Appearance;
+use crate::build_info::{self, BuildInfo};
+
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
@@ -123,6 +126,8 @@ pub enum Command {
     RenameSpace,
     /// Opens the theme picker for the Space shown, as its menu's Edit Theme Color… does.
     EditTheme,
+    /// Saves the Space shown's pinned tabs, folders and Today tabs as Markdown links.
+    ExportSpace,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
@@ -181,6 +186,18 @@ pub enum Command {
     Passwords,
     /// Plays a new profile's first launch again.
     Welcome,
+    /// Gives every window this appearance where its Space's theme doesn't choose one, in place of
+    /// the system's (View › Appearance).
+    Appearance(Appearance),
+    /// Opens a new issue on the bug report form in a tab, its version and system fields filled
+    /// with the build's details. Nothing is sent until the user submits it.
+    ReportProblem,
+    /// Copies the build's details: the version, the engine's, the system's and the chip.
+    CopyBuildInfo,
+    /// Opens the site's help in a tab.
+    HelpCenter,
+    /// Opens the site's release notes in a tab.
+    WhatsNew,
     Quit,
 }
 
@@ -327,6 +344,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
+    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
+    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
+    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
@@ -343,6 +363,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Rename Space", Command::RenameSpace, &[]),
     // Arc's bar's name, where its Space menu says Edit Theme Color….
     ("Edit Theme…", Command::EditTheme, &["color", "colour"]),
+    ("Export Space as Markdown…", Command::ExportSpace, &["save", "links", "backup"]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
     ("Previous Space", Command::PreviousSpace, &[]),
@@ -358,6 +379,10 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
+    ("Help Center", Command::HelpCenter, &["help", "support"]),
+    ("What's New", Command::WhatsNew, &["release notes", "changelog"]),
+    ("Report a Problem…", Command::ReportProblem, &["bug", "feedback", "issue"]),
+    ("Copy Build Info", Command::CopyBuildInfo, &["version"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
 
@@ -523,41 +548,55 @@ pub fn keystroke_label(keystroke: &str) -> String {
 pub fn keystroke_keys(keystroke: &str) -> Vec<String> {
     match super::keys::OFF_THE_MAC {
         true => (super::keys::pressed_as(keystroke).first())
-            .map(|pressed| keys_named(pressed, ["Ctrl", "Alt", "Shift", "Super"]))
+            .map(|pressed| keys_named(pressed, true))
             .unwrap_or_default(),
-        false => keys_named(keystroke, ["⌃", "⌥", "⇧", "⌘"]),
+        false => keys_named(keystroke, false),
     }
 }
 
-/// The keys of `keystroke`, with its ctrl, alt, shift and cmd named `names`.
-fn keys_named(keystroke: &str, names: [&str; 4]) -> Vec<String> {
+/// The keys of `keystroke`, its modifiers and key named as on the Mac, or `off_the_mac` in words.
+fn keys_named(keystroke: &str, off_the_mac: bool) -> Vec<String> {
+    let names = match off_the_mac {
+        true => ["Ctrl", "Alt", "Shift", "Super"],
+        false => ["⌃", "⌥", "⇧", "⌘"],
+    };
     let mut rest = keystroke;
     let mut keys = Vec::new();
-    for (modifier, glyph) in ["ctrl-", "alt-", "shift-", "cmd-"].into_iter().zip(names) {
+    for (modifier, name) in ["ctrl-", "alt-", "shift-", "cmd-"].into_iter().zip(names) {
         if let Some(after) = rest.strip_prefix(modifier) {
-            keys.push(glyph.to_string());
+            keys.push(name.to_string());
             rest = after;
         }
     }
-    let key = match rest {
-        "enter" => "↩".to_string(),
-        "escape" => "⎋".to_string(),
-        "up" => "↑".to_string(),
-        "down" => "↓".to_string(),
-        "left" => "←".to_string(),
-        "right" => "→".to_string(),
-        "tab" => "⇥".to_string(),
-        "backspace" => "⌫".to_string(),
-        "delete" => "⌦".to_string(),
-        "space" => "Space".to_string(),
-        "pageup" => "⇞".to_string(),
-        "pagedown" => "⇟".to_string(),
-        "home" => "↖".to_string(),
-        "end" => "↘".to_string(),
-        key => key.to_uppercase(),
-    };
-    keys.push(key);
+    keys.push(key_name(rest, off_the_mac));
     keys
+}
+
+/// How a menu names `key`, a binding's key such as "enter": by its symbol on the Mac, as macOS
+/// does, and `off_the_mac` by Chrome's word for it on Linux and Windows, where the UI's font has no
+/// keyboard symbols (#772).
+pub fn key_name(key: &str, off_the_mac: bool) -> String {
+    let (symbol, word) = match key {
+        "enter" => ("↩", "Enter"),
+        "escape" => ("⎋", "Esc"),
+        "up" => ("↑", "Up Arrow"),
+        "down" => ("↓", "Down Arrow"),
+        "left" => ("←", "Left Arrow"),
+        "right" => ("→", "Right Arrow"),
+        "tab" => ("⇥", "Tab"),
+        "backspace" => ("⌫", "Backspace"),
+        "delete" => ("⌦", "Del"),
+        "space" => ("Space", "Space"),
+        "pageup" => ("⇞", "Page Up"),
+        "pagedown" => ("⇟", "Page Down"),
+        "home" => ("↖", "Home"),
+        "end" => ("↘", "End"),
+        key => return key.to_uppercase(),
+    };
+    match off_the_mac {
+        true => word.into(),
+        false => symbol.into(),
+    }
 }
 
 /// Copies `text`, a sum's result chosen in the command bar, once the bar has gone, and says so in
@@ -660,6 +699,7 @@ impl Command {
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
             Command::EditTheme => "edit-theme",
+            Command::ExportSpace => "export-space",
             Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
             Command::MoveToSpace(_) => "move-to-space",
@@ -685,12 +725,19 @@ impl Command {
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
             Command::SiteSearchSettings => "site-search-settings",
+            Command::Appearance(Appearance::Automatic) => "appearance-automatic",
+            Command::Appearance(Appearance::Light) => "appearance-light",
+            Command::Appearance(Appearance::Dark) => "appearance-dark",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::About => "about",
             Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
+            Command::ReportProblem => "report-problem",
+            Command::CopyBuildInfo => "copy-build-info",
+            Command::HelpCenter => "help-center",
+            Command::WhatsNew => "whats-new",
             Command::Quit => "quit",
         }
     }
@@ -837,7 +884,10 @@ impl Shell {
             Command::FavoriteTab => {
                 return self.favorite_tab(self.selected, usize::MAX, cx);
             }
-            Command::DuplicateTab => return self.browser.duplicate(self.selected, cx),
+            Command::DuplicateTab => {
+                self.browser.duplicate(self.selected, cx);
+                return;
+            }
             Command::RenameTab => return self.rename_tab(self.selected, cx),
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
@@ -865,7 +915,7 @@ impl Shell {
             }
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
-            Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
+            Command::ReopenClosedTab => return self.reopen_closed(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
             Command::Reload => return self.browser.reload(self.selected, false, cx),
@@ -903,6 +953,15 @@ impl Shell {
             Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
+            Command::ReportProblem => {
+                let url = BuildInfo::here().issue_url(build_info::NEW_ISSUE);
+                return self.browser.open_page(&url, cx);
+            }
+            Command::CopyBuildInfo => {
+                return self.copy(&BuildInfo::here().text(), "Copied Build Info", cx);
+            }
+            Command::HelpCenter => return self.browser.open_page(build_info::HELP_CENTER, cx),
+            Command::WhatsNew => return self.browser.open_page(build_info::WHATS_NEW, cx),
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
                 if !self.url(self.selected).starts_with("chrome://history") {
@@ -954,6 +1013,7 @@ impl Shell {
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::Appearance(appearance) => return self.set_app_appearance(appearance, cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
@@ -961,6 +1021,7 @@ impl Shell {
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
             Command::EditTheme => return self.edit_space_theme(self.space, cx),
+            Command::ExportSpace => return self.export_space(self.space, cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::MoveToSpace(space) | Command::PinToSpace(space) => {
@@ -1241,6 +1302,7 @@ impl Shell {
             | Command::NewSpace
             | Command::RenameSpace
             | Command::EditTheme
+            | Command::ExportSpace
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
@@ -1254,6 +1316,11 @@ impl Shell {
             | Command::Import
             | Command::Passwords
             | Command::Welcome
+            | Command::Appearance(_)
+            | Command::ReportProblem
+            | Command::CopyBuildInfo
+            | Command::HelpCenter
+            | Command::WhatsNew
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -1279,6 +1346,8 @@ impl Shell {
         }
         match command {
             Command::TogglePin if self.pinned().contains(&self.selected) => Some("Unpin Tab"),
+            // The appearance chosen already would do nothing.
+            Command::Appearance(appearance) => (appearance != self.app_appearance).then_some(name),
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
@@ -1345,6 +1414,7 @@ fn private_runs(command: Command) -> bool {
             | Command::NewSpace
             | Command::RenameSpace
             | Command::EditTheme
+            | Command::ExportSpace
             | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
             | Command::MoveToSpace(_)
@@ -1401,6 +1471,22 @@ mod tests {
         }
         assert_eq!(keys.label(Command::SelectSpace(0)).as_deref(), Some("⌃1"));
         assert_eq!(keys.label(Command::SelectSpace(9)), None);
+    }
+
+    /// Off the Mac, keys are named in Chrome's words, as the UI's font there has no keyboard
+    /// symbols; the Mac keeps its symbols (#772).
+    #[test]
+    fn keys_are_named_in_words_off_the_mac() {
+        assert_eq!(keys_named("shift-cmd-k", false), ["⇧", "⌘", "K"]);
+        assert_eq!(keys_named("ctrl-shift-k", true), ["Ctrl", "Shift", "K"]);
+        assert_eq!(keys_named("escape", false), ["⎋"]);
+        assert_eq!(keys_named("escape", true), ["Esc"]);
+        assert_eq!(keys_named("alt-left", true), ["Alt", "Left Arrow"]);
+        assert_eq!(keys_named("ctrl-alt-backspace", true), ["Ctrl", "Alt", "Backspace"]);
+        assert_eq!(keys_named("ctrl-pagedown", true), ["Ctrl", "Page Down"]);
+        assert_eq!(key_name("enter", false), "↩");
+        assert_eq!(key_name("enter", true), "Enter");
+        assert_eq!(key_name("delete", true), "Del");
     }
 
     /// ⌘Y is a page's to keep, as Chrome's is, unlike the reserved keys.

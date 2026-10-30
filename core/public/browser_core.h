@@ -131,6 +131,21 @@ typedef struct bc_suggestion {
   const char* site;
 } bc_suggestion;
 
+// A page in a tab's history, which bc_tab_history lists, as Chrome's back and forward buttons'
+// menu does. Strings are UTF-8.
+typedef struct bc_history_entry {
+  // How far it is from the tab's page, for bc_tab_go_to_history and bc_tab_open_history: -1 is
+  // the page back goes to, 1 the one forward goes to.
+  int offset;
+  const char* url;
+  // Its page's title, or "" if it had none.
+  const char* title;
+  // The favicon the profile's history has for it, else for its host: a PNG |favicon_size| bytes
+  // long, 32 pixels square for 16 points at 2×, or null and 0.
+  const uint8_t* favicon;
+  size_t favicon_size;
+} bc_history_entry;
+
 // One of the archive's tabs: a Today tab that closed, as Arc's Library lists them.
 typedef struct bc_archived_tab {
   // For bc_window_restore_archived.
@@ -447,6 +462,11 @@ typedef struct bc_page_menu_item {
   bool checked;
 } bc_page_menu_item;
 
+// Where a link dragged over a page is (bc_host's tab_link_dragged).
+#define BC_LINK_DRAG_OVER 0
+#define BC_LINK_DRAG_LEFT 1
+#define BC_LINK_DRAG_DROP 2
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -480,6 +500,10 @@ typedef struct bc_host {
   // 2×, or null and 0 once a page that has none has loaded. While a page loads, the tab keeps the
   // favicon it had until the new page's arrives.
   void (*tab_favicon_changed)(void* context, bc_id tab, const uint8_t* png, size_t size);
+  // The pages bc_tab_history asked for, back from the tab's or, if |forward|, forward of it,
+  // nearest first, |count| of them.
+  void (*tab_history)(void* context, bc_id tab, bool forward, const bc_history_entry* entries,
+                      size_t count);
   // The tab's page went full screen, as a video's full-screen button takes it, or came back. Show
   // it filling its window while it's full screen. The window goes full screen with it unless it
   // already was, and comes back with it if it went for it, after this call either way, so the
@@ -621,15 +645,17 @@ typedef struct bc_host {
   void (*window_side_panel)(void* context, bc_id window, const bc_side_panel* panel);
   // A page of |tab| asked for a protected-media key system ilo can't play, such as Widevine, which
   // Netflix and Spotify play their video with: |key_system| is "com.widevine.alpha" or
-  // "com.microsoft.playready", never the page's own string. Once for each key system a document
-  // asks for, unless it's the one the app was last told. It comes with an empty |key_system| once
-  // the tab goes to another site, or once bc_tab_set_system_engine switches it: the note it asks
-  // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Never at a
-  // site whose note the user closed (bc_tab_close_media_note). Agents get none: the note hands the
-  // user's page to another engine or app. For a tab in the system's engine, |key_system| is
-  // "output-restricted" once its page's protected video is kept off the screen, as the display
-  // connection's protection (HDCP) isn't enough for it: once a tab and site, with the empty one as
-  // the tab goes to another site or back to Chromium. Closing that note is the app's alone.
+  // "com.microsoft.playready", never the page's own string. Once for each key system a document is
+  // refused, unless it's the one the app was last told, and never once a page at the site was given
+  // one, as a site may ask for Widevine and then play with PlayReady on Windows. It comes with an
+  // empty |key_system| once the tab goes to another site, or once bc_tab_set_system_engine switches
+  // it: the note it asks for is gone. bc_tab_set_system_engine answers it where
+  // bc_system_engine_available. Never at a site whose note the user closed
+  // (bc_tab_close_media_note). Agents get none: the note hands the user's page to another engine or
+  // app. For a tab in the system's engine, |key_system| is "output-restricted" once its page's
+  // protected video is kept off the screen, as the display connection's protection (HDCP) isn't
+  // enough for it: once a tab and site, with the empty one as the tab goes to another site or back
+  // to Chromium. Closing that note is the app's alone.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
   void (*widevine_changed)(void* context, int state);
@@ -742,6 +768,19 @@ typedef struct bc_host {
   // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
   // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
   void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
+  // On Linux and Windows, the browser is quitting, or with |last_private| the last window of a
+  // private profile closing, with |count| downloads running, which it would cancel: ask the user
+  // over |window|, and answer with bc_window_answer_downloads. A window asks one at a time. The Mac
+  // asks in Chrome's own alert as the app quits. The user's: agents get none, as they can't quit.
+  void (*window_downloads_question)(void* context, bc_id window, int count, bool last_private);
+  // The user drags a link to |url|, an http or https address, over the page of |tab|, at (|x|,
+  // |y|) in points from the top-left of its view: BC_LINK_DRAG_OVER as it moves there, and
+  // BC_LINK_DRAG_DROP as it's let go there. BC_LINK_DRAG_LEFT, with |url| "", as a drag leaves the
+  // page or ends without a drop on it. Over, return true to take the drag there from the page,
+  // which then doesn't see it, as over a split view's targets; let go, return whether the app
+  // took the drop, opening the link itself. The user's alone: agents don't drag.
+  bool (*tab_link_dragged)(void* context, bc_id tab, int phase, const char* url, double x,
+                           double y);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -863,6 +902,11 @@ BC_EXPORT bc_id bc_window_open_saved(size_t index, bc_rect bounds, void* ui_view
 // before it, which shows its tab live again if it showed one this window took. Else its pages get
 // their unload handlers. Then window_closed. The user's: agents get none.
 BC_EXPORT void bc_window_close(bc_id window);
+
+// Answers window_downloads_question, if the window still asks: |cancel| cancels the downloads and
+// goes on quitting or closing. Otherwise the browser stays open, and Chrome shows the downloads
+// (window_show_downloads). The user's: agents get none.
+BC_EXPORT void bc_window_answer_downloads(bc_id window, bool cancel);
 
 // Titles the window as the window manager shows it, for a host that can't reach the window itself,
 // as under Wayland, where the window is Chromium's.
@@ -1523,6 +1567,22 @@ BC_EXPORT void bc_tab_navigate(bc_id tab, const char* url);
 BC_EXPORT void bc_tab_go_back(bc_id tab);
 BC_EXPORT void bc_tab_go_forward(bc_id tab);
 
+// Lists the pages back from the tab's, or forward of it if |forward|, nearest first, up to the
+// six each side Chrome's sessions keep, so bc_tab_open_history can open any of them. None while
+// the system's engine shows the tab's page, whose history is WebKit's. Then tab_history, once
+// their favicons are found.
+BC_EXPORT void bc_tab_history(bc_id tab, bool forward);
+
+// Goes to the page |offset| from the tab's in its history, as bc_tab_history numbers them, if it
+// has one there: what picking it from the back or forward button's menu does.
+BC_EXPORT void bc_tab_go_to_history(bc_id tab, int offset);
+
+// Opens a copy of the tab, with its history, at the page |offset| from its own, as
+// bc_tab_history numbers them, or 0 for its page again: what ⌘-click on back, forward or reload
+// does. It goes where bc_tab_duplicate's would, without showing, and its page loads once it's
+// shown. Returns its id, or 0 if the tab has no page there. Then space_changed.
+BC_EXPORT bc_id bc_tab_open_history(bc_id tab, int offset);
+
 // Loads the tab's page again. |bypass_cache| fetches all of it from the network, as a force reload
 // does. A hung page's renderer is ended first, as Chrome's Exit page does, with every page it
 // shows: a reload would wait on it.
@@ -1611,6 +1671,22 @@ BC_EXPORT void bc_widevine_download(void);
 // module the browser loaded plays until it restarts. Then widevine_changed with
 // BC_WIDEVINE_ABSENT. The user's: agents get none.
 BC_EXPORT void bc_widevine_remove(void);
+
+// What PlayReady, which Windows plays these sites with in Chromium, needs that this PC may lack,
+// for the protected-media note to say why a site was refused. It plays on Windows 11 on an x64 PC
+// whose graphics have PlayReady's hardware DRM (security level 3000), outside private windows,
+// which can't keep its licences. Chromium finds the hardware out only as a page asks, so this
+// names what it can rule out first.
+// - BC_PLAYREADY_NONE: no PlayReady here, off Windows: the note says nothing of it.
+// - BC_PLAYREADY_WINDOWS_11: Windows 10, which Chromium's PlayReady doesn't run on.
+// - BC_PLAYREADY_X64: an ARM PC, which runs the browser emulated and has no PlayReady for it.
+// - BC_PLAYREADY_HARDWARE: Windows 11 on x64, so the graphics have no hardware DRM, or Chromium
+//   turned it off after it failed.
+#define BC_PLAYREADY_NONE 0
+#define BC_PLAYREADY_WINDOWS_11 1
+#define BC_PLAYREADY_X64 2
+#define BC_PLAYREADY_HARDWARE 3
+BC_EXPORT int bc_playready_needs(void);
 
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as

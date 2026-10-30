@@ -1934,6 +1934,33 @@ bc_id Window::Duplicate(bc_id tab) {
   return id;
 }
 
+bc_id Window::OpenHistory(bc_id tab, int offset) {
+  const Tab* from = Tab::Get(tab);
+  Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
+  if (!from || !from->profile() || !space || DirOf(from->profile()) != space->profile() ||
+      OffTheRecord(from) != off_the_record_) {
+    return 0;
+  }
+  // A system page's history is WebKit's, of which the saved tab keeps only the page.
+  if (offset != 0 && from->system_page()) {
+    return 0;
+  }
+  // As the tab would come back after a quit, at the other page: Chrome's background tab loads
+  // at once, but here a page loads once it's shown.
+  SavedTab saved = from->Save();
+  saved.current += offset;
+  if (saved.current < 0 || saved.current >= static_cast<int>(saved.history.size())) {
+    return 0;
+  }
+  const bc_id id = Tab::Restore(from->profile(), saved);
+  if (!id) {
+    return 0;
+  }
+  // Opened behind by |tab|, so it goes under it and closing it goes back there, as a link's does.
+  space->Add(id, tab, /*foreground=*/false);
+  return id;
+}
+
 bc_id Window::CloneInto(BrowserWindowInterface& browser, content::WebContents& contents) {
   TabStripModel* tabs = browser.GetTabStripModel();
   // With its session storage, as Chrome's duplicate.
@@ -2068,7 +2095,39 @@ void Window::OnBrowserGone(BrowserWindowInterface* browser) {
   }
 }
 
+void Window::AskAboutDownloads(int count,
+                               bool last_private,
+                               base::OnceCallback<void(bool)> answer) {
+  // Chrome stops the quit or close that asked before, which is asked again.
+  if (downloads_answer_) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(downloads_answer_), false));
+  }
+  // With no app to ask, it goes on, cancelling them.
+  if (!Host().window_downloads_question) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(answer), true));
+    return;
+  }
+  downloads_answer_ = std::move(answer);
+  Host().window_downloads_question(Host().context, id_, count, last_private);
+}
+
+void Window::AnswerDownloads(bool cancel) {
+  if (!downloads_answer_) {
+    return;
+  }
+  // Posted, as a yes closes windows, which the app hears of, from inside its own call.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(downloads_answer_), cancel));
+}
+
 void Window::Destroy() {
+  // Chrome isn't left waiting for an answer no one can give.
+  if (downloads_answer_) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(downloads_answer_), false));
+  }
   // The last regular window stays in the session at its frame, saved while it's listed, for the
   // next window to open there. One that had tabs was kept as they closed (OnTabClosing).
   const bool last_regular = std::ranges::none_of(Windows(), [this](const auto& entry) {

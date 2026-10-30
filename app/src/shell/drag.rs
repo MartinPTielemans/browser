@@ -25,6 +25,10 @@ const INCOMING: u64 = 0;
 /// that side, and on again after as long (ours: Arc's isn't measured).
 const EDGE: f32 = 24.;
 pub(super) const EDGE_WAIT: Duration = Duration::from_millis(500);
+/// How long the pointer rests on the middle half of another tab's row before the dragged tab
+/// would join it in a split view, so passing rows still reorders (ours, interim: Arc's isn't
+/// measured).
+const SPLIT_REST: Duration = Duration::from_millis(400);
 
 impl Shell {
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
@@ -258,6 +262,8 @@ impl Shell {
             from_depth: self.depth(tab),
             depth: self.depth(tab),
             line: None,
+            resting: None,
+            onto: None,
             dropped: false,
             over_page: None,
             shape: Shape::new(matches!(from, Place::Favorite(_))),
@@ -362,17 +368,41 @@ impl Shell {
             let stays = place == from && depth == from_depth && !away;
             (place, span, line.filter(|_| !stays))
         };
+        // Rested on another tab's row, it would join it, so the gap it would go to stays where it
+        // was. Off the row's middle, it no longer would, and reordering carries on.
+        let middle = (!incoming && !over_favorites).then(|| self.split_onto(tab, pointer.y)).flatten();
+        let resting = self.drag.as_ref().and_then(|drag| drag.resting.as_ref().map(|rest| rest.0));
+        if middle != resting {
+            let rest = middle.map(|row| {
+                let wait = cx.spawn(async move |shell, cx| {
+                    cx.background_executor().timer(SPLIT_REST).await;
+                    shell.update(cx, |shell, cx| shell.rested_onto(row, cx)).ok();
+                });
+                (row, wait)
+            });
+            if let Some(drag) = &mut self.drag {
+                drag.resting = rest;
+            }
+        }
+        let was_onto = self.drag.as_ref().and_then(|drag| drag.onto);
+        let onto = was_onto.filter(|&row| middle == Some(row));
+        let (place, line) = if onto.is_some() { (to, None) } else { (place, line) };
         if let Some(drag) = &mut self.drag {
             drag.moving = true;
             drag.pointer = pointer;
             drag.span = span;
             drag.depth = depth;
             drag.line = line;
+            drag.onto = onto;
             drag.shape.turn(over_favorites, Instant::now());
+        }
+        if onto != was_onto {
+            // check.sh waits for this line.
+            log!("browser: drop onto none");
         }
         // Links dragged in have no place before their first, which they didn't pass a row to get.
         let entered = incoming && to == Place::List(false, usize::MAX);
-        if (place != to || depth != kept_depth) && !entered {
+        if (place != to || depth != kept_depth || onto != was_onto) && !entered {
             self.drag_detent(cx);
         }
         if place != to {
@@ -462,6 +492,39 @@ impl Shell {
         .detach();
     }
 
+    /// The pointer has rested on `row`'s middle for SPLIT_REST with a tab dragged: let go, the tab
+    /// joins it in a split view.
+    fn rested_onto(&mut self, row: u64, cx: &mut Context<Self>) {
+        let resting = |drag: &&mut Drag| drag.resting.as_ref().is_some_and(|rest| rest.0 == row);
+        let Some(drag) = self.drag.as_mut().filter(|drag| !drag.dropped).filter(resting) else {
+            return;
+        };
+        drag.onto = Some(row);
+        drag.line = None;
+        // check.sh waits for this line.
+        log!("browser: drop onto {row}");
+        self.drag_detent(cx);
+        cx.notify();
+    }
+
+    /// The tab whose row's middle half is at `y` down the sidebar, which a dragged `tab` would join
+    /// in a split view, as Arc's does: a tab alone onto a tab's row, or a split's with room, and
+    /// not a folder's.
+    fn split_onto(&self, tab: u64, y: f32) -> Option<u64> {
+        if self.is_folder(tab) || self.panes(tab).len() > 1 {
+            return None;
+        }
+        let y = self.list_y(y);
+        self.layout().into_iter().find_map(|(slot, top)| {
+            let Slot::Tab(row) = slot else {
+                return None;
+            };
+            let middle = top + ROW_HEIGHT / 4. <= y && y <= top + ROW_HEIGHT * 3. / 4.;
+            let room = !self.is_folder(row) && self.panes(row).len() < super::MAX_PANES;
+            (row != tab && middle && room).then_some(row)
+        })
+    }
+
     /// Where the drop line for `place` in the list goes, down from the list's top: halfway
     /// between the plates of the rows either side of the gap, in the list as it's drawn, without
     /// the dragged tab in `pinned` and `today`. None for the favorites.
@@ -520,6 +583,14 @@ impl Shell {
                 log!("browser: dragged {tab} to space {space} {list}");
                 self.move_to_space(tab, space, pin, cx);
             }
+            cx.notify();
+            return;
+        }
+        if let Some(with) = drag.onto {
+            // check.sh waits for this line.
+            log!("browser: dragged {tab} onto {with}");
+            self.settle_drag();
+            self.browser.split_with(tab, with, false, cx);
             cx.notify();
             return;
         }
@@ -806,16 +877,20 @@ pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Poin
 }
 
 impl HeldRow {
-    /// How far the plate has shrunk at `now`, 0 to 1: in while it's held, then back out from as
-    /// far as it got, at the same pace.
     fn depth(&self, now: Instant) -> f32 {
-        let way = |from: Instant, to: Instant| {
-            (to.saturating_duration_since(from).as_secs_f32() / PRESS_TIME).min(1.)
-        };
-        match self.let_go {
-            None => way(self.pressed, now),
-            Some(let_go) => (way(self.pressed, let_go) - way(let_go, now)).max(0.),
-        }
+        held_depth(self.pressed, self.let_go, now)
+    }
+}
+
+/// How far a plate pressed at `pressed` has shrunk at `now`, 0 to 1: in over PRESS_TIME while it's
+/// held, then back out from as far as it got, at the same pace, once it's `let_go`.
+pub(super) fn held_depth(pressed: Instant, let_go: Option<Instant>, now: Instant) -> f32 {
+    let way = |from: Instant, to: Instant| {
+        (to.saturating_duration_since(from).as_secs_f32() / PRESS_TIME).min(1.)
+    };
+    match let_go {
+        None => way(pressed, now),
+        Some(let_go) => (way(pressed, let_go) - way(let_go, now)).max(0.),
     }
 }
 

@@ -243,6 +243,9 @@ struct Asked {
     /// The button under the pointer, and the one the last frame drew so.
     hovered: Option<&'static str>,
     drawn_hover: Option<&'static str>,
+    /// The button held down, and the one the last frame drew so.
+    pressed: Option<&'static str>,
+    drawn_press: Option<&'static str>,
     /// Where each button was said to be drawn, in the browser window.
     buttons_drawn: Rc<RefCell<HashMap<&'static str, Point<Pixels>>>>,
 }
@@ -455,6 +458,15 @@ pub fn withdraw_chrome(cx: &mut App) {
     window.update(cx, |dialog, _, cx| dialog.withdraw(Source::Chrome, cx)).ok();
 }
 
+/// For the drivers, as AppKit's alerts are chosen on the Mac: answers with the button `label` names
+/// in the dialog that shows, as a click on it would. Returns whether it shows one.
+pub fn choose(label: &str, cx: &mut App) -> bool {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        return false;
+    };
+    window.update(cx, |dialog, _, cx| dialog.choose(label, cx)).unwrap_or(false)
+}
+
 /// Asks a page's `question`, the dialog `id` of `tab`, over its tab's card, `over` in the window
 /// with corners of `radius`, in place of any page's that shows or waits, once any other dialog has
 /// gone, and calls `answered` with the answer once the dialog has gone. Asked again, it only moves
@@ -571,6 +583,8 @@ impl Dialog {
             _leave: None,
             hovered: None,
             drawn_hover: None,
+            pressed: None,
+            drawn_press: None,
             buttons_drawn: Rc::default(),
         });
         self.host.show(over.map(|(over, _)| over));
@@ -587,6 +601,15 @@ impl Dialog {
         } else if asked.hovered == Some(name) {
             asked.hovered = None;
         }
+        cx.notify();
+    }
+
+    /// The button `name` was pressed, or let go of anywhere.
+    fn press(&mut self, name: &'static str, pressed: bool, cx: &mut Context<Self>) {
+        let Some(asked) = &mut self.asked else {
+            return;
+        };
+        asked.pressed = pressed.then_some(name);
         cx.notify();
     }
 
@@ -640,6 +663,21 @@ impl Dialog {
             true => self.answer(Answer::Cancel, cx),
             false => self.answer(Answer::Action, cx),
         }
+    }
+
+    /// The button `label` names was chosen, if the dialog shows one.
+    fn choose(&mut self, label: &str, cx: &mut Context<Self>) -> bool {
+        let Some(asked) = &self.asked else {
+            return false;
+        };
+        let answer = match label {
+            _ if asked.question.action == label => Answer::Action,
+            _ if asked.question.cancel == label => Answer::Cancel,
+            _ if asked.also.as_ref().is_some_and(|also| also == label) => Answer::Also,
+            _ => return false,
+        };
+        self.answer(answer, cx);
+        true
     }
 
     /// The user chose the action, the other answer or Cancel. The dialog leaves, and then what
@@ -809,6 +847,11 @@ impl Render for Dialog {
             asked.drawn_hover = asked.hovered;
             log!("browser: dialog hover {}", asked.hovered.unwrap_or("none"));
         }
+        // As the hover line, for a capture of the button held down.
+        if asked.pressed != asked.drawn_press {
+            asked.drawn_press = asked.pressed;
+            log!("browser: dialog pressed {}", asked.pressed.unwrap_or("none"));
+        }
         let question = &asked.question;
         let palette = palette::current(cx);
         let page = asked.source == Source::Page;
@@ -901,6 +944,18 @@ impl Render for Dialog {
             .relative()
             .child(button_frame("confirm", asked))
             .on_hover(cx.listener(|dialog, hovered, _, cx| dialog.hover("confirm", *hovered, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", true, cx)),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", false, cx)),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", false, cx)),
+            )
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
         });
         let list = question.list.iter().map(|(line, sublines)| {

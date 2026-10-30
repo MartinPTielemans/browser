@@ -192,6 +192,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ManageExtensions | Command::AddExtension => "icons/puzzle.svg",
         Command::RenameSpace | Command::RenameTab => "icons/pencil.svg",
         Command::EditTheme => "icons/palette.svg",
+        Command::ExportSpace => "icons/file.svg",
         Command::NextTab => "icons/arrow-down.svg",
         Command::PreviousTab => "icons/arrow-up.svg",
         Command::ViewLibrary => "icons/library.svg",
@@ -202,6 +203,10 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::About => "icons/info.svg",
         Command::Import => "icons/arrow-down-to-line.svg",
         Command::Passwords => "icons/key-round.svg",
+        Command::HelpCenter => "icons/book-open.svg",
+        Command::WhatsNew => "icons/megaphone.svg",
+        Command::ReportProblem => "icons/flag.svg",
+        Command::CopyBuildInfo => "icons/copy.svg",
         _ => COMMAND_GLYPH,
     }
 }

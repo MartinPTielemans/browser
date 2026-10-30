@@ -86,5 +86,6 @@ jobs:
           gh release view "$tag" >/dev/null 2>&1 ||
             gh release create "$tag" --target "$GITHUB_SHA" --title "Windows engine ${GITHUB_SHA::12}" \
               --notes "The Windows engine (ungoogled-chromium-windows $tag_ucw, x64, cross-compiled) built from $GITHUB_SHA, which holds its source."
-          gh release upload "$tag" --clobber "$RUNNER_TEMP/Chromium-windows-x64.zip" "$RUNNER_TEMP/Chromium-windows-x64.zip.sha256"
-          rm "$RUNNER_TEMP"/Chromium-windows-x64.zip*
+          gh release upload "$tag" --clobber "$RUNNER_TEMP"/Chromium-windows-x64.zip "$RUNNER_TEMP"/Chromium-windows-x64.zip.sha256 \
+            "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip.sha256
+          rm "$RUNNER_TEMP"/Chromium-windows-x64*.zip*
