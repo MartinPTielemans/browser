@@ -29,6 +29,7 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/held_keys.h"
 #include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
@@ -74,6 +75,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
@@ -309,6 +311,15 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
 #endif
 }
 
+void bc_hold_keys(void) {
+  browser_core::held_keys::Hold();
+}
+
+void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                       void* context) {
+  browser_core::held_keys::Give(take, context);
+}
+
 bool bc_window_restore(bc_id id) {
   browser_core::Window* window = browser_core::Window::FromId(id);
   return window && browser_core::RestoreSession(*window);
@@ -363,8 +374,11 @@ void bc_window_activate(bc_id id) {
   widget->Activate();
 }
 
-bc_id bc_space_create(const char* name) {
-  browser_core::Space* space = browser_core::Space::Create(name ? name : "");
+bc_id bc_space_create(const char* name, bc_id after) {
+  const std::vector<browser_core::Space*> all = browser_core::Space::All();
+  auto it = std::ranges::find(all, after, &browser_core::Space::id);
+  const size_t at = it == all.end() ? SIZE_MAX : static_cast<size_t>(it - all.begin()) + 1;
+  browser_core::Space* space = browser_core::Space::Create(name ? name : "", 0, std::nullopt, at);
   space->SetProfile(browser_core::DirOf(browser_core::StartProfile()));
   return space->id();
 }
@@ -1025,6 +1039,17 @@ bool bc_extension_remove(bc_id profile_id, const char* id) {
   return profile && id && browser_core::RemoveExtension(profile, id);
 }
 
+void bc_extension_crash_told(bc_id profile_id, const char* id) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && id) {
+    browser_core::ExtensionCrashTold(profile, id);
+  }
+}
+
+bool bc_extension_turn_on(bc_id profile_id, const char* id) {
+  Profile* profile = LoadedProfile(profile_id);
+  return profile && id && browser_core::TurnOnExtension(profile, id);
+}
+
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window && id && window->RunExtension(id, ToRect(anchor));
@@ -1069,6 +1094,15 @@ void bc_set_haptics(bool haptics) {
   browser_core::SessionChanged();
 }
 
+void bc_set_appearance(int appearance) {
+  // Chromium's own override of the system's scheme, which every page's color provider follows.
+  using Scheme = ui::NativeTheme::PreferredColorScheme;
+  ui::NativeTheme::SetPreferredColorSchemeOverride(
+      appearance == 1   ? std::optional(Scheme::kLight)
+      : appearance == 2 ? std::optional(Scheme::kDark)
+                        : std::nullopt);
+}
+
 bool bc_link_previews(void) {
   return browser_core::UserSettings().link_previews;
 }
@@ -1076,6 +1110,23 @@ bool bc_link_previews(void) {
 void bc_set_link_previews(bool previews) {
   browser_core::UserSettings().link_previews = previews;
   browser_core::SessionChanged();
+}
+
+int bc_hover_kinds(void) {
+  return browser_core::UserSettings().hover_kinds;
+}
+
+void bc_set_hover_kinds(int kinds) {
+  browser_core::UserSettings().hover_kinds = kinds;
+  browser_core::SessionChanged();
+}
+
+bool bc_archive_note(void) {
+  return browser_core::ArchiveNoteShown();
+}
+
+void bc_dismiss_archive_note(void) {
+  browser_core::DismissArchiveNote();
 }
 
 bool bc_warn_before_quitting(void) {
@@ -1263,6 +1314,23 @@ void bc_tab_go_forward(bc_id id) {
   if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->GoForward();
   }
+}
+
+void bc_tab_history(bc_id id, bool forward) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ListHistory(forward);
+  }
+}
+
+void bc_tab_go_to_history(bc_id id, int offset) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
+    browser_core::Tab::FromWebContents(contents)->GoToOffset(offset);
+  }
+}
+
+bc_id bc_tab_open_history(bc_id id, int offset) {
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  return window ? window->OpenHistory(id, offset) : 0;
 }
 
 void bc_tab_reload(bc_id id, bool bypass_cache) {

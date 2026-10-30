@@ -1,7 +1,9 @@
 //! The sidebar's menus, a Space's, a tab's, a favorite's, a folder's and the plus
 //! button's, and what their items do.
 
-use gpui::{App, Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
+use std::sync::Arc;
+
+use gpui::{App, Context, Hsla, Image, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
     AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
@@ -10,6 +12,7 @@ use super::{
     user_keys,
 };
 use crate::{
+    dialog::{Field, Question},
     menu::{Highlight, Look, Swatch},
     space_icon::{SpaceIcon, has_icon},
     palette::Tone,
@@ -56,6 +59,9 @@ pub struct MenuEntry {
     /// Whether it's shown and chosen in place of the item before it while ⌥ is held, as AppKit's
     /// alternates are, taking no row of its own.
     pub alternate: bool,
+    /// Whether it stands for a page, whose favicon goes before its title, or a globe without one.
+    pub page: bool,
+    pub favicon: Option<Arc<Image>>,
 }
 
 impl MenuEntry {
@@ -85,6 +91,8 @@ impl MenuEntry {
             over: false,
             swatch: None,
             alternate: false,
+            page: false,
+            favicon: None,
         }
     }
 
@@ -112,6 +120,11 @@ impl MenuEntry {
 
     fn swatch(self, swatch: Swatch) -> Self {
         MenuEntry { swatch: Some(swatch), ..self }
+    }
+
+    /// For a page with `favicon`.
+    pub(super) fn page(self, favicon: Option<Arc<Image>>) -> Self {
+        MenuEntry { page: true, favicon, ..self }
     }
 
     /// Shows the shortcut that runs `command`.
@@ -426,7 +439,13 @@ impl Shell {
 
     /// Moves the tab to the Space, warning the first time it goes to another profile's, where its
     /// page loads again without this profile's cookies and logins.
-    pub(super) fn move_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+    pub(super) fn move_to_space(
+        &mut self,
+        tab: u64,
+        space: u64,
+        pin: bool,
+        cx: &mut Context<Self>,
+    ) {
         let profile_of =
             |space| self.spaces.iter().find(|each| each.id == space).map(|each| each.profile);
         let to = profile_of(space);
@@ -435,7 +454,7 @@ impl Shell {
             .find(|each| each.pinned.contains(&tab) || each.today.contains(&tab))
             .map_or(self.space, |each| each.id);
         if profile_of(from) == to || !self.browser.warn_moving_profiles(cx) {
-            return self.send_to_space(tab, space, cx);
+            return self.send_to_space(tab, space, pin, cx);
         }
         let name = (self.profiles.iter())
             .find(|(profile, _)| Some(*profile) == to)
@@ -452,7 +471,7 @@ impl Shell {
                 shell
                     .update(cx, |shell, cx| {
                         shell.browser.set_warn_moving_profiles(false, cx);
-                        shell.send_to_space(tab, space, cx);
+                        shell.send_to_space(tab, space, pin, cx);
                     })
                     .ok();
             }),
@@ -460,16 +479,55 @@ impl Shell {
         );
     }
 
-    /// Makes a profile, named as Chrome numbers them, and puts the empty Space in it.
+    /// Makes a profile and puts the empty Space in it, named at once. In the New Space form it's
+    /// made with the name Chrome would number it, which the Profile row then shows in a field, as
+    /// Finder's New Folder does. Elsewhere the dialog asks for the name first, and Cancel makes
+    /// none. Left empty, the name is the numbered one.
     fn new_profile(&mut self, space: u64, cx: &mut Context<Self>) {
         let names: Vec<SharedString> = self.profiles.iter().map(|(_, name)| name.clone()).collect();
-        let name = new_profile_name(&names);
-        let profile = self.browser.create_profile(&name, cx);
+        let numbered = new_profile_name(&names);
+        if self.form().is_some_and(|form| form.space == space) {
+            if let Some(profile) = self.make_profile(space, &numbered, cx) {
+                self.name_profile(profile, numbered.into(), cx);
+            }
+            return;
+        }
+        let question = Question {
+            icon: None,
+            message: "New Profile".into(),
+            detail: "A profile keeps its own logins, cookies, history and extensions.".into(),
+            list: Vec::new(),
+            action: "Create".into(),
+            cancel: "Cancel".into(),
+            tone: crate::dialog::Tone::Accent,
+            also: None,
+            fields: vec![Field {
+                placeholder: numbered.clone().into(),
+                text: numbered.clone().into(),
+                secure: false,
+            }],
+            check: None,
+            return_cancels: false,
+        };
+        let shell = cx.weak_entity();
+        let made = Box::new(move |texts: Vec<String>, cx: &mut App| {
+            let typed = texts.first().map_or("", |text| text.trim());
+            let name = if typed.is_empty() { numbered } else { typed.to_string() };
+            shell.update(cx, |shell, cx| shell.make_profile(space, &name, cx)).ok();
+        });
+        self.browser.tell(question, made, cx);
+    }
+
+    /// Makes a profile named `name`, puts the empty Space in it, and returns it.
+    fn make_profile(&mut self, space: u64, name: &str, cx: &mut Context<Self>) -> Option<u64> {
+        let profile = self.browser.create_profile(name, cx);
         // check.sh waits for this line.
         log!("browser: create profile {profile} {name}");
-        if profile != 0 {
-            self.browser.set_space_profile(space, profile, cx);
+        if profile == 0 {
+            return None;
         }
+        self.browser.set_space_profile(space, profile, cx);
+        Some(profile)
     }
 
     /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,
@@ -572,7 +630,9 @@ impl Shell {
             (
                 MenuEntry::new("Duplicate Tab", true),
                 "duplicate-tab",
-                Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+                Box::new(move |shell, cx| {
+                    shell.browser.duplicate(tab, cx);
+                }),
             ),
             (
                 MenuEntry::new("Remove from Favorites", !self.agents_space_shown()),
@@ -815,7 +875,7 @@ impl Shell {
         items.push((
             MenuEntry::new("Duplicate Tab", true),
             "duplicate-tab",
-            Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+            Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
         if self.panes(tab).len() > 1 {
             items.push(separate(tab));
@@ -828,7 +888,7 @@ impl Shell {
             items.push((
                 MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
                 "move-to-space",
-                Box::new(move |shell, cx| shell.move_to_space(tab, space, cx)),
+                Box::new(move |shell, cx| shell.move_to_space(tab, space, false, cx)),
             ));
         }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
@@ -928,13 +988,20 @@ impl Shell {
             "rename-tab",
             Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
         ));
-        // Dimmed while the tab is silent, as Arc's; a muted one unmutes.
-        let mute = if page.muted { "Unmute" } else { "Mute" };
-        items.push((
-            MenuEntry::new(mute, page.audible || page.muted),
-            "toggle-mute",
-            Box::new(move |shell, cx| shell.toggle_mute(tab, cx)),
-        ));
+        // Dimmed while the tab is silent, as Arc's; a muted one unmutes. A split's offers it under
+        // each of its tabs' names, as Arc's does.
+        for &pane in &panes {
+            let page = self.page(pane);
+            let mute = if page.muted { "Unmute" } else { "Mute" };
+            let mut entry = MenuEntry::new(mute, page.audible || page.muted);
+            if panes.len() > 1 {
+                let name = items.len();
+                let title = self.tabs.get(&pane).map(|tab| tab.title.clone()).unwrap_or_default();
+                items.push((MenuEntry::named(title, true), "", Box::new(|_, _| {})));
+                entry = entry.under(name);
+            }
+            items.push((entry, "toggle-mute", Box::new(move |shell, cx| shell.toggle_mute(pane, cx))));
+        }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Add Split View", panes.len() < MAX_PANES),
@@ -947,7 +1014,7 @@ impl Shell {
         items.push((
             MenuEntry::new("Duplicate", true),
             "duplicate-tab",
-            Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+            Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
         // A private window's tabs stay in it. The others: every one of the user's Spaces, the
         // tab's checked, then a new one.
@@ -960,7 +1027,7 @@ impl Shell {
                 let entry = MenuEntry::named(name, true).checked(shown).swatch(swatch);
                 let to_space: MenuAction = Box::new(move |shell, cx| {
                     if !shown {
-                        shell.move_to_space(tab, space, cx)
+                        shell.move_to_space(tab, space, false, cx)
                     }
                 });
                 if folders.is_empty() {
@@ -1044,7 +1111,7 @@ impl Shell {
         if self.spaces.iter().any(|each| each.id == space && each.today.contains(&tab)) {
             return self.move_tab_to(tab, true, folder, 0, cx);
         }
-        self.send_to_space(tab, space, cx);
+        self.send_to_space(tab, space, false, cx);
         self.browser.move_tab(tab, true, folder, 0, cx);
     }
 
@@ -1078,8 +1145,15 @@ impl Shell {
     /// The + button's menu, by Arc's menus' names for what it makes (ours: Arc's + menu isn't
     /// recorded).
     pub(super) fn plus_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let items = [("New Space…", Command::NewSpace), ("New Folder…", Command::NewFolder)];
-        let entries = items.iter().map(|&(title, _)| MenuEntry::new(title, true)).collect();
+        let items = [
+            ("New Space…", Command::NewSpace),
+            ("New Folder…", Command::NewFolder),
+            ("New Split View", Command::AddSplit),
+        ];
+        let split = self.selected != 0 && self.panes(self.selected).len() < MAX_PANES;
+        let enabled = |command| command != Command::AddSplit || split;
+        let entries =
+            items.iter().map(|&(title, command)| MenuEntry::new(title, enabled(command))).collect();
         self.context_menu(
             entries,
             position,
@@ -1314,6 +1388,35 @@ mod tests {
         let title = shell.read_with(cx, |shell, _| shell.title(10));
         let markdown = format!("copy [{title}](https://example.com/)");
         assert!(host.take().contains(&markdown), "{markdown}");
+    }
+
+    /// A split's menu offers Mute under each of its tabs' names, and its Duplicate copies the whole
+    /// split, joined again in its order and orientation, as Arc's does.
+    #[gpui::test]
+    fn a_splits_menu_mutes_each_tab_and_duplicates_the_split(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11, 12], Folders::default());
+        shell.update(cx, |shell, cx| {
+            let split = crate::shell::Split { tabs: vec![10, 11], stacked: true, ..Default::default() };
+            shell.set_tabs(1, Vec::new(), vec![10, 11, 12], vec![split], Folders::default(), cx);
+            shell.set_title(10, "Ten".into(), cx);
+            shell.set_title(11, "Eleven".into(), cx);
+            shell.set_page(11, page("https://example.com/", true, false), cx);
+        });
+        let menu = tab_menu(&shell, &host, cx, 11);
+        let mutes: Vec<&str> = (menu.iter().map(String::as_str))
+            .filter(|title| title.contains("Mute"))
+            .collect();
+        assert_eq!(mutes, ["Ten › Mute (disabled)", "Eleven › Mute"]);
+        host.take();
+        host.take_edits();
+        shell.update(cx, |shell, cx| shell.duplicate_row(11, cx));
+        let calls = host.take();
+        assert_eq!(calls[..2], ["duplicate 10", "duplicate 11"]);
+        let edits = host.take_edits();
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        let copies: Vec<&str> = edits[0].split(' ').skip(1).collect();
+        assert_eq!(copies[2], "false", "the second copy joins the first on its right");
+        assert!(calls.contains(&format!("split stacked {} true", copies[1])), "{calls:?}");
     }
 
     /// The last tab has none below to archive, and a tab with no page has no link to copy or share.

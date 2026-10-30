@@ -65,17 +65,16 @@ check_find_bar() {
 }
 
 # What's typed right after ⌘F, with no wait, lands in the bar, though the page has ⌘F first and the
-# keys come before the bar has the keyboard. All of it in the bar is none of it in the page. Linux
-# holds no keys for the bar yet (host_hold_keys), so there they're typed once it has the keyboard.
-# The driver starts a command as its line comes, so on the Mac nothing that forks, such as uname,
-# comes between ⌘F and the keys: ⌘F could be back from the page before they're sent, and they'd
-# test no hold.
+# keys come before the bar has the keyboard. All of it in the bar is none of it in the page.
+# Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
+# it has the input focus, so there what the bar finds is the proof. The driver starts a command as
+# its line comes, so on the Mac nothing that forks, such as uname, comes between ⌘F and the keys:
+# ⌘F could be back from the page before they're sent, and they'd test no hold.
 if [ "$(uname)" = Linux ]; then
   post key f cmd
+  send type apple
   expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
   expect '^browser: find bar shown$' "⌘F didn't open the find bar"
-  echo "skip: keys typed right after ⌘F, before the find bar has the keyboard: Linux holds none for it yet."
-  send type apple
 else
   post key f cmd
   send type apple
@@ -194,7 +193,10 @@ send key f cmd
 expect '^browser: find bar shown$' "⌘F after the close button didn't open the find bar again"
 
 # ⌘J from the page and Edit › Find › Jump to Selection scroll the page back to the match a find
-# left selected. ⌘↑ is the page's own, to its top. It ends there, where zooming doesn't scroll it.
+# left selected. ⌘↑ is the page's own, to its top, and off the Mac that's Home. It ends there, where
+# zooming doesn't scroll it.
+top="key up cmd"
+[ "$(uname)" = Linux ] && top="key home"
 for _ in 1 2 3; do send key backspace; done
 send type far
 expect_find "$first" "open 1 of 1 far" "the find didn't find the text below the fold"
@@ -202,15 +204,15 @@ expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' "the find didn't scroll th
 send key escape
 expect_find "$first" "closed" "escape didn't close the find"
 for jump in "key j cmd" "menu Jump to Selection"; do
-  send key up cmd
-  expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
+  send $top
+  expect '^browser: title [0-9]* scrolled 0$' "$top didn't scroll the page to its top"
   send $jump
   expect '^browser: command jump-to-selection via \(page\|ui\)$' "$jump didn't reach the UI"
   expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' \
     "$jump didn't scroll the page to its selection"
 done
-send key up cmd
-expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
+send $top
+expect '^browser: title [0-9]* scrolled 0$' "$top didn't scroll the page to its top"
 send key f cmd
 expect '^browser: find bar shown$' "⌘F didn't open the find bar again"
 

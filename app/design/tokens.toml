@@ -309,6 +309,10 @@ search-radius = 6.0
 search-padding = 8.0
 list-bottom = 6.0
 emoji-size = 20.0
+# The skin tone button at the search's right end, a hand in the tone the grid shows, which opens
+# the six tones along the field (ours: Arc's isn't recorded): a plate 4 short of the field's height.
+tone-plate = 20.0
+tone-emoji = 14.0
 # A group's header takes a row, its text on the plates' left edge and the row's bottom.
 header-text = 11.0
 header-left = 4.0
@@ -458,6 +462,9 @@ pressed = 0x1614_0f2e
 # A Space's swatch in Move to (#320), before its name: its gradient, ringed by the palette's rule
 # for a swatch's ring (palette.rs) against the panel.
 swatch = 10.0
+# A page's favicon before its title in the back and forward buttons' menu of the tab's history
+# (#675), as Arc's and Chrome's show them: the engine's 16 pt favicon.
+favicon = 16.0
 
 [offer]
 width = 320.0
@@ -1083,6 +1090,9 @@ plus-size = 30.0
 plus-glyph = 14.0
 # The room after the +, to the Library's edge.
 plus-after = 37.0
+# Ours: a tab dragged over another Space's card rings it in that card's accent, this wide, inside
+# its edge (Arc's isn't recorded).
+card-drop-ring = 2.0
 # The search field, on the window buttons' row. Arc's Filter button is left out, and the field
 # takes its place.
 search-x = 120.0
@@ -1110,6 +1120,10 @@ archived-right = 3.0
 archived-favicon-x = 14.0
 archived-text-x = 44.0
 archived-radius = 12.0
+# Ours, as Arc's Media isn't measured: three tiles a row in the rows' width, 6 apart, at the
+# favorites' tiles' radius.
+media-gap = 6.0
+media-radius = 12.0
 # Ours: a running download's bar, under its text, and the footer button's, under its glyph.
 progress-height = 3.0
 progress-bottom = 6.0
@@ -1268,6 +1282,19 @@ picture-top = 18.0
 picture-inset = 4.0
 # The corners of the half-filled glyph a target shows.
 half-glyph-radius = 3.5
+
+[shell.split-controls]
+# Ours, as Arc's split controls aren't measured: the handle over each page of a split view, in
+# the window's margin over the card, or the gap under the page over it stacked. Its hover plate is
+# this wide, and its strip's height less twice the inset, at the radius of half that. Its three
+# dots are this wide and this far apart, at the ink's dots alpha, or dots-hovered under the
+# pointer.
+width = 32.0
+inset = 1.0
+dot = 2.5
+dot-gap = 3.0
+dots = 0.35
+dots-hovered = 0.8
 
 [shell.swap]
 check-box = 24.0

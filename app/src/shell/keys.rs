@@ -4,7 +4,7 @@
 //! change reaches them at once.
 
 use gpui::{
-    Action, App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction,
+    Action, App, Global, KeyBinding, KeyBindingContextPredicate, Keystroke, Modifiers, NoAction,
     OperatingSystem,
 };
 
@@ -48,15 +48,21 @@ pub enum Refused {
     Taken(Holder),
 }
 
-/// The commands the user gave keys of their own, or none.
+/// The commands the user gave keys of their own, or none, and whether ⌘1–⌘8 leave the favorites
+/// out.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct UserKeys {
     set: Vec<(Command, Vec<String>)>,
+    /// Off by default, so ⌘1 is the first favorite, as in Arc.
+    favorites_unnumbered: bool,
 }
+
+/// The Shortcuts file's line for favorites_unnumbered, which no command is named.
+const FAVORITES_UNNUMBERED: &str = "favorites-unnumbered";
 
 impl Global for UserKeys {}
 
-static DEFAULTS: UserKeys = UserKeys { set: Vec::new() };
+static DEFAULTS: UserKeys = UserKeys { set: Vec::new(), favorites_unnumbered: false };
 
 /// The user's keys, or the defaults before they're read.
 pub fn user_keys(cx: &App) -> &UserKeys {
@@ -65,8 +71,8 @@ pub fn user_keys(cx: &App) -> &UserKeys {
 
 /// Whether the user can give `command` other keys. Not Quit, whose ⌘Q is the way out of every Mac
 /// app; not Undo and Redo, whose ⌘Z and ⇧⌘Z fall back to the Edit menu's for the page; not the
-/// ⌃Tab walk, which lasts while ⌃ is held; and not the numbered tabs and Spaces, nine keys in one
-/// row.
+/// ⌃Tab walk, which lasts while ⌃ is held; not the numbered tabs and Spaces, nine keys in one
+/// row; and not the rows only the command bar lists, which Settings › Shortcuts doesn't.
 pub fn rebindable(command: Command) -> bool {
     !matches!(
         command,
@@ -77,6 +83,10 @@ pub fn rebindable(command: Command) -> bool {
             | Command::RecentTabBack
             | Command::SelectTab(_)
             | Command::SelectSpace(_)
+            | Command::MoveToSpace(_)
+            | Command::PinToSpace(_)
+            | Command::OpenFolder(_)
+            | Command::EditTheme
     )
 }
 
@@ -202,15 +212,32 @@ fn pressed_in_page(key: &str, latin_key: &str, modifiers: u32, off_the_mac: bool
         false => bc::BC_MODIFIER_META,
     };
     let name = if modifiers & command != 0 && !latin_key.is_empty() { latin_key } else { key };
-    let name = match name {
+    keystroke + &gpui_key(name)
+}
+
+/// The key the web names `key`, such as "ArrowLeft" or " ", as GPUI names it.
+fn gpui_key(key: &str) -> String {
+    match key {
         "ArrowDown" => "down".to_string(),
         "ArrowUp" => "up".to_string(),
         "ArrowLeft" => "left".to_string(),
         "ArrowRight" => "right".to_string(),
         " " => "space".to_string(),
         name => name.to_lowercase(),
-    };
-    keystroke + &name
+    }
+}
+
+/// The keystroke GPUI has for the key the web names `key`, such as "G" or "ArrowLeft", with
+/// `modifiers` held, and the text it types if it's a character without ctrl, alt or cmd: one the
+/// core held from the page for a field of the app's (bc_hold_keys).
+pub fn web_keystroke(key: &str, modifiers: Modifiers) -> Keystroke {
+    let shortcut = modifiers.control || modifiers.alt || modifiers.platform;
+    let types = key.chars().count() == 1 && !shortcut;
+    Keystroke {
+        modifiers,
+        key: gpui_key(key),
+        key_char: types.then(|| key.to_string()),
+    }
 }
 
 /// The key `keystroke`, as this platform names it, as SHORTCUTS writes it: cmd-t for ctrl-t and
@@ -395,8 +422,18 @@ impl UserKeys {
         self.set(command, defaults(command))
     }
 
+    /// Every command's default keys, and the favorites numbered again.
     pub fn reset_all(&mut self) {
-        self.set.clear();
+        *self = UserKeys::default();
+    }
+
+    /// Whether ⌘1–⌘8 count the favorites before the Space's tabs (Settings › Shortcuts).
+    pub fn favorites_numbered(&self) -> bool {
+        !self.favorites_unnumbered
+    }
+
+    pub fn set_favorites_numbered(&mut self, numbered: bool) {
+        self.favorites_unnumbered = !numbered;
     }
 
     /// Keeps `keys` for `command`, unless they're its defaults.
@@ -407,19 +444,25 @@ impl UserKeys {
         }
     }
 
-    /// As Settings saves them: a line a command, its name, then its keys, if any.
+    /// As Settings saves them: a line a command, its name, then its keys, if any, and a line saying
+    /// the favorites are left out of ⌘1–⌘8 when they are.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
             let words = std::iter::once(command.name()).chain(keys.iter().map(String::as_str));
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
-        lines.collect()
+        let unnumbered = self.favorites_unnumbered.then(|| format!("{FAVORITES_UNNUMBERED}\n"));
+        lines.chain(unnumbered).collect()
     }
 
     /// What to_text wrote. A line it can't read, or keys another command keeps, is left out.
     pub fn parse(text: &str) -> Self {
         let mut keys = UserKeys::default();
         for line in text.lines() {
+            if line.trim() == FAVORITES_UNNUMBERED {
+                keys.favorites_unnumbered = true;
+                continue;
+            }
             let mut words = line.split_whitespace();
             let Some(command) = words.next().and_then(named) else {
                 continue;
@@ -520,6 +563,14 @@ fn keys_named_in(text: &str) -> Option<(u8, Option<String>)> {
         }
     }
     parts.extend((!part.is_empty()).then_some(part));
+    // Off the Mac some keys take two words, as Ctrl+Page Down and Alt+Left Arrow name them.
+    for at in (1..parts.len()).rev() {
+        let pair = format!("{} {}", parts[at - 1], parts[at]).to_lowercase();
+        if key_called(&pair).is_some() {
+            parts[at - 1] = pair;
+            parts.remove(at);
+        }
+    }
     let (ctrl, alt, shift, cmd) = (1, 2, 4, 8);
     let (mut held, mut key) = (0, None);
     for part in parts {
@@ -535,32 +586,33 @@ fn keys_named_in(text: &str) -> Option<(u8, Option<String>)> {
         };
         match modifier {
             Some(bit) => held |= bit,
-            None if key.is_none() => key = Some(key_glyph(&lower)),
+            None if key.is_none() => key = Some(key_called(&lower).unwrap_or(lower)),
             None => return None,
         }
     }
     Some((held, key))
 }
 
-/// The key `word` names, as a menu shows it: ↩ for "return", and a letter in capitals.
-fn key_glyph(word: &str) -> String {
-    let glyph = match word {
-        "return" | "enter" => "↩",
-        "esc" | "escape" => "⎋",
-        "tab" => "⇥",
-        "backspace" => "⌫",
-        "delete" | "del" => "⌦",
-        "up" => "↑",
-        "down" => "↓",
-        "left" => "←",
-        "right" => "→",
-        "pageup" => "⇞",
-        "pagedown" => "⇟",
-        "home" => "↖",
-        "end" => "↘",
-        _ => return word.to_uppercase(),
+/// The binding's name for the key `word` names, typed or as a menu shows it, on the Mac or off
+/// it: "enter" for "return", ↩ or Enter. None for a letter or another key named as it's written.
+fn key_called(word: &str) -> Option<String> {
+    let key = match word {
+        "return" | "enter" | "↩" => "enter",
+        "esc" | "escape" | "⎋" => "escape",
+        "tab" | "⇥" => "tab",
+        "backspace" | "⌫" => "backspace",
+        "delete" | "del" | "⌦" => "delete",
+        "up" | "up arrow" | "↑" => "up",
+        "down" | "down arrow" | "↓" => "down",
+        "left" | "left arrow" | "←" => "left",
+        "right" | "right arrow" | "→" => "right",
+        "pageup" | "page up" | "⇞" => "pageup",
+        "pagedown" | "page down" | "⇟" => "pagedown",
+        "home" | "↖" => "home",
+        "end" | "↘" => "end",
+        _ => return None,
     };
-    glyph.to_string()
+    Some(key.into())
 }
 
 #[cfg(test)]
@@ -616,6 +668,22 @@ mod tests {
         assert_eq!(found("ctrl t", ROWS), [false; 6]);
         // Two keys besides the modifiers name no shortcut.
         assert_eq!(found("cmd t a", ROWS), [false; 6]);
+    }
+
+    /// A key named by its symbol on the Mac or in words off it finds the row whose chip names it
+    /// either way, Page Up and Left Arrow in two words too (#772).
+    #[test]
+    fn shortcuts_search_finds_keys_by_their_symbols_and_their_words() {
+        let found = |typed, keys| shortcut_found(typed, "Row", Some(keys));
+        assert!(found("shift cmd return", "⇧⌘↩"));
+        assert!(found("shift ctrl enter", "Ctrl+Shift+Enter"));
+        assert!(found("ctrl esc", "Ctrl+Esc"));
+        assert!(found("ctrl page down", "Ctrl+Page Down"));
+        assert!(found("ctrl pagedown", "Ctrl+Page Down"));
+        assert!(found("alt left", "Alt+Left Arrow"));
+        assert!(found("alt ←", "Alt+Left Arrow"));
+        assert!(!found("alt right", "Alt+Left Arrow"));
+        assert!(!found("ctrl page up", "Ctrl+Page Down"));
     }
 
     /// A window of the UI with the keyboard, as the shell's root has it.
@@ -889,7 +957,22 @@ mod tests {
         user.set(Command::ToggleSidebar, vec![]).unwrap();
         user.set(Command::NewFolder, keys(&["alt-cmd-n"])).unwrap();
         assert_eq!(UserKeys::parse(&user.to_text()), user);
+        user.set_favorites_numbered(false);
+        assert_eq!(UserKeys::parse(&user.to_text()), user);
         assert_eq!(UserKeys::parse("quit cmd-k\nnothing cmd-j\n"), UserKeys::default());
+    }
+
+    /// The favorites count in ⌘1–⌘8 until the user turns them off, and Restore Defaults turns them
+    /// on again.
+    #[test]
+    fn favorites_are_numbered_by_default() {
+        let mut user = UserKeys::default();
+        assert!(user.favorites_numbered());
+        assert_eq!(user.to_text(), "");
+        user.set_favorites_numbered(false);
+        assert!(!user.favorites_numbered());
+        user.reset_all();
+        assert!(user.favorites_numbered());
     }
 
     /// A key needs ⌘ or ⌃, as one without would type, and ⇧ with a character a page names its

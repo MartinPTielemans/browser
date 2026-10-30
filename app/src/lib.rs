@@ -86,6 +86,7 @@ pub fn log_handover(stage: &str, detail: &str) {
 }
 
 pub mod agents;
+pub mod build_info;
 pub mod capture;
 pub mod command_bar;
 pub mod default_browser;

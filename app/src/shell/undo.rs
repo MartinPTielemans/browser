@@ -6,6 +6,8 @@ use std::{rc::Rc, time::Duration};
 
 use gpui::{Context, SharedString};
 
+use crate::link_preview::Closed;
+
 use super::{Shell, Space};
 
 /// How long the toast that offers an Undo stays, and for as long as the pointer is over it.
@@ -36,6 +38,7 @@ impl What {
 
     pub const CLOSE_TAB: What = What::quiet("Close Tab");
     pub const CLOSE_TABS: What = What::said("Close Tabs", "Tabs Closed");
+    pub const CLOSE_PREVIEW: What = What::quiet("Close Link Preview");
     pub const PIN: What = What::quiet("Pin Tab");
     pub const UNPIN: What = What::quiet("Unpin Tab");
     pub const PIN_TABS: What = What::quiet("Pin Tabs");
@@ -170,6 +173,10 @@ pub(super) enum Edit {
     Archive(Option<u64>),
     /// Several steps the user took as one, such as pinning the rows chosen, each undone in turn.
     Many(Vec<Edit>),
+    /// Opens the link preview the user closed again, over its tab.
+    ReopenPreview(Closed),
+    /// Closes the link preview over the tab, which Redo does.
+    ClosePreview(Closed),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -237,6 +244,7 @@ impl Edit {
                 id(with);
             }
             Edit::Separate(tab) => id(tab),
+            Edit::ReopenPreview(closed) | Edit::ClosePreview(closed) => id(&mut closed.over),
             Edit::Set(prop, _) => match prop {
                 Prop::TabName(each)
                 | Prop::TabIcon(each)
@@ -383,6 +391,11 @@ impl Edit {
                 let back = std::mem::replace(&mut shell.history.done, done);
                 (!back.is_empty()).then_some(Edit::Many(back))
             }
+            Edit::ReopenPreview(closed) => {
+                shell.reopen_preview(&closed, "undo", cx).then_some(Edit::ClosePreview(closed))
+            }
+            Edit::ClosePreview(closed) => (shell.browser.close_preview(closed.over, cx))
+                .then_some(Edit::ReopenPreview(closed)),
         }
     }
 }
@@ -401,6 +414,10 @@ impl Shell {
         let Some(edit) = edit.filter(|_| !self.private) else {
             return;
         };
+        // ⇧⌘T reopens what closed last: a tab closed since comes before the preview.
+        if matches!(edit, Edit::Reopen { .. } | Edit::UndoClear { .. }) {
+            self.closed_preview = None;
+        }
         self.history.redo.clear();
         self.history.undo.push(Entry { what, edit });
         if self.history.undo.len() > KEPT {
@@ -482,6 +499,52 @@ impl Shell {
             self.edit_titles = titles;
             self.browser.set_edit_titles(titles.0, titles.1, cx);
         }
+    }
+
+    /// The user closed the link preview over `closed.over`, which ⌘Z and ⇧⌘T open again, unless
+    /// Redo closed it (`undone`), as the history has it already.
+    pub fn preview_closed(&mut self, closed: Closed, undone: bool, cx: &mut Context<Self>) {
+        if self.private {
+            return;
+        }
+        self.closed_preview = Some(closed.clone());
+        if !undone {
+            self.keep(What::CLOSE_PREVIEW, Some(Edit::ReopenPreview(closed)), cx);
+        }
+    }
+
+    /// Opens the link preview the user closed again over its tab, showing the tab first if another
+    /// shows. Whether it could: the tab is still a pinned tab or a favorite.
+    fn reopen_preview(&mut self, closed: &Closed, via: &str, cx: &mut Context<Self>) -> bool {
+        if !self.has_tab(closed.over) {
+            return false;
+        }
+        let Some(page) = self.page_laid() else {
+            return false;
+        };
+        if !self.shows(closed.over) {
+            self.select(closed.over, cx);
+        }
+        self.closed_preview = None;
+        // check.sh waits for this line.
+        log!("browser: link preview reopened over {} via {via}", closed.over);
+        self.browser.reopen_preview(closed, page, cx);
+        true
+    }
+
+    /// ⇧⌘T: the link preview the user closed, if no tab has closed since, else the tab closed
+    /// last. ⌘Z then has nothing of the preview's to reopen.
+    pub(super) fn reopen_closed(&mut self, cx: &mut Context<Self>) {
+        if let Some(closed) = self.closed_preview.clone()
+            && self.reopen_preview(&closed, "reopen-closed-tab", cx)
+        {
+            let reopen = Edit::ReopenPreview(closed);
+            self.history.undo.retain(|entry| entry.edit != reopen);
+            self.send_edit_titles(false, cx);
+            return;
+        }
+        self.closed_preview = None;
+        self.browser.reopen_closed_tab(cx);
     }
 
     // What the user did, each remembered with how to take it back. The calls to the browser are
@@ -580,9 +643,15 @@ impl Shell {
         self.keep(what, before, cx);
     }
 
-    /// Moves `tab` to `space`. Into another profile's Space it goes as a new tab, which has
-    /// nothing to give back.
-    pub(super) fn send_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+    /// Moves `tab` to `space`, pinning it first if `pin`, which the one undo takes back too. Into
+    /// another profile's Space it goes as a new tab, which has nothing to give back.
+    pub(super) fn send_to_space(
+        &mut self,
+        tab: u64,
+        space: u64,
+        pin: bool,
+        cx: &mut Context<Self>,
+    ) {
         let same_profile = |this: &Self| {
             let profile = |id: u64| {
                 this.spaces
@@ -594,6 +663,11 @@ impl Shell {
             from.is_some() && from == profile(space)
         };
         let before = same_profile(self).then(|| self.put_back(tab)).flatten();
+        // The core moves a pinned tab pinned, into another profile's Space too.
+        let pinned = matches!(self.spot_of(tab).map(|spot| spot.at), Some(At::Pinned { .. }));
+        if pin && !pinned {
+            self.browser.set_pinned(tab, true, cx);
+        }
         self.browser.move_to_space(tab, space, cx);
         self.keep(What::MOVE_TO_SPACE, before, cx);
     }

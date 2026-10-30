@@ -178,6 +178,8 @@ struct DeletedSpace {
   std::vector<bc_id> today;
   // The tab or favorite the window showed there, or 0.
   bc_id shown = 0;
+  // Its place among the Spaces, which it comes back to.
+  size_t at = 0;
 };
 
 // The Spaces deleted, newest last, as many as the closed tabs.
@@ -938,6 +940,8 @@ bool Window::DeleteSpace(bc_id space) {
   // Before the windows leave it, so it keeps the tab the one active last showed there.
   DeletedSpace& deleted = DeletedSpaces().emplace_back();
   deleted.id = space;
+  const std::vector<Space*> all = Space::All();
+  deleted.at = static_cast<size_t>(std::ranges::find(all, space, &Space::id) - all.begin());
   deleted.shown = Order().empty() ? 0 : FromId(Order().front())->SelectedIn(space);
   deleted.saved = SaveSpace(**it, deleted.shown, &deleted.today);
   if (DeletedSpaces().size() > kMaxClosedTabs) {
@@ -1663,7 +1667,7 @@ bc_id Window::UndoDeleteSpace(bc_id id) {
     above = true;
   }
   space.saved.today = std::move(today);
-  RestoreSpace(*this, profile, space.saved, space.id);
+  RestoreSpace(*this, profile, space.saved, space.id, space.at);
   // Not one of the Space's own, which closed with it and came back as other tabs.
   if (Favorites::Has(space.shown) && !Favorites::SpaceOf(space.shown)) {
     SetSelectedIn(space.id, space.shown);
@@ -1927,6 +1931,33 @@ bc_id Window::Duplicate(bc_id tab) {
   auto at = std::ranges::find(space->today(), tab);
   space->AddAt(id, at == space->today().end() ? 0 : at - space->today().begin() + 1);
   Select(id);
+  return id;
+}
+
+bc_id Window::OpenHistory(bc_id tab, int offset) {
+  const Tab* from = Tab::Get(tab);
+  Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
+  if (!from || !from->profile() || !space || DirOf(from->profile()) != space->profile() ||
+      OffTheRecord(from) != off_the_record_) {
+    return 0;
+  }
+  // A system page's history is WebKit's, of which the saved tab keeps only the page.
+  if (offset != 0 && from->system_page()) {
+    return 0;
+  }
+  // As the tab would come back after a quit, at the other page: Chrome's background tab loads
+  // at once, but here a page loads once it's shown.
+  SavedTab saved = from->Save();
+  saved.current += offset;
+  if (saved.current < 0 || saved.current >= static_cast<int>(saved.history.size())) {
+    return 0;
+  }
+  const bc_id id = Tab::Restore(from->profile(), saved);
+  if (!id) {
+    return 0;
+  }
+  // Opened behind by |tab|, so it goes under it and closing it goes back there, as a link's does.
+  space->Add(id, tab, /*foreground=*/false);
   return id;
 }
 

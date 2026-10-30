@@ -1,6 +1,7 @@
 //! The Library button's recent downloads: the newest files, in rows over the foot of the sidebar,
-//! the newest next to the button (Arc). When they show and how they come and go are ours
-//! until Arc's are recorded (docs/ux-spec.md › Downloads).
+//! the newest next to the button (Arc), of the kinds picked from the button's menu, the Library's
+//! captures among them. When they show and how they come and go are ours until Arc's are recorded
+//! (docs/ux-spec.md › Downloads).
 
 use std::{
     sync::Arc,
@@ -8,12 +9,39 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, Context, Image, SharedString, Task, Window, div, img, prelude::*, px, svg,
+    AnyElement, Context, Image, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Task,
+    Window, div, img, prelude::*, px, svg,
 };
 
 use super::{
-    Download, DownloadState, FOOTER_HEIGHT, NAV_SIZE, SECONDARY, Shell, library::of,
+    Download, DownloadState, FOOTER_HEIGHT, MenuEntry, NAV_SIZE, SECONDARY, Section, Shell,
+    library::{capture_id, is_video, of},
 };
+use crate::palette::{STATE_HOVERED, STATE_PRESSED};
+
+/// What the hover lists, bits the button's menu turns on and off: images, videos and other files
+/// downloaded, and the captures saved to the Library (Arc's screenshots).
+pub const HOVER_IMAGES: u32 = 1;
+pub const HOVER_VIDEOS: u32 = 2;
+pub const HOVER_OTHER_FILES: u32 = 4;
+pub const HOVER_CAPTURES: u32 = 8;
+pub const HOVER_ALL: u32 = 15;
+/// The menu's rows, in its order, with their names in the log.
+const HOVER_MENU: [(&str, &str, u32); 4] = [
+    ("Images", "images", HOVER_IMAGES),
+    ("Videos", "videos", HOVER_VIDEOS),
+    ("Other Files", "other files", HOVER_OTHER_FILES),
+    ("Captures", "captures", HOVER_CAPTURES),
+];
+
+/// The bit a file's name puts it under.
+fn kind(name: &str) -> u32 {
+    match is_video(name) {
+        Some(false) => HOVER_IMAGES,
+        Some(true) => HOVER_VIDEOS,
+        None => HOVER_OTHER_FILES,
+    }
+}
 
 /// Ours: the rows wait half a second, so a pointer passing the button leaves them, and fade.
 const RECENT_WAIT: Duration = Duration::from_millis(500);
@@ -73,16 +101,19 @@ pub(super) struct RecentDownloads {
     settled: bool,
 }
 
-/// The downloads the rows show, newest first: the newest finished ones with a file, and those
-/// still coming, as a download that runs on shouldn't hide the files before it. A held one shows
-/// too, as nothing else says it's waiting to be kept or deleted.
-fn recent(downloads: &[Download]) -> impl Iterator<Item = &Download> {
-    let shown = |each: &&Download| match each.state {
-        DownloadState::Done => !each.path.is_empty(),
-        DownloadState::Running | DownloadState::Paused => true,
-        DownloadState::Cancelled | DownloadState::Failed => false,
+/// The downloads the rows can show, of `kinds`, newest first: the finished ones with a file, and
+/// those still coming, as a download that runs on shouldn't hide the files before it. A held one
+/// shows too, as nothing else says it's waiting to be kept or deleted.
+fn recent(downloads: &[Download], kinds: u32) -> impl Iterator<Item = &Download> {
+    let shown = move |each: &&Download| {
+        kind(&each.name) & kinds != 0
+            && match each.state {
+                DownloadState::Done => !each.path.is_empty(),
+                DownloadState::Running | DownloadState::Paused => true,
+                DownloadState::Cancelled | DownloadState::Failed => false,
+            }
     };
-    downloads.iter().filter(shown).take(RECENT_COUNT)
+    downloads.iter().filter(shown)
 }
 
 /// How long ago `started` is at `now`, in milliseconds since the Unix epoch, in words, with
@@ -138,6 +169,56 @@ fn now() -> f64 {
 }
 
 impl Shell {
+    /// What the rows show, newest first, each a download's id or a capture's (`capture_id`), with
+    /// when it started or was saved.
+    fn recent_files(&self, cx: &mut Context<Self>) -> Vec<(u64, f64)> {
+        let kinds = self.browser.hover_kinds(cx);
+        let downloads = recent(&self.downloads, kinds).map(|each| (each.id, each.started));
+        let captures = (self.captures.iter())
+            .filter(|_| kinds & HOVER_CAPTURES != 0)
+            .map(|each| (capture_id(&each.path), each.saved));
+        let mut files: Vec<_> = downloads.chain(captures).collect();
+        files.sort_by(|a, b| b.1.total_cmp(&a.1));
+        files.truncate(RECENT_COUNT);
+        files
+    }
+
+    /// The menu a right-click on the Library button shows: what its hover lists, each ticked while
+    /// it does.
+    pub(super) fn hover_kinds_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        self.recent_downloads_gone(cx);
+        let kinds = self.browser.hover_kinds(cx);
+        // The files' kinds, a line, then the captures.
+        let rows = [Some(0), Some(1), Some(2), None, Some(3)];
+        let rows = rows.map(|row| row.map(|at| HOVER_MENU[at]));
+        let entries = (rows.iter())
+            .map(|row| match row {
+                Some((title, _, bit)) => MenuEntry::new(title, true).checked(kinds & bit != 0),
+                None => MenuEntry::line(),
+            })
+            .collect();
+        let in_reveal = self.library.is_none() && self.sidebar_hidden;
+        self.context_menu_in(
+            entries,
+            position,
+            in_reveal,
+            Box::new(move |chosen, shell, cx| {
+                let Some((_, _, bit)) = chosen.and_then(|at| rows.get(at).copied().flatten()) else {
+                    return;
+                };
+                let kinds = shell.browser.hover_kinds(cx) ^ bit;
+                shell.browser.set_hover_kinds(kinds, cx);
+                let named: Vec<_> = (HOVER_MENU.iter())
+                    .filter(|(_, _, bit)| kinds & bit != 0)
+                    .map(|(_, name, _)| *name)
+                    .collect();
+                // check.sh waits for this line.
+                log!("browser: hover kinds {}", named.join(", "));
+            }),
+            cx,
+        );
+    }
+
     /// The pointer came onto the Library button, or the rows, or left. It leaves one as it comes
     /// onto the other in the same move, in either order, so what that means waits for both.
     pub(super) fn hover_recent_downloads(
@@ -172,6 +253,10 @@ impl Shell {
         if recent.wait.is_some() || !self.recent_downloads_can_show() {
             return;
         }
+        // Listed again as the wait starts, so they're current when it ends.
+        if self.browser.hover_kinds(cx) & HOVER_CAPTURES != 0 {
+            self.browser.list_captures(cx);
+        }
         self.recent_downloads.wait = Some(cx.spawn(async move |shell, cx| {
             cx.background_executor().timer(RECENT_WAIT).await;
             shell
@@ -198,10 +283,12 @@ impl Shell {
             return;
         }
         let (now, today) = (now(), self.browser.day_starts()[0]);
-        let rows: Vec<_> = recent(&self.downloads)
-            .map(|each| (each.id, age(each.started, now, today).into()))
+        let rows: Vec<_> = (self.recent_files(cx).into_iter())
+            .map(|(id, at)| (id, age(at, now, today).into()))
             .collect();
         if rows.is_empty() {
+            // check.sh waits for this line.
+            log!("browser: recent downloads none");
             return;
         }
         let recent = &mut self.recent_downloads;
@@ -216,12 +303,16 @@ impl Shell {
     /// Asks once for the preview of each row's file that has finished, as one still coming has
     /// no file to look at yet.
     fn ask_download_previews(&mut self, cx: &mut Context<Self>) {
-        let rows = &self.recent_downloads.rows;
-        let asked: Vec<_> = recent(&self.downloads)
-            .filter(|each| each.state == DownloadState::Done && !each.held)
-            .filter(|each| rows.iter().any(|(id, _)| *id == each.id))
-            .filter(|each| !self.download_previews.contains_key(&each.id))
-            .map(|each| (each.id, each.path.clone()))
+        let path = |id: u64| match self.downloads.iter().find(|each| each.id == id) {
+            Some(each) => (each.state == DownloadState::Done && !each.held && !each.path.is_empty())
+                .then(|| each.path.clone()),
+            None => (self.captures.iter())
+                .find(|each| capture_id(&each.path) == id)
+                .map(|each| each.path.clone()),
+        };
+        let asked: Vec<_> = (self.recent_downloads.rows.iter())
+            .filter(|(id, _)| !self.download_previews.contains_key(id))
+            .filter_map(|&(id, _)| Some((id, path(id)?)))
             .collect();
         for (id, path) in asked {
             self.download_previews.insert(id, None);
@@ -275,13 +366,14 @@ impl Shell {
         if recent.going { 1. - t } else { t }
     }
 
-    /// The downloads changed: the rows keep those still there, and go with none.
+    /// The downloads or captures changed: the rows keep those still there, and go with none.
     pub(super) fn recent_downloads_changed(&mut self, cx: &mut Context<Self>) {
         if self.recent_downloads.rows.is_empty() {
             return;
         }
-        let (downloads, rows) = (&self.downloads, &mut self.recent_downloads.rows);
-        rows.retain(|(id, _)| recent(downloads).any(|each| each.id == *id));
+        let files = self.recent_files(cx);
+        let rows = &mut self.recent_downloads.rows;
+        rows.retain(|(id, _)| files.iter().any(|(file, _)| file == id));
         if rows.is_empty() {
             // check.sh waits for this line.
             log!("browser: recent downloads hidden");
@@ -301,7 +393,8 @@ impl Shell {
     ) {
         if let Some(entry) = self.download_previews.get_mut(&id) {
             *entry = preview;
-            if self.recent_downloads.rows.iter().any(|(row, _)| *row == id) {
+            let in_media = self.library.is_some() && self.section == Section::Media;
+            if in_media || self.recent_downloads.rows.iter().any(|(row, _)| *row == id) {
                 cx.notify();
             }
         }
@@ -388,8 +481,13 @@ impl Shell {
         live: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(download) = self.downloads.iter().find(|each| each.id == id) else {
-            return div().h(px(RECENT_PITCH)).into_any_element();
+        let download = self.downloads.iter().find(|each| each.id == id);
+        let capture = (self.captures.iter())
+            .find(|each| download.is_none() && capture_id(&each.path) == id);
+        let name = match (download, capture) {
+            (Some(download), _) => download.name.clone(),
+            (None, Some(capture)) => capture.name.clone(),
+            (None, None) => return div().h(px(RECENT_PITCH)).into_any_element(),
         };
         let preview = match self.download_previews.get(&id).cloned().flatten() {
             Some(preview) if preview.photo => {
@@ -411,10 +509,12 @@ impl Shell {
         };
         // One still coming says how much has come, and a held one why, as its Library row does,
         // and its age once done.
-        let detail: SharedString = match download.state {
-            _ if download.held => "May harm your computer".into(),
-            DownloadState::Running => of(download.received, download.total).into(),
-            DownloadState::Paused => {
+        let detail: SharedString = match download {
+            Some(download) if download.held => "May harm your computer".into(),
+            Some(download) if download.state == DownloadState::Running => {
+                of(download.received, download.total).into()
+            }
+            Some(download) if download.state == DownloadState::Paused => {
                 format!("Paused · {}", of(download.received, download.total)).into()
             }
             _ => age.clone(),
@@ -436,9 +536,29 @@ impl Shell {
             .top(px(2.))
             .bottom(px(2.))
             .rounded(px(PLATE_RADIUS));
-        let plate = match live {
-            true => self.download_row(plate, id, "recent downloads", cx),
-            false => plate,
+        let plate = match (live, capture) {
+            (false, _) => plate,
+            (true, None) => self.download_row(plate, id, "recent downloads", cx),
+            // A capture's row opens it as its tile in Media does, and has its menu.
+            (true, Some(capture)) => {
+                let path = capture.path.clone();
+                plate
+                    .hover(|style| style.bg(self.palette.plate(STATE_HOVERED)))
+                    .active(|style| style.bg(self.palette.plate(STATE_PRESSED)))
+                    .on_click({
+                        let path = path.clone();
+                        cx.listener(move |shell, _, _, cx| {
+                            shell.open_media(&path, cx);
+                            shell.hide_recent_downloads(cx);
+                        })
+                    })
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.capture_menu(path.clone(), event.position, cx)
+                        }),
+                    )
+            }
         };
         div()
             .flex_none()
@@ -467,7 +587,7 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .justify_center()
-                    .child(line(download.name.clone(), NAME_SIZE, NAME_LINE, NAME))
+                    .child(line(name, NAME_SIZE, NAME_LINE, NAME))
                     .child(line(detail, AGE_SIZE, AGE_LINE, SECONDARY)),
             )
             .into_any_element()
@@ -478,10 +598,14 @@ impl Shell {
 mod tests {
     use std::{rc::Rc, time::Duration};
 
-    use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext, point, px};
+    use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px};
 
     use super::{
-        super::{Download, DownloadState, Shell, library::Section, recorder::Recorder},
+        super::{
+            Captured, Download, DownloadState, Shell,
+            library::{Section, capture_id},
+            recorder::Recorder,
+        },
         DAY, HOUR, MINUTE, RECENT_WAIT, WEEK, age, now,
     };
 
@@ -562,6 +686,53 @@ mod tests {
         })
     }
 
+    /// A right-click on the Library button picks what its hover lists, each kind of file and the
+    /// Library's captures, which list among the downloads by when they were saved.
+    #[gpui::test]
+    fn the_library_button_s_menu_picks_what_its_hover_lists(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx);
+        let mut picture = done(2, 2. * HOUR);
+        picture.name = "picture.png".into();
+        let path = "/media/Capture.png";
+        let name = "Capture.png".into();
+        let capture = Captured { path: path.into(), name, saved: now() - MINUTE };
+        shell.update(cx, |shell, cx| {
+            shell.set_downloads(vec![picture, done(1, DAY)], cx);
+            shell.set_captures(vec![capture], cx);
+        });
+        cx.run_until_parked();
+        let height = shell.read_with(cx, |shell, _| f32::from(shell.viewport.height));
+        let button = point(px(24.), px(height - 25.));
+        let pick = |title: &str, cx: &mut VisualTestContext| {
+            cx.simulate_mouse_down(button, MouseButton::Right, Modifiers::none());
+            cx.simulate_mouse_up(button, MouseButton::Right, Modifiers::none());
+            cx.run_until_parked();
+            let titles: Vec<_> = (host.menus.borrow().last().unwrap().iter())
+                .map(|(title, _)| title.to_string())
+                .collect();
+            assert_eq!(titles, ["Images", "Videos", "Other Files", "", "Captures"]);
+            cx.update(|_, cx| host.choose(title, cx));
+            cx.run_until_parked();
+            // Off the button, so the next rest shows the rows anew.
+            move_to(cx, 400., 300.);
+        };
+        let listed = |cx: &mut VisualTestContext| {
+            move_to(cx, 24., height - 25.);
+            wait(cx, RECENT_WAIT);
+            let ids = rows(&shell, cx).0.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+            move_to(cx, 400., 300.);
+            wait(cx, RECENT_WAIT);
+            ids
+        };
+        assert_eq!(listed(cx), [capture_id(path), 2, 1]);
+        pick("Other Files", cx);
+        assert_eq!(listed(cx), [capture_id(path), 2]);
+        pick("Captures", cx);
+        assert_eq!(listed(cx), [2]);
+        pick("Other Files", cx);
+        assert_eq!(listed(cx), [2, 1]);
+    }
+
     /// Resting on the Library button for the tooltip's delay shows the four newest downloads, the
     /// running and held ones with the finished ones, with their ages, and asks for the finished
     /// ones' previews once, and the running one's once it finishes. They stay as the pointer crosses
@@ -601,7 +772,8 @@ mod tests {
             (4, "4 days ago".to_string()),
         ];
         assert_eq!(rows(&shell, cx), (shown.clone(), false));
-        let asked = ["file preview 5", "file preview 4"];
+        // The Library's captures are listed again as the wait starts.
+        let asked = ["list captures", "file preview 5", "file preview 4"];
         let calls = host.take();
         assert!(calls.iter().any(|call| call == "tooltip View Library ⇧⌘L"), "{calls:?}");
         let previews: Vec<_> = calls.iter().filter(|c| !c.starts_with("tooltip")).collect();
