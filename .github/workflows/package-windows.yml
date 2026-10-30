@@ -94,7 +94,7 @@ jobs:
             exit 0
           fi
           ../tools/winget.sh "$installer" \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/v$version/${installer##*/}" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/v$version/ilo-windows-x64-setup.exe" \
             "$RUNNER_TEMP/windows-packages/winget"
 
       - uses: actions/upload-artifact@v4
