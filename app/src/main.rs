@@ -72,6 +72,9 @@ mod panels;
 #[path = "../platform/linux/popovers.rs"]
 mod popovers;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/previews.rs"]
+mod previews;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
 #[cfg(target_os = "linux")]
