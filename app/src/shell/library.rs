@@ -402,6 +402,9 @@ enum Medium {
     Download(usize),
 }
 
+/// The group a Space card's field is, for its parts to show under the pointer.
+const FIELD: &str = "space-field";
+
 impl Shell {
     /// The archive changed, all of it, newest first.
     pub fn set_archive(&mut self, archive: Vec<Archived>, cx: &mut Context<Self>) {
@@ -1228,7 +1231,10 @@ impl Shell {
     /// The field across the top of a Space's card (Arc): its icon in a dashed slot, which opens the
     /// icon picker, its name, which a click puts in a field there to type over, and the brush, which
     /// opens the theme picker. `behind` is the card's colour at its top, for the swatch of a Space
-    /// with no icon.
+    /// with no icon. At rest it's the icon and the name alone; its plate, the slot's dashes and the
+    /// brush show under the pointer, at once as other hover plates do, and while the name is being
+    /// typed over (#811). They keep their places at rest, so nothing moves as they come. The
+    /// pickers close the Library, so none is open over a card.
     fn card_field(
         &self,
         space: &Space,
@@ -1237,6 +1243,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let id = space.id;
+        let renaming = self.renaming.as_ref().filter(|renaming| {
+            renaming.naming == Naming::Space(id) && renaming.in_library
+        });
+        let held = renaming.is_some();
         // A Space without an icon shows its swatch in the icon's place.
         let icon = space_icon_drawn(palette, &space.icon).unwrap_or_else(|| {
             palette.swatch.draw(SPACE_SWATCH_SHOWN, &[behind.to_rgb()]).into_any_element()
@@ -1277,11 +1287,16 @@ impl Shell {
                 .absolute()
                 .size_full(),
             )
-            .child(dashed_square(palette.glyph(CARD_SLOT_DASH)).absolute().size_full())
+            .child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .when(!held, |dashes| {
+                        dashes.opacity(0.).group_hover(FIELD, |style| style.opacity(1.))
+                    })
+                    .child(dashed_square(palette.glyph(CARD_SLOT_DASH)).size_full()),
+            )
             .child(icon);
-        let renaming = self.renaming.as_ref().filter(|renaming| {
-            renaming.naming == Naming::Space(id) && renaming.in_library
-        });
         let name = match renaming {
             // A click in the field places the caret, and mustn't reach the card.
             Some(renaming) => self
@@ -1313,6 +1328,7 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
+            .when(!held, |brush| brush.opacity(0.).group_hover(FIELD, |style| style.opacity(1.)))
             .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
             .active(|style| style.bg(palette.plate(STATE_PRESSED)))
             .on_click(cx.listener(move |shell, _, _, cx| {
@@ -1325,6 +1341,21 @@ impl Shell {
                     .size(px(CARD_BRUSH_GLYPH))
                     .text_color(palette.glyph(CARD_BRUSH_COLOR)),
             );
+        let plate = palette.plate(CARD_FIELD_PLATE);
+        let drawn = self.fields_drawn.clone();
+        // check.sh waits for these lines, logged as the field is drawn with its plate or without.
+        let log_drawn = canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                let shown = held || bounds.contains(&window.mouse_position());
+                if drawn.borrow_mut().insert(id, shown) != Some(shown) {
+                    let state = if shown { "shown" } else { "at rest" };
+                    log!("browser: library field {id} {state} drawn");
+                }
+            },
+        )
+        .absolute()
+        .size_full();
         div()
             .flex_none()
             .mt(px(CARD_NAME_TOP))
@@ -1334,6 +1365,9 @@ impl Shell {
             .items_center()
             .child(
                 div()
+                    .id(("space-field", id))
+                    .group(FIELD)
+                    .relative()
                     .w_full()
                     .h(px(CARD_FIELD_HEIGHT))
                     .flex()
@@ -1342,9 +1376,11 @@ impl Shell {
                     .pl(px(CARD_SLOT_X))
                     .pr(px(CARD_BRUSH_INSET))
                     .rounded(px(CARD_FIELD_RADIUS))
-                    .bg(palette.plate(CARD_FIELD_PLATE))
+                    .when(held, |field| field.bg(plate))
+                    .group_hover(FIELD, |style| style.bg(plate))
                     .text_size(px(text::BODY))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .child(log_drawn)
                     .child(slot)
                     .child(name)
                     .child(brush),
