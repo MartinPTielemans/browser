@@ -291,6 +291,15 @@ fn driven() -> Option<Browser> {
     browser(DRIVEN.get())
 }
 
+/// Whether `window` is mapped, with every window it's in: the server sends no key to one that isn't.
+fn viewable(connection: &RustConnection, window: xproto::Window) -> bool {
+    connection
+        .get_window_attributes(window)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .is_some_and(|attributes| attributes.map_state == xproto::MapState::VIEWABLE)
+}
+
 /// Whether `window` is `ancestor` or inside it.
 fn within(
     connection: &RustConnection,
@@ -314,13 +323,6 @@ fn within(
         window = tree.parent;
     }
     false
-}
-
-/// Whether `window` and the windows it's in are mapped.
-fn viewable(connection: &RustConnection, window: xproto::Window) -> bool {
-    (connection.get_window_attributes(window).ok())
-        .and_then(|cookie| cookie.reply().ok())
-        .is_some_and(|a| a.map_state == xproto::MapState::VIEWABLE)
 }
 
 /// The overlay, Settings or the browser window the X server's input focus is in, if it's the
@@ -681,6 +683,8 @@ fn keysym(key: &str) -> Option<u32> {
         "home" => 0xff50,
         "pageup" => 0xff55,
         "pagedown" => 0xff56,
+        // Off the Mac a page's own way to its top, which ⌘↑ is on the Mac.
+        "home" => 0xff50,
         "up" => 0xff52,
         "down" => 0xff54,
         "left" => 0xff51,
@@ -828,9 +832,8 @@ fn hold_control() -> Option<()> {
 fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
     let x = server()?;
     let (connection, root) = &*x;
-    // As the X server picks it: the window under the pointer when that's in the focus window, else
-    // the focus window. A panel hidden under the pointer, as the find bar after its close button,
-    // is under it no more.
+    // As the X server picks it: the window under the pointer when that's shown and in the focus
+    // window, else the focus window. A find bar closed by a click is still the last one hovered.
     let window = match keyboard_window() {
         Some(
             Keyboard::Overlay(focus) | Keyboard::Settings(_, focus) | Keyboard::Browser(_, focus),

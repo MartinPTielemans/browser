@@ -289,8 +289,8 @@ fi
 library_to "wheel $swipe_point 1" wheel shown
 # Its Spaces section is as wide as its two cards, 216 + 264 a Space as Arc's, unless that would
 # leave the page less than 400, and never narrower than one card's 480. The section's button is
-# the middle of three, centred 5 above the window's middle, 56 in.
-send click 56 $((${content#*x} / 2 - 5))
+# the third of four, 100 apart and centred 5 above the window's middle, 56 in.
+send click 56 $((${content#*x} / 2 + 45))
 expect '^browser: library section spaces$' "a click on Spaces didn't show the Library's Spaces"
 spaces_wide=$((216 + 264 * 2))
 [ $spaces_wide -gt $((${content%x*} - 400)) ] && spaces_wide=$((${content%x*} - 400))
