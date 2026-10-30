@@ -452,8 +452,8 @@ send type cllps
 expect '^browser: command bar commands "cllps": Collapse All Folders, Collapse Pinned Tabs$' "the command bar didn't find Collapse All Folders, then Collapse Pinned Tabs, for \"cllps\": $(grep '^browser: command bar commands' "$log" | tail -1)"
 send key pagedown
 expect '^browser: command bar selected Collapse Pinned Tabs$' "⇟ didn't select Collapse Pinned Tabs, the last row"
-send key pageup
-expect '^browser: command bar selected Collapse All Folders$' "⇞ didn't select Collapse All Folders, the first row"
+send key up
+expect '^browser: command bar selected Collapse All Folders$' "↑ didn't select Collapse All Folders, the row above"
 send key return
 expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collapse All Folders"
 expect '^browser: command collapse-folders via command bar$' "Collapse All Folders didn't run collapse-folders"
