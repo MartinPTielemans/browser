@@ -273,7 +273,10 @@ expect "^browser: passwords [0-9]*: 127.0.0.1:$port check@example.test\$" \
   "Settings didn't list the saved login alone: $(grep '^browser: passwords ' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/settings-passwords.png" || fail "no window to capture"
 post clickkey 574 159
-expect "^browser: alert shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
+# Settings asks in the Mac's alert there, and in the app's own dialog off the Mac.
+asks=alert
+[ "$(uname)" = Darwin ] || asks=dialog
+expect "^browser: $asks shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
   "Remove in Settings didn't ask first"
 send choose Cancel
 none_since '^browser: remove login' || fail "Cancel removed the login"
