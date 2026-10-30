@@ -16,7 +16,10 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <langinfo.h>
+#include <locale.h>
 #include <spawn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -221,6 +224,22 @@ std::string DefaultFor(const std::string& type) {
     }
   }
   return "";
+}
+
+// The day the user's weeks start on, as tm_wday counts from Sunday: their LC_TIME locale's, read
+// from glibc as GTK's calendar reads it, a day counted from an origin day, 1 being the origin.
+// Monday where the locale can't be loaded, as most have it.
+int FirstWeekday() {
+  locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
+  if (!locale) {
+    return 1;
+  }
+  // The origin is a date in a number: 1997-11-30, a Sunday, or 1997-12-01, a Monday.
+  const auto origin = static_cast<uint32_t>(
+      reinterpret_cast<uintptr_t>(nl_langinfo_l(_NL_TIME_WEEK_1STDAY, locale)));
+  const int first = nl_langinfo_l(_NL_TIME_FIRST_WEEKDAY, locale)[0];
+  freelocale(locale);
+  return ((origin == 19971201 ? 1 : 0) + first - 1) % 7;
 }
 
 }  // namespace
@@ -531,8 +550,7 @@ void host_day_starts(double starts[4]) {
   today.tm_isdst = -1;
   tm yesterday = today;
   yesterday.tm_mday -= 1;
-  // shortcut: weeks start on Monday, as most locales have it; the locale's own isn't read yet.
-  const int first_day = 1;  // As tm_wday counts, from Sunday.
+  const int first_day = FirstWeekday();
   tm week = today;
   week.tm_mday -= (today.tm_wday - first_day + 7) % 7;
   tm last_week = week;
