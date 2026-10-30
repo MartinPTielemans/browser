@@ -74,6 +74,15 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
     })
 }
 
+/// The UI's view of the browser window the popover of `view` shows over, and where in its content,
+/// if it shows: ilo's menu, such as a permission's, shows over it there (menu_window.rs).
+pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter().find(|p| p.view == view))
+            .and_then(|p| p.shown.map(|shown| (shown.ui_view, shown.bounds)))
+    })
+}
+
 fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::SiteControls => "site controls",
