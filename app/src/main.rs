@@ -3675,6 +3675,9 @@ fn open_window_as(
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, cx| {
                 let viewport = window.viewport_size();
+                // First, as a page's full screen can end with the window's.
+                #[cfg(target_os = "linux")]
+                shell.bounds_changed(cx);
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
                     shell.full_screen_step("laid", viewport);
@@ -3684,7 +3687,6 @@ fn open_window_as(
                 // Mac's does.
                 #[cfg(target_os = "linux")]
                 {
-                    shell.bounds_changed(cx);
                     panels::place(ui_view);
                     overlays::place_dialog(ui_view);
                     menu_window::resized(ui_view);
