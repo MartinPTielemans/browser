@@ -26,9 +26,10 @@
 //! and displays, the driver can't do yet, and says so as drive.mm does. pip, which drive.mm doesn't
 //! have yet, finds a video's Picture in Picture window, the Mini Player, and logs "browser: pip at
 //! <x> <y> <width> <height>" as it is and each time it moves or resizes, then "browser: pip gone",
-//! or "browser: pip none" without one. pip doubleclick, pip wheel and pip drag work in it, at points
-//! from its top-left corner as the command finds it. pip drag alone moves the display's pointer,
-//! through XTest, onto the Mini Player only, and back after.
+//! or "browser: pip none" without one. pip doubleclick, pip wheel, and pip press, dragto and
+//! release work in it, at points from its top-left corner as the command finds it, or as it was at
+//! the press. pip press, dragto and release alone move the display's pointer, through XTest, onto
+//! the Mini Player only, and the release puts it back.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -199,6 +200,8 @@ thread_local! {
     /// The window a press went to, which gets the drag's events until the release, as the X
     /// server's grab of the pointer does.
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
+    /// The Mini Player's press through XTest, till its release (hold_mini_player).
+    static PIP_HELD: Cell<Option<HeldPip>> = const { Cell::new(None) };
     /// The window the pointer is in, which hears it leave.
     static HOVERED: Cell<Option<Target>> = const { Cell::new(None) };
     /// The modifiers the flags command holds, in an X state, which the keys go with until it lets
@@ -1542,7 +1545,7 @@ fn mini_player() -> Option<xproto::Window> {
     })
 }
 
-/// pip, and pip doubleclick, pip wheel and pip drag (run_command's header).
+/// pip, and pip doubleclick, wheel, press, dragto and release (run_command's header).
 fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<()> {
     let Some(window) = mini_player() else {
         log!("browser: pip none");
@@ -1556,6 +1559,9 @@ fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<(
         return Some(());
     };
     let (x, y) = point(&mut words)?;
+    if let "press" | "dragto" | "release" = action {
+        return hold_mini_player(window, action, x, y);
+    }
     let at = target_in(window, x, y)?;
     match action {
         "doubleclick" => {
@@ -1572,41 +1578,59 @@ fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<(
             }
             Some(())
         }
-        // pip drag <x> <y> <x2> <y2>: from (x, y) to (x2, y2), both where the window was, with
-        // the display's own pointer, through XTest. Sent events can't drag it: the move loop
-        // follows the pointer the X server has, grabbed, as a hand drags it.
-        "drag" => {
-            let (x2, y2) = point(&mut words)?;
-            let scale = scale();
-            let by = |dx: f64, dy: f64| {
-                (at.root_x + (dx * scale).round() as i16, at.root_y + (dy * scale).round() as i16)
-            };
-            let server = server()?;
-            let (connection, root) = &*server;
-            let fake = |kind: u8, button: u8, (x, y): (i16, i16)| {
-                (connection.xtest_fake_input(kind, button, x11rb::CURRENT_TIME, *root, x, y, 0))
-                    .ok()?;
-                connection.get_input_focus().ok()?.reply().ok().map(drop)
-            };
-            let pointer = || connection.query_pointer(*root).ok()?.reply().ok();
-            let was = pointer()?;
-            let back = (was.root_x, was.root_y);
-            fake(xproto::MOTION_NOTIFY_EVENT, 0, by(0., 0.))?;
-            // The pointer is the display's, so a press anywhere but on the Mini Player would be
-            // another window's.
-            if !within(connection, window, pointer()?.child) {
-                log!("browser: pip drag: another window is over the Mini Player there");
-                return fake(xproto::MOTION_NOTIFY_EVENT, 0, back);
-            }
-            first_press(at, 1, false);
-            fake(xproto::BUTTON_PRESS_EVENT, 1, by(0., 0.))?;
-            fake(xproto::MOTION_NOTIFY_EVENT, 0, by((x2 - x) / 2., (y2 - y) / 2.))?;
-            fake(xproto::MOTION_NOTIFY_EVENT, 0, by(x2 - x, y2 - y))?;
-            fake(xproto::BUTTON_RELEASE_EVENT, 1, by(x2 - x, y2 - y))?;
-            fake(xproto::MOTION_NOTIFY_EVENT, 0, back)
-        }
         _ => None,
     }
+}
+
+/// pip press, pip dragto and pip release <x> <y>, at points where the window was at the press: the
+/// display's own pointer, through XTest. Sent events can't move it, as the window manager moves it
+/// with the pointer the X server has, as a hand moves it.
+fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Option<()> {
+    let server = server()?;
+    let (connection, root) = &*server;
+    let fake = |kind: u8, button: u8, (x, y): (i16, i16)| {
+        (connection.xtest_fake_input(kind, button, x11rb::CURRENT_TIME, *root, x, y, 0)).ok()?;
+        connection.get_input_focus().ok()?.reply().ok().map(drop)
+    };
+    if step == "press" {
+        let at = target_in(window, x, y)?;
+        let was = connection.query_pointer(*root).ok()?.reply().ok()?;
+        let back = (was.root_x, was.root_y);
+        fake(xproto::MOTION_NOTIFY_EVENT, 0, (at.root_x, at.root_y))?;
+        // The pointer is the display's, so a press anywhere but on the Mini Player would be
+        // another window's.
+        let under = connection.query_pointer(*root).ok()?.reply().ok()?.child;
+        if !within(connection, window, under) {
+            log!("browser: pip press: another window is over the Mini Player there");
+            return fake(xproto::MOTION_NOTIFY_EVENT, 0, back);
+        }
+        first_press(at, 1, false);
+        PIP_HELD.set(Some(HeldPip { x, y, root: (at.root_x, at.root_y), back }));
+        return fake(xproto::BUTTON_PRESS_EVENT, 1, (at.root_x, at.root_y));
+    }
+    let held = PIP_HELD.get()?;
+    let scale = scale();
+    let to = (
+        held.root.0 + ((x - held.x) * scale).round() as i16,
+        held.root.1 + ((y - held.y) * scale).round() as i16,
+    );
+    fake(xproto::MOTION_NOTIFY_EVENT, 0, to)?;
+    if step == "dragto" {
+        return Some(());
+    }
+    PIP_HELD.set(None);
+    fake(xproto::BUTTON_RELEASE_EVENT, 1, to)?;
+    fake(xproto::MOTION_NOTIFY_EVENT, 0, held.back)
+}
+
+/// A press on the Mini Player through XTest: where it was in the window and on the screen, and
+/// where the display's pointer was before it, where the release puts it back.
+#[derive(Clone, Copy)]
+struct HeldPip {
+    x: f64,
+    y: f64,
+    root: (i16, i16),
+    back: (i16, i16),
 }
 
 /// Logs the Mini Player's frame each time `window`, it, moves or resizes, from a thread of its own

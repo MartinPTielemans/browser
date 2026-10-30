@@ -410,9 +410,16 @@ if [ "$(uname)" = Linux ]; then
     "a scroll over the Mini Player didn't move it with the content"
   # Off its controls, left of the 10 seconds back by more than its width, and away from the
   # screen's right edge, which would push it in as it grows.
-  send pip drag $((pw / 8)) $((ph / 2)) $((pw / 8 - 200)) $((ph / 2))
+  # The window manager moves it with the pointer, as by a title bar, from when the core asks it,
+  # past the drag's threshold. The core's lines carry Chromium's prefix.
+  send pip press $((pw / 8)) $((ph / 2))
+  expect 'browser: mini player pressed at ' "a press off its controls didn't reach the Mini Player"
+  send pip dragto $((pw / 8 - 10)) $((ph / 2))
+  expect 'browser: mini player moving from ' "a drag didn't start moving the Mini Player"
+  send pip dragto $((pw / 8 - 200)) $((ph / 2))
   mini_player_at "x == px - 200 && y == py && w == pw && h == ph" \
     "a drag didn't move the Mini Player"
+  send pip release $((pw / 8 - 200)) $((ph / 2))
   send pip wheel $((pw / 2)) $((ph / 3)) -2 cmd
   mini_player_at "w > pw * 1.15 && h > ph * 1.15 && (2 * x + w - 2 * px - pw) ^ 2 <= 16 &&
     (2 * y + h - 2 * py - ph) ^ 2 <= 16" "Ctrl with a scroll didn't grow the Mini Player in place"
