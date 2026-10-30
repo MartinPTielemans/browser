@@ -4,8 +4,9 @@
 # and the page behind doesn't get the click. ⌘W with its page focused closes it, and not the tab
 # behind. ⌘Z reopens a closed one over its tab at its page, and so does ⇧⌘T while no tab has closed
 # since. A favorite's link opens it too. A call's link, such as Google Meet's, opens as a tab
-# instead. With the Settings switch off, the link goes in the pinned tab. Reports how long the
-# first preview took to draw its first frame.
+# instead. With the Settings switch off, the link goes in the pinned tab. Back on, a link rule to
+# another Space sends the link there as a tab instead. Reports how long the first preview took to
+# draw its first frame.
 
 serve
 # The test page's top 40% is a link to the same server under another name, localhost, which is
@@ -232,8 +233,52 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $link_point
 expect "^browser: loaded $a $target\$" "with previews off, the link didn't load in the pinned tab"
 none_since '^browser: link preview ' || fail "with previews off, the link opened in a preview"
+# ⌘← takes the pinned tab back to the page with the link.
+send key left cmd
+expect "^browser: command back via " "⌘← in the pinned tab didn't reach the UI"
+expect "^browser: loaded $a ${site}preview.html\$" "⌘← didn't take the pinned tab back to its page"
+
+# Back on, a link rule to another Space sends the link there as a tab, as it sends one from another
+# app, and the preview doesn't open (#692). Settings' Links tab adds the rule, as ./check.sh links
+# does: + at 76 173, and the first rule's Space pop-up at 500 129.
+first=$(space)
+send menu New Space…
+expect "^browser: spaces $first [0-9]*\$" "New Space didn't make a second Space"
+second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
+send type work
+send key return
+expect "^browser: create space $second work\$" "return didn't name the second Space"
+send key 1 ctrl
+expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the first Space again"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "the first Space didn't show the pinned tab again"
+send key , cmd
+expect '^browser: settings shown Advanced$' "⌘, didn't show Settings on its Advanced tab"
+send clickkey 592 168
+expect '^browser: link previews on$' "a click on the link previews switch didn't turn them on"
+send clickkey 162 60
+expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
+send clickkey 76 173
+expect '^browser: link rule 0 field has the keyboard$' "+ didn't give the new rule's field the keyboard"
+send type preview-target
+post clickkey 500 129
+expect '^browser: menu shown [^,]* (checked), work$' "the rule's Space pop-up didn't list the user's Spaces"
+send choose work
+expect '^browser: link rules drawn URL contains "preview-target" → work; ' \
+  "the rule's pop-up didn't set its Space"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send click $link_point
+expect "^browser: link rule 0 sends $target to space $second\$" "the rule didn't send the pinned tab's link"
+routed="^browser: link from $a $target: tab [1-9][0-9]* in space $second of window [0-9]*\$"
+expect "$routed" "the rule's link didn't open as a tab in its Space"
+r=$(grep "$routed" "$log" | tail -1 | sed 's/.*: tab \([0-9]*\) .*/\1/')
+expect "^browser: space $second\( in .*\)\{0,1\}\$" "the window didn't switch to the rule's Space"
+expect "^browser: loaded $r $target\$" "the rule's link didn't load in its tab"
+none_since '^browser: link preview ' || fail "the link a rule sent opened in a preview too"
+none_since "^browser: loaded $a " || fail "the link a rule sent loaded in the pinned tab too"
+../tools/window-screenshot.sh "$pid" "$out/preview-ruled.png" || fail "no window to capture"
 
 exec 3>&-
 quit
-echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, ⇧⌘C copies the address of, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. A Google Meet link opens as a tab of the Space shown instead. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png, $out/preview-meeting.png"
+echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, ⇧⌘C copies the address of, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. A Google Meet link opens as a tab of the Space shown instead. With the Settings switch off, the link goes in the pinned tab, and back on, a link rule to another Space sends it there as a tab instead. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png, $out/preview-meeting.png, $out/preview-ruled.png"
 echo "  The first preview's first frame came $first_frame after the click reached the UI."
