@@ -196,7 +196,7 @@ impl Shell {
             },
         );
         vec![
-            card(bounds).child(header).into_any_element(),
+            card(bounds, self.palette.page).child(header).into_any_element(),
             edge.into_any_element(),
             listener.absolute().size_0().into_any_element(),
         ]

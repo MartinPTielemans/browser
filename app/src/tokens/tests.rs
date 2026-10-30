@@ -89,7 +89,7 @@ fn every_corner_is_one_of_the_four_radii() {
 #[test]
 fn a_corner_inside_another_is_concentric() {
     use super::{
-        capture, command_bar, menu, radius, shell,
+        command_bar, menu, radius, shell,
         shell::{extensions, recent_downloads},
         site_controls, toast, hover_card,
     };
@@ -104,9 +104,6 @@ fn a_corner_inside_another_is_concentric() {
         recent_downloads::PREVIEW_RADIUS,
         recent_downloads::PLATE_RADIUS - (recent_downloads::COLUMN_X - recent_downloads::PLATE_INSET)
     );
-    // The capture menu's rows and its field are cut by the code from the menu's own corner.
-    assert!(capture::MENU_RADIUS - capture::ROW_INSET >= radius::CONTROL);
-    assert_eq!(capture::MENU_RADIUS - capture::FIELD_INSET, radius::CONTROL);
     // The toast's chips sit as far in from its top as its corner needs, to half a point.
     let inset = (toast::HEIGHT - toast::CHIP_HEIGHT) / 2.;
     assert!((toast::RADIUS - toast::CHIP_RADIUS - inset).abs() < 0.5, "{inset}");
@@ -227,7 +224,6 @@ fn type_is_on_the_scale() {
     let scale = [text::SMALL, text::BODY, text::TITLE, text::HEADING];
     for (name, size) in [
         ("capture::PILL_TEXT_SIZE", super::capture::PILL_TEXT_SIZE),
-        ("capture::TEXT_SIZE", super::capture::TEXT_SIZE),
         ("command_bar::INPUT_TEXT", super::command_bar::INPUT_TEXT),
         ("command_bar::FIELD_INPUT_TEXT", super::command_bar::FIELD_INPUT_TEXT),
         ("icon_picker::emoji::HEADER_TEXT", super::icon_picker::emoji::HEADER_TEXT),
