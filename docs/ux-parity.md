@@ -220,18 +220,19 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Panes | MVP | up to 3 side by side or stacked, sharing the card; Arc max: measure | Arc rec, Dia P§6 |
+| [ ] | The focused pane's URL, keyboard and toasts | MVP | the URL field shows the focused pane's URL, and ⌘L, a click on it and Copy URL act on that page, as Arc's address bar is its panel's (no toolbar, decision 6); a pane's page has the keyboard as it's focused or opens; toasts go at the focused pane's corner, as the find bar does. Built, and the URL field checked by `cargo test`'s `the_url_field_is_the_focused_pages`; to tick: `./check.sh split`'s `layout keyboard` steps, its ⌘L step and `split-toast.png`, run on the Mac | Arc help |
 | [x] | Gap, focus indicator | MVP | 10 pt gap; 2 pt ring inside the focused pane, ≈ 8 pt glow outside, in the Space's colour (Arc's read P3 (49, 57, 251)) | Arc 1.170.0 rec |
 | [x] | Unfocused dim | MVP | none *interim*; Arc's: measure | — |
 | [x] | Pane sizes | MVP | the gap drags them, a tenth of the card each, 50–200; snap to even within 15; double-click evens; kept after a quit; Arc's: measure | Chrome *interim* |
 | [x] | Keys | MVP | ⌃+ add, ⌃⇧- close pane; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
-| [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
+| [ ] | ⌥-click + New Tab; ⌥-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome), the owner's call over Chrome's download, which Save Link As… keeps; no ⌥⇧-click split. Built, with `chromium-core-alt-click-split.patch`; to tick: `./check.sh split`'s link clicks with `alt` and `alt cmd`, on an engine with the patch, run on the Mac | Arc help, Chrome |
 | [ ] | ⌥-click a sidebar row | MVP | another tab joins the page shown, the page shown alone splits with a copy, a split's tab leaves it. Built, and checked by `cargo test`; to tick: `./check.sh split`'s ⌥-click steps, `command split via sidebar`, run on the Mac | Arc help |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
 | [ ] | A split's menu | MVP | Mute under each tab's name; Duplicate copies the whole split. Built, and checked by `cargo test`; to tick: `./check.sh split`'s right-click on a split's row, its `menu shown` line and the two splits after Duplicate, run on the Mac | Arc help |
 | [ ] | Split controls | MVP | a handle over each pane, whose menu changes orientation, separates or closes that pane; its look and place ours *interim*. Built, and checked by `cargo test`'s `each_pages_split_controls_act_on_that_page`; to tick: `./check.sh split`'s step with `via split controls`, run on the Mac | Arc help |
-| [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh pinned`'s ⌥⇧-click on the pinned tab's link, its `browser: pinned` line holding both and `pinned-split.png` | Arc release notes |
+| [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh pinned`'s ⌥-click on the pinned tab's link, its `browser: pinned` line holding both and `pinned-split.png` | Arc release notes |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
 | [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
@@ -256,6 +257,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Boxes, rows, switch, pop-up and buttons | MVP | the spec's measures; the pop-up's menu opens over it | Arc 1.170.0 cap, ax |
 | [x] | Shortcuts tab | MVP | the browser's shortcuts by section, read-only | Ours |
 | [x] | Shortcuts search | MVP | a field over the Shortcuts tab's boxes finds a command by the starts of its name's words or by its keys, as "cmd d", "shift cmd a" or ⇧⌘A, filtering as typed; a box with nothing found hides, and "No Results" *interim*. Built; `./check.sh keys` searches by name and keys, passing on the Mac | Arc 1.170.0 Settings › Shortcuts (#682) |
+| [ ] | ⌃1–⌃9 rebindable | MVP | Go to Space 1 to 9, each its own row and keys, kept across a relaunch. Built, lib tests; not run in the app | Arc 1.170.0 (#682) |
+| [ ] | Restore windows from last session | MVP | Advanced's switch, on; off, a launch opens one window with no page, at the front one's frame, the Spaces, pinned tabs and favorites back and the Today tabs in the archive. Built; the core's part is uncompiled until an engine is built with it | Arc 1.170.0 Settings › Advanced (#684) |
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Advanced › Export… | MVP | each of the user's Spaces' favorites, pinned tabs and folders as a Markdown file of links, saved where the user picks; no agent path. Built, and checked by `cargo test` (the file's text); `./check.sh pinned` clicks Export… with the folder holding its pinned tab, reads the file the run names in place of the save panel, and captures `export.png`, passing on the Mac | Arc 1.170.0 Settings › Advanced |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
@@ -395,9 +398,10 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [x] | Capture mode | MVP | ⇧⌘2 from the page and the UI, File and the command bar; grey page (luma × 0.749), 4 pt ring (21,28,47) at radius 6, camera pointer; pill 356 × 67 at radius 18, 35.5 up, 14 pt semibold (71,28,157); glow *interim* | Arc 1.170 cap |
+| [x] | Capture mode | MVP | ⇧⌘2 from the page and the UI, File and the command bar; grey page (luma × 0.749), 4 pt ring at radius 6, camera pointer; pill 356 × 67, 35.5 up | Arc 1.170 cap |
 | [ ] | Element under the pointer, click, drag | MVP | the core's hit test, no page JavaScript; click takes the box, drag the rectangle; Esc, ⇧⌘2, a click outside or a resize leaves. Built (`bc_tab_element_at`, `capture.rs`). To tick: `./check.sh capture`'s `capture-element.png` and `capture-chosen.png`, with its pointer, click, Esc and ⇧⌘2. No run drags a rectangle, clicks outside or resizes; next, those three in the capture run, each with its `capture left` line | Arc 1.170 cap, ours |
-| [x] | Menu | MVP | 273 wide, radius 7, (18,15,44), at the ring's top left + 10; field, 40 pt rows; Copy, Save…, Send via iMessage…, Retake; Edit and New Easel with their feature | Arc 1.170 cap |
+| [x] | Menu | MVP | at the ring's top left + 10; field, glyphed rows; Copy, Save…, Send via iMessage…, Retake; Edit and New Easel with their feature | Arc 1.170 cap |
+| [ ] | Capture in ilo's look | MVP | the menu is ilo's menu, as the tab and Space menus are: its panel, 24 pt rows, lines and the Space's accent under the pointer; the pill on its panel; the ring the Space's accent; in light and dark (#829). Built. To tick: `./check.sh capture`'s `capture-pill-light.png`, `capture-menu-light.png` and their dark pair, each after its `capture pill drawn` or `capture menu drawn` line, beside main's `capture-element.png` and `capture-chosen.png` | ours |
 | [ ] | Save to Library | MVP | the menu's first row, as Arc's; saves the PNG into the profile's `Media` without asking, says "Saved to Library" (ours); none in a private window (ours). Built (`capture.rs`, `save_to_library`). To tick: `./check.sh capture`'s `capture-library.png`, with its `saved to library` line and the file | Arc 1.170 cap, ours |
 | [x] | Toast after Copy | MVP | "Screenshot Copied to Clipboard" with Save and Share; time and hover *interim* | Arc 1.170 cap |
 | [x] | Full page | MVP | the whole page past its view, copied; "Capture in Progress" *interim* | ours |

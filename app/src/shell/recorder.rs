@@ -97,7 +97,7 @@ pub(super) struct Recorder {
     /// The questions the dialog was asked through `tell`, each as its message, its buttons and
     /// its other answer's, and what the last one's action does.
     pub(super) told: RefCell<Vec<String>>,
-    pub(super) told_action: RefCell<Option<Box<dyn FnOnce(&mut App)>>>,
+    pub(super) told_action: RefCell<Option<Box<dyn FnOnce(Vec<String>, &mut App)>>>,
     /// The dialog asks something else, so `tell` doesn't ask.
     pub(super) dialog_busy: Cell<bool>,
     /// Each time the shell opened the Site Controls: the tab, and where they hang from.
@@ -106,6 +106,8 @@ pub(super) struct Recorder {
     pub(super) site_controls_extensions: RefCell<Vec<Vec<SharedString>>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
+    /// And the tab whose URL it edits, if any.
+    pub(super) bar_edits: RefCell<Vec<Option<u64>>>,
     /// Each time the shell opened Search Tabs: the tabs it lists, in order.
     pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
@@ -686,9 +688,10 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    // The Space it makes is always 7.
     fn create_space(&self, name: &str, _: u64, after: u64, _: &mut App) -> u64 {
         self.record(format!("create space {name} after {after}"));
-        Default::default()
+        7
     }
 
     fn rename_space(&self, space: u64, name: &str, _: &mut App) {
@@ -730,10 +733,18 @@ impl Browser for Recorder {
         self.record(format!("space theme {space} {theme}"))
     }
 
-    fn set_space_profile(&self, _: u64, _: u64, _: &mut App) {}
+    fn set_space_profile(&self, space: u64, profile: u64, _: &mut App) {
+        self.edit(format!("space {space} profile {profile}"));
+    }
 
-    fn create_profile(&self, _: &str, _: &mut App) -> u64 {
-        Default::default()
+    // The profile it makes is always 9.
+    fn create_profile(&self, name: &str, _: &mut App) -> u64 {
+        self.edit(format!("create profile {name}"));
+        9
+    }
+
+    fn rename_profile(&self, profile: u64, name: &str, _: &mut App) {
+        self.edit(format!("rename profile {profile} {name}"));
     }
 
     // The import's made-up Arc, so the first launch has a browser to import from, unless a test
@@ -775,7 +786,7 @@ impl Browser for Recorder {
     fn tell(
         &self,
         question: crate::dialog::Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         _: &mut App,
     ) -> bool {
         if self.dialog_busy.get() {
@@ -934,12 +945,13 @@ impl Browser for Recorder {
 
     fn command_bar(
         &self,
-        _: Option<(u64, SharedString)>,
+        editing: Option<(u64, SharedString)>,
         _: Vec<BarTab>,
         field: Option<Bounds<Pixels>>,
         _: &mut App,
     ) {
         self.command_bars.borrow_mut().push(field);
+        self.bar_edits.borrow_mut().push(editing.map(|(tab, _)| tab));
         self.bar_open.set(true);
     }
 
@@ -996,12 +1008,14 @@ impl Browser for Recorder {
         _: f32,
         full_page: bool,
         _: bool,
+        look: crate::menu::Look,
         _: &mut App,
     ) {
         let (x, y) = (f32::from(frame.origin.x), f32::from(frame.origin.y));
         let (width, height) = (f32::from(frame.size.width), f32::from(frame.size.height));
         let what = if full_page { "full page" } else { "portion" };
-        self.record(format!("capture {what} {tab} at {x} {y} {width} {height}"));
+        let tone = if look.light { "light" } else { "dark" };
+        self.record(format!("capture {what} {tab} at {x} {y} {width} {height} {tone}"));
     }
 
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App) {
