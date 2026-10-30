@@ -2,9 +2,9 @@
 //! a split view and a Space's folders. The engine answers in main.rs, the preview with
 //! made-up tabs in preview.rs.
 
-use std::{collections::HashMap, rc::Rc, time::Duration};
+use std::{collections::HashMap, rc::Rc, sync::Arc, time::Duration};
 
-use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
+use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size};
 
 use crate::theme::Appearance;
 
@@ -129,6 +129,20 @@ pub trait Browser {
     /// Looks up a preview of the download's file at `path`, a thumbnail of an image, else the
     /// system's icon for it, and calls `Shell::set_download_preview`.
     fn file_preview(&self, download: u64, path: &str, cx: &mut App);
+    /// Plays the video at `path` for Media's tile `id`, `side` pixels square, without sound and
+    /// from its start again at its end. False where the platform plays none.
+    fn open_video(&self, id: u64, path: &str, side: u32, cx: &mut App) -> bool;
+    /// The frame tile `id`'s video shows now, if it's new since the last.
+    fn video_frame(&self, id: u64, cx: &mut App) -> Option<Arc<RenderImage>>;
+    /// Stops the video tile `id` plays.
+    fn close_video(&self, id: u64, cx: &mut App);
+    /// Lists the captures saved to the Library, away from the main thread, and calls
+    /// `Shell::set_captures`.
+    fn list_captures(&self, cx: &mut App);
+    /// What the Library button's hover lists, as `recent_downloads::HOVER_IMAGES`' and its
+    /// fellows' bits, as the user picked them from its menu.
+    fn hover_kinds(&self, cx: &mut App) -> u32;
+    fn set_hover_kinds(&self, kinds: u32, cx: &mut App);
     /// Moves the file at `path` to the system's Trash, and says whether it's gone, as it is if it
     /// was gone already.
     fn trash(&self, path: &str, cx: &mut App) -> bool;
@@ -196,6 +210,10 @@ pub trait Browser {
     fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, cx: &mut App);
     /// Removes extension `id` from `profile`, with the data it keeps, and returns whether it went.
     fn remove_extension(&self, profile: u64, id: &str, cx: &mut App) -> bool;
+    /// Turns extension `id` on again in `profile`, and returns whether it's on.
+    fn turn_on_extension(&self, profile: u64, id: &str, cx: &mut App) -> bool;
+    /// Tells the core the user was told it turned extension `id` off in `profile` as it crashed.
+    fn extension_crash_told(&self, profile: u64, id: &str, cx: &mut App);
     /// Opens an extension's options page, `url`, in a new tab, and shows it.
     fn open_extension_options(&self, url: &str, cx: &mut App);
     /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,
@@ -227,9 +245,9 @@ pub trait Browser {
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
-    /// Makes an empty Space named `name` after the others, in `profile` if it isn't 0, and returns
-    /// it.
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64;
+    /// Makes an empty Space named `name` right after `after`, else after the others, in `profile`
+    /// if it isn't 0, and returns it.
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
     /// title for an empty one.
@@ -251,6 +269,8 @@ pub trait Browser {
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.
     fn create_profile(&self, name: &str, cx: &mut App) -> u64;
+    /// Names `profile` `name`.
+    fn rename_profile(&self, profile: u64, name: &str, cx: &mut App);
     /// What the import view (crate::import) reads and adds through, for the first launch's step.
     fn import_host(&self) -> Rc<dyn crate::import::Host>;
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
@@ -281,6 +301,15 @@ pub trait Browser {
         confirmed: Box<dyn FnOnce(&mut App)>,
         cx: &mut App,
     );
+    /// Asks `question` in the browser's dialog, and calls `confirmed` with what its fields hold if
+    /// the user chooses its action, once the dialog has gone. Returns whether it asks: not while it
+    /// asks another.
+    fn tell(
+        &self,
+        question: crate::dialog::Question,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
+        cx: &mut App,
+    ) -> bool;
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
     /// Gives the page shown the keyboard, from the UI if it has it, now or once a page still
@@ -465,13 +494,15 @@ pub trait Browser {
         cx: &mut App,
     );
     /// Starts capture mode over the tab's page, at `frame` in the window with corners of `radius`,
-    /// or leaves it if it's on; or with `full_page` captures all of the page and copies it.
+    /// or leaves it if it's on; or with `full_page` captures all of the page and copies it. Its
+    /// menu offers Save to Library with `library`, as a private window has no Library.
     fn capture(
         &self,
         tab: u64,
         frame: Bounds<Pixels>,
         radius: f32,
         full_page: bool,
+        library: bool,
         cx: &mut App,
     );
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers

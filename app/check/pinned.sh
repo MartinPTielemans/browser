@@ -71,14 +71,16 @@ send press $today_top
 none_since '^browser: detent$' || fail "pressing a row clicked the trackpad"
 send dragto 100 270
 send dragto 100 230
-send dragto 100 200
+# Between the pinned rows, as a rest on a row's middle would join that tab in a split view, and the
+# capture takes longer than that rest.
+send dragto 100 175
 ../tools/window-screenshot.sh "$pid" "$out/drag.png" || fail "no window to capture"
 none_since '^browser: dragged' || fail "a row dropped before the pointer let go"
 [ "$(detents)" -gt "$clicks" ] || fail "a row dragged up past the pinned rows didn't click"
 # Holding the row at its place doesn't click again, nor does letting go.
-send dragto 100 201
+send dragto 100 176
 none_since '^browser: detent$' || fail "a row held at its place clicked again"
-send release 100 200
+send release 100 175
 none_since '^browser: detent$' || fail "letting go of a row clicked the trackpad"
 expect "^browser: dragged $b to pinned 1\$" "a drag of the Today tab up didn't pin it"
 expect_lists "$a $b $c" " *" "after dragging the Today tab into the pinned tabs"
