@@ -767,11 +767,22 @@ fn open_tab_behind(window: bc::bc_id, url: &str, when_shown: bool) -> u64 {
 
 /// Puts `tab` in a split view with `with`, on its right, and shows it in `window`. The pane being
 /// added for it, if there is one, gives the split its room first, so it shows at once at its place.
-fn split_tab(window: bc::bc_id, tab: u64, with: u64, cx: &mut App) {
-    shell::pane_added(cx);
+/// ⌘Z takes it back out, or closes it if it was `opened` for the split.
+fn split_tab(window: bc::bc_id, tab: u64, with: u64, opened: bool, cx: &mut App) {
+    shell::pane_added(tab, with, opened, cx);
     unsafe {
         bc::bc_tab_split_with(tab, with, false);
         bc::bc_window_select(window, tab);
+    }
+}
+
+/// `tab`, opened to join a split view in `window`, joined it: that window's ⌘Z closes it.
+fn split_opened(window: bc::bc_id, tab: u64, cx: &mut App) {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|each| each.id == window).map(|each| each.shell.clone())
+    });
+    if let Some(shell) = shell {
+        shell.update(cx, |shell, cx| shell.split_opened(tab, cx)).ok();
     }
 }
 
@@ -782,7 +793,7 @@ fn open_split(window: bc::bc_id, url: &str, with: u64, cx: &mut App) {
     };
     let tab = unsafe { bc::bc_tab_open(window, url.as_ptr(), false) };
     if tab != 0 {
-        split_tab(window, tab, with, cx);
+        split_tab(window, tab, with, true, cx);
     }
 }
 
@@ -905,6 +916,10 @@ impl site_controls::Host for SiteControlsHost {
 
     fn allow_saving(&self, tab: u64, login: &passwords::Login) {
         remove_login(unsafe { bc::bc_tab_profile(tab) }, login);
+    }
+
+    fn set_developer_mode(&self, tab: u64, on: bool) {
+        unsafe { bc::bc_tab_set_developer_mode(tab, on) };
     }
 
     fn set_ad_blocking(&self, tab: u64, on: bool) {
@@ -1411,6 +1426,14 @@ unsafe extern "C" fn tab_captured(
     update_app_later(move |cx| capture::captured(tab, request, png, cx));
 }
 
+unsafe extern "C" fn trace_recorded(_: *mut c_void, json: *const c_char, size: usize) {
+    // check.sh reads this line.
+    log!("browser: trace recorded {size} bytes");
+    let json = (!json.is_null()).then(|| unsafe { std::slice::from_raw_parts(json.cast(), size) });
+    let json = json.map(<[u8]>::to_vec);
+    update_app_later(move |cx| shell::trace_recorded(json, cx));
+}
+
 unsafe extern "C" fn tab_pictured(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -1576,7 +1599,7 @@ impl command_bar::Host for Bar {
     }
 
     fn split(&self, tab: u64, with: u64, cx: &mut App) {
-        split_tab(front().0, tab, with, cx);
+        split_tab(front().0, tab, with, false, cx);
     }
 
     fn open_split(&self, url: &str, with: u64, cx: &mut App) {
@@ -1942,17 +1965,20 @@ impl Browser for Engine {
     fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
         let (window, url) = (self.window, url.to_string());
         // After the drop that asked, which Chromium is still handling.
-        update_app_later(move |_| {
+        update_app_later(move |cx| {
             let tab = open_tab_behind(window, &url, false);
             if tab == 0 {
                 return;
             }
+            let joined = unsafe { bc::bc_tab_split_with(tab, with, left) };
             unsafe {
-                bc::bc_tab_split_with(tab, with, left);
                 if stacked {
                     bc::bc_tab_set_split_stacked(with, true);
                 }
                 bc::bc_window_select(window, tab);
+            }
+            if joined {
+                split_opened(window, tab, cx);
             }
         });
     }
@@ -2167,6 +2193,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_clear_site(tab, cookies) };
     }
 
+    fn set_developer_mode(&self, tab: u64, on: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_developer_mode(tab, on) };
+    }
+
     fn answer_permission(&self, tab: u64, answer: shell::Answer, _: &mut App) {
         let answer = match answer {
             shell::Answer::Allow => bc::BC_PERMISSION_ALLOW,
@@ -2206,6 +2236,10 @@ impl Browser for Engine {
 
     fn hand_back(&self, tab: u64, _: &mut App) {
         agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
+    }
+
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.give(tab, space, cx));
     }
 
     fn stop_agent(&self, agent: SharedString, _: &mut App) {
@@ -2367,6 +2401,26 @@ impl Browser for Engine {
 
     fn task_manager(&self, _: &mut App) {
         unsafe { bc::bc_window_task_manager(self.window) };
+    }
+
+    fn start_trace(&self) -> bool {
+        unsafe { bc::bc_trace_start() }
+    }
+
+    fn stop_trace(&self) {
+        unsafe { bc::bc_trace_stop() };
+    }
+
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, cx: &mut App) {
+        let Some(stop) = stop else {
+            return toast::hide_resting(cx);
+        };
+        let button = toast::Button {
+            label: toast::Label::Text(shell::STOP.into()),
+            name: "stop",
+            run: Rc::new(move |_, cx| stop(cx)),
+        };
+        with_overlays(move |cx| toast::show_resting(shell::RECORDING, vec![button], cx), cx);
     }
 
     fn set_menus(&self, bar: &shell::MenuBar, cx: &mut App) {
@@ -4325,7 +4379,12 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                         item("Developer Tools", Command::DevTools),
                         item("Inspect Elements", Command::InspectElements),
                         item("JavaScript Console", Command::JavaScriptConsole),
-                    ],
+                    ]
+                    .into_iter()
+                    .chain(bar.developer_mode_title().into_iter().flat_map(|title| {
+                        [MenuItem::separator(), item(title, Command::ToggleDeveloperMode)]
+                    }))
+                    .collect(),
                 )),
                 MenuItem::separator(),
                 item("Expand Current Split", Command::ExpandSplit),
@@ -4415,6 +4474,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                     vec![
                         item("Copy Build Info", Command::CopyBuildInfo),
                         item("Open Task Manager", Command::TaskManager),
+                        item(bar.trace_title(), Command::RecordTrace),
                     ],
                 )),
             ],
@@ -4944,6 +5004,7 @@ unsafe extern "C" fn tab_state_changed(
             _ => Trouble::Fine,
         },
         system_engine: state.system_engine,
+        developer_mode: state.developer_mode,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
         update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));
@@ -5305,13 +5366,20 @@ unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *cons
 
 unsafe extern "C" fn tab_opened(
     _: *mut c_void,
-    _: bc::bc_id,
+    window: bc::bc_id,
     tab: bc::bc_id,
     opener: bc::bc_id,
     foreground: bool,
 ) {
     let side = if foreground { "foreground" } else { "background" };
     log!("browser: tab {tab} opened by {opener} in the {side}");
+    // A link ⌥⌘-clicked, or opened in a split view from the page's menu, joined its page's split,
+    // which ⌘Z takes back as it does the user's other ways in.
+    let mut split = [0; 3];
+    let count = unsafe { bc::bc_tab_split(tab, split.as_mut_ptr(), split.len()) };
+    if opener != 0 && count > 1 && split[..count.min(3)].contains(&opener) {
+        update_app_later(move |cx| split_opened(window, tab, cx));
+    }
 }
 
 // Called while Chromium closes the tab, which can be inside a GPUI update that asked for it, so
@@ -5396,6 +5464,11 @@ unsafe extern "C" fn tab_site_controls(
         ad_blocking: match controls.ad_blocking as u32 {
             bc::BC_AD_BLOCKING_ON => Some(true),
             bc::BC_AD_BLOCKING_OFF => Some(false),
+            _ => None,
+        },
+        developer_mode: match controls.developer_mode as u32 {
+            bc::BC_DEVELOPER_MODE_ON => Some(true),
+            bc::BC_DEVELOPER_MODE_OFF => Some(false),
             _ => None,
         },
         logins: logins(controls.logins, controls.login_count),
@@ -5877,6 +5950,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),
         tab_captured: Some(tab_captured),
+        trace_recorded: Some(trace_recorded),
         tab_pictured: Some(tab_pictured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
