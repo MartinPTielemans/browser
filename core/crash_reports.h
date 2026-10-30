@@ -32,6 +32,11 @@ void ProfileStarted(Profile* profile);
 // leaves out (main_delegate.cc).
 void LeaveOutPages();
 
+// In each process once Chrome has set its crash keys there, and in the browser process again once
+// it has set them with about:flags' switches: the switches they list leave out those naming the
+// user's folders, such as the profile's, whose path has the user's name.
+void LeaveOutFolders();
+
 // The collector's host, or empty with none, when nothing is sent and Settings doesn't offer to.
 std::string CollectorHost();
 

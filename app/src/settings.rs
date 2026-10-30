@@ -83,6 +83,7 @@ use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::RESTORE_WINDOWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
@@ -256,7 +257,15 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
-            ("Spaces 1 to 9", Keys::Span("ctrl-1", "ctrl-9")),
+            ("Go to Space 1", Keys::Of(Command::SelectSpace(0))),
+            ("Go to Space 2", Keys::Of(Command::SelectSpace(1))),
+            ("Go to Space 3", Keys::Of(Command::SelectSpace(2))),
+            ("Go to Space 4", Keys::Of(Command::SelectSpace(3))),
+            ("Go to Space 5", Keys::Of(Command::SelectSpace(4))),
+            ("Go to Space 6", Keys::Of(Command::SelectSpace(5))),
+            ("Go to Space 7", Keys::Of(Command::SelectSpace(6))),
+            ("Go to Space 8", Keys::Of(Command::SelectSpace(7))),
+            ("Go to Space 9", Keys::Of(Command::SelectSpace(8))),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
@@ -1610,6 +1619,8 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let restore = unsafe { bc::bc_restore_windows() };
+        let restore = self.toggle("restore windows", restore, set_restore_windows, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
         let widevine = self.widevine.read(cx).shown().then(|| {
@@ -1642,6 +1653,11 @@ impl Settings {
                     Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
                     "Preview links to other sites from pinned tabs and favorites",
                     previews,
+                ),
+                row(
+                    Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
+                    "Restore windows from last session",
+                    restore,
                 ),
             ]))
             .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
@@ -1778,7 +1794,7 @@ impl Settings {
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
         let restore = user.is_set(command).then(|| {
             div()
-                .id(SharedString::from(format!("restore-{}", command.name())))
+                .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
                 .flex()
                 .items_center()
@@ -1790,7 +1806,7 @@ impl Settings {
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
-            .id(command.name())
+            .id(SharedString::from(command.key_name()))
             .when(recording, |chip| chip.border_1().border_color(accent))
             .hover(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_HOVERED))))
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
@@ -1814,7 +1830,7 @@ impl Settings {
             true => None,
             false => {
                 // check.sh waits for this line.
-                log!("browser: shortcut recording {}", command.name());
+                log!("browser: shortcut recording {}", command.key_name());
                 Some(command)
             }
         };
@@ -1911,6 +1927,11 @@ fn set_unload_idle_tabs(unload: bool, _: &mut App) {
 /// In every profile; a site's own stays as the user set it in the Site Controls.
 fn set_ad_blocking(on: bool, _: &mut App) {
     unsafe { bc::bc_set_ad_blocking(on) };
+}
+
+/// Off, the next launch opens one window with no Today tabs, theirs going in the archive.
+fn set_restore_windows(restore: bool, _: &mut App) {
+    unsafe { bc::bc_set_restore_windows(restore) };
 }
 
 fn set_haptics(haptics: bool, _: &mut App) {
@@ -2103,7 +2124,6 @@ fn command_name(command: Command) -> &'static str {
     });
     named.chain(match command {
         Command::SelectTab(_) => Some("Tabs 1 to 8"),
-        Command::SelectSpace(_) => Some("Spaces 1 to 9"),
         Command::RecentTabBack => Some("Last Used Tab"),
         Command::Undo => Some("Undo"),
         Command::Redo => Some("Redo"),

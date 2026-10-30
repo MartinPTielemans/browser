@@ -664,7 +664,16 @@ impl Command {
         )
     }
 
-    /// The command's name in the log and in the user's saved keys.
+    /// The command's name as Settings knows it, in the user's saved keys and the lines it logs:
+    /// its name, with the number of a Space's, as each of ⌃1–⌃9 has keys of its own.
+    pub fn key_name(self) -> String {
+        match self {
+            Command::SelectSpace(index) => format!("select-space-{}", index + 1),
+            _ => self.name().to_string(),
+        }
+    }
+
+    /// The command's name in the log.
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
@@ -1294,7 +1303,8 @@ impl Shell {
         let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
         let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
         let pane = pane_frames(frame, panes.len(), stacked, &shares)[focused];
-        self.browser.capture(self.selected, pane, radius, full_page, !self.private, cx);
+        let look = self.menu_look();
+        self.browser.capture(self.selected, pane, radius, full_page, !self.private, look, cx);
     }
 
     /// Whether `tab`'s page is in Developer Mode, or None where the user can't change it: a page

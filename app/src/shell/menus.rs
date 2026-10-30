@@ -11,6 +11,7 @@ use super::{
     user_keys,
 };
 use crate::{
+    dialog::{Field, Question},
     menu::{Highlight, Look, Swatch},
     space_icon::{SpaceIcon, has_icon},
     palette::Tone,
@@ -468,16 +469,55 @@ impl Shell {
         );
     }
 
-    /// Makes a profile, named as Chrome numbers them, and puts the empty Space in it.
+    /// Makes a profile and puts the empty Space in it, named at once. In the New Space form it's
+    /// made with the name Chrome would number it, which the Profile row then shows in a field, as
+    /// Finder's New Folder does. Elsewhere the dialog asks for the name first, and Cancel makes
+    /// none. Left empty, the name is the numbered one.
     fn new_profile(&mut self, space: u64, cx: &mut Context<Self>) {
         let names: Vec<SharedString> = self.profiles.iter().map(|(_, name)| name.clone()).collect();
-        let name = new_profile_name(&names);
-        let profile = self.browser.create_profile(&name, cx);
+        let numbered = new_profile_name(&names);
+        if self.form().is_some_and(|form| form.space == space) {
+            if let Some(profile) = self.make_profile(space, &numbered, cx) {
+                self.name_profile(profile, numbered.into(), cx);
+            }
+            return;
+        }
+        let question = Question {
+            icon: None,
+            message: "New Profile".into(),
+            detail: "A profile keeps its own logins, cookies, history and extensions.".into(),
+            list: Vec::new(),
+            action: "Create".into(),
+            cancel: "Cancel".into(),
+            tone: crate::dialog::Tone::Accent,
+            also: None,
+            fields: vec![Field {
+                placeholder: numbered.clone().into(),
+                text: numbered.clone().into(),
+                secure: false,
+            }],
+            check: None,
+            return_cancels: false,
+        };
+        let shell = cx.weak_entity();
+        let made = Box::new(move |texts: Vec<String>, cx: &mut App| {
+            let typed = texts.first().map_or("", |text| text.trim());
+            let name = if typed.is_empty() { numbered } else { typed.to_string() };
+            shell.update(cx, |shell, cx| shell.make_profile(space, &name, cx)).ok();
+        });
+        self.browser.tell(question, made, cx);
+    }
+
+    /// Makes a profile named `name`, puts the empty Space in it, and returns it.
+    fn make_profile(&mut self, space: u64, name: &str, cx: &mut Context<Self>) -> Option<u64> {
+        let profile = self.browser.create_profile(name, cx);
         // check.sh waits for this line.
         log!("browser: create profile {profile} {name}");
-        if profile != 0 {
-            self.browser.set_space_profile(space, profile, cx);
+        if profile == 0 {
+            return None;
         }
+        self.browser.set_space_profile(space, profile, cx);
+        Some(profile)
     }
 
     /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,

@@ -74,7 +74,9 @@
 //                                         in place's terms
 //   layout                                logs the frames of the window's views and child
 //                                         windows, the centres of its close, minimize and
-//                                         zoom buttons, and whether it's full screen, as
+//                                         zoom buttons, the frame of the page that has the
+//                                         keyboard, as "browser: layout keyboard <x>,<y>
+//                                         <w>x<h>" or "none", and whether it's full screen, as
 //                                         "browser: layout full screen <0|1>"
 //   state                                 nothing, for the done line's report
 //   title [<text>]                        logs the key window's title, as "browser: key window
@@ -1034,6 +1036,20 @@ void Layout(NSWindow* window) {
     [line appendFormat:@"\nbrowser: layout child %.0f,%.0f %.0fx%.0f",
                        NSMinX(frame) - NSMinX(bounds), NSMaxY(bounds) - NSMaxY(frame),
                        NSWidth(frame), NSHeight(frame)];
+  }
+  // The page whose view has the keyboard, by its frame as the views' above, which tells a split
+  // view's pages apart where the done line's class can't.
+  NSResponder* responder = window.firstResponder;
+  NSView* page = [responder isKindOfClass:NSView.class] ? (NSView*)responder : nil;
+  while (page && ![NSStringFromClass(page.class) isEqual:@"WebContentsViewCocoa"]) {
+    page = page.superview;
+  }
+  if (page) {
+    NSRect frame = [page.superview convertRect:page.frame toView:content];
+    [line appendFormat:@"\nbrowser: layout keyboard %.0f,%.0f %.0fx%.0f", NSMinX(frame),
+                       NSMinY(frame), NSWidth(frame), NSHeight(frame)];
+  } else {
+    [line appendString:@"\nbrowser: layout keyboard none"];
   }
   [line appendFormat:@"\nbrowser: layout full screen %d",
                      (window.styleMask & NSWindowStyleMaskFullScreen) != 0];

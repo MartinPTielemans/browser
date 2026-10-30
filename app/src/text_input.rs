@@ -12,7 +12,7 @@ use std::{ops::Range, rc::Rc};
 use gpui::{
     Action, App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
     Entity, EntityInputHandler, FocusHandle, Focusable, Global, GlobalElementId, Hsla, KeyBinding,
-    LayoutId, MouseButton, Role,
+    LayoutId, MouseButton, Role, accesskit,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
     SharedString, Style, Subscription, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
     fill, hsla,
@@ -981,10 +981,38 @@ impl Render for TextInput {
             .id("text-input")
             // A text field called what its placeholder asks for, saying what's typed in it, while
             // an assistive app reads the window. Typing still goes through the input handler, so
-            // VoiceOver hears what IME commits.
+            // VoiceOver hears what IME commits. The text is a text run too, with the caret in it,
+            // as AT-SPI's Text, which Orca reads, has text only from runs. A secure field gives
+            // its dots, never what was typed.
             .when(window.is_a11y_active(), |field| {
                 let name = self.placeholder.trim_end_matches('…').to_owned();
-                field.role(Role::TextInput).aria_label(name).aria_value(self.content.clone())
+                let role = if self.secure { Role::PasswordInput } else { Role::TextInput };
+                let shown = self.shown();
+                let characters =
+                    |offset| shown[..self.shown_offset(offset)].graphemes(true).count();
+                let anchor = match self.selection_reversed {
+                    true => self.selected_range.end,
+                    false => self.selected_range.start,
+                };
+                let (anchor, focus) = (characters(anchor), characters(self.cursor_offset()));
+                field.role(role).aria_label(name).aria_value(shown.clone()).a11y_synthetic_children(
+                    move |builder| {
+                        let mut run = accesskit::Node::new(Role::TextRun);
+                        let lengths = shown.graphemes(true).map(|each| each.len().min(255) as u8);
+                        run.set_character_lengths(lengths.collect::<Vec<_>>());
+                        run.set_value(shown.to_string());
+                        let node = builder.synthetic_node_id("text");
+                        builder.push_child(node, run);
+                        let at = |character_index| accesskit::TextPosition {
+                            node,
+                            character_index,
+                        };
+                        builder.parent_node().set_text_selection(accesskit::TextSelection {
+                            anchor: at(anchor),
+                            focus: at(focus),
+                        });
+                    },
+                )
             })
             .flex()
             .key_context("TextInput")

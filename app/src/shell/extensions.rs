@@ -578,7 +578,7 @@ impl Shell {
         let turn_on = id.clone();
         let asked = self.browser.tell(
             question,
-            Box::new(move |cx| {
+            Box::new(move |_, cx| {
                 let on = browser.turn_on_extension(profile, &turn_on, cx);
                 // check.sh waits for this line.
                 log!("browser: turn on extension {turn_on} {}", if on { "on" } else { "refused" });
@@ -723,7 +723,7 @@ mod tests {
         );
         assert!(host.take().contains(&"crash told 3 wallet".to_string()));
         let turn_on = host.told_action.borrow_mut().take().expect("its action");
-        cx.update(turn_on);
+        cx.update(|cx| turn_on(Vec::new(), cx));
         assert!(host.take().contains(&"turn on 3 wallet".to_string()));
 
         // Told, the core reports it no longer crashed, and nothing asks again.
