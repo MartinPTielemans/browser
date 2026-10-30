@@ -55,7 +55,7 @@ fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
 runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
-runs="$runs appearance"
+runs="$runs appearance about"
 named="store adblock-live updates"
 for run in "$@"; do
   case " $runs $named " in
