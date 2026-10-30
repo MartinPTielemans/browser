@@ -332,9 +332,10 @@ impl Shell {
     }
 
     /// The pointer is at `x` in the browser window: kept at its left edge it brings the hidden
-    /// sidebar out over the page, and more than the hold zone past the panel's edge it sends it
-    /// away.
+    /// sidebar out over the page, and more than the hold zone past the panel's edge, and off a
+    /// row's hover card, it sends it away, and the card with it.
     pub fn pointer_at(&mut self, x: f32, cx: &mut Context<Self>) {
+        self.reveal_x = x;
         if !self.can_reveal() {
             return;
         }
@@ -344,11 +345,14 @@ impl Shell {
             self.reveal_wait = None;
             // A question keeps it out until it's answered, and its menu until it closes.
             if x > REVEAL_INSET + self.width() + REVEAL_HOLD
+                && self.revealed
+                && !self.pointer_on_card
                 && self.question().is_none()
                 && self.agent_question.is_none()
                 && !self.menu_open
             {
                 self.set_revealed(false, cx);
+                self.browser.hover_card(crate::hover_card::Hover::Close, cx);
             }
         } else if !self.revealed && self.reveal_wait.is_none() {
             // Arc waits a moment, so a pointer passing the edge on its way to another window or

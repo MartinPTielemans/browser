@@ -71,8 +71,9 @@ pub fn user_keys(cx: &App) -> &UserKeys {
 
 /// Whether the user can give `command` other keys. Not Quit, whose ⌘Q is the way out of every Mac
 /// app; not Undo and Redo, whose ⌘Z and ⇧⌘Z fall back to the Edit menu's for the page; not the
-/// ⌃Tab walk, which lasts while ⌃ is held; not the numbered tabs and Spaces, nine keys in one
-/// row; and not the rows only the command bar lists, which Settings › Shortcuts doesn't.
+/// ⌃Tab walk, which lasts while ⌃ is held; not the numbered tabs, eight keys in one row; and not
+/// the rows only the command bar lists, which Settings › Shortcuts doesn't. Each of ⌃1–⌃9's Spaces
+/// can have others, as Arc's can.
 pub fn rebindable(command: Command) -> bool {
     !matches!(
         command,
@@ -82,7 +83,6 @@ pub fn rebindable(command: Command) -> bool {
             | Command::RecentTab
             | Command::RecentTabBack
             | Command::SelectTab(_)
-            | Command::SelectSpace(_)
             | Command::MoveToSpace(_)
             | Command::PinToSpace(_)
             | Command::OpenFolder(_)
@@ -102,11 +102,11 @@ fn defaults(command: Command) -> Vec<String> {
         .collect()
 }
 
-/// The rebindable command `name` names, as Command::name writes it.
+/// The rebindable command `name` names, as Command::key_name writes it.
 fn named(name: &str) -> Option<Command> {
     let commands = SHORTCUTS.iter().map(|&(_, command, _)| command);
     (commands.chain(BAR_COMMANDS.iter().map(|&(_, command, _)| command)))
-        .find(|&command| command.name() == name && rebindable(command))
+        .find(|&command| command.key_name() == name && rebindable(command))
 }
 
 /// Whether `key` is one keystroke GPUI can read. Only its spelling is checked, which is every
@@ -448,7 +448,8 @@ impl UserKeys {
     /// the favorites are left out of ⌘1–⌘8 when they are.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
-            let words = std::iter::once(command.name()).chain(keys.iter().map(String::as_str));
+            let name = command.key_name();
+            let words = std::iter::once(name.as_str()).chain(keys.iter().map(String::as_str));
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
         let unnumbered = self.favorites_unnumbered.then(|| format!("{FAVORITES_UNNUMBERED}\n"));
@@ -507,8 +508,8 @@ pub fn change_keys<R>(cx: &mut App, change: impl FnOnce(&mut UserKeys) -> R) -> 
         let keys = after.keys(command);
         // check.sh waits for these lines.
         match keys.is_empty() {
-            true => log!("browser: shortcut {} none", command.name()),
-            false => log!("browser: shortcut {} {}", command.name(), keys.join(" ")),
+            true => log!("browser: shortcut {} none", command.key_name()),
+            false => log!("browser: shortcut {} {}", command.key_name(), keys.join(" ")),
         }
     }
     cx.set_global(after);
@@ -772,6 +773,55 @@ mod tests {
         assert!(!shell.read_with(&cx, |shell, _| shell.sidebar_hidden));
     }
 
+    /// ⌃D in a text field of the UI deletes forward, as in any Mac field, and toggles nothing;
+    /// with the UI's keyboard anywhere else it toggles Developer Mode.
+    #[gpui::test]
+    fn ctrl_d_deletes_forward_in_a_field_and_toggles_developer_mode_elsewhere(
+        cx: &mut TestAppContext,
+    ) {
+        use gpui::Focusable;
+
+        use crate::text_input::TextInput;
+
+        struct Field(FocusHandle, gpui::Entity<TextInput>);
+
+        impl Render for Field {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().key_context(KEY_CONTEXT).track_focus(&self.0).size_full().child(self.1.clone())
+            }
+        }
+
+        let ran: Rc<RefCell<Vec<Command>>> = Rc::default();
+        let runs = ran.clone();
+        cx.update(|cx| {
+            crate::text_input::bind_keys(cx);
+            cx.bind_keys(key_bindings(cx));
+            cx.on_action(move |run: &Run, _| runs.borrow_mut().push(run.0));
+        });
+        let window = cx.update(|cx| {
+            cx.open_window(Default::default(), |window, cx| {
+                cx.new(|cx| {
+                    let input = cx.new(|cx| TextInput::new("", cx));
+                    input.update(cx, |input, cx| input.set_text("ab".into(), 1, window, cx));
+                    window.focus(&input.read(cx).focus_handle(cx), cx);
+                    Field(cx.focus_handle(), input)
+                })
+            })
+        });
+        let window = window.unwrap();
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_keystrokes("ctrl-d");
+        let field = window.update(&mut cx, |field, _, _| field.1.clone()).unwrap();
+        assert_eq!(field.read_with(&cx, |input, _| input.text().to_string()), "a");
+        assert_eq!(ran.take(), []);
+
+        window
+            .update(&mut cx, |field, window, cx| window.focus(&field.0, cx))
+            .unwrap();
+        cx.simulate_keystrokes("ctrl-d");
+        assert_eq!(ran.take(), [Command::ToggleDeveloperMode]);
+    }
+
     fn keys(keys: &[&str]) -> Vec<String> {
         keys.iter().map(|key| key.to_string()).collect()
     }
@@ -847,12 +897,18 @@ mod tests {
     }
 
     /// Every default key has a way to press it off the Mac that reads back as it, and no two
-    /// commands share one.
+    /// commands share one, but a key that would be one of Chrome's Alt keys, as ⌃D Alt+D, which
+    /// has none.
     #[test]
     fn the_shortcuts_keep_their_keys_off_the_mac() {
         let mut taken: Vec<(String, Command)> = Vec::new();
         for &(key, command, _) in SHORTCUTS {
             let pressed = pressed_off_the_mac(key);
+            let alt = key.replacen("ctrl-", "alt-", 1);
+            if !key.contains("cmd-") && CHROME_ALT_KEYS.iter().any(|&(chrome, _)| chrome == alt) {
+                assert!(pressed.is_empty(), "{key} takes Chrome's key");
+                continue;
+            }
             assert_eq!(pressed.first().map(|first| written_off_the_mac(first)).as_deref(), Some(key));
             for each in pressed {
                 match taken.iter().find(|(other, _)| *other == each) {
@@ -912,6 +968,23 @@ mod tests {
         assert_eq!(user.command_for("cmd-t", false), None);
     }
 
+    /// Each of ⌃1–⌃9's Spaces takes keys of its own, as Arc's do, and keeps them by its number
+    /// across a relaunch; the one it gave up shows no Space.
+    #[test]
+    fn a_spaces_keys_change_by_its_number() {
+        let mut user = UserKeys::default();
+        assert_eq!(user.set(Command::SelectSpace(1), keys(&["alt-cmd-2"])), Ok(vec![]));
+        assert_eq!(user.command_for("alt-cmd-2", false), Some(Command::SelectSpace(1)));
+        assert_eq!(user.command_for("ctrl-2", false), None);
+        assert_eq!(user.keys(Command::SelectSpace(0)), ["ctrl-1"]);
+        // ⌃3 moves to the first Space, and the third has none.
+        assert_eq!(user.set(Command::SelectSpace(0), keys(&["ctrl-3"])), Ok(vec![Command::SelectSpace(2)]));
+        assert!(user.keys(Command::SelectSpace(2)).is_empty());
+        let saved = user.to_text();
+        assert!(saved.contains("select-space-2 alt-cmd-2\n"), "{saved}");
+        assert_eq!(UserKeys::parse(&saved), user);
+    }
+
     /// A key another command has moves to the one it's given, leaving the other without it, but a
     /// reserved command's, Quit's and the system's are refused.
     #[test]
@@ -927,7 +1000,7 @@ mod tests {
         let taken = |command| Err(Refused::Taken(Holder::Command(command)));
         assert_eq!(user.set(Command::EditUrl, keys(&["cmd-t"])), taken(Command::NewTab));
         assert_eq!(user.set(Command::EditUrl, keys(&["cmd-q"])), taken(Command::Quit));
-        assert_eq!(user.set(Command::EditUrl, keys(&["ctrl-1"])), taken(Command::SelectSpace(0)));
+        assert_eq!(user.set(Command::EditUrl, keys(&["cmd-1"])), taken(Command::SelectTab(0)));
         let system = Err(Refused::Taken(Holder::System("Copy")));
         assert_eq!(user.set(Command::EditUrl, keys(&["cmd-c"])), system);
         assert_eq!(user.set(Command::Quit, keys(&["cmd-k"])), taken(Command::Quit));

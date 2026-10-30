@@ -207,12 +207,12 @@ link_away_and_back() {
 }
 link_away_and_back page
 link_away_and_back ui
-# A split made with a pinned tab is pinned, as Arc keeps one made in Pinned: ⌥⇧-click on its
+# A split made with a pinned tab is pinned, as Arc keeps one made in Pinned: ⌥-click on its
 # page's link opens the link in a pane beside it, which joins the pinned tabs as one row. Separate
 # All Pages ends it, and ⌘D and ⌘W take the pane's tab out again.
-send click $link_point alt shift
+send click $link_point alt
 expect "^browser: splits $c+[0-9][0-9]*\$" \
-  "⌥⇧-click on the pinned tab's link didn't open it beside the page: $(grep '^browser: splits' "$log" | tail -1)"
+  "⌥-click on the pinned tab's link didn't open it beside the page: $(grep '^browser: splits' "$log" | tail -1)"
 n=$(grep '^browser: splits' "$log" | tail -1 | sed 's/.*+//')
 expect "^browser: pinned $c $n\$" "the pane beside the pinned tab isn't pinned: the pinned tabs are \"$(pinned)\""
 expect "^browser: today $a\$" "the pane beside the pinned tab went into Today: Today is \"$(today)\""
@@ -496,13 +496,13 @@ send type later
 send key return
 expect "^browser: renamed folder $f later\$" "the folder didn't take the name typed over its old one"
 ../tools/window-screenshot.sh "$pid" "$out/folder-restored.png" || fail "no window to capture"
-# Export… in Settings › Advanced, in the box under the two switch rows, writes the Space's pinned
+# Export… in Settings › Advanced, in the box under the three switch rows, writes the Space's pinned
 # tabs as Markdown links, the folder a list of what it holds.
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
 send clickkey 491 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-send clickkey 575 219
+send clickkey 575 260
 expect '^browser: exported [0-9]* links to .*/spaces\.md$' "Export… didn't write the Spaces' links"
 grep -qx -- '- later' "$out/spaces.md" ||
   fail "the export didn't list the folder: $(cat "$out/spaces.md")"
@@ -557,4 +557,4 @@ send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Settings' Export… writes the folder and its pinned tab as Markdown links. ⌥⇧-click on a pinned tab's link opens a pinned split. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change the pinned URL, which ⌘Z and ⇧⌘Z undo and redo, and ⌘-click on its favicon goes back after opening the page in a new tab. Windows: $out/pinned-split.png, $out/pinned-url-menu.png, $out/pinned-url-edit.png, $out/pinned-kept-page.png, $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/export.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Settings' Export… writes the folder and its pinned tab as Markdown links. ⌥-click on a pinned tab's link opens a pinned split. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change the pinned URL, which ⌘Z and ⇧⌘Z undo and redo, and ⌘-click on its favicon goes back after opening the page in a new tab. Windows: $out/pinned-split.png, $out/pinned-url-menu.png, $out/pinned-url-edit.png, $out/pinned-kept-page.png, $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/export.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/command-bar-commands.png"
