@@ -149,10 +149,20 @@ impl Shell {
     /// Shows the icon picker under the tab's favicon, once its row has stopped moving, with the
     /// sidebar docked.
     pub(super) fn change_icon(&mut self, tab: u64, cx: &mut Context<Self>) {
+        self.pick_icon_from_row(Subject::Tab(tab), cx);
+    }
+
+    /// Shows the icon picker under the folder's folder, once its row has stopped moving, with the
+    /// sidebar docked: Arc's folder › Change Icon….
+    pub(super) fn change_folder_icon(&mut self, folder: u64, cx: &mut Context<Self>) {
+        self.pick_icon_from_row(Subject::Folder(folder), cx);
+    }
+
+    fn pick_icon_from_row(&mut self, subject: Subject, cx: &mut Context<Self>) {
         if !self.dock(cx) && self.sidebar_hidden {
             self.toggle_sidebar(cx);
         }
-        self.picker_pending = Some((Pending::Icon(Subject::Tab(tab)), Instant::now()));
+        self.picker_pending = Some((Pending::Icon(subject), Instant::now()));
         self.tab_row_drawn.set(None);
         self.name_row_before = None;
         cx.notify();
@@ -202,7 +212,9 @@ impl Shell {
             Pending::Icon(Subject::Space(space)) | Pending::Theme(space) => {
                 (self.name_row_drawn.get(), space == self.space)
             }
-            Pending::Icon(Subject::Tab(_)) => (self.tab_row_drawn.get(), true),
+            Pending::Icon(Subject::Tab(_) | Subject::Folder(_)) => {
+                (self.tab_row_drawn.get(), true)
+            }
         };
         // Not before the Library has gone and the sidebar has come in, as a frame of either can
         // leave the row where it was.
@@ -274,6 +286,23 @@ impl Shell {
                 });
                 (self.page(tab).icon, anchor, picked)
             }
+            Subject::Folder(folder) => {
+                // The folder's middle, in from the row by the folders it's in.
+                let x = f32::from(row.left())
+                    + FAVICON_X
+                    + self.depth(folder) as f32 * FOLDER_INDENT
+                    + FAVICON_SIZE / 2.;
+                let anchor = point(x, f32::from(row.center().y));
+                let picked: Picked = Rc::new(move |icon, cx| {
+                    shell
+                        .update(cx, |shell, cx| {
+                            let icon = Value::Text(icon.to_string());
+                            shell.change(Prop::FolderIcon(folder), icon, cx)
+                        })
+                        .ok();
+                });
+                (self.folder_icon(folder), anchor, picked)
+            }
         };
         let iconless = !has_icon(&icon);
         icon_picker::show(subject, icon, anchor, picked, cx);
@@ -315,7 +344,7 @@ impl Shell {
         self.name_folder(folder, name, cx);
     }
 
-    fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
+    pub(super) fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
         let name = cx.new(|cx| {
             TextInput::new("Folder name", cx)
                 .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
@@ -369,6 +398,12 @@ impl Shell {
     }
 
     /// The folder's name in the Space shown.
+    /// The emoji the user gave `folder`, else empty.
+    pub(super) fn folder_icon(&self, folder: u64) -> SharedString {
+        let space = self.spaces.iter().find(|space| space.is_folder(folder));
+        space.and_then(|space| space.folders.icons.get(&folder).cloned()).unwrap_or_default()
+    }
+
     pub(super) fn folder_name(&self, folder: u64) -> SharedString {
         let space = self.shown_space();
         let folder = space.and_then(|space| space.folders.folders.get(&folder));

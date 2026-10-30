@@ -349,6 +349,7 @@ fn a_drag_is_undone_to_where_the_tab_was_in_its_folder(cx: &mut TestAppContext) 
     let folders = Folders {
         folders: HashMap::from([(5, ("Reading".into(), true))]),
         parents: HashMap::from([(6, 5), (7, 5), (8, 5)]),
+        ..Default::default()
     };
     let (shell, host) = window(cx, vec![4, 5, 6, 7, 8], vec![9], folders, Vec::new());
     // 8 goes out of the folder to the top of Today.
@@ -421,6 +422,7 @@ fn the_command_bar_finds_spaces_and_closed_folders_by_name(cx: &mut TestAppConte
     let folders = Folders {
         folders: HashMap::from([(5, ("Reading".into(), false)), (6, ("Recipes".into(), false))]),
         parents: HashMap::from([(6, 5), (7, 6)]),
+        ..Default::default()
     };
     let (shell, host) = window(cx, vec![5, 6, 7], vec![10], folders, Vec::new());
     shell.update(cx, |shell, cx| shell.set_selected(10, cx));
@@ -447,7 +449,7 @@ fn the_command_bar_finds_spaces_and_closed_folders_by_name(cx: &mut TestAppConte
     assert_eq!(recipes, [("Open Recipes".to_string(), Command::OpenFolder(6))]);
     host.take();
     shell.update(cx, |shell, cx| shell.run(Command::OpenFolder(6), "command-bar", cx));
-    assert_eq!(host.take(), ["folder 6 open true", "folder 5 open true"]);
+    assert_eq!(host.take(), ["folder open 6 true", "folder open 5 true"]);
 }
 
 #[gpui::test]
@@ -457,6 +459,7 @@ fn a_deleted_folder_is_made_again_with_what_it_held_and_deleted_again_by_its_new
     let folders = Folders {
         folders: HashMap::from([(5, ("Reading".into(), false))]),
         parents: HashMap::from([(6, 5), (7, 5)]),
+        ..Default::default()
     };
     let (shell, host) = window(cx, vec![4, 5, 6, 7], Vec::new(), folders, Vec::new());
     shell.update(cx, |shell, cx| shell.delete_folder_now(5, cx));
@@ -476,6 +479,7 @@ fn a_deleted_folder_is_made_again_with_what_it_held_and_deleted_again_by_its_new
     let folders = Folders {
         folders: HashMap::from([(1001, ("Reading".into(), true))]),
         parents: HashMap::from([(6, 1001), (7, 1001)]),
+        ..Default::default()
     };
     shell.update(cx, |shell, cx| {
         shell.set_tabs(1, vec![4, 1001, 6, 7], Vec::new(), Vec::new(), folders, cx)
@@ -1022,4 +1026,21 @@ fn command_z_and_the_edit_menu_undo_and_redo_with_the_ui_focused(cx: &mut TestAp
     });
     cx.dispatch_action(crate::text_input::Redo);
     assert_eq!(host.take_edits(), ["move 10 true 0 0"]);
+}
+
+#[gpui::test]
+fn a_folders_icon_goes_back_to_what_it_was(cx: &mut TestAppContext) {
+    let folders = Folders {
+        folders: HashMap::from([(5, ("Reading".into(), true))]),
+        parents: HashMap::from([(6, 5)]),
+        icons: HashMap::from([(5, "📚".into())]),
+    };
+    let (shell, host) = window(cx, vec![4, 5, 6], Vec::new(), folders, Vec::new());
+    shell.update(cx, |shell, cx| {
+        shell.change(Prop::FolderIcon(5), Value::Text("🌱".into()), cx)
+    });
+    assert_eq!(host.take_edits(), ["folder icon 5 🌱"]);
+    assert_eq!(titles(&shell, cx).0, Some("Change Icon"));
+    undo(&shell, cx);
+    assert_eq!(host.take_edits(), ["folder icon 5 📚"]);
 }

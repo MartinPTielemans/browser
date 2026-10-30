@@ -329,6 +329,29 @@ glyph-alpha = 0.7
 # The popover level's rim, as the tooltip's.
 rim = 0.5
 
+[folder-preview]
+# Resting on a closed folder shows a searchable list of its tabs beside its row (Arc's Folder
+# Preview, #690). Arc's isn't measured, so it takes the hover card's look: the panel radius in the
+# palette's overlay with the popover level's rim, and rows at the row radius inside its padding,
+# concentric: 16 - 4.
+width = 272.0
+radius = 16.0
+padding = 4.0
+rim = 0.5
+# The search, a line of body type after the magnifying glass, as tall as a sidebar row.
+search = 32.0
+search-glyph = 14.0
+# Each tab a row: its icon, then its title, at these alphas of the ink. The selected row has the
+# selected state's plate, a hovered one the hovered state's.
+row = 32.0
+row-radius = 12.0
+icon = 16.0
+icon-x = 10.0
+title-x = 34.0
+title-size = 13.0
+title = 0.9
+hint = 0.55
+
 [link-preview]
 # Ours, as nothing of Arc's preview is recorded yet (docs/ux-spec.md › Measurement plan, 8). The
 # card sits over the window's page, in from it by a share of the page's smaller side, within these.
@@ -808,6 +831,9 @@ unselected-title = 0.78
 selected = 0.2
 # The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
 selected-hovered = 0.36
+# A row chosen with ⌘- or ⇧-click besides the tab shown: Arc's secondary selection, P3 #FAFBFF
+# 0.10 over dark and black 0.10 over light (docs/ux-spec.md › Tokens).
+chosen = 0.1
 hovered = 0.12
 pressed = 0.065
 secondary = 0.62
