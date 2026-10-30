@@ -303,7 +303,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Save / update prompt | MVP | page top right; Save / Update Password, username picker, Never, No Thanks in Chrome's words; look: measure | Dia P§16, Chrome |
-| [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
+| [ ] | Address and card offers | MVP | same prompt, Chrome's words. Built: Save address? and Save card? (to this device) in the save prompt, its rows the address's lines or the card's name, last digits and expiry, with `cargo test --lib`'s `an_address_or_a_card_saves_with_return_and_declines_with_escape`; none in an agent's tab; Update address shows nothing yet. The core's side (`core/autofill_offer.cc`, the stand-in's handler) and the conversion in `main.rs` aren't compiled yet. To tick: `./check.sh passwords` passing its address and card steps, written but not run: return saves a form's address (`address-offer.png`), Chrome's dropdown then fills it (`address-fill.png`), and escape declines a card (`card-offer.png`) | Chrome |
 | [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |

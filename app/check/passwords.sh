@@ -8,8 +8,9 @@
 # and escape there declines. On another site, Never answers, and that site's Site Controls list it
 # in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
 # All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
-# browser window's dialog and removes it, which Settings hears. Each run has a profile of its own,
-# which no other run or the owner's copy reaches.
+# browser window's dialog and removes it, which Settings hears. A form's address brings Chrome's
+# offer to save it, which return saves, and a card's, which escape declines. Each run has a
+# profile of its own, which no other run or the owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty.
 serve
@@ -266,6 +267,50 @@ send key return
 expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
   "return didn't remove the login"
 expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
+
+# A form's address brings Chrome's offer to save it, in the same card with its lines to read and
+# the keyboard on the card, where return saves it; the form then offers it in Chrome's dropdown.
+# A card's offer names it by its last four digits, and escape declines it. Made-up data only.
+# Types $1 in the form's first field, then each of the rest after a tab, and submits it.
+submit_form() {
+  send click 600 60
+  send type "$1"
+  shift
+  for value in "$@"; do
+    send key tab
+    send type "$value"
+  done
+  send key return
+}
+# Waits for the page's form to bring an offer of kind $1, and for its card to take input.
+offered_to_save() {
+  expect "^browser: offer $tab $1 [0-9]*\$" "the $1 form brought no offer to save it"
+  expect '^browser: offer shown$' "the offer to save the $1 wasn't shown"
+  expect "^browser: offer $tab takes input\$" "the offer to save the $1 never took input"
+}
+go_from_bar "${site#http://}address.html"
+expect "^browser: title $tab address\$" "the address page didn't load"
+submit_form 'Ada Lovelace' '1 Check Street' Springfield IL 62701 'United States' ada@example.test
+offered_to_save address
+../tools/window-screenshot.sh "$pid" "$out/address-offer.png" || fail "no window to capture"
+send key return
+expect "^browser: offer $tab answered Accept \$" "return didn't save the address"
+expect "^browser: offer $tab gone\$" "saving the address left Chrome's offer open"
+go_from_bar "${site#http://}address.html"
+expect "^browser: title $tab address\$" "the address page didn't load again"
+send click 600 60
+send key down
+expect "^browser: title $tab filled\$" "Chrome's dropdown didn't offer the saved address"
+../tools/window-screenshot.sh "$pid" "$out/address-fill.png" || fail "no window to capture"
+send key escape
+go_from_bar "${site#http://}card.html"
+expect "^browser: title $tab card\$" "the card page didn't load"
+submit_form 'Ada Lovelace' 4111111111111111 12 2030
+offered_to_save card
+../tools/window-screenshot.sh "$pid" "$out/card-offer.png" || fail "no window to capture"
+send key escape
+expect "^browser: offer $tab answered NotNow \$" "escape didn't decline the card"
+expect "^browser: offer $tab gone\$" "declining the card left Chrome's offer open"
 exec 3>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; a form's address offers to save it in the card, return saves it and Chrome's dropdown then offers it, and a card's offer declines with escape. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png, $out/address-offer.png, $out/address-fill.png, $out/card-offer.png"
