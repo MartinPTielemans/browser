@@ -5349,11 +5349,15 @@ unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f6
 /// in the page gives it the keyboard. After, as the core can tell of it inside the app's own call.
 #[cfg(target_os = "linux")]
 unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
-    update_app_later(move |_| {
-        if let Some(ui_view) = ui_view_of(window) {
-            key_window_changed(ui_view);
-        }
-    });
+    // Not in an update of the app's, as key_window_changed updates the window itself.
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move {
+            if let Some(ui_view) = ui_view_of(window) {
+                key_window_changed(ui_view);
+            }
+        };
+        cx.foreground_executor().spawn(later).detach();
+    }
 }
 
 /// Under Wayland the window's input method composes `text` in the UI's text field that has the keys.
