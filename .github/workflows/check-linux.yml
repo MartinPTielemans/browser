@@ -42,7 +42,7 @@ jobs:
       # The runs that pass on X11 so far.
       LINUX_RUNS: >-
         tabs window find agents spaces crash profiles private quit mcp appearance access history load
-        adblock-lists split adblock import onboarding extensions capture popup pinned
+        preview adblock-lists split adblock import onboarding extensions capture popup pinned
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4

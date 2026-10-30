@@ -92,6 +92,9 @@ typedef struct bc_tab_state {
   // The system's engine shows the page, WebKit on the Mac, in place of Chromium
   // (bc_tab_set_system_engine).
   bool system_engine;
+  // The tab shows its page in Developer Mode (bc_tab_set_developer_mode): the user turned it on for
+  // the page's site, or it's localhost, as Chrome counts it, and they didn't turn it off there.
+  bool developer_mode;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -324,6 +327,12 @@ typedef struct bc_login {
 #define BC_AD_BLOCKING_ON 1
 #define BC_AD_BLOCKING_OFF 2
 
+// Whether a site's tabs show in Developer Mode, for its Site Controls: none where the user can't
+// turn it on or off, as for a page that isn't http(s) or in a private window, else on or off.
+#define BC_DEVELOPER_MODE_NONE 0
+#define BC_DEVELOPER_MODE_ON 1
+#define BC_DEVELOPER_MODE_OFF 2
+
 // The site of a tab's page, for its Site Controls.
 typedef struct bc_site_controls {
   // The site as the user should see it, such as "example.com".
@@ -356,6 +365,8 @@ typedef struct bc_site_controls {
   size_t login_count;
   // A BC_AD_BLOCKING_ value, which bc_tab_set_ad_blocking changes.
   int ad_blocking;
+  // A BC_DEVELOPER_MODE_ value, which bc_tab_set_developer_mode changes.
+  int developer_mode;
 } bc_site_controls;
 
 
@@ -491,8 +502,8 @@ typedef struct bc_host {
   // Chrome opened a tab in the window that the app didn't ask for: a page's link to a new tab, or
   // its popup or new window, which open as tabs. |opener| is the tab it came from, or 0. In a window
   // that shows a Space, it goes in its opener's Space where Chrome would put it, under the opener,
-  // and the window shows it if |foreground| and the window shows that Space. A link ⌥⌘- or
-  // ⌥⇧-clicked goes in a split view with its page instead, unless the split has three tabs; then
+  // and the window shows it if |foreground| and the window shows that Space. A link ⌥- or
+  // ⌥⌘-clicked goes in a split view with its page instead, unless the split has three tabs; then
   // space_changed. Elsewhere it isn't shown until bc_tab_show; show it if |foreground|, since
   // Chrome made it the window's active tab.
   void (*tab_opened)(void* context, bc_id window, bc_id tab, bc_id opener, bool foreground);
@@ -789,6 +800,9 @@ typedef struct bc_host {
                            double y);
   // The note on the first Today tabs auto-archive took came or went (bc_archive_note).
   void (*archive_note_changed)(void* context);
+  // The trace bc_trace_stop ended: Chromium's JSON, |size| bytes, or null and 0 if it gave none.
+  // The user's: save it where they pick, or drop it.
+  void (*trace_recorded)(void* context, const char* json, size_t size);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -948,10 +962,10 @@ BC_EXPORT bc_id bc_space_create(const char* name, bc_id after);
 // it (decision 8). An agent is an AI client, such as Claude Code, driving the browser through the
 // core. The rules its calls keep, once there are any:
 // - It works only in its own Space: bc_agent_may_act answers which tabs are its to act on, and
-//   bc_agent_list_tabs lists that Space's tabs alone. The user's tabs and favorites never are, and
-//   no tab moves into an agent's Space, by bc_tab_move_to_space or bc_tab_move, until the user can
-//   give an agent a tab, with its activity-log entry. A tab the user opens in one, while a window
-//   shows it, is the agent's like the rest.
+//   bc_agent_list_tabs lists that Space's tabs alone. The user's tabs and favorites never are,
+//   until the user gives an agent one (bc_tab_give_to_agent), and no tab moves into an agent's
+//   Space by bc_tab_move_to_space or bc_tab_move. A tab the user opens in one, while a window shows
+//   it, is the agent's like the rest.
 // - Its actions never move the user's focus: no window shows another Space or tab, and no page
 //   takes the keyboard, because of one.
 // - The user can watch it, as an agent's Space shows in the windows like the others, take over in
@@ -1078,6 +1092,14 @@ BC_EXPORT bool bc_tab_hand_back(bc_id tab);
 
 // Whether the user holds |tab| from agents.
 BC_EXPORT bool bc_tab_held(bc_id tab);
+
+// The user gives the agent whose Space is |space| their |tab|, which moves there as
+// bc_tab_move_to_space moves a tab, and the agent may act in it as in its own from then on. Only
+// one of the user's tabs, into an agent's Space of the same profile, as the page goes as it is. A
+// hold on it from an earlier agent ends. Returns whether it moved. The user's: an agent never
+// takes the user's tabs, so agents get none. Moving the tab to a Space of the user's takes it
+// back.
+BC_EXPORT bool bc_tab_give_to_agent(bc_id tab, bc_id space);
 
 // The profile the Space's tabs open in, which its favorites are in.
 BC_EXPORT bc_id bc_space_profile(bc_id space);
@@ -1858,6 +1880,13 @@ BC_EXPORT size_t bc_ad_blocking_off_sites(bc_id profile, char* sites, size_t cap
 // open there keeps what it loaded until it reloads. The user's, as bc_set_ad_blocking is.
 BC_EXPORT void bc_ad_blocking_turn_on_site(bc_id profile, const char* site);
 
+// Turns Developer Mode on or off for the site of the tab's page, its registrable domain or host, in
+// its profile, which keeps it, if the page is http(s) and the tab isn't in a private window. Then
+// tab_state_changed for each of the profile's tabs at the site, and tab_site_controls if
+// bc_tab_site_controls is watching one. The user's: agents get none, as
+// it's how the user sees their tabs.
+BC_EXPORT void bc_tab_set_developer_mode(bc_id tab, bool on);
+
 // Takes the tab's playing video into Picture in Picture, or brings it back, as
 // bc_site_controls' picture_in_picture says it can. Then tab_site_controls.
 BC_EXPORT void bc_tab_picture_in_picture(bc_id tab);
@@ -1998,7 +2027,8 @@ BC_EXPORT void bc_tab_close_below(bc_id tab);
 // with it. A page can't take its cookies and logins to another profile, so into another profile's
 // Space the tab goes as a new one, with its history, name and mute, which loads once it's shown.
 // The old one closes, kept out of the archive and ⇧⌘T's tabs, as it lives on in the new one; then
-// tab_closed. Nothing moves into an agent's Space: a tab leaves one only.
+// tab_closed. Nothing moves into an agent's Space: a tab leaves one only, unless the user gives an
+// agent the tab (bc_tab_give_to_agent).
 BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 
 // Zooms the tab's page in (|step| 1) or out (-1) to Chrome's next level, or back to 100 % (0), for
@@ -2029,6 +2059,15 @@ BC_EXPORT void bc_tab_save_page(bc_id tab);
 // Opens Chrome's Task Manager, or brings it to the front, with the page |window| shows selected in
 // it. The user's: agents get none.
 BC_EXPORT void bc_window_task_manager(bc_id window);
+
+// Starts recording a trace of every process, as Help › Troubleshooting › Record a Trace does, with
+// Chrome's default categories, keeping the latest events once its buffer is full. Nothing records
+// until this. False if a trace is recording already. The user's: agents get no call for it.
+BC_EXPORT bool bc_trace_start(void);
+
+// Stops the trace bc_trace_start began, then trace_recorded with it, sent nowhere else. Nothing
+// without one.
+BC_EXPORT void bc_trace_stop(void);
 
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its

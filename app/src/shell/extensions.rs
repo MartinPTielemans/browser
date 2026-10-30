@@ -797,7 +797,7 @@ mod tests {
         let shell = cx.new(|cx| Shell::private_window(host.clone(), 1, "Private".into(), 7, cx));
         let listed = shell.update(cx, |shell, cx| {
             shell.set_extensions(7, extensions.clone(), cx);
-            let bar = shell.menu_bar();
+            let bar = shell.menu_bar(cx);
             bar.extensions.iter().map(|extension| extension.id.to_string()).collect::<Vec<_>>()
         });
         assert_eq!(listed, ["allowed"]);

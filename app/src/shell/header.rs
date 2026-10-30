@@ -369,21 +369,31 @@ impl Shell {
         self.url_words(self.selected, url, self.empty_opacity(Instant::now()))
     }
 
-    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, or with no
-    /// tab, the command bar's placeholder, `shown` of the way in.
+    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, its whole
+    /// URL in Developer Mode, as Chrome's Always Show Full URLs has it, or with no tab, the command
+    /// bar's placeholder, `shown` of the way in.
     pub(super) fn url_words(&self, tab: u64, url: &str, shown: f32) -> (SharedString, Hsla) {
         if tab == 0 {
             let mut color = self.palette.text(URL_PLACEHOLDER);
             color.a *= shown;
             return (PLACEHOLDER_TEXT.into(), color);
         }
-        let words = self.extension_name(url).unwrap_or_else(|| host(url).to_string().into());
+        let words = match self.extension_name(url) {
+            Some(name) => name,
+            None if self.page(tab).developer_mode => url.to_string().into(),
+            None => host(url).to_string().into(),
+        };
         (words, self.palette.text(SECONDARY).into())
     }
 
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
         let (words, color) = self.url_field_words(&url);
+        if *self.url_field_drawn.borrow() != words {
+            // check.sh reads this line.
+            log!("browser: url field {words}");
+            self.url_field_drawn.replace(words.clone());
+        }
         // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
         // before them, where the host stops short of them.
         let actions = self.action_buttons(cx);
