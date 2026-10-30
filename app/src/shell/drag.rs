@@ -354,7 +354,14 @@ impl Shell {
                 .collect();
             let (first, last) = (layouts[0].1, layouts[layouts.len() - 1].1);
             let span = (first.min(last), first.max(last));
-            let at = (self.list_y(pointer.y) - grab.0).clamp(span.0, span.1);
+            // A row goes where its top comes nearest a slot's. What's dragged in has no row in the
+            // list, so it goes to the gap nearest the pointer, where its line shows, as Arc's: a
+            // slot's top is half the rows' gap under its line.
+            let held = match incoming {
+                true => -(ROW_PITCH - ROW_HEIGHT) / 2.,
+                false => grab.0,
+            };
+            let at = (self.list_y(pointer.y) - held).clamp(span.0, span.1);
             let Some(((in_pinned, index), _, _)) =
                 layouts.into_iter().min_by(|a, b| (a.1 - at).abs().total_cmp(&(b.1 - at).abs()))
             else {

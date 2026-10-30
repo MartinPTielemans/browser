@@ -564,8 +564,9 @@ send dragover 100 300 text "javascript:document.title='dropped'"
 expect '^browser: drag over HostUIView refused$' "the list took a javascript: URL dragged as text"
 send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
-# Other text, let go under the dropped link's row, centred at 332, is searched for there with the
-# default engine, its spaces run together.
+# Other text, let go past the middle of the dropped link's row, centred at 333, goes in the gap
+# under it, the nearest, and is searched for there with the default engine, its spaces run
+# together.
 send dragdrop 100 345 text "dogs  and   cats"
 expect '^browser: dropped 1 in today 2$' "the dropped text wasn't taken under the dropped link"
 expect_lists "$e $c" "$t $d [0-9][0-9]*" "after dropping text"

@@ -728,7 +728,7 @@ impl Curve {
 
 /// Where a dragged tab is or would go: among the favorites, or in the pinned tabs or Today, at an
 /// index of them without it.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Place {
     Favorite(usize),
     List(bool, usize),
