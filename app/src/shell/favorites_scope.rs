@@ -137,3 +137,31 @@ fn the_numbers_can_leave_the_favorites_out(cx: &mut TestAppContext) {
     cx.update(|cx| change_keys(cx, |keys| keys.set_favorites_numbered(true)));
     assert_eq!(first_tab(&shell, &host, cx, 1), "select 40");
 }
+
+/// Last Tab (⌘9) shows the Space's last tab, or with Last Tab Goes to the Ninth turned on
+/// (Settings › Shortcuts), the ninth, as ⌘1–⌘8 count, the favorites first unless they're left out,
+/// and nothing with fewer. Turned off again, it's the last.
+#[gpui::test]
+fn last_tab_can_be_the_ninth(cx: &mut TestAppContext) {
+    let (shell, host) = shell_with_spaces(cx);
+    let today: Vec<u64> = (101..=110).collect();
+    shell.update(cx, |shell, cx| {
+        shell.set_favorites(vec![(40, 7), (41, 7)], cx);
+        shell.set_tabs(1, Vec::new(), today, Vec::new(), Folders::default(), cx);
+    });
+    let last = |shell: &Entity<Shell>, cx: &mut TestAppContext| {
+        host.take();
+        shell.update(cx, |shell, cx| shell.run(Command::SelectLastTab, "ui", cx));
+        host.take().join(", ")
+    };
+    assert_eq!(last(&shell, cx), "select 110");
+    cx.update(|cx| change_keys(cx, |keys| keys.set_ninth_tab(true)));
+    assert_eq!(last(&shell, cx), "select 107");
+    cx.update(|cx| change_keys(cx, |keys| keys.set_favorites_numbered(false)));
+    assert_eq!(last(&shell, cx), "select 109");
+    // Space 2 has one tab, so there's no ninth.
+    shell.update(cx, |shell, cx| shell.set_space(2, cx));
+    assert_eq!(last(&shell, cx), "");
+    cx.update(|cx| change_keys(cx, |keys| keys.reset_all()));
+    assert_eq!(last(&shell, cx), "select 12");
+}

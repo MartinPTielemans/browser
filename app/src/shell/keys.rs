@@ -55,14 +55,19 @@ pub struct UserKeys {
     set: Vec<(Command, Vec<String>)>,
     /// Off by default, so ⌘1 is the first favorite, as in Arc.
     favorites_unnumbered: bool,
+    /// Off by default, so Last Tab (⌘9) is the last tab, as Chrome's and Arc's are.
+    ninth_tab: bool,
 }
 
 /// The Shortcuts file's line for favorites_unnumbered, which no command is named.
 const FAVORITES_UNNUMBERED: &str = "favorites-unnumbered";
+/// The line for ninth_tab.
+const NINTH_TAB: &str = "ninth-tab";
 
 impl Global for UserKeys {}
 
-static DEFAULTS: UserKeys = UserKeys { set: Vec::new(), favorites_unnumbered: false };
+static DEFAULTS: UserKeys =
+    UserKeys { set: Vec::new(), favorites_unnumbered: false, ninth_tab: false };
 
 /// The user's keys, or the defaults before they're read.
 pub fn user_keys(cx: &App) -> &UserKeys {
@@ -440,6 +445,15 @@ impl UserKeys {
         self.favorites_unnumbered = !numbered;
     }
 
+    /// Whether Last Tab (⌘9) goes to the ninth tab rather than the last (Settings › Shortcuts).
+    pub fn ninth_tab(&self) -> bool {
+        self.ninth_tab
+    }
+
+    pub fn set_ninth_tab(&mut self, ninth: bool) {
+        self.ninth_tab = ninth;
+    }
+
     /// Keeps `keys` for `command`, unless they're its defaults.
     fn put(&mut self, command: Command, keys: Vec<String>) {
         self.set.retain(|(each, _)| *each != command);
@@ -449,7 +463,7 @@ impl UserKeys {
     }
 
     /// As Settings saves them: a line a command, its name, then its keys, if any, and a line saying
-    /// the favorites are left out of ⌘1–⌘8 when they are.
+    /// the favorites are left out of ⌘1–⌘8 when they are, and one that Last Tab is the ninth.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
             let name = command.key_name();
@@ -457,7 +471,8 @@ impl UserKeys {
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
         let unnumbered = self.favorites_unnumbered.then(|| format!("{FAVORITES_UNNUMBERED}\n"));
-        lines.chain(unnumbered).collect()
+        let ninth = self.ninth_tab.then(|| format!("{NINTH_TAB}\n"));
+        lines.chain(unnumbered).chain(ninth).collect()
     }
 
     /// What to_text wrote. A line it can't read, or keys another command keeps, is left out.
@@ -466,6 +481,10 @@ impl UserKeys {
         for line in text.lines() {
             if line.trim() == FAVORITES_UNNUMBERED {
                 keys.favorites_unnumbered = true;
+                continue;
+            }
+            if line.trim() == NINTH_TAB {
+                keys.ninth_tab = true;
                 continue;
             }
             let mut words = line.split_whitespace();
@@ -1036,6 +1055,8 @@ mod tests {
         assert_eq!(UserKeys::parse(&user.to_text()), user);
         user.set_favorites_numbered(false);
         assert_eq!(UserKeys::parse(&user.to_text()), user);
+        user.set_ninth_tab(true);
+        assert_eq!(UserKeys::parse(&user.to_text()), user);
         assert_eq!(UserKeys::parse("quit cmd-k\nnothing cmd-j\n"), UserKeys::default());
     }
 
@@ -1050,6 +1071,18 @@ mod tests {
         assert!(!user.favorites_numbered());
         user.reset_all();
         assert!(user.favorites_numbered());
+    }
+
+    /// Last Tab is the last tab until the user picks the ninth, and Restore Defaults makes it the
+    /// last again.
+    #[test]
+    fn last_tab_is_the_last_by_default() {
+        let mut user = UserKeys::default();
+        assert!(!user.ninth_tab());
+        user.set_ninth_tab(true);
+        assert_eq!(user.to_text(), "ninth-tab\n");
+        user.reset_all();
+        assert!(!user.ninth_tab());
     }
 
     /// A key needs ⌘ or ⌃, as one without would type, and ⇧ with a character a page names its

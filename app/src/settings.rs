@@ -184,7 +184,7 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
-/// Or the switch for whether those keys count the favorites.
+/// Or the switch for whether those keys count the favorites, or whether Last Tab is the ninth.
 enum Keys {
     Of(Command),
     /// Keys no command holds, which can't be changed: a binding's keystroke.
@@ -192,13 +192,14 @@ enum Keys {
     /// A run of them, from the first keystroke to the last.
     Span(&'static str, &'static str),
     FavoritesNumbered,
+    NinthTab,
 }
 
 impl Keys {
     /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
     fn fixed(&self) -> Option<String> {
         match *self {
-            Keys::Of(_) | Keys::FavoritesNumbered => None,
+            Keys::Of(_) | Keys::FavoritesNumbered | Keys::NinthTab => None,
             Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
             Keys::Span(first, last) => {
                 Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
@@ -227,6 +228,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
             ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
+            ("Last Tab Goes to the Ninth", Keys::NinthTab),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
             ("Reveal Tab in Sidebar", Keys::Of(Command::RevealTab)),
@@ -2166,6 +2168,10 @@ impl Settings {
                             let on = shell::user_keys(cx).favorites_numbered();
                             self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
                         }
+                        (Keys::NinthTab, _) => {
+                            let on = shell::user_keys(cx).ninth_tab();
+                            self.toggle("last tab ninth", on, set_ninth_tab, accent, cx)
+                        }
                         (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
                             .into_any_element(),
                     };
@@ -2639,7 +2645,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
-            Keys::FavoritesNumbered => None,
+            Keys::FavoritesNumbered | Keys::NinthTab => None,
             _ => keys.fixed(),
         };
         shell::shortcut_found(typed, name, label.as_deref())
@@ -2685,6 +2691,12 @@ pub fn save_appearance(appearance: Appearance) {
 /// Include Favorites in ⌘1–⌘8, kept with the user's keys.
 fn set_favorites_numbered(numbered: bool, cx: &mut App) {
     shell::change_keys(cx, |keys| keys.set_favorites_numbered(numbered));
+    save_shortcuts(cx);
+}
+
+/// Whether Last Tab goes to the ninth tab, kept with the user's keys.
+fn set_ninth_tab(ninth: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_ninth_tab(ninth));
     save_shortcuts(cx);
 }
 
