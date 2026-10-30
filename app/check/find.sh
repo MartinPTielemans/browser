@@ -345,8 +345,14 @@ expect "^browser: today $second $first $source\$" "the source's tab isn't under 
 # Chrome, giving the browser window the keyboard back with its tabs.
 send menu "Open Task Manager"
 expect '^browser: command task-manager via ui$' "Open Task Manager didn't reach the UI"
-send title
-expect '^browser: key window titled Task Manager' "Open Task Manager didn't show Chrome's"
+# Off the Mac the window manager gives it the keyboard a moment after it opens.
+managed='^browser: key window titled Task Manager'
+for _ in $(seq 100); do
+  send title
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$managed" && break
+  sleep 0.1
+done
+expect "$managed" "Open Task Manager didn't show Chrome's"
 ../tools/window-screenshot.sh "$pid" "$out/task-manager.png" || fail "no window to capture"
 send key w cmd
 expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"

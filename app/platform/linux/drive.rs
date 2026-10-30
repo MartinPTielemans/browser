@@ -1013,6 +1013,23 @@ fn text_property(window: xproto::Window, name: &str) -> Option<String> {
     String::from_utf8(property.value).ok()
 }
 
+/// The title of the window with the input focus, or of the first window it's in that has one.
+fn focus_title() -> Option<String> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let mut window = input_focus()?;
+    loop {
+        if let Some(title) = text_property(window, "_NET_WM_NAME").filter(|t| !t.is_empty()) {
+            return Some(title);
+        }
+        let tree = connection.query_tree(window).ok()?.reply().ok()?;
+        if window == tree.root || tree.parent == x11rb::NONE {
+            return None;
+        }
+        window = tree.parent;
+    }
+}
+
 /// Whether the window manager has `window` full screen.
 fn full_screen(window: xproto::Window) -> Option<bool> {
     let x = server()?;
@@ -1409,13 +1426,13 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let title = match keyboard_window()? {
-                Keyboard::Overlay(window) | Keyboard::Settings(window, _) => {
+            let title = match keyboard_window() {
+                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
                     text_property(window, "_NET_WM_NAME").unwrap_or_default()
                 }
                 // A dialog of Chromium's in it is an aura window, which the X server has no title
                 // for, so the core gives it.
-                Keyboard::Browser(browser, _)
+                Some(Keyboard::Browser(browser, _))
                     if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
                 {
                     let length =
@@ -1426,9 +1443,11 @@ fn run_command(line: &str) -> Option<()> {
                     title.truncate(length);
                     String::from_utf8_lossy(&title).into_owned()
                 }
-                Keyboard::Browser(browser, _) => {
+                Some(Keyboard::Browser(browser, _)) => {
                     text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
                 }
+                // A window of Chromium's own, such as the Task Manager.
+                None => focus_title()?,
             };
             log!("browser: key window titled {title}");
             Some(())
