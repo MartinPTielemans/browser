@@ -128,8 +128,10 @@ expect '^browser: reveal window shown$' "the sidebar out didn't come on screen"
 send move $(row 1)
 expect "^browser: hover card shown $a " "resting on a row of the sidebar out didn't show its card"
 expect '^browser: hover card settled$' "the card over the sidebar out didn't come to rest"
+# The card's frame in whole points, as it can be 266.5 tall and the shell's arithmetic is whole.
 read -r cl ct cw ch <<EOF
-$(grep '^browser: hover card at ' "$log" | tail -1 | cut -d' ' -f5-)
+$(grep '^browser: hover card at ' "$log" | tail -1 | cut -d' ' -f5- |
+  awk '{ for (i = 1; i <= 4; i++) printf "%d ", int($i + 0.5); print "" }')
 EOF
 mark=$(wc -l < "$log")
 send move $((cl + 6)) $((ct + ch / 2))
