@@ -9,9 +9,9 @@
 use std::{rc::Rc, sync::Arc, time::Duration};
 
 use gpui::{
-    App, Bounds, Context, Corners, FocusHandle, FontWeight, Global, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage,
-    SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
+    App, Bounds, Context, Corners, Div, FocusHandle, FontWeight, Global, KeyBinding, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage, SharedString,
+    Stateful, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
     WindowKind, WindowOptions, actions, canvas, div, point, prelude::*, px, rgba, size, svg,
 };
 use image::{Frame, RgbaImage};
@@ -741,7 +741,7 @@ impl Render for Capture {
 }
 
 impl Capture {
-    fn mode(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn mode(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let root = div()
             .id("capture")
             .key_context("Capture")
