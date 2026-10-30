@@ -81,6 +81,7 @@ use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::OPTION_REVEAL_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::DETAIL;
@@ -1359,24 +1360,39 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let option = unsafe { bc::bc_option_reveals_sidebar() };
+        let option = self.toggle("option reveals sidebar", option, set_option_reveals, accent, cx);
+        // The Mac's alone so far (host_watch_option_taps).
+        let option = cfg!(target_os = "macos").then(|| {
+            row(
+                Some(("icons/panel-left.svg", OPTION_REVEAL_TILE)),
+                "Show the hidden sidebar when ⌥ is pressed alone",
+                option,
+            )
+        });
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
         let widevine = self.widevine.read(cx).shown().then(|| {
             group(&RowLook::settings(), [self.widevine_row(cx)]).mt(px(BOX_GAP))
         });
         div()
-            .child(group(&RowLook::settings(), [
-                row(
-                    Some(("icons/vibrate.svg", HAPTICS_TILE)),
-                    "Haptic feedback when swiping between Spaces",
-                    haptics,
-                ),
-                row(
-                    Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
-                    "Preview links to other sites from pinned tabs and favorites",
-                    previews,
-                ),
-            ]))
+            .child(group(
+                &RowLook::settings(),
+                [
+                    row(
+                        Some(("icons/vibrate.svg", HAPTICS_TILE)),
+                        "Haptic feedback when swiping between Spaces",
+                        haptics,
+                    ),
+                    row(
+                        Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
+                        "Preview links to other sites from pinned tabs and favorites",
+                        previews,
+                    ),
+                ]
+                .into_iter()
+                .chain(option),
+            ))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
@@ -1630,6 +1646,10 @@ pub(crate) fn crash_reports_collector() -> String {
 
 fn set_link_previews(previews: bool) {
     unsafe { bc::bc_set_link_previews(previews) };
+}
+
+fn set_option_reveals(reveals: bool) {
+    unsafe { bc::bc_set_option_reveals_sidebar(reveals) };
 }
 
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built

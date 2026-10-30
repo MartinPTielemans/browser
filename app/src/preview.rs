@@ -946,6 +946,10 @@ impl Browser for Fake {
 
     fn hide_reveal(&self, _: &mut App) {}
 
+    fn option_reveals_sidebar(&self) -> bool {
+        true
+    }
+
     // PREVIEW_SIDEBAR=<width> starts the sidebar at that width, such as its narrowest, 164.
     fn saved_sidebar_width(&self) -> Option<f32> {
         std::env::var("PREVIEW_SIDEBAR").ok()?.parse().ok()

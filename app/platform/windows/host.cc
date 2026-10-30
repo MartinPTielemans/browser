@@ -1230,6 +1230,7 @@ void host_watch_full_screen(void (*)(void*, bool)) {}
 // Windows delivers a touchpad's swipes to the page as scrolls, which it takes, so there's nothing
 // here for the host to watch.
 void host_watch_swipes(bool (*)(void*, double, double, bool)) {}
+void host_watch_option_taps(void (*)(void*)) {}
 
 // A window's menu bar isn't replaced while it's open on Windows: it's modal and runs no tasks.
 bool host_after_menus(void (*)(void)) { return false; }

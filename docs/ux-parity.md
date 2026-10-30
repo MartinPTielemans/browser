@@ -107,6 +107,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Reveal panel | MVP | inset 5 left/top/bottom, docked width, 0.5 pt light border | Arc (Ardia) rec |
 | [x] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
 | [x] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
+| [ ] | ⌥ shows the hidden sidebar | MVP | ⌥ pressed and let go alone slides the panel out as the edge does, a key, modifier, press or scroll before it's let go brings nothing out, the panel stays out until the pointer has been over it and left or ⌥ comes again, and Settings › Advanced turns it off; the trigger is ours *interim*, and the Mac's alone. To tick: `./check.sh window`, its "reveal by option" and "reveal away by option" lines, none for ⌥ with ⌘ or after a key, and `sidebar-option.png` | Arc release notes |
 | [x] | ⌃Tab | MVP | the tab used last, at once, no switcher; with ⌃ held, on back (ours) | Arc rec |
 | [x] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
 | [x] | Rename | MVP | double-click or Rename Tab renames inline; the name shows over the page's title and is kept across a quit; an empty one gives the title back | Dia P§2, ours |

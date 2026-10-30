@@ -1068,6 +1068,9 @@ pub struct Shell {
     sidebar_motion: Option<(f32, Instant)>,
     /// Whether the hidden sidebar is out over the page, or on its way.
     revealed: bool,
+    /// The reveal's panel came out for ⌥ with the pointer elsewhere, so it stays out until the
+    /// pointer has come over it, or ⌥ again.
+    revealed_by_option: bool,
     /// While the reveal panel moves: how far out it started (`reveal_out`), and when.
     reveal_motion: Option<(f32, Instant)>,
     /// The pointer is at the window's left edge, waiting to bring the sidebar out.
@@ -1324,6 +1327,7 @@ impl Shell {
             width_motion: None,
             sidebar_motion: None,
             revealed: false,
+            revealed_by_option: false,
             reveal_motion: None,
             reveal_wait: None,
             url_copied: None,

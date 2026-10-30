@@ -905,6 +905,15 @@ void bc_set_link_previews(bool previews) {
   browser_core::SessionChanged();
 }
 
+bool bc_option_reveals_sidebar(void) {
+  return browser_core::UserSettings().option_reveals_sidebar;
+}
+
+void bc_set_option_reveals_sidebar(bool reveals) {
+  browser_core::UserSettings().option_reveals_sidebar = reveals;
+  browser_core::SessionChanged();
+}
+
 bool bc_warn_before_quitting(void) {
   return browser_core::UserSettings().warn_before_quitting;
 }

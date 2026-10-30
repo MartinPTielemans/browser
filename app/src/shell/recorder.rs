@@ -66,6 +66,8 @@ pub(super) struct Recorder {
     /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
     pub(super) crash_reports: Cell<Option<bool>>,
     pub(super) agents: Cell<Option<bool>>,
+    /// The user turned off ⌥ bringing the hidden sidebar out.
+    pub(super) option_off: Cell<bool>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -687,6 +689,10 @@ impl Browser for Recorder {
     fn set_sidebar_width(&self, _: f32, _: &mut App) {}
 
     fn hide_reveal(&self, _: &mut App) {}
+
+    fn option_reveals_sidebar(&self) -> bool {
+        !self.option_off.get()
+    }
 
     fn detent(&self, _: &mut App) {
         self.detents.set(self.detents.get() + 1);

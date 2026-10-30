@@ -160,6 +160,7 @@ mod platform {
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
+        pub fn host_watch_option_taps(tapped: extern "C" fn(*mut c_void));
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
@@ -496,6 +497,11 @@ extern "C" fn swiped(ui_view: *mut c_void, x: f64, y: f64, back: bool) -> bool {
     let at = point(px(x as f32), px(y as f32));
     update_window(window_with_view(ui_view), |shell, cx| shell.swiped(at, back, cx))
         .unwrap_or(false)
+}
+
+/// ⌥ was pressed and let go alone in the window whose UI draws in `ui_view`.
+extern "C" fn option_tapped(ui_view: *mut c_void) {
+    update_window(window_with_view(ui_view), |shell, cx| shell.option_tapped(cx));
 }
 
 /// The window whose UI draws in `ui_view`, or 0.
@@ -2245,6 +2251,10 @@ impl Browser for Engine {
         unsafe { platform::host_hide_reveal(self.ui_view) };
     }
 
+    fn option_reveals_sidebar(&self) -> bool {
+        unsafe { bc::bc_option_reveals_sidebar() }
+    }
+
     fn saved_sidebar_width(&self) -> Option<f32> {
         let width = unsafe { bc::bc_window_sidebar_width(self.window) };
         (width > 0.).then_some(width as f32)
@@ -3356,6 +3366,7 @@ fn finish_opening(
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
         platform::host_watch_swipes(swiped);
+        platform::host_watch_option_taps(option_tapped);
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }

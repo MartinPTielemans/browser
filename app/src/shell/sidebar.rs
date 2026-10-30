@@ -435,12 +435,19 @@ impl Shell {
         if !self.can_reveal() {
             return;
         }
+        let held = REVEAL_INSET + self.width() + REVEAL_HOLD;
+        if self.revealed_by_option {
+            if x > held {
+                return;
+            }
+            self.revealed_by_option = false;
+        }
         // The edge is the card's margin. Left of the window, the pointer has gone to another
         // window or display.
         if !(0. ..CARD_INSET).contains(&x) {
             self.reveal_wait = None;
             // The page's question keeps it out until it's answered, and its menu until it closes.
-            if x > REVEAL_INSET + self.width() + REVEAL_HOLD
+            if x > held
                 && self.question().is_none()
                 && !self.menu_open
             {
@@ -463,6 +470,24 @@ impl Shell {
         }
     }
 
+    /// ⌥ was pressed and let go alone: it brings the hidden sidebar out over the page wherever the
+    /// pointer is, and sends away the panel it brought out (Arc's release notes; ours: a tap, so
+    /// ⌥ held for a shortcut, a typed character or an ⌥-click never does).
+    pub fn option_tapped(&mut self, cx: &mut Context<Self>) {
+        if !self.browser.option_reveals_sidebar() {
+            return;
+        }
+        if self.revealed_by_option {
+            log!("browser: reveal away by option");
+            self.set_revealed(false, cx);
+        } else if !self.revealed && self.can_reveal() {
+            log!("browser: reveal by option");
+            self.reveal_wait = None;
+            self.set_revealed(true, cx);
+            self.revealed_by_option = true;
+        }
+    }
+
     /// Whether the sidebar is hidden and still, so the reveal can bring it out.
     pub(super) fn can_reveal(&self) -> bool {
         let still = self.sidebar_motion.is_none() && self.library.is_none();
@@ -476,6 +501,7 @@ impl Shell {
         }
         self.reveal_motion = Some((self.reveal_out(), Instant::now()));
         self.revealed = revealed;
+        self.revealed_by_option = false;
         if revealed {
             self.browser.show_reveal(REVEAL_INSET + self.width() + REVEAL_OVERSHOOT, cx);
         } else {
@@ -489,6 +515,7 @@ impl Shell {
     pub(super) fn conceal_now(&mut self, cx: &mut Context<Self>) {
         if self.reveal_shown() {
             self.revealed = false;
+            self.revealed_by_option = false;
             self.reveal_motion = None;
             self.browser.hide_reveal(cx);
             self.recent_downloads_gone(cx);
@@ -584,6 +611,41 @@ mod tests {
         let show = host.toast_run.borrow_mut().take().expect("no Show");
         cx.update(|cx| show(cx));
         assert!(!shell.read_with(cx, |shell, _| shell.sidebar_hidden), "Show left it hidden");
+    }
+
+    /// ⌥ tapped alone brings the hidden sidebar out wherever the pointer is, which keeps it out
+    /// until it has come over the panel and left, or ⌥ is tapped again; the switch turns it off,
+    /// and with the sidebar docked it does nothing.
+    #[gpui::test]
+    fn option_tapped_brings_the_hidden_sidebar_out(cx: &mut TestAppContext) {
+        use crate::shell::drag::detents::shell_with;
+        let (shell, host) = shell_with(cx, &[], &[1], Default::default());
+        let revealed = |cx: &mut TestAppContext| shell.read_with(cx, |shell, _| shell.revealed);
+        shell.update(cx, |shell, cx| shell.option_tapped(cx));
+        assert!(!revealed(cx), "the docked sidebar came out");
+        shell.update(cx, |shell, cx| {
+            shell.sidebar_hidden = true;
+            shell.option_tapped(cx);
+        });
+        assert!(revealed(cx), "⌥ didn't bring the hidden sidebar out");
+        shell.update(cx, |shell, cx| shell.pointer_at(600., cx));
+        assert!(revealed(cx), "the pointer over the page sent it away");
+        shell.update(cx, |shell, cx| shell.option_tapped(cx));
+        assert!(!revealed(cx), "a second ⌥ didn't send it away");
+        // Out again, the pointer comes over it, and leaving it then sends it away.
+        shell.update(cx, |shell, cx| {
+            shell.reveal_motion = None;
+            shell.option_tapped(cx);
+            shell.pointer_at(100., cx);
+            shell.pointer_at(600., cx);
+        });
+        assert!(!revealed(cx), "the pointer leaving the panel left it out");
+        host.option_off.set(true);
+        shell.update(cx, |shell, cx| {
+            shell.reveal_motion = None;
+            shell.option_tapped(cx);
+        });
+        assert!(!revealed(cx), "⌥ brought it out with the switch off");
     }
 
     /// The reveal's window, which draws the shell's panel, as the app's does.

@@ -620,6 +620,39 @@ expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sideb
 send key s cmd
 toggle ui shown "⌘S with the sidebar out"
 check_reveal "with the sidebar docked by ⌘S"
+# ⌥ pressed and let go alone brings the hidden sidebar out with the pointer over the page, which
+# keeps it out, and again sends it away. ⌥ held with ⌘, as for a shortcut, or let go after a key,
+# as for a typed character, doesn't, and with the sidebar docked it does nothing.
+send flags alt
+send flags
+none_since '^browser: reveal by option$' || fail "⌥ with the sidebar docked brought it out"
+send key s cmd
+toggle ui hidden "⌘S before ⌥"
+send move 600 300
+send flags alt
+send flags
+expect '^browser: reveal by option$' "⌥ pressed alone didn't bring the hidden sidebar out"
+expect '^browser: reveal shown$' "⌥ didn't bring the sidebar's panel out"
+check_reveal "with the sidebar out for ⌥" shown
+../tools/window-screenshot.sh "$pid" "$out/sidebar-option.png" || fail "no window to capture"
+# Only the panel ⌥ brought out, still out, goes away for it: one the pointer took away would come
+# out again.
+send move 650 320
+send flags alt
+send flags
+expect '^browser: reveal away by option$' \
+  "the pointer over the page, or a second ⌥, sent the sidebar away"
+expect '^browser: reveal hidden$' "a second ⌥ didn't take the sidebar's panel away"
+send flags alt
+send flags alt cmd
+send flags
+none_since '^browser: reveal by option$' || fail "⌥ held with ⌘ brought the sidebar out"
+send flags alt
+send key left alt
+send flags
+none_since '^browser: reveal by option$' || fail "⌥ let go after a key brought the sidebar out"
+send key s cmd
+toggle ui shown "⌘S after ⌥"
 # With the sidebar hidden, a tab opening says so in a toast, as its row isn't seen, and the toast's
 # Show brings the sidebar back.
 send key s cmd

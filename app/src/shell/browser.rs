@@ -292,6 +292,8 @@ pub trait Browser {
     /// Keeps the docked sidebar's width for the next launch.
     fn set_sidebar_width(&self, width: f32, cx: &mut App);
     fn hide_reveal(&self, cx: &mut App);
+    /// Whether ⌥ pressed alone brings the hidden sidebar out, as the user chose.
+    fn option_reveals_sidebar(&self) -> bool;
     /// A detent on the trackpad, as a swipe's nearest Space changes.
     fn detent(&self, cx: &mut App);
     /// Calls `Shell::control_released` once the user lets go of ⌃.

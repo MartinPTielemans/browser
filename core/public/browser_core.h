@@ -1309,6 +1309,10 @@ BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);
 BC_EXPORT void bc_set_link_previews(bool previews);
+// Whether ⌥ pressed and let go alone brings the hidden sidebar out over the page, as the user
+// chose. The core keeps it with the Spaces.
+BC_EXPORT bool bc_option_reveals_sidebar(void);
+BC_EXPORT void bc_set_option_reveals_sidebar(bool reveals);
 // Whether the app warns before moving a tab to another profile's Space, which it does once, as Dia
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);
