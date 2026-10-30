@@ -8,6 +8,7 @@ use std::{
 
 use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
+    point,
 };
 
 use crate::theme::Appearance;
@@ -16,7 +17,7 @@ use crate::build_info::{self, BuildInfo};
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, drm_note, extensions, keys,
+    clean_link, drag::dropped_urls, drm_note, extensions, keys,
     panes::pane_frames,
     trace,
     swap::{CHECK, LINK},
@@ -60,6 +61,8 @@ pub enum Command {
     NewFolder,
     /// Closes every folder of the Space shown.
     CollapseFolders,
+    /// Opens every folder of the Space shown.
+    ExpandFolders,
     /// Shows the sidebar's row of the tab shown: opens its folders and scrolls the list to it.
     RevealTab,
     /// Loads the selected pinned tab's pinned URL.
@@ -79,6 +82,10 @@ pub enum Command {
     CopyUrl,
     /// Copies a Markdown link to the selected tab: its title, then its URL.
     CopyMarkdownLink,
+    /// Opens the web link on the clipboard as a new tab.
+    PasteUrlAsTab,
+    /// Shares the selected tab's page through the system's share sheet.
+    Share,
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
@@ -235,6 +242,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-z", Command::Redo, false),
     ("shift-cmd-c", Command::CopyUrl, false),
     ("alt-shift-cmd-c", Command::CopyMarkdownLink, false),
+    ("alt-cmd-v", Command::PasteUrlAsTab, false),
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
@@ -332,12 +340,15 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Clear Archive", Command::ClearArchive, &[]),
     ("Favorite Tab", Command::FavoriteTab, &["add to favorites"]),
     ("Collapse All Folders", Command::CollapseFolders, &[]),
+    ("Expand All Folders", Command::ExpandFolders, &[]),
     ("Reveal Tab in Sidebar", Command::RevealTab, &["locate"]),
     ("New Folder…", Command::NewFolder, &[]),
     ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
     ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
     ("Copy URL", Command::CopyUrl, &["link"]),
     ("Copy URL as Markdown", Command::CopyMarkdownLink, &["link"]),
+    ("Paste URL as New Tab", Command::PasteUrlAsTab, &["clipboard", "open"]),
+    ("Share…", Command::Share, &["send"]),
     ("New Window", Command::NewWindow, &["duplicate", "copy"]),
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
@@ -638,6 +649,18 @@ pub fn copy_from_bar(text: &str, cx: &mut App) {
     }
 }
 
+/// ⇧⌘C in the link preview copies its page's address, not the tab's under it, as Arc's Peek
+/// does, with the toast ⇧⌘C shows.
+pub fn copy_url_of_preview(url: &str, cx: &mut App) {
+    let url = clean_link(url);
+    let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) else {
+        return;
+    };
+    if !url.is_empty() {
+        shell.update(cx, |shell, cx| shell.copy(&url, "Copied Current URL", cx)).ok();
+    }
+}
+
 /// Runs `command`, whose row in the command bar was chosen, once the bar has gone.
 pub fn run_from_bar(command: Command, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
@@ -696,6 +719,7 @@ impl Command {
             Command::RenameTab => "rename-tab",
             Command::NewFolder => "new-folder",
             Command::CollapseFolders => "collapse-folders",
+            Command::ExpandFolders => "expand-folders",
             Command::RevealTab => "reveal-tab",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::ResetSpaceTabs => "reset-space-tabs",
@@ -705,6 +729,8 @@ impl Command {
             Command::Redo => "redo",
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
+            Command::PasteUrlAsTab => "paste-url-as-tab",
+            Command::Share => "share",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
             Command::CapturePortion => "capture",
@@ -868,8 +894,9 @@ impl Shell {
         let space = self.spaces.iter().position(|space| space.id == self.space);
         // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
         // in Arc.
-        // Escape puts back a dragged row before it stops the page (docs/ux-spec.md › Tab list).
-        if matches!(command, Command::Stop) && self.cancel_drag(cx) {
+        // Escape puts back a dragged row, or lets chosen rows go, before it stops the page
+        // (docs/ux-spec.md › Tab list).
+        if matches!(command, Command::Stop) && (self.cancel_drag(cx) || self.unchoose(cx)) {
             return;
         }
         // The command bar opens over the page, and the reveal's panel makes way for it.
@@ -900,7 +927,9 @@ impl Shell {
                 // Chrome, and leaves the tab alone. With no tab selected there is no page to
                 // close, so it closes the window, as ⇧⌘W does.
                 if !self.browser.close_other_window(cx) {
-                    if self.selected != 0 {
+                    if !self.chosen.is_empty() {
+                        self.close_chosen(cx);
+                    } else if self.selected != 0 {
                         self.close_tab(self.selected, false, cx);
                     } else {
                         self.browser.close_window(cx);
@@ -917,6 +946,7 @@ impl Shell {
                 }
                 return;
             }
+            Command::TogglePin if !self.chosen.is_empty() => return self.pin_chosen(cx),
             Command::TogglePin => {
                 if self.selected != 0 {
                     let pinned = self.pinned().contains(&self.selected);
@@ -932,8 +962,10 @@ impl Shell {
                 return;
             }
             Command::RenameTab => return self.rename_tab(self.selected, cx),
+            Command::NewFolder if !self.chosen.is_empty() => return self.folder_chosen(cx),
             Command::NewFolder => return self.new_folder(cx),
-            Command::CollapseFolders => return self.collapse_folders(cx),
+            Command::CollapseFolders => return self.fold_folders(false, cx),
+            Command::ExpandFolders => return self.fold_folders(true, cx),
             Command::RevealTab => return self.reveal_tab(cx),
             // In an agent's Space ⌘↩ is the bar's Take Over or Hand Back.
             Command::BackToPinnedUrl if self.agent_bar().is_some() => {
@@ -956,8 +988,11 @@ impl Shell {
                 self.redo(cx);
                 return;
             }
+            Command::CopyUrl if !self.chosen.is_empty() => return self.copy_chosen(cx),
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
+            Command::PasteUrlAsTab => return self.paste_url_as_tab(cx),
+            Command::Share => return self.share_page(cx),
             Command::ReopenClosedTab => return self.reopen_closed(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
@@ -1194,21 +1229,59 @@ impl Shell {
     /// Copies the selected tab's URL, or a Markdown link to it, without its tracking parameters,
     /// and says so in the toast.
     fn copy_url(&mut self, markdown: bool, cx: &mut Context<Self>) {
-        if let Some((text, toast)) = self.url_to_copy(markdown) {
+        if let Some((text, toast)) = self.link_to_copy(self.selected, markdown) {
             self.copy(&text, toast, cx);
         }
     }
 
-    /// The text to copy and the toast to say so with.
-    fn url_to_copy(&self, markdown: bool) -> Option<(String, &'static str)> {
-        let url = clean_link(&self.url(self.selected));
+    /// Opens the clipboard's web link at the top of the Today tabs and shows it, as Arc's ⌥⌘V
+    /// does. The clipboard is read only now, and text that isn't one http(s) link opens nothing,
+    /// as a drop of it doesn't. No agent path: the clipboard is the user's.
+    fn paste_url_as_tab(&mut self, cx: &mut Context<Self>) {
+        if let Some(urls) = self.pasted_urls(cx) {
+            self.browser.open_at(&urls, false, 0, 0, cx);
+        }
+    }
+
+    /// The clipboard's web link, read now, as one URL to open, or None for anything else.
+    pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
+        let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
+        let urls = dropped_urls([(text.trim(), false)]);
+        if urls.is_empty() {
+            // check.sh reads this line.
+            log!("browser: pasted no URL");
+        }
+        Some(urls).filter(|urls| !urls.is_empty())
+    }
+
+    /// File › Share… and the command bar's Share…: the system's share sheet for the page shown,
+    /// as Site Controls' Share tile opens it, hanging from the URL field, else from the page's top.
+    fn share_page(&mut self, cx: &mut Context<Self>) {
+        let link = clean_link(&self.url(self.selected));
+        if link.is_empty() || !self.browser.has_share_sheet() {
+            return;
+        }
+        let at = match self.url_field_bounds() {
+            Some(field) => point(field.center().x, field.bottom()) + self.sidebar_origin.get(),
+            None => {
+                let page = self.page_frame(self.viewport).0;
+                point(page.center().x, page.top())
+            }
+        };
+        let title = self.title(self.selected);
+        self.browser.show_share_sheet(self.selected, &link, &title, at, cx);
+    }
+
+    /// `tab`'s link to copy, as a Markdown link if `markdown`, and the toast to say so with.
+    pub(super) fn link_to_copy(&self, tab: u64, markdown: bool) -> Option<(String, &'static str)> {
+        let url = clean_link(&self.url(tab));
         if url.is_empty() {
             return None;
         }
         let (text, toast) = match markdown {
             false => (url.clone(), "Copied Current URL"),
             true => {
-                let title = markdown_text(&self.title(self.selected));
+                let title = markdown_text(&self.title(tab));
                 (format!("[{title}]({url})"), "Copied URL as Markdown")
             }
         };
@@ -1220,7 +1293,7 @@ impl Shell {
     pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: command copy-url via sidebar");
-        let Some((text, toast)) = self.url_to_copy(false) else {
+        let Some((text, toast)) = self.link_to_copy(self.selected, false) else {
             return;
         };
         self.copy(&text, toast, cx);
@@ -1348,10 +1421,16 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            Command::ExpandFolders => self.shown_space().is_some_and(|space| {
+                space.folders.folders.keys().any(|&folder| !space.is_open(folder))
+            }),
             Command::Clear => !self.today().is_empty(),
             Command::FavoriteTab => {
                 let tab = self.selected;
                 tab != 0 && !self.favorites.contains(&tab) && self.has_room_for(tab)
+            }
+            Command::Share => {
+                self.browser.has_share_sheet() && !clean_link(&self.url(self.selected)).is_empty()
             }
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
             Command::RenameTab => {
@@ -1362,6 +1441,7 @@ impl Shell {
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
             Command::NewFolder
+            | Command::PasteUrlAsTab
             | Command::SearchTabs
             | Command::ReopenClosedTab
             | Command::NewWindow
@@ -1485,6 +1565,7 @@ fn private_runs(command: Command) -> bool {
             | Command::FavoriteTab
             | Command::NewFolder
             | Command::CollapseFolders
+            | Command::ExpandFolders
             | Command::BackToPinnedUrl
             | Command::ResetSpaceTabs
             | Command::NewSpace
@@ -1652,6 +1733,7 @@ mod tests {
             let folders = Folders {
                 folders: HashMap::from([(5, ("Folder".into(), false))]),
                 parents: HashMap::from([(4, 5)]),
+                ..Default::default()
             };
             shell.set_tabs(1, vec![2, 3, 5, 4, 6], vec![7], Vec::new(), folders, cx);
             for tab in [2, 3, 4, 7] {
@@ -1746,6 +1828,27 @@ mod tests {
         assert_eq!(host.site_search_settings.get(), 1);
         private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
         assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
+    }
+
+    /// ⌥⌘V opens the clipboard's web link as a tab at the top of Today, and text that isn't one
+    /// opens nothing, as a drop of it doesn't.
+    #[gpui::test]
+    fn paste_url_as_new_tab_opens_only_a_web_link(cx: &mut gpui::TestAppContext) {
+        let shell_with = crate::shell::drag::detents::shell_with;
+        let (shell, host) = shell_with(cx, &[], &[2], Default::default());
+        let paste = |text: &str, cx: &mut gpui::TestAppContext| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.into()));
+            host.take();
+            shell.update(cx, |shell, cx| shell.run(Command::PasteUrlAsTab, "page", cx));
+            host.take().into_iter().filter(|call| call.starts_with("open ")).collect::<Vec<_>>()
+        };
+        let opened = paste(" https://example.com/a?b \n", cx);
+        assert_eq!(opened, ["open https://example.com/a?b false 0 0"]);
+        for text in ["javascript:alert(1)", "file:///etc/passwd", "some words", ""] {
+            assert!(paste(text, cx).is_empty(), "{text:?} opened a tab");
+        }
+        let keys = UserKeys::default();
+        assert_eq!(keys.command_for("alt-cmd-v", false), Some(Command::PasteUrlAsTab));
     }
 
     /// The command bar offers to turn Developer Mode on for a web page and off for one in it, and

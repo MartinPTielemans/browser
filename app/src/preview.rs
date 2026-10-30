@@ -4,6 +4,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     rc::Rc,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -233,7 +234,8 @@ fn now() -> f64 {
 
 struct Fake {
     shell: WeakEntity<Shell>,
-    next_id: Cell<u64>,
+    /// Shared with the changes it makes later, which make ids too.
+    next_id: Rc<Cell<u64>>,
     spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
@@ -436,6 +438,61 @@ impl Browser for Fake {
     fn rename_folder(&self, folder: u64, name: &str, cx: &mut App) {
         let name: SharedString = name.to_string().into();
         self.change_folder(folder, cx, move |entry| entry.0 = name);
+    }
+
+    fn set_folder_icon(&self, folder: u64, icon: &str, cx: &mut App) {
+        let icon: SharedString = icon.to_string().into();
+        self.later(cx, move |shell, cx| {
+            let mut folders = shell.folders();
+            match icon.is_empty() {
+                true => folders.icons.remove(&folder),
+                false => folders.icons.insert(folder, icon),
+            };
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
+    // As the core does: the copy under the folder, with a copy of each row in it.
+    fn duplicate_folder(&self, folder: u64, cx: &mut App) -> u64 {
+        let copy = self.next_id.get();
+        let next = self.next_id.clone();
+        next.set(copy + 1);
+        self.later(cx, move |shell, cx| {
+            let (mut pinned, mut folders) = (shell.pinned().to_vec(), shell.folders());
+            let Some(at) = pinned.iter().position(|&id| id == folder) else {
+                return;
+            };
+            let end = end_of(&pinned, &folders, folder);
+            let mut copies = HashMap::from([(folder, copy)]);
+            let mut made = vec![copy];
+            for &row in &pinned[at + 1..end] {
+                let id = next.get();
+                next.set(id + 1);
+                copies.insert(row, id);
+                made.push(id);
+            }
+            for (&from, &to) in &copies {
+                if let Some(parent) = folders.parents.get(&from).copied() {
+                    let parent = copies.get(&parent).copied().unwrap_or(parent);
+                    folders.parents.insert(to, parent);
+                }
+                if let Some(entry) = folders.folders.get(&from).cloned() {
+                    folders.folders.insert(to, entry);
+                }
+                if let Some(icon) = folders.icons.get(&from).cloned() {
+                    folders.icons.insert(to, icon);
+                }
+                if !folders.folders.contains_key(&from) {
+                    shell.set_page(to, shell.page(from), cx);
+                }
+            }
+            pinned.splice(end..end, made);
+            let (today, splits) = (shell.today().to_vec(), shell.splits());
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+        copy
     }
 
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App) {
@@ -1084,6 +1141,9 @@ impl Browser for Fake {
     // So is the hover card's, and there's no engine to picture a page.
     fn hover_card(&self, _: browser::hover_card::Hover, _: &mut App) {}
 
+    // And the folder preview's.
+    fn folder_preview(&self, _: browser::folder_preview::Ask, _: &mut App) {}
+
     fn card_picture(&self, _: u64, _: &mut App) {}
 
     // The same for the link target's, which the preview's made-up pages have no links for.
@@ -1438,7 +1498,7 @@ fn main() {
                 let folder = first_favorite + FAVORITES.len() as u64;
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(folder + 1 + READING.len() as u64),
+                    next_id: Rc::new(Cell::new(folder + 1 + READING.len() as u64)),
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
@@ -1501,6 +1561,7 @@ fn main() {
                 let folders = Folders {
                     folders: [(folder, ("Docs".into(), true))].into(),
                     parents: [(2, folder)].into(),
+                    ..Default::default()
                 };
                 let today = (3..=TABS.len() as u64).collect();
                 let split = Split {
