@@ -43,10 +43,12 @@ cat > "$clicked_dir/manifest.json" << 'EOF'
 EOF
 echo '<title>clicked</title>' > "$clicked_dir/clicked.html"
 echo '<title>command</title>' > "$clicked_dir/command.html"
+# Off the Mac Chrome keeps Alt+Shift+P (New Tab Group) and Ctrl+J (Downloads) for itself and gives
+# no extension a key of its own, so there they suggest others.
 cat > "$extensions/popup/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Popup", "version": "1",
  "action": {"default_popup": "popup.html"},
- "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+P"}}}}
+ "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+O", "mac": "Alt+Shift+P"}}}}
 EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the popup<script src="popup.js"></script></body>' > "$extensions/popup/popup.html"
@@ -54,7 +56,7 @@ echo 'chrome.action.setBadgeText({text: "1"});' > "$extensions/popup/popup.js"
 cat > "$extensions/third/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Third", "version": "1",
  "action": {"default_popup": "popup.html"}, "options_ui": {"page": "options.html"},
- "commands": {"jump": {"suggested_key": {"default": "Ctrl+J"}, "description": "Jump"}}}
+ "commands": {"jump": {"suggested_key": {"default": "Alt+Shift+J", "mac": "Ctrl+J"}, "description": "Jump"}}}
 EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the third popup</body>' > "$extensions/third/popup.html"
@@ -218,10 +220,16 @@ expect "^browser: extension actions $popup:1\$" "Unpin didn't take Check Third's
 send menu "Pin to URL Field › Check Popup"
 expect "^browser: unpin extension $popup\$" "Pin to URL Field › Check Popup didn't unpin it"
 expect '^browser: extension actions $' "unpinning the last action left it in the URL field"
-# Their keys, as Chrome gave them: those the extensions suggested, as no one set any.
+# Their keys, as Chrome gave them: those the extensions suggested, as no one set any. Off the Mac
+# Alt is ⌃ in the Mac's names (docs/ux-spec.md › Keyboard).
+if [ "$(uname)" = Darwin ]; then
+  popup_key="p alt shift" popup_named=alt-shift-p popup_said=⌥⇧P third_named=cmd-j
+else
+  popup_key="o alt shift" popup_named=ctrl-shift-o popup_said=Alt+Shift+O third_named=ctrl-shift-j
+fi
 grep -q "^browser: extension keys $clicked hello=shift-cmd-y suggested\$" "$log" &&
-  grep -q "^browser: extension keys $popup _execute_action=alt-shift-p suggested\$" "$log" &&
-  grep -q "^browser: extension keys $third jump=cmd-j suggested\$" "$log" ||
+  grep -q "^browser: extension keys $popup _execute_action=$popup_named suggested\$" "$log" &&
+  grep -q "^browser: extension keys $third jump=$third_named suggested\$" "$log" ||
   fail "the extensions' keys weren't the ones they suggested: $(grep 'extension keys' "$log")"
 # Keyboard commands, on the first tab's page.
 index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
@@ -243,21 +251,19 @@ expect "^browser: extension command $clicked hello ran via ui\$" \
 expect "^browser: loaded [0-9]* chrome-extension://$clicked/command.html\$" \
   "Check Clicked didn't hear its command from the UI"
 # An action's key runs it as a click on its button does, its popup with the keyboard.
-send key p alt shift
+send key $popup_key
 expect "^browser: extension command $popup _execute_action ran via ui\$" \
-  "⌥⇧P with the UI focused didn't run Check Popup's action"
-expect "^browser: extension popup $popup\$" "⌥⇧P with the UI focused didn't show the popup"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+  "$popup_said with the UI focused didn't run Check Popup's action"
+expect "^browser: extension popup $popup\$" "$popup_said with the UI focused didn't show the popup"
+close_popup "$page_point"
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after a click on the command page"
-send key p alt shift
+send key $popup_key
 expect "^browser: extension command $popup _execute_action ran via page\$" \
-  "⌥⇧P with the page focused didn't run Check Popup's action"
-expect "^browser: extension popup $popup\$" "⌥⇧P with the page focused didn't show the popup"
+  "$popup_said with the page focused didn't run Check Popup's action"
+expect "^browser: extension popup $popup\$" "$popup_said with the page focused didn't show the popup"
 ../tools/window-screenshot.sh "$pid" "$out/extension-key-popup.png" || fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+close_popup "$page_point"
 send menu "Manage Extensions…"
 expect '^browser: command manage-extensions via ui$' "Manage Extensions… didn't reach the UI"
 expect '^browser: loaded [0-9]* chrome://extensions/$' \
