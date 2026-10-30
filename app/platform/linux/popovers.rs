@@ -194,7 +194,7 @@ pub(crate) fn resized(ui_view: *mut c_void) {
     }
 }
 
-/// The views of those that show and take clicks and keys, for the test driver (drive.rs).
+/// The views of those that show and still take clicks and keys, for the driver.
 pub(crate) fn shown() -> Vec<*mut c_void> {
     POPOVERS.with_borrow(|all| {
         (all.iter())

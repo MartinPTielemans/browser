@@ -6,7 +6,8 @@
 # Chrome's password importer: the view says how many came in, deletes the file when asked, and a
 # second file with a login's password changed says it conflicted and kept the saved one. Settings'
 # Passwords tab lists what came in, and the app menu's Import from Other Browsers… shows Import
-# again. Each step is captured.
+# again. Each step is captured. Arc has no Linux build, so off the Mac the fixture's Arc isn't
+# found, its steps are left out, and Chrome and Firefox are where Linux keeps them.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
@@ -18,19 +19,14 @@ rm -f "$saved"
 home="$out/import-home"
 rm -rf "$home"
 cp -R src/import/fixture "$home"
-# Arc has no Linux version, and there Chrome and Firefox keep their profiles in ~/.config and
-# ~/.mozilla. The rows' Import… buttons are a row apart, and the Passwords box's Choose File… is
-# under the last.
-if [ "$(uname)" = Linux ]; then
+if [ "$(uname)" = Darwin ]; then
+  arc=1
+  chrome="$home/Library/Application Support/Google/Chrome"
+  firefox="$home/Library/Application Support/Firefox"
+else
   arc=
   chrome="$home/.config/google-chrome"
   firefox="$home/.mozilla/firefox"
-  chrome_row=134 firefox_row=196 passwords_row=266
-else
-  arc=Arc
-  chrome="$home/Library/Application Support/Google/Chrome"
-  firefox="$home/Library/Application Support/Firefox"
-  chrome_row=198 firefox_row=258 passwords_row=328
 fi
 mkdir -p "$chrome/Default"
 printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' > "$chrome/Local State"
@@ -99,14 +95,20 @@ if [ "$active" != 1 ]; then
 fi
 first=$(space)
 # The toolbar's tabs, 55 wide or as wide as their names, 1 apart, centred: Import is the fourth of
-# eight. Its list has a row for each browser, its Import… button at the row's end; then a browser's
-# choices, a row each, with Back and Import under them.
+# eight. Its list has a row for each browser, its Import… button at the row's end, about 62 apart;
+# then a browser's choices, a row each, with Back and Import under them. The Passwords box is under
+# the browsers' box.
+if [ -n "$arc" ]; then
+  found="Arc, Chrome, Firefox" chrome_row=198 firefox_row=258 passwords_row=328
+else
+  found="Chrome, Firefox" chrome_row=134 firefox_row=196 passwords_row=266
+fi
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 314 60
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
-expect "^browser: import found ${arc:+Arc, }Chrome, Firefox\$" \
-  "the import didn't find the fixture's ${arc:+Arc, }Chrome and Firefox, and only them"
+expect "^browser: import found $found\$" \
+  "the import didn't find the fixture's $found, and only them: $(grep 'import found' "$log")"
 expect '^browser: import drawn list$' "Settings › Import didn't draw its list"
 ../tools/window-screenshot.sh "$pid" "$out/import-list.png" || fail "no window to capture"
 if [ -n "$arc" ]; then
@@ -144,8 +146,6 @@ if [ -n "$arc" ]; then
   expect '^browser: import drawn done$' "the import's end didn't draw"
   send clickkey 590 145
   expect '^browser: import drawn list$' "Done didn't go back to the list"
-else
-  echo "skip: importing from Arc, which has no Linux version."
 fi
 # Chrome, the row after Arc's, brings its bookmarks and history, which the core adds.
 send clickkey 575 $chrome_row
@@ -168,8 +168,7 @@ send clickkey 590 307
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
-# Firefox, the row after Chrome's, brings its toolbar's bookmark, its menu's in a folder, and its
-# history.
+# Firefox, Chrome's next row, brings its toolbar's bookmark, its menu's in a folder, and its history.
 expect '^browser: import drawn done$' "the import's end didn't draw"
 send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
@@ -200,9 +199,8 @@ send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $passwords_row
 expect '^browser: import passwords$' "Choose File… didn't import the passwords file"
-# The profile it went to is named only when there's more than one, as with Arc's Work.
-into=${arc:+ to Default}
-await "^browser: import done: 2 passwords came in$into from passwords\\.csv\\.\$" ||
+# It names the profile only where there are two, as Arc's import makes Work.
+await "^browser: import done: 2 passwords came in${arc:+ to Default} from passwords\\.csv\\.\$" ||
   fail "the import didn't say the file's 2 passwords came in: $(grep '^browser: import done' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords.png" || fail "no window to capture"
 [ -e "$passwords" ] || fail "the import deleted the passwords file before the user asked"
@@ -219,7 +217,7 @@ send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $passwords_row
 expect '^browser: import passwords$' "Choose File… didn't import the second passwords file"
-await "^browser: import done: 1 password came in$into from passwords\\.csv\\. 1 conflicted with a saved password, which was kept\\.\$" ||
+await "^browser: import done: 1 password came in${arc:+ to Default} from passwords\.csv\. 1 conflicted with a saved password, which was kept\.\$" ||
   fail "the import didn't say 1 came in and 1 conflicted: $(grep '^browser: import done' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords-conflict.png" || fail "no window to capture"
 rm -f "$passwords"
@@ -232,8 +230,8 @@ send menu Import from Other Browsers…
 expect '^browser: settings tab Import$' "Import from Other Browsers… didn't show Settings' Import tab"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
-# The Personal Space shows its pinned tabs: HN, then Reading with a, b and c and Deep with d.
 if [ -n "$arc" ]; then
+  # The Personal Space shows its pinned tabs: HN, then Reading with a, b and c and Deep with d.
   send key 2 ctrl
   expect "^browser: space $personal in " "⌃2 didn't show Arc's Personal Space"
   expect '^browser: pinned [0-9]*\( [0-9]*\)\{6\}$' \
@@ -241,6 +239,7 @@ if [ -n "$arc" ]; then
   ../tools/window-screenshot.sh "$pid" "$out/import-personal.png" || fail "no window to capture"
 fi
 quit
+[ -n "$arc" ] || echo "skip: import's Arc steps. Arc has no Linux build, so it's never found there."
 echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
 echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."

@@ -321,6 +321,12 @@ pub(crate) fn toast_plate() -> Option<(*mut c_void, Bounds<Pixels>)> {
     (!over.is_null()).then_some((view, plate))
 }
 
+/// For the driver: the toast's window while it shows. The X server finds it under the pointer only
+/// on its plate while it has buttons.
+pub(crate) fn shown() -> Option<*mut c_void> {
+    find(Kind::Toast, |float| (!float.over.is_null()).then_some(float.view)).flatten()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn host_toast_takes_clicks(takes: bool) {
     TOAST.with_borrow_mut(|toast| toast.takes = takes);

@@ -5,7 +5,8 @@
 # with an activity-log entry, and a read of example.com, opened in its Space, gives the page's text.
 # A page with fields gives its prose and none of their values: typed, filled in or a password, in
 # its text and in its outline, and the agent can't type into the password field. It types into
-# another, opens a page, clicks its link, scrolls, takes a screenshot and closes a tab, and a bank's
+# another. A page's frames, of its own site and of another, are in its outline, where the agent
+# clicks and types, and not into a frame's password field. It opens a page, clicks its link, scrolls, takes a screenshot and closes a tab, and a bank's
 # site asks first, in a card whose Allow Once opens it. Always Allow opens it from then on, until
 # Revoke Permission in the Space's menu takes that back. A login the user saved fills in neither as
 # the agent's tab loads it nor from a dropdown, and fills once the user takes the tab over, without
@@ -221,6 +222,48 @@ document.title = "fields";
   esac
   case "$typed" in *by-the-agent*) fail "the outline gave what the agent typed" ;; esac
   await_log "^browser: title $agent_tab noted\$" "the agent's typing didn't reach the field"
+
+  # A page's frames are part of it: the outline has what's in a frame of the page's site and in
+  # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
+  # password field in a frame is as off limits as one in the page.
+  printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
+    > "$out/site/inner.html"
+  printf '%s' '<p>Cross text</p>
+<button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
+<input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
+<input type=password aria-label="Cross password">' > "$out/site/cross.html"
+  printf '%s' "<title>frames</title><p>Top text</p><iframe src=inner.html></iframe>
+<iframe src=http://127.0.0.1:$port/cross.html></iframe>" > "$out/site/frames.html"
+  outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
+  printf '%s\n' "$outline" > "$out/mcp-frames.txt"
+  case "$outline" in
+    "Opened tab "*"Top text"*"Inner text"*"Inner button"*"Cross text"*"Cross button"*"(password: off limits)"*) ;;
+    *) fail "the page with frames was outlined as: $outline" ;;
+  esac
+  frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  inner=$(ref_of button "Inner button")
+  cross=$(ref_of button "Cross button")
+  [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
+    fail "the frames' buttons had the refs '$inner' and '$cross'"
+  clicked=$(call click "{\"tab\":$frames_tab,\"ref\":\"$cross\"}")
+  case "$clicked" in
+    "Clicked button “Cross button”."*"cross clicked"*) ;;
+    *) fail "clicking in the other site's frame answered: $clicked" ;;
+  esac
+  await_log "^browser: agent activity mcp-client $frames_tab click\$" \
+    "the click in the frame didn't reach the activity log"
+  field=$(ref_of textbox "Cross field")
+  typed=$(call type "{\"tab\":$frames_tab,\"ref\":\"$field\",\"text\":\"by-the-agent\"}")
+  case "$typed" in
+    "Typed into “Cross field”."*"cross typed"*) ;;
+    *) fail "typing in the other site's frame answered: $typed" ;;
+  esac
+  password=$(ref_of textbox "Cross password")
+  refused=$(call type "{\"tab\":$frames_tab,\"ref\":\"$password\",\"text\":\"by-the-agent\"}")
+  case "$refused" in
+    "error: Password fields are off limits"*) ;;
+    *) fail "typing into the frame's password field answered: $refused" ;;
+  esac
 
   # It opens a page in its Space, clicks its link, scrolls and takes a screenshot.
   opened=$(call open_tab '{"url":"example.com"}')
