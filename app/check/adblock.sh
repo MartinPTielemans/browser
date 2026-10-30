@@ -95,7 +95,7 @@ expect "^browser: extension actions $ublock\(:[0-9]*\)\{0,1\}\$" \
   "the pinned uBlock Origin didn't show in the URL field"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-pinned.png" || fail "no window to capture"
 post rightclick 202 64
-expect '^browser: menu shown Unpin, Options, Manage Extension$' \
+expect "^browser: menu shown $(cased 'Unpin, Options, Manage Extension')\$" \
   "a right-click on uBlock Origin's action didn't show its menu without Remove"
 send choose Unpin
 expect "^browser: unpin extension $ublock\$" "Unpin didn't unpin uBlock Origin"
