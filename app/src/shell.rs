@@ -23,8 +23,8 @@ use crate::{
     passwords::Key,
     space_icon::{GLYPHS, SpaceIcon},
     text_input::{self, TextInput},
-    palette::Palette,
-    theme::Theme,
+    palette::{Palette, Tone},
+    theme::{Appearance, Theme},
 };
 
 #[cfg(test)]
@@ -51,6 +51,7 @@ mod drag;
 mod display_face;
 mod drm_note;
 mod empty;
+mod export;
 mod extensions;
 mod favorites;
 mod fly_in;
@@ -100,16 +101,18 @@ pub use commands::{
     Run, menu_item, pane_added, run_from_bar, shown_tab,
 };
 pub use drag::dropped_urls;
+pub use drm_note::PlayReady;
 pub use extensions::{
     Extension, ExtensionAction, ExtensionCommand, menu_item as extension_menu_item,
     pin_menu_item as extension_pin_menu_item,
 };
 pub use keys::{
     Holder, OFF_THE_MAC, Refused, UserKeys, change_keys, page_keystroke, rebindable, recorded,
-    reserved, user_keys, view_binding, web_keystroke, written_as,
+    reserved, shortcut_found, user_keys, view_binding, web_keystroke, written_as,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
+pub use themes::{AppAppearance, app_appearance};
 pub use menus::{MenuEntry, new_profile_name};
 pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
 pub use side_panel::SidePanel;
@@ -373,11 +376,8 @@ use crate::tokens::shell::CANCEL_BOTTOM;
 use crate::tokens::shell::CANCEL_HEIGHT;
 
 use crate::tokens::shell::PRIVATE_SHADE;
-use crate::tokens::shell::CARD;
 use crate::tokens::shell::TITLE;
 use crate::tokens::shell::UNSELECTED_TITLE;
-use crate::tokens::shell::SELECTED;
-use crate::tokens::shell::SELECTED_HOVERED;
 use crate::tokens::shell::HOVERED;
 use crate::tokens::shell::PRESSED;
 use crate::tokens::shell::SECONDARY;
@@ -395,6 +395,7 @@ use crate::tokens::shell::TILE;
 pub(crate) const TILE_HOVERED: f32 = crate::palette::state_alpha(TILE, crate::palette::STATE_HOVERED);
 use crate::tokens::shell::TILE_RING;
 use crate::tokens::shell::TILE_UNTHEMED;
+use crate::tokens::shell::TILE_UNTHEMED_LIGHT;
 use crate::tokens::shell::NAV;
 use crate::tokens::shell::NAV_DISABLED;
 use crate::tokens::shell::NAV_HOVERED;
@@ -1199,7 +1200,18 @@ pub struct Shell {
     /// What the chrome draws with, for the Space shown (palette.rs), and each theme's, worked
     /// out once.
     palette: Palette,
-    palettes: RefCell<Vec<(Option<Theme>, Palette)>>,
+    palettes: RefCell<Vec<((Option<Theme>, Tone), Palette)>>,
+    /// The system's appearance as the window last drew, or the one View › Appearance chose in its
+    /// place, which a Space without a theme, or with an automatic one, follows; the preview's own
+    /// where it forces one; whether the window is the active one, as its texture shows; and the
+    /// watches that draw the window again once either changes.
+    system_tone: Tone,
+    app_appearance: Appearance,
+    forced_tone: Option<Tone>,
+    window_active: bool,
+    window_watches: Vec<Subscription>,
+    /// Whether the host was last asked to draw the material light.
+    window_light: Option<bool>,
     /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
     /// picker, or a Space's theme picker; and when it was asked for.
     picker_pending: Option<(Pending, Instant)>,
@@ -1398,6 +1410,12 @@ impl Shell {
             background_pressed: false,
             palette: Palette::default(),
             palettes: RefCell::default(),
+            system_tone: Tone::Dark,
+            app_appearance: Appearance::Automatic,
+            forced_tone: None,
+            window_active: true,
+            window_watches: Vec::new(),
+            window_light: None,
             private: false,
         }
     }
@@ -2661,6 +2679,7 @@ impl Focusable for Shell {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.a11y = window.is_a11y_active();
+        self.watch_appearance(window, cx);
         self.full_screen_step("drawn", window.viewport_size());
         // check.sh reads this line. It comes as the rows are drawn, so a click it sends next goes
         // to what's drawn.
@@ -2815,7 +2834,7 @@ impl Render for Shell {
         }
         // A page shows the card until its first frame, never white (Ardia). Not while the sidebar
         // pages between Spaces, whose colours cross-fade at every step.
-        let page_color = packed(self.window_fill().blend(rgba(CARD).into()));
+        let page_color = packed(self.window_fill().blend(self.palette.page.into()));
         if self.pages().len() == 1 && self.page_color != Some(page_color) {
             self.page_color = Some(page_color);
             self.browser.set_page_color(page_color, cx);
@@ -2958,13 +2977,13 @@ impl Shell {
             .zip(&panes)
             .map(|(bounds, &tab)| {
                 let focused = split && tab == self.selected;
-                card(bounds).when(focused, |card| card.shadow(vec![glow.clone()]))
+                card(bounds, self.palette.page).when(focused, |card| card.shadow(vec![glow.clone()]))
             })
             .collect();
         if let Some(with) = self.adding_pane {
             let count = self.panes(with).len() + 1;
             let (full, _) = self.card_frames(self.viewport);
-            cards.push(card(pane_frames(full, count, self.stacked(with), &[])[count - 1]));
+            cards.push(card(pane_frames(full, count, self.stacked(with), &[])[count - 1], self.palette.page));
         }
         cards
     }
@@ -3399,8 +3418,8 @@ fn packed(color: Hsla) -> u32 {
     channel(color.r) << 16 | channel(color.g) << 8 | channel(color.b)
 }
 
-/// A card at `bounds` in the window.
-fn card(bounds: Bounds<Pixels>) -> gpui::Div {
+/// A card at `bounds` in the window, of `fill`.
+fn card(bounds: Bounds<Pixels>, fill: Rgba) -> gpui::Div {
     div()
         .absolute()
         .left(bounds.left())
@@ -3408,7 +3427,7 @@ fn card(bounds: Bounds<Pixels>) -> gpui::Div {
         .w(bounds.size.width)
         .h(bounds.size.height)
         .rounded(px(CARD_RADIUS))
-        .bg(rgba(CARD))
+        .bg(fill)
 }
 
 /// `way`, but past `low` or `high` only a little further, on the Space pages' rubber band.
@@ -3710,8 +3729,8 @@ fn split_plate(segments: impl IntoIterator<Item = impl IntoElement>) -> gpui::Di
 
 /// The selected tab's plate, at `opacity` while it fades in.
 fn selected_plate(palette: &Palette, plate: gpui::Div, opacity: f32, hover: f32) -> gpui::Div {
-    let (rest, under) = (palette.plate(SELECTED), palette.plate(SELECTED_HOVERED));
-    plate.bg(Hsla { a: (rest.a + (under.a - rest.a) * hover) * opacity, ..rest })
+    let fill = palette.selected(hover);
+    plate.bg(fill.opacity(fill.a * opacity)).shadow(palette.selected_shadow(opacity))
 }
 
 /// A tab row's title, cut off at the row's trailing edge.

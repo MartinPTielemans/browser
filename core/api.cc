@@ -40,6 +40,7 @@
 #include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/playready.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -948,6 +949,12 @@ bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   return window ? window->RestoreArchived(archived) : 0;
 }
 
+void bc_window_answer_downloads(bc_id window_id, bool cancel) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->AnswerDownloads(cancel);
+  }
+}
+
 void bc_extension_answer(bc_id question, bool accept) {
   browser_core::InstallQuestion::Answer(question, accept);
 }
@@ -1266,6 +1273,10 @@ void bc_widevine_download(void) {
 
 void bc_widevine_remove(void) {
   browser_core::widevine::Remove();
+}
+
+int bc_playready_needs() {
+  return browser_core::platform::PlayReadyNeeds();
 }
 
 void bc_tab_stop(bc_id id) {

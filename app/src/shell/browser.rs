@@ -6,6 +6,8 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
+use crate::theme::Appearance;
+
 use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog};
 
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
@@ -149,6 +151,9 @@ pub trait Browser {
     fn view_source(&self, tab: u64, cx: &mut App);
     /// Asks where to save the tab's page, and saves it there.
     fn save_page(&self, tab: u64, cx: &mut App);
+    /// Asks where to save `markdown`, which holds `links` links, offering `name`, and saves it
+    /// there: a Space's from its menu, or every Space's from Settings.
+    fn save_markdown(&self, name: &str, markdown: String, links: usize, cx: &mut App);
     /// Shows print preview for the tab's page.
     fn print(&self, tab: u64, cx: &mut App);
     /// Opens or closes the tab's DevTools (0), opens or closes them at the console (1), or opens
@@ -265,6 +270,11 @@ pub trait Browser {
     fn set_focus_color(&self, color: u32, cx: &mut App);
     /// What the window's pages show until their first frame, 0xRRGGBB.
     fn set_page_color(&self, color: u32, cx: &mut App);
+    /// Draws the window's material light, or dark, under the UI's tint.
+    fn set_window_light(&self, light: bool, cx: &mut App);
+    /// Keeps View › Appearance's choice for the next launch, and gives it the app's native parts
+    /// and its pages, which follow it as they follow the system's.
+    fn set_appearance(&self, appearance: Appearance, cx: &mut App);
     /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
     /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
     /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.
@@ -323,6 +333,10 @@ pub trait Browser {
     fn download_widevine(&self, _cx: &mut App) {}
     /// Quits and starts again, bringing back the windows and their Spaces.
     fn restart(&self, _cx: &mut App) {}
+    /// What PlayReady, which Windows plays protected video with, needs that the PC may lack.
+    fn playready_needs(&self) -> super::PlayReady {
+        super::PlayReady::None
+    }
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;

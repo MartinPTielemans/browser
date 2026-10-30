@@ -621,15 +621,17 @@ typedef struct bc_host {
   void (*window_side_panel)(void* context, bc_id window, const bc_side_panel* panel);
   // A page of |tab| asked for a protected-media key system ilo can't play, such as Widevine, which
   // Netflix and Spotify play their video with: |key_system| is "com.widevine.alpha" or
-  // "com.microsoft.playready", never the page's own string. Once for each key system a document
-  // asks for, unless it's the one the app was last told. It comes with an empty |key_system| once
-  // the tab goes to another site, or once bc_tab_set_system_engine switches it: the note it asks
-  // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Never at a
-  // site whose note the user closed (bc_tab_close_media_note). Agents get none: the note hands the
-  // user's page to another engine or app. For a tab in the system's engine, |key_system| is
-  // "output-restricted" once its page's protected video is kept off the screen, as the display
-  // connection's protection (HDCP) isn't enough for it: once a tab and site, with the empty one as
-  // the tab goes to another site or back to Chromium. Closing that note is the app's alone.
+  // "com.microsoft.playready", never the page's own string. Once for each key system a document is
+  // refused, unless it's the one the app was last told, and never once a page at the site was given
+  // one, as a site may ask for Widevine and then play with PlayReady on Windows. It comes with an
+  // empty |key_system| once the tab goes to another site, or once bc_tab_set_system_engine switches
+  // it: the note it asks for is gone. bc_tab_set_system_engine answers it where
+  // bc_system_engine_available. Never at a site whose note the user closed
+  // (bc_tab_close_media_note). Agents get none: the note hands the user's page to another engine or
+  // app. For a tab in the system's engine, |key_system| is "output-restricted" once its page's
+  // protected video is kept off the screen, as the display connection's protection (HDCP) isn't
+  // enough for it: once a tab and site, with the empty one as the tab goes to another site or back
+  // to Chromium. Closing that note is the app's alone.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
   void (*widevine_changed)(void* context, int state);
@@ -742,6 +744,11 @@ typedef struct bc_host {
   // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
   // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
   void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
+  // On Linux and Windows, the browser is quitting, or with |last_private| the last window of a
+  // private profile closing, with |count| downloads running, which it would cancel: ask the user
+  // over |window|, and answer with bc_window_answer_downloads. A window asks one at a time. The Mac
+  // asks in Chrome's own alert as the app quits. The user's: agents get none, as they can't quit.
+  void (*window_downloads_question)(void* context, bc_id window, int count, bool last_private);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -877,6 +884,11 @@ BC_EXPORT bc_id bc_window_open_saved(size_t index, bc_rect bounds, void* ui_view
 // before it, which shows its tab live again if it showed one this window took. Else its pages get
 // their unload handlers. Then window_closed. The user's: agents get none.
 BC_EXPORT void bc_window_close(bc_id window);
+
+// Answers window_downloads_question, if the window still asks: |cancel| cancels the downloads and
+// goes on quitting or closing. Otherwise the browser stays open, and Chrome shows the downloads
+// (window_show_downloads). The user's: agents get none.
+BC_EXPORT void bc_window_answer_downloads(bc_id window, bool cancel);
 
 // Titles the window as the window manager shows it, for a host that can't reach the window itself,
 // as under Wayland, where the window is Chromium's.
@@ -1624,6 +1636,22 @@ BC_EXPORT void bc_widevine_download(void);
 // module the browser loaded plays until it restarts. Then widevine_changed with
 // BC_WIDEVINE_ABSENT. The user's: agents get none.
 BC_EXPORT void bc_widevine_remove(void);
+
+// What PlayReady, which Windows plays these sites with in Chromium, needs that this PC may lack,
+// for the protected-media note to say why a site was refused. It plays on Windows 11 on an x64 PC
+// whose graphics have PlayReady's hardware DRM (security level 3000), outside private windows,
+// which can't keep its licences. Chromium finds the hardware out only as a page asks, so this
+// names what it can rule out first.
+// - BC_PLAYREADY_NONE: no PlayReady here, off Windows: the note says nothing of it.
+// - BC_PLAYREADY_WINDOWS_11: Windows 10, which Chromium's PlayReady doesn't run on.
+// - BC_PLAYREADY_X64: an ARM PC, which runs the browser emulated and has no PlayReady for it.
+// - BC_PLAYREADY_HARDWARE: Windows 11 on x64, so the graphics have no hardware DRM, or Chromium
+//   turned it off after it failed.
+#define BC_PLAYREADY_NONE 0
+#define BC_PLAYREADY_WINDOWS_11 1
+#define BC_PLAYREADY_X64 2
+#define BC_PLAYREADY_HARDWARE 3
+BC_EXPORT int bc_playready_needs(void);
 
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as

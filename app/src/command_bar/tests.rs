@@ -1509,6 +1509,7 @@ fn space_puts_new_space_first(cx: &mut TestAppContext) {
         search("space"),
         "https://spacex.com/".into(),
         "Rename Space".into(),
+        "Export Space as Markdown…".into(),
         "Next Space ⌥⌘→".into(),
         "Previous Space ⌥⌘←".into(),
     ];

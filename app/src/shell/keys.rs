@@ -499,6 +499,87 @@ pub(super) fn key_bindings(cx: &App) -> Vec<KeyBinding> {
         .collect()
 }
 
+/// Whether the Shortcuts tab's search for `typed` finds the row for `name`, whose keys a menu
+/// shows as `keys`: every word typed starts a word of its name, or what's typed names its keys, as
+/// "cmd d", "shift cmd a" or ⌘D, which finds them among others held with the same key (Arc).
+pub fn shortcut_found(typed: &str, name: &str, keys: Option<&str>) -> bool {
+    let name = name.to_lowercase();
+    let starts_a_word = |typed: &str| name.split([' ', '/']).any(|word| word.starts_with(typed));
+    if typed.split_whitespace().all(|typed| starts_a_word(&typed.to_lowercase())) {
+        return true;
+    }
+    let Some((held, key)) = keys_named_in(typed).filter(|&(held, _)| held != 0) else {
+        return false;
+    };
+    let Some((row_held, row_key)) = keys.and_then(keys_named_in) else {
+        return false;
+    };
+    held & row_held == held && key.is_none_or(|key| Some(key) == row_key)
+}
+
+/// The modifiers `text` names, a bit each, and the one other key it names, if any, from words such
+/// as "shift cmd a" or a menu's ⇧⌘A or Ctrl+Shift+A. None if it names two other keys.
+fn keys_named_in(text: &str) -> Option<(u8, Option<String>)> {
+    let mut parts = Vec::new();
+    let mut part = String::new();
+    for character in text.chars() {
+        // A + after a word joins it to the next, as in Ctrl+Shift+A, and one on its own is the key.
+        let ends_part = "⌃⌥⇧⌘".contains(character)
+            || character.is_whitespace()
+            || (character == '+' && !part.is_empty());
+        if ends_part {
+            parts.extend((!part.is_empty()).then(|| std::mem::take(&mut part)));
+            if "⌃⌥⇧⌘".contains(character) {
+                parts.push(character.to_string());
+            }
+        } else {
+            part.push(character);
+        }
+    }
+    parts.extend((!part.is_empty()).then_some(part));
+    let (ctrl, alt, shift, cmd) = (1, 2, 4, 8);
+    let (mut held, mut key) = (0, None);
+    for part in parts {
+        let lower = part.to_lowercase();
+        let modifier = match lower.as_str() {
+            "⌃" | "ctrl" | "control" => Some(ctrl),
+            "⌥" | "alt" | "option" | "opt" => Some(alt),
+            "⇧" | "shift" => Some(shift),
+            // Off the Mac a shortcut's cmd is pressed as Ctrl, as its menus show it.
+            "⌘" | "cmd" | "command" => Some(if OFF_THE_MAC { ctrl } else { cmd }),
+            "super" | "win" | "meta" => Some(cmd),
+            _ => None,
+        };
+        match modifier {
+            Some(bit) => held |= bit,
+            None if key.is_none() => key = Some(key_glyph(&lower)),
+            None => return None,
+        }
+    }
+    Some((held, key))
+}
+
+/// The key `word` names, as a menu shows it: ↩ for "return", and a letter in capitals.
+fn key_glyph(word: &str) -> String {
+    let glyph = match word {
+        "return" | "enter" => "↩",
+        "esc" | "escape" => "⎋",
+        "tab" => "⇥",
+        "backspace" => "⌫",
+        "delete" | "del" => "⌦",
+        "up" => "↑",
+        "down" => "↓",
+        "left" => "←",
+        "right" => "→",
+        "pageup" => "⇞",
+        "pagedown" => "⇟",
+        "home" => "↖",
+        "end" => "↘",
+        _ => return word.to_uppercase(),
+    };
+    glyph.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use std::{cell::RefCell, rc::Rc};
@@ -509,6 +590,50 @@ mod tests {
     };
 
     use super::*;
+
+    /// Whether the Shortcuts tab's search for `typed` finds each of `rows`, a name and the
+    /// command's keystroke as a binding writes it, or none.
+    fn found(typed: &str, rows: &[(&str, &str)]) -> Vec<bool> {
+        let found = |&(name, keys): &(&str, &str)| {
+            shortcut_found(typed, name, (!keys.is_empty()).then(|| keystroke_label(keys)).as_deref())
+        };
+        rows.iter().map(found).collect()
+    }
+
+    const ROWS: &[(&str, &str)] = &[
+        ("New Tab", "cmd-t"),
+        ("Restore Last Closed Tab", "shift-cmd-t"),
+        ("Search Tabs", "shift-cmd-a"),
+        ("Zoom Out", "cmd--"),
+        ("Copy URL", "shift-cmd-c"),
+        ("Open Task Manager", ""),
+    ];
+
+    /// The search finds a row by the starts of its name's words, in any case and order.
+    #[test]
+    fn shortcuts_search_finds_rows_by_their_names_words() {
+        assert_eq!(found("", ROWS), [true; 6]);
+        assert_eq!(found("tab", ROWS), [true, true, true, false, false, false]);
+        assert_eq!(found("task", ROWS), [false, false, false, false, false, true]);
+        assert_eq!(found("TAB new", ROWS), [true, false, false, false, false, false]);
+        assert_eq!(found("clo", ROWS), [false, true, false, false, false, false]);
+        assert_eq!(found("ab", ROWS), [false; 6]);
+    }
+
+    /// Named as words or as a menu's glyphs, keys find the rows held with them and the same key,
+    /// and a row with no keys only by its name.
+    #[test]
+    fn shortcuts_search_finds_rows_by_their_keys() {
+        assert_eq!(found("cmd t", ROWS), [true, true, false, false, false, false]);
+        assert_eq!(found("shift cmd t", ROWS), [false, true, false, false, false, false]);
+        assert_eq!(found("⇧⌘A", ROWS), [false, false, true, false, false, false]);
+        assert_eq!(found("Command+Shift+C", ROWS), [false, false, false, false, true, false]);
+        assert_eq!(found("cmd -", ROWS), [false, false, false, true, false, false]);
+        assert_eq!(found("shift", ROWS), [false, true, true, false, true, false]);
+        assert_eq!(found("ctrl t", ROWS), [false; 6]);
+        // Two keys besides the modifiers name no shortcut.
+        assert_eq!(found("cmd t a", ROWS), [false; 6]);
+    }
 
     /// A window of the UI with the keyboard, as the shell's root has it.
     struct Root(FocusHandle);

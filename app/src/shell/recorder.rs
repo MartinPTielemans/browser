@@ -10,6 +10,8 @@ use std::{
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
 
+use crate::theme::Appearance;
+
 use super::{
     Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
     browser::WindowButton,
@@ -79,6 +81,10 @@ pub(super) struct Recorder {
     /// What the menu bar was last asked to show, and the window's title.
     pub(super) menu_bar: RefCell<MenuBar>,
     pub(super) window_title: RefCell<String>,
+    /// Whether it was last asked to draw the window's material light.
+    pub(super) window_light: Cell<Option<bool>>,
+    /// The appearance View › Appearance last chose.
+    pub(super) appearance: Cell<Option<Appearance>>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
     /// The system has a share sheet of its own.
@@ -115,6 +121,8 @@ pub(super) struct Recorder {
     made: Cell<u64>,
     /// The URL each pinned tab or favorite goes back to, and the name each tab was given.
     pub(super) pinned_urls: RefCell<HashMap<u64, String>>,
+    /// Each Markdown file saved: the name offered, the file and its links.
+    pub(super) saved_markdown: RefCell<Vec<(String, String, usize)>>,
     pub(super) names: RefCell<HashMap<u64, String>>,
     /// The words of the toasts with no Undo button it was asked to show.
     pub(super) toasts: RefCell<Vec<String>>,
@@ -129,6 +137,8 @@ pub(super) struct Recorder {
     pub(super) system_engine: Cell<bool>,
     /// Where it says Google's Widevine module is.
     pub(super) widevine: Cell<crate::widevine::Widevine>,
+    /// What it says PlayReady needs.
+    pub(super) playready: Cell<super::PlayReady>,
     /// The shell it answers each picture asked of it for with this picture, at once, inside the
     /// call that asked, as a core that answers inline would.
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
@@ -446,6 +456,10 @@ impl Browser for Recorder {
         self.system_engine.get()
     }
 
+    fn playready_needs(&self) -> super::PlayReady {
+        self.playready.get()
+    }
+
     fn close_media_note(&self, tab: u64, _: &mut App) {
         self.record(format!("close media note {tab}"));
     }
@@ -489,6 +503,10 @@ impl Browser for Recorder {
     fn view_source(&self, _: u64, _: &mut App) {}
 
     fn save_page(&self, _: u64, _: &mut App) {}
+
+    fn save_markdown(&self, name: &str, markdown: String, links: usize, _: &mut App) {
+        self.saved_markdown.borrow_mut().push((name.to_string(), markdown, links));
+    }
 
     fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
         match command {
@@ -667,6 +685,14 @@ impl Browser for Recorder {
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
+
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        self.window_light.set(Some(light));
+    }
+
+    fn set_appearance(&self, appearance: Appearance, _: &mut App) {
+        self.appearance.set(Some(appearance));
+    }
 
     fn page_moving(&self, moving: bool, _: &mut App) {
         self.page_events.borrow_mut().push(if moving { "moving" } else { "still" });

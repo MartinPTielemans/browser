@@ -8,7 +8,7 @@ use crate::site_controls::Place;
 
 use gpui::{
     Bounds, Context, DispatchPhase, Div, Hsla, MouseButton, MouseDownEvent, NavigationDirection,
-    Pixels, SharedString, Stateful, Window, canvas, div, point, prelude::*, px, rgba, size, svg,
+    Pixels, SharedString, Stateful, Window, canvas, div, point, prelude::*, px, size, svg,
 };
 
 use super::{
@@ -288,7 +288,7 @@ impl Shell {
     /// tab, the command bar's placeholder, `shown` of the way in.
     pub(super) fn url_words(&self, tab: u64, url: &str, shown: f32) -> (SharedString, Hsla) {
         if tab == 0 {
-            let mut color = Hsla::from(rgba(URL_PLACEHOLDER));
+            let mut color = self.palette.text(URL_PLACEHOLDER);
             color.a *= shown;
             return (PLACEHOLDER_TEXT.into(), color);
         }

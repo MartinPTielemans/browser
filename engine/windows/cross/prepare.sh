@@ -115,14 +115,15 @@ echo "target_os = ['win']" >"$work/.gclient"
 # portablelinux's sysroot and V8 metagen settings for the Linux host, which builds the build's
 # tools. V8's snapshot goes into chrome.dll: a cross build has no context snapshot, as making one
 # would build Blink for Linux too, and the plain snapshot_blob.bin it would load instead is in
-# neither FILES.cfg nor mini_installer's dependencies, which stops gn gen.
+# neither FILES.cfg nor mini_installer's dependencies, which stops gn gen. PlayReady, which Chromium
+# turns on only for Chrome's own builds, plays protected video on Windows (decision 1).
 write_args() {
   mkdir -p "$1"
   {
     awk 1 "$_main_repo/flags.gn"
     grep -vE '^(clang_version|use_sysroot)=' "$ucw/flags.windows.gn"
     printf '%s\n' 'target_os="win"' 'use_sysroot=true' 'v8_use_metagen_instance_types=false' \
-      'v8_use_external_startup_data=false'
+      'v8_use_external_startup_data=false' 'enable_playready=true'
   } >"$1/args.gn"
 }
 

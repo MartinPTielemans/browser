@@ -14,6 +14,7 @@ use browser::agents::{self, Agents, Client};
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
+use browser::theme::Appearance;
 use browser::import::ImportView;
 use browser::log;
 use browser::passwords::{self, Login};
@@ -86,6 +87,7 @@ use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
 use browser::tokens::settings::CLIENT_TILE;
+use browser::tokens::settings::EXPORT_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 /// The chip's plate, as Paper's alpha, for the ladder to go over.
@@ -230,6 +232,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
+            ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
+            ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
             ("View Library", Keys::Of(Command::ViewLibrary)),
             ("View Archive", Keys::Of(Command::ViewArchive)),
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
@@ -304,6 +309,8 @@ pub struct Settings {
     recording: Option<Command>,
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
+    /// The Shortcuts tab's search, which narrows its rows to what it finds.
+    search: Entity<TextInput>,
     default_browser: Entity<DefaultBrowser>,
     /// The sites with ad blocking off, as General last logged them for check.sh.
     off_sites_logged: Option<String>,
@@ -623,6 +630,21 @@ fn open(cx: &mut App) {
             cx.observe(&widevine, |_, _, cx| cx.notify()).detach();
             let agents = agents::global(cx);
             let agents = agents.map(|agents| cx.observe(&agents, |_, _, cx| cx.notify()));
+            let search = cx.new(|cx| {
+                TextInput::new("Search", cx)
+                    .placeholder_color(rgb(DETAIL))
+                    .caret_color(rgb(TEXT))
+            });
+            let mut searched = String::new();
+            cx.observe(&search, move |_, search, cx| {
+                let typed = search.read(cx).text();
+                if typed != searched {
+                    searched = typed.to_string();
+                    log_found(&searched, cx);
+                }
+                cx.notify();
+            })
+            .detach();
             Settings {
                 #[cfg(target_os = "linux")]
                 dialog,
@@ -638,6 +660,7 @@ fn open(cx: &mut App) {
                 focus_renaming: false,
                 recording: None,
                 refused: None,
+                search,
                 off_sites_logged: None,
                 turn_on_logged: Rc::default(),
                 passwords_profile: None,
@@ -1562,6 +1585,22 @@ impl Settings {
         let widevine = self.widevine.read(cx).shown().then(|| {
             group(&RowLook::settings(), [self.widevine_row(cx)]).mt(px(BOX_GAP))
         });
+        let export = button(&RowLook::settings(), "export-spaces", "Export…")
+            .on_click(|_, _, cx| crate::export_spaces(cx));
+        let export = div()
+            .h(px(PROFILE_ROW))
+            .px(px(PADDING))
+            .flex()
+            .items_center()
+            .child(tile("icons/file.svg", EXPORT_TILE))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child("Export each Space's favorites and pinned tabs as Markdown"),
+            )
+            .child(div().flex_none().ml(px(PADDING)).child(export));
         div()
             .child(group(&RowLook::settings(), [
                 row(
@@ -1575,6 +1614,7 @@ impl Settings {
                     previews,
                 ),
             ]))
+            .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
@@ -1615,30 +1655,57 @@ impl Settings {
             }));
     }
 
-    /// The commands by section, each with its keys in a chip. A click on a command's chip
-    /// records its next keys; escape leaves them and ⌫ takes them away. ↺ gives a command its
-    /// default back, and Restore Defaults every command.
+    /// The search, then the commands it finds by section, each with its keys in a chip. A click on
+    /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
+    /// a command its default back, and Restore Defaults every command.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
-        let sections = SHORTCUTS.iter().enumerate().map(|(index, (section, rows))| {
-            let rows = rows.iter().map(|(name, keys)| {
-                let control = match keys {
-                    Keys::Of(command) => self.shortcut(*command, accent, cx),
-                    Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
-                };
-                row(None, *name, control)
-            });
-            div()
-                .when(index > 0, |section| section.mt(px(SECTION_GAP)))
-                .child(
+        let typed = self.search.read(cx).text().to_string();
+        let found = found(&typed, cx);
+        let sections = SHORTCUTS.iter().filter_map(|(section, rows)| {
+            let rows: Vec<gpui::Div> = rows
+                .iter()
+                .filter(|(name, _)| found.contains(name))
+                .map(|(name, keys)| {
+                    let control = match keys {
+                        Keys::Of(command) => self.shortcut(*command, accent, cx),
+                        Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                    };
+                    row(None, *name, control)
+                })
+                .collect();
+            (!rows.is_empty()).then(|| {
+                div().mt(px(SECTION_GAP)).child(
                     div()
                         .mb(px(HEADER_GAP))
                         .pl(px(PADDING))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(*section),
-                )
-                .child(group(&RowLook::settings(), rows))
+                    )
+                    .child(group(&RowLook::settings(), rows))
+            })
         });
         let sections: Vec<gpui::Div> = sections.collect();
+        // Ours: Arc's look for a search that finds nothing isn't recorded.
+        let none = sections.is_empty().then(|| {
+            div().mt(px(SECTION_GAP)).pl(px(PADDING)).text_color(rgb(DETAIL)).child("No Results")
+        });
+        let search = div()
+            .h(px(CONTROL_HEIGHT))
+            .px(px(CONTROL_PADDING))
+            .flex()
+            .items_center()
+            .rounded(px(CONTROL_RADIUS))
+            .bg(rgb(CONTROL))
+            // Keys typed here are the search's, not a command's being recorded.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|settings, _, _, cx| {
+                    settings.recording = None;
+                    settings.refused = None;
+                    cx.notify();
+                }),
+            )
+            .child(self.search.clone());
         let restore = button(&RowLook::settings(), "restore-shortcuts", "Restore Defaults");
         let restore = restore.on_click(cx.listener(|settings, _, _, cx| {
             shell::change_keys(cx, UserKeys::reset_all);
@@ -1650,7 +1717,9 @@ impl Settings {
             cx.notify();
         }));
         div()
+            .child(search)
             .children(sections)
+            .children(none)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(restore))
             .into_any_element()
     }
@@ -2018,6 +2087,29 @@ fn command_name(command: Command) -> &'static str {
 
 /// Where the user's keys are kept: in the profile directory, beside Chromium's profiles, as the
 /// core keeps no settings of the app's own.
+/// The names of the Shortcuts tab's rows that a search for `typed` finds, by their names or the
+/// keys their chips show.
+fn found(typed: &str, cx: &App) -> Vec<&'static str> {
+    let user = shell::user_keys(cx);
+    let rows = SHORTCUTS.iter().flat_map(|(_, rows)| rows.iter());
+    let found = rows.filter(|(name, keys)| {
+        let label = match keys {
+            Keys::Of(command) => user.label(*command),
+            Keys::Text(text) => Some(text.to_string()),
+        };
+        shell::shortcut_found(typed, name, label.as_deref())
+    });
+    found.map(|(name, _)| *name).collect()
+}
+
+fn log_found(typed: &str, cx: &App) {
+    // check.sh waits for this line.
+    match typed {
+        "" => log!("browser: shortcuts search cleared"),
+        _ => log!("browser: shortcuts search {typed:?} finds {}", found(typed, cx).join(", ")),
+    }
+}
+
 fn shortcuts_path() -> String {
     format!("{}/Shortcuts", crate::profile_dir())
 }
@@ -2026,6 +2118,23 @@ fn shortcuts_path() -> String {
 pub fn read_shortcuts(cx: &mut App) {
     let text = std::fs::read_to_string(shortcuts_path()).unwrap_or_default();
     cx.set_global(UserKeys::parse(&text));
+}
+
+/// Where View › Appearance's choice is kept, beside the keys.
+fn appearance_path() -> String {
+    format!("{}/Appearance", crate::profile_dir())
+}
+
+/// Reads View › Appearance's choice, automatic if there's none.
+pub fn read_appearance(cx: &mut App) {
+    let text = std::fs::read_to_string(appearance_path()).unwrap_or_default();
+    cx.set_global(shell::AppAppearance(Appearance::named(text.trim()).unwrap_or_default()));
+}
+
+pub fn save_appearance(appearance: Appearance) {
+    if let Err(error) = std::fs::write(appearance_path(), appearance.name()) {
+        log!("couldn't save the appearance: {error}");
+    }
 }
 
 fn save_shortcuts(cx: &App) {
