@@ -73,7 +73,7 @@ printf '%s\n' 'name,url,username,password,note' \
   'login,https://login.example.test/,check@example.test,made-up-one,' \
   'mail,https://mail.example.test/,check@example.test,made-up-two,' > "$passwords"
 BROWSER_IMPORT_HOME="$home" BROWSER_IMPORT_PASSWORDS="$passwords" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
-  "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
