@@ -70,11 +70,17 @@ mkfifo "$out/mcp-in" "$out/mcp-out"
 BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" 2> "$out/mcp-bridge.log" &
 bridge_pid=$!
 exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+# Prints the bridge's next line within 30 s. sh has no read -t on Linux, where it's dash, and the
+# Mac has no timeout, so perl's alarm, which outlives its exec, bounds a shell that reads the line:
+# a shell reads a fifo a byte at a time, so it takes that line alone.
+next_answer() {
+  perl -e 'alarm 30; exec @ARGV' sh -c 'read -r line && printf "%s\n" "$line"' <&5
+}
 # Sends the JSON-RPC message $1 and, for a request, prints its answer, within 30 s.
 id=0
 mcp() {
   printf '%s\n' "$1" >&4
-  case "$1" in *'"id":'*) read -r -t 30 answer <&5 || fail "the browser didn't answer $1"; printf '%s\n' "$answer" ;; esac
+  case "$1" in *'"id":'*) answer=$(next_answer) || fail "the browser didn't answer $1"; printf '%s\n' "$answer" ;; esac
 }
 # Prints a tool's answer on stdin: its text, after "error: " if it's an error, or a picture's type
 # and size.
@@ -263,7 +269,7 @@ CARD
   # Hand Back, at the right end of the card's buttons.
   send click $((qx + qw - 16)) $((qy + qh - 26))
   await_log "^browser: agent mcp-client handed back $opened_tab\$" "Hand Back didn't hand the tab back"
-  read -r -t 30 handed <&5 || fail "the browser didn't answer hand_off"
+  handed=$(next_answer) || fail "the browser didn't answer hand_off"
   handed=$(printf '%s\n' "$handed" | answered)
   case "$handed" in
     "The user handed tab $opened_tab back."*) ;;
@@ -300,7 +306,7 @@ CARD
   ../tools/window-screenshot.sh "$pid" "$out/agent-ask-for-tab.png" || fail "no window to capture"
   send click $((qx + 30)) $((qy + qh - 26))
   await_log "^browser: agent mcp-client answered $q Never\$" "Keep didn't answer"
-  read -r -t 30 kept <&5 || fail "the browser didn't answer ask_for_tab"
+  kept=$(next_answer) || fail "the browser didn't answer ask_for_tab"
   kept=$(printf '%s\n' "$kept" | answered)
   case "$kept" in
     "error: The user keeps tab $opened_tab."*) ;;
@@ -418,7 +424,7 @@ CARD
     case "$1" in Once) x=$((qw / 2)) ;; Always) x=$((qw - 16)) ;; esac
     send click $((qx + x)) $((qy + qh - 26))
     await_log "^browser: agent mcp-client answered $q $1\$" "$1 didn't answer the question"
-    read -r -t 30 allowed <&5 || fail "the browser didn't answer the bank's open_tab"
+    allowed=$(next_answer) || fail "the browser didn't answer the bank's open_tab"
     allowed=$(printf '%s\n' "$allowed" | answered)
   }
   answer_bank Once
