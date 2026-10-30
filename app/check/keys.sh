@@ -442,10 +442,12 @@ expect '^browser: command bar shown$' "⌘T in the page the bar opened didn't op
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # The bar draws itself before it goes on screen, so it never shows the last query: empty for a
-# new tab, and on ⌘L with the page's URL.
-awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
-  /^browser: command bar drew/ { drew = $0 }
-  /^browser: command bar shown$/ && (command == "new-tab") != (drew == "browser: command bar drew \"\"") { exit 1 }' "$log" ||
+# new tab, and on ⌘L with the page's URL. Its first frame after the shortcut is the one it goes on
+# screen with; on X11 it can draw keys typed right after the shortcut before it's shown.
+awk '/^browser: command (new-tab|edit-url) via/ { command = $3; drew = "" }
+  /^browser: command bar drew/ && drew == "" { drew = $0 }
+  /^browser: command bar shown$/ && (drew == "" ||
+    (command == "new-tab") != (drew == "browser: command bar drew \"\"")) { exit 1 }' "$log" ||
   fail "the command bar went on screen still showing what it drew last"
 # A page whose renderer goes away leaves the browser running, and ⌘R loads it again. Killed, as
 # macOS kills one under memory pressure, it takes Chrome's sad tab path a crash takes; a SIGSEGV
