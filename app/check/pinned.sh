@@ -186,8 +186,22 @@ expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once s
 # The served page's link, 200 by 40 points, 100 in from the card's top left, which is 228 and 10 in
 # from the window's (site.sh).
 link_point="430 130"
+# The pointer on the link, once the page takes it. Chromium drops a page's input until it has drawn,
+# which a software renderer does well after the page has loaded, so it moves until the page reports
+# the link under it.
+on_link() {
+  local at
+  at=$(wc -l < "$log")
+  for i in $(seq 50); do
+    send move $((430 + i % 2)) 130
+    tail -n "+$((at + 1))" "$log" | grep -q "^browser: link target ${site}notes.txt\$" && return 0
+    sleep 0.1
+  done
+  fail "the pointer on the pinned tab's link reported no address"
+}
 # Away from it by its page's link.
 link_away() {
+  on_link
   send click $link_point
   expect "^browser: loaded $c ${site}notes.txt\$" "the page's link didn't load in the pinned tab"
   expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
@@ -210,6 +224,7 @@ link_away_and_back ui
 # A split made with a pinned tab is pinned, as Arc keeps one made in Pinned: ⌥⇧-click on its
 # page's link opens the link in a pane beside it, which joins the pinned tabs as one row. Separate
 # All Pages ends it, and ⌘D and ⌘W take the pane's tab out again.
+on_link
 send click $link_point alt shift
 expect "^browser: splits $c+[0-9][0-9]*\$" \
   "⌥⇧-click on the pinned tab's link didn't open it beside the page: $(grep '^browser: splits' "$log" | tail -1)"
@@ -227,6 +242,8 @@ send key d cmd
 expect_lists "$c" "$n $a" "after ⌘D on the pinned split's pane"
 send key w cmd
 expect "^browser: tab $n closed\$" "⌘W didn't close the pinned split's pane"
+# The next click waits for the tab ⌘W shows, which would otherwise come after it.
+expect "^browser: selected $a\$" "⌘W on the pinned split's pane didn't show the top Today tab"
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
 # Away from its pinned URL, the menu's Pinned URL › Replace Pinned URL with Current makes the page
@@ -288,6 +305,7 @@ back=$(sed -n "$since,\$p" "$log" | grep -n "^browser: loaded $c $site\$" | head
 expect "^browser: selected $k\( in .*\)\{0,1\}\$" "the copy the ⌘-click kept didn't show"
 send key w cmd
 expect "^browser: tab $k closed\$" "⌘W didn't close the copy the ⌘-click kept"
+expect "^browser: selected $a\$" "⌘W on the copy the ⌘-click kept didn't show the top Today tab"
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
 # An address typed into it opens in a tab it opened, at the top of Today, shown, and the pinned tab
