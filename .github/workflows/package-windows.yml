@@ -91,17 +91,21 @@ jobs:
       # Proof only, on this handover branch: what each package installs.
       - name: Contents
         run: |
-          choco install innoextract -y --no-progress > /dev/null
           cd "$RUNNER_TEMP/windows-packages"
           for f in *.msix; do
             echo "== $f"
             unzip -Z1 "$f" | grep -v '^ublock/.' || true
             echo "ublock/: $(unzip -Z1 "$f" | grep -c '^ublock/.') files"
           done
+          # innoextract can't read Inno Setup 6's, so it's installed, silently, in a folder of the
+          # runner's.
           for f in *setup*.exe; do
-            echo "== $f"
-            innoextract -l "$f" | grep -v ' app/ublock/.' || true
-            echo "app/ublock/: $(innoextract -l "$f" | grep -c ' app/ublock/.') files"
+            echo "== $f, installed"
+            dir=$RUNNER_TEMP/installed
+            MSYS2_ARG_CONV_EXCL='*' "./$f" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART \
+              "/DIR=$(cygpath -w "$dir")"
+            (cd "$dir" && find . -type f | sed 's#^\./##' | grep -v '^ublock/.' | sort)
+            echo "ublock/: $(cd "$dir" && find ublock -type f | wc -l) files"
           done
 
       # For the installer a release at tag v<version> would publish. Not for Browser.dll alone.
