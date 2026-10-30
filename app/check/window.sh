@@ -222,8 +222,11 @@ case "$width" in
 esac
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
-# Once there, it says how to leave, at the card's top right, as Arc's does.
-expect '^browser: toast shown To exit full screen, press ⎋.$' "full screen didn't say how to leave"
+# Once there, it says how to leave, at the card's top right, as Arc's does, in Chrome's words off the
+# Mac (#772).
+note='To exit full screen, press ⎋\.'
+{ windows || [ "$(uname)" = Linux ]; } && note='Press Esc to exit full screen'
+expect "^browser: toast shown $note\$" "full screen didn't say how to leave"
 expect '^browser: toast settled$' "the note on leaving full screen didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/fullscreen-note.png" || fail "no window to capture"
 check_layout "in full screen"
@@ -236,7 +239,7 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 # The footer is at the screen's bottom in full screen, so the +'s menu flips up over the pointer.
 post click 204 $((height - 25))
-expect "^browser: menu shown $(cased 'New Space…, New Folder…')\$" "the footer's + in full screen showed no menu"
+expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View')\$" "the footer's + in full screen showed no menu"
 expect '^browser: menu window at ' "the +'s menu in full screen didn't open its window"
 top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d, -f2)
 [ "$top" -lt $((height - 65)) ] ||

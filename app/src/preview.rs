@@ -329,7 +329,7 @@ impl Browser for Fake {
     }
 
     // Under the tab, with its title and page, as the core does.
-    fn duplicate(&self, tab: u64, cx: &mut App) {
+    fn duplicate(&self, tab: u64, cx: &mut App) -> u64 {
         let copy = self.next_id.get();
         self.next_id.set(copy + 1);
         self.later(cx, move |shell, cx| {
@@ -341,6 +341,7 @@ impl Browser for Fake {
             set_today(shell, today, cx);
             shell.set_selected(copy, cx);
         });
+        copy
     }
 
     // The made-up tabs stay in their Space.
@@ -482,6 +483,18 @@ impl Browser for Fake {
 
     fn reopen_closed_tab(&self, _: &mut App) {}
 
+    fn reopen_preview(
+        &self,
+        _: &browser::link_preview::Closed,
+        _: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+    }
+
+    fn close_preview(&self, _: u64, _: &mut App) -> bool {
+        false
+    }
+
     fn reopen_tab(&self, _: u64, _: &mut App) -> u64 {
         0
     }
@@ -612,6 +625,12 @@ impl Browser for Fake {
 
     fn go_forward(&self, _: u64, _: &mut App) {}
 
+    fn tab_history(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn go_to_history(&self, _: u64, _: i32, _: &mut App) {}
+
+    fn open_history(&self, _: u64, _: i32, _: &mut App) {}
+
     fn reload(&self, _: u64, _: bool, _: &mut App) {}
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
@@ -680,6 +699,7 @@ impl Browser for Fake {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+    fn open_page(&self, _: &str, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
@@ -942,6 +962,7 @@ impl Browser for Fake {
     }
 
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
+    fn open_split_at(&self, _: &str, _: u64, _: bool, _: bool, _: &mut App) {}
 
     // The targets' window is the app's, over the page, which the preview has neither of.
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
@@ -1192,8 +1213,9 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
             // Arc's "clear": the best command above the search row, others whose names start
             // with it under it, and a weaker one after the suggestions.
             let (cache, cookies) = (Command::ClearCacheAndRefresh, Command::ClearCookiesAndRefresh);
+            let clear_keys = shell::keystroke_label("shift-cmd-k");
             let rows = vec![
-                command("Clear Today", Command::Clear, Some("⇧⌘K"), Match::Name),
+                command("Clear Today", Command::Clear, Some(&clear_keys), Match::Name),
                 search("clear"),
                 command("Clear Cache and Refresh", cache, None, Match::Name),
                 command("Clear Cookies and Refresh", cookies, None, Match::Name),

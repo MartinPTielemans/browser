@@ -1930,6 +1930,33 @@ bc_id Window::Duplicate(bc_id tab) {
   return id;
 }
 
+bc_id Window::OpenHistory(bc_id tab, int offset) {
+  const Tab* from = Tab::Get(tab);
+  Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
+  if (!from || !from->profile() || !space || DirOf(from->profile()) != space->profile() ||
+      OffTheRecord(from) != off_the_record_) {
+    return 0;
+  }
+  // A system page's history is WebKit's, of which the saved tab keeps only the page.
+  if (offset != 0 && from->system_page()) {
+    return 0;
+  }
+  // As the tab would come back after a quit, at the other page: Chrome's background tab loads
+  // at once, but here a page loads once it's shown.
+  SavedTab saved = from->Save();
+  saved.current += offset;
+  if (saved.current < 0 || saved.current >= static_cast<int>(saved.history.size())) {
+    return 0;
+  }
+  const bc_id id = Tab::Restore(from->profile(), saved);
+  if (!id) {
+    return 0;
+  }
+  // Opened behind by |tab|, so it goes under it and closing it goes back there, as a link's does.
+  space->Add(id, tab, /*foreground=*/false);
+  return id;
+}
+
 bc_id Window::CloneInto(BrowserWindowInterface& browser, content::WebContents& contents) {
   TabStripModel* tabs = browser.GetTabStripModel();
   // With its session storage, as Chrome's duplicate.
