@@ -77,6 +77,7 @@ mod page_motion;
 mod panes;
 mod permission;
 mod agent_bar;
+mod agent_pointer;
 mod agent_question;
 mod picture;
 mod recent_downloads;
@@ -1143,8 +1144,10 @@ pub struct Shell {
     focus_color: Option<u32>,
     /// The colour last given for a page before its first frame.
     page_color: Option<u32>,
-    /// The window over the page that draws the drop targets shows.
+    /// The window over the page that draws the drop targets and the agent's pointer shows.
     drop_targets_shown: bool,
+    /// The agent's pointer at an element in the page, while it acts there.
+    agent_pointer: Option<agent_pointer::AgentPointer>,
     /// A link dragged over the page, and its targets.
     link_over: Option<split_targets::LinkOver>,
     /// How far in from the page frame's top right corner the focused page's is, as last given.
@@ -1406,6 +1409,7 @@ impl Shell {
             focus_color: None,
             page_color: None,
             drop_targets_shown: false,
+            agent_pointer: None,
             link_over: None,
             pane_corner: (0., 0.),
             archive: Vec::new(),
@@ -2873,7 +2877,8 @@ impl Render for Shell {
         self.step_empty(window);
         self.step_crash_cards(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some())
-            || self.link_over.is_some();
+            || self.link_over.is_some()
+            || self.agent_pointer_shown();
         if drop_targets || self.drop_targets_shown {
             self.drop_targets_shown = drop_targets;
             self.browser.show_drop_targets(drop_targets, cx);

@@ -259,6 +259,8 @@ struct Act {
 struct Acting {
     agent: String,
     tab: u64,
+    /// The element it acts on, or 0.
+    element: i64,
     note: String,
     reply: mpsc::Sender<ToolResult>,
 }
@@ -1439,8 +1441,16 @@ impl Agents {
         }
         let request = self.next_request;
         self.next_request += 1;
-        self.acting.insert(request, Acting { agent: agent.clone(), tab, note, reply });
+        let acting = Acting { agent: agent.clone(), tab, element, note, reply };
+        self.acting.insert(request, acting);
         self.browser.page(&agent, tab, request, page, element, &text);
+    }
+
+    /// The ref of the element the action `request` acts on, such as "e12", as the agent named it.
+    pub fn ref_of(&self, request: u64) -> Option<String> {
+        let acting = self.acting.get(&request)?;
+        let number = self.refs.get(&acting.tab)?.number(acting.element)?;
+        Some(format!("e{number}"))
     }
 
     /// The core's answer to the action `request`: with `error`, why it couldn't; else a

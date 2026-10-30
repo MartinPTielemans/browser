@@ -897,6 +897,25 @@ window-button-close = 0xe0604f
 window-button-minimize = 0xf3bf12
 window-button-zoom = 0x58bb18
 
+[shell.agent-pointer]
+# Ours (#365), as Arc and Dia have no agents in pages: while an agent clicks or types in the page
+# the window shows, its pointer, Lucide's mouse-pointer-2, in the mark's Signal green with the
+# name of its Space beside it, and a Signal ring round the element, outset from its box, with the
+# ref the agent named it by in a chip on the ring's top left.
+color = 0x0e9f55
+text = 0xffffff
+pointer = 20.0
+label-size = 11.0
+label-height = 18.0
+label-inset = 7.0
+ring = 2.0
+ring-outset = 3.0
+ring-radius = 6.0
+tag-size = 10.0
+tag-height = 16.0
+tag-inset = 5.0
+tag-radius = 6.0
+
 [shell.assets]
 # Every Lucide outline's stroke, in its 24 grid: 1.5 pt in a 16 pt box, 1.3 at 14 and 1.69 at 18.
 # The nav glyphs keep Arc's 1.75 pt in 24 and the window buttons their 1.3 in 14, so those files

@@ -577,6 +577,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 - **Handoff.** At a sign-in, 2FA prompt or CAPTCHA, the tab pauses and a card reads "<agent> needs you", with Show tab and Hand back. It times out after 15 minutes (prototype).
 - **Take over / Hand back.** The Space has the button; while the user drives, the agent's actions pause.
 - **Status and activity.** The status line reads "Waiting for you" or "Waiting for your OK". The activity log in the Space lists actions newest first.
+- **The agent's pointer** (ours, #365). Where an agent clicks or types in the page the window shows in its Space, its pointer, Lucide's mouse-pointer-2 in Signal green with the Space's name in a pill beside it, glides to the element's centre in 0.26 s ease-out, from where it was or 36 pt up and left, and a 2 pt Signal ring, 3 pt outside the element's box, comes in over 0.12 s with the ref the agent named the element by in a chip on its top left. It stays 1.6 s after the last action and fades in 0.2 s. Reduce motion puts it there at once. It draws in the window over the page, which the mouse goes through, so it's never in the user's way, and a page the window doesn't show, or a Space of the user's, has none. *Interim*: the look and the timings.
 - Dragging one of the user's tabs onto an Agent Space gives the agent that tab, once that drag ships with its activity-log entry. Until then no tab moves into one: Move to Space and a drag to the sidebar's edge leave Agent Spaces out, and a favorite stays a favorite in one.
 
 ### Command bar

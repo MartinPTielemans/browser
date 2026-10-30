@@ -71,8 +71,8 @@ pub trait Browser {
     /// Opens a tab loading `url` in a split view with `with`, at its left end if `left`, else its
     /// right end, stacking a new split if `stacked`, and shows it there.
     fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, cx: &mut App);
-    /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
-    /// hides it.
+    /// Shows the window over the page that draws `Shell::over_page`, drawing it again, or hides
+    /// it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);

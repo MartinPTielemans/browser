@@ -4554,6 +4554,21 @@ unsafe extern "C" fn agent_page_done(
     agents_core::update(move |agents, cx| agents.page_done(request, text, error, cx));
 }
 
+/// The element an agent's action in a tab (bc_agent_page) is about to click or type in, for the
+/// agent's pointer over the page.
+unsafe extern "C" fn agent_page_element(_: *mut c_void, tab: bc::bc_id, request: u64, b: bc::bc_rect) {
+    // check.sh reads this line.
+    log!("browser: agent element {tab} {request} at {} {} {} {}", b.x, b.y, b.width, b.height);
+    let element = Bounds::new(
+        point(px(b.x as f32), px(b.y as f32)),
+        size(px(b.width as f32), px(b.height as f32)),
+    );
+    agents_core::update(move |agents, cx| {
+        let Some(tag) = agents.ref_of(request) else { return };
+        update_shells_in(cx, |shell, cx| shell.agent_pointing(tab, tag.clone().into(), element, cx));
+    });
+}
+
 /// The text of a tab's page that bc_tab_read_text asked for, or null if it had none.
 unsafe extern "C" fn tab_text(_: *mut c_void, tab: bc::bc_id, request: u64, text: *const c_char) {
     let text = (!text.is_null())
@@ -5863,6 +5878,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        agent_page_element: Some(agent_page_element),
         window_downloads_question: Some(window_downloads_question),
         archive_note_changed: Some(archive_note_changed),
         ..Default::default()
