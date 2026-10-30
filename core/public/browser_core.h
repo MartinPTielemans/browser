@@ -1048,7 +1048,10 @@ BC_EXPORT size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capac
 // in the agent's Space or its page isn't http(s). Through Chromium's DevTools protocol, inside the
 // browser, never a remote-debugging port, and never with the agent's own script. The tree leaves
 // out what fields hold: no node's value, and nothing under a field, where Chromium puts the text
-// typed or filled into it, and it marks password fields. A tab whose page the browser unloaded gets
+// typed or filled into it, and it marks password fields. It has the page's frames, each under the
+// element it's in, those from http(s) origins only: never an extension's or the browser's, nor
+// what's in one. An element in a frame in a process of its own has its frame above its DOM node's
+// id in the backendDOMNodeId, so ids stay unique. A tab whose page the browser unloaded gets
 // it back, not shown. While an agent works in a tab its page keeps drawing, hidden, as a tab Chrome
 // captures does, until a while after its last action or the end of its session there. Chrome's
 // autofill suggestions close before each input, so an agent's keys never fill the user's data.
