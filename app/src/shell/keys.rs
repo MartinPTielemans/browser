@@ -71,8 +71,8 @@ pub fn user_keys(cx: &App) -> &UserKeys {
 
 /// Whether the user can give `command` other keys. Not Quit, whose ⌘Q is the way out of every Mac
 /// app; not Undo and Redo, whose ⌘Z and ⇧⌘Z fall back to the Edit menu's for the page; not the
-/// ⌃Tab walk, which lasts while ⌃ is held; and not the numbered tabs and Spaces, nine keys in one
-/// row.
+/// ⌃Tab walk, which lasts while ⌃ is held; and not the numbered tabs, eight keys in one row. Each
+/// of ⌃1–⌃9's Spaces can have others, as Arc's can.
 pub fn rebindable(command: Command) -> bool {
     !matches!(
         command,
@@ -82,7 +82,6 @@ pub fn rebindable(command: Command) -> bool {
             | Command::RecentTab
             | Command::RecentTabBack
             | Command::SelectTab(_)
-            | Command::SelectSpace(_)
     )
 }
 
@@ -98,11 +97,11 @@ fn defaults(command: Command) -> Vec<String> {
         .collect()
 }
 
-/// The rebindable command `name` names, as Command::name writes it.
+/// The rebindable command `name` names, as Command::key_name writes it.
 fn named(name: &str) -> Option<Command> {
     let commands = SHORTCUTS.iter().map(|&(_, command, _)| command);
     (commands.chain(BAR_COMMANDS.iter().map(|&(_, command, _)| command)))
-        .find(|&command| command.name() == name && rebindable(command))
+        .find(|&command| command.key_name() == name && rebindable(command))
 }
 
 /// Whether `key` is one keystroke GPUI can read. Only its spelling is checked, which is every
@@ -444,7 +443,8 @@ impl UserKeys {
     /// the favorites are left out of ⌘1–⌘8 when they are.
     pub fn to_text(&self) -> String {
         let lines = self.set.iter().map(|(command, keys)| {
-            let words = std::iter::once(command.name()).chain(keys.iter().map(String::as_str));
+            let name = command.key_name();
+            let words = std::iter::once(name.as_str()).chain(keys.iter().map(String::as_str));
             words.collect::<Vec<_>>().join(" ") + "\n"
         });
         let unnumbered = self.favorites_unnumbered.then(|| format!("{FAVORITES_UNNUMBERED}\n"));
@@ -503,8 +503,8 @@ pub fn change_keys<R>(cx: &mut App, change: impl FnOnce(&mut UserKeys) -> R) -> 
         let keys = after.keys(command);
         // check.sh waits for these lines.
         match keys.is_empty() {
-            true => log!("browser: shortcut {} none", command.name()),
-            false => log!("browser: shortcut {} {}", command.name(), keys.join(" ")),
+            true => log!("browser: shortcut {} none", command.key_name()),
+            false => log!("browser: shortcut {} {}", command.key_name(), keys.join(" ")),
         }
     }
     cx.set_global(after);
@@ -908,6 +908,23 @@ mod tests {
         assert_eq!(user.command_for("cmd-t", false), None);
     }
 
+    /// Each of ⌃1–⌃9's Spaces takes keys of its own, as Arc's do, and keeps them by its number
+    /// across a relaunch; the one it gave up shows no Space.
+    #[test]
+    fn a_spaces_keys_change_by_its_number() {
+        let mut user = UserKeys::default();
+        assert_eq!(user.set(Command::SelectSpace(1), keys(&["alt-cmd-2"])), Ok(vec![]));
+        assert_eq!(user.command_for("alt-cmd-2", false), Some(Command::SelectSpace(1)));
+        assert_eq!(user.command_for("ctrl-2", false), None);
+        assert_eq!(user.keys(Command::SelectSpace(0)), ["ctrl-1"]);
+        // ⌃3 moves to the first Space, and the third has none.
+        assert_eq!(user.set(Command::SelectSpace(0), keys(&["ctrl-3"])), Ok(vec![Command::SelectSpace(2)]));
+        assert!(user.keys(Command::SelectSpace(2)).is_empty());
+        let saved = user.to_text();
+        assert!(saved.contains("select-space-2 alt-cmd-2\n"), "{saved}");
+        assert_eq!(UserKeys::parse(&saved), user);
+    }
+
     /// A key another command has moves to the one it's given, leaving the other without it, but a
     /// reserved command's, Quit's and the system's are refused.
     #[test]
@@ -923,7 +940,7 @@ mod tests {
         let taken = |command| Err(Refused::Taken(Holder::Command(command)));
         assert_eq!(user.set(Command::EditUrl, keys(&["cmd-t"])), taken(Command::NewTab));
         assert_eq!(user.set(Command::EditUrl, keys(&["cmd-q"])), taken(Command::Quit));
-        assert_eq!(user.set(Command::EditUrl, keys(&["ctrl-1"])), taken(Command::SelectSpace(0)));
+        assert_eq!(user.set(Command::EditUrl, keys(&["cmd-1"])), taken(Command::SelectTab(0)));
         let system = Err(Refused::Taken(Holder::System("Copy")));
         assert_eq!(user.set(Command::EditUrl, keys(&["cmd-c"])), system);
         assert_eq!(user.set(Command::Quit, keys(&["cmd-k"])), taken(Command::Quit));
