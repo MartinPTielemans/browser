@@ -13,8 +13,8 @@
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
 //! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
 //! rightrelease, dragover, dragdrop, dragleave, move, scroll, wheel, pageswipe, key, keydown, keyup,
-//! flags, type, resize, place,
-//! order, layout, state, title, front, menu, menubar, choose, dismiss, window, agentspace, agentmayact,
+//! flags, type, resize, place, order, layout, state, title, pasteboard, front, menu, menubar, choose,
+//! dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
 //! them, cmd with Ctrl and alt with Alt. flags presses and lets
@@ -63,8 +63,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
-    settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, link_preview_window, menu_window, overlays, panels,
+    platform, reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -241,6 +241,7 @@ fn overlay_views() -> Vec<*mut c_void> {
     views.extend(panels::shown());
     views.extend(menu_window::shown());
     views.extend(reveal_window::shown());
+    views.extend(link_preview_window::shown());
     views
 }
 
@@ -1703,6 +1704,13 @@ fn run_command(line: &str) -> Option<()> {
             };
             let title = text_property(window, "_NET_WM_NAME").unwrap_or_default();
             log!("browser: key window titled {title}");
+            Some(())
+        }
+        // The headless session's clipboard is the run's own, as drive.mm's pasteboard is.
+        "pasteboard" => {
+            let cx = CX.with_borrow(Clone::clone)?;
+            let text = cx.update(|cx| cx.read_from_clipboard().and_then(|item| item.text()));
+            log!("browser: pasteboard text {}", text.unwrap_or_default());
             Some(())
         }
         // The app's menus, which Linux shows no bar for, run in the driven window as the Mac's

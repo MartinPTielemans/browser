@@ -74,8 +74,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # Crash reports' symbols, which each OS's job uploads to the collector app/branding/crash-reports
-      # names (tools/symbols.sh). Optional: with none of these no symbols are uploaded, and with only
-      # some the release stops here rather than after its builds.
+      # names (tools/symbols.sh). Optional: without the token no symbols are uploaded, and with the
+      # token but not the rest the release stops here rather than after its builds.
       - name: Crash reports' symbols
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -389,17 +389,17 @@ jobs:
             --key-id "$MAC_NOTARY_KEY_ID" --issuer "$MAC_NOTARY_ISSUER_ID"
           rm "$RUNNER_TEMP/notary.p8"
 
+      # It uploads the crash reports' symbols too (tools/symbols.sh).
       - name: Build
         env:
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
-        run: ./build.sh prod
-
-      - name: Sign and notarize
-        env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_URL: ${{ vars.SENTRY_URL }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: ./build.sh prod
+
+      - name: Sign and notarize
         run: ../tools/release.sh
 
       - uses: actions/download-artifact@v4

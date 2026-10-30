@@ -41,7 +41,7 @@ impl Widevine {
         }
     }
 
-    /// The word check-widevine.sh reads in the log.
+    /// The word check/widevine.sh reads in the log.
     pub fn name(self) -> &'static str {
         match self {
             Self::None => "none",
