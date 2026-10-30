@@ -23,10 +23,12 @@
 #include "components/autofill/core/browser/filling/filling_product.h"
 #include "components/autofill/core/browser/suggestions/suggestion_hiding_reason.h"
 #include "content/public/browser/devtools_agent_host.h"
+#include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/common/page/page_zoom.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -326,16 +328,18 @@ void AgentPage::Settle() {
 
 void AgentPage::Click() {
   Center(base::BindOnce(
-      [](base::WeakPtr<AgentPage> page, std::optional<std::pair<double, double>> at) {
+      [](base::WeakPtr<AgentPage> page, std::optional<gfx::RectF> box) {
         if (!page) {
           return;
         }
-        if (!at) {
+        if (!box) {
           page->Fail("The element isn't on the page any more, or is hidden. Take a new snapshot.");
           return;
         }
+        page->Point(*box);
+        const std::pair<double, double> at(box->CenterPoint().x(), box->CenterPoint().y());
         base::WeakPtr<AgentPage> weak = page;
-        page->Mouse("mouseMoved", *at,
+        page->Mouse("mouseMoved", at,
                     base::BindOnce(
                         [](base::WeakPtr<AgentPage> page, std::pair<double, double> at) {
                           if (!page) {
@@ -352,7 +356,7 @@ void AgentPage::Click() {
                                   },
                                   page, at));
                         },
-                        weak, *at));
+                        weak, at));
       },
       weak_factory_.GetWeakPtr()));
 }
@@ -398,7 +402,20 @@ void AgentPage::Type(bool submit) {
                          "user's to do.");
                      return;
                    }
-                   page->Focus(element, submit);
+                   // Where it is, for the agent's pointer, then the typing, which focusing
+                   // scrolls to whether or not it has a box.
+                   page->Center(base::BindOnce(
+                       [](base::WeakPtr<AgentPage> page, int64_t element, bool submit,
+                          std::optional<gfx::RectF> box) {
+                         if (!page) {
+                           return;
+                         }
+                         if (box) {
+                           page->Point(*box);
+                         }
+                         page->Focus(element, submit);
+                       },
+                       page, element, submit));
                  },
                  weak_factory_.GetWeakPtr(), element, submit));
 }
@@ -483,11 +500,11 @@ void AgentPage::PressKey(const std::string& name, base::OnceClosure then) {
 void AgentPage::Scroll(bool down) {
   if (job_->element) {
     Center(base::BindOnce(
-        [](base::WeakPtr<AgentPage> page, std::optional<std::pair<double, double>> at) {
+        [](base::WeakPtr<AgentPage> page, std::optional<gfx::RectF> box) {
           if (!page) {
             return;
           }
-          if (!at) {
+          if (!box) {
             page->Fail(
                 "The element isn't on the page any more, or is hidden. Take a new snapshot.");
             return;
@@ -773,13 +790,20 @@ void AgentPage::Center(Then then) {
                                    std::move(then).Run(std::nullopt);
                                    return;
                                  }
-                                 double x = 0;
-                                 double y = 0;
-                                 for (size_t corner = 0; corner < 8; corner += 2) {
-                                   x += (*quad)[corner].GetIfDouble().value_or(0);
-                                   y += (*quad)[corner + 1].GetIfDouble().value_or(0);
+                                 // The box around its corners.
+                                 double xs[4];
+                                 double ys[4];
+                                 for (size_t corner = 0; corner < 4; ++corner) {
+                                   xs[corner] = (*quad)[2 * corner].GetIfDouble().value_or(0);
+                                   ys[corner] = (*quad)[2 * corner + 1].GetIfDouble().value_or(0);
                                  }
-                                 page->Offset(slot, std::pair(x / 4, y / 4), std::move(then));
+                                 const auto [left, right] = std::ranges::minmax(xs);
+                                 const auto [top, bottom] = std::ranges::minmax(ys);
+                                 const gfx::RectF box(
+                                     static_cast<float>(left), static_cast<float>(top),
+                                     static_cast<float>(right - left),
+                                     static_cast<float>(bottom - top));
+                                 page->Offset(slot, box, std::move(then));
                                },
                                page, slot, std::move(then)),
                            slot);
@@ -791,9 +815,9 @@ void AgentPage::Center(Then then) {
        slot);
 }
 
-void AgentPage::Offset(int slot, std::pair<double, double> at, Then then) {
+void AgentPage::Offset(int slot, gfx::RectF box, Then then) {
   if (slot == 0) {
-    std::move(then).Run(at);
+    std::move(then).Run(box);
     return;
   }
   content::RenderFrameHost* frame = FrameOf(slot);
@@ -805,7 +829,7 @@ void AgentPage::Offset(int slot, std::pair<double, double> at, Then then) {
   }
   Send("DOM.getFrameOwner", base::DictValue().Set("frameId", targets_[slot].frame),
        base::BindOnce(
-           [](base::WeakPtr<AgentPage> page, int up, std::pair<double, double> at, Then then,
+           [](base::WeakPtr<AgentPage> page, int up, gfx::RectF box, Then then,
               const base::DictValue* result) {
              if (!page) {
                return;
@@ -822,8 +846,8 @@ void AgentPage::Offset(int slot, std::pair<double, double> at, Then then) {
              page->Send(
                  "DOM.getBoxModel", base::DictValue().Set("backendNodeId", *owner),
                  base::BindOnce(
-                     [](base::WeakPtr<AgentPage> page, int up, std::pair<double, double> at,
-                        Then then, const base::DictValue* result) {
+                     [](base::WeakPtr<AgentPage> page, int up, gfx::RectF box, Then then,
+                        const base::DictValue* result) {
                        if (!page) {
                          return;
                        }
@@ -834,15 +858,27 @@ void AgentPage::Offset(int slot, std::pair<double, double> at, Then then) {
                          return;
                        }
                        // The frame's page starts at the top left of its element's content box.
-                       at.first += (*content)[0].GetIfDouble().value_or(0);
-                       at.second += (*content)[1].GetIfDouble().value_or(0);
-                       page->Offset(up, at, std::move(then));
+                       box.Offset(static_cast<float>((*content)[0].GetIfDouble().value_or(0)),
+                                  static_cast<float>((*content)[1].GetIfDouble().value_or(0)));
+                       page->Offset(up, box, std::move(then));
                      },
-                     page, up, at, std::move(then)),
+                     page, up, box, std::move(then)),
                  up);
            },
-           weak_factory_.GetWeakPtr(), up, at, std::move(then)),
+           weak_factory_.GetWeakPtr(), up, box, std::move(then)),
        up);
+}
+
+void AgentPage::Point(const gfx::RectF& box) {
+  if (!Host().agent_page_element || !job_) {
+    return;
+  }
+  // The page's CSS pixels, at its zoom, are the view's points.
+  const float zoom = static_cast<float>(
+      blink::ZoomLevelToZoomFactor(content::HostZoomMap::GetZoomLevel(&GetWebContents())));
+  const gfx::RectF points = gfx::ScaleRect(box, zoom);
+  Host().agent_page_element(Host().context, tab_, job_->request,
+                            bc_rect{points.x(), points.y(), points.width(), points.height()});
 }
 
 void AgentPage::IsPassword(int64_t element, base::OnceCallback<void(std::optional<bool>)> then) {

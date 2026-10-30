@@ -20,6 +20,7 @@
 #include "content/public/browser/devtools_agent_host_client.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
+#include "ui/gfx/geometry/rect_f.h"
 
 namespace content {
 class DevToolsAgentHost;
@@ -59,7 +60,7 @@ class AgentPage : public content::WebContentsObserver,
     std::string text;
   };
   using Reply = base::OnceCallback<void(const base::DictValue* result)>;
-  using Then = base::OnceCallback<void(std::optional<std::pair<double, double>>)>;
+  using Then = base::OnceCallback<void(std::optional<gfx::RectF>)>;
   // A frame whose tree a snapshot reads, through the session at |slot|, below the frame at
   // |parent| in the snapshot's list.
   struct Frame {
@@ -113,11 +114,13 @@ class AgentPage : public content::WebContentsObserver,
   void Answer(std::string text, bool error);
   void Fail(std::string why);
 
-  // Scrolls the job's element into view and gives its center, in the viewport's CSS pixels.
+  // Scrolls the job's element into view and gives its box, in the viewport's CSS pixels.
   void Center(Then then);
-  // Moves |at|, a point in the session at |slot|, into the main frame's viewport, through the
-  // elements its frame is in.
-  void Offset(int slot, std::pair<double, double> at, Then then);
+  // Moves |box|, in the session at |slot|, into the main frame's viewport, through the elements
+  // its frame is in.
+  void Offset(int slot, gfx::RectF box, Then then);
+  // Tells the app where the element the job acts on is, for the agent's pointer.
+  void Point(const gfx::RectF& box);
   // Whether the element is a password field, from its attributes.
   void IsPassword(int64_t element, base::OnceCallback<void(std::optional<bool>)> then);
   // Closes Chrome's autofill and password suggestions, which the keys would otherwise pick from.

@@ -785,6 +785,9 @@ typedef struct bc_host {
   // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
   // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
   void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
+  // The element bc_agent_page's |request| for |tab| is about to click or type in, scrolled into
+  // view: its box in points from the top-left of the tab's page view, for the agent's pointer.
+  void (*agent_page_element)(void* context, bc_id tab, uint64_t request, bc_rect box);
   // On Linux and Windows, the browser is quitting, or with |last_private| the last window of a
   // private profile closing, with |count| downloads running, which it would cancel: ask the user
   // over |window|, and answer with bc_window_answer_downloads. A window asks one at a time. The Mac
