@@ -630,14 +630,13 @@ impl Shell {
             (
                 MenuEntry::new("Duplicate Tab", true),
                 "duplicate-tab",
-                Box::new(move |shell, cx| {
-                    shell.browser.duplicate(tab, cx);
-                }),
+                // A split view's copy is one in Today.
+                Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
             ),
             (
                 MenuEntry::new("Remove from Favorites", !self.agents_space_shown()),
                 "remove-from-favorites",
-                // To the top of Today.
+                // To the top of Today, a split view as one.
                 Box::new(move |shell, cx| shell.move_tab_to(tab, false, 0, 0, cx)),
             ),
         ];
@@ -650,11 +649,15 @@ impl Shell {
             items.push(remove_icon(tab));
         }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
-        // One closed already has nothing to close.
+        // One closed already has nothing to close. A split view's pages close together, as it's
+        // one favorite.
+        let panes = self.panes(tab);
+        let open = panes.iter().any(|&pane| !self.page(pane).unloaded);
+        let split = panes.len() > 1;
         items.push((
-            MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab, keys),
+            MenuEntry::new("Close Tab", open).shortcut(Command::CloseTab, keys),
             "close-tab",
-            Box::new(move |shell, cx| shell.close_tab(tab, false, cx)),
+            Box::new(move |shell, cx| shell.close_tab(tab, split, cx)),
         ));
         items
     }
@@ -877,7 +880,7 @@ impl Shell {
             "duplicate-tab",
             Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
-        if self.panes(tab).len() > 1 {
+        if self.space_panes(tab).len() > 1 {
             items.push(separate(tab));
         }
         // Each other Space, in the switcher's order, then the agents' it can be given to.
@@ -1188,7 +1191,7 @@ impl Shell {
             ("New Folder…", Command::NewFolder),
             ("New Split View", Command::AddSplit),
         ];
-        let split = self.selected != 0 && self.panes(self.selected).len() < MAX_PANES;
+        let split = self.selected != 0 && self.has_pane_room(self.selected);
         let enabled = |command| command != Command::AddSplit || split;
         let entries =
             items.iter().map(|&(title, command)| MenuEntry::new(title, enabled(command))).collect();

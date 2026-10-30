@@ -60,6 +60,8 @@ pub(super) struct Recorder {
     pub(super) detents: Cell<usize>,
     /// How many tabs and folders it was asked to move.
     pub(super) moves: Cell<usize>,
+    /// The tabs it was asked to close with the rest of their split view, in order.
+    pub(super) split_closes: RefCell<Vec<u64>>,
     /// Whether the system opens links with it, as `is_default_browser` answers.
     pub(super) default_browser: Cell<bool>,
     /// The system it says it runs on, the Mac unless a test says.
@@ -251,7 +253,10 @@ impl Browser for Recorder {
         self.record(format!("select {tab}"))
     }
 
-    fn close(&self, tab: u64, _: bool, _: &mut App) {
+    fn close(&self, tab: u64, split: bool, _: &mut App) {
+        if split {
+            self.split_closes.borrow_mut().push(tab);
+        }
         self.edit(format!("close {tab}"));
         self.record(format!("close {tab}"))
     }

@@ -712,6 +712,9 @@ tile-height = 41.0
 tile-gap = 6.0
 tile-min = 48.0
 tile-radius = 12.0
+# A split view's tile shows each page's favicon in a row, this far apart (ours: Arc's isn't
+# measured).
+tile-split-gap = 6.0
 # Favorites taller than this much of the window scroll with the list instead of staying put
 # (Ardia), so they never leave the rows too little room.
 tall-favorites = 0.4

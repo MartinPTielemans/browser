@@ -258,6 +258,7 @@ use crate::tokens::shell::TILE_HEIGHT;
 use crate::tokens::shell::TILE_GAP;
 use crate::tokens::shell::TILE_MIN;
 use crate::tokens::shell::TILE_RADIUS;
+use crate::tokens::shell::TILE_SPLIT_GAP;
 use crate::tokens::shell::TALL_FAVORITES;
 use crate::tokens::shell::NAME_HEIGHT;
 // The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
@@ -936,6 +937,8 @@ pub struct Shell {
     /// profile whose tab it is. The ids come from one counter, so a Space's never is a profile's.
     all_favorites: Vec<u64>,
     favorite_holders: HashMap<u64, u64>,
+    /// The split views among every favorite, each one favorite with one tile.
+    favorite_splits: Vec<Split>,
     /// The profiles, by id and name, the one the browser started with first.
     profiles: Vec<(u64, SharedString)>,
     /// The tabs of every Space, and the favorites.
@@ -1360,6 +1363,7 @@ impl Shell {
             favorites: Vec::new(),
             all_favorites: Vec::new(),
             favorite_holders: HashMap::new(),
+            favorite_splits: Vec::new(),
             profiles: Vec::new(),
             tabs: HashMap::new(),
             breath: Breath::default(),
@@ -1605,6 +1609,7 @@ impl Shell {
         shell.favorites = from.favorites.clone();
         shell.all_favorites = from.all_favorites.clone();
         shell.favorite_holders = from.favorite_holders.clone();
+        shell.favorite_splits = from.favorite_splits.clone();
         shell.profiles = from.profiles.clone();
         shell.archive = from.archive.clone();
         shell.page_favicons = from.page_favicons.clone();
@@ -1669,14 +1674,32 @@ impl Shell {
         self.shown_space().map_or_else(|| slots(&[], &[]), Space::slots)
     }
 
-    /// The tabs shown with `tab` in the Space shown, in their order: its split's, else `tab` alone.
+    /// The tabs shown with `tab`, in their order: its split's in the Space shown or the favorites,
+    /// else `tab` alone.
     fn panes(&self, tab: u64) -> Vec<u64> {
+        match self.favorite_split(tab) {
+            Some(split) => split.tabs.clone(),
+            None => self.space_panes(tab),
+        }
+    }
+
+    /// The tabs of `tab`'s split view in the Space shown, which the user can change, else `tab`
+    /// alone. A favorite's split view stays as it was made until it's back in a Space.
+    fn space_panes(&self, tab: u64) -> Vec<u64> {
         self.shown_space().map_or_else(|| vec![tab], |space| space.panes(tab))
     }
 
-    /// Whether `tab`'s split view in the Space shown is stacked.
+    /// The favorite split view `tab` is in.
+    fn favorite_split(&self, tab: u64) -> Option<&Split> {
+        self.favorite_splits.iter().find(|split| split.tabs.contains(&tab))
+    }
+
+    /// Whether `tab`'s split view, in the Space shown or the favorites, is stacked.
     fn stacked(&self, tab: u64) -> bool {
-        self.shown_space().is_some_and(|space| space.stacked(tab))
+        match self.favorite_split(tab) {
+            Some(split) => split.stacked,
+            None => self.shown_space().is_some_and(|space| space.stacked(tab)),
+        }
     }
 
     /// The tab of `tab`'s split view in the Space shown that took the card, else 0.
@@ -2111,10 +2134,21 @@ impl Shell {
     /// Every favorite, left to right, each with its holder: the Space it belongs to under Each
     /// Space (the core's `bc_favorite_space`), else its profile.
     pub fn set_favorites(&mut self, favorites: Vec<(u64, u64)>, cx: &mut Context<Self>) {
+        self.set_favorites_split(favorites, Vec::new(), cx)
+    }
+
+    /// The same, with the split views among them, each of tabs side by side in the list.
+    pub fn set_favorites_split(
+        &mut self,
+        favorites: Vec<(u64, u64)>,
+        splits: Vec<Split>,
+        cx: &mut Context<Self>,
+    ) {
         if self.private {
             return;
         }
         let tiles = self.drawn();
+        self.favorite_splits = splits;
         self.all_favorites = favorites.iter().map(|&(tab, _)| tab).collect();
         self.favorite_holders = favorites.into_iter().collect();
         self.show_favorites();
@@ -2146,9 +2180,16 @@ impl Shell {
     }
 
     fn log_favorites(&self) {
-        // check.sh reads these lines.
-        let ids: Vec<String> = self.favorites.iter().map(u64::to_string).collect();
-        log!("browser: favorites {}", ids.join(" "));
+        // check.sh reads these lines: each tile, a split's tabs joined as `browser: splits` joins
+        // them.
+        let tiles = self.tile_leads().into_iter().map(|tab| match self.favorite_split(tab) {
+            Some(split) => {
+                let ids = split.tabs.iter().map(u64::to_string).collect::<Vec<_>>();
+                ids.join(if split.stacked { "/" } else { "+" })
+            }
+            None => tab.to_string(),
+        });
+        log!("browser: favorites {}", tiles.collect::<Vec<_>>().join(" "));
     }
 
     /// What the shell knew of a closed tab goes with it. The core reports a tab in its new place
@@ -2204,7 +2245,7 @@ impl Shell {
         let space = self.shown_space();
         let shut = |row: u64| space.is_some_and(|space| space.shut(row));
         let pinned = pinned.into_iter().filter(|&row| !self.is_folder(row) && !shut(row)).collect();
-        [self.favorites.clone(), pinned, today].concat()
+        [self.tile_leads(), pinned, today].concat()
     }
 
     pub fn set_selected(&mut self, tab: u64, cx: &mut Context<Self>) {

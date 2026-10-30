@@ -18,7 +18,7 @@ use super::{
     Curve, DEVELOPER_TILE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
     HOVERED, LIST_TOP,
     PLATE_INSET, Place, Row, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
-    TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
+    TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING, TILE_SPLIT_GAP,
     TILE_UNTHEMED, TILE_UNTHEMED_LIGHT, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
     developer_outline, title,
 };
@@ -186,10 +186,28 @@ impl Shell {
         )
     }
 
+    /// The favorites shown, each by its tile's tab: a split view's first stands for it.
+    pub(super) fn tile_leads(&self) -> Vec<u64> {
+        self.leads_of(&self.favorites)
+    }
+
+    /// `favorites` without each split view's later tabs.
+    pub(super) fn leads_of(&self, favorites: &[u64]) -> Vec<u64> {
+        let later = |&tab: &u64| self.favorite_split(tab).is_some_and(|split| split.tabs[0] != tab);
+        favorites.iter().copied().filter(|tab| !later(tab)).collect()
+    }
+
+    /// Where the browser puts a tile dropped at `index` among the tiles but `tab`'s: past the
+    /// tabs of those before it, as it counts each split view's tabs.
+    pub(super) fn favorite_index(&self, tab: u64, index: usize) -> usize {
+        let leads = self.tile_leads().into_iter().filter(|&lead| lead != tab);
+        leads.take(index).map(|lead| self.panes(lead).len()).sum()
+    }
+
     /// The tiles in their order: the favorites, with a dragged tab out of its place, and in the
     /// place it would go to among them.
     fn tile_tabs(&self) -> Vec<u64> {
-        let mut tabs = self.favorites.clone();
+        let mut tabs = self.tile_leads();
         if let Some(drag) = self.drag.as_ref().filter(|drag| drag.moving) {
             tabs.retain(|&tab| tab != drag.tab);
             if let Place::Favorite(index) = drag.to {
@@ -324,11 +342,12 @@ impl Shell {
     }
 
     /// How `tab`'s favicon themes its tile while it's shown: none for an emoji, which GPUI can't
-    /// give the pixels of, and for a page without a favicon or one with no opaque pixel. Made the
-    /// first time it's drawn, then kept with the tab until its favicon changes.
+    /// give the pixels of, for a page without a favicon or one with no opaque pixel, and for a
+    /// split view's. Made the first time it's drawn, then kept with the tab until its favicon
+    /// changes.
     fn tile_theme(&self, tab: u64) -> Option<Rc<TileTheme>> {
         // Dia's light theme isn't built, and its dark one's rings are baked over black.
-        if self.palette.tone == Tone::Light {
+        if self.palette.tone == Tone::Light || self.panes(tab).len() > 1 {
             return None;
         }
         let tab = self.tabs.get(&tab)?;
@@ -405,7 +424,7 @@ impl Shell {
     /// icon (tile_theme.rs). A click shows it, a double-click takes it back to its URL (Dia), and a
     /// right-click shows its menu.
     fn tile(&self, tab: u64, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let selected = tab == self.selected && !self.new_tab;
+        let selected = self.tile_selected(tab);
         // Full for a dragged tile, which covers what it passes, and none for the others then.
         let dragging = self.dragging();
         let hover = match dragging {
@@ -529,8 +548,19 @@ impl Shell {
         tabs.into_iter().zip(places).collect()
     }
 
-    /// A tile's favicon, or a one-colour icon's white template on the tile it themes.
+    /// Whether `tab`'s tile is the one shown: its tab's, or a page of its split view's.
+    fn tile_selected(&self, tab: u64) -> bool {
+        !self.new_tab && self.selected != 0 && self.panes(tab).contains(&self.selected)
+    }
+
+    /// A tile's favicon, or a one-colour icon's white template on the tile it themes. A split
+    /// view's has each page's favicon, left to right, and no theme, as no one icon stands for it.
     fn tile_icon(&self, tab: u64, theme: Option<&TileTheme>) -> gpui::Div {
+        let panes = self.panes(tab);
+        if panes.len() > 1 {
+            let icons = panes.into_iter().map(|pane| self.tile_icon(pane, None));
+            return div().flex().items_center().gap(px(TILE_SPLIT_GAP)).children(icons);
+        }
         div()
             .size(px(FAVICON_SIZE))
             .flex()
@@ -548,7 +578,7 @@ impl Shell {
     /// Whether `tab` can become a favorite of the Space shown, or is one already, below the most
     /// it shows.
     pub(super) fn has_room_for(&self, tab: u64) -> bool {
-        self.favorites.contains(&tab) || self.favorites.len() < MOST_FAVORITES
+        self.favorites.contains(&tab) || self.tile_leads().len() < MOST_FAVORITES
     }
 
     /// The favorites `space` shows: its own, or its profile's.
@@ -563,9 +593,10 @@ impl Shell {
     /// The tiles of `favorites` on the page of a Space beside the shown one's, at their places
     /// as they show once it's shown, `selected`'s filled and ringed. They take no input.
     pub(super) fn still_tiles(&self, favorites: &[u64], selected: u64) -> Option<gpui::Div> {
+        let favorites = self.leads_of(favorites);
         let places = self.tile_places(favorites.len());
-        let tiles = places.into_iter().zip(favorites).map(|([left, top, width], &tab)| {
-            let selected = tab == selected;
+        let tiles = places.into_iter().zip(&favorites).map(|([left, top, width], &tab)| {
+            let selected = self.panes(tab).contains(&selected);
             let developer = self.page(tab).developer_mode;
             let theme = selected.then(|| self.tile_theme(tab)).flatten();
             let (shown, ring_width, ring) = shown_look(theme.as_deref(), &self.palette);

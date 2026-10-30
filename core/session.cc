@@ -122,6 +122,9 @@ SavedTab SaveFavorite(bc_id id) {
   tab.pinned_url = Favorites::Url(id);
   tab.profile = Favorites::ProfileOf(id);
   tab.site = Favorites::SiteOf(id);
+  // In a split view with the favorite before it in its list, which Favorites::Restore puts back.
+  tab.split = Favorites::Panes(id).front() != id;
+  tab.stacked = tab.split && Favorites::Stacked(id);
   return tab;
 }
 
@@ -982,7 +985,7 @@ Space* RestoreSpace(Window& window,
                          saved_tab.pinned_url.is_valid()
                              ? saved_tab.pinned_url
                              : saved_tab.history[saved_tab.current].virtual_url(),
-                         space->id(), saved_tab.site);
+                         space->id(), saved_tab.site, saved_tab.split, saved_tab.stacked);
       if (whole && static_cast<int>(j) == saved_space.shown_own_favorite) {
         window.SetSelectedIn(space->id(), tab);
       }
@@ -1051,7 +1054,7 @@ bool RestoreSession(Window& window) {
                          saved_tab.pinned_url.is_valid()
                              ? saved_tab.pinned_url
                              : saved_tab.history[saved_tab.current].virtual_url(),
-                         /*space=*/0, saved_tab.site);
+                         /*space=*/0, saved_tab.site, saved_tab.split, saved_tab.stacked);
     }
   }
   RestoredSpaces().clear();

@@ -16,7 +16,8 @@ impl Shell {
     /// The gaps between the pages of the split view shown, which drag the pages' shares of the
     /// card and even them on a double-click.
     pub(super) fn pane_gaps(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let panes = self.panes(self.selected);
+        // A favorite's split view stays even.
+        let panes = self.space_panes(self.selected);
         if panes.len() < 2 || self.adding_pane.is_some() || self.page_fullscreen {
             return Vec::new();
         }
@@ -81,7 +82,8 @@ impl Shell {
     /// or the gap under the page above it stacked, whose menu changes the split's orientation, takes
     /// the page out of it or closes it. Its look and place are ours, as Arc's aren't measured.
     pub(super) fn pane_handles(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let panes = self.panes(self.selected);
+        // A favorite's split view stays as it was made, so it has none.
+        let panes = self.space_panes(self.selected);
         if panes.len() < 2 || self.adding_pane.is_some() || self.page_fullscreen {
             return Vec::new();
         }
@@ -241,7 +243,7 @@ impl Shell {
     pub(super) fn add_pane(&mut self, cx: &mut Context<Self>) {
         let with = self.selected;
         let count = self.panes(with).len();
-        if with == 0 || count >= MAX_PANES {
+        if with == 0 || !self.has_pane_room(with) {
             return;
         }
         self.adding_pane = Some(with);
@@ -250,6 +252,12 @@ impl Shell {
         let pane = pane_frames(card, count + 1, self.stacked(with), &[])[count];
         self.browser.split_bar(with, pane, card, cx);
         cx.notify();
+    }
+
+    /// Whether `tab`'s page can have another beside it: its split view isn't full, nor a
+    /// favorite's, which stays as it was made.
+    pub(super) fn has_pane_room(&self, tab: u64) -> bool {
+        self.favorite_split(tab).is_none() && self.panes(tab).len() < MAX_PANES
     }
 
     /// A tab menu's Add Split View: ⌃+ beside `tab`, which shows first if it isn't. Agents reach
@@ -309,7 +317,8 @@ impl Shell {
     /// every layout, so a resized window keeps the 220. Dragging a gap, evening the pages or a
     /// page joining or leaving ends it. Done again it asks the core for nothing.
     pub(super) fn expand_split(&mut self, cx: &mut Context<Self>) {
-        if self.panes(self.selected).len() > 1 && self.expanded(self.selected) != self.selected {
+        let split = self.space_panes(self.selected).len() > 1;
+        if split && self.expanded(self.selected) != self.selected {
             self.browser.set_split_expanded(self.selected, true, cx);
         }
     }

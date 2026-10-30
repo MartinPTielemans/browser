@@ -16,7 +16,9 @@ class Space;
 // its own. The scope (BC_FAVORITES_) says who shares a list: every Space, whatever its profile (the
 // same sites, each profile opening them in its own tabs), the Spaces of one profile (Arc), or no
 // two Spaces. A tab is a favorite until it's taken out of the favorites or closes. Each keeps the
-// URL it was made a favorite at, which Back to Favorite URL goes to.
+// URL it was made a favorite at, which Back to Favorite URL goes to. A split view made a favorite
+// is one favorite of its tabs, side by side in their list, shown together with their orientation,
+// as it was made: in the favorites, its panes don't change but by closing.
 class Favorites {
  public:
   Favorites() = delete;
@@ -52,22 +54,36 @@ class Favorites {
   static bool Has(bc_id tab);
   // Empty if |tab| isn't a favorite.
   static GURL Url(bc_id tab);
+  // The tabs of the favorite |tab|'s split view, left to right, else |tab| alone.
+  static std::vector<bc_id> Panes(bc_id tab);
+  // Whether the favorite |tab|'s split view shows its tabs stacked, top to bottom.
+  static bool Stacked(bc_id tab);
 
   // Makes |tab|, a tab of |space| and in no Space now, the favorite at |index| of the list |space|
   // shows, else the last, at |url|. Under Every Space the other profiles that show favorites get
   // the site, at the same place, in tabs of their own.
   static void Add(bc_id tab, GURL url, size_t index, bc_id space);
+  // Makes |tabs|, a split view of |space| in no Space now, one favorite at |index|, as Add makes
+  // each, with |urls| and stacked if |stacked|.
+  static void AddSplit(const std::vector<bc_id>& tabs,
+                       const std::vector<GURL>& urls,
+                       size_t index,
+                       bc_id space,
+                       bool stacked);
   // Puts back |tab|, a favorite of the last launch, at the end of its list. It belongs to |space|
-  // under Each Space, else 0, and |site| names its site, else 0.
-  static void Restore(bc_id tab, GURL url, bc_id space, int site);
+  // under Each Space, else 0, and |site| names its site, else 0. If |split|, it's in a split view
+  // with the favorite before it in its list, stacked if |stacked|.
+  static void Restore(bc_id tab, GURL url, bc_id space, int site, bool split, bool stacked);
   // Gives the favorite |tab| the URL it goes back to, |url|, and under Every Space the site's tabs
   // in the other profiles too, so an undo restores the site as Add made it. Does nothing if it
   // isn't one.
   static void SetUrl(bc_id tab, GURL url);
-  // Moves the favorite |tab| to |index| of its list without it, else to the end. Under Every
-  // Space, the site moves in every profile.
+  // Moves the favorite |tab|, with the rest of its split view, to |index| of its list without
+  // them, else to the end, and after a split |index| is inside. Under Every Space, the sites move
+  // in every profile.
   static void Move(bc_id tab, size_t index);
-  // |tab| is no longer a favorite, or is gone.
+  // |tab| is no longer a favorite, or is gone, and leaves its split view, which is a favorite of
+  // one tab once one is left.
   static void Remove(bc_id tab);
   // Takes |tab| out of the favorites, as Remove does, and under Every Space closes the site's tabs
   // in the other profiles.
