@@ -41,11 +41,22 @@ public static class Shown {
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll")] static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hwnd, System.Text.StringBuilder name, int size);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr hwnd, System.Text.StringBuilder name, int size);
+  [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+  [DllImport("user32.dll")] static extern IntPtr GetWindowLongPtrW(IntPtr hwnd, int index);
   public static int Close(uint process) {
     int closed = 0;
     EnumWindows((hwnd, data) => {
       uint owner;
       GetWindowThreadProcessId(hwnd, out owner);
+      if (owner == process) {
+        var cls = new System.Text.StringBuilder(256); GetClassNameW(hwnd, cls, 256);
+        var text = new System.Text.StringBuilder(256); GetWindowTextW(hwnd, text, 256);
+        RECT r; GetWindowRect(hwnd, out r);
+        Console.Error.WriteLine("diag window " + hwnd + " class " + cls + " title [" + text + "] visible " + IsWindowVisible(hwnd) + " owner " + GetWindow(hwnd, 4) + " rect " + r.Left + "," + r.Top + "," + r.Right + "," + r.Bottom + " style " + GetWindowLongPtrW(hwnd, -16).ToInt64().ToString("x") + " ex " + GetWindowLongPtrW(hwnd, -20).ToInt64().ToString("x"));
+      }
       // Unowned: an overlay is owned by its browser window and goes with it.
       if (owner == process && IsWindowVisible(hwnd) && GetWindow(hwnd, 4) == IntPtr.Zero) {
         PostMessageW(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
@@ -57,7 +68,7 @@ public static class Shown {
   }
 }
 "@
-    if ([Shown]::Close([uint32]$env:WINPID) -eq 0) { exit 1 }' > /dev/null
+    if ([Shown]::Close([uint32]$env:WINPID) -eq 0) { exit 1 }' 2>&1 | tr -d '\r' >&2
 }
 # Runs the app. A native program can't read Git Bash's fifo, so cat passes the driver's commands on
 # through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid.
