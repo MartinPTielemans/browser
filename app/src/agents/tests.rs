@@ -171,6 +171,10 @@ impl Browser for Made {
         self.held.borrow_mut().remove(&tab)
     }
 
+    fn held(&self, tab: u64) -> bool {
+        self.held.borrow().contains(&tab)
+    }
+
     fn close_tab(&self, tab: u64, _: &mut App) {
         self.tabs.borrow_mut().retain(|each| each.0 != tab);
     }
@@ -1222,4 +1226,33 @@ fn agents_get_only_the_allowlisted_tools(cx: &mut TestAppContext) {
     for action in page_actions.into_iter().chain(["screenshot", "back", "hand_off", "close_tab"]) {
         assert!(checked.contains(action), "{action} didn't ask the core: {checked:?}");
     }
+}
+
+/// A tab the user held when the browser last quit, which the core holds again from the Spaces,
+/// is theirs after the relaunch: shown as taken back, refused to the agent, which can ask for it,
+/// and given back only by Hand Back. The user's tab, held or not, isn't the agent's to list.
+#[gpui::test]
+fn a_tab_held_at_quit_stays_the_users_after_a_relaunch(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    browser.held.borrow_mut().extend([10, 20]);
+    agents.update(cx, |agents, cx| agents.held_at_launch(cx));
+    let status = agents.read_with(cx, |agents, _| agents.status());
+    assert_eq!(status[0].held, [(20, "".into())]);
+    let refused = call(&agents, "claude-code", "scroll", json!({ "tab": 20 }), cx);
+    assert_eq!(refused.recv().unwrap().text, HELD);
+    assert_eq!(log(&agents, "claude-code", cx)[0].2, HELD);
+
+    let asked = call(
+        &agents,
+        "claude-code",
+        "ask_for_tab",
+        json!({ "tab": 20, "reason": "To finish the order" }),
+        cx,
+    );
+    assert!(asked.try_recv().is_err(), "ask_for_tab answered before the user did");
+    agents.update(cx, |agents, cx| agents.hand_back(20, cx));
+    assert!(asked.recv().unwrap().text.starts_with("The user handed tab 20 back."));
+    assert!(!browser.held.borrow().contains(&20));
+    let status = agents.read_with(cx, |agents, _| agents.status());
+    assert!(status.iter().all(|status| status.held.is_empty()));
 }

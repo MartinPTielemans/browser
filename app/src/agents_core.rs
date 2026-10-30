@@ -189,6 +189,10 @@ impl Browser for Core {
         unsafe { bc::bc_tab_hand_back(tab) }
     }
 
+    fn held(&self, tab: u64) -> bool {
+        unsafe { bc::bc_tab_held(tab) }
+    }
+
     fn close_tab(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_close(tab, false) };
     }
@@ -236,6 +240,8 @@ pub fn start(cx: &mut App) {
         crate::update_shells_in(cx, |shell, cx| shell.set_agent_status(status.clone(), cx));
     })
     .detach();
+    // The Spaces came back before the UI showed, with the tabs the user held.
+    made.update(cx, |agents, cx| agents.held_at_launch(cx));
     cx.spawn(async move |cx| {
         let read = cx.background_spawn(async { std::fs::read_to_string(path()) });
         if let Ok(saved) = read.await {

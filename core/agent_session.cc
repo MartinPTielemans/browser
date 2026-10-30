@@ -13,6 +13,7 @@
 #include "browser_core/agent_autofill.h"
 #include "browser_core/agent_page.h"
 #include "browser_core/host.h"
+#include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "content/public/browser/web_contents.h"
@@ -123,7 +124,10 @@ std::string RefusedAction(std::string_view action) {
 }
 
 void Hold(bc_id tab) {
-  Held().insert(tab);
+  // The Spaces keep it with the tab, so a relaunch doesn't give it back.
+  if (Held().insert(tab).second) {
+    SessionChanged();
+  }
   // Chrome kept its saved logins from the agent's page, which is the user's now.
   FillForUser(tab);
 }
@@ -132,6 +136,7 @@ bool HandBack(bc_id tab) {
   if (!Held().erase(tab)) {
     return false;
   }
+  SessionChanged();
   Blur(tab);
   return true;
 }

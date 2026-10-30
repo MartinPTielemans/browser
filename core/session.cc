@@ -25,6 +25,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
@@ -250,6 +251,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
         tab.share = shares[std::ranges::find(panes, id) - panes.begin()];
       }
       tab.expanded = space.Expanded(id) == id;
+      tab.held = IsHeld(id);
       above = id;
       tab.pinned_url = space.PinnedUrl(id);
       if (tabs == &to.pinned) {
@@ -369,6 +371,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       }
       if (tab.stacked) {
         dict.Set("stacked", true);
+      }
+      if (tab.held) {
+        dict.Set("held", true);
       }
       if (tab.share) {
         dict.Set("share", tab.share);
@@ -518,6 +523,7 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   tab.stacked = tab.split && dict->FindBool("stacked").value_or(false);
   tab.share = dict->FindDouble("share").value_or(0);
   tab.expanded = dict->FindBool("expanded").value_or(false);
+  tab.held = dict->FindBool("held").value_or(false);
   if (const std::string* profile = dict->FindString("profile")) {
     tab.profile = *profile;
   }
@@ -897,6 +903,9 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
     const bc_id tab = Tab::Restore(profile, saved_tab);
     if (tab && index == saved_space.shown) {
       window.SetSelectedIn(space->id(), tab);
+    }
+    if (tab && saved_tab.held) {
+      Hold(tab);
     }
     return tab;
   };

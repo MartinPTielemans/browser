@@ -47,6 +47,8 @@ struct SavedTab {
   bool expanded = false;
   // A pinned tab's folder, among its Space's saved folders, else -1.
   int folder = -1;
+  // Whether the user holds it from its agent, which they do until they hand it back (#404).
+  bool held = false;
   // A pinned tab's node, or none if it was saved before pinned tabs had them.
   Space::Node node;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.

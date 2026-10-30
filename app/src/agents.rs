@@ -162,6 +162,9 @@ pub trait Browser {
     fn take_back(&self, tab: u64, cx: &mut App);
     /// The user hands the tab back to agents. Whether they held it.
     fn hand_back(&self, tab: u64) -> bool;
+    /// Whether the user holds the tab from agents (bc_tab_held), which the Spaces keep across a
+    /// relaunch.
+    fn held(&self, tab: u64) -> bool;
     /// Closes `tab` as the user would (bc_tab_close): a Today tab goes to the archive.
     fn close_tab(&self, tab: u64, cx: &mut App);
 }
@@ -998,6 +1001,30 @@ impl Agents {
         self.held.insert(tab, held);
         // The core ends the agent's session there, which logs it.
         self.browser.take_back(tab, cx);
+        cx.notify();
+    }
+
+    /// The tabs the user held from agents when the browser last quit, which the core holds again
+    /// from the Spaces it restored (#404). They're shown as taken back, as a handoff's question
+    /// doesn't outlast the run, and stay the user's until they hand them back.
+    pub fn held_at_launch(&mut self, cx: &mut Context<Self>) {
+        for client in Client::ALL {
+            let agent = client.id();
+            let space = self.browser.agent_space(agent);
+            if space == 0 {
+                continue;
+            }
+            for tab in self.browser.space_tab_ids(space, cx) {
+                if self.held.contains_key(&tab) || !self.browser.held(tab) {
+                    continue;
+                }
+                let question = self.next_request;
+                self.next_request += 1;
+                let why = String::new();
+                let held = Held { agent: agent.into(), why, question, back: None, reply: None };
+                self.held.insert(tab, held);
+            }
+        }
         cx.notify();
     }
 

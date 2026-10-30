@@ -4,7 +4,8 @@
 # the user's, nor another agent's on its. ⌃2 shows it as any second Space, a tab opened there is the
 # agent's, and the user's tab's Move to leaves it out, listing only the user's own Space, checked,
 # and New Space…. The agent's mark on its tab goes as its session there ends: it releases the tab,
-# its client disconnects, or the user takes the tab back.
+# its client disconnects, or the user takes the tab back, which stays theirs after a quit until
+# they hand it back from its menu.
 
 log="$out/agents.log"
 step=0
@@ -130,13 +131,24 @@ if [ "$driven" = 1 ]; then
   expect "^browser: space $agent\( in .*\)\{0,1\}\$" "⌃2 didn't show the agent's Space after the relaunch"
   expect '^browser: today [1-9][0-9]*$' "the agent's Space didn't come back with its tab"
   agent_tab=$(today)
+  # The user took it back before the quit, and it stays theirs until they hand it back (#404).
+  send agentmayact claude-code "$agent_tab"
+  expect "^browser: agent claude-code may act on $agent_tab: 0\$" \
+    "the relaunch gave the agent back the tab the user took"
+  expect "^browser: agent activity claude-code $agent_tab navigate refused: The user has this tab until they hand it back. Ask for it with ask_for_tab.\$" \
+    "the held tab's refusal didn't reach the activity log"
+  post rightclick $(row 0)
+  expect "^browser: menu shown $(cased 'Taken Back from') Claude Code (disabled), $(cased 'Hand Back to') Claude Code, " \
+    "the tab's menu didn't say the user took it back"
+  send choose "$(cased 'Hand Back to') Claude Code"
+  expect "^browser: agent claude-code handed back $agent_tab\$" "Hand Back didn't hand the tab back"
   send agentmayact claude-code "$agent_tab"
   expect "^browser: agent claude-code may act on $agent_tab: 1\$" \
-    "the agent may not act on its tab after the relaunch"
+    "the agent may not act on the tab handed back"
 fi
 quit
 if [ "$driven" = 1 ]; then
-  echo "ok: $made; an agent's Space shows and switches as the user's, keeps the user's tabs out, refuses an agent ad blocking, passwords, DevTools and any action agents lack, with why in the activity log, clears its mark as each session ends, and comes back the agent's"
+  echo "ok: $made; an agent's Space shows and switches as the user's, keeps the user's tabs out, refuses an agent ad blocking, passwords, DevTools and any action agents lack, with why in the activity log, clears its mark as each session ends, and comes back the agent's, with the tab the user took back still theirs until Hand Back"
 else
   echo "ok: $made; an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
 fi

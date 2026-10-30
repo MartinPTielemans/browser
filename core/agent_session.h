@@ -35,7 +35,7 @@ size_t EndAgentSessions(const std::string& agent, int why);
 bool EndTabSession(bc_id tab, int why);
 
 // The user holds |tab| from agents, as at a handoff or once they take it over: no agent may act
-// in it until they hand it back. For this run of the browser, as sessions are.
+// in it until they hand it back, after a relaunch too, as the Spaces keep it with the tab.
 void Hold(bc_id tab);
 
 // Hands |tab| back, blurring its page as a session's start does, and returns whether the user held
