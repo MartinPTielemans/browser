@@ -164,6 +164,13 @@ fn left_popover(view: *mut c_void) {
     }
 }
 
+/// The views of the popovers that show, for the test driver (drive.rs).
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter()).filter(|each| each.shown.is_some()).map(|each| each.view).collect()
+    })
+}
+
 /// `ui_view`'s window's content may have changed size: Capture's picture of the page no longer
 /// fits, so it goes, as the user leaving it. The UI hears once its update is over.
 pub(crate) fn resized(ui_view: *mut c_void) {
