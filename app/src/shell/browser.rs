@@ -19,8 +19,9 @@ pub trait Browser {
     fn close(&self, tab: u64, split: bool, cx: &mut App);
     /// Closes the Today tabs below `tab`, showing `tab` if one of them showed.
     fn close_below(&self, tab: u64, cx: &mut App);
-    /// Opens a copy of `tab` with its history, under it in Today, and shows it.
-    fn duplicate(&self, tab: u64, cx: &mut App);
+    /// Opens a copy of `tab` with its history, under it in Today, and shows it. Returns its id, or
+    /// 0.
+    fn duplicate(&self, tab: u64, cx: &mut App) -> u64;
     /// Moves `tab` to `space`. The window goes with it if it shows it. Into another profile's Space
     /// it goes as a new tab, whose page loads there again.
     fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
@@ -67,6 +68,9 @@ pub trait Browser {
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
+    /// Opens a tab loading `url` in a split view with `with`, at its left end if `left`, else its
+    /// right end, stacking a new split if `stacked`, and shows it there.
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, cx: &mut App);
     /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
     /// hides it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);
@@ -84,6 +88,16 @@ pub trait Browser {
     fn undo_delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
+    /// Opens the link preview the user closed again, at its page, over its tab, whose window's
+    /// page is at `page` with corners of that radius, growing from its link.
+    fn reopen_preview(
+        &self,
+        closed: &crate::link_preview::Closed,
+        page: (Bounds<Pixels>, f32),
+        cx: &mut App,
+    );
+    /// Closes the link preview over `over`, if one shows, as Redo does. Returns whether it did.
+    fn close_preview(&self, over: u64, cx: &mut App) -> bool;
     /// Reopens the Today tab that had the id `closed` when it closed, at its place, and returns its
     /// new id, or 0 if it isn't among the closed tabs.
     fn reopen_tab(&self, closed: u64, cx: &mut App) -> u64;
@@ -142,6 +156,13 @@ pub trait Browser {
     fn day_starts(&self) -> [f64; 4];
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
+    /// Lists the pages back from `tab`'s, or forward of it, and calls `Shell::show_history`.
+    fn tab_history(&self, tab: u64, forward: bool, cx: &mut App);
+    /// Goes to the page `offset` from `tab`'s in its history, as `tab_history` numbers them.
+    fn go_to_history(&self, tab: u64, offset: i32, cx: &mut App);
+    /// Opens a copy of `tab` at the page `offset` from its own, or 0 for its page again, under it
+    /// and not shown.
+    fn open_history(&self, tab: u64, offset: i32, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
     /// Deletes the cookies, or else the cache, the profile keeps for the site of the tab's page,
     /// then reloads it.
@@ -209,6 +230,8 @@ pub trait Browser {
     fn set_side_panel_width(&self, width: f32, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
+    /// Opens `url`, one of the app's own web pages such as its help, in a new tab, and shows it.
+    fn open_page(&self, url: &str, cx: &mut App);
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);

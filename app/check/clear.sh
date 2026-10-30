@@ -341,7 +341,7 @@ send menubar Edit
 expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Select All" \
   "the Edit menu has no Paste and Match Style after Paste"
 send menubar View
-expect "^browser: menu bar View: Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
+expect "^browser: menu bar View: \(Appearance › [^,]*, \)*Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
 send menubar Tabs
 expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Clear Today" \
   "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar or Clear Today"
@@ -353,6 +353,24 @@ expect "^browser: menu bar Archive: .*, View Archive…$maybe, " "Archive has no
 send menubar Window
 expect "^browser: menu bar Window: .*, Open Library…$maybe, View Downloads…" \
   "Window has no Open Library… and View Downloads…"
+# Help has Arc's help, the shortcuts and Report a Problem…, and Troubleshooting's Copy Build Info
+# copies this copy's version, the system's and the chip, read from the computer.
+if [ "$(uname)" = Darwin ]; then
+  send menubar Help
+  expect "^browser: menu bar Help: Welcome to [^,]*, Help Center$maybe, What's New$maybe, Essential Keyboard Shortcuts$maybe, Report a Problem…$maybe, Troubleshooting › Copy Build Info$maybe, Troubleshooting › Open Task Manager" \
+    "Help lacks Help Center, What's New, the shortcuts, Report a Problem… or Troubleshooting"
+  post openmenu Help
+  expect '^browser: menu tracked Welcome to ' "the Help menu didn't open"
+  ../tools/window-screenshot.sh "$pid" "$out/help-menu.png" || fail "no window to capture"
+  post dismiss
+  send menu "Troubleshooting › Copy Build Info"
+  expect '^browser: command copy-build-info via ui$' "Copy Build Info didn't run"
+  info=$(grep -A3 '^browser: copied [^ ]* [0-9][0-9.]*' "$log" | tail -4)
+  echo "$info" | grep -q '^macOS [0-9][0-9]*\.[0-9]' || fail "Copy Build Info has no macOS version: $info"
+  echo "$info" | grep -q '^Apple ' || fail "Copy Build Info has no chip: $info"
+  echo "ok: Help lists Help Center, What's New, the shortcuts, Report a Problem… and" \
+    "Troubleshooting, $out/help-menu.png. Copy Build Info copied: $(echo "$info" | sed 's/^browser: copied //' | tr '\n' ';')"
+fi
 # Archive Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
 expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on the top Today row didn't show Arc's tab menu"

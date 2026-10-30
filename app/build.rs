@@ -132,6 +132,14 @@ fn main() {
     let name_text = std::fs::read_to_string(&name).expect("no branding/name");
     println!("cargo:rustc-env=APP_NAME={}", name_text.trim());
     println!("cargo:rerun-if-changed={}", name.display());
+    // Default service URLs a fork changes (principle 2): the site, for help and release notes, and
+    // where a new issue is filed (src/build_info.rs).
+    for (file, variable) in [("branding/site", "APP_SITE"), ("branding/issues", "APP_ISSUES")] {
+        let path = root.join(file);
+        let url = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("no {file}"));
+        println!("cargo:rustc-env={variable}={}", url.trim());
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
     println!("cargo:rerun-if-changed=platform");
     println!("cargo:rerun-if-changed={}", header.display());
 
