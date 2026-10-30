@@ -198,13 +198,22 @@ fi
 [ "$menu" = "$page_items" ] ||
   fail "the page's menu is $menu"
 ../tools/window-screenshot.sh "$pid" "$out/page-menu.png" || fail "no window to capture"
-send choose Print…
-print_preview "the page menu's Print…" print.png
-# ⌘P, as File › Print, with the page focused.
-send click $page_point
-../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
-page_shortcut p print
-print_preview ⌘P print-key.png
+if [ "$(uname)" = Linux ]; then
+  # Print preview there never gets the keyboard, so escape can't close it, and the driver can't
+  # see it (#708).
+  echo "skip: Print and ⌘P showing print preview, which escape closes: on Linux it never gets the keyboard and the driver can't see it (#708)."
+  send dismiss
+  expect '^browser: menu closed$' "dismiss didn't close the page's menu"
+  rm "${out:?}/before-print.png"
+else
+  send choose Print…
+  print_preview "the page menu's Print…" print.png
+  # ⌘P, as File › Print, with the page focused.
+  send click $page_point
+  ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
+  page_shortcut p print
+  print_preview ⌘P print-key.png
+fi
 # A text field's menu has what Chrome gives it, its Language Settings for spelling and its Writing
 # Direction submenu, and Select All selects the field's text, which typing then replaces. The check
 # chooses nothing that uses the pasteboard.

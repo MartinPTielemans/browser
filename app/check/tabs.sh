@@ -481,6 +481,12 @@ expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't t
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
 post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
+# A key sent while the keyboard leaves the closing Settings window for the browser's is lost, so
+# ⌘W waits for the click to finish and the browser window to have the keyboard.
+await "^browser: drive $step done" || fail "the driver didn't finish the click on Settings' close button"
+send state
+[ "$key" = BrowserCoreNSWindow ] ||
+  fail "the browser window didn't get the keyboard back from Settings: it's in $key"
 # Back to the page's tab alone, as the run had them.
 send key w cmd
 expect "^browser: tab $n closed\$" "⌘W didn't close the right pane"
@@ -600,8 +606,12 @@ went=$(grep '^browser: command bar go' "$log" | tail -1)
 expect '^browser: command bar go https://duckduckgo.com/?q=dogs' \
   "↩ in the site search didn't search DuckDuckGo: $went"
 expect '^browser: command bar hidden$' "↩ in the site search didn't close the command bar"
+# History has the search once its page commits, which can come after the next ⌘T. The page's
+# title says it has: its first page line comes as it starts.
+expect '^browser: title [0-9]* .*dogs' "the search for dogs didn't reach DuckDuckGo"
 # ⌥⌘⌫ takes the selected row out too, beside ⇧⌦, as Arc's does: here the search for dogs, typed
-# before.
+# before. Off the Mac it would be Ctrl+Alt+Backspace, which X11 can take to end the session, so
+# there ⇧⌦ alone does (command_bar.rs).
 dogs='https://duckduckgo.com/?q=dogs'
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
@@ -612,9 +622,14 @@ for _ in 1 2 3 4 5 6 7 8; do
   send key down
   grep '^browser: command bar selected' "$log" | tail -1 | grep -q " $dogs" && break
 done
-send key backspace alt cmd
-expect "^browser: command bar removes $dogs" "⌥⌘⌫ didn't take the search for dogs out"
-expect '^browser: command bar suggestions "dog" in ' "the command bar didn't list its rows again after ⌥⌘⌫"
+if [ "$(uname)" = Darwin ]; then
+  remove="backspace alt cmd" removed=⌥⌘⌫
+else
+  remove="delete shift" removed=⇧⌦
+fi
+send key $remove
+expect "^browser: command bar removes $dogs" "$removed didn't take the search for dogs out"
+expect '^browser: command bar suggestions "dog" in ' "the command bar didn't list its rows again after $removed"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # A sum's result is the row after the first, and ↩ on it copies the result, to a pasteboard of the

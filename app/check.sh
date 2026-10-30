@@ -48,6 +48,10 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
         sleep 0.1
       done
       rm -f "$ready"
+      # The real pointer starts mid-screen, over the app, where the X server tells GPUI it left as
+      # the page views of Chromium change under it, mid-drag too. The driver sends a pointer of its
+      # own, so the real one waits in the corner the window leaves.
+      xdotool mousemove 1279 799
       exec env BROWSER_HEADLESS=xvfb ./check.sh "$@"' sh "$@"
   fi
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"

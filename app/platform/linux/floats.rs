@@ -309,6 +309,14 @@ fn toast_pointer() {
     gpui_linux::set_overlay_pointer(view, Some(plate.as_slice()));
 }
 
+/// The toast's view and its plate, the part of its window that takes the pointer, while it shows
+/// with buttons: the driver clicks there only where a pointer would land on it (drive.rs).
+pub(crate) fn toast_plate() -> Option<(*mut c_void, Bounds<Pixels>)> {
+    let (view, over) = find(Kind::Toast, |float| (float.view, float.over))?;
+    let plate = TOAST.with_borrow(|toast| toast.plate.filter(|_| toast.takes))?;
+    (!over.is_null()).then_some((view, plate))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn host_toast_takes_clicks(takes: bool) {
     TOAST.with_borrow_mut(|toast| toast.takes = takes);
