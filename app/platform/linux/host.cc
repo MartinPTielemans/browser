@@ -16,6 +16,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <langinfo.h>
 #include <locale.h>
 #include <spawn.h>
@@ -64,6 +65,8 @@ extern "C" unsigned g_unix_fd_add_full(int priority,
 constexpr unsigned kGlibIoIn = 1;
 // The core's (core/public/browser_core.h), in the chrome that loads the app. Weak, as GLib's are.
 extern "C" void bc_hold_keys(void) __attribute__((weak));
+constexpr unsigned kGlibIoPri = 2;
+constexpr unsigned kGlibIoErr = 8;
 // Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
 // checks only the sources as urgent as the most urgent ready one, and the display's check is where
 // Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
@@ -445,7 +448,37 @@ void host_share_png(const uint8_t* png, size_t size, void* view, double x, doubl
 
 // The hover card is one of the floats (floats.rs).
 
-void host_watch_memory_pressure(void (*pressed)(void)) {}
+// The kernel's pressure stall information: a trigger on /proc/pressure/memory wakes Chromium's loop
+// once some task has stalled on memory for 150 ms within 2 s, the shortest window it gives a
+// process without privileges. A new trigger also fires in its first seconds, while the UI has
+// little to let go of. A kernel without it, or older than 6.5, which keeps triggers for root,
+// says nothing.
+void host_watch_memory_pressure(void (*pressed)(void)) {
+  static bool watching;
+  if (watching || !g_unix_fd_add_full) {
+    return;
+  }
+  const int fd = open("/proc/pressure/memory", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) {
+    return;
+  }
+  const char trigger[] = "some 150000 2000000";
+  if (write(fd, trigger, sizeof trigger) < 0) {
+    close(fd);
+    return;
+  }
+  watching = true;
+  g_unix_fd_add_full(
+      kGlibPriorityFdWatch, fd, kGlibIoPri | kGlibIoErr,
+      [](int, unsigned condition, void* pressed) {
+        if (condition & kGlibIoErr) {
+          return 0;
+        }
+        reinterpret_cast<void (*)(void)>(pressed)();
+        return 1;
+      },
+      reinterpret_cast<void*>(pressed), nullptr);
+}
 
 // Nothing for the host to do: the UI asks the core next (focus_ui in main.rs), which takes the
 // keyboard from the page and, on X11, puts the X server's focus on GPUI's window.
