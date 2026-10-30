@@ -211,10 +211,13 @@ pub extern "C" fn host_show_overlay(
     let (origin, size) = (bounds.origin, bounds.size);
     let name = NAMES[overlay as usize];
     let at = [origin.x, origin.y, size.width, size.height].map(f32::from);
-    eprintln!("browser: {name} at {} {} {} {}", at[0], at[1], at[2], at[3]);
-    if !was_shown {
-        eprintln!("browser: {name} shown");
-    }
+    // check.sh reads these lines, once it's on screen, drawn as it is now, as mac/host.mm's.
+    gpui_linux::after_overlays(move || {
+        eprintln!("browser: {name} at {} {} {} {}", at[0], at[1], at[2], at[3]);
+        if !was_shown {
+            eprintln!("browser: {name} shown");
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
