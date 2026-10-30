@@ -26,9 +26,8 @@
 //! and displays, the driver can't do yet, and says so as drive.mm does. pip, which drive.mm doesn't
 //! have yet, finds a video's Picture in Picture window, the Mini Player, and logs "browser: pip at
 //! <x> <y> <width> <height>" as it is and each time it moves or resizes, then "browser: pip gone",
-//! or "browser: pip none" without one. It logs "browser: pip keyboard 1" if it has the input
-//! focus, and 0 if not. pip doubleclick, pip wheel and pip drag work in it, at points from its
-//! top-left corner as the command finds it.
+//! or "browser: pip none" without one. pip doubleclick, pip wheel and pip drag work in it, at points
+//! from its top-left corner as the command finds it.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -1551,9 +1550,6 @@ fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<(
     let Some(action) = action else {
         let [x, y, width, height] = frame(window)?;
         log!("browser: pip at {x:.0} {y:.0} {width:.0} {height:.0}");
-        let x = server()?;
-        let keyboard = within(&x.0, input_focus()?, window);
-        log!("browser: pip keyboard {}", keyboard as u8);
         watch_mini_player(window);
         return Some(());
     };
