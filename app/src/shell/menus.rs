@@ -880,10 +880,12 @@ impl Shell {
         if self.panes(tab).len() > 1 {
             items.push(separate(tab));
         }
-        // Each other Space, in the switcher's order.
+        // Each other Space, in the switcher's order, then the agents' it can be given to.
         let others = self.spaces_to_move_to(false);
+        let agents = self.agents_to_give(tab);
         let move_to = items.len();
-        items.push((MenuEntry::new("Move to Space", !others.is_empty()), "", Box::new(|_, _| {})));
+        let any = !others.is_empty() || !agents.is_empty();
+        items.push((MenuEntry::new("Move to Space", any), "", Box::new(|_, _| {})));
         for (space, name, _) in others {
             items.push((
                 MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
@@ -891,6 +893,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.move_to_space(tab, space, false, cx)),
             ));
         }
+        items.extend(self.give_items(tab, agents, move_to));
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         // One closed already has nothing to close.
         items.push((
@@ -1048,6 +1051,7 @@ impl Shell {
                     ));
                 }
             }
+            items.extend(self.give_items(tab, self.agents_to_give(tab), move_to));
             items.push((MenuEntry::line().under(move_to), "", Box::new(|_, _| {})));
             items.push((
                 MenuEntry::new("New Space…", true).under(move_to),
@@ -1113,6 +1117,40 @@ impl Shell {
         }
         self.send_to_space(tab, space, false, cx);
         self.browser.move_tab(tab, true, folder, 0, cx);
+    }
+
+    /// The agents' Spaces the user can give `tab` to, by id and name: a tab of the user's own,
+    /// to an agent whose Space is in its profile, as the page goes as it is (bc_tab_give_to_agent).
+    fn agents_to_give(&self, tab: u64) -> Vec<(u64, SharedString)> {
+        let Some(from) = (self.spaces.iter())
+            .find(|space| space.pinned.contains(&tab) || space.today.contains(&tab))
+            .filter(|space| space.agent.is_empty())
+        else {
+            return Vec::new();
+        };
+        (self.spaces.iter())
+            .filter(|space| !space.agent.is_empty() && space.profile == from.profile)
+            .map(|space| (space.id, space.name.clone()))
+            .collect()
+    }
+
+    /// Move to's items that give `tab` to an agent, under the item at `move_to`.
+    fn give_items(
+        &self,
+        tab: u64,
+        agents: Vec<(u64, SharedString)>,
+        move_to: usize,
+    ) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let item = |(space, name)| -> (MenuEntry, &'static str, MenuAction) {
+            (
+                MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
+                "give-to-agent",
+                Box::new(move |shell: &mut Shell, cx: &mut Context<Shell>| {
+                    shell.browser.give_to_agent(tab, space, cx)
+                }),
+            )
+        };
+        agents.into_iter().map(item).collect()
     }
 
     /// `space`'s swatch: its theme's first two colours, or its one colour going lighter down as

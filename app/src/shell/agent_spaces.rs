@@ -1,5 +1,5 @@
-//! An agent's Space in the UI, which shows and switches like the user's, and which none of the
-//! user's tabs move into, on a host that records what the shell asks.
+//! An agent's Space in the UI, which shows and switches like the user's, and which the user's tabs
+//! move into only as the user gives the agent one, on a host that records what the shell asks.
 
 use std::rc::Rc;
 
@@ -57,19 +57,37 @@ fn an_agents_space_shows_and_switches_like_the_users(cx: &mut TestAppContext) {
     assert_eq!(*host.shown.borrow(), [2, 1]);
 }
 
-/// A tab's Move to lists the user's Spaces and leaves the agent's out, while a tab of the agent's
-/// can come to the user's. A favorite can't be taken out of the favorites into the agent's Space.
+/// A tab of the user's Move to lists the agent's Space after theirs, which gives the agent the tab,
+/// but not an agent's Space in another profile, where the page would load again without its
+/// logins. A tab of the agent's can come to the user's and not go to another agent's, and a
+/// favorite can't be taken out of the favorites into the agent's Space.
 #[gpui::test]
-fn no_tab_of_the_users_moves_into_an_agents_space(cx: &mut TestAppContext) {
+fn the_users_tab_moves_into_an_agents_space_only_as_a_gift(cx: &mut TestAppContext) {
     let (shell, host) = shell_with_agent(cx);
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(
+            vec![
+                (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into()),
+                (2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into()),
+                (3, "Elsewhere".into(), None, 1, "".into(), "Codex".into(), "".into()),
+            ],
+            cx,
+        );
+    });
     let menu = tab_menu(&shell, &host, cx, 10);
     assert_eq!(item(&menu, "Space 1"), Some(true));
-    assert_eq!(item(&menu, "Research"), None);
+    assert_eq!(item(&menu, "Research"), Some(true));
+    assert_eq!(item(&menu, "Elsewhere"), None);
+    host.take();
+    cx.update(|cx| host.choose("Research", cx));
+    assert_eq!(host.take(), ["give 10 to 2"]);
     assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Remove from Favorites"), Some(true));
+    assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Research"), None);
     shell.update(cx, |shell, cx| shell.set_space(2, cx));
     let menu = tab_menu(&shell, &host, cx, 20);
     assert_eq!(item(&menu, "Move to"), Some(true));
     assert_eq!(item(&menu, "Research"), None);
+    assert_eq!(item(&menu, "Elsewhere"), None);
     assert_eq!(item(&menu, "Space 1"), Some(true));
     assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Remove from Favorites"), Some(false));
 }
