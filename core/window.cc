@@ -77,7 +77,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/mojom/api_permission_id.mojom-shared.h"
 #include "extensions/common/permissions/permissions_data.h"
-#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -630,13 +629,10 @@ void Window::AdjustNavigate(NavigateParams& params) {
             ProfileId(DirOf(profile->GetOriginalProfile())), private_window));
     return;
   }
-  // ⌥⌘-click on a link opens it beside its page in a split view, as Chrome's does, and so does
-  // ⌥⇧-click, as Dia's does, which the page asks for as a new window.
-  constexpr int kAltShift = blink::WebInputEvent::kAltKey | blink::WebInputEvent::kShiftKey;
+  // ⌥-click on a link opens it beside its page in a split view, as Arc's does, and so does
+  // ⌥⌘-click, as Chrome's does (chromium-core-alt-click-split.patch).
   Tab* source = params.source_contents ? Tab::FromWebContents(params.source_contents) : nullptr;
-  const bool split = source && (params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW ||
-                                (params.disposition == WindowOpenDisposition::NEW_WINDOW &&
-                                 (source->input_modifiers() & kAltShift) == kAltShift));
+  const bool split = source && params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW;
   window->split_with_ = split ? Tab::IdOf(params.source_contents) : 0;
   // Popups become tabs (decision 3). So do new windows: the app opens its own.
   if (split || params.disposition == WindowOpenDisposition::NEW_POPUP ||
@@ -883,13 +879,14 @@ void Window::CloseBelow(bc_id tab) {
 }
 
 // static
-void Window::MoveToSpace(bc_id tab, bc_id space) {
+void Window::MoveToSpace(bc_id tab, bc_id space, bool to_agent) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  // No tab moves into an agent's Space, which would put it in the agent's reach, and Chrome never
-  // moves a page between incognito and regular windows.
-  if (!from || !to || from == to || to->agent() || from->off_the_record() ||
-      to->off_the_record() || DeletingSpaces().contains(space)) {
+  // No tab moves into an agent's Space, which would put it in the agent's reach, unless the user
+  // gives it, and Chrome never moves a page between incognito and regular windows.
+  if (!from || !to || from == to || to->agent().has_value() != to_agent ||
+      from->off_the_record() || to->off_the_record() ||
+      DeletingSpaces().contains(space)) {
     return;
   }
   // A page can't take its cookies and logins to another profile, so it opens there again.
@@ -1261,7 +1258,14 @@ void Window::LayOutPage() {
       gfx::Rect devtools_frame;
       ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(pane.frame.size()),
                                             &devtools_frame, &docked.page_frame);
-      pane.devtools = docked;
+      // DevTools in a window of their own leave their toolbox in the tab, under the page, where it
+      // draws only around a page device mode makes smaller. Under one filling the frame it would
+      // show nothing, so it stays out, and its renderer hidden, until device mode leaves it room.
+      const bool toolbox = !DevToolsWindow::AsDevToolsWindow(devtools);
+      const bool covered = !docked.page_under && docked.page_frame == gfx::Rect(pane.frame.size());
+      if (!toolbox || !covered) {
+        pane.devtools = docked;
+      }
     }
   }
   SidePanel* side_panel = ShownSidePanel();
@@ -2246,6 +2250,9 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
       SessionChanged();
     }
     UnloadIdleTabsSoon();
+    if (Host().window_activated) {
+      Host().window_activated(Host().context, id_);
+    }
   }
   ReportActiveBrowser();
 }
@@ -2333,8 +2340,11 @@ void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_b
 
 void Window::GiveKeyboardToPage() {
   // Held by the window, the keyboard is the page's (KeyboardForPage), as when the page shown before
-  // left with it, so FocusPage gives it to the page shown.
+  // left with it, so FocusPage gives it to the page shown. Given now, as a closing command bar
+  // leaves it with the page: a key that came first would reach the window, where nothing takes it.
+  // A page still loading has no view to take it yet, and takes it once its view comes.
   platform::ReleaseKeyboard(widget_.get());
+  FocusPage();
   FocusPageSoon();
 }
 

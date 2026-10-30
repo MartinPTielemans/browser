@@ -15,7 +15,7 @@ use crate::{
     passwords::Key,
     shell::{
         BACK_X, Command, FOOTER_HEIGHT, FORWARD_X, Folders, NAV_PRESS_SCALE, NAV_SIZE, NAV_TOP,
-        PRESS_TIME, Page, RELOAD_X, SIDEBAR_BUTTON_X, Shell, history::HOLD,
+        PRESS_TIME, Page, RELOAD_X, SIDEBAR_BUTTON_X, Shell, beside::AtRest, history::HOLD,
         library::LIBRARY_BACK_INSET, recorder::Recorder,
     },
     site_controls::Place,
@@ -403,4 +403,75 @@ fn back_forward_and_reload_shrink_a_little_while_held(cx: &mut TestAppContext) {
     cx.simulate_mouse_down(at(SIDEBAR_BUTTON_X), MouseButton::Left, Modifiers::none());
     cx.run_until_parked();
     assert!(shell.read_with(cx, |shell, _| shell.held_nav.is_none()), "the sidebar button");
+}
+
+/// The URL field says the page's host, and its whole URL while it's in Developer Mode.
+#[gpui::test]
+fn the_url_field_shows_the_whole_url_in_developer_mode(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+    let url = "http://localhost:3000/app?tab=2#top";
+    let mut words = |developer_mode| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: url.into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+            shell.set_selected(1, cx);
+            shell.url_field_words(url).0.to_string()
+        })
+    };
+    assert_eq!(words(false), "localhost");
+    assert_eq!(words(true), url);
+}
+
+/// In Developer Mode the URL field has DevTools' button before Copy URL, under the pointer as
+/// those are, named with ⌥⌘I, and a click on it opens the page's DevTools as ⌥⌘I does. Out of it
+/// there's none, and a click there is the field's, which opens the command bar.
+#[gpui::test]
+fn developer_mode_puts_devtools_in_the_url_field(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    let url = "http://localhost:3000/";
+    let set = |developer_mode, shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: url.into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+        });
+        cx.run_until_parked();
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![1], Vec::new(), Folders::default(), cx);
+        shell.set_selected(1, cx);
+    });
+    set(true, &shell, cx);
+    move_to(cx, &host, 100., 300.);
+    shell.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    host.take();
+    cx.simulate_click(point(px(150.), px(64.)), Modifiers::none());
+    let calls = host.take();
+    assert!(calls.iter().any(|call| call == "tooltip Developer Tools ⌥⌘I"), "{calls:?}");
+    let calls: Vec<_> = calls.into_iter().filter(|call| !call.starts_with("tooltip")).collect();
+    assert_eq!(calls, ["devtools 1 0"]);
+    assert!(host.command_bars.take().is_empty());
+    set(false, &shell, cx);
+    cx.simulate_click(point(px(150.), px(64.)), Modifiers::none());
+    assert!(host.take().iter().all(|call| !call.starts_with("devtools")));
+    assert_eq!(host.command_bars.take().len(), 1);
+}
+
+/// While the page slides with a Space switch, a press on DevTools' place does what it does once
+/// it settles, in Developer Mode only.
+#[gpui::test]
+fn devtools_rests_in_the_url_field_in_developer_mode(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+    let at = |developer_mode, cx: &mut TestAppContext| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: "http://localhost/".into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+            shell.set_selected(1, cx);
+            shell.sidebar_hovered = true;
+            shell.tools_on = true;
+            shell.field_part_at(150. - 8.)
+        })
+    };
+    assert_eq!(at(true, cx), AtRest::DevTools);
+    assert_eq!(at(false, cx), AtRest::Field);
 }

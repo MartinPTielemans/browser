@@ -4,6 +4,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     rc::Rc,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -233,7 +234,8 @@ fn now() -> f64 {
 
 struct Fake {
     shell: WeakEntity<Shell>,
-    next_id: Cell<u64>,
+    /// Shared with the changes it makes later, which make ids too.
+    next_id: Rc<Cell<u64>>,
     spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
@@ -438,8 +440,76 @@ impl Browser for Fake {
         self.change_folder(folder, cx, move |entry| entry.0 = name);
     }
 
+    fn set_folder_icon(&self, folder: u64, icon: &str, cx: &mut App) {
+        let icon: SharedString = icon.to_string().into();
+        self.later(cx, move |shell, cx| {
+            let mut folders = shell.folders();
+            match icon.is_empty() {
+                true => folders.icons.remove(&folder),
+                false => folders.icons.insert(folder, icon),
+            };
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
+    // As the core does: the copy under the folder, with a copy of each row in it.
+    fn duplicate_folder(&self, folder: u64, cx: &mut App) -> u64 {
+        let copy = self.next_id.get();
+        let next = self.next_id.clone();
+        next.set(copy + 1);
+        self.later(cx, move |shell, cx| {
+            let (mut pinned, mut folders) = (shell.pinned().to_vec(), shell.folders());
+            let Some(at) = pinned.iter().position(|&id| id == folder) else {
+                return;
+            };
+            let end = end_of(&pinned, &folders, folder);
+            let mut copies = HashMap::from([(folder, copy)]);
+            let mut made = vec![copy];
+            for &row in &pinned[at + 1..end] {
+                let id = next.get();
+                next.set(id + 1);
+                copies.insert(row, id);
+                made.push(id);
+            }
+            for (&from, &to) in &copies {
+                if let Some(parent) = folders.parents.get(&from).copied() {
+                    let parent = copies.get(&parent).copied().unwrap_or(parent);
+                    folders.parents.insert(to, parent);
+                }
+                if let Some(entry) = folders.folders.get(&from).cloned() {
+                    folders.folders.insert(to, entry);
+                }
+                if let Some(icon) = folders.icons.get(&from).cloned() {
+                    folders.icons.insert(to, icon);
+                }
+                if !folders.folders.contains_key(&from) {
+                    shell.set_page(to, shell.page(from), cx);
+                }
+            }
+            pinned.splice(end..end, made);
+            let (today, splits) = (shell.today().to_vec(), shell.splits());
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+        copy
+    }
+
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App) {
         self.change_folder(folder, cx, move |entry| entry.1 = open);
+    }
+
+    // The preview keeps the rows of the Space shown alone.
+    fn set_pinned_open(&self, space: u64, open: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            if space != shell.space() {
+                return;
+            }
+            let folders = Folders { pinned_shut: !open, ..shell.folders() };
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
     }
 
     fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App) {
@@ -655,6 +725,8 @@ impl Browser for Fake {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn set_developer_mode(&self, _: u64, _: bool, _: &mut App) {}
+
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 
@@ -680,6 +752,15 @@ impl Browser for Fake {
     fn devtools(&self, _: u64, _: i32, _: &mut App) {}
 
     fn task_manager(&self, _: &mut App) {}
+
+    // The preview has no engine to trace, nor the toast's window.
+    fn start_trace(&self) -> bool {
+        false
+    }
+
+    fn stop_trace(&self) {}
+
+    fn trace_note(&self, _: Option<Rc<dyn Fn(&mut App)>>, _: &mut App) {}
 
     // The preview has no menu bar and no extensions.
     fn set_menus(&self, _: &MenuBar, _: &mut App) {}
@@ -727,6 +808,8 @@ impl Browser for Fake {
     fn view_history(&self, _: &mut App) {}
     fn open_page(&self, _: &str, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
+
+    fn clear_browsing_data(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false
@@ -789,7 +872,17 @@ impl Browser for Fake {
     ) {
     }
 
-    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: bool, _: &mut App) {}
+    fn capture(
+        &self,
+        _: u64,
+        _: Bounds<Pixels>,
+        _: f32,
+        _: bool,
+        _: bool,
+        _: menu::Look,
+        _: &mut App,
+    ) {
+    }
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 
@@ -816,6 +909,8 @@ impl Browser for Fake {
     fn take_over(&self, _: SharedString, _: u64, _: &mut App) {}
 
     fn hand_back(&self, _: u64, _: &mut App) {}
+
+    fn give_to_agent(&self, _: u64, _: u64, _: &mut App) {}
 
     fn stop_agent(&self, _: SharedString, _: &mut App) {}
 
@@ -1018,6 +1113,10 @@ impl Browser for Fake {
 
     fn hide_reveal(&self, _: &mut App) {}
 
+    fn option_reveals_sidebar(&self) -> bool {
+        true
+    }
+
     // PREVIEW_SIDEBAR=<width> starts the sidebar at that width, such as its narrowest, 164.
     fn saved_sidebar_width(&self) -> Option<f32> {
         std::env::var("PREVIEW_SIDEBAR").ok()?.parse().ok()
@@ -1048,6 +1147,20 @@ impl Browser for Fake {
 
     fn hide_undo_toast(&self, _: &mut App) {}
 
+    fn in_front(&self) -> bool {
+        true
+    }
+
+    fn toast_button(
+        &self,
+        _: &str,
+        _: (&'static str, &'static str),
+        _: Rc<dyn Fn(&mut App)>,
+        _: Duration,
+        _: &mut App,
+    ) {
+    }
+
     fn set_edit_titles(&self, _: Option<&str>, _: Option<&str>, _: &mut App) {}
 
     fn full_screen_note(&self, _: bool, _: &mut App) {}
@@ -1060,6 +1173,9 @@ impl Browser for Fake {
 
     // So is the hover card's, and there's no engine to picture a page.
     fn hover_card(&self, _: browser::hover_card::Hover, _: &mut App) {}
+
+    // And the folder preview's.
+    fn folder_preview(&self, _: browser::folder_preview::Ask, _: &mut App) {}
 
     fn card_picture(&self, _: u64, _: &mut App) {}
 
@@ -1415,7 +1531,7 @@ fn main() {
                 let folder = first_favorite + FAVORITES.len() as u64;
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(folder + 1 + READING.len() as u64),
+                    next_id: Rc::new(Cell::new(folder + 1 + READING.len() as u64)),
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
@@ -1478,6 +1594,7 @@ fn main() {
                 let folders = Folders {
                     folders: [(folder, ("Docs".into(), true))].into(),
                     parents: [(2, folder)].into(),
+                    ..Default::default()
                 };
                 let today = (3..=TABS.len() as u64).collect();
                 let split = Split {
@@ -1560,6 +1677,14 @@ fn main() {
                 };
                 if let Some((tab, trouble)) = trouble {
                     shell.set_page(tab, Page { trouble, ..shell.page(tab) }, cx);
+                }
+                // PREVIEW_DEVELOPER_MODE=1 has the tab shown, the third tab and the GitHub
+                // favorite in Developer Mode, so its outline and contrast show.
+                if std::env::var_os("PREVIEW_DEVELOPER_MODE").is_some() {
+                    for tab in [shell.selected(), 3, favorites[2]] {
+                        let page = Page { developer_mode: true, ..shell.page(tab) };
+                        shell.set_page(tab, page, cx);
+                    }
                 }
                 if welcome {
                     shell.set_welcome(cx);
@@ -1797,6 +1922,7 @@ impl site_controls::Host for PreviewSiteControls {
     fn allow_saving(&self, _: u64, _: &browser::passwords::Login) {}
 
     fn set_ad_blocking(&self, _: u64, _: bool) {}
+    fn set_developer_mode(&self, _: u64, _: bool) {}
 
     fn run(&self, _: site_controls::Run, _: u64, _: &mut App) {}
 
@@ -1843,5 +1969,6 @@ fn preview_site() -> Site {
         system_engine: None,
         logins: Vec::new(),
         ad_blocking: Some(true),
+        developer_mode: Some(false),
     }
 }

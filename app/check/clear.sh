@@ -19,6 +19,11 @@
 # its ×, Block and Allow answer it. The URL field's Site Controls button and the command bar's Site
 # Controls, from the page, open a panel under the field that lists the site's permissions as
 # Chrome's page info does. A value changed there sticks, and its Reset permissions sets them back.
+# Their Developer Mode row lists localhost on by itself, and turns it off and on for the tab, as the
+# command bar's Turn off and Turn on Developer Mode for this site do, View › Developer's and ⌃D,
+# from the page and the UI, which the page's text field and the command bar's keep as forward
+# delete. In it the URL field says the whole URL, the tab's row has its outline, and the field's
+# DevTools button docks DevTools in the card and closes them.
 # Escape, a click outside and the button close it. A page that asks for Widevine brings a note under
 # the field, which ClearKey doesn't. From macOS 14 its button shows the page in Safari's engine, in
 # the tab, and the profile keeps the site for it: the site's cookies, HttpOnly too, and its
@@ -98,9 +103,11 @@ expect "^browser: title $a cookie none cache 2\$" \
 ../tools/window-screenshot.sh "$pid" "$out/clear-site.png" || fail "no window to capture"
 send key left cmd
 expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "⌘← didn't go back to the served page"
-# Clear on the divider, which sits under the one pinned tab, the URL field's Copy URL and Site
-# Controls buttons, and the served page's text field, along the bottom of the 800 pt tall window.
+# Clear on the divider, which sits under the one pinned tab, the URL field's DevTools button in
+# Developer Mode, Copy URL and Site Controls buttons, and the served page's text field, along the
+# bottom of the 800 pt tall window.
 clear_point="200 185"
+devtools_point="150 64"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
@@ -333,18 +340,19 @@ expect "^browser: selected $tab\$" "Duplicate didn't show the copy"
 expect "^browser: page $tab icon 🌟\$" "Duplicate didn't copy the tab's icon"
 expect_page example.org 1 0 "the copy Duplicate made"
 # The window is titled by the tab shown, which the Window menu lists it by. The menu bar names its
-# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses.
+# items as Arc's, by what they'd do now. Edit has Paste and Match Style, which no check chooses,
+# then Paste URL as New Tab.
 send title
 expect '^browser: key window titled Example Domain$' "the window isn't titled by the tab shown"
 maybe='\( (disabled)\)\{0,1\}'
 send menubar Edit
-expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Select All" \
-  "the Edit menu has no Paste and Match Style after Paste"
+expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Paste URL as New Tab$maybe, Select All" \
+  "the Edit menu has no Paste and Match Style and Paste URL as New Tab after Paste"
 send menubar View
 expect "^browser: menu bar View: \(Appearance › [^,]*, \)*Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
 send menubar Tabs
-expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Clear Today" \
-  "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar or Clear Today"
+expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Focus Sidebar, Clear Today" \
+  "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar, Focus Sidebar or Clear Today"
 send menubar Spaces
 expect "^browser: menu bar Spaces: New Space…$maybe, Rename Space$maybe, Change Profile › Default (checked)$maybe, Change Profile › New Profile (disabled), Next Space" \
   "Spaces has no Change Profile after Rename Space, with the Space's profile checked"
@@ -549,6 +557,9 @@ asks "${site%/}" "the site couldn't ask again after ×"
 send move 600 400
 none_since '^browser: reveal hidden$' || fail "the pointer leaving sent the question away"
 ../tools/window-screenshot.sh "$pid" "$out/question-reveal.png" || fail "no window to capture"
+# The pointer comes over the panel to Block, as a hand's does: on Linux the panel hears the pointer
+# leave only once it has had it moving over it.
+send move $((qx + qw / 4)) $((qy + qh - 26))
 send click $((qx + qw / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Block didn't take the question down"
 expect "^browser: title $r refused NotAllowedError\$" "Block didn't refuse the page"
@@ -611,6 +622,22 @@ send choose Block
 expect '^browser: site controls set Window management Block$' "Block in the menu didn't run"
 expect "${controls}[^;]*; .*Window management Block" \
   "the Site Controls didn't show Window management as blocked"
+# Developer Mode is on by itself for localhost, and its row turns it off and on for the site, which
+# the tab draws each time.
+listed | grep -qx 'Developer Mode On' ||
+  fail "the Site Controls didn't list localhost in Developer Mode"
+grep -q "^browser: page $r developer mode 1\$" "$log" ||
+  fail "the localhost tab wasn't in Developer Mode"
+i=$(listed | grep -n '^Developer Mode ' | cut -d: -f1)
+send click 207 $(row_y $((i - 1)))
+expect '^browser: site controls set developer mode off$' \
+  "a click on Developer Mode didn't turn it off"
+expect "${controls}[^;]*; .*Developer Mode Off" "the Site Controls didn't show Developer Mode off"
+expect "^browser: page $r developer mode 0\$" "the tab didn't leave Developer Mode"
+send click 207 $(row_y $((i - 1)))
+expect '^browser: site controls set developer mode on$' \
+  "a second click on Developer Mode didn't turn it on"
+expect "^browser: page $r developer mode 1\$" "the tab didn't go back to Developer Mode"
 # http has no certificate to show, so the lock doesn't take the click.
 send click 120 $(footer_y)
 none_since '^browser: site controls run certificate' || fail "the lock ran without a certificate"
@@ -631,6 +658,84 @@ expect '^browser: site controls settled$' "the Site Controls didn't open after S
 send click $site_controls_point
 expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave"
+# The command bar offers what would change the page's Developer Mode, and turns it off and on.
+# Out of it the URL field says the host alone and the tab's row loses its outline, and in it the
+# whole URL and the outline come back.
+bar_command toggle-developer-mode "Turn off Developer Mode for this site\$" "developer mode"
+expect "^browser: page $r developer mode 0\$" "the command bar didn't turn Developer Mode off"
+expect '^browser: url field localhost$' "out of Developer Mode the URL field didn't say the host"
+expect '^browser: developer outline none$' "out of Developer Mode the tab kept its outline"
+bar_command toggle-developer-mode "Turn on Developer Mode for this site\$" "developer mode"
+expect "^browser: page $r developer mode 1\$" "the command bar didn't turn Developer Mode on"
+expect "^browser: url field http://localhost:$port/index.html\$" \
+  "in Developer Mode the URL field didn't say the whole URL"
+expect "^browser: developer outline $r at " "in Developer Mode the tab drew no outline"
+# In Developer Mode the URL field has DevTools' button before Copy URL, under the pointer as those
+# are: a click docks DevTools in the card, as ⌥⌘I does, and another closes them.
+page_views() {
+  for _ in $(seq 50); do
+    send layout
+    views=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+      grep -o 'WebContentsViewCocoa' | wc -l | tr -d ' ')
+    [ "$views" -eq "$1" ] && return 0
+  done
+  fail "$2: the window shows $views page views, not $1"
+}
+away
+send move $devtools_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in in Developer Mode"
+send click $devtools_point
+expect '^browser: command devtools via sidebar$' "a click on DevTools' button didn't run DevTools"
+page_views 2 "after a click on DevTools' button"
+../tools/window-screenshot.sh "$pid" "$out/developer-devtools.png" || fail "no window to capture"
+send click $devtools_point
+expect '^browser: command devtools via sidebar$' "a second click on DevTools' button didn't run"
+page_views 1 "after a second click on DevTools' button"
+# So does View › Developer's last item, named by what it would do.
+developer="Developer › JavaScript Console$maybe, Developer › Turn"
+send menubar View
+expect "^browser: menu bar View: .*, $developer off Developer Mode for this site$maybe, " \
+  "View › Developer doesn't end with Turn off Developer Mode for this site"
+send menu Developer › Turn off Developer Mode for this site
+expect '^browser: command toggle-developer-mode via ui$' "View's Turn off Developer Mode didn't run"
+expect "^browser: page $r developer mode 0\$" "View › Developer didn't turn Developer Mode off"
+send menubar View
+expect "^browser: menu bar View: .*, $developer on Developer Mode for this site$maybe, " \
+  "View › Developer didn't name Turn on Developer Mode for this site once it was off"
+send menu Developer › Turn on Developer Mode for this site
+expect "^browser: page $r developer mode 1\$" "View › Developer didn't turn Developer Mode on"
+# So does ⌃D, which the page gets first: in its text field it deletes forward, as in any Mac field,
+# and so it does in the command bar's, and with the page's keyboard elsewhere, or the UI's, it
+# turns Developer Mode off and on.
+send click $field_point
+send key a cmd
+send type ab
+expect "^browser: title $r value ab\$" "typing didn't reach the localhost page's text field"
+send key left
+send key d ctrl
+expect "^browser: title $r value a\$" "⌃D in the page's text field didn't delete forward"
+none_since '^browser: command toggle-developer-mode ' ||
+  fail "⌃D in the page's text field toggled Developer Mode"
+send click $page_point
+send key d ctrl
+expect '^browser: command toggle-developer-mode via page$' "⌃D with the page focused didn't reach the UI"
+expect "^browser: page $r developer mode 0\$" "⌃D from the page didn't turn Developer Mode off"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type developer
+expect '^browser: command bar commands "developer": ' "the command bar didn't find developer"
+send key left
+send key d ctrl
+expect '^browser: command bar commands "develope": ' "⌃D in the command bar didn't delete forward"
+none_since '^browser: command toggle-developer-mode ' ||
+  fail "⌃D in the command bar's field toggled Developer Mode"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+# The sidebar's empty space under its rows.
+send click 120 650
+send key d ctrl
+expect '^browser: command toggle-developer-mode via ui$' "⌃D with the UI focused didn't run"
+expect "^browser: page $r developer mode 1\$" "⌃D from the UI didn't turn Developer Mode on"
 # The page asks and is refused without a question.
 send click $page_point
 send key a

@@ -20,7 +20,7 @@ use gpui::{Bounds, CursorStyle, Pixels, point, px, size};
 use crate::{bc, overlays, shadows};
 
 /// The Site Controls' slot in the host's overlays, for their elevation (platform/host.h).
-const SITE_CONTROLS: std::ffi::c_int = 3;
+const SITE_CONTROLS: std::ffi::c_int = 4;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -176,6 +176,16 @@ pub(crate) fn resized(ui_view: *mut c_void) {
     {
         overlays::later(dismissed);
     }
+}
+
+/// The views of those that show and still take clicks and keys, for the driver.
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter())
+            .filter(|p| p.shown.is_some_and(|shown| !shown.released))
+            .map(|p| p.view)
+            .collect()
+    })
 }
 
 /// `ui_view`'s window is closing: what shows over it goes.

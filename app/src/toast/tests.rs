@@ -203,6 +203,35 @@ fn a_question_shows_until_answered_or_replaced(cx: &mut TestAppContext) {
     assert!(!cx.update(|cx| showing(note, cx)), "another toast took its place");
 }
 
+#[gpui::test]
+fn a_resting_toast_comes_back_after_another_until_its_button_takes_it(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let stop = Button { label: Label::Text("Stop".into()), name: "stop", run: Rc::new(|_, _| {}) };
+    cx.update(|cx| show_resting("Recording a trace", vec![stop], cx));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks true", "show"]);
+    assert!(after(cx, &host, 60.).is_empty(), "it stays");
+    show_deleted(cx);
+    assert_eq!(host.0.take(), ["clicks false", "show"]);
+    assert_eq!(after(cx, &host, 5. + LEAVE), ["hide", "clicks true", "show"]);
+    let text = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let window = cx.global::<ToastWindow>().0;
+            window.read(cx).unwrap().shown.as_ref().map(|shown| shown.text.clone())
+        })
+    };
+    assert_eq!(text(cx).as_deref(), Some("Recording a trace"));
+    cx.update(|cx| {
+        let window = cx.global::<ToastWindow>().0;
+        window.update(cx, |toast, _, cx| toast.press(0, point(px(0.), px(0.)), cx)).unwrap();
+    });
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks false"]);
+    assert_eq!(after(cx, &host, LEAVE), ["hide"]);
+    assert!(after(cx, &host, 10.).is_empty(), "it doesn't come back");
+    assert_eq!(text(cx), None);
+}
+
 /// The toast's window ends below the plate, where its shadow falls, and the shadow fades out
 /// before the window's edge. Above and right of it the window's edge is the browser window's.
 #[test]

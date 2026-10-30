@@ -327,14 +327,7 @@ void host_capture_name(char* name, size_t capacity) {
   }
 }
 
-// No sight of the displays' layout (host_centered), so a window opens where the compositor puts it.
-size_t host_screens(double* frames, size_t count) {
-  return 0;
-}
-
-bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
-  return false;
-}
+// host_screens and host_window_frame are frames.rs's, which reads them from the X server.
 
 // shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
 void host_watch_finished_launching(void (*finished)(void)) {
@@ -348,9 +341,7 @@ void host_dock_dot_launch(const char* profile_dir) {}
 
 void host_dock_dot(bool colored, uint32_t color) {}
 
-// The compositor places each window (host_centered), so the next opens where it's put, at the size
-// the app asks for, the default one, as nothing here reads the size of the one before.
-void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
+// host_cascaded is frames.rs's too.
 
 // Through the core, as the window is Chromium's: under Wayland its toplevel, which GPUI's window is
 // a subsurface in.
@@ -387,6 +378,8 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 // (gpui_linux::watch_embedder_swipes, in main.rs), which the compositor sends unless it keeps them
 // for its own, such as for workspaces. X11 sends them to the page's window alone, Chromium's.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
+// The Mac's alone so far: Chromium's window has the keys while the page has the keyboard.
+void host_watch_option_taps(void (*tapped)(void* ui_view)) {}
 bool host_after_menus(void (*apply)(void)) { return false; }
 
 void host_watch_resigning_active(void (*resigning)(void)) {
@@ -443,20 +436,6 @@ void host_hold_keys(void) {
   }
 }
 
-// No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
-// the tab.
-void* host_add_link_preview(void* view, void (*dismissed)(void)) {
-  return nullptr;
-}
-
-void host_show_link_preview(void* ui_view) {}
-
-void host_link_preview_drew(double left, double top, double width, double height, double opacity) {}
-
-void host_release_link_preview(void) {}
-
-void host_hide_link_preview(void) {}
-
 // GPUI's clipboard and its file chooser portal copy and save a capture (platform/linux/system.rs).
 void host_copy_png(const uint8_t* png, size_t size) {}
 
@@ -491,8 +470,6 @@ bool host_close_other_window(void) {
 }
 
 void host_detent(void) {}
-
-void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y, const host_dragged* items, size_t count)) {}
 
 // GIO's, from the chrome that loads the app, as GLib's are: its trash is the freedesktop.org one the
 // file managers share, in the home's or in the file's own volume's.

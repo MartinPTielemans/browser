@@ -92,7 +92,7 @@ impl Mode {
     fn start(&mut self) {
         let frame = Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.)));
         let library = self.library;
-        self.cx.cx.update(|cx| start(TAB, frame, 8., library, cx));
+        self.cx.cx.update(|cx| start(TAB, frame, 8., library, Look::dark(), cx));
         self.cx.run_until_parked();
     }
 
@@ -145,15 +145,18 @@ fn rect(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
     Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
 }
 
-/// A row's middle in the menu, from the menu's corner: the field, then 40 a row and 9 a line. As a
-/// window with a Library has them.
+/// The menu's rows start under the field and its line, inside the panel's padding.
+const ROWS_TOP: f32 = PADDING + ROW + LINE;
+
+/// A row's middle in the menu, from the menu's corner: the field, then 24 a row and 9 a line, as
+/// ilo's menu has them. As a window with a Library has them.
 fn row(action: Action) -> f32 {
-    let mut top = FIELD_TOP + FIELD_HEIGHT + ROWS_TOP;
+    let mut top = ROWS_TOP;
     for row in ROWS {
         match row {
             Some(row) if *row == action => return top + ROW / 2.,
             Some(_) => top += ROW,
-            None => top += SEPARATOR,
+            None => top += LINE,
         }
     }
     panic!("no row for {action:?}");
@@ -280,7 +283,7 @@ fn send_to_copies_where_the_system_has_no_share_menu(cx: &mut TestAppContext) {
     mode.click(100., 100.);
     assert_eq!(mode.calls(), ["camera false"]);
     let menu = point(50. - RING + MENU_LEFT, 60. - RING);
-    mode.click(menu.x + MENU_WIDTH / 2., menu.y + FIELD_TOP + FIELD_HEIGHT / 2.);
+    mode.click(menu.x + MENU_WIDTH / 2., menu.y + PADDING + ROW / 2.);
     assert_eq!(mode.calls(), [format!("capture {TAB} 2 50 60 200 80")]);
     mode.captured(2);
     let calls = mode.calls();
@@ -301,7 +304,7 @@ fn save_to_library_is_the_first_row_but_in_a_private_window(cx: &mut TestAppCont
     mode.click(100., 100.);
     assert_eq!(mode.calls(), ["camera false"]);
     let menu = point(50. - RING + MENU_LEFT, 60. - RING);
-    let first = FIELD_TOP + FIELD_HEIGHT + ROWS_TOP + ROW / 2.;
+    let first = ROWS_TOP + ROW / 2.;
     assert_eq!(row(Action::SaveToLibrary), first);
     mode.click(menu.x + MENU_WIDTH / 2., menu.y + first);
     assert_eq!(mode.calls(), [format!("capture {TAB} 2 50 60 200 80")]);

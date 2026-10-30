@@ -8,7 +8,9 @@
 name: CI
 
 on:
+  # Branches only: an engine release's tag, pushed with the owner's token, starts nothing here.
   push:
+    branches: ['**']
   pull_request:
 
 permissions: {}

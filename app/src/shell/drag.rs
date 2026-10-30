@@ -354,7 +354,14 @@ impl Shell {
                 .collect();
             let (first, last) = (layouts[0].1, layouts[layouts.len() - 1].1);
             let span = (first.min(last), first.max(last));
-            let at = (self.list_y(pointer.y) - grab.0).clamp(span.0, span.1);
+            // A row goes where its top comes nearest a slot's. What's dragged in has no row in the
+            // list, so it goes to the gap nearest the pointer, where its line shows, as Arc's: a
+            // slot's top is half the rows' gap under its line.
+            let held = match incoming {
+                true => -(ROW_PITCH - ROW_HEIGHT) / 2.,
+                false => grab.0,
+            };
+            let at = (self.list_y(pointer.y) - held).clamp(span.0, span.1);
             let Some(((in_pinned, index), _, _)) =
                 layouts.into_iter().min_by(|a, b| (a.1 - at).abs().total_cmp(&(b.1 - at).abs()))
             else {
@@ -590,7 +597,7 @@ impl Shell {
             // check.sh waits for this line.
             log!("browser: dragged {tab} onto {with}");
             self.settle_drag();
-            self.browser.split_with(tab, with, false, cx);
+            self.join_split(tab, with, false, false, cx);
             cx.notify();
             return;
         }
@@ -857,17 +864,37 @@ impl Shell {
     }
 }
 
-/// The URLs of what a drag from the page or another app carries that open as tabs: files', and web
-/// links. A dragged link or text never opens a `javascript:` or `data:` URL, which could run script
-/// or pass for a site, or a `file:` one, which could open a file the user didn't drag (Ardia).
-pub fn dropped_urls<'a>(items: impl IntoIterator<Item = (&'a str, bool)>) -> Vec<String> {
-    let web = |url: &str| {
-        let scheme = url.split_once(':').map_or("", |(scheme, _)| scheme);
-        let web = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
-        web && url.len() > scheme.len() + 3 && !url.contains(char::is_whitespace)
-    };
-    let items = items.into_iter().filter(|&(url, file)| file || web(url));
-    items.map(|(url, _)| url.to_owned()).collect()
+/// The URLs of what a drag from the page or another app carries that open as tabs: files', web
+/// links, and for text that isn't a link, `search`'s URL for it with the default engine (Arc). A
+/// dragged link never opens a `javascript:` or `data:` URL, which could run script or pass for a
+/// site, or a `file:` one, which could open a file the user didn't drag (Ardia), nor is any link
+/// but a web one searched for, as it isn't words.
+pub fn dropped_urls<'a>(
+    items: impl IntoIterator<Item = (&'a str, bool)>,
+    search: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    /// The scheme `url` starts with, if it starts with one.
+    fn scheme(url: &str) -> Option<&str> {
+        let (scheme, _) = url.split_once(':')?;
+        let mut letters = scheme.chars();
+        let named = letters.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && letters.all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
+        named.then_some(scheme)
+    }
+    let is = |scheme: &str, names: &[&str]| names.iter().any(|n| scheme.eq_ignore_ascii_case(n));
+    let spaced = |url: &str| url.contains(char::is_whitespace);
+    let items = items.into_iter().filter_map(|(url, file)| match scheme(url) {
+        _ if file => Some(url.to_owned()),
+        Some(s) if is(s, &["http", "https"]) && !spaced(url) && url.len() > s.len() + 3 => {
+            Some(url.to_owned())
+        }
+        Some(s) if is(s, &["javascript", "data", "file"]) || !spaced(url) => None,
+        _ => {
+            let words = url.split_whitespace().collect::<Vec<_>>().join(" ");
+            (!words.is_empty()).then(|| search(&words)).flatten()
+        }
+    });
+    items.collect()
 }
 
 /// Where `position` in a window is from the corner, `origin`, of the sidebar it draws.
@@ -907,9 +934,9 @@ mod to_space;
 mod tests {
     use super::dropped_urls;
 
-    /// Files and web links open; text and links that aren't web links don't.
+    /// Files and web links open, links that aren't web links don't, and other text is searched.
     #[test]
-    fn only_files_and_web_links_open() {
+    fn files_and_web_links_open_and_text_is_searched() {
         let dragged = [
             ("https://example.com/a?b#c", false),
             ("HTTP://EXAMPLE.COM", false),
@@ -918,13 +945,21 @@ mod tests {
             ("JavaScript:alert(1)", false),
             ("data:text/html,<h1>Sign in</h1>", false),
             ("file:///etc/hosts", false),
-            ("https://example.com and some words", false),
+            ("mailto:someone@example.com", false),
             ("https://", false),
+            ("https://example.com and  some\nwords", false),
             ("example.com", false),
             ("", false),
+            (" \n ", false),
         ];
-        let opened = ["https://example.com/a?b#c", "HTTP://EXAMPLE.COM"];
-        let file = "file:///Users/someone/Report%20final.pdf";
-        assert_eq!(dropped_urls(dragged), [opened[0], opened[1], file]);
+        let search = |text: &str| Some(format!("search:{text}"));
+        let opened = [
+            "https://example.com/a?b#c",
+            "HTTP://EXAMPLE.COM",
+            "file:///Users/someone/Report%20final.pdf",
+            "search:https://example.com and some words",
+            "search:example.com",
+        ];
+        assert_eq!(dropped_urls(dragged, search), opened);
     }
 }

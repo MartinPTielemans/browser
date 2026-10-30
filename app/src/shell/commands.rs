@@ -8,6 +8,7 @@ use std::{
 
 use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
+    point,
 };
 
 use crate::theme::Appearance;
@@ -16,8 +17,9 @@ use crate::build_info::{self, BuildInfo};
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, drm_note, extensions, keys,
+    clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
     panes::pane_frames,
+    trace,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -59,8 +61,16 @@ pub enum Command {
     NewFolder,
     /// Closes every folder of the Space shown.
     CollapseFolders,
+    /// Hides the pinned rows of the Space shown but the tab shown's, as a closed folder does.
+    CollapsePinned,
+    /// Shows them again.
+    ExpandPinned,
+    /// Opens every folder of the Space shown.
+    ExpandFolders,
     /// Shows the sidebar's row of the tab shown: opens its folders and scrolls the list to it.
     RevealTab,
+    /// Gives the sidebar the keyboard, its arrows moving over the rows (sidebar_keys.rs).
+    FocusSidebar,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
     /// Loads the pinned URL of each pinned tab of the Space shown that's away from it, as Arc's
@@ -78,6 +88,10 @@ pub enum Command {
     CopyUrl,
     /// Copies a Markdown link to the selected tab: its title, then its URL.
     CopyMarkdownLink,
+    /// Opens the web link on the clipboard as a new tab.
+    PasteUrlAsTab,
+    /// Shares the selected tab's page through the system's share sheet.
+    Share,
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
@@ -117,6 +131,10 @@ pub enum Command {
     JavaScriptConsole,
     /// Opens Chrome's Task Manager.
     TaskManager,
+    /// Starts recording a trace of the whole browser, or stops it and asks where to save it.
+    RecordTrace,
+    /// Turns Developer Mode on or off for the page's site.
+    ToggleDeveloperMode,
     /// Opens Chrome's extensions page in a new tab.
     ManageExtensions,
     /// Opens the Web Store in a new tab, as Dia's Add Extension… does.
@@ -176,12 +194,17 @@ pub enum Command {
     /// Opens Chromium's search engines page in a new tab, where the profile's site searches are
     /// added and edited: each a name, a keyword and a URL with %s for the query.
     SiteSearchSettings,
+    /// Opens Chrome's Clear browsing data dialog in a new tab, for the Space's profile, as Arc's
+    /// Settings › Profiles does for each profile.
+    ClearBrowsingData,
     /// Opens the Settings window, or brings it to the front.
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
     KeyboardShortcuts,
     /// Opens the Settings window on its About tab: the version, the engine's and the credits.
     About,
+    /// Asks the updater to look, or says where the update stands, in a build that updates itself.
+    CheckForUpdates,
     /// Opens the Settings window on its Import tab.
     Import,
     /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
@@ -230,6 +253,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-z", Command::Redo, false),
     ("shift-cmd-c", Command::CopyUrl, false),
     ("alt-shift-cmd-c", Command::CopyMarkdownLink, false),
+    ("alt-cmd-v", Command::PasteUrlAsTab, false),
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
@@ -270,10 +294,14 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("f12", Command::DevTools, false),
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
+    // Arc's, unreserved: a page or field that uses ⌃D, as a Mac text field's forward delete,
+    // keeps it. Off the Mac it would be Alt+D, Chrome's, so it has none there.
+    ("ctrl-d", Command::ToggleDeveloperMode, false),
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
     ("cmd-y", Command::ViewHistory, false),
+    ("shift-cmd-backspace", Command::ClearBrowsingData, false),
     // ⌃+ is ⌃⇧= on most layouts, as ⌘+ is.
     ("ctrl-+", Command::AddSplit, false),
     ("ctrl-shift-=", Command::AddSplit, false),
@@ -300,6 +328,16 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
 /// sidebar to hide.
 const HIDE_SIDEBAR: &str = "Hide Sidebar";
 
+/// The page's Developer Mode's rows in the command bar, of which it lists the one that would change
+/// it (Arc's, in sentence case).
+const DEVELOPER_MODE_ON: &str = "Turn on Developer Mode for this site";
+const DEVELOPER_MODE_OFF: &str = "Turn off Developer Mode for this site";
+
+/// What turns Developer Mode the other way, for a page in it or not.
+pub(super) fn developer_mode_title(on: bool) -> &'static str {
+    if on { DEVELOPER_MODE_OFF } else { DEVELOPER_MODE_ON }
+}
+
 /// The commands the command bar finds, with the words besides their names' that find them, in
 /// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
 /// (docs/ux-spec.md › Command bar › Commands). Among equal matches, the first here comes first.
@@ -314,12 +352,18 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Clear Archive", Command::ClearArchive, &[]),
     ("Favorite Tab", Command::FavoriteTab, &["add to favorites"]),
     ("Collapse All Folders", Command::CollapseFolders, &[]),
+    ("Collapse Pinned Tabs", Command::CollapsePinned, &["hide pinned"]),
+    ("Expand Pinned Tabs", Command::ExpandPinned, &["show pinned"]),
+    ("Expand All Folders", Command::ExpandFolders, &[]),
     ("Reveal Tab in Sidebar", Command::RevealTab, &["locate"]),
+    ("Focus Sidebar", Command::FocusSidebar, &["keyboard", "arrow keys"]),
     ("New Folder…", Command::NewFolder, &[]),
     ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
     ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
     ("Copy URL", Command::CopyUrl, &["link"]),
     ("Copy URL as Markdown", Command::CopyMarkdownLink, &["link"]),
+    ("Paste URL as New Tab", Command::PasteUrlAsTab, &["clipboard", "open"]),
+    ("Share…", Command::Share, &["send"]),
     ("New Window", Command::NewWindow, &["duplicate", "copy"]),
     ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
     ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
@@ -358,7 +402,11 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Developer Tools", Command::DevTools, &["devtools"]),
     ("Inspect Elements", Command::InspectElements, &[]),
     ("JavaScript Console", Command::JavaScriptConsole, &[]),
+    (DEVELOPER_MODE_ON, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
+    (DEVELOPER_MODE_OFF, Command::ToggleDeveloperMode, &["dev mode", "localhost"]),
     ("Open Task Manager", Command::TaskManager, &[]),
+    (trace::RECORD, Command::RecordTrace, &["performance", "tracing"]),
+    (trace::STOP_RECORDING, Command::RecordTrace, &["performance", "tracing"]),
     ("Manage Extensions…", Command::ManageExtensions, &["plugins"]),
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
@@ -377,9 +425,12 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("View Media…", Command::ViewMedia, &["screenshots", "captures"]),
     ("View History", Command::ViewHistory, &[]),
     ("Site Search Settings", Command::SiteSearchSettings, &["search engines", "keywords"]),
+    ("Clear Browsing Data…", Command::ClearBrowsingData, &["history", "cookies", "cache"]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
     (concat!("About ", env!("APP_NAME")), Command::About, &["version", "credits", "licence"]),
+    // The app menu's, which Linux shows no bar for.
+    ("Check for Updates…", Command::CheckForUpdates, &["update", "upgrade"]),
     ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
@@ -441,7 +492,7 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
     };
     let shell = shell.read(cx);
     let keys = user_keys(cx);
-    let found = find_commands(typed, keys, |name, command| shell.bar_name(name, command));
+    let found = find_commands(typed, keys, |name, command| shell.bar_name(name, command, cx));
     with_named_rows(found, typed, &shell.named_bar_rows(), keys)
 }
 
@@ -616,6 +667,18 @@ pub fn copy_from_bar(text: &str, cx: &mut App) {
     }
 }
 
+/// ⇧⌘C in the link preview copies its page's address, not the tab's under it, as Arc's Peek
+/// does, with the toast ⇧⌘C shows.
+pub fn copy_url_of_preview(url: &str, cx: &mut App) {
+    let url = clean_link(url);
+    let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) else {
+        return;
+    };
+    if !url.is_empty() {
+        shell.update(cx, |shell, cx| shell.copy(&url, "Copied Current URL", cx)).ok();
+    }
+}
+
 /// Runs `command`, whose row in the command bar was chosen, once the bar has gone.
 pub fn run_from_bar(command: Command, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
@@ -642,7 +705,16 @@ impl Command {
         )
     }
 
-    /// The command's name in the log and in the user's saved keys.
+    /// The command's name as Settings knows it, in the user's saved keys and the lines it logs:
+    /// its name, with the number of a Space's, as each of ⌃1–⌃9 has keys of its own.
+    pub fn key_name(self) -> String {
+        match self {
+            Command::SelectSpace(index) => format!("select-space-{}", index + 1),
+            _ => self.name().to_string(),
+        }
+    }
+
+    /// The command's name in the log.
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
@@ -665,7 +737,11 @@ impl Command {
             Command::RenameTab => "rename-tab",
             Command::NewFolder => "new-folder",
             Command::CollapseFolders => "collapse-folders",
+            Command::CollapsePinned => "collapse-pinned",
+            Command::ExpandPinned => "expand-pinned",
+            Command::ExpandFolders => "expand-folders",
             Command::RevealTab => "reveal-tab",
+            Command::FocusSidebar => "focus-sidebar",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::ResetSpaceTabs => "reset-space-tabs",
             Command::ToggleMute => "toggle-mute",
@@ -674,6 +750,8 @@ impl Command {
             Command::Redo => "redo",
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
+            Command::PasteUrlAsTab => "paste-url-as-tab",
+            Command::Share => "share",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
             Command::CapturePortion => "capture",
@@ -698,6 +776,8 @@ impl Command {
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
             Command::TaskManager => "task-manager",
+            Command::RecordTrace => "record-trace",
+            Command::ToggleDeveloperMode => "toggle-developer-mode",
             Command::ManageExtensions => "manage-extensions",
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
@@ -730,12 +810,14 @@ impl Command {
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
             Command::SiteSearchSettings => "site-search-settings",
+            Command::ClearBrowsingData => "clear-browsing-data",
             Command::Appearance(Appearance::Automatic) => "appearance-automatic",
             Command::Appearance(Appearance::Light) => "appearance-light",
             Command::Appearance(Appearance::Dark) => "appearance-dark",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::About => "about",
+            Command::CheckForUpdates => "check-for-updates",
             Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
@@ -779,6 +861,12 @@ pub fn bind_keys(cx: &mut App) {
         if crate::dialog::asking(cx) {
             return;
         }
+        // A shortcut in the UI opens its field before GPUI has read the keys typed after it, which
+        // it holds for the field under Wayland, as for one the page has (gpui_linux::hold_keys).
+        #[cfg(target_os = "linux")]
+        if run.0.opens_field() {
+            gpui_linux::hold_keys(None);
+        }
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
             shell
                 .update(cx, |shell, cx| shell.run(run.0, "ui", cx))
@@ -787,17 +875,23 @@ pub fn bind_keys(cx: &mut App) {
     });
     extensions::bind(cx);
     drm_note::bind(cx);
+    sidebar_keys::bind(cx);
 }
 
-/// The command bar is about to show a page in the pane being added, if one is: the pages shown take
-/// back its room first, so the split view shows at its place at once.
-pub fn pane_added(cx: &mut App) {
+/// The command bar is about to put `tab` in a split view with `with`: the pages shown take back the
+/// room of the pane being added, if one is, so the split view shows at its place at once. ⌘Z takes
+/// `tab` back out, or closes it if it was `opened` for the split.
+pub fn pane_added(tab: u64, with: u64, opened: bool, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
         shell
             .update(cx, |shell, cx| {
                 if shell.adding_pane.take().is_some() {
                     shell.lay_out_page(cx);
                     cx.notify();
+                }
+                match opened {
+                    true => shell.split_opened(tab, cx),
+                    false => shell.keep_split(tab, with, cx),
                 }
             })
             .ok();
@@ -830,8 +924,9 @@ impl Shell {
         let space = self.spaces.iter().position(|space| space.id == self.space);
         // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
         // in Arc.
-        // Escape puts back a dragged row before it stops the page (docs/ux-spec.md › Tab list).
-        if matches!(command, Command::Stop) && self.cancel_drag(cx) {
+        // Escape puts back a dragged row, or lets chosen rows go, before it stops the page
+        // (docs/ux-spec.md › Tab list).
+        if matches!(command, Command::Stop) && (self.cancel_drag(cx) || self.unchoose(cx)) {
             return;
         }
         // The command bar opens over the page, and the reveal's panel makes way for it.
@@ -862,7 +957,9 @@ impl Shell {
                 // Chrome, and leaves the tab alone. With no tab selected there is no page to
                 // close, so it closes the window, as ⇧⌘W does.
                 if !self.browser.close_other_window(cx) {
-                    if self.selected != 0 {
+                    if !self.chosen.is_empty() {
+                        self.close_chosen(cx);
+                    } else if self.selected != 0 {
                         self.close_tab(self.selected, false, cx);
                     } else {
                         self.browser.close_window(cx);
@@ -879,6 +976,7 @@ impl Shell {
                 }
                 return;
             }
+            Command::TogglePin if !self.chosen.is_empty() => return self.pin_chosen(cx),
             Command::TogglePin => {
                 if self.selected != 0 {
                     let pinned = self.pinned().contains(&self.selected);
@@ -894,9 +992,14 @@ impl Shell {
                 return;
             }
             Command::RenameTab => return self.rename_tab(self.selected, cx),
+            Command::NewFolder if !self.chosen.is_empty() => return self.folder_chosen(cx),
             Command::NewFolder => return self.new_folder(cx),
-            Command::CollapseFolders => return self.collapse_folders(cx),
+            Command::CollapseFolders => return self.fold_folders(false, cx),
+            Command::ExpandFolders => return self.fold_folders(true, cx),
+            Command::CollapsePinned => return self.set_pinned_open(false, cx),
+            Command::ExpandPinned => return self.set_pinned_open(true, cx),
             Command::RevealTab => return self.reveal_tab(cx),
+            Command::FocusSidebar => return self.focus_sidebar(cx),
             // In an agent's Space ⌘↩ is the bar's Take Over or Hand Back.
             Command::BackToPinnedUrl if self.agent_bar().is_some() => {
                 return self.agent_bar_primary(cx);
@@ -918,8 +1021,11 @@ impl Shell {
                 self.redo(cx);
                 return;
             }
+            Command::CopyUrl if !self.chosen.is_empty() => return self.copy_chosen(cx),
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
+            Command::PasteUrlAsTab => return self.paste_url_as_tab(cx),
+            Command::Share => return self.share_page(cx),
             Command::ReopenClosedTab => return self.reopen_closed(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
@@ -949,12 +1055,22 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
+            Command::RecordTrace => {
+                trace::toggle(self.browser.clone(), cx);
+                return self.update_menus(cx);
+            }
+            Command::ToggleDeveloperMode => {
+                let on = !self.page(self.selected).developer_mode;
+                return self.browser.set_developer_mode(self.selected, on, cx);
+            }
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
             Command::SiteSearchSettings => return self.browser.site_search_settings(cx),
+            Command::ClearBrowsingData => return self.browser.clear_browsing_data(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
             Command::About => return self.browser.about(cx),
+            Command::CheckForUpdates => return self.browser.check_for_updates(cx),
             Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
@@ -1000,7 +1116,7 @@ impl Shell {
             }
             Command::ChangeOrientation => {
                 let stacked = self.stacked(self.selected);
-                return self.browser.set_split_stacked(self.selected, !stacked, cx);
+                return self.stack_split(self.selected, !stacked, cx);
             }
             Command::ExpandSplit => return self.expand_split(cx),
             Command::MovePaneLeft | Command::MovePaneRight => {
@@ -1148,21 +1264,60 @@ impl Shell {
     /// Copies the selected tab's URL, or a Markdown link to it, without its tracking parameters,
     /// and says so in the toast.
     fn copy_url(&mut self, markdown: bool, cx: &mut Context<Self>) {
-        if let Some((text, toast)) = self.url_to_copy(markdown) {
+        if let Some((text, toast)) = self.link_to_copy(self.selected, markdown) {
             self.copy(&text, toast, cx);
         }
     }
 
-    /// The text to copy and the toast to say so with.
-    fn url_to_copy(&self, markdown: bool) -> Option<(String, &'static str)> {
-        let url = clean_link(&self.url(self.selected));
+    /// Opens the clipboard's web link at the top of the Today tabs and shows it, as Arc's ⌥⌘V
+    /// does. The clipboard is read only now, and text that isn't one http(s) link opens nothing,
+    /// as a drop of it doesn't. No agent path: the clipboard is the user's.
+    fn paste_url_as_tab(&mut self, cx: &mut Context<Self>) {
+        if let Some(urls) = self.pasted_urls(cx) {
+            self.browser.open_at(&urls, false, 0, 0, cx);
+        }
+    }
+
+    /// The clipboard's web link, read now, as one URL to open, or None for anything else.
+    pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
+        let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
+        // Text that isn't a web link opens nothing here, not a search, as Arc's ⌥⌘V does.
+        let urls = dropped_urls([(text.trim(), false)], |_| None);
+        if urls.is_empty() {
+            // check.sh reads this line.
+            log!("browser: pasted no URL");
+        }
+        Some(urls).filter(|urls| !urls.is_empty())
+    }
+
+    /// File › Share… and the command bar's Share…: the system's share sheet for the page shown,
+    /// as Site Controls' Share tile opens it, hanging from the URL field, else from the page's top.
+    fn share_page(&mut self, cx: &mut Context<Self>) {
+        let link = clean_link(&self.url(self.selected));
+        if link.is_empty() || !self.browser.has_share_sheet() {
+            return;
+        }
+        let at = match self.url_field_bounds() {
+            Some(field) => point(field.center().x, field.bottom()) + self.sidebar_origin.get(),
+            None => {
+                let page = self.page_frame(self.viewport).0;
+                point(page.center().x, page.top())
+            }
+        };
+        let title = self.title(self.selected);
+        self.browser.show_share_sheet(self.selected, &link, &title, at, cx);
+    }
+
+    /// `tab`'s link to copy, as a Markdown link if `markdown`, and the toast to say so with.
+    pub(super) fn link_to_copy(&self, tab: u64, markdown: bool) -> Option<(String, &'static str)> {
+        let url = clean_link(&self.url(tab));
         if url.is_empty() {
             return None;
         }
         let (text, toast) = match markdown {
             false => (url.clone(), "Copied Current URL"),
             true => {
-                let title = markdown_text(&self.title(self.selected));
+                let title = markdown_text(&self.title(tab));
                 (format!("[{title}]({url})"), "Copied URL as Markdown")
             }
         };
@@ -1174,7 +1329,7 @@ impl Shell {
     pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: command copy-url via sidebar");
-        let Some((text, toast)) = self.url_to_copy(false) else {
+        let Some((text, toast)) = self.link_to_copy(self.selected, false) else {
             return;
         };
         self.copy(&text, toast, cx);
@@ -1262,7 +1417,16 @@ impl Shell {
         let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
         let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
         let pane = pane_frames(frame, panes.len(), stacked, &shares)[focused];
-        self.browser.capture(self.selected, pane, radius, full_page, !self.private, cx);
+        let look = self.menu_look();
+        self.browser.capture(self.selected, pane, radius, full_page, !self.private, look, cx);
+    }
+
+    /// Whether `tab`'s page is in Developer Mode, or None where the user can't change it: a page
+    /// that isn't http(s), or a private window.
+    pub(super) fn developer_mode(&self, tab: u64) -> Option<bool> {
+        let page = self.page(tab);
+        let web = page.url.starts_with("http://") || page.url.starts_with("https://");
+        (tab != 0 && web && !self.private).then_some(page.developer_mode)
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.
@@ -1276,10 +1440,11 @@ impl Shell {
             Command::Back => page.can_go_back,
             Command::Forward => page.can_go_forward,
             Command::Stop => page.loading,
-            // Only a web page has a site to clear.
+            // Only a web page has a site to clear, or to show in Developer Mode.
             Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
+            Command::ToggleDeveloperMode => self.developer_mode(self.selected).is_some(),
             Command::BackToPinnedUrl => page.away_from_pinned_url || self.agent_bar().is_some(),
             Command::CloseSplitPane
             | Command::SeparatePane
@@ -1292,10 +1457,26 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            Command::CollapsePinned => self.shown_space().is_some_and(|space| {
+                !space.pinned.is_empty() && !space.folders.pinned_shut
+            }),
+            Command::ExpandPinned => {
+                self.shown_space().is_some_and(|space| space.folders.pinned_shut)
+            }
+            // The Library and a page's full screen keep the sidebar away.
+            Command::FocusSidebar => {
+                self.library.is_none() && !self.page_fullscreen && !self.sidebar_rows().is_empty()
+            }
+            Command::ExpandFolders => self.shown_space().is_some_and(|space| {
+                space.folders.folders.keys().any(|&folder| !space.is_open(folder))
+            }),
             Command::Clear => !self.today().is_empty(),
             Command::FavoriteTab => {
                 let tab = self.selected;
                 tab != 0 && !self.favorites.contains(&tab) && self.has_room_for(tab)
+            }
+            Command::Share => {
+                self.browser.has_share_sheet() && !clean_link(&self.url(self.selected)).is_empty()
             }
             // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
             Command::RenameTab => {
@@ -1303,9 +1484,11 @@ impl Shell {
                 self.selected != 0 && !favorite && !self.sidebar_hidden
             }
             Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
+            Command::CheckForUpdates => self.browser.updates(),
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
             Command::NewFolder
+            | Command::PasteUrlAsTab
             | Command::SearchTabs
             | Command::ReopenClosedTab
             | Command::NewWindow
@@ -1325,12 +1508,14 @@ impl Shell {
             | Command::AddExtension
             | Command::ViewHistory
             | Command::SiteSearchSettings
+            | Command::ClearBrowsingData
             | Command::KeyboardShortcuts
             | Command::About
             | Command::Import
             | Command::Passwords
             | Command::Welcome
             | Command::Appearance(_)
+            | Command::RecordTrace
             | Command::ReportProblem
             | Command::CopyBuildInfo
             | Command::HelpCenter
@@ -1354,7 +1539,7 @@ impl Shell {
 
     /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
     /// says what it would do.
-    fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
+    fn bar_name(&self, name: &'static str, command: Command, cx: &App) -> Option<&'static str> {
         if !self.offers(command) {
             return None;
         }
@@ -1365,6 +1550,11 @@ impl Shell {
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
+            Command::ToggleDeveloperMode => {
+                let on = self.page(self.selected).developer_mode;
+                (name == developer_mode_title(on)).then_some(name)
+            }
+            Command::RecordTrace => (name == trace::title(trace::recording(cx))).then_some(name),
             _ => Some(name),
         }
     }
@@ -1423,6 +1613,9 @@ fn private_runs(command: Command) -> bool {
             | Command::FavoriteTab
             | Command::NewFolder
             | Command::CollapseFolders
+            | Command::CollapsePinned
+            | Command::ExpandPinned
+            | Command::ExpandFolders
             | Command::BackToPinnedUrl
             | Command::ResetSpaceTabs
             | Command::NewSpace
@@ -1443,8 +1636,10 @@ fn private_runs(command: Command) -> bool {
             | Command::ViewMedia
             | Command::ViewHistory
             | Command::SiteSearchSettings
+            | Command::ClearBrowsingData
             | Command::ManageExtensions
             | Command::AddExtension
+            | Command::ToggleDeveloperMode
     )
 }
 
@@ -1589,6 +1784,7 @@ mod tests {
             let folders = Folders {
                 folders: HashMap::from([(5, ("Folder".into(), false))]),
                 parents: HashMap::from([(4, 5)]),
+                ..Default::default()
             };
             shell.set_tabs(1, vec![2, 3, 5, 4, 6], vec![7], Vec::new(), folders, cx);
             for tab in [2, 3, 4, 7] {
@@ -1664,9 +1860,9 @@ mod tests {
         let private =
             cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
         let found = |shell: &gpui::Entity<Shell>, typed: &str, cx: &mut gpui::TestAppContext| {
-            shell.read_with(cx, |shell, _| {
+            shell.read_with(cx, |shell, cx| {
                 find_commands(typed, &UserKeys::default(), |name, command| {
-                    shell.bar_name(name, command)
+                    shell.bar_name(name, command, cx)
                 })
                 .into_iter()
                 .map(|row| row.name.to_string())
@@ -1683,5 +1879,165 @@ mod tests {
         assert_eq!(host.site_search_settings.get(), 1);
         private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
         assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
+    }
+
+    /// ⇧⌘⌫ and the bar open Chrome's Clear browsing data dialog for the Space's profile, as Dia's
+    /// ⇧⌘⌫ does. A page may keep the key, as Chrome's isn't reserved. A private window's session
+    /// keeps nothing once it ends, so it offers none.
+    #[gpui::test]
+    fn clear_browsing_data_opens_from_its_key_and_the_bar_but_not_in_a_private_window(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui::AppContext as _;
+
+        use crate::shell::{Browser, recorder::Recorder};
+
+        let keys = UserKeys::default();
+        let key = "shift-cmd-backspace";
+        assert_eq!(keys.command_for(key, false), Some(Command::ClearBrowsingData));
+        assert_eq!(keys.command_for(key, true), None);
+        assert_eq!(keys.label(Command::ClearBrowsingData).as_deref(), Some("⇧⌘⌫"));
+
+        let host = Rc::new(Recorder::default());
+        let browser: Rc<dyn Browser> = host.clone();
+        let regular = cx.new(|cx| Shell::new(browser.clone(), cx));
+        let private =
+            cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
+        let found = |shell: &gpui::Entity<Shell>, typed: &str, cx: &mut gpui::TestAppContext| {
+            shell.read_with(cx, |shell, cx| {
+                find_commands(typed, &UserKeys::default(), |name, command| {
+                    shell.bar_name(name, command, cx)
+                })
+                .into_iter()
+                .map(|row| row.name.to_string())
+                .collect::<Vec<_>>()
+            })
+        };
+        let name = "Clear Browsing Data…".to_string();
+        for typed in ["clear browsing", "cookies"] {
+            assert!(found(&regular, typed, cx).contains(&name), "{typed}");
+            assert!(!found(&private, typed, cx).contains(&name), "{typed}");
+        }
+
+        regular.update(cx, |shell, cx| shell.run(Command::ClearBrowsingData, "key", cx));
+        assert_eq!(host.clear_browsing_data.get(), 1);
+        private.update(cx, |shell, cx| shell.run(Command::ClearBrowsingData, "key", cx));
+        assert_eq!(host.clear_browsing_data.get(), 1, "a private window opened it");
+    }
+
+    /// ⌥⌘V opens the clipboard's web link as a tab at the top of Today, and text that isn't one
+    /// opens nothing, as a drop of it doesn't.
+    #[gpui::test]
+    fn paste_url_as_new_tab_opens_only_a_web_link(cx: &mut gpui::TestAppContext) {
+        let shell_with = crate::shell::drag::detents::shell_with;
+        let (shell, host) = shell_with(cx, &[], &[2], Default::default());
+        let paste = |text: &str, cx: &mut gpui::TestAppContext| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.into()));
+            host.take();
+            shell.update(cx, |shell, cx| shell.run(Command::PasteUrlAsTab, "page", cx));
+            host.take().into_iter().filter(|call| call.starts_with("open ")).collect::<Vec<_>>()
+        };
+        let opened = paste(" https://example.com/a?b \n", cx);
+        assert_eq!(opened, ["open https://example.com/a?b false 0 0"]);
+        for text in ["javascript:alert(1)", "file:///etc/passwd", "some words", ""] {
+            assert!(paste(text, cx).is_empty(), "{text:?} opened a tab");
+        }
+        let keys = UserKeys::default();
+        assert_eq!(keys.command_for("alt-cmd-v", false), Some(Command::PasteUrlAsTab));
+    }
+
+    /// The command bar offers to turn Developer Mode on for a web page and off for one in it, and
+    /// neither for a page with no site or in a private window, which can't change it.
+    #[gpui::test]
+    fn developer_mode_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::{Folders, Page, recorder::Recorder};
+
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
+            (find_commands("developer mode", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::ToggleDeveloperMode)
+                .map(|found| if found.name == DEVELOPER_MODE_ON { "on" } else { "off" })
+                .collect()
+        };
+        let page = |url: &str, developer_mode| Page {
+            url: url.to_string().into(),
+            developer_mode,
+            ..Page::default()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| {
+            let mut shell = Shell::new(browser, cx);
+            let space = (1, "One".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("https://example.com/", false), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell, cx), ["on"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            assert_eq!(listed(shell, cx), ["off"]);
+            shell.run(Command::ToggleDeveloperMode, "bar", cx);
+            shell.set_page(10, page("chrome://settings/", false), cx);
+            assert!(listed(shell, cx).is_empty());
+        });
+        let calls = host.take();
+        let changes: Vec<&String> = calls.iter().filter(|call| call.contains("developer")).collect();
+        assert_eq!(changes, ["developer mode 10 true", "developer mode 10 false"]);
+
+        let browser = host.clone();
+        let private = cx.new(|cx| {
+            let mut shell = Shell::private_window(browser, 1, "Private".into(), 0, cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_page(10, page("http://localhost:3000/", true), cx);
+            shell.set_selected(10, cx);
+            shell
+        });
+        private.update(cx, |shell, cx| assert!(listed(shell, cx).is_empty()));
+    }
+
+    /// Record a Trace starts one, and while it records the command bar and Help › Troubleshooting
+    /// offer Stop Recording Trace in its place, which stops it.
+    #[gpui::test]
+    fn record_a_trace_s_row_says_what_it_would_do(cx: &mut gpui::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui::AppContext;
+
+        use crate::shell::recorder::Recorder;
+
+        let listed = |shell: &Shell, cx: &App| -> Vec<&str> {
+            let named = |name, command| shell.bar_name(name, command, cx);
+            (find_commands("trace", &UserKeys::default(), named).into_iter())
+                .filter(|found| found.command == Command::RecordTrace)
+                .map(|found| if found.name == trace::RECORD { "record" } else { "stop" })
+                .collect()
+        };
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let shell = cx.new(|cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            assert_eq!(listed(shell, cx), ["record"]);
+            shell.run(Command::RecordTrace, "bar", cx);
+            assert_eq!(listed(shell, cx), ["stop"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::STOP_RECORDING);
+        shell.update(cx, |shell, cx| {
+            shell.run(Command::RecordTrace, "ui", cx);
+            assert_eq!(listed(shell, cx), ["record"]);
+        });
+        assert_eq!(host.menu_bar.borrow().trace_title(), trace::RECORD);
+        let calls = host.take();
+        let traced: Vec<&String> = calls.iter().filter(|call| call.contains("trace")).collect();
+        assert_eq!(traced, ["start trace", "trace note shown", "trace note hidden", "stop trace"]);
     }
 }

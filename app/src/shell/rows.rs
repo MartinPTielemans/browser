@@ -3,12 +3,13 @@
 
 use std::{
     cell::Cell,
+    f32::consts::FRAC_PI_2,
     time::{Duration, Instant},
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, Role, SharedString, canvas, div,
-    prelude::*, px, rgb, svg,
+    AnyElement, App, Bounds, ClickEvent, Context, MouseButton, MouseDownEvent, Pixels, Radians,
+    Role, SharedString, Transformation, Window, canvas, div, prelude::*, px, rgb, svg,
 };
 
 use super::{
@@ -16,12 +17,14 @@ use super::{
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
-    BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
+    BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, CHOSEN, PINNED_CARET,
+    PINNED_CARET_GAP, PINNED_CARET_PLATE, PLATE_HEIGHT, PLATE_INSET, PLATE_RADIUS, SPACE_NAME,
+    SPACE_NAME_SHUT,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, URL_BUTTON_GLYPH, URL_BUTTON_SIZE, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
-    scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
+    developer_outline, scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
     swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph}, title,
 };
 use super::{
@@ -39,7 +42,6 @@ use crate::{
 pub(super) const CLEAR_TIP: &str = "Clear unpinned tabs in this space";
 
 impl Shell {
-    /// Closes every folder of the Space shown, all on one fold.
     /// Opens `folder` of the Space shown, with the folders it's in, and scrolls the sidebar to it,
     /// as the command bar's Open does.
     pub(super) fn open_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
@@ -55,17 +57,99 @@ impl Shell {
         self.scroll_to_row(folder);
     }
 
-    pub(super) fn collapse_folders(&mut self, cx: &mut Context<Self>) {
+    /// Opens or closes every folder of the Space shown, all on one fold.
+    pub(super) fn fold_folders(&mut self, open: bool, cx: &mut Context<Self>) {
         let Some(space) = self.shown_space() else {
             return;
         };
         let folders = space.folders.folders.keys().copied();
-        let open: Vec<u64> = folders.filter(|&folder| space.is_open(folder)).collect();
-        // The core reports each, and the first report has them all closed.
-        self.folding = (!open.is_empty()).then_some(false);
-        for folder in open {
-            self.browser.set_folder_open(folder, false, cx);
+        let changed: Vec<u64> = folders.filter(|&folder| space.is_open(folder) != open).collect();
+        // The core reports each, and the first report has them all folded.
+        self.folding = (!changed.is_empty()).then_some(open);
+        for folder in changed {
+            self.browser.set_folder_open(folder, open, cx);
         }
+    }
+
+    /// Collapses the pinned rows of the Space shown or expands them, on a folder's fold.
+    pub(super) fn set_pinned_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        let shown = self.shown_space().filter(|space| space.folders.pinned_shut == open);
+        let Some(space) = shown.map(|space| space.id) else {
+            return;
+        };
+        self.folding = Some(open);
+        self.browser.set_pinned_open(space, open, cx);
+    }
+
+    /// The chevron after the Space's name that collapses its pinned rows or expands them. It fades
+    /// in with Clear while the Space has pinned rows and stays while they're collapsed, so the way
+    /// back shows. It acts as it's pressed, as a folder does.
+    fn pinned_caret(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let shut = self.shown_space()?.folders.pinned_shut;
+        let shown = shut || self.offers(Command::CollapsePinned);
+        let drawn = self.caret_drawn.clone();
+        if !shown {
+            if drawn.take().is_some() {
+                log!("browser: pinned caret hidden");
+            }
+            return None;
+        }
+        let (command, name) = match shut {
+            true => (Command::ExpandPinned, "Expand Pinned Tabs"),
+            false => (Command::CollapsePinned, "Collapse Pinned Tabs"),
+        };
+        // check.sh clicks where this says it's drawn.
+        let frame = canvas(
+            move |bounds, _, _| {
+                if drawn.replace(Some((shut, bounds))) != Some((shut, bounds)) {
+                    let (origin, size) = (bounds.origin, bounds.size);
+                    log!(
+                        "browser: pinned caret {} at {} {} {} {}",
+                        if shut { "shut" } else { "open" },
+                        f32::from(origin.x),
+                        f32::from(origin.y),
+                        f32::from(size.width),
+                        f32::from(size.height),
+                    );
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
+        let glyph = svg()
+            .path("icons/chevron-down.svg")
+            .size(px(PINNED_CARET))
+            .text_color(self.palette.text(SPACE_NAME))
+            .when(shut, |glyph| {
+                glyph.with_transformation(Transformation::rotate(Radians(-FRAC_PI_2)))
+            });
+        let live = shut || self.tools_live();
+        let caret = div()
+            .id("pinned-caret")
+            .flex_none()
+            .ml(px(PINNED_CARET_GAP))
+            .size(px(PINNED_CARET_PLATE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+            .opacity(if shut { 1. } else { self.tools_opacity() })
+            .child(frame)
+            .child(glyph)
+            .when(self.a11y, |caret| {
+                caret.button_named(name).aria_expanded(!shut).pressed_by_mouse_down(true, false)
+            });
+        Some(caret.when(live, |caret| {
+            caret.hover(|style| style.bg(self.palette.plate(NAV_HOVERED))).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
+                    // Not the name's double-click, which renames the Space.
+                    cx.stop_propagation();
+                    shell.run(command, "sidebar", cx);
+                }),
+            )
+        }))
     }
 
     /// Opens or closes the folder as it's pressed, as Arc's does, even if the press becomes a drag.
@@ -111,9 +195,30 @@ impl Shell {
             (Row::Tab(tab), _) => self.depth(tab),
             (Row::NewTab, _) => 0,
         };
+        let ring = match row {
+            Row::Tab(tab) if !ghost => self.keyed_ring(tab, PLATE_RADIUS),
+            _ => None,
+        };
+        let chosen = matches!(row, Row::Tab(tab) if self.chosen.contains(&tab)) && !selected;
+        let developer = selected && !folder && self.page(self.selected).developer_mode;
         let plate = content
-            .when(selected, |plate| selected_plate(&self.palette, plate, plate_in, hover.unwrap_or(0.)))
+            .relative()
+            .children(ring)
+            .when(selected, |plate| {
+                selected_plate(&self.palette, plate, plate_in, hover.unwrap_or(0.), developer)
+            })
+            .when(developer && !ghost, |plate| {
+                plate.child(self.logged_developer_outline(self.selected, PLATE_RADIUS))
+            })
+            .when(developer && ghost, |plate| {
+                plate.child(developer_outline(&self.palette, PLATE_RADIUS))
+            })
+            .when(selected && !developer && !ghost, |plate| {
+                self.developer_outline_gone();
+                plate
+            })
             .id("plate")
+            .when(chosen, |plate| plate.bg(self.palette.plate(CHOSEN)))
             .when_some(hover.filter(|_| !selected), |plate, hover| {
                 plate.bg(self.palette.plate(HOVERED).opacity(hover))
             })
@@ -149,7 +254,8 @@ impl Shell {
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(row, *hovered, cx);
                 shell.hover_tooltip(row, *hovered, cx);
-                shell.hover_card(row, *hovered, cx)
+                shell.hover_card(row, *hovered, cx);
+                shell.folder_preview(row, *hovered, cx)
             }))
             // The ghost is a picture of a row that stays in the list.
             .when(self.a11y && !ghost, |element| self.row_access(element, row, selected))
@@ -245,6 +351,35 @@ impl Shell {
             ))
     }
 
+    /// `developer_outline` for the shown `tab`, which logs where it draws once that changes.
+    pub(super) fn logged_developer_outline(&self, tab: u64, radius: f32) -> gpui::Div {
+        let drawn = self.developer_outline_drawn.clone();
+        let logged = move |bounds: Bounds<Pixels>, _: &mut Window, _: &mut App| {
+            if drawn.get() == Some((tab, bounds)) {
+                return;
+            }
+            drawn.set(Some((tab, bounds)));
+            // check.sh reads this line.
+            log!(
+                "browser: developer outline {tab} at {:.0} {:.0} {:.0} {:.0}",
+                f32::from(bounds.origin.x),
+                f32::from(bounds.origin.y),
+                f32::from(bounds.size.width),
+                f32::from(bounds.size.height)
+            );
+        };
+        developer_outline(&self.palette, radius)
+            .child(canvas(logged, |_, _, _, _| {}).size_full())
+    }
+
+    /// The shown tab drew without its Developer Mode outline: logs that it went, once.
+    pub(super) fn developer_outline_gone(&self) {
+        if self.developer_outline_drawn.take().is_some() {
+            // check.sh reads this line.
+            log!("browser: developer outline none");
+        }
+    }
+
     /// A tab's row, its split view's for the split's first tab, or a folder's, or its `ghost`.
     pub(super) fn tab_row(&self, tab: u64, ghost: bool, cx: &mut Context<Self>) -> AnyElement {
         if self.is_folder(tab) {
@@ -273,13 +408,22 @@ impl Shell {
             None => title(&self.palette, self.folder_name(folder), false).pr(px(TITLE_END_INSET)),
         };
         let renaming = renaming.is_some();
-        let icon = self.swaps.glyph(
-            Swapped::Folder(folder),
-            folder_glyph(open),
-            FAVICON_DRAWN,
-            self.palette.text(SECONDARY).into(),
-        );
-        let plate = plate(icon, label).child(self.framed(folder, 0.));
+        let emoji_icon = self.folder_icon(folder);
+        let icon = match has_icon(&emoji_icon) {
+            true => emoji(emoji_icon),
+            false => self
+                .swaps
+                .glyph(
+                    Swapped::Folder(folder),
+                    folder_glyph(open),
+                    FAVICON_DRAWN,
+                    self.palette.text(SECONDARY).into(),
+                )
+                .into_any_element(),
+        };
+        let plate = plate(icon, label)
+            .child(self.framed(folder, 0.))
+            .children(self.drawn_for_picker(Subject::Folder(folder)));
         self.row(Row::Tab(folder), plate, ghost, cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
@@ -459,6 +603,7 @@ impl Shell {
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
             MouseButton::Left if event.modifiers.alt && self.alt_press_row(tab, cx) => {}
+            MouseButton::Left if !self.is_folder(tab) && self.choose_by_press(tab, event, cx) => {}
             MouseButton::Left => {
                 self.end_hovers(cx);
                 if self.is_folder(tab) {
@@ -517,7 +662,7 @@ impl Shell {
             .pr(px(SEGMENT_END))
             .when(!first, |segment| segment.child(line))
             .child(icon)
-            .child(title(palette, self.title(tab), focused))
+            .child(title(palette, self.title(tab), focused || page.developer_mode))
             .when(width >= LOADING_ROW_MIN, |segment| segment.children(self.status_dot(tab)))
     }
 
@@ -549,7 +694,9 @@ impl Shell {
                         cx.stop_propagation();
                         return shell.rename_tab(tab, cx);
                     }
-                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                    if (event.modifiers.alt && shell.alt_press_row(tab, cx))
+                        || shell.choose_by_press(tab, event, cx)
+                    {
                         return cx.stop_propagation();
                     }
                     shell.show_row(tab, cx)
@@ -565,10 +712,10 @@ impl Shell {
             )
     }
 
-    /// Where `tab`'s row or tile is, for the icon picker to hang under while it waits for it to
-    /// settle.
-    pub(super) fn drawn_for_picker(&self, tab: u64) -> Option<impl IntoElement + use<>> {
-        let pending = Some(Pending::Icon(Subject::Tab(tab)));
+    /// Where the row or tile of `subject`, a tab or a folder, is, for the icon picker to hang under
+    /// while it waits for it to settle.
+    pub(super) fn drawn_for_picker(&self, subject: Subject) -> Option<impl IntoElement + use<>> {
+        let pending = Some(Pending::Icon(subject));
         (self.picker_pending.map(|(picker, _)| picker) == pending).then(|| {
             let drawn = self.tab_row_drawn.clone();
             canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
@@ -683,7 +830,8 @@ impl Shell {
         let away = page.away_from_pinned_url;
         let back = away && self.pointer_favicon() == Some(tab);
         let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
-        let title = title(&self.palette, label, Row::Tab(tab) == self.selected_row());
+        let bright = Row::Tab(tab) == self.selected_row() || page.developer_mode;
+        let title = title(&self.palette, label, bright);
         // The close button shows under the pointer, and the title truncates before it.
         let close = self.close_button(vec![tab], cx);
         let renaming =
@@ -749,7 +897,7 @@ impl Shell {
                 }))
             })
             .child(icon);
-        let bounds = self.drawn_for_picker(tab);
+        let bounds = self.drawn_for_picker(Subject::Tab(tab));
         // The field of a rename takes the row's clicks while it's up.
         let plate = plate(icon.into_any_element(), label).child(self.framed(tab, 0.));
         let row = self.row(Row::Tab(tab), plate, ghost, cx);
@@ -762,7 +910,9 @@ impl Shell {
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
                     }
-                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                    if (event.modifiers.alt && shell.alt_press_row(tab, cx))
+                        || shell.choose_by_press(tab, event, cx)
+                    {
                         return;
                     }
                     // On the way back to the pinned URL, the favicon's click shows the tab.
@@ -823,9 +973,12 @@ impl Shell {
             .left_0()
             .size_full();
         let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
+        // Lit while the pinned rows are collapsed, where Arc's turns bold.
+        let shut = self.shown_space().is_some_and(|space| space.folders.pinned_shut);
         // A heading VoiceOver can jump to, whose menu is the Space's.
         let row = name_box(&self.palette, icon.is_some() || placeholder.is_some())
             .id("space-name")
+            .when(shut, |row| row.text_color(self.palette.text(SPACE_NAME_SHUT)))
             .when(self.a11y, |row| {
                 row.role(Role::Heading)
                     .accessibility_id("space-name")
@@ -901,6 +1054,7 @@ impl Shell {
                 }),
             )
             .child(div().truncate().child(name))
+            .children(self.pinned_caret(cx))
             .child(edit)
     }
 
@@ -1605,6 +1759,30 @@ mod tests {
         assert!(!host.take().iter().any(|call| call.starts_with("select")));
     }
 
+    /// Expand All Folders opens the Space's closed folders and Collapse All Folders closes its
+    /// open ones, each on one fold, leaving the rest alone.
+    #[gpui::test]
+    fn expand_and_collapse_all_fold_only_the_folders_that_change(cx: &mut TestAppContext) {
+        let docs = [(20, ("Docs".into(), true)), (22, ("Work".into(), false))];
+        let folders = Folders { folders: docs.into(), ..Default::default() };
+        let (shell, cx, host) = window_with(cx, vec![20, 21, 22, 23], vec![4], 4, folders);
+        let folds = |command, cx: &mut VisualTestContext| {
+            host.take();
+            shell.update(cx, |shell, cx| shell.run(command, "ui", cx));
+            let calls = host.take();
+            let folds = calls.into_iter().filter(|call| call.starts_with("folder open"));
+            (folds.collect::<Vec<_>>(), shell.read_with(cx, |shell, _| shell.folding))
+        };
+        assert_eq!(
+            folds(Command::ExpandFolders, cx),
+            (vec!["folder open 22 true".into()], Some(true))
+        );
+        assert_eq!(
+            folds(Command::CollapseFolders, cx),
+            (vec!["folder open 20 false".into()], Some(false))
+        );
+    }
+
     /// A dragged row that rests on another tab's row's middle for less than SPLIT_REST still goes
     /// where it's let go; one that rests there longer joins that tab in a split view, as Arc's
     /// does, with the row lit and no drop line.
@@ -1707,7 +1885,7 @@ mod tests {
     #[gpui::test]
     fn a_press_opens_or_closes_a_folder(cx: &mut TestAppContext) {
         let docs = [(20, ("Docs".into(), true))];
-        let folders = Folders { folders: docs.into(), parents: Default::default() };
+        let folders = Folders { folders: docs.into(), ..Default::default() };
         let (shell, cx, host) = window_with(cx, vec![20, 21], vec![4], 4, folders);
         let (x, y) = close_button(&shell, cx, 20);
         let middle = point(px(x - 100.), px(y));
@@ -1717,6 +1895,39 @@ mod tests {
         assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(false));
         let calls = host.take();
         assert!(!calls.iter().any(|call| call.starts_with("select")), "{calls:?}");
+    }
+
+    /// The chevron after the Space's name collapses its pinned rows as it's pressed, which hides
+    /// them but the tab shown's from the list and from the tabs' order, and expands them again.
+    #[gpui::test]
+    fn the_caret_collapses_and_expands_the_pinned_rows(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window_with(cx, vec![1, 2], vec![4], 4, Folders::default());
+        let caret =
+            |cx: &mut VisualTestContext| shell.read_with(cx, |shell, _| shell.caret_drawn.get());
+        let (shut, frame) = caret(cx).expect("no caret with pinned rows");
+        assert!(!shut);
+        cx.simulate_mouse_move(frame.center(), None, Modifiers::none());
+        cx.simulate_mouse_down(frame.center(), MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().contains(&"pinned open 1 false".to_owned()));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(false));
+
+        let shut = Folders { pinned_shut: true, ..Folders::default() };
+        shell.update(cx, |shell, cx| shell.set_tabs(1, vec![1, 2], vec![4], Vec::new(), shut, cx));
+        cx.run_until_parked();
+        assert_eq!(shell.read_with(cx, |shell, _| shell.sidebar_rows()), [4]);
+        let stays = caret(cx).is_some_and(|(shut, _)| shut);
+        assert!(stays, "the caret didn't stay for the way back");
+        shell.update(cx, |shell, cx| shell.set_selected(2, cx));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.rows().0), [2]);
+        let offered = shell.read_with(cx, |shell, _| {
+            (shell.offers(Command::CollapsePinned), shell.offers(Command::ExpandPinned))
+        });
+        assert_eq!(offered, (false, true));
+
+        shell.update(cx, |shell, cx| shell.run(Command::ExpandPinned, "ui", cx));
+        assert!(host.take().contains(&"pinned open 1 true".to_owned()));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(true));
     }
 
     /// Presses in the first frames after ⌃2, while the second Space's rows still slide in from the
@@ -2019,5 +2230,59 @@ mod tests {
             cx.simulate_click(at, Modifiers::none());
             assert!(host.take().contains(&"select 3".into()), "page {page}, drawn {drawn}");
         }
+    }
+
+    /// ⌘-click chooses rows along with the one shown and ⇧-click the rows through one, drawn with
+    /// the secondary fill without showing them. ⇧⌘C copies their links, ⌘W closes them as one
+    /// step, and a plain click or Esc lets them go, as Arc's do.
+    #[gpui::test]
+    fn command_and_shift_clicks_choose_rows_to_close_or_copy_together(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3, 4, 5, 6], 3);
+        shell.update(cx, |shell, cx| {
+            for tab in 2..=6 {
+                let url = format!("https://{tab}.example/").into();
+                shell.set_page(tab, Page { url, ..shell.page(tab) }, cx);
+            }
+        });
+        let at = |cx: &mut VisualTestContext, tab| {
+            let (x, y) = close_button(&shell, cx, tab);
+            point(px(x - 100.), px(y))
+        };
+        let chosen =
+            |cx: &mut VisualTestContext| shell.read_with(cx, |shell, _| shell.chosen_in_order());
+        let command = cx.update(|_, cx| Modifiers::secondary_key(cx));
+        host.take();
+        let five = at(cx, 5);
+        cx.simulate_click(five, command);
+        assert_eq!(chosen(cx), [3, 5]);
+        let six = at(cx, 6);
+        cx.simulate_click(six, Modifiers::shift());
+        assert_eq!(chosen(cx), [3, 5, 6]);
+        assert!(!host.take().iter().any(|call| call.starts_with("select")));
+
+        shell.update(cx, |shell, cx| shell.run(Command::CopyUrl, "keys", cx));
+        let links = "copy https://3.example/\nhttps://5.example/\nhttps://6.example/";
+        assert!(host.take().contains(&links.to_string()));
+        shell.update(cx, |shell, cx| shell.run(Command::Stop, "keys", cx));
+        assert!(chosen(cx).is_empty());
+
+        cx.simulate_click(five, command);
+        cx.simulate_click(six, command);
+        let two = at(cx, 2);
+        cx.simulate_click(two, Modifiers::shift());
+        assert_eq!(chosen(cx), [2, 3, 4, 5, 6]);
+        cx.simulate_click(two, command);
+        host.take_edits();
+        shell.update(cx, |shell, cx| shell.run(Command::CloseTab, "keys", cx));
+        assert_eq!(host.take_edits(), ["close 6", "close 5", "close 4", "close 3"]);
+        assert!(chosen(cx).is_empty());
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let reopened = host.take_edits();
+        assert!(reopened.len() == 4 && reopened.iter().all(|edit| edit.starts_with("reopen")));
+
+        cx.simulate_click(five, command);
+        assert_eq!(chosen(cx), [3, 5]);
+        cx.simulate_click(six, Modifiers::none());
+        assert!(chosen(cx).is_empty());
     }
 }

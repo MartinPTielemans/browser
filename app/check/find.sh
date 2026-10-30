@@ -12,7 +12,10 @@
 # the keyboard. View › Developer's JavaScript Console opens them, a tab without them shows its page
 # across the card, and View Source opens the page's source in a tab under it. Help ›
 # Troubleshooting's Open Task Manager opens Chrome's, with the keyboard, and ⌘W there closes it, not
-# the tab.
+# the tab. Its Record a Trace records until the toast's Stop, which shows while it records, and the
+# command bar offers to stop it meanwhile; Stop saves Chromium's trace where the save panel picks.
+# Undocked, after a relaunch, ⌥⌘J opens DevTools in a window of Chrome's, where ⌘C copies
+# the console's text to the run's own pasteboard, and ⌥⌘I from the page brings them to the front.
 
 # Find in page, and zoom. The test page has three apples and one 日本語, and "far" well below
 # them, and puts its zoom and how far it's scrolled in its title as they change.
@@ -341,7 +344,113 @@ expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't re
 send state
 in_browser RenderWidgetHostViewCocoa "after ⌘W closed the Task Manager"
 [ "$(today)" = "$second $first $source" ] || fail "⌘W in the Task Manager closed a tab"
+# Help › Troubleshooting's Record a Trace records until the toast's Stop, which stays while it
+# records, and the command bar then offers to stop it in its place. Stop asks where to save it, and
+# the file is Chromium's trace. The toast's Stop is about 38 in from its right edge, 18 from the
+# window's, and 41 down.
+send menu "Record a Trace"
+expect '^browser: command record-trace via ui$' "Record a Trace didn't reach the UI"
+expect '^browser: trace recording$' "Record a Trace didn't start a trace"
+expect '^browser: toast shown Recording a trace \[stop\]$' "no toast said a trace was recording"
+expect '^browser: toast settled$' "the trace's toast didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/trace.png" || fail "no window to capture"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type trace
+expect '^browser: command bar commands "trace": .*Stop Recording Trace' \
+  "the command bar didn't offer to stop the trace"
+grep '^browser: command bar commands "trace": ' "$log" | grep -q 'Record a Trace' &&
+  fail "the command bar offered to record a trace while one was recording"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+send layout
+width=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+  sed 's/^browser: layout content \([0-9]*\)x.*/\1/')
+send move $((width - 18 - 38)) 41
+send click $((width - 18 - 38)) 41
+expect '^browser: toast button stop$' "Stop wasn't pressed at $((width - 18 - 38)) 41"
+expect '^browser: trace stopped$' "Stop didn't stop the trace"
+await '^browser: trace recorded [1-9][0-9]* bytes$' || fail "the core didn't give the trace back"
+expect '^browser: trace save panel shown$' "Stop didn't ask where to save the trace"
+if [ "$(uname)" = Darwin ]; then
+  # The app logs the absolute path it saved to.
+  trace="$(cd "$out" && pwd)/trace.json"
+  rm -f "$trace"
+  send savepanel "$trace"
+  grep -q "^browser: save panel offers .* Trace\.json in $HOME" "$log" ||
+    fail "the save panel didn't offer the trace's name in Downloads or the home folder"
+  expect '^browser: save panel answered$' "no save panel showed for the trace"
+  expect "^browser: trace saved $trace\$" "the trace wasn't saved where it was picked"
+  python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    trace = json.load(f)
+assert trace["traceEvents"], "no events"
+' "$out/trace.json" || fail "the saved trace isn't Chromium's"
+else
+  echo "skip: saving the trace: the headless session has no file chooser portal for the driver to answer."
+fi
+none_since '^browser: toast shown Recording a trace' || fail "the trace's toast came back after Stop"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, what's typed right after it lands there, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png"
+
+# Undocked, as DevTools' Dock side menu leaves them for the next time, DevTools are a window of
+# Chrome's, where ⌘C copies, and ⌥⌘I from the page raises them, as Chrome's and Arc's toggle
+# does, rather than closing them. Sets where DevTools dock to $1.
+dock() {
+  python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    prefs = json.load(f)
+prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = sys.argv[2]
+with open(sys.argv[1], "w") as f:
+    json.dump(prefs, f)
+' "$prefs" "\"$1\""
+}
+dock undocked
+log="$out/find-undocked.log"
+step=0
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the find test page didn't draw after a relaunch"
+send click $page_point
+send key j cmd alt
+expect '^browser: command javascript-console via page$' \
+  "⌥⌘J with the page focused didn't reach the UI"
+# The window takes the keyboard, and its title, a moment after the command.
+send title DevTools
+expect '^browser: key window titled DevTools' "⌥⌘J didn't open DevTools in a window of their own"
+await_views 1 "with DevTools undocked"
+# The console's prompt takes the keyboard once DevTools have loaded, so the copy is tried until
+# it has.
+word=undocked-copy
+for _ in $(seq 50); do
+  send key a cmd
+  send type "$word"
+  send key a cmd
+  send key c cmd
+  send pasteboard
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "^browser: pasteboard text $word\$" &&
+    break
+done
+expect "^browser: pasteboard text $word\$" "⌘C in undocked DevTools didn't copy the console's text"
+# A command logs "command <name> via <where>"; the command bar's own lines aren't commands.
+grep -E '^browser: command .* via ' "$log" | grep -qv ' javascript-console ' &&
+  fail "⌘A or ⌘C in undocked DevTools ran a command of the app's"
+../tools/window-screenshot.sh "$pid" "$out/devtools-undocked.png" || fail "no window to capture"
+send window 1
+send click $page_point
+send key i cmd alt
+expect '^browser: command devtools via page$' "⌥⌘I with the page focused didn't reach the UI"
+send title DevTools
+expect '^browser: key window titled DevTools' "⌥⌘I didn't bring undocked DevTools to the front"
+send window 1
+await_views 1 "after ⌥⌘I with DevTools undocked"
+quit_by_key
+await '^browser: command quit via ' || fail "⌘Q didn't quit"
+exited
+dock right
+echo "ok: ⌘F opens the find bar from the page with the keyboard, what's typed right after it lands there, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Record a Trace records until the toast's Stop, and saves Chromium's trace where the save panel picks. Undocked DevTools open in a window of their own, where ⌘C copies, and ⌥⌘I from the page brings them to the front. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png, $out/trace.png, $out/devtools-undocked.png"
