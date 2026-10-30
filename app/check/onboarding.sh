@@ -19,6 +19,10 @@ if [ "$(uname)" = Linux ]; then
   mkdir -p "$chrome/Default"
   printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' > "$chrome/Local State"
   printf '%s' '{}' > "$chrome/Default/Preferences"
+  # A browser is listed only with something to bring.
+  printf '%s' '{"roots": {"bookmark_bar": {"type": "folder", "name": "Bookmarks bar", "children": [
+    {"type": "url", "name": "Example", "url": "https://example.org/"}]}}, "version": 1}' \
+    > "$chrome/Default/Bookmarks"
   found=Chrome
 else
   fixture="$PWD/src/import/fixture"
