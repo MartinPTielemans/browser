@@ -61,6 +61,9 @@ mod emoji;
 #[path = "../platform/linux/floats.rs"]
 mod floats;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/frames.rs"]
+mod frames;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/held_escape.rs"]
 mod held_escape;
 #[cfg(target_os = "linux")]
