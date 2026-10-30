@@ -15,7 +15,11 @@ on:
       - app/platform/windows/package/**
       - app/branding/windows-store.ini
       - app/branding/winget.ini
+      - app/fetch-ublock.sh
+      - app/ublock.ini
       - tools/winget.sh
+      - tools/licences.sh
+      - tools/third-party.py
       - .github/workflows/package-windows.yml
 
 permissions:
