@@ -79,8 +79,21 @@
 //                                         <w>x<h>" or "none", and whether it's full screen, as
 //                                         "browser: layout full screen <0|1>"
 //   state                                 nothing, for the done line's report
-//   title                                 logs the key window's title, as "browser: key window
-//                                         titled <title>", such as a window of Chrome's
+//   title [<text>]                        logs the key window's title, as "browser: key window
+//                                         titled <title>", such as a window of Chrome's. With
+//                                         <text>, once the title has it, for up to 10 s, as a
+//                                         window Chrome opens takes the keyboard and its title a
+//                                         moment after the command that opens it; else "browser:
+//                                         no key window titled <text>, windows <title> | <title>",
+//                                         the app's windows shown, the key one marked "(key)"
+//   pasteboard                            logs the text on the run's pasteboard, which stands in
+//                                         for the clipboard, as "browser: pasteboard text <text>"
+//   savepanel <path>                      picks <path> in the save panel the app began, once it
+//                                         has, through the panel's completion handler, logging
+//                                         "browser: save panel answered", or "browser: no save
+//                                         panel" if none begins within 5 s. The driver keeps each
+//                                         save panel the app begins off screen, logging "browser:
+//                                         save panel offers <name> in <folder>"
 //   front                                 logs which of the app's windows other apps take for
 //                                         the one in front, as "browser: front <first>, main
 //                                         <window>, key <window>, ax focused <window>, ax main
@@ -819,6 +832,124 @@ void OrderFrontCharacterPalette(id, SEL, id) {
   fprintf(stderr, "browser: character palette shown\n");
 }
 
+// The run's pasteboard, which stands in for the clipboard, so a page's or DevTools' copy and paste
+// never touch the owner's. Chromium asks for the clipboard both ways.
+NSPasteboard* g_pasteboard;
+IMP g_pasteboard_with_name;
+
+// The save panel the app began and its completion handler, which the driver answers as the user
+// would pick in it. A save panel runs out of process, where its -ok: raises "not implemented" and
+// its window can't be driven, so the driver keeps it off screen and ends it the way the panel
+// itself does, through the handler, with the URL it says the user picked.
+NSSavePanel* g_save_panel;
+void (^g_save_panel_done)(NSModalResponse);
+NSURL* g_save_panel_url;
+IMP g_save_panel_class;
+IMP g_begin_panel;
+IMP g_panel_url;
+
+void BeginPanel(NSSavePanel* self, SEL selector, void (^done)(NSModalResponse)) {
+  // An open panel, such as the import's, is the user's to answer as before.
+  if ([self isKindOfClass:NSOpenPanel.class]) {
+    ((void (*)(id, SEL, void (^)(NSModalResponse)))g_begin_panel)(self, selector, done);
+    return;
+  }
+  g_save_panel = self;
+  g_save_panel_done = done;
+  fprintf(stderr, "browser: save panel offers %s in %s\n",
+          self.nameFieldStringValue.UTF8String ?: "", self.directoryURL.path.UTF8String ?: "");
+}
+
+NSURL* PanelURL(NSSavePanel* self, SEL selector) {
+  if (self == g_save_panel && g_save_panel_url) {
+    return g_save_panel_url;
+  }
+  return ((NSURL * (*)(id, SEL)) g_panel_url)(self, selector);
+}
+
+// The panel's class may be one AppKit picks for it, so it's hooked as the app makes its first.
+NSSavePanel* SavePanel(id self, SEL selector) {
+  NSSavePanel* panel = ((NSSavePanel * (*)(id, SEL)) g_save_panel_class)(self, selector);
+  Class kind = object_getClass(panel);
+  IMP begin = method_setImplementation(
+      class_getInstanceMethod(kind, @selector(beginWithCompletionHandler:)), (IMP)BeginPanel);
+  if (begin != (IMP)BeginPanel) {
+    g_begin_panel = begin;
+  }
+  IMP url = method_setImplementation(class_getInstanceMethod(kind, @selector(URL)), (IMP)PanelURL);
+  if (url != (IMP)PanelURL) {
+    g_panel_url = url;
+  }
+  return panel;
+}
+
+// Logs the key window's title once it has |text|, for up to 10 s, or the app's windows if none
+// does: a window Chrome opens, such as undocked DevTools, takes the keyboard a moment after the
+// command that opens it, and its page's title after that.
+void AwaitKeyTitle(NSString* text, int tries, void (^done)(void)) {
+  NSString* title = NSApp.keyWindow.title ?: @"";
+  if (text.length == 0 || [title containsString:text]) {
+    fprintf(stderr, "browser: key window titled %s\n", title.UTF8String);
+    done();
+    return;
+  }
+  if (tries == 0) {
+    NSMutableArray<NSString*>* shown = [NSMutableArray array];
+    for (NSWindow* window in NSApp.windows) {
+      if (window.visible) {
+        [shown addObject:[NSString stringWithFormat:@"%@%@", window.title,
+                                                    window.keyWindow ? @" (key)" : @""]];
+      }
+    }
+    fprintf(stderr, "browser: no key window titled %s, windows %s\n", text.UTF8String,
+            [shown componentsJoinedByString:@" | "].UTF8String);
+    done();
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(),
+                 ^{
+                   AwaitKeyTitle(text, tries - 1, done);
+                 });
+}
+
+// Picks |path| in the save panel the app began, once it has, which may be a moment after the app
+// asked for it: for up to 5 s.
+void AnswerSavePanel(NSString* path, int tries, void (^done)(void)) {
+  if (g_save_panel_done) {
+    void (^answer)(NSModalResponse) = g_save_panel_done;
+    g_save_panel_done = nil;
+    g_save_panel_url = [NSURL fileURLWithPath:path isDirectory:NO];
+    fprintf(stderr, "browser: save panel answered\n");
+    // The app's handler reads the panel's URL as it runs.
+    answer(NSModalResponseOK);
+    g_save_panel = nil;
+    g_save_panel_url = nil;
+    done();
+    return;
+  }
+  if (tries == 0) {
+    fprintf(stderr, "browser: no save panel\n");
+    done();
+    return;
+  }
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(),
+                 ^{
+                   AnswerSavePanel(path, tries - 1, done);
+                 });
+}
+
+NSPasteboard* GeneralPasteboard(id, SEL) {
+  return g_pasteboard;
+}
+
+NSPasteboard* PasteboardWithName(id self, SEL selector, NSPasteboardName name) {
+  if ([name isEqualToString:NSPasteboardNameGeneral]) {
+    return g_pasteboard;
+  }
+  return ((NSPasteboard * (*)(id, SEL, NSPasteboardName)) g_pasteboard_with_name)(self, selector,
+                                                                                  name);
+}
+
 // Frames are in points from the content view's bottom-left corner. A plain NSView and the core's
 // window view only hold others, so the views in them are listed instead.
 void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
@@ -1435,7 +1566,16 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "title") {
-    fprintf(stderr, "browser: key window titled %s\n", NSApp.keyWindow.title.UTF8String ?: "");
+    AwaitKeyTitle(@(line.substr(std::min(line.size(), action.size() + 1)).c_str()), 100, done);
+    return true;
+  }
+  if (action == "savepanel") {
+    AnswerSavePanel(@(line.substr(std::min(line.size(), action.size() + 1)).c_str()), 50, done);
+    return true;
+  }
+  if (action == "pasteboard") {
+    fprintf(stderr, "browser: pasteboard text %s\n",
+            [g_pasteboard stringForType:NSPasteboardTypeString].UTF8String ?: "");
     done();
     return true;
   }
@@ -1666,6 +1806,14 @@ void drive_start(void) {
   method_setImplementation(class_getInstanceMethod(NSApplication.class,
                                                    @selector(orderFrontCharacterPalette:)),
                            (IMP)OrderFrontCharacterPalette);
+  g_pasteboard = [NSPasteboard pasteboardWithUniqueName];
+  method_setImplementation(class_getClassMethod(NSPasteboard.class, @selector(generalPasteboard)),
+                           (IMP)GeneralPasteboard);
+  g_pasteboard_with_name = method_setImplementation(
+      class_getClassMethod(NSPasteboard.class, @selector(pasteboardWithName:)),
+      (IMP)PasteboardWithName);
+  g_save_panel_class = method_setImplementation(
+      class_getClassMethod(NSSavePanel.class, @selector(savePanel)), (IMP)SavePanel);
   // A window leaving full screen tells AppKit it has before the desktop's Space slides back, and
   // until it has, the window server still orders the window over the others and drops clicks.
   [NSWorkspace.sharedWorkspace.notificationCenter
