@@ -41,6 +41,7 @@ public static class Shown {
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll")] static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] static extern IntPtr SendMessageTimeoutW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, IntPtr result);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hwnd, System.Text.StringBuilder name, int size);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr hwnd, System.Text.StringBuilder name, int size);
   [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
@@ -59,7 +60,9 @@ public static class Shown {
       }
       // Unowned: an overlay is owned by its browser window and goes with it.
       if (owner == process && IsWindowVisible(hwnd) && GetWindow(hwnd, 4) == IntPtr.Zero) {
-        PostMessageW(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
+        // WM_QUERYENDSESSION, then WM_ENDSESSION, as Windows ends a session.
+        SendMessageTimeoutW(hwnd, 0x0011, IntPtr.Zero, IntPtr.Zero, 0, 5000, IntPtr.Zero);
+        PostMessageW(hwnd, 0x0016, new IntPtr(1), IntPtr.Zero);
         closed++;
       }
       return true;
