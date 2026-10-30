@@ -501,6 +501,10 @@ NSRect Unconstrained(id, SEL, NSRect frame, NSScreen*) {
   return frame;
 }
 
+BOOL Never(id, SEL) {
+  return NO;
+}
+
 // Another app that asks which of ours is in front takes the first window at the normal level, in
 // the window server's order: T3 Code's window capture does, and so do others. Our windows over a
 // browser window are child windows, ahead of it in that order, so a tooltip or an overlay's shadow
@@ -3126,8 +3130,19 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
   g_card.styleMask = NSWindowStyleMaskBorderless;
   g_card.hasShadow = NO;
   g_card.ignoresMouseEvents = YES;
-  // A click on its buttons leaves the keyboard where it was, in the page or the browser window.
-  ((NSPanel*)g_card).becomesKeyOnlyIfNeeded = YES;
+  // A click on its buttons leaves the keyboard where it was, in the page or the browser window, as
+  // the browser window losing it ends the card before the click reaches the button (#818). The
+  // panel's own class, since GPUI's is every overlay's and the others take the keyboard.
+  static Class card_class;
+  if (!card_class) {
+    Class panel = object_getClass(g_card);
+    SEL key = @selector(canBecomeKeyWindow);
+    card_class = objc_allocateClassPair(panel, "ILOHoverCardPanel", 0);
+    class_addMethod(card_class, key, (IMP)Never,
+                    method_getTypeEncoding(class_getInstanceMethod(panel, key)));
+    objc_registerClassPair(card_class);
+  }
+  object_setClass(g_card, card_class);
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
   void (^left_window)(NSNotification*) = ^(NSNotification*) {
     if (g_card_shown && g_card_away) {
@@ -3148,11 +3163,28 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
                   usingBlock:left_window];
 }
 
-// Lets the mouse through the card's window but on its plate, with the pointer at |screen|.
-void PlaceCardClicks(NSPoint screen) {
+// Lets the mouse through the card's window but on its plate, with the pointer at |screen|. Returns
+// whether the card takes it now where it didn't.
+bool PlaceCardClicks(NSPoint screen) {
   NSPoint at = [g_card convertPointFromScreen:screen];
   at.y = NSHeight(g_card.frame) - at.y;
+  const bool was = !g_card.ignoresMouseEvents;
   g_card.ignoresMouseEvents = !NSPointInRect(at, g_card_plate);
+  return !was && !g_card.ignoresMouseEvents;
+}
+
+// The move onto the plate, to |screen|, went to the window under it, so the card hears it too, or
+// it would go as the row is left with the pointer on it.
+void MovedOntoCard(NSPoint screen, NSEvent* move) {
+  [g_card_view mouseMoved:[NSEvent mouseEventWithType:NSEventTypeMouseMoved
+                                             location:[g_card convertPointFromScreen:screen]
+                                        modifierFlags:move.modifierFlags
+                                            timestamp:move.timestamp
+                                         windowNumber:g_card.windowNumber
+                                              context:nil
+                                          eventNumber:0
+                                           clickCount:0
+                                             pressure:0]];
 }
 
 // The pointer's moves over the page go to the page's view, so the card's window doesn't hear them:
@@ -3179,7 +3211,10 @@ void WatchCard() {
                                      if (event.window) {
                                        at = [event.window convertPointToScreen:at];
                                      }
-                                     PlaceCardClicks(at);
+                                     if (PlaceCardClicks(at) && event.window != g_card &&
+                                         event.type == NSEventTypeMouseMoved) {
+                                       MovedOntoCard(at, event);
+                                     }
                                      return event;
                                    }];
 }
