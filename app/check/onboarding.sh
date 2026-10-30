@@ -1,6 +1,6 @@
 # A new profile's first launch plays the onboarding over the window, captured at each step in a
 # light and a dark appearance: the intro draws ilo's wordmark and its line and goes on by itself,
-# or at any key; the import step lists the made-up Arc in src/import/fixture, never the Mac's own
+# or at any key; the import step lists a made-up browser, never the computer's own
 # browsers; Esc or Skip goes on from a step, the colour step's Return gives the first Space the
 # swatch picked, and the last step leaves the flow for the first Space's welcome with the command
 # bar up and a line under it. The default browser's step shows only while ilo isn't the default,
@@ -11,8 +11,19 @@
 # appearance instead.
 
 serve
-# The import step reads the fixture's home, set for each launch so the runs after keep their own.
-fixture="$PWD/src/import/fixture"
+# The import step reads a made-up home, set for each launch so the runs after keep their own: the
+# fixture's, with Arc, or on Linux, where Arc isn't, one with a Chrome profile.
+if [ "$(uname)" = Linux ]; then
+  fixture="$out/onboarding-home"
+  chrome="$fixture/.config/google-chrome"
+  mkdir -p "$chrome/Default"
+  printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' > "$chrome/Local State"
+  printf '%s' '{}' > "$chrome/Default/Preferences"
+  found=Chrome
+else
+  fixture="$PWD/src/import/fixture"
+  found=Arc
+fi
 # Captures the window as onboarding-$1.png.
 capture_step() {
   ../tools/window-screenshot.sh "$pid" "$out/onboarding-$1.png" || fail "no window to capture"
@@ -41,7 +52,7 @@ grep -q '^browser: onboarding started$' "$log" || fail "a new profile didn't sta
 capture_step light-intro
 await '^browser: onboarding left intro via time$' || fail "light: the intro didn't go on by itself"
 await '^browser: onboarding step import settled$' || fail "light: the import step didn't come"
-grep -q '^browser: import found Arc$' "$log" || fail "light: the import step didn't find the fixture's Arc"
+grep -q "^browser: import found $found\$" "$log" || fail "light: the import step didn't find the made-up $found"
 for each in $steps; do
   [ "$each" = intro ] && continue
   # The import came before any key, so it's been waited for already.
@@ -155,4 +166,4 @@ expect '^browser: command bar shown$' "the replay in its own window didn't end w
 exec 3>&-
 quit
 
-echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's Arc, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"
+echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the made-up $found, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"
