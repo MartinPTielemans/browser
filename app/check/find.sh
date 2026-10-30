@@ -347,6 +347,9 @@ expect '^browser: page [0-9]* .* view-source:https://example.org/$' \
   "View Source didn't open the page's source"
 source=$(grep '^browser: page [0-9]* .* view-source:' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: today $second $first $source\$" "the source's tab isn't under the page's"
+# Loaded before the Task Manager opens: Chromium makes the window key as a committing page's view
+# replaces the focused one, which takes the keyboard back from a Task Manager that opened first.
+expect "^browser: loaded $source " "the source's tab didn't load"
 # Chrome's Task Manager, from the menu as Arc's, is a window of its own, which ⌘W closes as in
 # Chrome, giving the browser window the keyboard back with its tabs.
 send menu "Open Task Manager"
