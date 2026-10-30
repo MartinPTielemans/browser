@@ -107,8 +107,8 @@ onkeydown = e => {
 };
 </script>' > "$out/site/dialogs.html"
 # The focus page's title says "ready" once it's drawn. "o" in it opens it again in a tab, whose
-# title says "opened", and once that tab is hidden the first time, the page calls its focus(),
-# which a page may do for a tab it opened.
+# title says "opened", and "f" calls that tab's focus(), which Chromium does only for a page the
+# user has just acted in, as a notification's click is.
 printf '%s' '<title>loading</title>
 <script>
 const opened = location.search == "?opened";
@@ -117,13 +117,8 @@ let tab;
 onkeydown = e => {
   if (e.key == "o" && !opened && !tab) {
     tab = open("focus.html?opened");
-  }
-};
-onmessage = e => e.data == "hidden" && tab && tab.focus();
-document.onvisibilitychange = () => {
-  if (opened && document.hidden) {
-    document.onvisibilitychange = null;
-    opener.postMessage("hidden", "*");
+  } else if (e.key == "f" && tab) {
+    tab.focus();
   }
 };
 </script>' > "$out/site/focus.html"

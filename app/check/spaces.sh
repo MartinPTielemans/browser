@@ -182,9 +182,9 @@ show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 ../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
 
 # A page's focus() shows its tab, in its Space, as a site's does from its notification's click,
-# which macOS hands Chromium and Chromium gives the page: here the focus page brings the tab it
-# opened back from behind another Space. It doesn't hold that macOS shows a site's notification
-# and hands its click on.
+# which macOS hands Chromium and Chromium gives the page: here the focus page, moved to the second
+# Space, brings back the tab it opened in the first. It doesn't hold that macOS shows a site's
+# notification and hands its click on.
 serve
 send key t cmd
 expect '^browser: command bar shown$' "⌘T for the focus page didn't open the command bar"
@@ -199,21 +199,31 @@ expect "^browser: today .* .* .*\$" "the focus page's o didn't open a tab"
 g=$(today | tr ' ' '\n' | grep -vx -e "$f" -e "$a")
 expect "^browser: selected $g\( in .*\)\{0,1\}\$" "the focus page's tab wasn't shown"
 await "^browser: title $g opened\$" || fail "the focus page's tab didn't draw"
+f_row=$(row "$(today | tr ' ' '\n' | grep -nx "$f" | cut -d: -f1 | awk '{ print $1 - 1 }')")
+send click $f_row
+expect "^browser: selected $f\( in .*\)\{0,1\}\$" "the focus page's row didn't show it"
+post rightclick $f_row
+expect "^browser: menu shown .*$(cased 'Move to') › reading 日本語," "the focus page's menu didn't offer the other Space"
+send choose reading 日本語
+expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to didn't show the focus page's new Space"
+expect "^browser: selected $f\( in .*\)\{0,1\}\$" "Move to didn't show the focus page"
+expect "^browser: settled space $second\$" "the focus page's Space didn't settle"
 send click $page_point
-send key 2 ctrl
-expect "^browser: space $second in " "⌃2 from the focus page's tab didn't show Space $second"
+send type f
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "focus() didn't show its tab's Space"
 expect "^browser: selected $g\( in .*\)\{0,1\}\$" "focus() didn't show its tab"
+expect "^browser: settled space $first\$" "the focus page's tab's Space didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/space-focus.png" || fail "no window to capture"
 send key w cmd
-expect "^browser: today $f $a\$" "⌘W didn't close the focus page's tab"
-expect '^browser: selected [0-9]' "⌘W on the focus page's tab didn't show another"
-if [ "$(grep '^browser: selected' "$log" | tail -1 | cut -d' ' -f3)" != "$f" ]; then
-  send click $(row 0)
-  expect "^browser: selected $f\( in .*\)\{0,1\}\$" "the focus page's row didn't show it"
-fi
+expect_tabs "$a" "$a" "after closing the focus page's tab"
+send click $page_point
+send key 2 ctrl
+expect "^browser: selected $f\( in .*\)\{0,1\}\$" "⌃2 didn't show the focus page"
 send key w cmd
-expect_tabs "$a" "$a" "after closing the focus page"
+expect_tabs "$b" "$b" "after closing the focus page"
+send click $page_point
+send key 1 ctrl
+expect_tabs "$a" "$a" "after the focus page"
 
 # A page out of sight is hidden, as in Chrome, and runs no animation frames: a tab behind the one
 # shown, and the tab a Space not shown shows. Back in sight, it's visible.
