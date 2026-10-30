@@ -54,6 +54,7 @@ cleanup() {
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  [ -z "${tls:-}" ] || kill "$tls" 2>/dev/null || true
   # A run's temp dir, such as the updates run's with its key.
   [ -z "${scratch:-}" ] || rm -rf "$scratch"
   kill "$pid" 2>/dev/null || return 0

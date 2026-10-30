@@ -59,11 +59,38 @@ onkeydown = async e => {
   }
 };
 </script>' > "$out/site/call.html"
+# The same pages over https, for the floating call: Chrome floats a call on https or a file alone,
+# and its page info, the Site Controls, lists no permissions for a file. The certificate is made
+# for this run, and the browser takes it by its key alone, so no other site's errors are let by.
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
+  -addext subjectAltName=IP:127.0.0.1 -keyout "$out/tls.key" -out "$out/tls.pem" 2> /dev/null ||
+  fail "openssl didn't make the floating call's certificate"
+spki=$(openssl x509 -in "$out/tls.pem" -pubkey -noout | openssl pkey -pubin -outform der |
+  openssl dgst -sha256 -binary | base64)
+rm -f "$out/tls.port"
+mkfifo "$out/tls.port"
+python3 -I -u -c '
+import functools, http.server, ssl, sys
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1])
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+tls.load_cert_chain(sys.argv[2], sys.argv[3])
+server.socket = tls.wrap_socket(server.socket, server_side=True)
+print(server.server_address[1])
+sys.stdout.close()
+server.serve_forever()
+' "$out/site" "$out/tls.pem" "$out/tls.key" > "$out/tls.port" 2> "$out/tls.log" 3>&- 4>&- 5>&- &
+tls=$!
+# Its port, once it's listening, or nothing if it ended first.
+read -r tls_port < "$out/tls.port" || true
+[ -n "$tls_port" ] || fail "the https server didn't start: $(cat "$out/tls.log")"
+secure="https://127.0.0.1:$tls_port/"
 log="$out/media.log"
 step=0
 rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="${site}call.html" "$browser" --use-fake-device-for-media-stream \
-  --auto-select-tab-capture-source-by-title=Shared < "$out/drive" > "$log" 2>&1 &
+  --auto-select-tab-capture-source-by-title=Shared --ignore-certificate-errors-spki-list="$spki" \
+  < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -146,9 +173,9 @@ expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
 
 # A call floats once its tab is hidden, as Arc's does: Chrome's automatic Picture in Picture for a
 # page using the camera that asks for it with its media session, on https or a file alone. So a
-# file's page, from the command bar, whose "c" calls and which says when its window floats and
-# lands, and whose "k" puts how often it was asked to float in its title. Showing its tab again
-# brings the call back.
+# page from the https server, from the command bar, whose "c" calls and which says when its window
+# floats and lands, and whose "k" puts how often it was asked to float in its title. Showing its
+# tab again brings the call back.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
@@ -173,10 +200,10 @@ onkeydown = async e => {
 </script>' > "$out/site/float.html"
 send key t cmd
 expect '^browser: command bar shown$' "the command bar didn't open for the floating call"
-send type "file://$(cd "$out/site" && pwd)/float.html"
+send type "${secure}float.html"
 send key return
-expect "^browser: loaded [0-9]* file:///.*/float.html\$" "the floating call's page didn't load"
-f=$(grep '^browser: loaded [0-9]* file:///.*/float.html$' "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: loaded [0-9]* ${secure}float.html\$" "the floating call's page didn't load"
+f=$(grep "^browser: loaded [0-9]* ${secure}float.html$" "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: title $f ready\$" "the floating call's page didn't draw"
 send click $page_point
 send key c
