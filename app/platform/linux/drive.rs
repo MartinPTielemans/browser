@@ -60,8 +60,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
-    settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, menu_window, overlays, panels, platform,
+    reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -314,6 +314,13 @@ fn within(
         window = tree.parent;
     }
     false
+}
+
+/// Whether `window` and the windows it's in are mapped.
+fn viewable(connection: &RustConnection, window: xproto::Window) -> bool {
+    (connection.get_window_attributes(window).ok())
+        .and_then(|cookie| cookie.reply().ok())
+        .is_some_and(|a| a.map_state == xproto::MapState::VIEWABLE)
 }
 
 /// The overlay, Settings or the browser window the X server's input focus is in, if it's the
@@ -671,6 +678,7 @@ fn keysym(key: &str) -> Option<u32> {
         "space" => 0x20,
         "backspace" => 0xff08,
         "delete" => 0xffff,
+        "home" => 0xff50,
         "pageup" => 0xff55,
         "pagedown" => 0xff56,
         "up" => 0xff52,
@@ -821,13 +829,14 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
     let x = server()?;
     let (connection, root) = &*x;
     // As the X server picks it: the window under the pointer when that's in the focus window, else
-    // the focus window.
+    // the focus window. A panel hidden under the pointer, as the find bar after its close button,
+    // is under it no more.
     let window = match keyboard_window() {
         Some(
             Keyboard::Overlay(focus) | Keyboard::Settings(_, focus) | Keyboard::Browser(_, focus),
         ) => (HOVERED.get())
             .map(|hovered| hovered.window)
-            .filter(|&hovered| within(connection, hovered, focus))
+            .filter(|&hovered| viewable(connection, hovered) && within(connection, hovered, focus))
             .unwrap_or(focus),
         None => driven()?.window,
     };
@@ -984,6 +993,23 @@ fn text_property(window: xproto::Window, name: &str) -> Option<String> {
         .reply()
         .ok()?;
     String::from_utf8(property.value).ok()
+}
+
+/// The title of the window with the input focus, or of the first window it's in that has one.
+fn focus_title() -> Option<String> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let mut window = input_focus()?;
+    loop {
+        if let Some(title) = text_property(window, "_NET_WM_NAME").filter(|t| !t.is_empty()) {
+            return Some(title);
+        }
+        let tree = connection.query_tree(window).ok()?.reply().ok()?;
+        if window == tree.root || tree.parent == x11rb::NONE {
+            return None;
+        }
+        window = tree.parent;
+    }
 }
 
 /// Whether the window manager has `window` full screen.
@@ -1350,8 +1376,9 @@ fn run_command(line: &str) -> Option<()> {
             Some(())
         }
         // The window's content and the views the X server has in it: GPUI's, and the overlays
-        // over it. shortcut: the pages are aura windows in Chromium's window, which the X server
-        // doesn't see, so they aren't listed.
+        // and floats over it, as the Mac's lists its child windows. The floats, such as the zoom
+        // HUD, take no input, so they're left out of overlay_views. shortcut: the pages are aura
+        // windows in Chromium's window, which the X server doesn't see, so they aren't listed.
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
@@ -1362,7 +1389,9 @@ fn run_command(line: &str) -> Option<()> {
             );
             log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
             let [left, top, ..] = frame(browser.window)?;
-            let views = overlay_views().into_iter().map(|view| view as usize as u32);
+            let views = (overlay_views().into_iter())
+                .chain(floats::shown())
+                .map(|view| view as usize as u32);
             for view in views.chain(popups(browser.window).unwrap_or_default()) {
                 let [x, y, width, height] = frame(view)?;
                 log!(
@@ -1379,11 +1408,16 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let window = match keyboard_window()? {
-                Keyboard::Overlay(window) | Keyboard::Settings(window, _) => window,
-                Keyboard::Browser(browser, _) => browser.window,
+            let title = match keyboard_window() {
+                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
+                    text_property(window, "_NET_WM_NAME").unwrap_or_default()
+                }
+                Some(Keyboard::Browser(browser, _)) => {
+                    text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
+                }
+                // A window of Chromium's own, such as the Task Manager.
+                None => focus_title()?,
             };
-            let title = text_property(window, "_NET_WM_NAME").unwrap_or_default();
             log!("browser: key window titled {title}");
             Some(())
         }

@@ -194,22 +194,33 @@ send key f cmd
 expect '^browser: find bar shown$' "⌘F after the close button didn't open the find bar again"
 
 # ⌘J from the page and Edit › Find › Jump to Selection scroll the page back to the match a find
-# left selected. ⌘↑ is the page's own, to its top. It ends there, where zooming doesn't scroll it.
+# left selected. ⌘↑ is the page's own, to its top, and off the Mac Ctrl+Home is. It ends there,
+# where zooming doesn't scroll it.
+top="up cmd"
+[ "$(uname)" = Linux ] && top="home cmd"
 for _ in 1 2 3; do send key backspace; done
 send type far
 expect_find "$first" "open 1 of 1 far" "the find didn't find the text below the fold"
 expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' "the find didn't scroll the page to the match"
 send key escape
 expect_find "$first" "closed" "escape didn't close the find"
-for jump in "key j cmd" "menu Jump to Selection"; do
-  send key up cmd
+# Chromium centres the selection only on the Mac (WebContentsImpl::CenterSelection).
+jumps="j Jump"
+if [ "$(uname)" = Linux ]; then
+  jumps=
+  echo "skip: ⌘J and Jump to Selection: Chromium centres the selection only on the Mac."
+fi
+for each in $jumps; do
+  jump="key j cmd"
+  [ "$each" = Jump ] && jump="menu Jump to Selection"
+  send key $top
   expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
   send $jump
   expect '^browser: command jump-to-selection via \(page\|ui\)$' "$jump didn't reach the UI"
   expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' \
     "$jump didn't scroll the page to its selection"
 done
-send key up cmd
+send key $top
 expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
 send key f cmd
 expect '^browser: find bar shown$' "⌘F didn't open the find bar again"
@@ -268,7 +279,15 @@ expect '^browser: loaded [0-9]* https://example.org/$' "the first tab didn't loa
 # of it, from the frame's left, through a resize. Each tab has its own. Sets $views to the frames
 # of the views shown, DevTools' first, once there are $1 of them. DevTools fill the frame at once,
 # and the page moves aside once they've loaded, as in Arc, so with two it waits for that too.
+# Linux's driver lists the pages the UI lays out, and DevTools are an aura window in Chromium's,
+# which the X server doesn't see (drive.rs), so there neither checks the views.
+sees_devtools=1
+if [ "$(uname)" = Linux ]; then
+  sees_devtools=
+  echo "skip: where DevTools dock beside the page: Linux's driver can't see aura windows."
+fi
 await_views() {
+  [ -n "$sees_devtools" ] || return 0
   for _ in $(seq 50); do
     send layout
     layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content')
@@ -282,6 +301,7 @@ await_views() {
 # DevTools fill the card, which is 228 from the left and 10 from the other edges, and the page
 # keeps its left part.
 check_docked() {
+  [ -n "$sees_devtools" ] || return 0
   content=$(echo "$layout" | sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
   width=${content%x*}
   height=${content#*x}
@@ -327,16 +347,36 @@ expect '^browser: page [0-9]* .* view-source:https://example.org/$' \
   "View Source didn't open the page's source"
 source=$(grep '^browser: page [0-9]* .* view-source:' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: today $second $first $source\$" "the source's tab isn't under the page's"
+# Loaded before the Task Manager opens: Chromium makes the window key as a committing page's view
+# replaces the focused one, which takes the keyboard back from a Task Manager that opened first.
+expect "^browser: loaded $source " "the source's tab didn't load"
 # Chrome's Task Manager, from the menu as Arc's, is a window of its own, which ⌘W closes as in
 # Chrome, giving the browser window the keyboard back with its tabs.
 send menu "Open Task Manager"
 expect '^browser: command task-manager via ui$' "Open Task Manager didn't reach the UI"
-send title
-expect '^browser: key window titled Task Manager' "Open Task Manager didn't show Chrome's"
-../tools/window-screenshot.sh "$pid" "$out/task-manager.png" || fail "no window to capture"
+# Off the Mac the window manager gives it the keyboard a moment after it opens.
+managed='^browser: key window titled Task Manager'
+for _ in $(seq 100); do
+  send title
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$managed" && break
+  sleep 0.1
+done
+# Captured first, so a Task Manager that didn't take the keyboard shows whether it opened.
+../tools/window-screenshot.sh "$pid" "$out/task-manager.png" all || fail "no window to capture"
+expect "$managed" "Open Task Manager didn't show Chrome's"
 send key w cmd
-expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"
-send state
+if [ "$(uname)" = Linux ]; then
+  # Off the Mac the Task Manager is Chromium's own window, which takes Ctrl+W itself, as Chrome's,
+  # and the window manager gives the keyboard back once it's gone.
+  for _ in $(seq 100); do
+    send state
+    [ "$key" = BrowserCoreNSWindow ] && break
+    sleep 0.1
+  done
+else
+  expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"
+  send state
+fi
 in_browser RenderWidgetHostViewCocoa "after ⌘W closed the Task Manager"
 [ "$(today)" = "$second $first $source" ] || fail "⌘W in the Task Manager closed a tab"
 quit_by_key

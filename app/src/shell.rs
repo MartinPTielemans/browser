@@ -2289,6 +2289,10 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        // Left already, with the window (`bounds_changed`).
+        if !fullscreen && !self.page_fullscreen {
+            return;
+        }
         // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
         // shell hears of Chromium's as it resizes.
         let full_screen = match cfg!(target_os = "linux") {
@@ -2367,6 +2371,20 @@ impl Shell {
             // check.sh waits for this line, which the Mac's driver writes.
             let way = if full_screen { "entered" } else { "left" };
             log!("browser: window {way} full screen");
+            // Chrome lets a page's full screen go as the window leaves the full screen it went to
+            // for the page, and the window manager can take it out before the core says so. The
+            // page leaves now, so this resize lays it out once, in the card.
+            if !full_screen && self.window_for_page {
+                self.page_fullscreen = false;
+                self.window_for_page = false;
+                self.page_held = None;
+                self.full_screen_timing = Some(FullScreenTiming {
+                    entering: false,
+                    before: self.viewport,
+                    laid: false,
+                    drawn: false,
+                });
+            }
             self.set_full_screen(full_screen, cx);
             cx.notify();
         }
