@@ -176,6 +176,9 @@ document.title = "fields";
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
+  # A click while the page still loads can land before its field is drawn, and focus no field.
+  await_log "^browser: page $agent_tab back 1 forward 0 loading 0 http://localhost:$port/fields\\.html\$" \
+    "the fields page didn't finish loading"
   send click $page_point
   [ "$focus" = RenderWidgetHostViewCocoa ] || fail "a click on the fields page left focus on $focus"
   send type typed-by-ada
