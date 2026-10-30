@@ -60,8 +60,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
-    settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, menu_window, overlays, panels, platform,
+    reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -227,12 +227,13 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
 }
 
 /// The views of the app's windows that show over a browser window: the overlays, the find bar and
-/// the offer to save a password, then ilo's menu.
+/// the offer to save a password, then ilo's menu, and the toast.
 fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(panels::shown());
     views.extend(menu_window::shown());
     views.extend(reveal_window::shown());
+    views.extend(floats::shown());
     views
 }
 
@@ -1062,29 +1063,53 @@ fn zoom_changes(connection: &RustConnection) {
     }
 }
 
-/// Chromium's own windows over browser window `browser`, such as autofill's dropdown, which
-/// drive.mm lists among a window's child windows: those that show and that no window manager takes,
-/// from the bottom up. Chromium's are the X client's that made `browser`, as a window's id says,
-/// where GPUI's, such as the overlays' shadows, are another client's.
+/// Chromium's own windows over browser window `browser`, which drive.mm lists among a window's
+/// child windows: those that show and that no window manager takes, such as autofill's dropdown,
+/// from the bottom up, then its dialogs for the window, such as the one asking for a passkey,
+/// which the window manager takes as `browser`'s. Chromium's are the X client's that made
+/// `browser`, as a window's id says, where GPUI's, such as the overlays' shadows, are another
+/// client's.
 fn popups(browser: xproto::Window) -> Option<Vec<xproto::Window>> {
     let x = server()?;
     let (connection, root) = &*x;
     let client = !connection.setup().resource_id_mask;
-    let tops = connection.query_tree(*root).ok()?.reply().ok()?.children;
-    Some(
-        tops.into_iter()
-            .filter(|&top| top != browser && top & client == browser & client)
-            .filter(|&top| {
-                connection
-                    .get_window_attributes(top)
-                    .ok()
-                    .and_then(|cookie| cookie.reply().ok())
-                    .is_some_and(|a| {
-                        a.override_redirect && a.map_state == xproto::MapState::VIEWABLE
-                    })
+    let ours = |window: xproto::Window| window != browser && window & client == browser & client;
+    let viewable = |window: xproto::Window, taken: bool| {
+        connection
+            .get_window_attributes(window)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .is_some_and(|a| {
+                a.override_redirect != taken && a.map_state == xproto::MapState::VIEWABLE
             })
-            .collect(),
-    )
+    };
+    let tops = connection.query_tree(*root).ok()?.reply().ok()?.children;
+    let mut popups: Vec<_> =
+        (tops.into_iter()).filter(|&top| ours(top) && viewable(top, false)).collect();
+    let list = connection.intern_atom(false, b"_NET_CLIENT_LIST").ok()?.reply().ok()?.atom;
+    let managed = connection
+        .get_property(false, *root, list, xproto::AtomEnum::WINDOW, 0, 4096)
+        .ok()
+        .and_then(|cookie| cookie.reply().ok());
+    let managed: Vec<_> = managed.and_then(|p| Some(p.value32()?.collect())).unwrap_or_default();
+    popups.extend(managed.into_iter().filter(|&window| {
+        ours(window)
+            && viewable(window, true)
+            && connection
+                .get_property(
+                    false,
+                    window,
+                    xproto::AtomEnum::WM_TRANSIENT_FOR,
+                    xproto::AtomEnum::WINDOW,
+                    0,
+                    1,
+                )
+                .ok()
+                .and_then(|cookie| cookie.reply().ok())
+                .and_then(|p| p.value32()?.next())
+                == Some(browser)
+    }));
+    Some(popups)
 }
 
 /// The item of `menus` titled `title`, in a submenu too, or with "Submenu › Item", the item in the

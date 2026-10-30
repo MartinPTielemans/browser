@@ -9,10 +9,6 @@
 # The domain is the check's alone. Agents never get DevTools: it runs any script in any page.
 
 passkeys_check() {
-  if [ "$(uname)" != Darwin ]; then
-    echo "skip: passkeys. The driver's layout, which finds the dialog, is the Mac's so far."
-    return 0
-  fi
   serve
   # The page's title says where it is: ready, registering, registered, signing in, signed in, or
   # failed with the error's name. "r" registers ada@check.test, "s" signs in with that passkey. A

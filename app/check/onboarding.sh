@@ -24,7 +24,7 @@ launch_new() {
   step=0
   rm -f "$saved"
   BROWSER_IMPORT_HOME="$fixture" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
-    "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+    "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await '^browser: onboarding step intro settled$' || fail "$1: the intro didn't draw"
@@ -63,7 +63,7 @@ quit
 # the run not skipping it.
 log="$out/onboarding-relaunch.log"
 step=0
-BROWSER_DRIVE=1 BROWSER_ONBOARDING=light "$app/Contents/MacOS/Browser" < "$out/drive" \
+BROWSER_DRIVE=1 BROWSER_ONBOARDING=light "$browser" < "$out/drive" \
   > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
