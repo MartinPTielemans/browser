@@ -189,8 +189,10 @@ send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $f in a call\$" "Allow didn't give the floating call the camera"
 shown "$b"
 expect "^browser: title $f floating\$" "the call didn't float with its tab hidden"
-shown_again "$f"
+# It lands as its tab is shown, so before the click that gives its page the keyboard.
+shown "$f"
 expect "^browser: title $f landed\$" "the floating call didn't come back with its tab"
+send click $page_point
 
 # The call's Site Controls list the Automatic picture-in-picture it asked for. Blocked there, the
 # call stays in its tab as the tab hides, and allowed, it floats again. Back at Ask, Settings'
@@ -240,8 +242,9 @@ expect "^browser: title $f asked 1\$" "blocked in its Site Controls, the call st
 floats Allow
 shown "$b"
 expect "^browser: title $f floating\$" "allowed in its Site Controls, the call didn't float"
-shown_again "$f"
+shown "$f"
 expect "^browser: title $f landed\$" "the call allowed to float didn't come back with its tab"
+send click $page_point
 floats Ask
 mini_player off
 shown "$b"
@@ -252,8 +255,9 @@ send click $page_point
 mini_player on
 shown "$b"
 expect "^browser: title $f floating\$" "with the Mini Player on again, the call didn't float"
-shown_again "$f"
+shown "$f"
 expect "^browser: title $f landed\$" "the call floating again didn't come back with its tab"
+send click $page_point
 send key e
 expect "^browser: title $f ended\$" "e didn't end the floating call"
 shown_again "$a"
