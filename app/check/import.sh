@@ -168,7 +168,8 @@ send clickkey 590 245
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
-# Firefox, the row after Chrome's, brings its toolbar's bookmark, its menu's in a folder, and its history.
+# Firefox, the row after Chrome's, brings its toolbar's bookmark, its menu's in a folder, and its
+# history.
 expect '^browser: import drawn done$' "the import's end didn't draw"
 send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
