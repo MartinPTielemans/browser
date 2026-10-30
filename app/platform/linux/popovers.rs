@@ -154,6 +154,12 @@ fn dismiss(kind: Kind) {
 }
 
 fn left_popover(view: *mut c_void) {
+    // To ilo's menu over it, such as the Site Controls' passwords row's, which gives the keyboard
+    // back as it closes.
+    if crate::menu_window::over(view) {
+        gpui_linux::set_overlay_keyboard(view, true, left_popover);
+        return;
+    }
     let kind = POPOVERS.with_borrow(|all| {
         (all.iter())
             .find(|each| each.view == view && each.shown.is_some())
@@ -162,6 +168,15 @@ fn left_popover(view: *mut c_void) {
     if let Some(kind) = kind {
         dismiss(kind);
     }
+}
+
+/// The browser window the popover of `view` shows over, by its UI's view, and where in its
+/// content, while it takes clicks: ilo's menu opens over it there (menu_window.rs).
+pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
+    POPOVERS.with_borrow(|all| {
+        let shown = all.iter().find(|each| each.view == view)?.shown?;
+        (!shown.released).then_some((shown.ui_view, shown.bounds))
+    })
 }
 
 /// The views of the popovers that show, for the test driver (drive.rs).
