@@ -74,9 +74,9 @@ jobs:
           gb=$(awk '{ printf "%.1f", $1 / 1048576 }' "$peak")
           echo "chrome's last link: $link s, at most $gb GB" | tee -a "$GITHUB_STEP_SUMMARY"
       # The core's tests that need no browser, such as which default search engine a policy
-      # outranks.
+      # outranks, with the test fonts they load, which never go in the package.
       - name: Test the core
-        run: '"$ILO_ENGINE_ROOT/linux/src/out/Default/browser_core_unittests"'
+        run: engine/linux/test.sh "$ILO_ENGINE_ROOT/linux"
       - name: Package
         run: engine/linux/package.sh "$ILO_ENGINE_ROOT/linux" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz"
       # A release named after the commit, which holds the engine's source. fetch.sh takes the
