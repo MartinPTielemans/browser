@@ -58,6 +58,8 @@ extern "C" unsigned g_unix_fd_add_full(int priority,
                                        void* data,
                                        void (*notify)(void* data)) __attribute__((weak));
 constexpr unsigned kGlibIoIn = 1;
+// The core's (core/public/browser_core.h), in the chrome that loads the app. Weak, as GLib's are.
+extern "C" void bc_hold_keys(void) __attribute__((weak));
 // Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
 // checks only the sources as urgent as the most urgent ready one, and the display's check is where
 // Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
@@ -415,10 +417,15 @@ bool host_can_draw_emoji(const char*) {
   return true;
 }
 
-// shortcut: under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own,
-// so the host can't keep the keys typed after the command bar's shortcut from the page; holding
-// them is for the core's key handling to do.
-void host_hold_keys(void) {}
+// Under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own, and under
+// X11 Chromium's window has the focus, so a page's keys reach Chromium first and the host can't
+// keep those typed after a bar's shortcut from the page. The core holds them, and an overlay that
+// takes the keyboard takes them (overlays.rs).
+void host_hold_keys(void) {
+  if (bc_hold_keys) {
+    bc_hold_keys();
+  }
+}
 
 // No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
 // the tab.

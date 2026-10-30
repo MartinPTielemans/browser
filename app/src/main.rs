@@ -2959,6 +2959,54 @@ unsafe extern "C" fn tab_key_before_page(
     false
 }
 
+/// Gives the keys the core held from a page since a shortcut that opens a field (bc_hold_keys) to
+/// the overlay of `view`, which now has the keyboard, in the order typed.
+#[cfg(target_os = "linux")]
+fn give_held_keys(view: *mut c_void) {
+    unsafe extern "C" fn take(held: *mut c_void, keys: *const bc::bc_key, count: usize) {
+        let held = unsafe { &mut *held.cast::<Vec<gpui::Keystroke>>() };
+        for key in unsafe { std::slice::from_raw_parts(keys, count) } {
+            let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+            let has = |flag| key.modifiers & flag != 0;
+            let modifiers = gpui::Modifiers {
+                control: has(bc::BC_MODIFIER_CONTROL),
+                alt: has(bc::BC_MODIFIER_ALT),
+                shift: has(bc::BC_MODIFIER_SHIFT),
+                platform: has(bc::BC_MODIFIER_META),
+                function: false,
+            };
+            held.push(shell::web_keystroke(&name, modifiers));
+        }
+    }
+    let mut held: Vec<gpui::Keystroke> = Vec::new();
+    unsafe { bc::bc_give_held_keys(Some(take), (&raw mut held).cast()) };
+    let Some(cx) = CX.with_borrow(Clone::clone).filter(|_| !held.is_empty()) else {
+        return;
+    };
+    // check.sh reads this line, which names the window that took them as the Mac's does.
+    log!("browser: held {} key events for GPUIPanel", held.len());
+    // After the update that showed the overlay, which a key would come inside, and before GPUI
+    // reads the keys typed since, as the task runs before it dispatches its Wayland queue.
+    let app = cx.clone();
+    cx.foreground_executor()
+        .spawn(async move {
+            app.update(|cx| {
+                let overlay = cx.windows().into_iter().find(|window| {
+                    window.update(cx, |_, window, _| ns_view(window) == view).unwrap_or(false)
+                });
+                if let Some(overlay) = overlay {
+                    let typed = |_: gpui::AnyView, window: &mut Window, cx: &mut App| {
+                        for keystroke in held {
+                            window.dispatch_keystroke(keystroke, cx);
+                        }
+                    };
+                    overlay.update(cx, typed).ok();
+                }
+            })
+        })
+        .detach();
+}
+
 unsafe extern "C" fn tab_key_unhandled(
     _: *mut c_void,
     tab: bc::bc_id,

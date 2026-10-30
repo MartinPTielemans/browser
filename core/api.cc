@@ -28,6 +28,7 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/held_keys.h"
 #include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
@@ -307,6 +308,15 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
     browser_core::platform::SetUITextInput(widget, caret);
   }
 #endif
+}
+
+void bc_hold_keys(void) {
+  browser_core::held_keys::Hold();
+}
+
+void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                       void* context) {
+  browser_core::held_keys::Give(take, context);
 }
 
 bool bc_window_restore(bc_id id) {

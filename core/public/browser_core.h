@@ -877,6 +877,20 @@ BC_EXPORT void bc_window_toggle_maximized(bc_id window);
 BC_EXPORT void bc_window_ui_text_input(bc_id window, bool focused, double x, double y,
                                        double height);
 
+// During tab_key_before_page: holds the keys typed in the tab's page after the one asked about,
+// which opens a field of the app's, such as ⌃L's address field. A shortcut the page gets first
+// comes back to the app only after the keys typed behind it reached the page, and they belong in
+// the field. bc_give_held_keys gives them to the field once it has the keyboard. If nothing takes
+// them in 400 ms, the page kept the shortcut, and it gets them as typed. Keys an input method
+// composes aren't held. For hosts that can't hold the keys themselves, as on Linux, where a page's
+// keys reach Chromium's window first.
+BC_EXPORT void bc_hold_keys(void);
+
+// Ends a hold (bc_hold_keys): |take| gets the keys held, |count| of them in the order typed, during
+// the call, for the field that now has the keyboard. Not called if nothing was held.
+BC_EXPORT void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                                 void* context);
+
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its
 // sidebar's width, and goes full screen if it was. The core saves them as they
