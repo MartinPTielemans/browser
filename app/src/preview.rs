@@ -906,6 +906,8 @@ impl Browser for Fake {
         0
     }
 
+    fn rename_profile(&self, _: u64, _: &str, _: &mut App) {}
+
     // The tests' made-up Arc, so the import's step shows a browser to pick.
     fn import_host(&self) -> Rc<dyn browser::import::Host> {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/src/import/fixture");
@@ -1089,7 +1091,12 @@ impl Browser for Fake {
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
     }
 
-    fn tell(&self, _: dialog::Question, _: Box<dyn FnOnce(&mut App)>, _: &mut App) -> bool {
+    fn tell(
+        &self,
+        _: dialog::Question,
+        _: Box<dyn FnOnce(Vec<String>, &mut App)>,
+        _: &mut App,
+    ) -> bool {
         false
     }
 
