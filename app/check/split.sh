@@ -294,7 +294,7 @@ set -- $pages
 [ "${3%x*}" = 220 ] && [ "${5%%,*}" = "$((x + 230))" ] && [ "${6%x*}" -lt "$((w - 230))" ] ||
   fail "resized, the left pane isn't 220 wide, with the right one beside it: $pages"
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${size% *}x${size#* }\$" "the window didn't draw back at its size"
 read_pages
 [ "$pages" = "$expanded" ] || fail "back at its size the panes aren't as they were: $pages"
 send doubleclick $((x + 225)) 400
