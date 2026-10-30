@@ -6,6 +6,13 @@
 # leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
 # picture of the whole long page, past its view.
 
+# The line saying the PNG was copied to the run's own pasteboard. On Linux check.sh runs in a display
+# of its own, whose clipboard is the run's.
+if [ "$(uname)" = Darwin ]; then
+  copied='^browser: pasteboard png [0-9]* bytes, private$'
+else
+  copied='^browser: clipboard png [0-9]* bytes$'
+fi
 # A page longer than any view, with a box at a known place in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
 <body style="margin:0;height:6000px">
@@ -66,7 +73,7 @@ case "$size" in
   200x100 | 400x200) ;;
   *) fail "the picture of the 200 by 100 box is $size" ;;
 esac
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied" \
   "Copy didn't copy the PNG to the run's pasteboard"
 expect '^browser: capture left (copy)$' "capture mode didn't leave after Copy"
 expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
@@ -191,7 +198,7 @@ full=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: tab [
   sed 's/.*: \([0-9]*x[0-9]*, [0-9]* bytes\)$/\1/')
 height=$(echo "$full" | sed 's/^[0-9]*x\([0-9]*\),.*/\1/')
 [ "$height" -ge 6000 ] || fail "the full page's picture is $full, not the page's 6000 points high"
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied" \
   "Capture Full Page didn't copy the PNG to the run's pasteboard"
 expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
   "Capture Full Page didn't show its toast"
