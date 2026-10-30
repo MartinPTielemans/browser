@@ -87,6 +87,13 @@ fn add(kind: Kind, view: *mut c_void) {
     });
 }
 
+/// The views of the floats that show, for the test driver's layout (drive.rs).
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    FLOATS.with_borrow(|floats| {
+        (floats.iter()).filter(|float| !float.over.is_null()).map(|float| float.view).collect()
+    })
+}
+
 fn find<R>(kind: Kind, f: impl FnOnce(&mut Float) -> R) -> Option<R> {
     FLOATS.with_borrow_mut(|floats| floats.iter_mut().find(|float| float.kind == kind).map(f))
 }
