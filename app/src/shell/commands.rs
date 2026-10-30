@@ -741,15 +741,20 @@ pub fn bind_keys(cx: &mut App) {
     drm_note::bind(cx);
 }
 
-/// The command bar is about to show a page in the pane being added, if one is: the pages shown take
-/// back its room first, so the split view shows at its place at once.
-pub fn pane_added(cx: &mut App) {
+/// The command bar is about to put `tab` in a split view with `with`: the pages shown take back the
+/// room of the pane being added, if one is, so the split view shows at its place at once. ⌘Z takes
+/// `tab` back out, or closes it if it was `opened` for the split.
+pub fn pane_added(tab: u64, with: u64, opened: bool, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
         shell
             .update(cx, |shell, cx| {
                 if shell.adding_pane.take().is_some() {
                     shell.lay_out_page(cx);
                     cx.notify();
+                }
+                match opened {
+                    true => shell.split_opened(tab, cx),
+                    false => shell.keep_split(tab, with, cx),
                 }
             })
             .ok();
@@ -952,7 +957,7 @@ impl Shell {
             }
             Command::ChangeOrientation => {
                 let stacked = self.stacked(self.selected);
-                return self.browser.set_split_stacked(self.selected, !stacked, cx);
+                return self.stack_split(self.selected, !stacked, cx);
             }
             Command::ExpandSplit => return self.expand_split(cx),
             Command::MovePaneLeft | Command::MovePaneRight => {

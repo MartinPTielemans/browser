@@ -499,7 +499,7 @@ impl Shell {
             // check.sh waits for this line.
             log!("browser: dragged {tab} onto {with}");
             self.settle_drag();
-            self.browser.split_with(tab, with, false, cx);
+            self.join_split(tab, with, false, false, cx);
             cx.notify();
             return;
         }
