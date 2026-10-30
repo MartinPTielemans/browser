@@ -11,8 +11,10 @@
 # Never. On the first site, the row names the login, All Passwords… lists it in Settings, whose
 # Remove asks first, and the row's Remove asks in the browser window's dialog and removes it, which
 # Settings hears. Settings' Offer to save passwords, switched off, keeps the next login from
-# bringing the offer, and Save and fill addresses switches off and on. Each run has a profile of its
-# own, which no other run or the owner's copy reaches.
+# bringing the offer, and Save and fill addresses switches off and on. Then a sign-up form's
+# new-password field offers Chrome's strong password, where Choose Your Own leaves the field to
+# the user and Use Strong Password fills it and saves it, with no offer. Each run has a profile of
+# its own, which no other run or the owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty, with a DevTools client that sees
 # the eye in its password field (check/cdp.py).
@@ -335,7 +337,38 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 sed -n "/^browser: drive $off: /,\$p" "$log" | grep -q "^browser: offer $tab " &&
   fail "the login brought an offer with Offer to save passwords off"
+
+# With no login saved for the site, Chrome's popup in a sign-up form's new-password field offers
+# Choose Your Own and Use Strong Password, and previews its password in the field. Down selects
+# Choose Your Own, whose return leaves the field to the user. On the page again, down twice selects
+# Use Strong Password, whose return fills the password in; Chrome saves it in the profile, which
+# Settings hears, and the sign-up brings no offer to save it. Made-up usernames only.
+# Loads the sign-up page and types username $1, then tab takes the keyboard to the password field.
+generation_offered() {
+  go_from_bar "${site#http://}signup.html"
+  expect "^browser: title $tab signup\$" "the sign-up page didn't load"
+  send click 600 60
+  send type "$1"
+  send key tab
+  expect "^browser: title $tab offered\$" "Chrome's popup didn't offer a password to the field"
+}
+generation_offered own@example.test
+../tools/window-screenshot.sh "$pid" "$out/password-generation.png" || fail "no window to capture"
+send key down
+send key return
+expect "^browser: title $tab own\$" "Choose Your Own didn't leave the password field to the user"
+generation_offered new@example.test
+send key down
+send key down
+send key return
+expect "^browser: title $tab generated\$" "Use Strong Password didn't fill a password in"
+await "^browser: passwords [0-9]*: 127.0.0.1:$port new@example.test\$" ||
+  fail "Settings didn't hear the save: $(grep '^browser: passwords ' "$log" | tail -1)"
+send click 600 60
+send key return
+expect "^browser: title $tab welcome\$" "the sign-up didn't go through"
+none_since "^browser: offer $tab " || fail "the generated password brought an offer to save it"
 exec 3>&- 5>&-
 quit
 rm -rf "$scratch"
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; the eye shows in the password field once one is typed, never for the one filled in, and goes with the field's focus; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; Settings' Offer to save passwords switched off keeps the next login from bringing an offer, and Save and fill addresses switches off and on. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-reveal.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/settings-passwords-off.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; the eye shows in the password field once one is typed, never for the one filled in, and goes with the field's focus; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears; Settings' Offer to save passwords switched off keeps the next login from bringing an offer, and Save and fill addresses switches off and on; and a sign-up form offers Chrome's strong password, which Choose Your Own leaves to the user and Use Strong Password fills in and saves, with no offer. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-reveal.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/settings-passwords-off.png, $out/password-remove.png, $out/password-generation.png"
