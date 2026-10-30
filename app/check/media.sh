@@ -406,8 +406,8 @@ if [ "$(uname)" = Linux ]; then
   send pip wheel $((pw / 2)) $((ph / 3)) 2
   mini_player_at "x == px && y == py - 240 && w == pw && h == ph" \
     "a scroll over the Mini Player didn't move it with the content"
-  # Off its controls, between the buttons at its top and its middle's.
-  send pip drag $((pw / 2)) $((ph / 4)) $((pw / 2 - 200)) $((ph / 4))
+  # Off its controls, left of the 10 seconds back by more than its width.
+  send pip drag $((pw / 8)) $((ph / 2)) $((pw / 8 - 200)) $((ph / 2))
   mini_player_at "x == px - 200 && y == py && w == pw && h == ph" \
     "a drag didn't move the Mini Player"
   send pip wheel $((pw / 2)) $((ph / 3)) -2 cmd
