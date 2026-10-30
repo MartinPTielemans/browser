@@ -19,7 +19,7 @@ cased() {
       sub(/,$/, "", noun)
       sub(/…$/, "", noun)
       if (word ~ /^“/) quoted = 1
-      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library"
+      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library" || noun == "Markdown"
       printf "%s%s", (i > 1 ? " " : ""), (keep ? word : tolower(word))
       if (word ~ /”/) quoted = 0
       first = word ~ /,$/ || word == "›"
@@ -54,8 +54,12 @@ cleanup() {
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  # The access run's session and AT-SPI buses.
+  [ -z "${buses:-}" ] || kill $buses 2>/dev/null || true
   # A run's temp dir, such as the updates run's with its key.
   [ -z "${scratch:-}" ] || rm -rf "$scratch"
+  # A check VM that a run turned light or dark goes back to the appearance it had.
+  [ -z "${dark_mode:-}" ] || appearance "$dark_mode" || true
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -99,7 +103,7 @@ exited() {
     sleep 0.5
   done
   # It exits once no process is left to send it a crash.
-  pgrep -f "$app/Contents/.*/chrome_crashpad_handler" > /dev/null &&
+  pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null &&
     fail "Crashpad's handler outlived the app"
   pgrep -f "$procs" > /dev/null && fail "Chromium helper processes were left running"
   return 0
@@ -116,6 +120,10 @@ quit_app() {
   else
     osascript -e "tell application id \"$app_id\" to quit"
   fi
+}
+# Turns the Mac's appearance dark (true) or light (false), as System Settings › Appearance does.
+appearance() {
+  osascript -e "tell application \"System Events\" to tell appearance preferences to set dark mode to $1"
 }
 quit() {
   quit_app

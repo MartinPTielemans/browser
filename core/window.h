@@ -9,6 +9,7 @@
 
 #include "base/callback_list.h"
 #include "base/containers/span.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -169,6 +170,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether the window is full screen because a page took it there, not the user, so it leaves
   // with the page.
   bool FullScreenForPage() const;
+  // From the platform's window, as it starts to leave full screen, and off the Mac from the core
+  // as it takes the window out: a page full screen leaves now.
+  void LeavingFullScreen();
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
@@ -253,6 +257,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // top of Today for a pinned tab, where a pinned tab's links open, and in the Space the window
   // shows for a favorite. Shows it, and its page loads. Returns its id, or 0.
   bc_id Duplicate(bc_id tab);
+  // Opens a copy of |tab| where Duplicate would, not shown, at the page |offset| from its own in
+  // its history, which loads once it's shown. Returns its id, or 0 if there's no page there.
+  bc_id OpenHistory(bc_id tab, int offset);
 
   // Lists the command bar's suggestions for |text|, from |profile|, in |keyword|'s site search
   // unless it's empty. See bc_window_suggest.
@@ -297,6 +304,13 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // From the stand-in, as |browser| goes.
   void OnBrowserGone(BrowserWindowInterface* browser);
 
+  // From the stand-in: Chrome asks whether to quit, or close the private profile's last window,
+  // cancelling |count| downloads (window_downloads_question). |answer| hears true to cancel them,
+  // and no if the window goes or asks again first.
+  void AskAboutDownloads(int count, bool last_private, base::OnceCallback<void(bool)> answer);
+  // The user's answer to AskAboutDownloads, if the window still asks.
+  void AnswerDownloads(bool cancel);
+
   // web_modal::WebContentsModalDialogHost:
   gfx::NativeView GetHostView() const override;
   gfx::Point GetDialogPosition(const gfx::Size& size) override;
@@ -339,8 +353,6 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The Browser for |profile|'s tabs in this window, made when there's none or it's closing. Null
   // while the window is closing or Chromium is quitting.
   BrowserWindowInterface* BrowserFor(Profile* profile);
-  // From the platform's window, as it starts to leave full screen: a page full screen leaves now.
-  void LeavingFullScreen();
 
   // Opens |saved|, a closed tab, without its page, at |index| in |space|'s Today tabs, else at the
   // top of the Space the window shows. Returns its id, or 0.
@@ -437,6 +449,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bool page_had_keyboard_ = false;
   // The tab selected as an overlay took the keyboard, while it has it.
   bc_id selected_under_overlay_ = 0;
+  // What hears the answer AskAboutDownloads waits for.
+  base::OnceCallback<void(bool)> downloads_answer_;
   // The tab whose page the navigation being made opens a tab beside, until that tab is inserted.
   bc_id split_with_ = 0;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;

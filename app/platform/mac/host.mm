@@ -1,7 +1,9 @@
+#import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <VideoToolbox/VideoToolbox.h>
 #import <objc/runtime.h>
 
 #include <dlfcn.h>
@@ -10,6 +12,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cmath>
 #include <initializer_list>
 #include <iterator>
 #include <memory>
@@ -204,6 +207,8 @@ namespace {
 struct Browser {
   NSWindow* window;
   NSView* ui_view;
+  // The material under the UI, which turns light or dark with the Space shown.
+  NSVisualEffectView* material;
 
   // The find bar's window and view, and its distance from the top right of the window's content.
   NSWindow* find_bar;
@@ -1109,18 +1114,31 @@ void WatchHeldEscape() {
 namespace {
 
 // Dia's window material (docs/ux-spec.md › Window material): what's behind the window, blurred,
-// under the UI, which tints it. AppKit swaps it for an opaque fill while the window is inactive,
-// and with Reduce Transparency or Increase Contrast.
-NSVisualEffectView* WindowMaterial(NSRect frame) {
+// under the UI, which tints it, dark or light. AppKit swaps it for an opaque fill while the window
+// is inactive, and with Reduce Transparency or Increase Contrast.
+void SetWindowMaterialLight(NSVisualEffectView* material, bool light) {
+  // Dia's dark material is one AppKit doesn't name; its light one is the HUD window's.
+  material.material = light ? NSVisualEffectMaterialHUDWindow : (NSVisualEffectMaterial)29;
+  material.appearance =
+      [NSAppearance appearanceNamed:light ? NSAppearanceNameAqua : NSAppearanceNameDarkAqua];
+}
+
+NSVisualEffectView* WindowMaterial(NSRect frame, bool light) {
   NSVisualEffectView* material = [[NSVisualEffectView alloc] initWithFrame:frame];
   material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   material.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-  // Dia's dark material, which AppKit doesn't name.
-  material.material = (NSVisualEffectMaterial)29;
   material.state = NSVisualEffectStateFollowsWindowActiveState;
   material.emphasized = YES;
-  material.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  SetWindowMaterialLight(material, light);
   return material;
+}
+
+// Whether the system's appearance is light, which a window follows until its Space's look is
+// known.
+bool SystemIsLight() {
+  NSAppearanceName name = [NSApp.effectiveAppearance
+      bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+  return [name isEqualToString:NSAppearanceNameAqua];
 }
 
 // What the first window looks like until its UI has drawn, put on screen before the browser
@@ -1157,8 +1175,9 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     [window standardWindowButton:button].hidden = YES;
   }
   // The material's colour rather than the material: its blur slows the browser's start by a
-  // third, and the window is gone by the time the material could show through.
-  window.backgroundColor = [NSColor colorWithWhite:0.15 alpha:1];
+  // third, and the window is gone by the time the material could show through. Light is Dia's
+  // light composite over grey 20, as the dark is near its dark one.
+  window.backgroundColor = [NSColor colorWithWhite:SystemIsLight() ? 0.91 : 0.15 alpha:1];
   NSView* content = window.contentView;
   NSImage* picture = [[NSImage alloc] initWithContentsOfFile:LaunchPicturePath(profile_dir, width, height)];
   NSImageRep* pixels = picture.representations.firstObject;
@@ -1298,7 +1317,9 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
   // Never drawn, but Mission Control and the Window menu name the window by it.
   window.title = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
   // Under the UI's view, since the core keeps only the UI's and the page's views in its own.
-  [view addSubview:WindowMaterial(view.bounds) positioned:NSWindowBelow relativeTo:nil];
+  // The system's look until the shell says its Space's.
+  browser->material = WindowMaterial(view.bounds, SystemIsLight());
+  [view addSubview:browser->material positioned:NSWindowBelow relativeTo:nil];
   // Views keeps a new window clear until its compositor's first frame, which waits for the GPU
   // process to start, though the UI's and the pages' views cover all of that compositor.
   window.alphaValue = 1;
@@ -1485,6 +1506,20 @@ void host_set_window_title(void* ui_view, const char* title) {
   }
 }
 
+void host_set_window_light(void* ui_view, bool light) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (browser && browser->material) {
+    SetWindowMaterialLight(browser->material, light);
+  }
+}
+
+void host_set_app_appearance(int appearance) {
+  // Chromium's pages follow NSApp's appearance, so prefers-color-scheme follows the choice too.
+  NSApp.appearance = appearance == 1   ? [NSAppearance appearanceNamed:NSAppearanceNameAqua]
+                     : appearance == 2 ? [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]
+                                       : nil;
+}
+
 void host_activate(void* ui_view) {
   Browser* browser = BrowserWithView(ui_view);
   NSWindow* window = browser ? browser->window : nil;
@@ -1668,7 +1703,7 @@ void host_forget_window(void* ui_view) {
     host_hide_tooltip(0);
   }
   if (g_card_over == browser) {
-    host_hide_hover_card(0);
+    host_hide_hover_card();
   }
   if (g_link_shown && g_link_over == browser) {
     host_hide_link_target(0);
@@ -2809,6 +2844,12 @@ NSString* CaptureName() {
 
 }  // namespace
 
+void host_capture_name(char* name, size_t capacity) {
+  if (capacity) {
+    strlcpy(name, CaptureName().UTF8String, capacity);
+  }
+}
+
 void host_copy_png(const uint8_t* png, size_t size) {
   NSPasteboard* pasteboard = CopyPasteboard();
   [pasteboard clearContents];
@@ -3115,16 +3156,15 @@ void PlaceCardClicks(NSPoint screen) {
 }
 
 // The pointer's moves over the page go to the page's view, so the card's window doesn't hear them:
-// this sets where it takes the mouse from them, and ends the card on a press, a scroll or a key
-// anywhere else, which still go where they were aimed. Only while it shows, so an idle browser is
-// never woken.
+// this sets where it takes the mouse from them, and ends the card on a press or a scroll anywhere
+// else, which still go where they were aimed. The UI ends it on a key. Only while it shows, so an
+// idle browser is never woken.
 void WatchCard() {
   if (g_card_monitor) {
     return;
   }
   constexpr NSEventMask kEnds = NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown |
-                                NSEventMaskOtherMouseDown | NSEventMaskScrollWheel |
-                                NSEventMaskKeyDown;
+                                NSEventMaskOtherMouseDown | NSEventMaskScrollWheel;
   g_card_monitor = [NSEvent
       addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
                                            kEnds
@@ -3150,7 +3190,7 @@ void host_show_hover_card(void* ui_view, double left, double top, double width, 
     return;
   }
   if (g_card_shown && g_card_over != browser) {
-    host_hide_hover_card(0);
+    host_hide_hover_card();
   }
   g_card_left = left;
   g_card_top = top;
@@ -3175,52 +3215,27 @@ void host_show_hover_card(void* ui_view, double left, double top, double width, 
     }
     [g_card_view.layer setNeedsDisplay];
     [g_card_view.layer displayIfNeeded];
-    // Still fading out over this window, it comes back at once.
     if (g_card.parentWindow != browser->window) {
       [g_card.parentWindow removeChildWindow:g_card];
       AddOver(browser->window, g_card);
       RaiseOverlays(browser, g_card);
     }
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
-      context.duration = 0;
-      g_card.animator.alphaValue = 1;
-    }];
     WatchCard();
     PlaceCardClicks(NSEvent.mouseLocation);
-    // check.sh waits for this line, so a capture after it shows the card whole.
+    // check.sh waits for this line, and for the UI's "hover card settled" before a capture.
     fprintf(stderr, "browser: hover card window shown\n");
   });
 }
 
-void host_hide_hover_card(double fade) {
-  if (!g_card_shown && fade > 0) {
-    return;
-  }
+void host_hide_hover_card() {
   g_card_shown = false;
-  const unsigned change = ++g_card_changes;
-  // The mouse goes through it at once, to what's under it, while it fades.
+  // A show still waiting to draw doesn't come after.
+  ++g_card_changes;
   g_card.ignoresMouseEvents = YES;
   [NSEvent removeMonitor:g_card_monitor];
   g_card_monitor = nil;
-  void (^gone)(void) = ^{
-    if (change != g_card_changes) {
-      return;
-    }
-    [g_card.parentWindow removeChildWindow:g_card];
-    [g_card orderOut:nil];
-  };
-  if (fade == 0) {
-    gone();
-    return;
-  }
-  [NSAnimationContext
-      runAnimationGroup:^(NSAnimationContext* context) {
-        context.duration = fade;
-        context.timingFunction =
-            [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
-        g_card.animator.alphaValue = 0;
-      }
-      completionHandler:gone];
+  [g_card.parentWindow removeChildWindow:g_card];
+  [g_card orderOut:nil];
 }
 
 void host_watch_memory_pressure(void (*pressed)(void)) {
@@ -3483,6 +3498,20 @@ void host_file_preview(const char* path, uint64_t id,
       }
       CFRelease(source);
     }
+    // A video's is its first frame.
+    if (!thumbnail) {
+      AVURLAsset* asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:file] options:nil];
+      AVAssetImageGenerator* generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
+      generator.appliesPreferredTrackTransform = YES;
+      generator.maximumSize = CGSizeMake(96, 96);
+      CGImageRef image = [generator copyCGImageAtTime:kCMTimeZero actualTime:nullptr error:nil];
+      if (image) {
+        thumbnail = PNGOf(image);
+        width = CGImageGetWidth(image);
+        height = CGImageGetHeight(image);
+        CGImageRelease(image);
+      }
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
       if (thumbnail) {
         done(id, static_cast<const uint8_t*>(thumbnail.bytes), thumbnail.length, width, height,
@@ -3515,6 +3544,100 @@ void host_file_preview(const char* path, uint64_t id,
       done(id, static_cast<const uint8_t*>(png.bytes), png.length, side, side, false);
     });
   });
+}
+
+// A video playing for a Media tile, at the size of the frames it gives.
+@interface BrowserVideo : NSObject
+@property(nonatomic) AVPlayer* player;
+@property(nonatomic) AVPlayerItemVideoOutput* output;
+@property(nonatomic) int side;
+// The observer that takes it back to its start at its end.
+@property(nonatomic) id ended;
+@end
+
+@implementation BrowserVideo
+@end
+
+void* host_video_open(const char* path, int side) {
+  NSURL* url = [NSURL fileURLWithPath:@(path)];
+  BrowserVideo* video = [[BrowserVideo alloc] init];
+  video.side = side;
+  video.player = [AVPlayer playerWithURL:url];
+  // A check run makes no sound, and Media's tiles never do.
+  video.player.muted = YES;
+  video.player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+  __weak AVPlayer* player = video.player;
+  video.ended = [NSNotificationCenter.defaultCenter
+      addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                  object:video.player.currentItem
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification*) {
+                [player seekToTime:kCMTimeZero];
+                [player play];
+              }];
+  [video.player play];
+  return (__bridge_retained void*)video;
+}
+
+bool host_video_frame(void* handle, uint8_t* pixels) {
+  BrowserVideo* video = (__bridge BrowserVideo*)handle;
+  AVPlayerItem* item = video.player.currentItem;
+  if (item.status != AVPlayerItemStatusReadyToPlay) {
+    return false;
+  }
+  CGFloat side = video.side;
+  if (!video.output) {
+    // Decoded at the tile's size, its shorter side the tile's, as the frames are copied each time.
+    CGSize size = item.presentationSize;
+    if (size.width <= 0 || size.height <= 0) {
+      return false;
+    }
+    CGFloat scale = side / std::min(size.width, size.height);
+    video.output = [[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:@{
+      (__bridge NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+      (__bridge NSString*)kCVPixelBufferWidthKey : @(std::ceil(size.width * scale)),
+      (__bridge NSString*)kCVPixelBufferHeightKey : @(std::ceil(size.height * scale)),
+    }];
+    [item addOutput:video.output];
+  }
+  CMTime time = [video.output itemTimeForHostTime:CACurrentMediaTime()];
+  if (![video.output hasNewPixelBufferForItemTime:time]) {
+    return false;
+  }
+  CVPixelBufferRef buffer =
+      [video.output copyPixelBufferForItemTime:time itemTimeForDisplay:nullptr];
+  if (!buffer) {
+    return false;
+  }
+  CGImageRef frame = nullptr;
+  VTCreateCGImageFromCVPixelBuffer(buffer, nullptr, &frame);
+  CVPixelBufferRelease(buffer);
+  if (!frame) {
+    return false;
+  }
+  // BGRA, its middle filling the square.
+  CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  CGContextRef context = CGBitmapContextCreate(
+      pixels, video.side, video.side, 8, video.side * 4, space,
+      static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) | kCGBitmapByteOrder32Little);
+  CGColorSpaceRelease(space);
+  if (context) {
+    CGFloat width = CGImageGetWidth(frame), height = CGImageGetHeight(frame);
+    CGFloat scale = side / std::min(width, height);
+    CGRect filled = CGRectMake((side - width * scale) / 2, (side - height * scale) / 2,
+                               width * scale, height * scale);
+    CGContextDrawImage(context, filled, frame);
+    CGContextRelease(context);
+  }
+  CGImageRelease(frame);
+  return context != nullptr;
+}
+
+void host_video_close(void* handle) {
+  BrowserVideo* video = (__bridge_transfer BrowserVideo*)handle;
+  [NSNotificationCenter.defaultCenter removeObserver:video.ended];
+  [video.player pause];
+  [video.player replaceCurrentItemWithPlayerItem:nil];
 }
 
 void host_copy(const char* text) {

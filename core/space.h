@@ -8,7 +8,9 @@
 #include <vector>
 
 #include "base/functional/function_ref.h"
+#include "base/uuid.h"
 #include "browser_core/public/browser_core.h"
+#include "components/sync/base/unique_position.h"
 #include "url/gurl.h"
 
 namespace browser_core {
@@ -25,10 +27,23 @@ namespace browser_core {
 //
 // A Space is the user's, or an agent's (decision 8), for as long as it lives: an agent may act only
 // on the tabs of its own Space.
+//
+// Each Space, pinned tab and folder is a node, as sync knows them, with a random id and a place among
+// its siblings (Node), which the session keeps.
 class Space {
  public:
   // The most tabs a split shows.
   static constexpr size_t kMaxPanes = 3;
+
+  // What sync knows a Space, a pinned tab or a folder by: an id, random, that it keeps for as long
+  // as it lives, across launches, and its place among its siblings, the Spaces or what's in its
+  // folder or outside one. Their places are in their order, and only what moves gets a new one, so
+  // one moved between two others changes none of theirs. A tab moved to another Space is a new
+  // node there.
+  struct Node {
+    base::Uuid id;
+    syncer::UniquePosition position;
+  };
 
   // An agent a Space belongs to, as its client names itself.
   struct Agent {
@@ -38,11 +53,12 @@ class Space {
     std::string name;
   };
 
-  // With the id |id|, a deleted Space's, if it isn't 0, which puts it back at its place. The
-  // agent's if there's |agent|, else the user's.
+  // With the id |id|, a deleted Space's, if it isn't 0. The agent's if there's |agent|, else the
+  // user's. At |at| in the Spaces' order, else after the others.
   static Space* Create(std::string name,
                        bc_id id = 0,
-                       std::optional<Agent> agent = std::nullopt);
+                       std::optional<Agent> agent = std::nullopt,
+                       size_t at = SIZE_MAX);
   // A private window's Space, its tabs in the off-the-record profile of the profile in the
   // directory |profile|. It holds Today tabs alone, and isn't among All(), so it's never saved,
   // archived or listed with the Spaces. It goes with its window.
@@ -77,6 +93,14 @@ class Space {
   // Whether it's a private window's (CreateOffTheRecord), whose tabs open in that profile's
   // off-the-record profile instead.
   bool off_the_record() const { return off_the_record_; }
+  // The Space's node. A private window's has none.
+  const Node& node() const { return node_; }
+  // The pinned tab's or folder's |id|'s node, or null if it isn't one of the Space's.
+  const Node* NodeOf(bc_id id) const;
+  // Gives the Space and its pinned tabs and folders the nodes the session kept for them, each that
+  // has an id: |rows| by the pinned tab's or folder's id. Those whose places are out of their
+  // order get new ones.
+  void RestoreNodes(const Node& space, const std::map<bc_id, Node>& rows);
   // The pinned tabs and folders, top to bottom, each folder followed by what's in it.
   const std::vector<bc_id>& pinned_rows() const { return pinned_; }
   // The pinned tabs alone.
@@ -215,6 +239,10 @@ class Space {
   size_t OutsideSplits(const std::vector<bc_id>& tabs, size_t index) const;
   // Takes |tab| out of its split, leaving it where it is in its list.
   void LeaveSplit(bc_id tab);
+  // Gives each pinned tab and folder without a node one, and a new place to each out of its order.
+  void PlaceRows();
+  // The same for the Spaces.
+  static void PlaceSpaces();
   // Whether |id| is |folder| or inside it.
   bool Within(bc_id id, bc_id folder) const;
   // Past the end of the rows of |folder|, else of the pinned list, in |pinned_|.
@@ -231,8 +259,11 @@ class Space {
   std::string theme_;
   std::string profile_;
   bool off_the_record_ = false;
+  Node node_;
   // Pinned tabs and folders.
   std::vector<bc_id> pinned_;
+  // Each pinned tab's and folder's.
+  std::map<bc_id, Node> nodes_;
   std::map<bc_id, GURL> pinned_urls_;
   struct Folder {
     std::string name;

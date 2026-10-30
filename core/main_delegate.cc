@@ -16,6 +16,7 @@
 #include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/agent_autofill.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
@@ -49,6 +50,7 @@
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_view_delegate.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
@@ -114,6 +116,10 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
     widevine::Start();
+  }
+
+  void PostProfileInit(Profile* profile, bool is_initial_profile) override {
+    crash_reports::ProfileStarted(profile);
   }
 
   void PreBrowserStart() override {
@@ -233,6 +239,7 @@ void Install(const bc_host& host) {
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   g_browser_core_show_page_menu = &PageMenu::Show;
   g_browser_core_update_target_url = &Tab::LinkTargetChanged;
+  content::SetPageLinkDragHandler(&Tab::LinkDragged);
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_populate_frame_binders = &PopulateFrameBinders;
@@ -248,6 +255,9 @@ void Install(const bc_host& host) {
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
   SetUpAdBlock();
   g_browser_core_component_allowed = &widevine::MayUpdate;
+  g_browser_core_no_passwords = &IsAgentTab;
+  g_browser_core_no_autofill = &IsAgentTab;
+  g_browser_core_refuse_passkey = &RefuseAgentPasskey;
 }
 
 int Run(int argc, const char** argv, const bc_host& host) {
@@ -333,6 +343,13 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     features += features.empty() ? "" : ",";
     command_line->AppendSwitchASCII(switches::kEnableFeatures,
                                     features + features::kWebContentsDiscard.name);
+    // Blink's eye in a password field, Chrome's on Windows: it shows only once the user types into
+    // the empty field, and goes, masking it again, as the field loses focus or is filled in or set
+    // by the page, so a saved password is never shown. The core blurs a tab's page each time the
+    // tab becomes an agent's to act in, so no agent sees one the user showed (agent_session.cc).
+    std::string blink = command_line->GetSwitchValueASCII(switches::kEnableBlinkFeatures);
+    blink += blink.empty() ? "" : ",";
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures, blink + "PasswordReveal");
 #if BUILDFLAG(IS_MAC)
     platform::NameKeychainItem();
 #endif

@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 #include "browser_core/public/browser_core.h"
 
@@ -14,7 +15,13 @@ namespace browser_core {
 // the tab closing or leaving the agent's Space doesn't, since the app sees those itself. No timer
 // ends one: an idle browser schedules nothing.
 
-// The core let |agent| act in |tab|: opens its session there if none is.
+// Why the core refuses every agent |action|, for the user and the agent to read, or an empty string
+// for one an agent may do. Agents get only the actions a user does in a page, and none that reads
+// what the user's sessions keep, changes ad blocking or opens DevTools (decision 8).
+std::string RefusedAction(std::string_view action);
+
+// The core let |agent| act in |tab|: opens its session there if none is, blurring the page so no
+// password the user showed in it stays shown.
 void AgentActed(const std::string& agent, bc_id tab);
 
 // Ends |agent|'s session with |tab| for |why|, a BC_AGENT_SESSION_ value, and returns whether it
@@ -26,6 +33,16 @@ size_t EndAgentSessions(const std::string& agent, int why);
 
 // Ends whichever agent's session holds |tab| for |why|, and returns whether one did.
 bool EndTabSession(bc_id tab, int why);
+
+// The user holds |tab| from agents, as at a handoff or once they take it over: no agent may act
+// in it until they hand it back. For this run of the browser, as sessions are.
+void Hold(bc_id tab);
+
+// Hands |tab| back, blurring its page as a session's start does, and returns whether the user held
+// it.
+bool HandBack(bc_id tab);
+
+bool IsHeld(bc_id tab);
 
 }  // namespace browser_core
 

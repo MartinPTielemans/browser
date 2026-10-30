@@ -9,12 +9,17 @@
 // HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's, the Site
 // Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's, Settings is
 // settings_window.rs's, as GPUI's Linux platform shows them, the shadows under the overlays and the
-// Site Controls are shadows.rs's, and the window buttons, which the UI draws, are window_buttons.rs's.
+// Site Controls are shadows.rs's, the window buttons, which the UI draws, are window_buttons.rs's,
+// and a download's preview is previews.rs's.
 
 #include "../host.h"
 
 #include <ctype.h>
+#include <errno.h>
+#include <langinfo.h>
+#include <locale.h>
 #include <spawn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +62,8 @@ extern "C" unsigned g_unix_fd_add_full(int priority,
                                        void* data,
                                        void (*notify)(void* data)) __attribute__((weak));
 constexpr unsigned kGlibIoIn = 1;
+// The core's (core/public/browser_core.h), in the chrome that loads the app. Weak, as GLib's are.
+extern "C" void bc_hold_keys(void) __attribute__((weak));
 // Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
 // checks only the sources as urgent as the most urgent ready one, and the display's check is where
 // Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
@@ -219,6 +226,22 @@ std::string DefaultFor(const std::string& type) {
   return "";
 }
 
+// The day the user's weeks start on, as tm_wday counts from Sunday: their LC_TIME locale's, read
+// from glibc as GTK's calendar reads it, a day counted from an origin day, 1 being the origin.
+// Monday where the locale can't be loaded, as most have it.
+int FirstWeekday() {
+  locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
+  if (!locale) {
+    return 1;
+  }
+  // The origin is a date in a number: 1997-11-30, a Sunday, or 1997-12-01, a Monday.
+  const auto origin = static_cast<uint32_t>(
+      reinterpret_cast<uintptr_t>(nl_langinfo_l(_NL_TIME_WEEK_1STDAY, locale)));
+  const int first = nl_langinfo_l(_NL_TIME_FIRST_WEEKDAY, locale)[0];
+  freelocale(locale);
+  return ((origin == 19971201 ? 1 : 0) + first - 1) % 7;
+}
+
 }  // namespace
 
 extern "C" {
@@ -337,6 +360,12 @@ void host_set_window_title(void* ui_view, const char* title) {
   }
 }
 
+// The window has no material under the UI, whose tint is the window's look.
+void host_set_window_light(void* ui_view, bool light) {}
+
+// The UI takes the choice itself; GTK and the pages keep the desktop's.
+void host_set_app_appearance(int appearance) {}
+
 // Through the core, as host_set_window_title. Under Wayland the compositor decides whether the
 // window comes forward or only asks for attention, as Hyprland's focus_on_activate setting does.
 void host_activate(void* ui_view) {
@@ -350,8 +379,8 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   g_key_window_changed = changed;
 }
 
-// shortcut: nothing says when the browser window goes full screen, as the window manager's own
-// shortcut does it, and only Chromium's window hears it; the core's widget would report it.
+// The window's bounds change as it goes full screen or comes back, by the window manager's own
+// shortcut too, and the UI asks the core then (Shell::bounds_changed), so nothing watches here.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
 // GPUI's Wayland client hands the app the touchpad's three-finger swipes over the page
@@ -404,14 +433,15 @@ void host_window_closed(void* ui_view) {
   }
 }
 
-bool host_can_draw_emoji(const char*) {
-  return true;
+// Under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own, and under
+// X11 Chromium's window has the focus, so a page's keys reach Chromium first and the host can't
+// keep those typed after a bar's shortcut from the page. The core holds them, and an overlay that
+// takes the keyboard takes them (overlays.rs).
+void host_hold_keys(void) {
+  if (bc_hold_keys) {
+    bc_hold_keys();
+  }
 }
-
-// shortcut: under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own,
-// so the host can't keep the keys typed after the command bar's shortcut from the page; holding
-// them is for the core's key handling to do.
-void host_hold_keys(void) {}
 
 // No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
 // the tab.
@@ -440,7 +470,7 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {}
 
 void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {}
 
-void host_hide_hover_card(double fade) {}
+void host_hide_hover_card(void) {}
 
 void host_watch_memory_pressure(void (*pressed)(void)) {}
 
@@ -454,6 +484,8 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   return -1;
 }
 
+// Chrome's own windows, such as its Task Manager, take Ctrl+W themselves, which closes them:
+// with no menu bar taking a key for every window, as the Mac's does, the UI never gets theirs.
 bool host_close_other_window(void) {
   return false;
 }
@@ -462,20 +494,41 @@ void host_detent(void) {}
 
 void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y, const host_dragged* items, size_t count)) {}
 
+// GIO's, from the chrome that loads the app, as GLib's are: its trash is the freedesktop.org one the
+// file managers share, in the home's or in the file's own volume's.
+extern "C" void* g_file_new_for_path(const char* path) __attribute__((weak));
+extern "C" int g_file_trash(void* file, void* cancellable, void** error) __attribute__((weak));
+extern "C" void g_object_unref(void* object) __attribute__((weak));
+extern "C" void g_error_free(void* error) __attribute__((weak));
+
 bool host_trash(const char* path) {
+  if (g_file_trash) {
+    void* file = g_file_new_for_path(path);
+    void* error = nullptr;
+    bool trashed = g_file_trash(file, nullptr, &error);
+    if (error) {
+      g_error_free(error);
+    }
+    g_object_unref(file);
+    if (trashed) {
+      return true;
+    }
+  }
+  return access(path, F_OK) != 0 && errno == ENOENT;
+}
+
+// shortcut: no video playback yet; Media's video tiles show their icon. When they play, it's to be
+// through Chromium's own decoder in the core, not a system library such as GStreamer, whose
+// codecs vary by distribution.
+void* host_video_open(const char*, int) {
+  return nullptr;
+}
+
+bool host_video_frame(void*, uint8_t*) {
   return false;
 }
 
-bool host_drag_file(const char* path, void (*ended)(bool taken)) {
-  return false;
-}
-
-// shortcut: no file previews yet; the downloads list shows its generic icon.
-void host_file_preview(const char*,
-                       uint64_t id,
-                       void (*done)(uint64_t, const uint8_t*, size_t, double, double, bool)) {
-  Later([done, id] { done(id, nullptr, 0, 0, 0, false); });
-}
+void host_video_close(void*) {}
 
 void host_copy(const char* text) {}
 
@@ -497,8 +550,7 @@ void host_day_starts(double starts[4]) {
   today.tm_isdst = -1;
   tm yesterday = today;
   yesterday.tm_mday -= 1;
-  // shortcut: weeks start on Monday, as most locales have it; the locale's own isn't read yet.
-  const int first_day = 1;  // As tm_wday counts, from Sunday.
+  const int first_day = FirstWeekday();
   tm week = today;
   week.tm_mday -= (today.tm_wday - first_day + 7) % 7;
   tm last_week = week;

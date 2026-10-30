@@ -15,6 +15,11 @@ path = "src/main.rs"
 name = "preview"
 path = "src/preview.rs"
 
+# What an MCP client runs to reach the browser's agents (src/agents/bridge.rs).
+[[bin]]
+name = "mcp-bridge"
+path = "src/bridge.rs"
+
 [features]
 # The build for daily use (`build.sh prod`): the user's profile and the real Keychain.
 prod = []
@@ -28,12 +33,17 @@ raw-window-handle = "0.6"
 unicode-segmentation = "1.10"
 # The emoji picker's table: names, groups and shortcodes, built in as static data.
 emojis = "0.9"
-# Arc's sidebar and Chromium's Local State, read by the import.
+# Arc's sidebar and Chromium's Local State, read by the import, and the agents' MCP server's
+# JSON-RPC messages.
 serde_json = "1"
 # The other browsers' history, in SQLite files, built in so every system reads them alike.
 rusqlite = { version = "0.41", features = ["bundled"] }
 # Safari's bookmarks, a property list.
 plist = { version = "1", default-features = false }
+# The agents' MCP server: the channel its threads hand calls to the UI thread on, and the agents'
+# tokens. The server itself is the app's own (src/agents/server.rs).
+futures = "0.3"
+getrandom = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
@@ -51,6 +61,8 @@ gpui_linux = { path = ".deps/zed/crates/gpui_linux" }
 # Flatpak's portal, for updates (src/flatpak.rs): the D-Bus GPUI's portals already use.
 zbus = { version = "5.13", default-features = false, features = ["async-io"] }
 futures-lite = "2"
+# The driver's keys on X11 (platform/linux/drive.rs), as linux/Cargo.toml has it for the library.
+x11rb = { version = "0.13", features = ["xkb"] }
 
 [build-dependencies]
 # 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.

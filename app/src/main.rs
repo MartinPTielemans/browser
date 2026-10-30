@@ -11,7 +11,9 @@ compile_error!(env!("ENGINE_HEADER_MISMATCH"));
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     ffi::{CStr, CString, c_char, c_int, c_void},
+    path::PathBuf,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -30,6 +32,7 @@ use browser::shell::{
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
     SidePanel, Split, Trouble, WindowButton,
 };
+use browser::theme::Appearance;
 use browser::text_input::{
     Copy, Cut, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
 };
@@ -51,6 +54,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/emoji.rs"]
+mod emoji;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/floats.rs"]
 mod floats;
 #[cfg(target_os = "linux")]
@@ -68,6 +74,9 @@ mod panels;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/popovers.rs"]
 mod popovers;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/previews.rs"]
+mod previews;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
@@ -87,6 +96,7 @@ mod system;
 #[path = "../platform/linux/window_buttons.rs"]
 mod window_buttons;
 mod reveal;
+mod agents_core;
 mod settings;
 
 /// The host's overlays (platform/host.h).
@@ -122,7 +132,6 @@ mod platform {
         pub fn host_window_closed(ui_view: *mut c_void);
         #[cfg(target_os = "linux")]
         pub fn host_window_active(ui_view: *mut c_void, active: bool, whole_window: bool);
-        #[cfg(target_os = "linux")]
         pub fn host_capture_name(name: *mut c_char, capacity: usize);
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_show_window_behind(ui_view: *mut c_void, above_ui_view: *mut c_void);
@@ -156,6 +165,8 @@ mod platform {
             height: *mut f64,
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
+        pub fn host_set_window_light(ui_view: *mut c_void, light: bool);
+        pub fn host_set_app_appearance(appearance: c_int);
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
@@ -254,6 +265,9 @@ mod platform {
                 image: bool,
             ),
         );
+        pub fn host_video_open(path: *const c_char, side: c_int) -> *mut c_void;
+        pub fn host_video_frame(video: *mut c_void, pixels: *mut u8) -> bool;
+        pub fn host_video_close(video: *mut c_void);
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
@@ -362,7 +376,7 @@ mod platform {
         #[cfg(not(target_os = "linux"))]
         pub fn host_show_hover_card(ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64);
         #[cfg(not(target_os = "linux"))]
-        pub fn host_hide_hover_card(fade: f64);
+        pub fn host_hide_hover_card();
         #[cfg(not(target_os = "linux"))]
         pub fn host_watch_memory_pressure(pressed: extern "C" fn());
         pub fn host_add_link_target(
@@ -487,9 +501,13 @@ fn front() -> (bc::bc_id, *mut c_void) {
     })
 }
 
-/// A browser window has gone full screen or left it, once macOS's transition is over.
+/// A browser window has gone full screen or left it, once macOS's transition is over. Later, as
+/// AppKit can say so from inside an update of ours, such as one that closes the window.
 extern "C" fn full_screen_changed(ui_view: *mut c_void, entered: bool) {
-    update_window(window_with_view(ui_view), |shell, cx| shell.set_full_screen(entered, cx));
+    let id = window_with_view(ui_view);
+    update_app_later(move |cx| {
+        update_window_in(id, cx, |shell, cx| shell.set_full_screen(entered, cx));
+    });
 }
 
 extern "C" fn swiped(ui_view: *mut c_void, x: f64, y: f64, back: bool) -> bool {
@@ -516,6 +534,8 @@ pub(crate) fn shell_with_view(ui_view: *mut c_void) -> WeakEntity<Shell> {
 }
 
 /// A browser window became key: it goes first, so the shared overlays and the menu bar follow it.
+/// AppKit makes one key as another window orders out or closes, from inside the update that did
+/// it, such as Settings' close (#819), so the shell hears it once that update is over.
 extern "C" fn key_window_changed(ui_view: *mut c_void) {
     let moved = WINDOWS.with_borrow_mut(|windows| {
         let index = windows.iter().position(|window| window.ui_view == ui_view)?;
@@ -527,7 +547,9 @@ extern "C" fn key_window_changed(ui_view: *mut c_void) {
     });
     if let Some(id) = moved {
         log!("browser: key window {id}");
-        update_window(id, |shell, cx| shell.became_key(cx));
+        update_app_later(move |cx| {
+            update_window_in(id, cx, |shell, cx| shell.became_key(cx));
+        });
     }
 }
 
@@ -537,13 +559,16 @@ fn update_shells(change: impl Fn(&mut Shell, &mut Context<Shell>)) {
     let Some(cx) = CX.with_borrow(Clone::clone) else {
         return;
     };
+    cx.update(|cx| update_shells_in(cx, change));
+}
+
+/// Changes every window's shell, as `update_shells`, in an update under way.
+fn update_shells_in(cx: &mut App, change: impl Fn(&mut Shell, &mut Context<Shell>)) {
     let shells: Vec<_> =
         WINDOWS.with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
-    cx.update(|cx| {
-        for shell in shells {
-            shell.update(cx, &change).ok();
-        }
-    });
+    for shell in shells {
+        shell.update(cx, &change).ok();
+    }
 }
 
 /// Changes the shell of the window `id`, from a core callback about that window, and returns what
@@ -559,6 +584,18 @@ fn update_window<R>(
     cx.update(|cx| shell.update(cx, change).ok())
 }
 
+/// Changes the shell of the window `id`, as `update_window`, in an update under way.
+fn update_window_in<R>(
+    id: bc::bc_id,
+    cx: &mut App,
+    change: impl FnOnce(&mut Shell, &mut Context<Shell>) -> R,
+) -> Option<R> {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|window| window.id == id).map(|window| window.shell.clone())
+    })?;
+    shell.update(cx, change).ok()
+}
+
 /// The window showing `tab`'s page, as the core says, else the one whose shell thinks it does,
 /// else the one last key, such as for a key from a page no shell has heard is shown yet.
 /// Removes the profile's `login`, or takes its site off Never, as the Site Controls and Settings
@@ -569,6 +606,14 @@ fn remove_login(profile: bc::bc_id, login: &passwords::Login) {
     // check.sh reads this line.
     log!("browser: remove login {profile} {}", passwords::describe(std::slice::from_ref(login)));
     unsafe { bc::bc_profile_remove_login(profile, key.as_ptr(), username.as_ptr(), login.never) };
+}
+
+/// Saves the Spaces' favorites and pinned tabs as a Markdown file of links where the user picks,
+/// for Settings' Export…. The user's alone, as Settings is.
+fn export_spaces(cx: &mut App) {
+    if let Some(shell) = shell_with_view(front().1).upgrade() {
+        shell.update(cx, |shell, cx| shell.export_spaces(cx));
+    }
 }
 
 fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
@@ -731,10 +776,10 @@ fn open_split(window: bc::bc_id, url: &str, with: u64, cx: &mut App) {
     }
 }
 
-/// Makes a Space after the others.
-fn create_space(name: &str) -> bc::bc_id {
+/// Makes a Space right after `after`, else after the others.
+fn create_space(name: &str, after: bc::bc_id) -> bc::bc_id {
     let name = CString::new(name).unwrap_or_default();
-    unsafe { bc::bc_space_create(name.as_ptr()) }
+    unsafe { bc::bc_space_create(name.as_ptr(), after) }
 }
 
 /// The URL the core's `get` copies for `text`.
@@ -895,6 +940,9 @@ impl site_controls::Host for SiteControlsHost {
                 let profile = unsafe { bc::bc_tab_profile(tab) };
                 settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
             }
+            site_controls::Run::ExtensionItem(id, item) => {
+                window.shell.update(cx, |shell, cx| shell.extension_item(&id, item, cx)).ok();
+            }
         }
     }
 
@@ -1021,6 +1069,15 @@ impl link_preview::Host for LinkPreviewHost {
     fn keep(&self, window: u64, tab: u64) {
         unsafe { bc::bc_window_keep_preview(window, tab) };
     }
+
+    fn closed(&self, window: u64, closed: link_preview::Closed, undone: bool, cx: &mut App) {
+        let shell = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|each| each.id == window).map(|each| each.shell.clone())
+        });
+        if let Some(shell) = shell {
+            shell.update(cx, |shell, cx| shell.preview_closed(closed, undone, cx)).ok();
+        }
+    }
 }
 
 extern "C" fn link_preview_dismissed() {
@@ -1030,6 +1087,35 @@ extern "C" fn link_preview_dismissed() {
 thread_local! {
     /// Whether the host has a view for a link preview's page, which only the Mac's has so far.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// A link is dragged over `tab`'s page: the window showing it shows the split view's targets, and
+/// takes the drag while it's on one, opening the link there when it's let go.
+unsafe extern "C" fn tab_link_dragged(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    phase: c_int,
+    url: *const c_char,
+    x: f64,
+    y: f64,
+) -> bool {
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
+        return false;
+    };
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    let point = point(px(x as f32), px(y as f32));
+    let Some(window) = cx.update(|cx| tab_window(tab, cx)) else {
+        return false;
+    };
+    let answer = update_window(window.id, |shell, cx| match phase as u32 {
+        bc::BC_LINK_DRAG_OVER => shell.link_over_page(tab, point, &url, cx),
+        bc::BC_LINK_DRAG_DROP => shell.link_dropped(tab, point, cx),
+        _ => {
+            shell.link_left_page(cx);
+            false
+        }
+    });
+    answer.unwrap_or(false)
 }
 
 /// A link clicked in `tab`'s page leads to another site. A pinned tab's or a favorite's opens in
@@ -1058,6 +1144,13 @@ unsafe extern "C" fn tab_link_to_site(
         return false;
     };
     let url = unsafe { CStr::from_ptr(url) }.to_owned();
+    // A call's link opens as a tab of the Space shown, the one used last, as it outlasts a look.
+    if link_preview::is_meeting(&url.to_string_lossy()) {
+        // check.sh waits for this line.
+        log!("browser: meeting link from {tab} opens as a tab");
+        update_app_later(move |_| open_tab(window, &url.to_string_lossy()));
+        return true;
+    }
     // Outside the navigation that asked, which the core cancels once this returns.
     update_app_later(move |cx| {
         let preview = unsafe { bc::bc_tab_open_preview(tab, url.as_ptr()) };
@@ -1067,7 +1160,7 @@ unsafe extern "C" fn tab_link_to_site(
         }
         let link = page.0.origin + point(px(x as f32), px(y as f32));
         let url = url.to_string_lossy().into_owned().into();
-        link_preview::show(window, preview, url, page, link, cx);
+        link_preview::show(window, preview, tab, url, page, link, cx);
     });
     true
 }
@@ -1172,6 +1265,21 @@ impl capture::Host for CaptureHost {
         unsafe { platform::host_save_png(front().1, png.as_ptr(), png.len()) };
     }
 
+    fn save_to_library(&self, png: &[u8]) {
+        let (name, png) = (capture_name(), png.to_vec());
+        // After the update under way, which the capture's menu is in.
+        update_app_later(move |cx| {
+            // A picture of a whole screen is megabytes, too many to write on the main thread.
+            let saved = cx.background_spawn(async move { save_capture(&name, &png) });
+            cx.spawn(async move |cx| {
+                if saved.await {
+                    cx.update(list_captures);
+                }
+            })
+            .detach();
+        });
+    }
+
     fn share(&self, png: &[u8], share: capture::Share) {
         let (view, at, messages) = match share {
             capture::Share::Menu(at) => (front().1, at, false),
@@ -1186,6 +1294,68 @@ impl capture::Host for CaptureHost {
             platform::host_share_png(png.as_ptr(), png.len(), view, x, y, width, height, messages)
         };
     }
+}
+
+/// Where the Library's captures are.
+fn media_dir() -> PathBuf {
+    PathBuf::from(profile_dir()).join("Media")
+}
+
+/// Saves a capture into the Library as `name`, and says whether it did.
+fn save_capture(name: &str, png: &[u8]) -> bool {
+    let media = media_dir();
+    // Two captures in a second each keep theirs, as the system's screenshots do.
+    let stem = name.trim_end_matches(".png");
+    let path = (1..)
+        .map(|n| match n {
+            1 => media.join(name),
+            n => media.join(format!("{stem} ({n}).png")),
+        })
+        .find(|path| !path.exists())
+        .unwrap_or_default();
+    match std::fs::create_dir_all(&media).and_then(|_| std::fs::write(&path, png)) {
+        Ok(()) => {
+            // check.sh reads this line.
+            log!("browser: saved to library {}", path.display());
+            true
+        }
+        Err(error) => {
+            log!("couldn't save to the library at {}: {error}", path.display());
+            false
+        }
+    }
+}
+
+/// Lists the Library's captures, newest first, away from the main thread, for every window.
+fn list_captures(cx: &mut App) {
+    let listed = cx.background_spawn(async {
+        let entries = std::fs::read_dir(media_dir()).into_iter().flatten().flatten();
+        let mut captures: Vec<_> = entries
+            .filter_map(|entry| {
+                let modified = entry.metadata().ok()?.modified().ok()?;
+                let saved = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+                let name = entry.file_name().into_string().ok()?;
+                let path = entry.path().into_os_string().into_string().ok()?;
+                Some(shell::Captured { path: path.into(), name: name.into(), saved: saved as f64 })
+            })
+            .collect();
+        captures.sort_by(|a, b| b.saved.total_cmp(&a.saved));
+        captures
+    });
+    cx.spawn(async move |_| {
+        let captures = listed.await;
+        // check.sh reads this line.
+        log!("browser: library captures {}", captures.len());
+        update_shells(|shell, cx| shell.set_captures(captures.clone(), cx));
+    })
+    .detach();
+}
+
+/// A capture's file name, as the system names a screenshot.
+pub(crate) fn capture_name() -> String {
+    let mut name = [0 as c_char; 64];
+    unsafe { platform::host_capture_name(name.as_mut_ptr(), name.len()) };
+    unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned()
 }
 
 /// The user left capture mode: a click outside it, another window or another app.
@@ -1362,6 +1532,10 @@ impl command_bar::Host for Bar {
         }
     }
 
+    fn reload(&self, tab: u64) {
+        unsafe { bc::bc_tab_reload(tab, false) };
+    }
+
     fn select(&self, tab: u64) {
         unsafe { bc::bc_window_select(front().0, tab) };
     }
@@ -1489,6 +1663,12 @@ impl theme_picker::Host for ThemeHost {
     fn hide(&self) {
         unsafe { platform::host_hide_overlay(THEME_PICKER) };
     }
+
+    fn detent(&self) {
+        if unsafe { bc::bc_haptics() } {
+            unsafe { platform::host_detent() };
+        }
+    }
 }
 
 /// The user left the theme picker, such as with a click outside it.
@@ -1512,7 +1692,8 @@ impl tooltip::Host for TooltipHost {
 
 /// The window lost the keyboard, or the app stopped being the active one.
 extern "C" fn tooltip_away() {
-    update_app(tooltip::dismiss);
+    // Later: the window resigns key from inside the update that opened another, such as Settings.
+    update_app_later(tooltip::dismiss);
 }
 
 /// The hover card's requests, to the host's card window, over the browser window in front.
@@ -1527,15 +1708,16 @@ impl hover_card::Host for CardHost {
     }
 
     fn hide(&self) {
-        unsafe { platform::host_hide_hover_card(tooltip::FADE_OUT.as_secs_f64()) };
+        unsafe { platform::host_hide_hover_card() };
     }
 }
 
-/// The window lost the keyboard, the app stopped being the active one, or a press, a scroll or a
-/// key landed outside the card.
+/// The window lost the keyboard, the app stopped being the active one, or a press or a scroll
+/// landed outside the card.
 #[cfg(not(target_os = "linux"))]
 extern "C" fn card_away() {
-    update_app(hover_card::close);
+    // Later, as tooltip_away.
+    update_app_later(hover_card::close);
 }
 
 /// The system is short of memory: the hover cards' pictures, which the core can take again, go.
@@ -1604,6 +1786,23 @@ struct Engine {
     ui_view: *mut c_void,
     /// GPUI's view, which has the keyboard when the UI does.
     view: *mut c_void,
+    /// The videos Media's tiles play, by tile.
+    videos: RefCell<HashMap<u64, Video>>,
+}
+
+/// A video a Media tile plays, from the host, with the pixels its frames are copied into.
+struct Video {
+    player: *mut c_void,
+    side: u32,
+    pixels: Vec<u8>,
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        for (_, video) in self.videos.take() {
+            unsafe { platform::host_video_close(video.player) };
+        }
+    }
 }
 
 impl Browser for Engine {
@@ -1620,8 +1819,8 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_close_below(tab) };
     }
 
-    fn duplicate(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_duplicate(tab) };
+    fn duplicate(&self, tab: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_tab_duplicate(tab) }
     }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
@@ -1724,6 +1923,24 @@ impl Browser for Engine {
         }
     }
 
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
+        let (window, url) = (self.window, url.to_string());
+        // After the drop that asked, which Chromium is still handling.
+        update_app_later(move |_| {
+            let tab = open_tab_behind(window, &url, false);
+            if tab == 0 {
+                return;
+            }
+            unsafe {
+                bc::bc_tab_split_with(tab, with, left);
+                if stacked {
+                    bc::bc_tab_set_split_stacked(with, true);
+                }
+                bc::bc_window_select(window, tab);
+            }
+        });
+    }
+
     fn show_drop_targets(&self, shown: bool, cx: &mut App) {
         let ui_view = self.ui_view;
         // After the shell's draw, which asks for it.
@@ -1758,8 +1975,37 @@ impl Browser for Engine {
         unsafe { bc::bc_window_reopen_tab(self.window, closed) }
     }
 
+    fn reopen_preview(
+        &self,
+        closed: &link_preview::Closed,
+        page: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+        let (window, closed) = (self.window, closed.clone());
+        // Outside the shell's update, as the core tells the shell of the tab it opens.
+        update_app_later(move |cx| {
+            let Ok(url) = CString::new(closed.url.as_ref()) else {
+                return;
+            };
+            let preview = unsafe { bc::bc_tab_open_preview(closed.over, url.as_ptr()) };
+            if preview == 0 {
+                log!("browser: link preview over {} not reopened", closed.over);
+                return;
+            }
+            link_preview::show(window, preview, closed.over, closed.url, page, closed.link, cx);
+        });
+    }
+
+    fn close_preview(&self, over: u64, cx: &mut App) -> bool {
+        link_preview::close_over(self.window, over, cx)
+    }
+
     fn pinned_url(&self, tab: u64) -> String {
         name(bc::bc_tab_pinned_url, tab).to_string()
+    }
+
+    fn typed_url(&self, text: &str) -> Option<String> {
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
     }
 
     fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
@@ -1806,6 +2052,48 @@ impl Browser for Engine {
         }
     }
 
+    fn open_video(&self, id: u64, path: &str, side: u32, _: &mut App) -> bool {
+        let Ok(path) = CString::new(path) else {
+            return false;
+        };
+        let player = unsafe { platform::host_video_open(path.as_ptr(), side as c_int) };
+        if player.is_null() {
+            return false;
+        }
+        let pixels = vec![0; side as usize * side as usize * 4];
+        self.videos.borrow_mut().insert(id, Video { player, side, pixels });
+        true
+    }
+
+    fn video_frame(&self, id: u64, _: &mut App) -> Option<Arc<gpui::RenderImage>> {
+        let mut videos = self.videos.borrow_mut();
+        let video = videos.get_mut(&id)?;
+        if !unsafe { platform::host_video_frame(video.player, video.pixels.as_mut_ptr()) } {
+            return None;
+        }
+        // BGRA, as GPUI draws a RenderImage's pixels.
+        let frame = image::RgbaImage::from_raw(video.side, video.side, video.pixels.clone())?;
+        Some(Arc::new(gpui::RenderImage::new(vec![image::Frame::new(frame)])))
+    }
+
+    fn close_video(&self, id: u64, _: &mut App) {
+        if let Some(video) = self.videos.borrow_mut().remove(&id) {
+            unsafe { platform::host_video_close(video.player) };
+        }
+    }
+
+    fn list_captures(&self, cx: &mut App) {
+        list_captures(cx);
+    }
+
+    fn hover_kinds(&self, _: &mut App) -> u32 {
+        unsafe { bc::bc_hover_kinds() as u32 }
+    }
+
+    fn set_hover_kinds(&self, kinds: u32, _: &mut App) {
+        unsafe { bc::bc_set_hover_kinds(kinds as c_int) };
+    }
+
     fn trash(&self, path: &str, _: &mut App) -> bool {
         CString::new(path).is_ok_and(|path| unsafe { platform::host_trash(path.as_ptr()) })
     }
@@ -1843,6 +2131,18 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_go_forward(tab) };
     }
 
+    fn tab_history(&self, tab: u64, forward: bool, _: &mut App) {
+        unsafe { bc::bc_tab_history(tab, forward) };
+    }
+
+    fn go_to_history(&self, tab: u64, offset: i32, _: &mut App) {
+        unsafe { bc::bc_tab_go_to_history(tab, offset) };
+    }
+
+    fn open_history(&self, tab: u64, offset: i32, _: &mut App) {
+        unsafe { bc::bc_tab_open_history(tab, offset) };
+    }
+
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
         unsafe { bc::bc_tab_reload(tab, bypass_cache) };
     }
@@ -1858,6 +2158,54 @@ impl Browser for Engine {
             shell::Answer::Dismiss => bc::BC_PERMISSION_DISMISS,
         };
         unsafe { bc::bc_tab_answer_permission(tab, answer as i32) };
+    }
+
+    fn answer_agent(&self, question: u64, answer: browser::agents::Answer, _: &mut App) {
+        // After the shell's update, as the answer tells every window's shell the next question.
+        agents_core::update(move |agents, cx| agents.answer(question, answer, cx));
+    }
+
+    fn agent_permissions(&self, space: u64, cx: &App) -> shell::AgentGrants {
+        let agent = name(bc::bc_space_agent, space);
+        let Some(agents) = browser::agents::global(cx) else {
+            return Default::default();
+        };
+        let agents = agents.read(cx);
+        let client = browser::agents::Client::from_id(&agent);
+        shell::AgentGrants {
+            sites: agents.grants(&agent),
+            connected: client.is_some_and(|client| agents.is_connected(client)),
+            tabs: !agents.tabs_to_take(&agent, cx).is_empty(),
+        }
+    }
+
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        agents_core::update(move |agents, cx| agents.revoke(&agent, site.as_deref(), cx));
+    }
+
+    fn take_over(&self, agent: SharedString, tab: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.take_over(&agent, tab, cx));
+    }
+
+    fn hand_back(&self, tab: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
+    }
+
+    fn stop_agent(&self, agent: SharedString, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.stop_agent(&agent, cx));
+    }
+
+    fn disconnect_agent(&self, space: u64, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        if let Some(client) = browser::agents::Client::from_id(&agent) {
+            agents_core::update(move |agents, cx| agents.disconnect(client, cx));
+        }
+    }
+
+    fn take_back_agent_tabs(&self, space: u64, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        agents_core::update(move |agents, cx| agents.take_back_all(&agent, cx));
     }
 
     fn show_page_dialog(&self, shown: Option<shell::ShownPageDialog>, cx: &mut App) {
@@ -1962,6 +2310,29 @@ impl Browser for Engine {
         }
     }
 
+    fn save_markdown(&self, name: &str, markdown: String, links: usize, cx: &mut App) {
+        let save = move |path: std::path::PathBuf| match std::fs::write(&path, markdown) {
+            // check.sh reads this line.
+            Ok(()) => log!("browser: exported {links} links to {}", path.display()),
+            Err(error) => log!("couldn't export to {}: {error}", path.display()),
+        };
+        // A check names its file, as it can't drive the system's panel.
+        if !cfg!(feature = "prod")
+            && let Some(file) = std::env::var_os("BROWSER_EXPORT_FILE")
+        {
+            return save(file.into());
+        }
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+        let chosen = cx.prompt_for_new_path(&home, Some(name));
+        cx.foreground_executor()
+            .spawn(async move {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    save(path);
+                }
+            })
+            .detach();
+    }
+
     fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
         unsafe { bc::bc_tab_close_page_menu(tab, command.unwrap_or(0)) };
     }
@@ -2032,6 +2403,19 @@ impl Browser for Engine {
         unsafe { bc::bc_extension_remove(profile, id.as_ptr()) }
     }
 
+    fn turn_on_extension(&self, profile: u64, id: &str, _: &mut App) -> bool {
+        let Ok(id) = CString::new(id) else {
+            return false;
+        };
+        unsafe { bc::bc_extension_turn_on(profile, id.as_ptr()) }
+    }
+
+    fn extension_crash_told(&self, profile: u64, id: &str, _: &mut App) {
+        if let Ok(id) = CString::new(id) {
+            unsafe { bc::bc_extension_crash_told(profile, id.as_ptr()) };
+        }
+    }
+
     fn open_extension_options(&self, url: &str, _: &mut App) {
         open_tab(self.window, url);
     }
@@ -2076,6 +2460,14 @@ impl Browser for Engine {
         open_tab(self.window, "chrome://history");
     }
 
+    fn open_page(&self, url: &str, _: &mut App) {
+        open_tab(self.window, url);
+    }
+
+    fn site_search_settings(&self, _: &mut App) {
+        open_tab(self.window, "chrome://settings/searchEngines");
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -2088,8 +2480,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_space_tab(self.window, space) }
     }
 
-    fn create_space(&self, name: &str, profile: u64, _: &mut App) -> u64 {
-        let space = create_space(name);
+    fn create_space(&self, name: &str, profile: u64, after: u64, _: &mut App) -> u64 {
+        let space = create_space(name, after);
         if profile != 0 {
             unsafe { bc::bc_space_set_profile(space, profile) };
         }
@@ -2138,6 +2530,11 @@ impl Browser for Engine {
         unsafe { bc::bc_profile_create(name.as_ptr()) }
     }
 
+    fn rename_profile(&self, profile: u64, name: &str, _: &mut App) {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_profile_rename(profile, name.as_ptr()) };
+    }
+
     fn import_host(&self) -> Rc<dyn browser::import::Host> {
         Rc::new(import_host::CoreImport)
     }
@@ -2169,6 +2566,19 @@ impl Browser for Engine {
         with_overlays(move |cx| dialog::ask(message, detail, action, confirmed, cx), cx);
     }
 
+    fn tell(
+        &self,
+        question: dialog::Question,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
+        cx: &mut App,
+    ) -> bool {
+        if !dialog::can_pose(cx) {
+            return false;
+        }
+        with_overlays(move |cx| dialog::pose(question, confirmed, cx), cx);
+        true
+    }
+
     fn focus_ui(&self, _: &mut App) {
         focus_ui(self.window, self.view);
     }
@@ -2190,6 +2600,15 @@ impl Browser for Engine {
 
     fn set_page_color(&self, color: u32, _: &mut App) {
         unsafe { bc::bc_window_set_page_color(self.window, color) };
+    }
+
+    fn set_window_light(&self, light: bool, _: &mut App) {
+        unsafe { platform::host_set_window_light(self.ui_view, light) };
+    }
+
+    fn set_appearance(&self, appearance: Appearance, _: &mut App) {
+        settings::save_appearance(appearance);
+        give_host_appearance(appearance);
     }
 
     fn page_moving(&self, moving: bool, _: &mut App) {
@@ -2291,6 +2710,10 @@ impl Browser for Engine {
         // As Quit does: once the shell that asked is done, and before Chromium's posted quit.
         cx.defer(save_launch_picture);
         unsafe { bc::bc_restart() };
+    }
+
+    fn playready_needs(&self) -> shell::PlayReady {
+        shell::PlayReady::from_core(unsafe { bc::bc_playready_needs() })
     }
 
     fn share_services(&self, url: &str) -> Vec<SharedString> {
@@ -2396,8 +2819,22 @@ impl Browser for Engine {
         with_overlays(move |cx| command_bar::show(editing, tabs, field, cx), cx);
     }
 
+    fn search_tabs(&self, tabs: Vec<BarTab>, cx: &mut App) {
+        with_overlays(move |cx| command_bar::show_tabs(tabs, cx), cx);
+    }
+
     fn command_bar_open(&self, cx: &App) -> bool {
         command_bar::is_open(cx)
+    }
+
+    fn command_bar_follows(
+        &self,
+        tabs: Vec<BarTab>,
+        open_tabs: Vec<BarTab>,
+        cx: &mut App,
+    ) -> bool {
+        // The bar shows over the window in front; another's Space, as an agent's, isn't its.
+        self.window == front().0 && command_bar::space_shown(tabs, open_tabs, cx)
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
@@ -2436,12 +2873,13 @@ impl Browser for Engine {
         frame: Bounds<Pixels>,
         radius: f32,
         full_page: bool,
+        library: bool,
         cx: &mut App,
     ) {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, cx),
+                false => capture::start(tab, frame, radius, library, cx),
             },
             cx,
         );
@@ -2458,6 +2896,8 @@ impl Browser for Engine {
 
     fn card_picture(&self, tab: u64, cx: &mut App) {
         let request = hover_card::asking(tab, cx);
+        // check.sh reads this line: a hidden page draws for its picture from here.
+        log!("browser: tab {tab} picturing {request}");
         let (width, height) = hover_card::PICTURE_PIXELS;
         unsafe { bc::bc_tab_picture(tab, request, width, height) };
     }
@@ -2485,6 +2925,14 @@ impl Browser for Engine {
         settings::show_shortcuts(cx);
     }
 
+    fn about(&self, cx: &mut App) {
+        settings::show_about(cx);
+    }
+
+    fn import(&self, cx: &mut App) {
+        settings::show_import(cx);
+    }
+
     fn passwords(&self, space: u64, cx: &mut App) {
         let profile = unsafe { bc::bc_space_profile(space) };
         settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
@@ -2495,8 +2943,12 @@ impl Browser for Engine {
         offered.then(|| unsafe { bc::bc_send_crash_reports() })
     }
 
-    fn set_crash_reports(&self, on: bool, _: &mut App) {
-        settings::set_send_crash_reports(on);
+    fn set_crash_reports(&self, on: bool, cx: &mut App) {
+        settings::set_send_crash_reports(on, cx);
+    }
+
+    fn agent_activity(&self, cx: &mut App) {
+        settings::show_agents(cx);
     }
 
     fn new_window(&self, cx: &mut App) {
@@ -2599,7 +3051,7 @@ impl Browser for Engine {
             check: None,
             return_cancels: false,
         };
-        dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
+        dialog::pose(question, Box::new(|_, _| unsafe { bc::bc_quit() }), cx);
     }
 }
 
@@ -2661,6 +3113,8 @@ unsafe extern "C" fn tab_key_before_page(
     if held_escape::keeps_from_page(unsafe { &*key }) {
         return true;
     }
+    // Any key ends the hover card, as in Dia, the page's as the UI's.
+    update_app(hover_card::close);
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
@@ -2683,6 +3137,54 @@ unsafe extern "C" fn tab_key_before_page(
         unsafe { platform::host_hold_keys() };
     }
     false
+}
+
+/// Gives the keys the core held from a page since a shortcut that opens a field (bc_hold_keys) to
+/// the overlay of `view`, which now has the keyboard, in the order typed.
+#[cfg(target_os = "linux")]
+fn give_held_keys(view: *mut c_void) {
+    unsafe extern "C" fn take(held: *mut c_void, keys: *const bc::bc_key, count: usize) {
+        let held = unsafe { &mut *held.cast::<Vec<gpui::Keystroke>>() };
+        for key in unsafe { std::slice::from_raw_parts(keys, count) } {
+            let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+            let has = |flag| key.modifiers & flag != 0;
+            let modifiers = gpui::Modifiers {
+                control: has(bc::BC_MODIFIER_CONTROL),
+                alt: has(bc::BC_MODIFIER_ALT),
+                shift: has(bc::BC_MODIFIER_SHIFT),
+                platform: has(bc::BC_MODIFIER_META),
+                function: false,
+            };
+            held.push(shell::web_keystroke(&name, modifiers));
+        }
+    }
+    let mut held: Vec<gpui::Keystroke> = Vec::new();
+    unsafe { bc::bc_give_held_keys(Some(take), (&raw mut held).cast()) };
+    let Some(cx) = CX.with_borrow(Clone::clone).filter(|_| !held.is_empty()) else {
+        return;
+    };
+    // check.sh reads this line, which names the window that took them as the Mac's does.
+    log!("browser: held {} key events for GPUIPanel", held.len());
+    // After the update that showed the overlay, which a key would come inside, and before GPUI
+    // reads the keys typed since, as the task runs before it dispatches its Wayland queue.
+    let app = cx.clone();
+    cx.foreground_executor()
+        .spawn(async move {
+            app.update(|cx| {
+                let overlay = cx.windows().into_iter().find(|window| {
+                    window.update(cx, |_, window, _| ns_view(window) == view).unwrap_or(false)
+                });
+                if let Some(overlay) = overlay {
+                    let typed = |_: gpui::AnyView, window: &mut Window, cx: &mut App| {
+                        for keystroke in held {
+                            window.dispatch_keystroke(keystroke, cx);
+                        }
+                    };
+                    overlay.update(cx, typed).ok();
+                }
+            })
+        })
+        .detach();
 }
 
 unsafe extern "C" fn tab_key_unhandled(
@@ -2805,7 +3307,7 @@ fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -
             start.elapsed().as_secs_f64() * 1000.
         );
     } else {
-        unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
+        unsafe { bc::bc_window_show_space(window, create_space("Space 1", 0)) };
     }
     let links = LAUNCH_LINKS.take().unwrap_or_default();
     match std::env::var("BROWSER_URL") {
@@ -3056,7 +3558,12 @@ fn open_window_as(
             .detach();
             #[cfg(target_os = "linux")]
             system::watch_activation(window, ui_view, wayland_size.is_some(), cx);
-            let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });
+            let engine = Rc::new(Engine {
+                window: id,
+                ui_view,
+                view: ns_view(window),
+                videos: RefCell::default(),
+            });
             match (&from_shell, private_space) {
                 (_, Some((space, profile))) => {
                     Shell::private_window(engine, space, private_name(profile), profile, cx)
@@ -3068,6 +3575,8 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
+        #[cfg(target_os = "linux")]
+        emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
             windows.insert(
@@ -3162,7 +3671,8 @@ fn open_window_as(
                 unsafe { platform::host_close_launch_window() };
                 // check.sh reads this line: the UI comes out from under the launch picture.
                 log!("browser: UI shown at {:.1} ms", unsafe { platform::host_since_launch() });
-                cx.update(overlays_now)
+                cx.update(overlays_now);
+                cx.update(agents_core::start)
             })
             .detach();
         }
@@ -3347,6 +3857,8 @@ fn finish_opening(
     {
         toast_host.view.set(view);
         unsafe { platform::host_add_toast(view) };
+        // Auto-archive at launch can come before there's a toast to show its note in.
+        show_archive_note(cx);
     }
     if let Some(capture) = capture::open(Rc::new(CaptureHost { toast: toast_host }), cx)
         && let Ok(view) = capture.update(cx, |_, window, _| ns_view(window))
@@ -3491,6 +4003,8 @@ unsafe extern "C" fn started(_: *mut c_void) {
         browser::face::register(cx);
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
+        settings::read_appearance(cx);
+        give_host_appearance(shell::app_appearance(cx));
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         #[cfg(target_os = "linux")]
@@ -3626,7 +4140,7 @@ fn check_for_updates(cx: &mut App) {
                 concat!(env!("APP_NAME"), " looks for one every half hour while it’s open.").into(),
             ),
         };
-        dialog::pose(notice(message, detail), Box::new(|_| {}), cx);
+        dialog::pose(notice(message, detail), Box::new(|_, _| {}), cx);
     }
 }
 
@@ -3665,7 +4179,7 @@ fn offer_restart(cx: &mut App) {
             concat!("Restart ", env!("APP_NAME"), " to use it.").into(),
         )
     };
-    let restart = |cx: &mut App| {
+    let restart = |_: Vec<String>, cx: &mut App| {
         let Some(portal) = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.0.clone()))
         else {
             return;
@@ -3689,13 +4203,15 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
+    let about = item(concat!("About ", env!("APP_NAME")), Command::About);
+    let mut app = vec![about, MenuItem::separator()];
     // Only a release build that carries Sparkle has updates to check for.
-    let mut app = Vec::new();
     if updates_available() {
         app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
     }
     app.extend([
         item("Settings…", Command::Settings),
+        item("Import from Other Browsers…", Command::Import),
         MenuItem::separator(),
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
@@ -3758,6 +4274,16 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
         menu(
             "View",
             vec![
+                MenuItem::submenu(menu(
+                    "Appearance",
+                    (Appearance::ALL.into_iter())
+                        .map(|each| {
+                            item(appearance_title(each), Command::Appearance(each))
+                                .checked(bar.appearance == each)
+                        })
+                        .collect(),
+                )),
+                MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
@@ -3810,6 +4336,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "Tabs",
             vec![
                 item("New Tab…", Command::NewTab),
+                item("Search Tabs…", Command::SearchTabs),
                 item(bar.pin_title(), Command::TogglePin),
                 item("New Folder…", Command::NewFolder),
                 MenuItem::separator(),
@@ -3818,6 +4345,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Reveal Tab in Sidebar", Command::RevealTab),
                 MenuItem::separator(),
                 item("Clear Today", Command::Clear),
+                item("Reset all tabs in this Space", Command::ResetSpaceTabs),
             ],
         ),
         menu(
@@ -3852,21 +4380,50 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 MenuItem::separator(),
                 item("Open Library…", Command::ViewLibrary),
                 item("View Downloads…", Command::ViewDownloads),
+                item("View Media…", Command::ViewMedia),
             ],
         ),
         menu(
             "Help",
             vec![
                 item(concat!("Welcome to ", env!("APP_NAME")), Command::Welcome),
+                item("Help Center", Command::HelpCenter),
+                item("What's New", Command::WhatsNew),
                 item("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
                 MenuItem::separator(),
+                item("Report a Problem…", Command::ReportProblem),
                 MenuItem::submenu(menu(
                     "Troubleshooting",
-                    vec![item("Open Task Manager", Command::TaskManager)],
+                    vec![
+                        item("Copy Build Info", Command::CopyBuildInfo),
+                        item("Open Task Manager", Command::TaskManager),
+                    ],
                 )),
             ],
         ),
     ]
+}
+
+/// View › Appearance's item for `appearance`, as Arc's names them.
+fn appearance_title(appearance: Appearance) -> &'static str {
+    match appearance {
+        Appearance::Automatic => "Automatic",
+        Appearance::Light => "Light",
+        Appearance::Dark => "Dark",
+    }
+}
+
+/// Gives the host View › Appearance's choice, for the app's native parts and its pages.
+fn give_host_appearance(appearance: Appearance) {
+    let code = match appearance {
+        Appearance::Automatic => 0,
+        Appearance::Light => 1,
+        Appearance::Dark => 2,
+    };
+    unsafe { platform::host_set_app_appearance(code) };
+    // The Mac's pages follow NSApp's appearance, which the host sets.
+    #[cfg(not(target_os = "macos"))]
+    unsafe { bc::bc_set_appearance(code) };
 }
 
 /// Spaces › Change Profile: the profiles the Space shown can be in, as its menu's Profile items
@@ -3927,26 +4484,33 @@ unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
     log!("browser: private session ended {profile}");
 }
 
-/// An agent's action as the core judged it. The Agent Space's activity log will list these; until
-/// it ships with the MCP server (decision 8), the log has them, and check.sh reads it. One it let
-/// the agent do puts the agent's dot on the tab's row, from the same entry.
+/// An agent's action as the core judged it, for the activity log in Settings › Agents, which
+/// check.sh reads in the log too. One it let the agent do puts the agent's dot on the tab's row,
+/// from the same entry. It comes from inside the call that asked, so the app hears it after.
 unsafe extern "C" fn agent_activity(_: *mut c_void, entry: *const bc::bc_agent_activity) {
     let entry = unsafe { &*entry };
-    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
     let (agent, action, refused) = (text(entry.agent), text(entry.action), text(entry.refused));
+    let tab = entry.tab;
     match refused.is_empty() {
-        true => log!("browser: agent activity {agent} {} {action}", entry.tab),
-        false => log!("browser: agent activity {agent} {} {action} refused: {refused}", entry.tab),
+        true => log!("browser: agent activity {agent} {tab} {action}"),
+        false => log!("browser: agent activity {agent} {tab} {action} refused: {refused}"),
     }
     if refused.is_empty() {
-        let (agent, tab): (SharedString, _) = (agent.into_owned().into(), entry.tab);
-        update_shells(|shell, cx| shell.agent_acted(agent.clone(), tab, cx));
+        let agent = SharedString::from(agent.clone());
+        update_app_later(move |cx| update_shells_in(cx, |shell, cx| {
+            shell.agent_acted(agent.clone(), tab, cx)
+        }));
+    }
+    // The Agents' own calls log themselves.
+    if !agents_core::calling() {
+        agents_core::update(move |agents, cx| agents.checked(&agent, tab, &action, &refused, cx));
     }
 }
 
-/// The core ended an agent's session with a tab: its client disconnected, it released the tab or
-/// the user took the tab back. The activity log has it beside what the agent did, and the agent is
-/// no longer at work in the tab.
+/// The core ended an agent's session with a tab: its client disconnected, it released the tab, the
+/// user took the tab back or its page asked for the user's passkey. The activity log has it beside
+/// what the agent did, and the agent is no longer at work in the tab.
 unsafe extern "C" fn agent_session_ended(
     _: *mut c_void,
     agent: *const c_char,
@@ -3958,11 +4522,45 @@ unsafe extern "C" fn agent_session_ended(
         bc::BC_AGENT_SESSION_DISCONNECTED => "disconnected",
         bc::BC_AGENT_SESSION_RELEASED => "released",
         bc::BC_AGENT_SESSION_TAKEN_BACK => "taken back",
+        bc::BC_AGENT_SESSION_PASSKEY => "passkey",
         _ => "ended",
     };
     // check.sh reads this line.
     log!("browser: agent session ended {agent} {tab} {why}");
-    update_shells(|shell, cx| shell.agent_session_ended(&agent, tab, cx));
+    // As agent_activity, from inside the call that ended it.
+    update_app_later(move |cx| {
+        update_shells_in(cx, |shell, cx| shell.agent_session_ended(&agent, tab, cx));
+        if let Some(agents) = browser::agents::global(cx) {
+            agents.update(cx, |agents, cx| agents.session_ended(&agent, tab, why, cx));
+        }
+    });
+}
+
+/// The core's answer to an agent's action in a tab (bc_agent_page): why it couldn't, a
+/// screenshot, or the page's tree.
+unsafe extern "C" fn agent_page_done(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    request: u64,
+    text: *const c_char,
+    error: bool,
+) {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    // check.sh reads this line.
+    match error {
+        true => log!("browser: agent page {tab} {request} error: {text}"),
+        false => log!("browser: agent page {tab} {request} {}", text.len()),
+    }
+    agents_core::update(move |agents, cx| agents.page_done(request, text, error, cx));
+}
+
+/// The text of a tab's page that bc_tab_read_text asked for, or null if it had none.
+unsafe extern "C" fn tab_text(_: *mut c_void, tab: bc::bc_id, request: u64, text: *const c_char) {
+    let text = (!text.is_null())
+        .then(|| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned());
+    // check.sh reads this line.
+    log!("browser: tab text {tab} {request} {}", text.as_ref().map_or(0, String::len));
+    agents_core::update(move |agents, cx| agents.text_read(request, text, cx));
 }
 
 /// The page menu's Open Link in New Window and Open Link in Incognito Window: `url` opens in a
@@ -4019,7 +4617,8 @@ unsafe extern "C" fn launching(_: *mut c_void) {
 /// Back from another app, such as System Settings, where the user may have changed the default
 /// browser or given the app Full Disk Access.
 extern "C" fn became_active() {
-    update_app(|cx| {
+    // Later: AppKit can say so from inside the update that activated the app to show a window.
+    update_app_later(|cx| {
         settings::check_default_browser(cx);
         import_host::became_active(cx);
     });
@@ -4034,9 +4633,8 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
 // window is already hidden when it closes, and the frame alone as the last regular window closes.
 // Nothing of a private window is kept.
 extern "C" fn launch_picture_on_resigning() {
-    if let Some(cx) = CX.with_borrow(Clone::clone) {
-        cx.update(save_launch_picture);
-    }
+    // Later: AppKit can say so from inside an update of ours, such as one that hides the app.
+    update_app_later(save_launch_picture);
 }
 
 fn save_launch_picture(cx: &mut App) {
@@ -4127,6 +4725,41 @@ unsafe extern "C" fn crash_report_offered(_: *mut c_void) {
     update_app(move |cx| {
         with_overlays(move |cx| toast::show_until_answered(text, buttons, cx), cx)
     });
+}
+
+unsafe extern "C" fn archive_note_changed(_: *mut c_void) {
+    // Before the toast's window is made, as at launch, making it shows the note.
+    update_app_later(show_archive_note);
+}
+
+/// The note on the first tabs auto-archive took, as Arc's banner explains its own, while it's still
+/// to be answered: a toast that stays until one of its buttons is pressed, as the crash report's
+/// offer does, so it's never missed. Both buttons dismiss it for good.
+fn show_archive_note(cx: &mut App) {
+    if !unsafe { bc::bc_archive_note() } {
+        return;
+    }
+    let view = toast::Button {
+        label: toast::Label::Text("View Archive".into()),
+        name: "view archive",
+        run: Rc::new(|_, cx| {
+            unsafe { bc::bc_dismiss_archive_note() };
+            let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));
+            if let Some(shell) = shell {
+                let view = |shell: &mut Shell, cx: &mut Context<Shell>| {
+                    shell.run(Command::ViewArchive, "archive note", cx)
+                };
+                shell.update(cx, view).ok();
+            }
+        }),
+    };
+    let dismiss = toast::Button {
+        label: toast::Label::Glyph("icons/x.svg"),
+        name: "dismiss",
+        run: Rc::new(|_, _| unsafe { bc::bc_dismiss_archive_note() }),
+    };
+    let text = format!("Tabs unseen for {} went to the archive.", settings::archive_after_words());
+    toast::show_until_answered(&text, vec![view, dismiss], cx);
 }
 
 unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
@@ -4297,6 +4930,34 @@ unsafe extern "C" fn tab_favicon_changed(
     update_shells(|shell, cx| shell.set_favicon(tab, favicon.clone(), cx));
 }
 
+unsafe extern "C" fn tab_history(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    forward: bool,
+    entries: *const bc::bc_history_entry,
+    count: usize,
+) {
+    let entries = match count {
+        0 => &[][..],
+        _ => unsafe { std::slice::from_raw_parts(entries, count) },
+    };
+    let text = |text: *const c_char| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let pages: Vec<_> = (entries.iter())
+        .map(|entry| shell::HistoryPage {
+            offset: entry.offset,
+            url: text(entry.url).into(),
+            title: text(entry.title).into(),
+            favicon: (!entry.favicon.is_null()).then(|| {
+                let png = unsafe { std::slice::from_raw_parts(entry.favicon, entry.favicon_size) };
+                Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))
+            }),
+        })
+        .collect();
+    let way = if forward { "forward" } else { "back" };
+    log!("browser: history {tab} {way} {}", pages.len());
+    update_shells(|shell, cx| shell.show_history(tab, forward, pages.clone(), cx));
+}
+
 unsafe extern "C" fn archive_changed(
     _: *mut c_void,
     tabs: *const bc::bc_archived_tab,
@@ -4388,6 +5049,8 @@ unsafe extern "C" fn extensions_changed(
             pinned: extension.pinned,
             options: text(extension.options),
             removable: extension.removable,
+            incognito: extension.incognito,
+            crashed: extension.crashed,
             commands: match extension.commands.is_null() {
                 true => &[][..],
                 false => unsafe {
@@ -4411,6 +5074,8 @@ unsafe extern "C" fn extensions_changed(
         })
         .collect();
     update_shells(|shell, cx| shell.set_extensions(profile, extensions.clone(), cx));
+    // Over the window in front, once.
+    update_window(front().0, |shell, cx| shell.tell_crashed_extension(profile, cx));
 }
 
 unsafe extern "C" fn window_extension_actions(
@@ -4539,6 +5204,48 @@ unsafe extern "C" fn window_extension_popup(
             false => log!("browser: extension popup {extension}"),
         }
     }
+}
+
+/// On Linux and Windows, Chrome asks whether to quit, or close the last private window, cancelling
+/// `count` downloads running. In the words of Chrome's alert on the Mac, with the app's name where
+/// it names Chromium, and ↩ on Continue Downloading, as there.
+unsafe extern "C" fn window_downloads_question(
+    _: *mut c_void,
+    window: bc::bc_id,
+    count: c_int,
+    last_private: bool,
+) {
+    let question = dialog::Question {
+        icon: None,
+        message: match count {
+            1 => "Download is in progress",
+            _ => "Downloads are in progress",
+        }
+        .into(),
+        detail: match last_private {
+            true => "Quit Incognito mode anyway?",
+            false => concat!("Quit ", env!("APP_NAME"), " anyway?"),
+        }
+        .into(),
+        list: Vec::new(),
+        action: "Quit".into(),
+        cancel: "Continue Downloading".into(),
+        // Quit cancels the downloads, which can't be taken back.
+        tone: dialog::Tone::Destructive,
+        also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: true,
+    };
+    let answered =
+        Box::new(move |cancel, _: &mut App| unsafe { bc::bc_window_answer_downloads(window, cancel) });
+    // With no UI to ask in, the browser stays open, as it does with no dialog to ask in.
+    if CX.with_borrow(Option::is_none) {
+        unsafe { bc::bc_window_answer_downloads(window, false) };
+        return;
+    }
+    // A private window's close can ask from inside the app's own call.
+    update_app_later(move |cx| dialog::ask_chrome(question, answered, cx));
 }
 
 unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
@@ -5069,9 +5776,10 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     const CRASH_TEST: &str = "--crash-after-start";
     // Where the user's crash reports go if they send them, a default service URL that a fork or a
     // self-hosted collector names in branding/crash-reports. Without one the build sends none, and
-    // Settings doesn't offer to. A check's own, given to the app, comes after and wins.
+    // Settings doesn't offer to. Only the prod build names it, as only it reaches users, so no dev
+    // build or check sends to the product's collector; crash.sh gives the app its own.
     let collector = include_str!("../branding/crash-reports").trim();
-    if !collector.is_empty() {
+    if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
@@ -5110,6 +5818,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_state_changed: Some(tab_state_changed),
         tab_title_changed: Some(tab_title_changed),
         tab_favicon_changed: Some(tab_favicon_changed),
+        tab_history: Some(tab_history),
         archive_changed: Some(archive_changed),
         page_favicon: Some(page_favicon),
         downloads_changed: Some(downloads_changed),
@@ -5145,12 +5854,17 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
         tab_link_to_site: Some(tab_link_to_site),
+        tab_link_dragged: Some(tab_link_dragged),
         crash_report_offered: Some(crash_report_offered),
         #[cfg(target_os = "linux")]
         ui_composed: Some(ui_composed),
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
         history_added: Some(history_added),
+        tab_text: Some(tab_text),
+        agent_page_done: Some(agent_page_done),
+        window_downloads_question: Some(window_downloads_question),
+        archive_note_changed: Some(archive_note_changed),
         ..Default::default()
     };
     (args, host)

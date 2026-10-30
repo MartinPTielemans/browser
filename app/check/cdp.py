@@ -1,14 +1,19 @@
-"""The passkeys run's DevTools client (check/passkeys.sh), over the pipe --remote-debugging-pipe
-gives the browser: the browser reads from IN and writes to OUT, each message JSON ending in NUL.
+"""The passkeys and passwords runs' DevTools client (check/passkeys.sh, check/passwords.sh), over
+the pipe --remote-debugging-pipe gives the browser: the browser reads from IN and writes to OUT,
+each message JSON ending in NUL.
 
-It attaches to the page whose address ends in PAGE and gives it a virtual authenticator, through
-DevTools' WebAuthn domain, with the browser's own passkey dialogs: a USB security key that keeps
-passkeys, verifies its user and is touched for each request. It logs on its standard output:
-  cdp: authenticator ready
-  cdp: credential added | credential asserted     as the page registers and signs in
-  cdp: presence 0|1                                once a line "presence 0|1" on its standard
-                                                   input stops or starts the touches
-The domain is for the check alone. Agents never get DevTools: it runs any script in any page.
+It attaches to the page whose address ends in PAGE, logging "cdp: attached", then takes a command
+a line on its standard input:
+  authenticator   gives the page a virtual authenticator, through DevTools' WebAuthn domain, with
+                  the browser's own passkey dialogs: a USB security key that keeps passkeys,
+                  verifies its user and is touched for each request. It logs
+                    cdp: authenticator ready
+                    cdp: credential added | credential asserted   as the page registers, signs in
+  presence 0|1    stops or starts the key's touches, then logs "cdp: presence 0|1"
+  reveal ID       logs "cdp: reveal shown|hidden|none": whether the eye Blink draws in the
+                  password field with the id ID shows, from the field's user-agent shadow tree,
+                  which the page's script can't see
+The domains are for the checks alone. Agents never get DevTools: it runs any script in any page.
 
 Usage: cdp.py IN OUT PAGE
 """
@@ -94,19 +99,56 @@ with answered:
     answered.wait_for(page_target)
     target = page_target()
 session = call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
-call("WebAuthn.enable", {"enableUI": True}, session)
-authenticator = call("WebAuthn.addVirtualAuthenticator", {"options": {
-    "protocol": "ctap2",
-    "transport": "usb",
-    "hasResidentKey": True,
-    "hasUserVerification": True,
-    "isUserVerified": True,
-    "automaticPresenceSimulation": True,
-}}, session)["authenticatorId"]
-log("authenticator ready")
+log("attached")
+authenticator = None
+
+
+def attributes(node):
+    values = node.get("attributes", [])
+    return dict(zip(values[::2], values[1::2]))
+
+
+def find(node, wanted):
+    """The first node in NODE's tree, shadow trees and frames' documents included, WANTED takes."""
+    if wanted(node):
+        return node
+    inner = node.get("shadowRoots", []) + node.get("children", [])
+    if "contentDocument" in node:
+        inner.append(node["contentDocument"])
+    for child in inner:
+        found = find(child, wanted)
+        if found:
+            return found
+    return None
+
+
+def reveal(field_id):
+    root = call("DOM.getDocument", {"depth": -1, "pierce": True}, session)["root"]
+    field = find(root, lambda node: node.get("nodeName") == "INPUT"
+                 and attributes(node).get("id") == field_id)
+    eye = field and find(field, lambda node: attributes(node).get("id") == "password-reveal")
+    if not eye:
+        return "none"
+    # Blink hides it with an inline display: none, and takes that away to show it.
+    return "hidden" if "display: none" in attributes(eye).get("style", "") else "shown"
+
+
 for line in sys.stdin:
     words = line.split()
-    if words[:1] == ["presence"] and words[1:] in (["0"], ["1"]):
+    if words == ["authenticator"] and not authenticator:
+        call("WebAuthn.enable", {"enableUI": True}, session)
+        authenticator = call("WebAuthn.addVirtualAuthenticator", {"options": {
+            "protocol": "ctap2",
+            "transport": "usb",
+            "hasResidentKey": True,
+            "hasUserVerification": True,
+            "isUserVerified": True,
+            "automaticPresenceSimulation": True,
+        }}, session)["authenticatorId"]
+        log("authenticator ready")
+    elif words[:1] == ["presence"] and words[1:] in (["0"], ["1"]) and authenticator:
         call("WebAuthn.setAutomaticPresenceSimulation",
              {"authenticatorId": authenticator, "enabled": words[1] == "1"}, session)
         log("presence " + words[1])
+    elif words[:1] == ["reveal"] and len(words) == 2:
+        log("reveal " + reveal(words[1]))

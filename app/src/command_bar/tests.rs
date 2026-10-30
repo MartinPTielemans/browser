@@ -18,6 +18,8 @@ use crate::text_input::{self, Chosen, FieldMenu};
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<String>>,
+    /// What the core was asked to suggest for, the text and whether it may complete it.
+    asked: RefCell<Vec<(String, bool)>>,
     shown: RefCell<Vec<String>>,
     commands: bool,
     elsewhere: RefCell<HashMap<u64, u64>>,
@@ -34,7 +36,11 @@ fn search(text: &str) -> String {
 }
 
 impl Host for Recorder {
-    fn suggest(&self, _: Option<&str>, _: &str, _: bool) {}
+    fn suggest(&self, _: Option<&str>, text: &str, complete: bool) {
+        if !text.is_empty() {
+            self.asked.borrow_mut().push((text.into(), complete));
+        }
+    }
 
     fn remove_suggestion(&self, url: &str) {
         self.record(format!("remove {url}"));
@@ -63,6 +69,10 @@ impl Host for Recorder {
 
     fn navigate(&self, tab: u64, url: &str) {
         self.record(format!("navigate {tab} {url}"));
+    }
+
+    fn reload(&self, tab: u64) {
+        self.record(format!("reload {tab}"));
     }
 
     fn select(&self, tab: u64) {
@@ -139,10 +149,19 @@ impl Bar {
     }
 
     fn open(cx: &mut TestAppContext, tabs: Vec<shell::BarTab>, host: Recorder) -> Self {
+        Bar::opened(cx, host, |cx| show(None, tabs, None, cx))
+    }
+
+    /// The bar, opened for Search Tabs on `tabs`.
+    fn search_tabs(cx: &mut TestAppContext, tabs: Vec<shell::BarTab>) -> Self {
+        Bar::opened(cx, Recorder::default(), |cx| show_tabs(tabs, cx))
+    }
+
+    fn opened(cx: &mut TestAppContext, host: Recorder, show: impl FnOnce(&mut App)) -> Self {
         let host = Rc::new(host);
         cx.update(text_input::bind_keys);
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the bar");
-        cx.update(|cx| show(None, tabs, None, cx));
+        cx.update(show);
         let cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
         Bar { cx, window, host }
@@ -239,6 +258,20 @@ impl Bar {
         self.cx.run_until_parked();
     }
 
+    /// The window shows another Space, with `tabs`, which Search Tabs lists too. Returns whether
+    /// the bar's pick opens a new tab now.
+    fn follow(&mut self, tabs: Vec<shell::BarTab>) -> bool {
+        let opens = self.cx.cx.update(|cx| space_shown(tabs.clone(), tabs, cx));
+        self.cx.run_until_parked();
+        opens
+    }
+
+    /// The browser's shortcut for `command`, pressed while the bar has the keyboard.
+    fn run(&mut self, command: shell::Command) {
+        self.cx.dispatch_action(shell::Run(command));
+        self.cx.run_until_parked();
+    }
+
     fn over_field(&mut self) -> bool {
         self.window.read_with(&self.cx.cx, |bar, _| bar.over_field).unwrap()
     }
@@ -286,6 +319,15 @@ impl Bar {
         self.cx.run_until_parked();
     }
 
+    /// A click where row `index` shows its ✕ under the pointer, at its end.
+    fn click_remove(&mut self, index: usize) {
+        self.point_at(index);
+        let x = WIDTH - LIST_X - PLATE_INSET - ROW_END - 3. - ICON_BOX / 2.;
+        let y = height(0) + LINE + LIST_TOP + (index as f32 + 0.5) * ROW_HEIGHT;
+        self.cx.simulate_click(point(px(x), px(y)), Modifiers::none());
+        self.cx.run_until_parked();
+    }
+
     /// The row with the selection's plate, and the row with the pointer's, if it has one.
     fn plates(&mut self) -> (usize, Option<usize>) {
         self.window
@@ -330,6 +372,30 @@ fn return_goes_where_the_completion_goes(cx: &mut TestAppContext) {
     assert_eq!(bar.input(), ("example.com".into(), 9..11));
     bar.keys("enter");
     assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
+}
+
+/// The keys typed in the page after ⌃L, which the core held from it (bc_hold_keys), go in the
+/// field as typed once it opens: characters with their text and ⌫ as the key it is. A shortcut,
+/// such as ⌃A, types nothing.
+#[gpui::test]
+fn keys_held_from_the_page_go_in_as_typed(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    let shift = Modifiers { shift: true, ..Modifiers::none() };
+    let held = [
+        ("G", shift),
+        ("o", Modifiers::none()),
+        ("x", Modifiers::none()),
+        ("Backspace", Modifiers::none()),
+        (" ", Modifiers::none()),
+        ("!", shift),
+    ];
+    for (key, modifiers) in held {
+        let keystroke = shell::web_keystroke(key, modifiers);
+        bar.cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+    }
+    bar.cx.run_until_parked();
+    assert_eq!(bar.input().0, "Go !");
+    assert_eq!(shell::web_keystroke("a", Modifiers::control()).key_char, None);
 }
 
 #[gpui::test]
@@ -521,6 +587,33 @@ fn shift_delete_takes_a_page_out_of_history(cx: &mut TestAppContext) {
     bar.suggest("ex", vec![searching("ex"), page("https://b.test/")]);
     bar.keys("enter");
     assert_eq!(bar.calls(), ["open https://b.test/", "hide"]);
+}
+
+/// A page from history, or a search typed before, shows a ✕ under the pointer that takes it out,
+/// as Arc's does, and ⌥⌘⌫ takes out the selected one, as ⇧⌦ does. The search for what's typed
+/// and the well-known sites have none: there a click at the row's end takes the row.
+#[gpui::test]
+fn the_pointer_shows_a_cross_that_takes_a_suggestion_out(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    let typed_before = Suggestion { removable: true, ..searching("example") };
+    let site = Suggestion { removable: false, ..page("https://example.com/") };
+    let rows = vec![searching("ex"), page("https://a.test/"), typed_before, site];
+    bar.suggest("ex", rows);
+    bar.click_remove(1);
+    assert_eq!(bar.calls(), ["remove https://a.test/"]);
+    bar.click_remove(2);
+    assert_eq!(bar.calls(), [format!("remove {}", search("example"))]);
+    bar.keys("down alt-cmd-backspace");
+    assert_eq!(bar.calls(), ["remove https://a.test/"]);
+    bar.click_remove(3);
+    assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
+
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), page("https://a.test/")]);
+    bar.click_remove(0);
+    assert_eq!(bar.calls(), [format!("open {}", search("ex")), "hide".into()]);
 }
 
 #[gpui::test]
@@ -852,6 +945,56 @@ fn the_start_of_an_open_tabs_name_puts_it_first_and_return_switches_to_it(cx: &m
     }
 }
 
+/// Search Tabs lists the tabs it's given, centred as for ⌘T, and what's typed keeps those it
+/// names, by a word of their title or site, in their order. Return switches to the one selected.
+#[gpui::test]
+fn search_tabs_lists_the_tabs_named_and_return_switches(cx: &mut TestAppContext) {
+    let tabs = vec![
+        titled(4, "Projects | Convex", CONVEX),
+        titled(2, "Inbox", "https://mail.test/"),
+        titled(9, "Convex docs", "https://docs.convex.dev/"),
+    ];
+    let mut bar = Bar::search_tabs(cx, tabs);
+    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 20"]);
+    let ids = |bar: &mut Bar| bar.rows().into_iter().map(|(_, tab)| tab).collect::<Vec<_>>();
+    assert_eq!(ids(&mut bar), [4, 2, 9]);
+    bar.type_text("conv");
+    assert_eq!(ids(&mut bar), [4, 9]);
+    bar.type_text("ex d");
+    assert_eq!(ids(&mut bar), [9]);
+    bar.keys(&["backspace"; 8].join(" "));
+    assert_eq!(ids(&mut bar), [4, 2, 9], "with nothing typed it lists them all again");
+    bar.type_text("mail");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["select 2", "hide"]);
+}
+
+/// Search Tabs switches across windows as the bar does, and goes nowhere but its tabs: what's
+/// typed is never a page or a search, by any key.
+#[gpui::test]
+fn search_tabs_goes_only_to_its_tabs(cx: &mut TestAppContext) {
+    let mut bar = Bar::search_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+    bar.host.elsewhere.borrow_mut().insert(4, 9);
+    bar.keys("cmd-enter");
+    assert_eq!(bar.calls(), ["hide", "activate 9 with 4"]);
+    let mut bar = Bar::search_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+    bar.type_text("example.com");
+    assert!(bar.rows().is_empty());
+    bar.keys("enter shift-enter cmd-enter alt-enter shift-cmd-enter ctrl-enter");
+    assert!(bar.calls().is_empty(), "{:?}", bar.calls());
+}
+
+/// It lists as many tabs as the bar has rows, and what's typed finds those after them.
+#[gpui::test]
+fn search_tabs_finds_tabs_past_the_rows_listed(cx: &mut TestAppContext) {
+    let mut tabs: Vec<_> = (1..=20).map(|id| tab(id, &format!("https://site{id}.test/"))).collect();
+    tabs.push(titled(30, "Last of all", "https://last.test/"));
+    let mut bar = Bar::search_tabs(cx, tabs);
+    assert_eq!(bar.rows().len(), shell::BAR_ROWS);
+    bar.type_text("last");
+    assert_eq!(bar.rows(), [("https://last.test/".to_string(), 30)]);
+}
+
 #[gpui::test]
 fn a_tab_the_core_lists_moves_up_rather_than_twice(cx: &mut TestAppContext) {
     let mut bar = Bar::with_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
@@ -1012,7 +1155,9 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         Command::SavePage, Command::Print, Command::ViewSource, Command::InspectElements,
         Command::JavaScriptConsole, Command::ManageExtensions, Command::RenameSpace,
         Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
-        Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::NewSpace,
+        Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::About,
+        Command::Import, Command::NewSpace, Command::SiteSearchSettings, Command::HelpCenter,
+        Command::WhatsNew, Command::ReportProblem, Command::CopyBuildInfo,
     ];
     for command in commands {
         let Icon::Glyph(path) = glyph(command) else {
@@ -1073,6 +1218,58 @@ fn a_click_on_the_url_field_opens_the_bar_over_it_and_cmd_l_centred(cx: &mut Tes
     assert!(!bar.over_field());
 }
 
+/// ⌘T or ⌘L closes the bar, whichever opened it, as Arc's do, and the browser's other shortcuts go
+/// on to the browser.
+#[gpui::test]
+fn cmd_t_or_cmd_l_closes_the_open_bar(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    let browser: Rc<RefCell<Vec<shell::Command>>> = Rc::default();
+    let ran = browser.clone();
+    bar.cx.cx.update(|cx| {
+        cx.on_action(move |run: &shell::Run, _| ran.borrow_mut().push(run.0));
+    });
+    bar.type_text("ex");
+    bar.run(shell::Command::NewTab);
+    assert_eq!(bar.calls(), ["dismiss"]);
+    bar.edit("https://example.com/", None);
+    bar.run(shell::Command::EditUrl);
+    bar.run(shell::Command::NewTab);
+    assert_eq!(bar.calls(), ["dismiss", "dismiss"]);
+    bar.run(shell::Command::CopyUrl);
+    assert_eq!(bar.calls(), Vec::<String>::new());
+    assert_eq!(*browser.borrow(), [shell::Command::CopyUrl]);
+}
+
+/// ↩ on the URL ⌘L opened the bar on loads the page again, as Arc's does; typed over, it goes
+/// where the text names.
+#[gpui::test]
+fn return_on_the_url_it_opened_on_reloads(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.edit("https://example.com/", None);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["hide", "reload 1"]);
+    bar.edit("https://example.com/", None);
+    bar.type_text("example.org");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["navigate 1 https://example.org/", "hide"]);
+    // A new tab's bar has no page to load again.
+    let mut bar = Bar::new(cx);
+    bar.type_text("example.com");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
+}
+
+/// The URL the bar opens on is the page's whole address, so a copy of it keeps its https://, as
+/// Arc's does.
+#[gpui::test]
+fn a_copied_address_keeps_its_scheme(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.edit("https://example.com/a?b=1", None);
+    bar.cx.dispatch_action(text_input::Copy);
+    let copied = bar.cx.read_from_clipboard().and_then(|item| item.text());
+    assert_eq!(copied.as_deref(), Some("https://example.com/a?b=1"));
+}
+
 /// The core's rows for `text`: its search row, then a page for each of `hosts`.
 fn suggestions(text: &str, hosts: &[&str]) -> Vec<Suggestion> {
     let pages = hosts.iter().map(|host| page(&format!("https://{host}/")));
@@ -1097,6 +1294,7 @@ fn one_letter_lists_quit_after_the_suggestions(cx: &mut TestAppContext) {
 
 /// Arc's "copy": the best command above the search row, and the others a name or a hidden word
 /// starts with before the core's other rows, as "copy" finds New Window and Duplicate Current Tab.
+/// Copy Build Info is ours, for Arc's Copy Arc Info in its Help menu.
 #[gpui::test]
 fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
     let mut bar = Bar::with_commands(cx);
@@ -1105,6 +1303,7 @@ fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
         "Copy URL ⇧⌘C".to_string(),
         search("copy"),
         "Copy URL as Markdown ⌥⇧⌘C".into(),
+        "Copy Build Info".into(),
         "New Window ⌘N".into(),
         "Duplicate Current Tab".into(),
         "https://copy.com/".into(),
@@ -1155,6 +1354,153 @@ fn a_word_of_the_name_puts_the_best_first_and_the_rest_after(cx: &mut TestAppCon
     assert_eq!(bar.listed(), ["Open Library… ⇧⌘L".to_string(), search("library")]);
 }
 
+/// Tab in an empty field lists only the commands, as Arc's bar does: all that do something now,
+/// and then those what's typed names, none of the core's rows among them. ↩ runs one. Esc, ⇧Tab
+/// or ⌫ at the start leaves, and the bar lists what's typed as ever.
+#[gpui::test]
+fn tab_in_an_empty_field_lists_only_the_commands(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    bar.keys("tab");
+    let all = bar.listed();
+    assert!(all.len() > shell::BAR_ROWS, "{all:?}");
+    assert_eq!(all[0], "Pin Tab ⌘D");
+    type_and_suggest(&mut bar, "split", suggestions("split", &["splitwise.com"]));
+    let only = [
+        "Add Split View ⌃+",
+        "Close this Split Pane ⌃⇧-",
+        "Separate Page from Split View",
+        "Expand Current Split",
+        "Flip Split View",
+    ];
+    assert_eq!(bar.listed(), only);
+    // What's typed doesn't go to a page or a search.
+    bar.keys("shift-cmd-enter");
+    assert!(bar.calls().is_empty());
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["hide"]);
+
+    for leave in ["escape", "shift-tab", "home backspace"] {
+        let mut bar = Bar::with_commands(cx);
+        bar.keys("tab");
+        bar.type_text("sp");
+        bar.keys(leave);
+        assert_eq!(bar.input().0, "sp", "{leave}");
+        assert!(bar.calls().is_empty(), "{leave}");
+        bar.suggest("sp", suggestions("sp", &["spotify.com"]));
+        assert_eq!(bar.listed()[..2], [search("sp"), "https://spotify.com/".into()], "{leave}");
+    }
+}
+
+/// "/ " lists only the commands too, as in Arc's bar, and leaving puts it back. A slash elsewhere
+/// is typed as ever.
+#[gpui::test]
+fn slash_space_lists_only_the_commands(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    bar.type_text("/");
+    bar.type_text(" ");
+    assert_eq!(bar.input(), (String::new(), 0..0));
+    bar.type_text("flip");
+    assert_eq!(bar.listed(), ["Flip Split View"]);
+    bar.keys("home backspace");
+    assert_eq!(bar.input(), ("/ flip".into(), 2..2));
+    bar.suggest("/ flip", vec![searching("/ flip")]);
+    assert_eq!(bar.listed()[0], search("/ flip"));
+
+    let mut bar = Bar::with_commands(cx);
+    bar.type_text("a/");
+    bar.type_text(" ");
+    assert_eq!(bar.input(), ("a/ ".into(), 3..3));
+}
+
+/// Search Tabs and the bar over a new pane list no commands, so there Tab moves the selection.
+#[gpui::test]
+fn search_tabs_keeps_tab_for_the_next_row(cx: &mut TestAppContext) {
+    let tabs = vec![tab(4, "https://a.test/"), tab(5, "https://b.test/")];
+    let mut bar = Bar::search_tabs(cx, tabs);
+    bar.keys("tab enter");
+    assert_eq!(bar.calls(), ["select 5", "hide"]);
+}
+
+/// Another Space shown while the bar is open: it lists that Space's tabs, and asks the core again
+/// for what's typed, which it answers from that Space's profile. The rows from before go at once,
+/// and a completion from them, so a pick never goes to the other profile's page.
+#[gpui::test]
+fn another_space_shown_lists_its_tabs_and_asks_again(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_tabs(cx, vec![tab(4, "https://a.test/")]);
+    assert!(bar.follow(vec![tab(9, "https://b.test/")]));
+    assert_eq!(bar.rows(), [("https://b.test/".to_string(), 9)]);
+    bar.type_text("exa");
+    bar.suggest("exa", vec![completing("https://example.com/", "mple.com"), searching("exa")]);
+    bar.host.asked.take();
+    assert!(bar.follow(Vec::new()));
+    assert_eq!(bar.input(), ("exa".into(), 3..3));
+    assert!(bar.rows().is_empty());
+    assert_eq!(bar.host.asked.take(), [("exa".to_string(), false)]);
+    bar.suggest("exa", vec![searching("exa"), page("https://exa.test/")]);
+    bar.keys("down enter");
+    assert_eq!(bar.calls(), ["open https://exa.test/", "hide"]);
+    // Closed, it has nothing to follow.
+    assert!(!bar.follow(vec![tab(4, "https://a.test/")]));
+    assert!(bar.host.asked.take().is_empty());
+}
+
+/// ⌘L's bar edited a tab of the Space before, so after the switch its pick opens a new tab, and
+/// the URL it opened on goes with that Space's rows; typed over, what's typed stays.
+#[gpui::test]
+fn the_url_bar_of_the_space_before_opens_a_new_tab(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.edit("https://example.com/", None);
+    assert!(bar.follow(vec![tab(9, "https://b.test/")]));
+    assert_eq!(bar.input(), (String::new(), 0..0));
+    assert_eq!(bar.rows(), [("https://b.test/".to_string(), 9)]);
+    bar.type_text("example.org");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://example.org/", "hide"]);
+
+    let mut bar = Bar::new(cx);
+    bar.edit("https://example.com/", None);
+    bar.type_text("example.org");
+    bar.follow(Vec::new());
+    assert_eq!(bar.input().0, "example.org");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://example.org/", "hide"]);
+}
+
+/// A site search leaves for the new profile, whose engines may differ; Search Tabs lists the open
+/// tabs from the Space shown; the bar over a new pane goes, as the split view stays behind.
+#[gpui::test]
+fn the_other_bars_follow_another_space_as_they_can(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck.test");
+    bar.suggest("duck.test", vec![hinting("duck.test")]);
+    bar.keys("tab");
+    bar.type_text("cats");
+    bar.follow(Vec::new());
+    assert_eq!(bar.input().0, "duck.test cats");
+
+    let mut bar = Bar::search_tabs(cx, vec![tab(4, "https://a.test/")]);
+    assert!(!bar.follow(vec![tab(9, "https://b.test/"), tab(8, "https://c.test/")]));
+    assert_eq!(bar.rows(), [("https://b.test/".to_string(), 9), ("https://c.test/".into(), 8)]);
+
+    let mut bar = Bar::new(cx);
+    let pane = Bounds::new(point(px(400.), px(10.)), size(px(400.), px(600.)));
+    let card = Bounds::new(point(px(10.), px(10.)), size(px(800.), px(600.)));
+    bar.cx.cx.update(|cx| show_split(3, pane, card, cx));
+    assert!(!bar.follow(Vec::new()));
+    assert_eq!(bar.calls(), ["dismiss"]);
+}
+
+/// The commands-only list lists the commands again, for the Space shown.
+#[gpui::test]
+fn the_commands_only_list_follows_another_space(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    bar.keys("tab");
+    bar.type_text("flip");
+    bar.follow(Vec::new());
+    assert_eq!(bar.input().0, "flip");
+    assert_eq!(bar.listed(), ["Flip Split View"]);
+}
+
 /// Arc's "space": New Space… first, as a word of its name starts with it, and the other Space
 /// commands after the suggestions.
 #[gpui::test]
@@ -1166,6 +1512,7 @@ fn space_puts_new_space_first(cx: &mut TestAppContext) {
         search("space"),
         "https://spacex.com/".into(),
         "Rename Space".into(),
+        "Export Space as Markdown…".into(),
         "Next Space ⌥⌘→".into(),
         "Previous Space ⌥⌘←".into(),
     ];
@@ -1203,7 +1550,7 @@ fn a_site_completing_puts_every_command_after_the_suggestions(cx: &mut TestAppCo
     assert_eq!(listed.len(), shell::BAR_ROWS);
     assert_eq!(listed[0], "https://tabelog.com/");
     let commands =
-        ["Pin Tab ⌘D", "Next Tab ⌥⌘↓", "Archive Tab ⌘W", "Clear Today ⇧⌘K", "Favorite Tab"];
+        ["Pin Tab ⌘D", "Next Tab ⌥⌘↓", "Search Tabs… ⇧⌘A", "Archive Tab ⌘W", "Clear Today ⇧⌘K"];
     assert_eq!(listed[10..], commands);
 }
 

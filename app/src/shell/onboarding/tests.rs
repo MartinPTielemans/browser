@@ -407,3 +407,38 @@ fn no_browser_found_leaves_the_import_out(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("a");
     assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser));
 }
+
+/// An import begun brings in the favorites step, with the sites its history visited most, each
+/// ticked; a click unticks one, and ↩ adds those still ticked. One that offers none goes on past
+/// it.
+#[gpui::test]
+fn an_import_offers_its_most_visited_sites_as_favorites(cx: &mut TestAppContext) {
+    let (shell, cx, _) = first_window(cx);
+    let view = |shell: &Entity<Shell>, cx: &VisualTestContext| {
+        shell.read_with(cx, |shell, _| shell.importing.as_ref().map(|i| i.view.clone())).unwrap()
+    };
+    let tab = |url: &str| crate::import::found::Tab { url: url.into(), name: String::new() };
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Import);
+    let shown = view(&shell, cx);
+    let offered = vec![tab("https://example.com/"), tab("https://news.example.org/")];
+    shown.update(cx, |view, cx| view.offer(offered, cx));
+    shown.update(cx, |_, cx| cx.emit(ImportEvent::Started));
+    assert_eq!(step(&shell, cx), Some(Step::Favorites));
+    let ticked = |shell: &Entity<Shell>, cx: &VisualTestContext| {
+        shell.read_with(cx, |shell, cx| {
+            shell.favorites_ticked(cx).into_iter().map(|tab| tab.url).collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(ticked(&shell, cx), ["https://example.com/", "https://news.example.org/"]);
+    shell.update(cx, |shell, cx| shell.onboarding_tick("https://example.com/", cx));
+    assert_eq!(ticked(&shell, cx), ["https://news.example.org/"]);
+    cx.simulate_keystrokes("enter");
+    assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser));
+
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::Import);
+    shown.update(cx, |view, cx| view.offer(Vec::new(), cx));
+    shown.update(cx, |_, cx| cx.emit(ImportEvent::Started));
+    assert_eq!(step(&shell, cx), Some(Step::DefaultBrowser), "none offered, no step");
+}

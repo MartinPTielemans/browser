@@ -656,11 +656,14 @@ void ReleaseKeys(HWND from) {
     KillTimer(nullptr, g_hold_timer);
     g_hold_timer = 0;
   }
+  // A bar, or with none the page, which kept the shortcut.
+  const bool to_bar = g_keys_for || from;
   HWND to = g_keys_for ? g_keys_for : (from ? from : GetFocus());
   g_keys_for = nullptr;
   if (!g_held_keys.empty()) {
-    // check.sh reads this line.
-    fprintf(stderr, "browser: held %zu key events\n", g_held_keys.size());
+    // check.sh reads this line, which names the window that took them as the Mac's does.
+    fprintf(stderr, "browser: held %zu key events for %s\n", g_held_keys.size(),
+            to_bar ? "GPUIPanel" : "BrowserCoreNSWindow");
   }
   for (const MSG& held : g_held_keys) {
     PostMessageW(to, held.message, held.wParam, held.lParam);
@@ -1211,6 +1214,12 @@ void host_set_window_title(void* ui_view, const char* title) {
   SetWindowTextW(Root(ui_view), Wide(title).c_str());
 }
 
+// The window has no material under the UI, whose tint is the window's look.
+void host_set_window_light(void* ui_view, bool light) {}
+
+// The UI takes the choice itself; the system's controls and the pages keep Windows'.
+void host_set_app_appearance(int appearance) {}
+
 void host_activate(void* ui_view) {
   HWND root = Root(ui_view);
   if (IsIconic(root)) {
@@ -1546,6 +1555,16 @@ void host_copy_png(const uint8_t* png, size_t size) {
   CloseClipboard();
 }
 
+void host_capture_name(char* name, size_t capacity) {
+  SYSTEMTIME now;
+  GetLocalTime(&now);
+  if (capacity && snprintf(name, capacity, "Capture %04d-%02d-%02d at %02d.%02d.%02d.png",
+                           now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+                           now.wSecond) < 0) {
+    name[0] = 0;
+  }
+}
+
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
   wchar_t path[MAX_PATH];
   SYSTEMTIME now;
@@ -1648,7 +1667,7 @@ void host_hide_tooltip(double) {
 }
 
 // shortcut: the card takes clicks over its whole window, the margin round the plate included, and
-// ends only as the pointer leaves it or the UI ends it, without its fade.
+// ends only as the pointer leaves it or the UI ends it, as a key does.
 void host_add_hover_card(void* card_view, double margin, void (*)(void)) {
   Adopt(g_card, card_view, false, nullptr);
   // A click on its buttons leaves the keyboard where it was.
@@ -1661,7 +1680,7 @@ void host_show_hover_card(void* ui_view, double left, double top, double, double
   Show(g_card, ui_view, left - g_card_margin, top - g_card_margin, -1, -1, false);
 }
 
-void host_hide_hover_card(double) {
+void host_hide_hover_card(void) {
   Hide(g_card);
 }
 
@@ -2065,6 +2084,17 @@ void host_file_preview(const char* path,
   }).detach();
 }
 
+// shortcut: no video playback yet; Media's video tiles show their preview.
+void* host_video_open(const char*, int) {
+  return nullptr;
+}
+
+bool host_video_frame(void*, uint8_t*) {
+  return false;
+}
+
+void host_video_close(void*) {}
+
 void host_copy(const char* text) {
   std::wstring wide = Wide(text);
   if (!OpenClipboard(nullptr)) {
@@ -2082,9 +2112,9 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
-// shortcut: there's no Safari; protected video on Windows waits for WebView2 (decision 1).
 void host_open_full_disk_access(void) {}
 
+// There's no Safari: Windows plays protected video with Chromium's own PlayReady (decision 1).
 void host_open_in_safari(const char* url) {
   fprintf(stderr, "browser: no system engine for %s\n", url);
 }

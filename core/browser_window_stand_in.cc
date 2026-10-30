@@ -11,7 +11,10 @@
 
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/held_keys.h"
+#include "build/build_config.h"
 #include "browser_core/host.h"
+#include "browser_core/platform/window_views.h"
 #include "browser_core/side_panel.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -33,6 +36,7 @@
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
+#include "ui/display/types/display_constants.h"
 #include "ui/gfx/range/range.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
@@ -518,13 +522,26 @@ void BrowserWindowStandIn::ConfirmBrowserCloseWithPendingDownloads(
     int download_count,
     DownloadCloseType dialog_type,
     base::OnceCallback<void(bool)> callback) {
-  // Closes, cancelling the downloads, until the app can ask the user.
+#if !BUILDFLAG(IS_MAC)
+  // The app asks, in its dialog. On the Mac, Chrome's own alert has asked as the app quits.
+  if (window_) {
+    window_->AskAboutDownloads(download_count, dialog_type != DownloadCloseType::kBrowserShutdown,
+                               std::move(callback));
+    return;
+  }
+#endif
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 content::KeyboardEventProcessingResult BrowserWindowStandIn::PreHandleKeyboardEvent(
     const input::NativeWebKeyboardEvent& event) {
+  content::WebContents* contents =
+      browser_ ? browser_->GetTabStripModel()->GetActiveWebContents() : nullptr;
+  // Typed after a shortcut that opens a field of the app's, for the field.
+  if (contents && held_keys::Holds(Tab::IdOf(contents), event)) {
+    return content::KeyboardEventProcessingResult::HANDLED;
+  }
   return AskApp(Host().tab_key_before_page, browser_, event)
              ? content::KeyboardEventProcessingResult::HANDLED
              : content::KeyboardEventProcessingResult::NOT_HANDLED;
@@ -622,15 +639,32 @@ void BrowserWindowStandIn::EnterFullscreen(const url::Origin& origin,
                                            FullscreenTabParams fullscreen_tab_params) {
   // Chrome's fullscreen controller asks when a page goes full screen in a window that isn't, and
   // back only if the window went for the page. The app hears of the page from its tab.
-  if (widget()) {
-    widget()->SetFullscreen(true, fullscreen_tab_params.display_id);
-  }
+  PutFullscreen(true, fullscreen_tab_params.display_id);
 }
 
 void BrowserWindowStandIn::ExitFullscreen() {
-  if (widget()) {
-    widget()->SetFullscreen(false);
+  PutFullscreen(false, display::kInvalidDisplayId);
+}
+
+void BrowserWindowStandIn::PutFullscreen(bool fullscreen, int64_t display_id) {
+  views::Widget* widget = this->widget();
+  if (!widget) {
+    return;
   }
+  // The app lays the page out once, at the window's new size, which it hears of after the window
+  // has resized.
+  platform::HoldPagesForResize(widget);
+  base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
+  widget->SetFullscreen(fullscreen, display_id);
+#if !BUILDFLAG(IS_MAC)
+  // Off the Mac the window is there as SetFullscreen returns, and no show state change follows
+  // when the window manager agrees, so the controller hears it now, as from Chrome's own windows
+  // (BrowserView::ProcessFullscreen). Only then does it let go of a page leaving full screen.
+  ExclusiveAccessManager* manager = alive ? ExclusiveAccessManager::From(browser_) : nullptr;
+  if (manager) {
+    manager->fullscreen_controller()->WindowFullscreenStateChanged();
+  }
+#endif
 }
 
 void BrowserWindowStandIn::UpdateExclusiveAccessBubble(

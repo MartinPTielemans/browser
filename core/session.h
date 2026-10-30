@@ -45,8 +45,10 @@ struct SavedTab {
   // Whether its page took its split view's card, the other pages keeping 220 pt, which the shares
   // aren't kept for.
   bool expanded = false;
-  // How many folders it's in, among the pinned tabs.
-  int depth = 0;
+  // A pinned tab's folder, among its Space's saved folders, else -1.
+  int folder = -1;
+  // A pinned tab's node, or none if it was saved before pinned tabs had them.
+  Space::Node node;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.
   bool muted = false;
   // A favorite's profile's directory. A Space's tabs are in the Space's.
@@ -62,15 +64,19 @@ SavedTab SaveTab(content::WebContents& contents);
 struct SavedFolder {
   std::string name;
   bool open = true;
-  // How many folders it's in.
-  int depth = 0;
+  // The folder it's in, among its Space's saved folders, which is saved before it, else -1.
+  int folder = -1;
   // The pinned tab saved under it, counted among them.
   size_t at = 0;
+  // Its node, or none if it was saved before folders had them.
+  Space::Node node;
 };
 
 // A Space, as the session file keeps it.
 struct SavedSpace {
   std::string name;
+  // Its node, or none if it was saved before Spaces had them.
+  Space::Node node;
   std::optional<uint32_t> color;
   // The emoji the user gave it, if any.
   std::string icon;
@@ -101,7 +107,11 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today 
 
 // Makes |saved| a Space, its tabs unloaded in |window| and |profile|, with the id |id|, a deleted
 // Space's, if it isn't 0. The window shows its shown tab there. Returns it.
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved, bc_id id = 0);
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved,
+                    bc_id id = 0,
+                    size_t at = SIZE_MAX);
 
 // The Spaces as the user left them: their names, their tabs with each tab's history, the tab each
 // showed and the Space the window showed, and the favorites. The core saves them a while after
@@ -142,6 +152,8 @@ struct Settings {
   bool haptics = true;
   // Whether the app asks before the user's Quit quits.
   bool warn_before_quitting = true;
+  // Whether the user has dismissed the note on the first tabs auto-archive took.
+  bool archive_noted = false;
   // Whether the app warns before moving a tab to another profile's Space, which it does once.
   bool warn_moving_profiles = true;
   // Who shares the favorites: a BC_FAVORITES_ value.
@@ -154,6 +166,8 @@ struct Settings {
   bool send_crash_reports = false;
   // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
   bool link_previews = true;
+  // What the Library button's hover lists, as bc_hover_kinds' bits.
+  int hover_kinds = 15;
   // When the newest crash report the user was offered was written, in seconds since 1970, so no
   // report is offered twice, nor one older.
   double crash_report_offered = 0;
