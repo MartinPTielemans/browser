@@ -7,10 +7,10 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
-use std::sync::LazyLock;
 use std::time::Instant;
 
 use browser::agents::{self, Agents, Client};
+use browser::build_info;
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
@@ -169,7 +169,23 @@ impl Tab {
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
 enum Keys {
     Of(Command),
-    Text(&'static str),
+    /// Keys no command holds, which can't be changed: a binding's keystroke.
+    Fixed(&'static str),
+    /// A run of them, from the first keystroke to the last.
+    Span(&'static str, &'static str),
+}
+
+impl Keys {
+    /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
+    fn fixed(&self) -> Option<String> {
+        match *self {
+            Keys::Of(_) => None,
+            Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
+            Keys::Span(first, last) => {
+                Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
+            }
+        }
+    }
 }
 
 /// The Shortcuts tab, in the menus' order and names.
@@ -188,7 +204,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
-            ("Tabs 1 to 8", Keys::Text("⌘1 – ⌘8")),
+            ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -228,7 +244,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
-            ("Spaces 1 to 9", Keys::Text("⌃1 – ⌃9")),
+            ("Spaces 1 to 9", Keys::Span("ctrl-1", "ctrl-9")),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
@@ -276,9 +292,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Settings", Keys::Of(Command::Settings)),
             ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
             // main.rs binds these.
-            (concat!("Hide ", env!("APP_NAME")), Keys::Text("⌘H")),
-            ("Hide Others", Keys::Text("⌥⌘H")),
-            ("Minimize", Keys::Text("⌘M")),
+            (concat!("Hide ", env!("APP_NAME")), Keys::Fixed("cmd-h")),
+            ("Hide Others", Keys::Fixed("alt-cmd-h")),
+            ("Minimize", Keys::Fixed("cmd-m")),
             (concat!("Quit ", env!("APP_NAME")), Keys::Of(Command::Quit)),
         ],
     ),
@@ -1226,8 +1242,8 @@ impl Settings {
         let send = unsafe { bc::bc_send_crash_reports() };
         let send = self.toggle("send crash reports", send, set_send_crash_reports, accent, cx);
         let detail = format!(
-            "Reports go to {}. Turning this off deletes those not yet sent.",
-            crash_reports_collector()
+            "Only sent while this is on, to {}. Turning it off deletes those not yet sent.",
+            collector_name(&crash_reports_collector())
         );
         let row = detailed_row("Send crash reports", detail, Some(send));
         div().child(group(&RowLook::settings(), [row])).into_any_element()
@@ -1666,9 +1682,10 @@ impl Settings {
                 .iter()
                 .filter(|(name, _)| found.contains(name))
                 .map(|(name, keys)| {
-                    let control = match keys {
-                        Keys::Of(command) => self.shortcut(*command, accent, cx),
-                        Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                    let control = match (keys, keys.fixed()) {
+                        (Keys::Of(command), _) => self.shortcut(*command, accent, cx),
+                        (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
+                            .into_any_element(),
                     };
                     row(None, *name, control)
                 })
@@ -1886,6 +1903,17 @@ pub(crate) fn set_send_crash_reports(send: bool, _: &mut App) {
     unsafe { bc::bc_set_send_crash_reports(send) };
 }
 
+/// What the Privacy tab calls the collector at `host`: Sentry, by its region, else its host.
+pub(crate) fn collector_name(host: &str) -> String {
+    match host {
+        _ if host.ends_with(".ingest.de.sentry.io") => "Sentry (EU region)".into(),
+        _ if host.ends_with(".ingest.sentry.io") || host.ends_with(".ingest.us.sentry.io") => {
+            "Sentry".into()
+        }
+        _ => host.into(),
+    }
+}
+
 /// The host crash reports go to, or nothing in a build that names none.
 pub(crate) fn crash_reports_collector() -> String {
     let length = unsafe { bc::bc_crash_reports_collector(std::ptr::null_mut(), 0) };
@@ -1902,11 +1930,8 @@ fn set_link_previews(previews: bool, _: &mut App) {
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built
 /// from, each of which opens in a tab.
 fn about() -> AnyElement {
-    let mut version = match option_env!("APP_BUILD") {
-        Some(build) => format!("Version {} ({build})", env!("CARGO_PKG_VERSION")),
-        None => format!("Version {}", env!("CARGO_PKG_VERSION")),
-    };
-    if let Some(engine) = ENGINE_VERSION.as_deref() {
+    let mut version = format!("Version {}", build_info::version());
+    if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
     let open = |id: &'static str, url: Option<String>| {
@@ -1946,23 +1971,6 @@ fn about() -> AnyElement {
         .child(group(&RowLook::settings(), notices).mt(px(BOX_GAP)))
         .into_any_element()
 }
-
-/// The engine's version: on the Mac, the name of the folder its framework's current version is in,
-/// as Chromium names it.
-static ENGINE_VERSION: LazyLock<Option<String>> = LazyLock::new(|| {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
-    let frameworks = std::env::current_exe().ok()?.parent()?.parent()?.join("Frameworks");
-    std::fs::read_dir(frameworks).ok()?.flatten().find_map(|entry| {
-        let name = entry.file_name();
-        if !name.to_str()?.ends_with(" Framework.framework") {
-            return None;
-        }
-        let current = std::fs::read_link(entry.path().join("Versions/Current")).ok()?;
-        Some(current.to_str()?.to_owned())
-    })
-});
 
 /// The URL of `name`, one of the licence files the app carries (tools/licences.sh): in the bundle's
 /// Resources on the Mac, beside the binary elsewhere. None where the build left it out, as `cargo
@@ -2059,6 +2067,8 @@ fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
 /// Why keys weren't given to a command, as its row says it.
 fn refusal(refused: Refused) -> String {
     let holder = match refused {
+        // Off the Mac ⌘ is pressed as Ctrl and ⌃ as Alt.
+        Refused::Plain if shell::OFF_THE_MAC => return "Add Ctrl or Alt".into(),
         Refused::Plain => return "Add ⌘ or ⌃".into(),
         Refused::Taken(Holder::System(name)) => name,
         Refused::Taken(Holder::Command(command)) => command_name(command),
@@ -2095,7 +2105,7 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
-            Keys::Text(text) => Some(text.to_string()),
+            _ => keys.fixed(),
         };
         shell::shortcut_found(typed, name, label.as_deref())
     });

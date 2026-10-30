@@ -19,7 +19,7 @@ use gpui::{
     AnyWindowHandle, App, Bounds, Context, FocusHandle, Hsla, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Radians, Role, SharedString,
     Task, TitlebarOptions, Transformation, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, linear_color_stop, linear_gradient, point, prelude::*, px,
+    WindowHandle, WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point, prelude::*, px,
     Rgba, rgb, rgba, size, svg,
 };
 
@@ -193,6 +193,8 @@ fn panel_width(entries: &[MenuEntry], items: &[usize], checks: bool, width_of: &
     let lead = if checks { CHECK + GAP } else { 0. };
     let swatches = items.iter().any(|&at| entries[at].swatch.is_some());
     let lead = lead + if swatches { SWATCH + GAP } else { 0. };
+    let pages = items.iter().any(|&at| entries[at].page);
+    let lead = lead + if pages { FAVICON + GAP } else { 0. };
     let chevron = if submenus { GAP + CHEVRON } else { 0. };
     (2. * (PADDING + ROW_X) + lead + widest + chevron).clamp(MIN_WIDTH, MAX_WIDTH)
 }
@@ -674,10 +676,17 @@ impl Tracking {
 /// The menu's items as the host's menus log them, for check.sh: lines left out, a submenu's items
 /// after their parent's title in place of it, and the dimmed and checked ones marked.
 pub(crate) fn described(entries: &[MenuEntry]) -> String {
-    let mark = |entry: &MenuEntry, title: String| match (entry.enabled, entry.checked) {
-        (false, _) => format!("{title} (disabled)"),
-        (true, true) => format!("{title} (checked)"),
-        (true, false) => title,
+    let mark = |entry: &MenuEntry, title: String| {
+        let title = match (entry.page, entry.favicon.is_some()) {
+            (false, _) => title,
+            (true, true) => format!("{title} (favicon)"),
+            (true, false) => format!("{title} (globe)"),
+        };
+        match (entry.enabled, entry.checked) {
+            (false, _) => format!("{title} (disabled)"),
+            (true, true) => format!("{title} (checked)"),
+            (true, false) => title,
+        }
     };
     let mut titles = Vec::new();
     for (at, entry) in entries.iter().enumerate() {
@@ -731,6 +740,8 @@ struct Shown {
     /// The highlighted item the log last named, and the items whose submenus it said were open.
     logged: Option<usize>,
     logged_open: Vec<usize>,
+    /// Whether it has drawn on screen, which the log says once.
+    drawn: bool,
 }
 
 /// The menu's window's view.
@@ -838,6 +849,7 @@ pub fn show(request: Request, cx: &mut App) {
             chosen: Some(request.chosen),
             logged: None,
             logged_open: Vec::new(),
+            drawn: false,
         });
         window.focus(&menu.focus, cx);
         // After a hide that `close` asked for, so the new menu stays.
@@ -1138,6 +1150,15 @@ impl ContextMenu {
                 .bg(gradient)
                 .when_some(ring, |dot, ring| dot.border_1().border_color(ring))
         });
+        let favicon = entry.page.then(|| match entry.favicon.clone() {
+            Some(favicon) => img(favicon).size(px(FAVICON)).flex_none().into_any_element(),
+            None => svg()
+                .path("icons/globe.svg")
+                .size(px(FAVICON))
+                .flex_none()
+                .text_color(secondary)
+                .into_any_element(),
+        });
         let trailing = match (&shortcut, submenu) {
             (_, true) => Some(
                 svg()
@@ -1175,6 +1196,7 @@ impl ContextMenu {
             })
             .children(check)
             .children(swatch)
+            .children(favicon)
             .child(div().flex_1().min_w_0().truncate().text_color(label).child(entry.title.clone()))
             .children(trailing)
             .when(a11y, |row| {
@@ -1251,6 +1273,20 @@ impl Render for ContextMenu {
             .font_family(crate::face::UI)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|menu, event: &KeyDownEvent, _, cx| menu.key_down(event, cx)));
+        // GPUI draws the window only once the host has put it on screen, some frames after it's
+        // asked to.
+        if let Some(shown) = self.shown.as_mut()
+            && !shown.drawn
+        {
+            match window.is_visible() {
+                true => {
+                    shown.drawn = true;
+                    // check.sh waits for this line.
+                    log!("browser: menu drawn {}", described(&shown.tracking.entries));
+                }
+                false => window.request_animation_frame(),
+            }
+        }
         let Some(shown) = self.shown.as_ref() else { return root };
         let panels: Vec<_> = (0..shown.tracking.open.len()).map(|depth| self.panel(shown, depth)).collect();
         // On a platform whose host doesn't see the pointer first (Linux, the preview), the

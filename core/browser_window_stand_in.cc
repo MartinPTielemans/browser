@@ -521,7 +521,14 @@ void BrowserWindowStandIn::ConfirmBrowserCloseWithPendingDownloads(
     int download_count,
     DownloadCloseType dialog_type,
     base::OnceCallback<void(bool)> callback) {
-  // Closes, cancelling the downloads, until the app can ask the user.
+#if !BUILDFLAG(IS_MAC)
+  // The app asks, in its dialog. On the Mac, Chrome's own alert has asked as the app quits.
+  if (window_) {
+    window_->AskAboutDownloads(download_count, dialog_type != DownloadCloseType::kBrowserShutdown,
+                               std::move(callback));
+    return;
+  }
+#endif
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), true));
 }

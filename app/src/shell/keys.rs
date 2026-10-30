@@ -520,6 +520,14 @@ fn keys_named_in(text: &str) -> Option<(u8, Option<String>)> {
         }
     }
     parts.extend((!part.is_empty()).then_some(part));
+    // Off the Mac some keys take two words, as Ctrl+Page Down and Alt+Left Arrow name them.
+    for at in (1..parts.len()).rev() {
+        let pair = format!("{} {}", parts[at - 1], parts[at]).to_lowercase();
+        if key_called(&pair).is_some() {
+            parts[at - 1] = pair;
+            parts.remove(at);
+        }
+    }
     let (ctrl, alt, shift, cmd) = (1, 2, 4, 8);
     let (mut held, mut key) = (0, None);
     for part in parts {
@@ -535,32 +543,33 @@ fn keys_named_in(text: &str) -> Option<(u8, Option<String>)> {
         };
         match modifier {
             Some(bit) => held |= bit,
-            None if key.is_none() => key = Some(key_glyph(&lower)),
+            None if key.is_none() => key = Some(key_called(&lower).unwrap_or(lower)),
             None => return None,
         }
     }
     Some((held, key))
 }
 
-/// The key `word` names, as a menu shows it: ↩ for "return", and a letter in capitals.
-fn key_glyph(word: &str) -> String {
-    let glyph = match word {
-        "return" | "enter" => "↩",
-        "esc" | "escape" => "⎋",
-        "tab" => "⇥",
-        "backspace" => "⌫",
-        "delete" | "del" => "⌦",
-        "up" => "↑",
-        "down" => "↓",
-        "left" => "←",
-        "right" => "→",
-        "pageup" => "⇞",
-        "pagedown" => "⇟",
-        "home" => "↖",
-        "end" => "↘",
-        _ => return word.to_uppercase(),
+/// The binding's name for the key `word` names, typed or as a menu shows it, on the Mac or off
+/// it: "enter" for "return", ↩ or Enter. None for a letter or another key named as it's written.
+fn key_called(word: &str) -> Option<String> {
+    let key = match word {
+        "return" | "enter" | "↩" => "enter",
+        "esc" | "escape" | "⎋" => "escape",
+        "tab" | "⇥" => "tab",
+        "backspace" | "⌫" => "backspace",
+        "delete" | "del" | "⌦" => "delete",
+        "up" | "up arrow" | "↑" => "up",
+        "down" | "down arrow" | "↓" => "down",
+        "left" | "left arrow" | "←" => "left",
+        "right" | "right arrow" | "→" => "right",
+        "pageup" | "page up" | "⇞" => "pageup",
+        "pagedown" | "page down" | "⇟" => "pagedown",
+        "home" | "↖" => "home",
+        "end" | "↘" => "end",
+        _ => return None,
     };
-    glyph.to_string()
+    Some(key.into())
 }
 
 #[cfg(test)]
@@ -616,6 +625,22 @@ mod tests {
         assert_eq!(found("ctrl t", ROWS), [false; 6]);
         // Two keys besides the modifiers name no shortcut.
         assert_eq!(found("cmd t a", ROWS), [false; 6]);
+    }
+
+    /// A key named by its symbol on the Mac or in words off it finds the row whose chip names it
+    /// either way, Page Up and Left Arrow in two words too (#772).
+    #[test]
+    fn shortcuts_search_finds_keys_by_their_symbols_and_their_words() {
+        let found = |typed, keys| shortcut_found(typed, "Row", Some(keys));
+        assert!(found("shift cmd return", "⇧⌘↩"));
+        assert!(found("shift ctrl enter", "Ctrl+Shift+Enter"));
+        assert!(found("ctrl esc", "Ctrl+Esc"));
+        assert!(found("ctrl page down", "Ctrl+Page Down"));
+        assert!(found("ctrl pagedown", "Ctrl+Page Down"));
+        assert!(found("alt left", "Alt+Left Arrow"));
+        assert!(found("alt ←", "Alt+Left Arrow"));
+        assert!(!found("alt right", "Alt+Left Arrow"));
+        assert!(!found("ctrl page up", "Ctrl+Page Down"));
     }
 
     /// A window of the UI with the keyboard, as the shell's root has it.
