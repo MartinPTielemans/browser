@@ -379,14 +379,14 @@ class WindowViews : public views::WidgetObserver,
   }
 
   // The UI lets the keyboard go to the window, which KeyboardForPage counts as the page's, and on
-  // X11 the window has the input focus.
+  // X11 the window has the input focus, even where a press in the UI that gives a page the
+  // keyboard, as one on a tab's row does, had GPUI move it into the UI's window first.
   void PageTakesKeyboard() {
-    if (!ui_has_keyboard_) {
-      return;
+    if (ui_has_keyboard_) {
+      ui_has_keyboard_ = false;
+      ui_holds_for_page_ = false;
+      ui_text_input_.SetKeyboard(overlay_has_keyboard_);
     }
-    ui_has_keyboard_ = false;
-    ui_holds_for_page_ = false;
-    ui_text_input_.SetKeyboard(overlay_has_keyboard_);
     if (ui_ != x11::Window::None && IsWithin(InputFocus(), ui_)) {
       SetInputFocus(window());
     }
@@ -397,10 +397,12 @@ class WindowViews : public views::WidgetObserver,
   // window's handling of its focus event, which comes after it has the focus back, would take it
   // back too, and the two would go on without end (#531).
   void UITakesKeyboard() {
-    ui_has_keyboard_ = true;
     // With no page shown, the keys only reach the window's shortcuts through the UI, which holds
-    // them for the next page shown, as the Mac's window does.
-    ui_holds_for_page_ = std::ranges::none_of(panes_, [](const Slot& slot) { return slot.page; });
+    // them for the next page shown, as the Mac's window does. Taken again while it holds them, as
+    // the window manager focusing the window as it maps has it, it still holds them.
+    ui_holds_for_page_ = (ui_has_keyboard_ && ui_holds_for_page_) ||
+                         std::ranges::none_of(panes_, [](const Slot& slot) { return slot.page; });
+    ui_has_keyboard_ = true;
     ui_lent_ = false;
     page_lent_.RemoveAll();
     if (auto* client = aura::client::GetFocusClient(content())) {
@@ -544,6 +546,8 @@ class WindowViews : public views::WidgetObserver,
       if (focus->detail != x11::NotifyDetail::Inferior) {
         retook_ = false;
       }
+      // GPUI taking the input focus, told after a page took it back from that press, is over.
+      const bool ui_took = IsWithin(InputFocus(), ui_);
       switch (focus->detail) {
         // Out: GPUI took the input focus into the UI's window, as it does on a click. In: it came
         // back up to the window's own, as a window manager focusing the window may move it, which
@@ -552,7 +556,9 @@ class WindowViews : public views::WidgetObserver,
         // up each time, and the two would go on without end (#628).
         case x11::NotifyDetail::Inferior:
           if (!in) {
-            UITakesKeyboard();
+            if (ui_took) {
+              UITakesKeyboard();
+            }
           } else if (ui_has_keyboard_ && !retook_) {
             retook_ = true;
             UITakesKeyboard();
@@ -561,7 +567,7 @@ class WindowViews : public views::WidgetObserver,
         // GPUI took the input focus into the UI's window from another's.
         case x11::NotifyDetail::Virtual:
         case x11::NotifyDetail::NonlinearVirtual:
-          if (in) {
+          if (in && ui_took) {
             UITakesKeyboard();
           }
           break;
