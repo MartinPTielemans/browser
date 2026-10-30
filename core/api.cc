@@ -749,10 +749,11 @@ void bc_set_favorites_scope(int scope) {
 
 size_t bc_tab_split(bc_id id, bc_id* tabs, size_t capacity) {
   browser_core::Space* space = browser_core::Space::Holding(id);
-  if (!space) {
+  if (!space && !browser_core::Favorites::Has(id)) {
     return 0;
   }
-  const std::vector<bc_id> panes = space->Panes(id);
+  const std::vector<bc_id> panes =
+      space ? space->Panes(id) : browser_core::Favorites::Panes(id);
   std::copy_n(panes.begin(), std::min(capacity, panes.size()), tabs);
   return panes.size();
 }
@@ -786,7 +787,7 @@ bool bc_tab_move_in_split(bc_id id, size_t index) {
 
 bool bc_tab_split_stacked(bc_id id) {
   browser_core::Space* space = browser_core::Space::Holding(id);
-  return space && space->Stacked(id);
+  return space ? space->Stacked(id) : browser_core::Favorites::Stacked(id);
 }
 
 double bc_tab_split_share(bc_id id) {

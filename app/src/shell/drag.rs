@@ -115,7 +115,7 @@ impl Shell {
             PLATE_HEIGHT,
             PLATE_RADIUS,
         ];
-        let others = self.favorites.iter().filter(|&&tab| tab != drag.tab).count();
+        let others = self.tile_leads().into_iter().filter(|&tab| tab != drag.tab).count();
         let width = self.tile_places(others + 1)[0][2];
         let centre = drag.pointer - drag.grab.1;
         let tile = [
@@ -217,7 +217,7 @@ impl Shell {
 
     /// The pointer pressed `tab`'s tile at `position`, which may start a drag.
     pub(super) fn press_tile(&mut self, tab: u64, position: Point<Pixels>) {
-        let Some(index) = self.favorites.iter().position(|&other| other == tab) else {
+        let Some(index) = self.tile_leads().into_iter().position(|other| other == tab) else {
             return;
         };
         let Some(&[left, top, width]) = self.drawn_tiles().get(&tab) else {
@@ -272,7 +272,8 @@ impl Shell {
     /// nearest it. Over the list it's a row, which goes up and down over rows that stay put, and a
     /// line marks the place, in the pinned tabs or Today, nearest where it's drawn. Where that's
     /// at the end of folders or after one, the pointer moved right takes it into them, a row in for
-    /// each FOLDER_INDENT. A split view's row stays in the list, and a folder's in the pinned tabs.
+    /// each FOLDER_INDENT. A folder's row stays in the pinned tabs, and a split view's turns into
+    /// one tile, which is one favorite.
     pub(super) fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped && !drag.held) else {
             return;
@@ -301,14 +302,13 @@ impl Shell {
         let others = |rows: Vec<u64>| rows.into_iter().filter(|&other| other != tab).collect();
         let (pinned, today) = self.rows();
         let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
-        let favorites = self.favorites.iter().filter(|&&other| other != tab).count();
+        let favorites = self.tile_leads().into_iter().filter(|&other| other != tab).count();
         let folder = self.is_folder(tab);
         // A favorite stays one in an agent's Space, which it can't move into.
         let kept = self.favorites.contains(&tab) && self.agents_space_shown();
         // Past the most, a row stays one.
         let over_favorites = !incoming
             && !folder
-            && self.panes(tab).len() == 1
             && self.has_room_for(tab)
             && (kept || pointer.y < self.list_top_with(favorites + 1) - self.tiles_scrolled());
         let mut depth = 0;
@@ -513,7 +513,7 @@ impl Shell {
                 Place::Favorite(index) => {
                     // check.sh waits for this line.
                     log!("browser: dragged {tab} to favorites {index}");
-                    self.favorite_tab(tab, index, cx);
+                    self.favorite_tab(tab, self.favorite_index(tab, index), cx);
                 }
                 Place::List(true, gap) => {
                     let (rows, _) = self.rows();

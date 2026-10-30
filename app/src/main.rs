@@ -4474,7 +4474,18 @@ unsafe extern "C" fn favorites_changed(_: *mut c_void) {
         }
     };
     let tabs: Vec<_> = ids(bc::bc_favorites).into_iter().map(|tab| (tab, holder(tab))).collect();
-    update_shells(|shell, cx| shell.set_favorites(tabs.clone(), cx));
+    // A split view made a favorite is one, its tabs side by side among them, always even.
+    let mut splits = Vec::new();
+    for &(tab, _) in &tabs {
+        let mut split = [0; 3];
+        let count = unsafe { bc::bc_tab_split(tab, split.as_mut_ptr(), split.len()) };
+        if count > 1 && split[0] == tab {
+            let tabs = split[..count.min(split.len())].to_vec();
+            let stacked = unsafe { bc::bc_tab_split_stacked(tab) };
+            splits.push(Split { tabs, stacked, ..Split::default() });
+        }
+    }
+    update_shells(|shell, cx| shell.set_favorites_split(tabs.clone(), splits.clone(), cx));
     update_app(settings::refresh);
 }
 

@@ -1,5 +1,5 @@
-//! Where the hover cards of the favorites' tiles go, and what a click on one asks for, on a host
-//! that records them.
+//! Where the hover cards of the favorites' tiles go, what a click on one asks for, and how a split
+//! view among them is one, on a host that records them.
 
 use std::rc::Rc;
 
@@ -209,4 +209,145 @@ fn the_favorites_take_no_more_than_the_most(cx: &mut TestAppContext) {
     // A favorite still moves among them.
     shell.update(cx, |shell, cx| shell.favorite_tab(100, 3, cx));
     assert_eq!(host.take_edits(), ["favorite 100 3"]);
+}
+
+/// A shell showing a Space with the Today tab 1 and the split view 2 and 3, under the favorites
+/// 10, the stacked split view 11 and 12, and 13, as the core reports them.
+fn with_split_tile(cx: &mut TestAppContext) -> (gpui::Entity<Shell>, Rc<Recorder>) {
+    use crate::shell::{Split, drag::detents::shell_with};
+
+    let (shell, host) = shell_with(cx, &[], &[1, 2, 3], Folders::default());
+    shell.update(cx, |shell, cx| {
+        let split = Split { tabs: vec![2, 3], ..Split::default() };
+        shell.set_tabs(1, Vec::new(), vec![1, 2, 3], vec![split], Folders::default(), cx);
+        let split = Split { tabs: vec![11, 12], stacked: true, ..Split::default() };
+        shell.set_favorites_split(vec![(10, 0), (11, 0), (12, 0), (13, 0)], vec![split], cx);
+    });
+    (shell, host)
+}
+
+/// A split view among the favorites is one tile, its first tab's, which shows its pages together
+/// as they were, and is the tile shown while any of its pages is.
+#[gpui::test]
+fn a_favorite_split_view_is_one_tile_of_its_pages(cx: &mut TestAppContext) {
+    let (shell, _) = with_split_tile(cx);
+    shell.update(cx, |shell, cx| {
+        assert_eq!(shell.tile_leads(), [10, 11, 13]);
+        let mut tiles: Vec<u64> = shell.resting_tiles().into_keys().collect();
+        tiles.sort();
+        assert_eq!(tiles, [10, 11, 13]);
+        assert_eq!((shell.panes(12), shell.stacked(12)), (vec![11, 12], true));
+        shell.set_selected(12, cx);
+        assert!(shell.tile_selected(11) && !shell.tile_selected(10) && !shell.tile_selected(13));
+    });
+}
+
+/// The browser counts the favorites' tabs, so a tile dropped past a split view's goes past each
+/// of its tabs, and the dragged one's own tabs aren't counted.
+#[gpui::test]
+fn a_tile_dropped_past_a_split_view_goes_past_its_tabs(cx: &mut TestAppContext) {
+    let (shell, _) = with_split_tile(cx);
+    shell.read_with(cx, |shell, _| {
+        assert_eq!(shell.favorite_index(13, 2), 3);
+        assert_eq!(shell.favorite_index(13, 1), 1);
+        assert_eq!(shell.favorite_index(10, 1), 2);
+        assert_eq!(shell.favorite_index(11, 1), 1);
+        assert_eq!(shell.favorite_index(11, 2), 2);
+    });
+}
+
+/// A split view's row dragged over the tiles turns into one, and let go after the last tile it
+/// asks the browser to make the split a favorite past every favorite's tab.
+#[gpui::test]
+fn a_split_views_row_dragged_onto_the_tiles_becomes_one_favorite(cx: &mut TestAppContext) {
+    use crate::shell::{
+        Place,
+        drag::detents::{X, drag_to, press},
+    };
+
+    let (shell, host) = with_split_tile(cx);
+    host.take_edits();
+    press(&shell, cx, 2);
+    let (x, y) = shell.read_with(cx, |shell, _| {
+        let [left, top, width] = shell.tile_places(4)[3];
+        (left + width / 2., shell.tiles_top() + top + TILE_HEIGHT / 2.)
+    });
+    drag_to(&shell, cx, X, y + 60.);
+    drag_to(&shell, cx, x, y);
+    let to = shell.read_with(cx, |shell, _| shell.drag.as_ref().map(|drag| drag.to));
+    assert!(matches!(to, Some(Place::Favorite(3))));
+    shell.update(cx, |shell, cx| {
+        // Let go once it has turned into a tile.
+        if let Some(drag) = shell.drag.as_mut() {
+            drag.shape.start = None;
+        }
+        shell.drop_row(cx)
+    });
+    assert_eq!(host.take_edits(), ["favorite 2 4"]);
+}
+
+/// A favorite's split view stays as it was made: the commands that change a split, the gaps and
+/// the split controls have nothing to do there, and no page joins it, until it's back in a Space.
+#[gpui::test]
+fn a_favorite_split_view_stays_as_it_was_made(cx: &mut TestAppContext) {
+    use crate::shell::Command;
+
+    let (shell, _) = with_split_tile(cx);
+    let changes = [
+        Command::CloseSplitPane,
+        Command::SeparatePane,
+        Command::SeparateSplit,
+        Command::FlipSplit,
+        Command::ChangeOrientation,
+        Command::ExpandSplit,
+        Command::MovePaneLeft,
+        Command::MovePaneRight,
+    ];
+    shell.update(cx, |shell, cx| {
+        shell.set_selected(2, cx);
+        let offered = |shell: &Shell| changes.iter().filter(|&&each| shell.offers(each)).count();
+        // A Space's split has them all but moving its left page left.
+        assert_eq!(offered(shell), changes.len() - 1);
+        assert!(shell.has_pane_room(2));
+        shell.set_selected(12, cx);
+        assert_eq!(offered(shell), 0);
+        assert!(!shell.has_pane_room(12));
+        assert_eq!(shell.split_partner(1), None);
+    });
+}
+
+/// ⌘W on a page of a favorite's split view closes its pages together, as the split is one
+/// favorite. A page of a Space's split closes alone.
+#[gpui::test]
+fn close_tab_closes_a_favorite_split_views_pages_together(cx: &mut TestAppContext) {
+    use crate::shell::Command;
+
+    let (shell, host) = with_split_tile(cx);
+    shell.update(cx, |shell, cx| {
+        shell.set_selected(12, cx);
+        shell.run(Command::CloseTab, "test", cx);
+        shell.set_selected(3, cx);
+        shell.run(Command::CloseTab, "test", cx);
+    });
+    assert_eq!(*host.split_closes.borrow(), [12]);
+    assert_eq!(host.take_edits(), ["close 12", "close 3"]);
+}
+
+/// The most favorites counts tiles, so a split view takes one place among them however many
+/// pages it has.
+#[gpui::test]
+fn a_favorite_split_view_takes_one_place_of_the_most(cx: &mut TestAppContext) {
+    use crate::shell::{Split, favorites::MOST_FAVORITES};
+
+    let (shell, _) = with_split_tile(cx);
+    shell.update(cx, |shell, cx| {
+        let singles = 100..100 + MOST_FAVORITES as u64 - 2;
+        let favorites = singles.chain([11, 12]).map(|tab| (tab, 0)).collect::<Vec<_>>();
+        let split = Split { tabs: vec![11, 12], ..Split::default() };
+        shell.set_favorites_split(favorites.clone(), vec![split.clone()], cx);
+        assert!(shell.has_room_for(1));
+        let favorites = [favorites, vec![(13, 0)]].concat();
+        shell.set_favorites_split(favorites, vec![split], cx);
+        assert!(!shell.has_room_for(1));
+    });
 }

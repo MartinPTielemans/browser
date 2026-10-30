@@ -153,7 +153,7 @@ impl Shell {
             return None;
         }
         let shown = self.panes(self.selected);
-        if self.selected == 0 || shown.len() >= super::MAX_PANES {
+        if self.selected == 0 || !self.has_pane_room(self.selected) {
             return None;
         }
         if shown != [tab] {
@@ -231,7 +231,7 @@ impl Shell {
         url: &str,
         cx: &mut Context<Self>,
     ) -> bool {
-        let room = self.selected != 0 && self.panes(self.selected).len() < super::MAX_PANES;
+        let room = self.selected != 0 && self.has_pane_room(self.selected);
         let busy = self.drag.is_some() || self.adding_pane.is_some() || self.page_fullscreen;
         let Some(page) = self.shown_pane(tab).filter(|_| room && !busy) else {
             self.link_left_page(cx);

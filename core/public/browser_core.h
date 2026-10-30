@@ -1217,8 +1217,10 @@ BC_EXPORT bc_id bc_tab_profile(bc_id tab);
 
 // Copies up to |capacity| of the tabs shown with |tab| into |tabs|, left to right or top to
 // bottom, |tab| among them, and returns how many there are: those of its split view, else |tab|
-// alone. 0 for a tab in no Space. A split's tabs sit together in their list, in this order, as one
-// row.
+// alone. 0 for a tab in no Space that isn't a favorite. A split's tabs sit together in their list,
+// in this order, as one row, or among the favorites as one favorite. A favorite's split view
+// changes only as its tabs leave the favorites or close: the calls below that change a split do
+// nothing to it.
 BC_EXPORT size_t bc_tab_split(bc_id tab, bc_id* tabs, size_t capacity);
 
 // Puts |tab| in a split view with |with|, at its left end if |left|, else its right end, making
@@ -1237,7 +1239,8 @@ BC_EXPORT void bc_tab_separate(bc_id tab);
 // is past its end. Then space_changed.
 BC_EXPORT bool bc_tab_move_in_split(bc_id tab, size_t index);
 
-// Whether |tab|'s split view shows its pages stacked, top to bottom, rather than side by side.
+// Whether |tab|'s split view, in a Space or the favorites, shows its pages stacked, top to bottom,
+// rather than side by side.
 BC_EXPORT bool bc_tab_split_stacked(bc_id tab);
 
 // Stacks the pages of |tab|'s split view top to bottom, or puts them side by side: a window
@@ -1881,7 +1884,9 @@ BC_EXPORT void bc_tab_jump_to_selection(bc_id tab);
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 
 // Makes the tab the favorite at |index| among those its Space shows, counted without it, else the
-// last of them; or moves a favorite there. A tab of a Space leaves it and its split view, and its
+// last of them; or moves a favorite there. |index| counts tabs, and one inside a favorite's split
+// view goes after it. A tab of a Space leaves it, and a split view it's in becomes one favorite of
+// its tabs, stacked if it was (bc_tab_split); or a favorite's split view moves together. Each
 // favorite's URL is its pinned URL if it's pinned, else the page it's at. A window showing it keeps
 // showing it. Under BC_FAVORITES_EVERY the other profiles' Spaces get the site too, in tabs of
 // their own, and moving it moves it there. Under BC_FAVORITES_SPACE a tab of an agent's Space isn't
@@ -1894,9 +1899,9 @@ BC_EXPORT void bc_tab_move_to_favorites(bc_id tab, size_t index);
 // directly in it. A Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned
 // tab moved to Today is unpinned. A favorite leaves the favorites for the Space its window shows,
 // unless that's an agent's or doesn't show it, pinned at its favorite's URL in the pinned tabs, and
-// a window showing it keeps showing it. Under BC_FAVORITES_EVERY the site goes from every profile,
-// and its other tabs close. Then space_changed and tab_state_changed, and favorites_changed for a
-// favorite.
+// a window showing it keeps showing it. A favorite's split view leaves with it as a split view.
+// Under BC_FAVORITES_EVERY the site goes from every profile, and its other tabs close. Then
+// space_changed and tab_state_changed, and favorites_changed for a favorite.
 BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, bc_id folder, size_t index);
 
 // Loads a pinned tab's pinned URL, or a favorite's URL, unless it's there already. Then

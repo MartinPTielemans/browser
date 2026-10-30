@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <iterator>
+#include <limits>
 #include <numeric>
 #include <optional>
 #include <set>
@@ -183,6 +184,19 @@ struct DeletedSpace {
 std::vector<DeletedSpace>& DeletedSpaces() {
   static base::NoDestructor<std::vector<DeletedSpace>> deleted;
   return *deleted;
+}
+
+// The tabs shown with |tab|, left to right: its split view's in its Space or the favorites, else
+// |tab| alone.
+std::vector<bc_id> PanesOf(bc_id tab) {
+  const Space* space = Space::Holding(tab);
+  return space ? space->Panes(tab) : Favorites::Panes(tab);
+}
+
+// Whether |tab|'s split view, in its Space or the favorites, is stacked.
+bool StackedOf(bc_id tab) {
+  const Space* space = Space::Holding(tab);
+  return space ? space->Stacked(tab) : Favorites::Stacked(tab);
 }
 
 // Keeps |id|, a tab closing, for ReopenClosedTab, and archives it.
@@ -423,9 +437,7 @@ Window* Window::Picturing(bc_id tab) {
       continue;
     }
     // A split view's pages move together, so the picture of one stands for them all.
-    Space* space = Space::Holding(window->selected_);
-    if (space ? std::ranges::contains(space->Panes(window->selected_), tab)
-              : window->selected_ == tab) {
+    if (std::ranges::contains(PanesOf(window->selected_), tab)) {
       return window;
     }
   }
@@ -497,14 +509,18 @@ void Window::PanesChanged() {
       continue;
     }
     const bc_id selected = window->selected_;
-    // A favorite is in no split.
+    if (!selected) {
+      continue;
+    }
+    // A favorite's split view is even, as one made a favorite becomes.
     Space* space = Space::Holding(selected);
-    if (selected && (space ? space->Panes(selected) : std::vector<bc_id>{selected}) !=
-                        window->panes_) {
+    const bool shares =
+        space ? space->Expanded(selected) != window->expanded_ ||
+                    (!window->expanded_ && space->Shares(selected) != window->shares_)
+              : window->expanded_ || !window->shares_.empty();
+    if (PanesOf(selected) != window->panes_) {
       window->Select(selected);
-    } else if (space && (space->Stacked(selected) != window->stacked_ ||
-                         space->Expanded(selected) != window->expanded_ ||
-                         (!window->expanded_ && space->Shares(selected) != window->shares_))) {
+    } else if (StackedOf(selected) != window->stacked_ || shares) {
       window->LayOutPage();
     }
   }
@@ -514,8 +530,7 @@ void Window::PanesChanged() {
 bool Window::SplitTogether(content::WebContents* contents, content::WebContents* other) {
   const Tab* tab = Tab::FromWebContents(contents);
   const Tab* with = Tab::FromWebContents(other);
-  const Space* space = tab && with ? Space::Holding(tab->id()) : nullptr;
-  return space && tab != with && std::ranges::contains(space->Panes(tab->id()), with->id());
+  return tab && with && tab != with && std::ranges::contains(PanesOf(tab->id()), with->id());
 }
 
 // static
@@ -717,7 +732,7 @@ void Window::Unload(bc_id tab, bool split) {
   if ((space ? !space->IsPinned(tab) : !Favorites::Has(tab)) || !Tab::Get(tab)) {
     return;
   }
-  const std::vector<bc_id> going = space && split ? space->Panes(tab) : std::vector<bc_id>{tab};
+  const std::vector<bc_id> going = split ? PanesOf(tab) : std::vector<bc_id>{tab};
   const auto staying = [&going](bc_id other) {
     return !std::ranges::contains(going, other) && Tab::Loaded(other);
   };
@@ -765,37 +780,70 @@ void Window::MoveToFavorites(bc_id tab, size_t index) {
   if (space->agent() && Favorites::scope() == BC_FAVORITES_SPACE) {
     return;
   }
+  // A split view goes as one favorite, each pane at its pinned URL if it's pinned, else its page's.
+  const std::vector<bc_id> panes = space->Panes(tab);
+  std::vector<GURL> urls;
+  for (bc_id pane : panes) {
+    const Tab* each = Tab::Get(pane);
+    urls.push_back(space->IsPinned(pane) ? space->PinnedUrl(pane) : each ? each->Url() : GURL());
+  }
   // In the favorites before it leaves its Space, so the UI never hears of it in neither and
   // forgets its title.
-  Favorites::Add(tab, space->IsPinned(tab) ? space->PinnedUrl(tab) : moving->Url(), index,
-                 space->id());
-  space->Remove(tab);
-  // A window showing it beside the tab it shows shows the rest of the split.
+  if (panes.size() > 1) {
+    Favorites::AddSplit(panes, urls, index, space->id(), space->Stacked(tab));
+  } else {
+    Favorites::Add(tab, urls.front(), index, space->id());
+  }
+  for (bc_id pane : panes) {
+    space->Remove(pane);
+  }
   PanesChanged();
-  // Whether it's away from its URL.
-  moving->StateChanged();
+  for (bc_id pane : panes) {
+    // Whether it's away from its URL.
+    if (Tab* each = Tab::Get(pane)) {
+      each->StateChanged();
+    }
+  }
 }
 
 // static
 void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
-  Tab* moving = Tab::Get(tab);
   Window* window = Holding(tab);
   Space* shown = window ? Space::FromId(window->space_) : nullptr;
   // A favorite is the user's, so it doesn't move into an agent's Space.
   if (!shown || shown->agent() || shown->off_the_record() || !Favorites::ShownIn(tab, *shown)) {
     return;
   }
-  // In the Space before it leaves the favorites, as above.
-  if (pinned) {
-    shown->AddPinned(tab, folder, index, Favorites::Url(tab));
-  } else {
-    shown->AddAt(tab, index);
+  // A split view comes back as one, each pane after the one before it. In the Space before it
+  // leaves the favorites, as above.
+  const std::vector<bc_id> panes = Favorites::Panes(tab);
+  const bool stacked = Favorites::Stacked(tab);
+  for (size_t i = 0; i < panes.size(); ++i) {
+    const size_t at = index > std::numeric_limits<size_t>::max() - i ? index : index + i;
+    if (pinned) {
+      shown->AddPinned(panes[i], folder, at, Favorites::Url(panes[i]));
+    } else {
+      shown->AddAt(panes[i], at);
+    }
+    if (i > 0) {
+      shown->Split(panes[i], panes[i - 1], GURL());
+    }
   }
-  // Under Every Space, the site's tabs in the other profiles close.
-  Favorites::Unfavorite(tab);
-  // So it isn't archived at once.
-  moving->set_last_seen(base::Time::Now());
-  moving->StateChanged();
+  if (stacked) {
+    shown->SetStacked(tab, true);
+  }
+  for (bc_id pane : panes) {
+    // Under Every Space, the site's tabs in the other profiles close.
+    Favorites::Unfavorite(pane);
+  }
+  PanesChanged();
+  for (bc_id pane : panes) {
+    if (Tab* each = Tab::Get(pane)) {
+      // So it isn't archived at once.
+      each->set_last_seen(base::Time::Now());
+      each->StateChanged();
+    }
+  }
 }
 
 // static
@@ -1149,8 +1197,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   HoldPictured();
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
-  Space* space = Space::Holding(tab);
-  std::vector<bc_id> panes = space ? space->Panes(tab) : std::vector<bc_id>{tab};
+  std::vector<bc_id> panes = PanesOf(tab);
   for (bc_id pane : panes_) {
     if (!std::ranges::contains(panes, pane)) {
       Seen(pane);
@@ -1195,7 +1242,7 @@ void Window::LayOutPage() {
     shown = {shown_.get()};
   }
   Space* space = panes_.empty() ? nullptr : Space::Holding(panes_.front());
-  stacked_ = space && space->Stacked(panes_.front());
+  stacked_ = !panes_.empty() && StackedOf(panes_.front());
   shares_ = space ? space->Shares(panes_.front()) : std::vector<double>();
   std::vector<platform::Pane> panes;
   size_t focused = 0;
@@ -1403,7 +1450,7 @@ void Window::Select(bc_id tab) {
     return;
   }
   // A tab without its page, and each of its split's, gets it back here, as it's shown.
-  for (bc_id pane : holding ? holding->Panes(tab) : std::vector<bc_id>{tab}) {
+  for (bc_id pane : PanesOf(tab)) {
     if (Tab* waking = Tab::Get(pane); waking && !waking->web_contents()) {
       waking->Wake(*this);
     }
@@ -1443,8 +1490,7 @@ void Window::Select(bc_id tab) {
 }
 
 void Window::Adopt(bc_id tab) {
-  Space* space = Space::Holding(tab);
-  for (bc_id pane : space ? space->Panes(tab) : std::vector<bc_id>{tab}) {
+  for (bc_id pane : PanesOf(tab)) {
     content::WebContents* contents = Tab::FromId(pane);
     tabs::TabInterface* in =
         contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;

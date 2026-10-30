@@ -811,7 +811,9 @@ impl Shell {
                 // close, so it closes the window, as ⇧⌘W does.
                 if !self.browser.close_other_window(cx) {
                     if self.selected != 0 {
-                        self.close_tab(self.selected, false, cx);
+                        // A favorite's split view is one favorite, whose pages close together.
+                        let split = self.favorite_split(self.selected).is_some();
+                        self.close_tab(self.selected, split, cx);
                     } else {
                         self.browser.close_window(cx);
                     }
@@ -925,7 +927,7 @@ impl Shell {
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
             Command::CloseSplitPane | Command::SeparatePane => {
-                if self.panes(self.selected).len() > 1 {
+                if self.space_panes(self.selected).len() > 1 {
                     match command {
                         Command::CloseSplitPane => self.close_tab(self.selected, false, cx),
                         _ => self.separate_tab(self.selected, cx),
@@ -935,24 +937,27 @@ impl Shell {
             }
             Command::SeparateSplit => {
                 // From the right, so the pages keep their order in the list.
-                for &tab in self.panes(self.selected)[1..].iter().rev() {
+                for &tab in self.space_panes(self.selected)[1..].iter().rev() {
                     self.separate_tab(tab, cx);
                 }
                 return;
             }
             Command::FlipSplit => {
-                for (index, &tab) in self.panes(self.selected).iter().rev().enumerate() {
+                for (index, &tab) in self.space_panes(self.selected).iter().rev().enumerate() {
                     self.browser.move_in_split(tab, index, cx);
                 }
                 return;
             }
             Command::ChangeOrientation => {
+                if self.space_panes(self.selected).len() < 2 {
+                    return;
+                }
                 let stacked = self.stacked(self.selected);
                 return self.browser.set_split_stacked(self.selected, !stacked, cx);
             }
             Command::ExpandSplit => return self.expand_split(cx),
             Command::MovePaneLeft | Command::MovePaneRight => {
-                let panes = self.panes(self.selected);
+                let panes = self.space_panes(self.selected);
                 let at = panes.iter().position(|&tab| tab == self.selected).unwrap_or_default();
                 let to = match command {
                     Command::MovePaneLeft => at.checked_sub(1),
@@ -1217,9 +1222,15 @@ impl Shell {
             | Command::SeparateSplit
             | Command::FlipSplit
             | Command::ChangeOrientation
-            | Command::ExpandSplit => self.panes(self.selected).len() > 1,
-            Command::MovePaneLeft => self.panes(self.selected).first() != Some(&self.selected),
-            Command::MovePaneRight => self.panes(self.selected).last() != Some(&self.selected),
+            | Command::ExpandSplit => self.space_panes(self.selected).len() > 1,
+            Command::MovePaneLeft | Command::MovePaneRight => {
+                let panes = self.space_panes(self.selected);
+                let end = match command {
+                    Command::MovePaneLeft => panes.first(),
+                    _ => panes.last(),
+                };
+                end != Some(&self.selected)
+            }
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),

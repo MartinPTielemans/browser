@@ -38,6 +38,10 @@ struct Fav {
   bc_id space = 0;
   // Names its site, which the tabs of one site in each profile share.
   int site = 0;
+  // Names the split view it's in with the others of its list that have it, else 0, and whether
+  // that's stacked.
+  int split = 0;
+  bool stacked = false;
   // Its tab is closing, so it's in no list.
   bool doomed = false;
 };
@@ -47,6 +51,7 @@ struct State {
   std::vector<bc_id> tabs;
   std::map<bc_id, Fav> favs;
   int next_site = 1;
+  int next_split = 1;
 };
 
 State& Get() {
@@ -96,14 +101,51 @@ size_t IndexIn(const State& state, bc_id tab) {
   return std::ranges::find(list, tab) - list.begin();
 }
 
+// The tabs of |tab|'s split view in its list, left to right, else |tab| alone.
+std::vector<bc_id> PanesOf(const State& state, bc_id tab) {
+  const Fav& fav = state.favs.at(tab);
+  std::vector<bc_id> panes;
+  if (fav.split) {
+    std::ranges::copy_if(ListOf(state, fav), std::back_inserter(panes),
+                         [&](bc_id each) { return state.favs.at(each).split == fav.split; });
+  }
+  return panes.size() > 1 ? panes : std::vector<bc_id>{tab};
+}
+
 // Puts |tab|, which has its entry in |state.favs| and isn't in |state.tabs|, at |index| of its list,
-// else after the last of it.
+// else after the last of it, and after a split |index| is inside that isn't its own.
 void Insert(State& state, bc_id tab, size_t index) {
   const std::vector<bc_id> mine = ListOf(state, state.favs.at(tab), tab);
+  const auto split_of = [&](size_t at) { return state.favs.at(mine[at]).split; };
+  while (index > 0 && index < mine.size() && split_of(index) &&
+         split_of(index) == split_of(index - 1) && split_of(index) != state.favs.at(tab).split) {
+    ++index;
+  }
   auto at = index < mine.size() ? std::ranges::find(state.tabs, mine[index])
             : mine.empty()      ? state.tabs.end()
                                 : std::ranges::find(state.tabs, mine.back()) + 1;
   state.tabs.insert(at, tab);
+}
+
+// Puts each split view's tabs together in their list, where its first is, as merging lists or
+// closing a duplicate may part them.
+void Gather(State& state) {
+  std::vector<bc_id> gathered;
+  for (bc_id tab : state.tabs) {
+    if (std::ranges::contains(gathered, tab)) {
+      continue;
+    }
+    gathered.push_back(tab);
+    const Fav& fav = state.favs.at(tab);
+    for (bc_id other : state.tabs) {
+      const Fav& with = state.favs.at(other);
+      if (fav.split && with.split == fav.split && SameList(with, fav) &&
+          !std::ranges::contains(gathered, other)) {
+        gathered.push_back(other);
+      }
+    }
+  }
+  state.tabs = std::move(gathered);
 }
 
 // The window active last that isn't a private one, which makes the tabs.
@@ -199,10 +241,13 @@ struct Template {
   std::string title;
   std::string name;
   std::string icon;
+  int split = 0;
+  bool stacked = false;
 };
 
 Template TemplateOf(const State& state, bc_id tab) {
-  Template made{.url = state.favs.at(tab).url};
+  const Fav& fav = state.favs.at(tab);
+  Template made{.url = fav.url, .split = fav.split, .stacked = fav.stacked};
   // With its page or without.
   if (const Tab* from = Tab::Get(tab)) {
     const SavedTab saved = from->Save();
@@ -240,7 +285,12 @@ bc_id Make(State& state,
   if (!tab) {
     return 0;
   }
-  state.favs[tab] = {.url = made.url, .profile = profile, .space = space, .site = site};
+  state.favs[tab] = {.url = made.url,
+                     .profile = profile,
+                     .space = space,
+                     .site = site,
+                     .split = made.split,
+                     .stacked = made.stacked};
   Insert(state, tab, index);
   return tab;
 }
@@ -382,6 +432,7 @@ void MergeSpaces(State& state) {
   }
   state.tabs = std::move(rebuilt);
   SetScopeValue(BC_FAVORITES_PROFILE);
+  Gather(state);
   for (bc_id tab : losers) {
     Retire(tab);
   }
@@ -437,7 +488,30 @@ void LinkProfiles(State& state) {
     }
   }
   state.tabs = std::move(rebuilt);
+  Gather(state);
   FillIn(state);
+}
+
+// Makes |tab| a favorite at |index|, as Favorites::Add does, in the split view |split| if it isn't
+// 0, stacked if |stacked|.
+void AddOne(State& state, bc_id tab, GURL url, size_t index, bc_id space, int split, bool stacked) {
+  const bool each_space = CurrentScope() == BC_FAVORITES_SPACE;
+  state.favs[tab] = {.url = std::move(url),
+                     .profile = ProfileDirOf(tab),
+                     .space = each_space ? space : 0,
+                     .site = state.next_site++,
+                     .split = split,
+                     .stacked = stacked};
+  Insert(state, tab, index);
+  if (CurrentScope() == BC_FAVORITES_EVERY) {
+    const Template made = TemplateOf(state, tab);
+    const Fav fav = state.favs.at(tab);
+    for (const std::string& profile : ShowingProfiles()) {
+      if (profile != fav.profile) {
+        Make(state, made, profile, 0, fav.site, index);
+      }
+    }
+  }
 }
 
 }  // namespace
@@ -555,39 +629,64 @@ GURL Favorites::Url(bc_id tab) {
 }
 
 // static
+std::vector<bc_id> Favorites::Panes(bc_id tab) {
+  const State& state = Get();
+  auto it = state.favs.find(tab);
+  return it == state.favs.end() || it->second.doomed ? std::vector<bc_id>{tab}
+                                                      : PanesOf(state, tab);
+}
+
+// static
+bool Favorites::Stacked(bc_id tab) {
+  auto it = Get().favs.find(tab);
+  return it != Get().favs.end() && it->second.stacked && Panes(tab).size() > 1;
+}
+
+// static
 void Favorites::Add(bc_id tab, GURL url, size_t index, bc_id space) {
   State& state = Get();
   if (state.favs.contains(tab)) {
     return;
   }
-  const bool each_space = CurrentScope() == BC_FAVORITES_SPACE;
-  state.favs[tab] = {.url = std::move(url),
-                     .profile = ProfileDirOf(tab),
-                     .space = each_space ? space : 0,
-                     .site = state.next_site++};
-  Insert(state, tab, index);
-  if (CurrentScope() == BC_FAVORITES_EVERY) {
-    const Template made = TemplateOf(state, tab);
-    const Fav fav = state.favs.at(tab);
-    for (const std::string& profile : ShowingProfiles()) {
-      if (profile != fav.profile) {
-        Make(state, made, profile, 0, fav.site, index);
-      }
+  AddOne(state, tab, std::move(url), index, space, 0, false);
+  ReportChanged();
+}
+
+// static
+void Favorites::AddSplit(const std::vector<bc_id>& tabs,
+                         const std::vector<GURL>& urls,
+                         size_t index,
+                         bc_id space,
+                         bool stacked) {
+  State& state = Get();
+  const int split = state.next_split++;
+  for (size_t i = 0; i < tabs.size() && i < urls.size(); ++i) {
+    if (!state.favs.contains(tabs[i])) {
+      AddOne(state, tabs[i], urls[i], index, space, split, stacked);
+      index = IndexIn(state, tabs[i]) + 1;
     }
   }
   ReportChanged();
 }
 
 // static
-void Favorites::Restore(bc_id tab, GURL url, bc_id space, int site) {
+void Favorites::Restore(bc_id tab, GURL url, bc_id space, int site, bool split, bool stacked) {
   State& state = Get();
   if (state.favs.contains(tab)) {
     return;
   }
   const int named = site > 0 ? site : state.next_site;
   state.next_site = std::max(state.next_site, named + 1);
-  state.favs[tab] = {
+  Fav& fav = state.favs[tab] = {
       .url = std::move(url), .profile = ProfileDirOf(tab), .space = space, .site = named};
+  if (const std::vector<bc_id> list = ListOf(state, fav); split && !list.empty()) {
+    Fav& before = state.favs.at(list.back());
+    if (!before.split) {
+      before.split = state.next_split++;
+    }
+    before.stacked = fav.stacked = stacked;
+    fav.split = before.split;
+  }
   Insert(state, tab, kEnd);
   ReportChanged();
 }
@@ -621,17 +720,31 @@ void Favorites::Move(bc_id tab, size_t index) {
   if (it == state.favs.end() || it->second.doomed) {
     return;
   }
-  std::vector<bc_id> moving = {tab};
-  if (CurrentScope() == BC_FAVORITES_EVERY) {
-    for (const auto& [other, fav] : state.favs) {
-      if (other != tab && !fav.doomed && fav.site == it->second.site) {
-        moving.push_back(other);
+  // Each pane's tab, and under Every Space its site's in the other profiles.
+  std::vector<std::vector<bc_id>> moving;
+  for (bc_id pane : PanesOf(state, tab)) {
+    std::vector<bc_id>& sites = moving.emplace_back(1, pane);
+    if (CurrentScope() == BC_FAVORITES_EVERY) {
+      for (const auto& [other, fav] : state.favs) {
+        if (other != pane && !fav.doomed && fav.site == state.favs.at(pane).site) {
+          sites.push_back(other);
+        }
       }
     }
+    for (bc_id each : sites) {
+      std::erase(state.tabs, each);
+    }
   }
-  for (bc_id each : moving) {
-    std::erase(state.tabs, each);
-    Insert(state, each, index);
+  // The first pane at |index| of each list, and each after the one before it in that list.
+  std::vector<bc_id> before;
+  for (const std::vector<bc_id>& sites : moving) {
+    for (bc_id each : sites) {
+      const Fav& fav = state.favs.at(each);
+      auto after = std::ranges::find_if(
+          before, [&](bc_id other) { return SameList(state.favs.at(other), fav); });
+      Insert(state, each, after == before.end() ? index : IndexIn(state, *after) + 1);
+    }
+    before = sites;
   }
   ReportChanged();
 }
