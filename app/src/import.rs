@@ -1219,6 +1219,8 @@ impl Render for ImportView {
             Step::Pick { .. } => "pick",
             Step::Running { .. } | Step::Passwords => "running",
             Step::NoAccess { .. } => "no access",
+            // Delete File takes its row away and moves Done, so its end draws as a step of its own.
+            Step::Done(_) if self.passwords_file.is_some() => "done with file",
             Step::Done(_) => "done",
         };
         if self.drawn != Some(step) {

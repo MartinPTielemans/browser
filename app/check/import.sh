@@ -187,9 +187,10 @@ await '^browser: import done: 2 passwords came in to Default from passwords\.csv
   fail "the import didn't say the file's 2 passwords came in: $(grep '^browser: import done' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords.png" || fail "no window to capture"
 [ -e "$passwords" ] || fail "the import deleted the passwords file before the user asked"
-expect '^browser: import drawn done$' "the import's end didn't draw"
+expect '^browser: import drawn done with file$' "the import's end didn't draw with Delete File"
 send clickkey 515 170
 expect '^browser: import deleted the passwords file$' "Delete File didn't delete the passwords file"
+expect '^browser: import drawn done$' "the import's end didn't draw again without Delete File"
 [ ! -e "$passwords" ] || fail "the passwords file is still there after Delete File"
 # A second file: the login's password changed, which keeps the saved one, and a new login.
 printf '%s\n' 'url,username,password' \
