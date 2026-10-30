@@ -101,6 +101,38 @@ pub extern "C" fn host_screens(frames: *mut f64, count: usize) -> usize {
     screens.len()
 }
 
+/// Where the next browser window goes after the one of `ui_view`, as host.h says: as big, a step
+/// down and to the right, back to its screen's left or top edge where it would go past the other.
+/// Left as it is under Wayland, whose compositor places windows itself (host_centered).
+#[unsafe(no_mangle)]
+pub extern "C" fn host_cascaded(
+    ui_view: *mut c_void,
+    x: *mut f64,
+    y: *mut f64,
+    width: *mut f64,
+    height: *mut f64,
+) {
+    // About a header row, so both windows' tabs and buttons show.
+    const STEP: f64 = 28.;
+    let Some([left, top, w, h]) = crate::drive::browser_frame(ui_view as usize as u32) else {
+        return;
+    };
+    let screens = crate::drive::screens().unwrap_or_default();
+    let inside = |&&[sx, sy, sw, sh]: &&[f64; 4]| {
+        left >= sx && left < sx + sw && top >= sy && top < sy + sh
+    };
+    let (mut next_x, mut next_y) = (left + STEP, top + STEP);
+    if let Some(&[sx, sy, sw, sh]) = screens.iter().find(inside).or(screens.first()) {
+        if next_x + w > sx + sw {
+            next_x = sx;
+        }
+        if next_y + h > sy + sh {
+            next_y = sy;
+        }
+    }
+    unsafe { [*x, *y, *width, *height] = [next_x, next_y, w, h] };
+}
+
 /// Starts the system's drag of the file at `path`, as host.h says: XDND on X11, the data device's
 /// drag under Wayland, from the press the left button holds.
 #[unsafe(no_mangle)]

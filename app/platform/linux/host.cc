@@ -305,8 +305,8 @@ void host_capture_name(char* name, size_t capacity) {
   }
 }
 
-// host_screens and host_window_frame are system.rs's, through the X server the driver reads the
-// windows from.
+// host_screens, host_window_frame and host_cascaded are system.rs's, through the X server the
+// driver reads the windows from.
 
 // shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
 void host_watch_finished_launching(void (*finished)(void)) {
@@ -319,10 +319,6 @@ void host_watch_finished_launching(void (*finished)(void)) {
 void host_dock_dot_launch(const char* profile_dir) {}
 
 void host_dock_dot(bool colored, uint32_t color) {}
-
-// The compositor places each window (host_centered), so the next opens where it's put, at the size
-// the app asks for, the default one, as nothing here reads the size of the one before.
-void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
 
 // Through the core, as the window is Chromium's: under Wayland its toplevel, which GPUI's window is
 // a subsurface in.
