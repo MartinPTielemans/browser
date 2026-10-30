@@ -3164,18 +3164,19 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
 }
 
 // Lets the mouse through the card's window but on its plate, with the pointer at |screen|. Returns
-// whether the card takes it now where it didn't.
+// whether that changed, as the pointer came onto the plate or left it.
 bool PlaceCardClicks(NSPoint screen) {
   NSPoint at = [g_card convertPointFromScreen:screen];
   at.y = NSHeight(g_card.frame) - at.y;
-  const bool was = !g_card.ignoresMouseEvents;
+  const bool was = g_card.ignoresMouseEvents;
   g_card.ignoresMouseEvents = !NSPointInRect(at, g_card_plate);
-  return !was && !g_card.ignoresMouseEvents;
+  return was != g_card.ignoresMouseEvents;
 }
 
-// The move onto the plate, to |screen|, went to the window under it, so the card hears it too, or
-// it would go as the row is left with the pointer on it.
-void MovedOntoCard(NSPoint screen, NSEvent* move) {
+// The move onto the plate or off it, to |screen|, went to the window under it, so the card hears
+// it too: on it, or the card would go as the row is left with the pointer on it, and off it, or a
+// hidden sidebar would stay out for it (#830).
+void MovedOverCard(NSPoint screen, NSEvent* move) {
   [g_card_view mouseMoved:[NSEvent mouseEventWithType:NSEventTypeMouseMoved
                                              location:[g_card convertPointFromScreen:screen]
                                         modifierFlags:move.modifierFlags
@@ -3185,6 +3186,22 @@ void MovedOntoCard(NSPoint screen, NSEvent* move) {
                                           eventNumber:0
                                            clickCount:0
                                              pressure:0]];
+}
+
+// The pointer moved, or dragged, to where |move| says: the card takes the mouse there or doesn't,
+// and hears the move that changes that. The reveal's monitor asks it first, and the card's own
+// then finds nothing changed.
+void CardHearsMove(NSEvent* move) {
+  if (!g_card_monitor) {
+    return;
+  }
+  NSPoint at = move.locationInWindow;
+  if (move.window) {
+    at = [move.window convertPointToScreen:at];
+  }
+  if (PlaceCardClicks(at) && move.window != g_card && move.type == NSEventTypeMouseMoved) {
+    MovedOverCard(at, move);
+  }
 }
 
 // The pointer's moves over the page go to the page's view, so the card's window doesn't hear them:
@@ -3207,14 +3224,7 @@ void WatchCard() {
                                        }
                                        return event;
                                      }
-                                     NSPoint at = event.locationInWindow;
-                                     if (event.window) {
-                                       at = [event.window convertPointToScreen:at];
-                                     }
-                                     if (PlaceCardClicks(at) && event.window != g_card &&
-                                         event.type == NSEventTypeMouseMoved) {
-                                       MovedOntoCard(at, event);
-                                     }
+                                     CardHearsMove(event);
                                      return event;
                                    }];
 }
@@ -3891,6 +3901,9 @@ void host_show_reveal(void* ui_view, double width) {
                                          at = [event.window convertPointToScreen:at];
                                        }
                                        at = [browser->window convertPointFromScreen:at];
+                                       // The card hears it first, so the reveal knows whether
+                                       // the pointer is on it, which keeps the sidebar out.
+                                       CardHearsMove(event);
                                        browser->reveal_pointer(ui_view, at.x);
                                        return event;
                                      }];

@@ -56,6 +56,7 @@ fn rest_on(cx: &mut TestAppContext, told: &Told, card: Card) {
         told.borrow_mut().push(match event {
             Event::Shown => format!("shown {tab}"),
             Event::Act(action) => format!("{} {tab}", action.label()),
+            Event::Pointer(on) => format!("pointer {} {tab}", on as u8),
         })
     });
     let anchor = row(card.tab);
@@ -174,6 +175,20 @@ fn the_pointer_on_the_card_keeps_it(cx: &mut TestAppContext) {
     assert!(after(cx, &host, LEAVE * 4).is_empty(), "it stays while the pointer is on it");
     cx.update(|cx| window.update(cx, |card, _, cx| card.on_card(false, cx)).unwrap());
     assert_eq!(after(cx, &host, LEAVE + FADE), ["hide"]);
+    // The shell hears it come and go, as a hidden sidebar counts the card as its own (#830).
+    assert_eq!(*told.borrow(), ["shown 1", "pointer 1 1", "pointer 0 1"]);
+}
+
+#[gpui::test]
+fn a_card_ended_under_the_pointer_tells_the_shell_it_s_off(cx: &mut TestAppContext) {
+    let (host, told) = open_card(cx);
+    rest_on(cx, &told, card(1, true));
+    after(cx, &host, DWELL);
+    let window = card_window(cx);
+    cx.update(|cx| window.update(cx, |card, _, cx| card.on_card(true, cx)).unwrap());
+    ask(cx, Hover::Close);
+    assert_eq!(*told.borrow(), ["shown 1", "pointer 1 1", "pointer 0 1"]);
+    assert_eq!(after(cx, &host, FADE), ["hide"]);
 }
 
 #[gpui::test]

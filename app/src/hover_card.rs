@@ -192,6 +192,9 @@ pub enum Event {
     Shown,
     /// A button was pressed, and the card has gone.
     Act(Action),
+    /// The pointer came onto the card, or left it, which a hidden sidebar's panel counts as its
+    /// own (#830).
+    Pointer(bool),
 }
 
 /// The pointer rests on a row: what its card shows, where, and who hears what happens to it.
@@ -481,11 +484,21 @@ impl HoverCard {
     }
 
     fn on_card(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        self.on_card = hovered && self.shown.is_some();
+        self.pointer_on(hovered && self.shown.is_some(), cx);
         match hovered {
             true => self.wait = None,
             false if self.shown.is_some() => self.leave_after(cx),
             false => {}
+        }
+    }
+
+    /// Whether the pointer is on the card, which its shell hears as it changes.
+    fn pointer_on(&mut self, on: bool, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.on_card, on) == on {
+            return;
+        }
+        if let Some(rest) = &self.shown {
+            (rest.events)(rest.card.tab, Event::Pointer(on), cx);
         }
     }
 
@@ -536,7 +549,7 @@ impl HoverCard {
     fn close(&mut self, cx: &mut Context<Self>) {
         self.wait = None;
         self.resting = None;
-        self.on_card = false;
+        self.pointer_on(false, cx);
         if self.shown.is_none() {
             return;
         }
