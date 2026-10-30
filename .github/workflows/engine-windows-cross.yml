@@ -4,17 +4,21 @@
 # recompiles only what changed. Microsoft's compiler and SDK come from a zip the owner packaged on a
 # Windows machine, which Microsoft's licence lets no one redistribute: it stays on that machine, in
 # $ILO_ENGINE_ROOT/windows-toolchain, and nothing here uploads it (engine/README.md, Windows). Run
-# by hand, and on main when the pin, the series, the core or the cross build's scripts change.
+# by hand, nightly on main, and on main when the pin, the series or the cross build's scripts
+# change. Not for each core change: that rebuilt it on every merge, on the one runner the Linux
+# engines wait for, so a Windows lane that needs today's core from main dispatches it by hand.
 # Never on branches or pull requests, as the repository is public. engine-windows.yml builds the
 # same engine on GitHub's Windows runners, by hand only.
 name: Engine on Windows (cross-compiled)
 
 on:
   workflow_dispatch:
+  # Main's core, once a day, at 02:00 UTC.
+  schedule:
+    - cron: '0 2 * * *'
   push:
     branches: [main]
     paths:
-      - core/**
       - engine/pins.ini
       - engine/series
       - engine/patches/**
