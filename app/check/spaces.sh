@@ -224,6 +224,9 @@ show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 send click 97 $dots_y
 expect '^browser: command select-space via sidebar$' "the first Space's dot didn't run select-space"
 expect "^browser: space $first in " "the first Space's dot didn't show it"
+# The swipes below would catch a page still sliding in, so it settles here: once the next command
+# is sent, expect no longer reads the lines this switch logs.
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 expect_tabs "$c $a" "$a" "back in the first Space, its last-used tab"
 ../tools/window-screenshot.sh "$pid" "$out/space-last-used.png" || fail "no window to capture"
 send click "$(row 0)"
@@ -237,9 +240,6 @@ expect_tabs "$a" "$a" "after closing the last-used check's tab"
 # page shows beside the first's.
 swipe_point="110 500"
 if [ -z "$x11" ]; then
-# Fingers catch a page still sliding in from the dot's switch where it is, from which this swipe
-# would go on past halfway.
-expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post swipe $swipe_point -10 0 10 1500
 await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
 ../tools/window-screenshot.sh "$pid" "$out/swipe.png" || fail "no window to capture"
