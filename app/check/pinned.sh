@@ -513,6 +513,15 @@ send key z cmd shift
 expect '^browser: command redo via \(ui\|page\)$' "⇧⌘Z didn't redo Delete Folder"
 expect "^browser: outline $c\$" "⇧⌘Z didn't delete the folder again: $(outline)"
 
+# The drops come from another app, which the Linux driver can't play yet: XDND needs a window of
+# its own owning the drag's selection.
+if [ "$(uname)" = Linux ]; then
+  echo "skip: a file, a link and text dragged onto the list from another app, which the Linux driver can't drag yet."
+  exec 3>&-
+  quit
+  echo "ok: pinned, up to the drops from other apps."
+  exit 0
+fi
 # A file dragged over the pinned tab gets a line above it, and let go, it opens there pinned and
 # shows, titled by its name.
 t=$(today)
