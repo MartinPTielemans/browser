@@ -188,11 +188,13 @@ expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once s
 link_point="430 130"
 # The pointer on the link, once the page takes it. Chromium drops a page's input until it has drawn,
 # which a software renderer does well after the page has loaded, so it moves until the page reports
-# the link under it.
+# the link under it. Each try comes from off the link: a page reports a link only as the pointer
+# reaches it, and one shown again under a pointer already there doesn't.
 on_link() {
   local at
   at=$(wc -l < "$log")
   for i in $(seq 50); do
+    send move 600 400
     send move $((430 + i % 2)) 130
     tail -n "+$((at + 1))" "$log" | grep -q "^browser: link target ${site}notes.txt\$" && return 0
     sleep 0.1
