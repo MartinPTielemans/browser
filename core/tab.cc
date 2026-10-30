@@ -7,8 +7,10 @@
 #include <utility>
 
 #include "base/auto_reset.h"
+#include "base/barrier_callback.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
@@ -58,6 +60,8 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_user_data.h"
+#include "content/public/browser/web_contents_view_delegate.h"
+#include "content/public/common/drop_data.h"
 #include "content/public/common/result_codes.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
@@ -78,6 +82,42 @@ namespace {
 
 // 16 points at 2×, as tab_favicon_changed's.
 constexpr int kFaviconPixels = 32;
+
+// A page ListHistory lists, until its favicon is found.
+struct ListedPage {
+  int offset;
+  GURL url;
+  std::string spec;
+  std::string title;
+  scoped_refptr<base::RefCountedMemory> favicon;
+};
+
+// The favicon found for the listed page at |at|.
+struct ListedFavicon {
+  size_t at;
+  favicon_base::FaviconRawBitmapResult result;
+};
+
+void ReportHistory(bc_id tab,
+                   bool forward,
+                   std::vector<ListedPage> pages,
+                   std::vector<ListedFavicon> favicons) {
+  if (!Host().tab_history) {
+    return;
+  }
+  for (const ListedFavicon& favicon : favicons) {
+    if (favicon.result.is_valid()) {
+      pages[favicon.at].favicon = favicon.result.bitmap_data;
+    }
+  }
+  std::vector<bc_history_entry> entries;
+  for (const ListedPage& page : pages) {
+    entries.push_back({page.offset, page.spec.c_str(), page.title.c_str(),
+                       page.favicon ? page.favicon->data() : nullptr,
+                       page.favicon ? page.favicon->size() : 0});
+  }
+  Host().tab_history(Host().context, tab, forward, entries.data(), entries.size());
+}
 
 std::map<bc_id, std::unique_ptr<Tab>>& Tabs() {
   static base::NoDestructor<std::map<bc_id, std::unique_ptr<Tab>>> tabs;
@@ -185,6 +225,29 @@ void Tab::LinkTargetChanged(BrowserWindowInterface* browser,
   if (Window::ForBrowser(browser)) {
     Get(IdOf(source))->ReportLinkTarget(url);
   }
+}
+
+// static
+bool Tab::LinkDragged(content::WebContents* contents,
+                      content::PageLinkDrag phase,
+                      const content::DropData& data,
+                      const gfx::PointF& point) {
+  Tab* tab = FromWebContents(contents);
+  if (!tab || !Host().tab_link_dragged) {
+    return false;
+  }
+  if (phase == content::PageLinkDrag::kLeft) {
+    Host().tab_link_dragged(Host().context, tab->id_, BC_LINK_DRAG_LEFT, "", 0, 0);
+    return false;
+  }
+  // Only a web page's link opens in a pane: one that isn't is left to the page.
+  if (data.url_infos.empty() || !data.url_infos.front().url.SchemeIsHTTPOrHTTPS()) {
+    return false;
+  }
+  const int dragged =
+      phase == content::PageLinkDrag::kDrop ? BC_LINK_DRAG_DROP : BC_LINK_DRAG_OVER;
+  return Host().tab_link_dragged(Host().context, tab->id_, dragged,
+                                 data.url_infos.front().url.spec().c_str(), point.x(), point.y());
 }
 
 // static
@@ -621,6 +684,56 @@ void Tab::GoForward() {
     system_page_->GoForward();
   } else {
     web_contents()->GetController().GoForward();
+  }
+}
+
+void Tab::ListHistory(bool forward) {
+  std::vector<ListedPage> pages;
+  if (!system_page_) {
+    const SavedTab saved = Save();
+    const int step = forward ? 1 : -1;
+    for (int i = saved.current + step; i >= 0 && i < static_cast<int>(saved.history.size());
+         i += step) {
+      const sessions::SerializedNavigationEntry& entry = saved.history[i];
+      pages.push_back({i - saved.current, entry.virtual_url(), entry.virtual_url().spec(),
+                       base::UTF16ToUTF8(entry.title()), nullptr});
+    }
+  }
+  favicon::FaviconService* service =
+      profile() ? FaviconServiceFactory::GetForProfile(profile(), ServiceAccessType::EXPLICIT_ACCESS)
+                : nullptr;
+  if (pages.empty() || !service) {
+    // Posted, as the service's answers are, so the app hears of it once its call has returned.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&ReportHistory, id_, forward, std::move(pages),
+                                  std::vector<ListedFavicon>()));
+    return;
+  }
+  std::vector<GURL> urls;
+  for (const ListedPage& page : pages) {
+    urls.push_back(page.url);
+  }
+  // One report once every page's favicon is in. A tab that closes first cancels them, and none.
+  base::RepeatingCallback<void(ListedFavicon)> found = base::BarrierCallback<ListedFavicon>(
+      urls.size(), base::BindOnce(&ReportHistory, id_, forward, std::move(pages)));
+  for (size_t at = 0; at < urls.size(); ++at) {
+    service->GetRawFaviconForPageURL(
+        urls[at], {favicon_base::IconType::kFavicon}, kFaviconPixels, /*fallback_to_host=*/true,
+        base::BindOnce(
+            [](base::RepeatingCallback<void(ListedFavicon)> found, size_t at,
+               const favicon_base::FaviconRawBitmapResult& result) { found.Run({at, result}); },
+            found, at),
+        &favicon_tracker_);
+  }
+}
+
+void Tab::GoToOffset(int offset) {
+  if (system_page_ || !web_contents() || offset == 0) {
+    return;
+  }
+  content::NavigationController& history = web_contents()->GetController();
+  if (history.CanGoToOffset(offset)) {
+    history.GoToOffset(offset);
   }
 }
 

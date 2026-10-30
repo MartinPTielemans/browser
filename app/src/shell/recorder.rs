@@ -72,6 +72,8 @@ pub(super) struct Recorder {
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
     pub(super) menus: RefCell<Vec<Vec<(SharedString, bool)>>>,
+    /// Where the last menu was asked to show, in the window.
+    pub(super) menu_at: Cell<Option<Point<Pixels>>>,
     /// The last menus it was asked to show, item by item.
     pub(super) entries: RefCell<Vec<MenuEntry>>,
     /// The look of each of ilo's own menus it was asked to show, as `menus` has them.
@@ -103,6 +105,10 @@ pub(super) struct Recorder {
     pub(super) bar_open: Cell<bool>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
+    /// The pages `open_page` opened, in order.
+    pub(super) opened_pages: RefCell<Vec<String>>,
+    /// The text `copy` put on the clipboard, in order.
+    pub(super) copied: RefCell<Vec<String>>,
     /// The tabs the command bar was given to list each time the window showed another Space.
     pub(super) followed_tabs: RefCell<Vec<Vec<u64>>>,
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
@@ -165,12 +171,13 @@ impl Recorder {
     fn menu(
         &self,
         entries: Vec<MenuEntry>,
-        _: Point<Pixels>,
+        position: Point<Pixels>,
         _: Option<usize>,
         _: bool,
         answer: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
     ) {
+        self.menu_at.set(Some(position));
         let items = entries.iter().map(|entry| (entry.title.clone(), entry.enabled)).collect();
         self.menus.borrow_mut().push(items);
         *self.entries.borrow_mut() = entries;
@@ -226,8 +233,9 @@ impl Browser for Recorder {
         self.edit(format!("close below {tab}"));
     }
 
-    fn duplicate(&self, tab: u64, _: &mut App) {
-        self.record(format!("duplicate {tab}"))
+    fn duplicate(&self, tab: u64, _: &mut App) -> u64 {
+        self.record(format!("duplicate {tab}"));
+        self.make()
     }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
@@ -285,7 +293,9 @@ impl Browser for Recorder {
 
     fn move_in_split(&self, _: u64, _: usize, _: &mut App) {}
 
-    fn set_split_stacked(&self, _: u64, _: bool, _: &mut App) {}
+    fn set_split_stacked(&self, tab: u64, stacked: bool, _: &mut App) {
+        self.record(format!("split stacked {tab} {stacked}"))
+    }
 
     fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, _: &mut App) {
         self.page_events.borrow_mut().push("shares");
@@ -302,6 +312,10 @@ impl Browser for Recorder {
 
     fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
         self.edit(format!("split {tab} {with} {left}"));
+    }
+
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
+        self.record(format!("open split {url} {with} {left} {stacked}"))
     }
 
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
@@ -345,7 +359,23 @@ impl Browser for Recorder {
         true
     }
 
-    fn reopen_closed_tab(&self, _: &mut App) {}
+    fn reopen_closed_tab(&self, _: &mut App) {
+        self.record("reopen closed tab".into());
+    }
+
+    fn reopen_preview(
+        &self,
+        closed: &crate::link_preview::Closed,
+        _: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+        self.record(format!("reopen preview over {} {}", closed.over, closed.url));
+    }
+
+    fn close_preview(&self, over: u64, _: &mut App) -> bool {
+        self.record(format!("close preview over {over}"));
+        true
+    }
 
     fn reopen_tab(&self, closed: u64, _: &mut App) -> u64 {
         let made = self.make();
@@ -428,6 +458,18 @@ impl Browser for Recorder {
 
     fn go_forward(&self, tab: u64, _: &mut App) {
         self.record(format!("forward {tab}"))
+    }
+
+    fn tab_history(&self, tab: u64, forward: bool, _: &mut App) {
+        self.record(format!("history {tab} {}", if forward { "forward" } else { "back" }))
+    }
+
+    fn go_to_history(&self, tab: u64, offset: i32, _: &mut App) {
+        self.record(format!("go to {offset} in {tab}"))
+    }
+
+    fn open_history(&self, tab: u64, offset: i32, _: &mut App) {
+        self.record(format!("open {offset} of {tab} in the background"))
     }
 
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
@@ -585,6 +627,10 @@ impl Browser for Recorder {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+
+    fn open_page(&self, url: &str, _: &mut App) {
+        self.opened_pages.borrow_mut().push(url.to_owned());
+    }
 
     fn site_search_settings(&self, _: &mut App) {
         self.site_search_settings.set(self.site_search_settings.get() + 1);
@@ -751,7 +797,9 @@ impl Browser for Recorder {
 
     fn watch_control(&self, _: &mut App) {}
 
-    fn copy(&self, _: &str, _: &mut App) {}
+    fn copy(&self, text: &str, _: &mut App) {
+        self.copied.borrow_mut().push(text.to_owned());
+    }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
         self.share_services.borrow().clone()
