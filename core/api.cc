@@ -22,6 +22,7 @@
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/downloads.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/extensions.h"
@@ -1472,6 +1473,12 @@ size_t bc_ad_blocking_off_sites(bc_id profile_id, char* sites, size_t capacity) 
 void bc_ad_blocking_turn_on_site(bc_id profile_id, const char* site) {
   if (Profile* profile = LoadedProfile(profile_id); profile && site) {
     browser_core::TurnOnAdBlockingOnSite(profile, site);
+  }
+}
+
+void bc_tab_set_developer_mode(bc_id id, bool on) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    browser_core::developer_mode::Set(tab->profile(), tab->Url(), on);
   }
 }
 
