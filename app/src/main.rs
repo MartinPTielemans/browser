@@ -54,6 +54,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/emoji.rs"]
+mod emoji;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/floats.rs"]
 mod floats;
 #[cfg(target_os = "linux")]
@@ -71,6 +74,9 @@ mod panels;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/popovers.rs"]
 mod popovers;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/previews.rs"]
+mod previews;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/reveal_window.rs"]
 mod reveal_window;
@@ -495,9 +501,13 @@ fn front() -> (bc::bc_id, *mut c_void) {
     })
 }
 
-/// A browser window has gone full screen or left it, once macOS's transition is over.
+/// A browser window has gone full screen or left it, once macOS's transition is over. Later, as
+/// AppKit can say so from inside an update of ours, such as one that closes the window.
 extern "C" fn full_screen_changed(ui_view: *mut c_void, entered: bool) {
-    update_window(window_with_view(ui_view), |shell, cx| shell.set_full_screen(entered, cx));
+    let id = window_with_view(ui_view);
+    update_app_later(move |cx| {
+        update_window_in(id, cx, |shell, cx| shell.set_full_screen(entered, cx));
+    });
 }
 
 extern "C" fn swiped(ui_view: *mut c_void, x: f64, y: f64, back: bool) -> bool {
@@ -524,6 +534,8 @@ pub(crate) fn shell_with_view(ui_view: *mut c_void) -> WeakEntity<Shell> {
 }
 
 /// A browser window became key: it goes first, so the shared overlays and the menu bar follow it.
+/// AppKit makes one key as another window orders out or closes, from inside the update that did
+/// it, such as Settings' close (#819), so the shell hears it once that update is over.
 extern "C" fn key_window_changed(ui_view: *mut c_void) {
     let moved = WINDOWS.with_borrow_mut(|windows| {
         let index = windows.iter().position(|window| window.ui_view == ui_view)?;
@@ -535,7 +547,9 @@ extern "C" fn key_window_changed(ui_view: *mut c_void) {
     });
     if let Some(id) = moved {
         log!("browser: key window {id}");
-        update_window(id, |shell, cx| shell.became_key(cx));
+        update_app_later(move |cx| {
+            update_window_in(id, cx, |shell, cx| shell.became_key(cx));
+        });
     }
 }
 
@@ -568,6 +582,18 @@ fn update_window<R>(
     })?;
     let cx = CX.with_borrow(Clone::clone)?;
     cx.update(|cx| shell.update(cx, change).ok())
+}
+
+/// Changes the shell of the window `id`, as `update_window`, in an update under way.
+fn update_window_in<R>(
+    id: bc::bc_id,
+    cx: &mut App,
+    change: impl FnOnce(&mut Shell, &mut Context<Shell>) -> R,
+) -> Option<R> {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|window| window.id == id).map(|window| window.shell.clone())
+    })?;
+    shell.update(cx, change).ok()
 }
 
 /// The window showing `tab`'s page, as the core says, else the one whose shell thinks it does,
@@ -1666,7 +1692,8 @@ impl tooltip::Host for TooltipHost {
 
 /// The window lost the keyboard, or the app stopped being the active one.
 extern "C" fn tooltip_away() {
-    update_app(tooltip::dismiss);
+    // Later: the window resigns key from inside the update that opened another, such as Settings.
+    update_app_later(tooltip::dismiss);
 }
 
 /// The hover card's requests, to the host's card window, over the browser window in front.
@@ -1689,7 +1716,8 @@ impl hover_card::Host for CardHost {
 /// landed outside the card.
 #[cfg(not(target_os = "linux"))]
 extern "C" fn card_away() {
-    update_app(hover_card::close);
+    // Later, as tooltip_away.
+    update_app_later(hover_card::close);
 }
 
 /// The system is short of memory: the hover cards' pictures, which the core can take again, go.
@@ -2502,6 +2530,11 @@ impl Browser for Engine {
         unsafe { bc::bc_profile_create(name.as_ptr()) }
     }
 
+    fn rename_profile(&self, profile: u64, name: &str, _: &mut App) {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_profile_rename(profile, name.as_ptr()) };
+    }
+
     fn import_host(&self) -> Rc<dyn browser::import::Host> {
         Rc::new(import_host::CoreImport)
     }
@@ -2536,7 +2569,7 @@ impl Browser for Engine {
     fn tell(
         &self,
         question: dialog::Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         cx: &mut App,
     ) -> bool {
         if !dialog::can_pose(cx) {
@@ -2841,12 +2874,13 @@ impl Browser for Engine {
         radius: f32,
         full_page: bool,
         library: bool,
+        look: menu::Look,
         cx: &mut App,
     ) {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, library, cx),
+                false => capture::start(tab, frame, radius, library, look, cx),
             },
             cx,
         );
@@ -3018,7 +3052,7 @@ impl Browser for Engine {
             check: None,
             return_cancels: false,
         };
-        dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
+        dialog::pose(question, Box::new(|_, _| unsafe { bc::bc_quit() }), cx);
     }
 }
 
@@ -3542,6 +3576,8 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
+        #[cfg(target_os = "linux")]
+        emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
             windows.insert(
@@ -4105,7 +4141,7 @@ fn check_for_updates(cx: &mut App) {
                 concat!(env!("APP_NAME"), " looks for one every half hour while it’s open.").into(),
             ),
         };
-        dialog::pose(notice(message, detail), Box::new(|_| {}), cx);
+        dialog::pose(notice(message, detail), Box::new(|_, _| {}), cx);
     }
 }
 
@@ -4144,7 +4180,7 @@ fn offer_restart(cx: &mut App) {
             concat!("Restart ", env!("APP_NAME"), " to use it.").into(),
         )
     };
-    let restart = |cx: &mut App| {
+    let restart = |_: Vec<String>, cx: &mut App| {
         let Some(portal) = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.0.clone()))
         else {
             return;
@@ -4582,7 +4618,8 @@ unsafe extern "C" fn launching(_: *mut c_void) {
 /// Back from another app, such as System Settings, where the user may have changed the default
 /// browser or given the app Full Disk Access.
 extern "C" fn became_active() {
-    update_app(|cx| {
+    // Later: AppKit can say so from inside the update that activated the app to show a window.
+    update_app_later(|cx| {
         settings::check_default_browser(cx);
         import_host::became_active(cx);
     });
@@ -4597,9 +4634,8 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
 // window is already hidden when it closes, and the frame alone as the last regular window closes.
 // Nothing of a private window is kept.
 extern "C" fn launch_picture_on_resigning() {
-    if let Some(cx) = CX.with_borrow(Clone::clone) {
-        cx.update(save_launch_picture);
-    }
+    // Later: AppKit can say so from inside an update of ours, such as one that hides the app.
+    update_app_later(save_launch_picture);
 }
 
 fn save_launch_picture(cx: &mut App) {

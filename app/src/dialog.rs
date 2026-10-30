@@ -352,6 +352,7 @@ pub fn ask_in(
     cx: &mut App,
 ) {
     let question = destructive(message, detail, action);
+    let confirmed = Box::new(move |_, cx: &mut App| confirmed(cx));
     dialog.update(cx, |dialog, cx| dialog.pose(question, confirmed, window, cx));
 }
 
@@ -398,7 +399,7 @@ pub fn ask(
     confirmed: Box<dyn FnOnce(&mut App)>,
     cx: &mut App,
 ) {
-    pose(destructive(message, detail, action), confirmed, cx);
+    pose(destructive(message, detail, action), Box::new(move |_, cx| confirmed(cx)), cx);
 }
 
 /// Whether to do `action`, in red, or cancel.
@@ -418,9 +419,9 @@ fn destructive(message: String, detail: String, action: &'static str) -> Questio
     }
 }
 
-/// Asks `question`, and calls `confirmed` if the user chooses its action, once the dialog has
-/// gone. Nothing while another dialog shows.
-pub fn pose(question: Question, confirmed: Box<dyn FnOnce(&mut App)>, cx: &mut App) {
+/// Asks `question`, and calls `confirmed` with what its fields hold if the user chooses its action,
+/// once the dialog has gone. Nothing while another dialog shows.
+pub fn pose(question: Question, confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>, cx: &mut App) {
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
     };
@@ -531,7 +532,7 @@ impl Dialog {
     fn pose(
         &mut self,
         question: Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -540,7 +541,7 @@ impl Dialog {
         }
         let answered = Box::new(move |reply: Reply, cx: &mut App| {
             if reply.accept {
-                confirmed(cx);
+                confirmed(reply.texts, cx);
             }
         });
         let request = Request { question, source: Source::User, over: None, page: None, answered };

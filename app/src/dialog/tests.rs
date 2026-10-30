@@ -124,7 +124,7 @@ fn asking_to_quit(cx: &mut TestAppContext) -> Asking {
             check: None,
             return_cancels: false,
         };
-        pose(question, Box::new(move |_| quit.0.borrow_mut().push("quit".into())), cx);
+        pose(question, Box::new(move |_, _| quit.0.borrow_mut().push("quit".into())), cx);
     });
     let cx = VisualTestContext::from_window(window.into(), cx);
     cx.simulate_resize(size(px(800.), px(600.)));

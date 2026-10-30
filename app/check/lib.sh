@@ -54,6 +54,8 @@ cleanup() {
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  # The access run's session and AT-SPI buses.
+  [ -z "${buses:-}" ] || kill $buses 2>/dev/null || true
   # A run's temp dir, such as the updates run's with its key.
   [ -z "${scratch:-}" ] || rm -rf "$scratch"
   # A check VM that a run turned light or dark goes back to the appearance it had.
@@ -107,12 +109,12 @@ exited() {
   return 0
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
-# user logs out. On Windows taskkill without /F closes the app's windows, as the user would, and
+# user logs out. On Windows close_windows closes the app's windows, as the user would, and
 # Chromium quits with its last one. On Linux SIGINT is that way: Chromium quits as from its menu,
 # where SIGTERM ends the session at once, without the startup trace tabs.sh reads.
 quit_app() {
   if windows; then
-    taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null
+    close_windows "$(cat "/proc/$pid/winpid")"
   elif [ "$(uname)" = Linux ]; then
     kill -INT "$pid"
   else
