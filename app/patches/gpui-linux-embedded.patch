@@ -142,10 +142,10 @@ index 0000000000..846d17431f
 +}
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..9617433a8d
+index 0000000000..a26ae72066
 --- /dev/null
 +++ b/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,874 @@
+@@ -0,0 +1,875 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -638,13 +638,14 @@ index 0000000000..9617433a8d
 +    })
 +}
 +
-+/// The overlay that has the keyboard, shown or about to show, if one does.
++/// The overlay that has the keyboard but not yet the input focus, as it's about to show, if one
++/// does.
 +#[allow(dead_code)]
-+pub(crate) fn lent_keyboard() -> Option<usize> {
++pub(crate) fn taking_keyboard() -> Option<usize> {
 +    SHOWN.with_borrow(|all| {
 +        all.iter()
 +            .rev()
-+            .find(|shown| shown.keyboard)
++            .find(|shown| shown.keyboard && !shown.ready)
 +            .map(|shown| shown.view)
 +    })
 +}
@@ -3020,7 +3021,7 @@ index f9b9727330..4ced7b5779 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git a/crates/gpui_linux/src/linux/x11/client.rs b/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..0cf68706ff 100644
+index e21f019c64..7035ae7382 100644
 --- a/crates/gpui_linux/src/linux/x11/client.rs
 +++ b/crates/gpui_linux/src/linux/x11/client.rs
 @@ -3,6 +3,7 @@ use ashpd::WindowIdentifier;
@@ -3621,7 +3622,7 @@ index e21f019c64..0cf68706ff 100644
                  window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
                      pressed_button,
                      position,
-@@ -1523,6 +1929,59 @@ impl X11Client {
+@@ -1523,6 +1929,61 @@ impl X11Client {
          };
      }
  
@@ -3653,9 +3654,9 @@ index e21f019c64..0cf68706ff 100644
 +        true
 +    }
 +
-+    /// Embedded, a key that reached GPUI's window while an overlay has the keyboard was typed before
-+    /// the overlay took the input focus, as right after the shortcut that opened it: it goes on to
-+    /// the overlay, in order.
++    /// Embedded, a key that reached GPUI's window while an overlay that has the keyboard hasn't yet
++    /// the input focus was typed before it took it, as right after the shortcut that opened it: it
++    /// goes on to the overlay, in order.
 +    fn pass_to_overlay(&self, event: &Event) -> bool {
 +        let (Event::KeyPress(key) | Event::KeyRelease(key)) = event else {
 +            return false;
@@ -3663,10 +3664,12 @@ index e21f019c64..0cf68706ff 100644
 +        if !crate::linux::is_embedded() || crate::linux::overlay::is_shown(key.event as usize) {
 +            return false;
 +        }
-+        let Some(overlay) = crate::linux::overlay::lent_keyboard().map(|view| view as xproto::Window)
-+        else {
++        let Some(view) = crate::linux::overlay::taking_keyboard() else {
 +            return false;
 +        };
++        let overlay = view as xproto::Window;
++        // The embedder's check reads this line, as its host on the Mac logs it.
++        eprintln!("browser: held 1 key events for GPUIPanel");
 +        let connection = self.0.borrow().xcb_connection.clone();
 +        let mut key = *key;
 +        key.event = overlay;
@@ -3681,7 +3684,7 @@ index e21f019c64..0cf68706ff 100644
      fn xim_handle_event(&self, event: Event) -> Option<()> {
          match event {
              Event::KeyPress(event) | Event::KeyRelease(event) => {
-@@ -2052,6 +2511,9 @@ impl X11ClientState {
+@@ -2052,6 +2513,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -3691,7 +3694,7 @@ index e21f019c64..0cf68706ff 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2549,441 @@ impl X11ClientState {
+@@ -2087,6 +2551,441 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -4133,7 +4136,7 @@ index e21f019c64..0cf68706ff 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2246,10 +3143,35 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
+@@ -2246,10 +3145,35 @@ fn handle_visibility_changed(mut state: RefMut<'_, X11ClientState>, x_window: xp
      window.set_visibility(visibility);
  }
  
@@ -4169,7 +4172,7 @@ index e21f019c64..0cf68706ff 100644
  fn detect_compositor_gpu(
      xcb_connection: &XCBConnection,
      screen: &xproto::Screen,
-@@ -2465,6 +3387,20 @@ fn current_pointer_device_states(
+@@ -2465,6 +3389,20 @@ fn current_pointer_device_states(
      )
      .log_err()?;
  
@@ -4190,7 +4193,7 @@ index e21f019c64..0cf68706ff 100644
      let mut pointer_device_states = BTreeMap::new();
      pointer_device_states.extend(
          devices_query_result
-@@ -2498,6 +3434,8 @@ fn current_pointer_device_states(
+@@ -2498,6 +3436,8 @@ fn current_pointer_device_states(
                          PointerDeviceState {
                              horizontal: horizontal.unwrap_or_else(Default::default),
                              vertical: vertical.unwrap_or_else(Default::default),
@@ -4199,7 +4202,7 @@ index e21f019c64..0cf68706ff 100644
                          },
                      ))
                  }
-@@ -2539,10 +3477,12 @@ fn reset_pointer_device_scroll_positions(pointer: &mut PointerDeviceState) {
+@@ -2539,10 +3479,12 @@ fn reset_pointer_device_scroll_positions(pointer: &mut PointerDeviceState) {
  }
  
  /// Returns the scroll delta for a smooth scrolling motion event, or `None` if no scroll data is present.
@@ -4213,7 +4216,7 @@ index e21f019c64..0cf68706ff 100644
      let delta_x = get_axis_scroll_delta_and_update_state(event, &mut pointer.horizontal);
      let delta_y = get_axis_scroll_delta_and_update_state(event, &mut pointer.vertical);
      if delta_x.is_some() || delta_y.is_some() {
-@@ -2555,13 +3495,13 @@ fn get_scroll_delta_and_update_state(
+@@ -2555,13 +3497,13 @@ fn get_scroll_delta_and_update_state(
  fn get_axis_scroll_delta_and_update_state(
      event: &xinput::MotionEvent,
      axis: &mut ScrollAxisState,
@@ -4230,7 +4233,7 @@ index e21f019c64..0cf68706ff 100644
          axis.scroll_value = Some(new_scroll);
          delta_scroll
      } else {
-@@ -2570,6 +3510,35 @@ fn get_axis_scroll_delta_and_update_state(
+@@ -2570,6 +3512,35 @@ fn get_axis_scroll_delta_and_update_state(
      }
  }
  
@@ -4266,7 +4269,7 @@ index e21f019c64..0cf68706ff 100644
  fn make_scroll_wheel_event(
      position: Point<Pixels>,
      scroll_delta: Point<f32>,
-@@ -2620,6 +3589,11 @@ fn get_scale_factor(
+@@ -2620,6 +3591,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -4278,7 +4281,7 @@ index e21f019c64..0cf68706ff 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3872,130 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3874,130 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -4409,7 +4412,7 @@ index e21f019c64..0cf68706ff 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +4311,101 @@ mod tests {
+@@ -3213,3 +4313,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }

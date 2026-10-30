@@ -213,10 +213,6 @@ expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 typed_after() {
   post key "$1" cmd
   send type "$2"
-  # On Linux the UI's window passes its keys on to the bar itself, which the log doesn't show.
-  case "$(uname) $3" in
-    Linux*UI*) return ;;
-  esac
   expect '^browser: held [0-9]* key events for GPUIPanel$' \
     "keys typed right after ⌘$(echo "$1" | tr a-z A-Z) $3 didn't wait for its bar"
 }
