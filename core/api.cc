@@ -22,6 +22,7 @@
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/downloads.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/extensions.h"
@@ -1200,7 +1201,9 @@ void bc_tab_show_in(bc_id id, void* view, bc_rect frame, double corner_radius) {
   if (!contents || !view || browser_core::Window::Showing(id)) {
     return;
   }
-  browser_core::platform::ShowPageIn(contents->GetNativeView(), view, ToRect(frame),
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  browser_core::platform::ShowPageIn(window ? window->widget() : nullptr,
+                                     contents->GetNativeView(), view, ToRect(frame),
                                      corner_radius);
   contents->Focus();
 }
@@ -1470,6 +1473,12 @@ size_t bc_ad_blocking_off_sites(bc_id profile_id, char* sites, size_t capacity) 
 void bc_ad_blocking_turn_on_site(bc_id profile_id, const char* site) {
   if (Profile* profile = LoadedProfile(profile_id); profile && site) {
     browser_core::TurnOnAdBlockingOnSite(profile, site);
+  }
+}
+
+void bc_tab_set_developer_mode(bc_id id, bool on) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    browser_core::developer_mode::Set(tab->profile(), tab->Url(), on);
   }
 }
 
