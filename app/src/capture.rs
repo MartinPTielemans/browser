@@ -9,10 +9,11 @@
 use std::{rc::Rc, sync::Arc, time::Duration};
 
 use gpui::{
-    App, Bounds, BoxShadow, Context, Corners, FocusHandle, FontWeight, Global, Hsla, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage,
-    SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
-    WindowKind, WindowOptions, actions, canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
+    App, Bounds, BoxShadow, Context, Corners, Div, FocusHandle, FontWeight, Global, Hsla,
+    KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    RenderImage, SharedString, Stateful, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, canvas, div, point, prelude::*,
+    px, rgb, rgba, size, svg,
 };
 use image::{Frame, RgbaImage};
 
@@ -679,6 +680,14 @@ impl Capture {
 
 impl Render for Capture {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The browser's shortcuts work here too, below capture mode's own keys, as the Mac's menu
+        // bar has them in every window: a second ⇧⌘2 leaves.
+        div().key_context(crate::shell::KEY_CONTEXT).size_full().child(self.mode(cx))
+    }
+}
+
+impl Capture {
+    fn mode(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let root = div()
             .id("capture")
             .key_context("Capture")
