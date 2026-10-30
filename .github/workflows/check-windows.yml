@@ -121,7 +121,14 @@ jobs:
               timeout 20m ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
               # By the app's path, never by image name, which would reach any other Chrome. Before
               # the move, as Windows won't move a folder a process still has a file open in.
-              pkill -9 -f "$(cygpath -m "$PWD/build/Browser")/" || true
+              app=$(cygpath -m "$PWD/build/Browser")/
+              pkill -9 -f "$app" || true
+              # taskkill /F returns before the processes are gone, and the next run refuses to start
+              # beside one.
+              for _ in $(seq 20); do
+                pgrep -f "$app" > /dev/null || break
+                sleep 0.5
+              done
               if [ -d build/check ] && ! mv build/check "$out/$run"; then
                 cp -r build/check "$out/$run" || true
                 rm -rf build/check || true
