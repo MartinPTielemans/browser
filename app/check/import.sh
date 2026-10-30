@@ -87,11 +87,11 @@ if [ "$active" != 1 ]; then
 fi
 first=$(space)
 # The toolbar's tabs, 55 wide or as wide as their names, 1 apart, centred: Import is the fourth of
-# eight. Its list has a row for each browser, its Import… button at the row's end; then a browser's
+# nine. Its list has a row for each browser, its Import… button at the row's end; then a browser's
 # choices, a row each, with Back and Import under them.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 314 60
+send clickkey 284 60
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
 expect '^browser: import found Arc, Chrome, Firefox$' \
   "the import didn't find the fixture's Arc, Chrome and Firefox, and only them"
@@ -204,7 +204,7 @@ await '^browser: import done: 1 password came in to Default from passwords\.csv\
 ../tools/window-screenshot.sh "$pid" "$out/import-passwords-conflict.png" || fail "no window to capture"
 rm -f "$passwords"
 # Passwords, the third of Settings' tabs, lists the three logins, not their passwords.
-send clickkey 252 60
+send clickkey 222 60
 expect '^browser: settings tab Passwords$' "a click on Passwords didn't show its tab"
 await '^browser: passwords [0-9]*: login\.example\.test check@example\.test, mail\.example\.test check@example\.test, new\.example\.test new@example\.test$' ||
   fail "Settings didn't list the imported logins: $(grep '^browser: passwords [0-9]*:' "$log" | tail -1)"

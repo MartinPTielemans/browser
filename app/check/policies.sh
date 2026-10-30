@@ -19,12 +19,18 @@ policies_check() {
   policies=DownloadDirectory
   defaults write "$app_id" DownloadDirectory -string "$downloads"
   # "p" typed in the page downloads a file with a name of the run's own, which a download that went
-  # to the Downloads folder instead leaves there until the run takes it out.
+  # to the Downloads folder instead leaves there until the run takes it out. The title names each
+  # key the page gets, so a key that never reached it tells apart from a download that never came.
+  # The link has text: a page whose elements draw nothing doesn't get the keys typed in its first
+  # second or two, as one with an empty link or div showed, while one with text gets them at once.
   file=ilo-policy-check.txt
-  printf '%s' "<title>loading</title><a id=p download=$file href=notes.txt></a>
+  printf '%s' "<title>loading</title><a id=p download=$file href=notes.txt>Notes</a>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = \"ready\"));
-onkeydown = e => { if (e.key == \"p\") p.click(); };
+onkeydown = e => {
+  document.title = \"key \" + e.key;
+  if (e.key == \"p\") p.click();
+};
 </script>" > "$out/site/policy.html"
   log="$out/policies.log"
   step=0
@@ -43,6 +49,7 @@ onkeydown = e => { if (e.key == \"p\") p.click(); };
     return 0
   fi
   send type p
+  expect '^browser: title [0-9]* key p$' "the page's script didn't get the p typed"
   expect "^browser: download [0-9]* done $file\$" "the page's download didn't finish"
   if [ ! -f "$downloads/$file" ]; then
     rm -f "$HOME/Downloads/$file"
