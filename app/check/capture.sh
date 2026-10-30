@@ -2,10 +2,21 @@
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
 # that box to a pasteboard of the run's own and shows the toast with Save and Share. Save to
 # Library, the menu's first row, saves it into the profile's Media and says so, and the Library's
-# Media shows it first, opens it in a tab and deletes it from its menu. Escape and a second ⇧⌘2
+# Media shows it first, opens it in a tab and deletes it from its menu, and then says it is empty
+# in a line that wraps in its list, narrow and wide, light and dark. Escape and a second ⇧⌘2
 # leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
 # picture of the whole long page, past its view.
 
+# The line saying the PNG was copied to the run's own pasteboard, and the toast's buttons after it.
+# On Linux check.sh runs in a display of its own, whose clipboard is the run's, and there's no share
+# menu, so the toast has no Share.
+if [ "$(uname)" = Darwin ]; then
+  copied='^browser: pasteboard png [0-9]* bytes, private$'
+  buttons='save, share'
+else
+  copied='^browser: clipboard png [0-9]* bytes$'
+  buttons=save
+fi
 # A page longer than any view, with a box at a known place in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
 <body style="margin:0;height:6000px">
@@ -66,11 +77,11 @@ case "$size" in
   200x100 | 400x200) ;;
   *) fail "the picture of the 200 by 100 box is $size" ;;
 esac
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied" \
   "Copy didn't copy the PNG to the run's pasteboard"
 expect '^browser: capture left (copy)$' "capture mode didn't leave after Copy"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
-  "Copy didn't show its toast with Save and Share"
+expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
+  "Copy didn't show its toast with $buttons"
 expect '^browser: capture hidden$' "capture mode's window didn't hide after Copy"
 send state
 in_browser RenderWidgetHostViewCocoa "after Copy"
@@ -99,7 +110,7 @@ expect '^browser: toast settled$' "Save to Library's toast didn't settle"
 
 # Window › View Media… opens the Library on Media, the capture its first tile, as the newest. A
 # click on the tile, under the first heading, opens it in a tab and closes the Library.
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: command view-media via ui$' "Window › View Media… didn't run"
 expect '^browser: library section media$' "View Media… didn't open the Library on Media"
 expect '^browser: library captures [1-9][0-9]*$' "Media didn't list the capture saved"
@@ -114,7 +125,7 @@ media=$(sed -n 's|^browser: loaded \([0-9]*\) file://.*\.png$|\1|p' "$log" | tai
 
 # A right-click on the tile offers Open and Delete, which moves the capture to the Trash, as the
 # downloads' Move to Trash does, and out of Media.
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: library shown$' "View Media… didn't open the Library again"
 post rightclick $((112 + 8 + 47)) $((56 + 27 + 47))
 expect "^browser: menu shown $(cased 'Open, Delete')\$" \
@@ -124,7 +135,72 @@ send choose Delete
 expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
 expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
 [ ! -e "$library" ] || fail "Delete left $library where it was"
-send menu "$(cased 'View Media…')"
+# Media also tiles the profile's downloaded pictures and videos, and the captures a run that
+# failed kept, which an earlier run can leave in a dev profile (restore's clip.mp4 on a VM). The
+# app clears them, as a user would: Downloads' Clear List takes the downloads off the list and
+# keeps their files, and each capture left goes by its tile's Delete.
+listed=$(grep '^browser: downloads ' "$log" | tail -1 | cut -d' ' -f3)
+if [ "${listed:-0}" -gt 0 ]; then
+  send key j cmd shift
+  expect '^browser: library section downloads$' "⇧⌘J didn't move the Library to Downloads"
+  # The first row, under the heading.
+  post rightclick 300 111
+  expect "^browser: menu shown .*$(cased 'Clear List')\$" \
+    "a right-click on the first download's row didn't show its menu"
+  send choose "$(cased 'Clear List')"
+  expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
+  expect '^browser: downloads 0$' "Clear List didn't take the $listed downloads off the list"
+  send menu 'View Media…'
+  expect '^browser: library section media$' "View Media… didn't move the Library back to Media"
+fi
+left=$(grep '^browser: library captures ' "$log" | tail -1 | cut -d' ' -f4)
+while [ "$left" -gt 0 ]; do
+  post rightclick $((112 + 8 + 47)) $((56 + 27 + 47))
+  expect "^browser: menu shown $(cased 'Open, Delete')\$" \
+    "a right-click on a capture left in Media didn't show its menu"
+  send choose Delete
+  expect '^browser: delete capture ' "Delete didn't take a capture left in Media"
+  expect "^browser: library captures $((left - 1))\$" "Media wasn't listed again after Delete"
+  left=$((left - 1))
+done
+# Emptied, Media says what fills it in a line that wraps in the list's width, 12 in from its
+# edges at 112 and 416 (#828), as the window's light and dark, narrow and wide, show it.
+expect '^browser: library empty media at ' "Media emptied didn't draw its line"
+send layout
+frame=$(grep '^browser: layout content' "$log" | tail -1 |
+  sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+# The window's look now, light or dark, from the last line it logged.
+tone() {
+  case "$(grep '^browser: window light ' "$log" | tail -1)" in
+    *true) echo light ;;
+    *) echo dark ;;
+  esac
+}
+# The window at $2 by $3, captured in its look and then in the other, as $1-light and $1-dark.
+empty_media() {
+  send resize $2 $3
+  expect "^browser: drawn at $2x$3\$" "the window didn't draw at $2 by $3"
+  set -- "$1" $(grep '^browser: library empty media at ' "$log" | tail -1 | cut -d' ' -f6,7,9)
+  [ "$2" -ge 124 ] && [ $(($2 + $3)) -le 404 ] ||
+    fail "Media's empty line is $3 wide at $2, past the list's 124 to 404"
+  empty_lines="$empty_lines$1 $4, "
+  was=$(tone)
+  ../tools/window-screenshot.sh "$pid" "$out/media-empty-$1-$was.png" || fail "no window to capture"
+  if [ "$was" = light ]; then other=Dark light=false; else other=Light light=true; fi
+  send menu "$(cased "Appearance › $other")"
+  expect "^browser: window light $light\$" "View › Appearance › $other didn't change its look"
+  ../tools/window-screenshot.sh "$pid" "$out/media-empty-$1-$(tone).png" ||
+    fail "no window to capture"
+  send menu "$(cased 'Appearance › Automatic')"
+  expect "^browser: window light $([ "$was" = light ] && echo true || echo false)\$" \
+    "View › Appearance › Automatic didn't give the window its look back"
+}
+empty_lines=
+empty_media narrow 800 520
+empty_media wide 1240 760
+send resize $frame
+expect "^browser: drawn at ${frame/ /x}\$" "the window didn't draw back at its size"
+send menu 'View Media…'
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 # ⌘W closes the capture's tab, back to the long page, which a click gives the keyboard.
 send key w cmd
@@ -191,14 +267,17 @@ full=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: tab [
   sed 's/.*: \([0-9]*x[0-9]*, [0-9]* bytes\)$/\1/')
 height=$(echo "$full" | sed 's/^[0-9]*x\([0-9]*\),.*/\1/')
 [ "$height" -ge 6000 ] || fail "the full page's picture is $full, not the page's 6000 points high"
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied" \
   "Capture Full Page didn't copy the PNG to the run's pasteboard"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
+expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
   "Capture Full Page didn't show its toast"
 
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full." \
+echo "ok: capture. The box's picture is $size, the full page's $full. Media's empty line, in" \
+  "lines: ${empty_lines%, }." \
   "Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png," \
-  "$out/library-media.png, $out/media-menu.png, $out/capture-pill-light.png," \
-  "$out/capture-menu-light.png, $out/capture-pill-dark.png, $out/capture-menu-dark.png"
+  "$out/library-media.png, $out/media-menu.png, $out/media-empty-narrow-light.png," \
+  "$out/media-empty-narrow-dark.png, $out/media-empty-wide-light.png," \
+  "$out/media-empty-wide-dark.png, $out/capture-pill-light.png, $out/capture-menu-light.png," \
+  "$out/capture-pill-dark.png, $out/capture-menu-dark.png"

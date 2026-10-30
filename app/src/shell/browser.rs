@@ -48,6 +48,11 @@ pub trait Browser {
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, cx: &mut App)
     -> u64;
     fn rename_folder(&self, folder: u64, name: &str, cx: &mut App);
+    /// Gives `folder` `icon`, an emoji, or takes its icon away with an empty one.
+    fn set_folder_icon(&self, folder: u64, icon: &str, cx: &mut App);
+    /// Makes a copy of `folder` under it, with a copy of each tab and folder in it, the tabs
+    /// unloaded, and returns it, or 0.
+    fn duplicate_folder(&self, folder: u64, cx: &mut App) -> u64;
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App);
     /// Moves `folder`, with what's in it, to `index` in `to`, else in the pinned tabs, counted as
     /// `move_tab` counts.
@@ -71,8 +76,8 @@ pub trait Browser {
     /// Opens a tab loading `url` in a split view with `with`, at its left end if `left`, else its
     /// right end, stacking a new split if `stacked`, and shows it there.
     fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, cx: &mut App);
-    /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
-    /// hides it.
+    /// Shows the window over the page that draws `Shell::over_page`, drawing it again, or hides
+    /// it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
@@ -250,6 +255,9 @@ pub trait Browser {
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);
+    /// Opens Chrome's Clear browsing data dialog in a tab of the Space shown, for its profile. The
+    /// user's, as site_search_settings is.
+    fn clear_browsing_data(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
@@ -447,6 +455,9 @@ pub trait Browser {
     /// Tells a tab's hover card the pointer rests on its row or tile, or left it, or ends it
     /// (crate::hover_card). The app ends it too on the window losing the keyboard.
     fn hover_card(&self, hover: crate::hover_card::Hover, cx: &mut App);
+    /// Tells a closed folder's preview the pointer rests on its row, or left it, or ends it
+    /// (crate::folder_preview).
+    fn folder_preview(&self, ask: crate::folder_preview::Ask, cx: &mut App);
     /// Asks for a small picture of `tab`'s page, as it was last drawn, for its hover card, which
     /// the browser keeps for it. The user's: agents get none, as with the page's picture.
     fn card_picture(&self, tab: u64, cx: &mut App);
@@ -531,6 +542,12 @@ pub trait Browser {
     fn shortcuts(&self, cx: &mut App);
     /// Opens the Settings window on its About tab.
     fn about(&self, cx: &mut App);
+    /// Whether this build updates itself: a release with its updater, or on Linux the Flatpak.
+    fn updates(&self) -> bool {
+        false
+    }
+    /// Check for Updates…: asks the updater to look, or says where the update stands.
+    fn check_for_updates(&self, _: &mut App) {}
     /// Opens the Settings window on its Import tab.
     fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
@@ -552,6 +569,8 @@ pub trait Browser {
     fn take_over(&self, agent: SharedString, tab: u64, cx: &mut App);
     /// The user hands `tab` back to its agent.
     fn hand_back(&self, tab: u64, cx: &mut App);
+    /// The user gives the agent whose Space is `space` their `tab`, which moves there.
+    fn give_to_agent(&self, tab: u64, space: u64, cx: &mut App);
     /// The user stops the agent with the id `agent`: what it's doing and asking ends.
     fn stop_agent(&self, agent: SharedString, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
@@ -673,4 +692,7 @@ pub struct Folders {
     pub folders: HashMap<u64, (SharedString, bool)>,
     /// The folder holding each pinned tab or folder in one.
     pub parents: HashMap<u64, u64>,
+    /// Each folder's icon, an emoji, which the sidebar draws in place of the folder; those without
+    /// one aren't here.
+    pub icons: HashMap<u64, SharedString>,
 }

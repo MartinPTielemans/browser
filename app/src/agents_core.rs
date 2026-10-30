@@ -167,7 +167,8 @@ impl Browser for Core {
     }
 
     fn url_for(&self, text: &str) -> Option<String> {
-        crate::url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        // Searches with the engine of the profile the core started with, as no window is asked.
+        crate::url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(0, text, url, capacity) })
     }
 
     fn ask(&self, question: Option<Question>, cx: &mut App) {
@@ -191,6 +192,10 @@ impl Browser for Core {
 
     fn close_tab(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_close(tab, false) };
+    }
+
+    fn give(&self, tab: u64, space: u64, _: &mut App) -> bool {
+        unsafe { bc::bc_tab_give_to_agent(tab, space) }
     }
 }
 

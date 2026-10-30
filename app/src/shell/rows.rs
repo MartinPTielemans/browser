@@ -17,7 +17,7 @@ use super::{
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
-    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
+    CHOSEN, ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, URL_BUTTON_GLYPH, URL_BUTTON_SIZE, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
@@ -40,7 +40,6 @@ use crate::{
 pub(super) const CLEAR_TIP: &str = "Clear unpinned tabs in this space";
 
 impl Shell {
-    /// Closes every folder of the Space shown, all on one fold.
     /// Opens `folder` of the Space shown, with the folders it's in, and scrolls the sidebar to it,
     /// as the command bar's Open does.
     pub(super) fn open_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
@@ -56,16 +55,17 @@ impl Shell {
         self.scroll_to_row(folder);
     }
 
-    pub(super) fn collapse_folders(&mut self, cx: &mut Context<Self>) {
+    /// Opens or closes every folder of the Space shown, all on one fold.
+    pub(super) fn fold_folders(&mut self, open: bool, cx: &mut Context<Self>) {
         let Some(space) = self.shown_space() else {
             return;
         };
         let folders = space.folders.folders.keys().copied();
-        let open: Vec<u64> = folders.filter(|&folder| space.is_open(folder)).collect();
-        // The core reports each, and the first report has them all closed.
-        self.folding = (!open.is_empty()).then_some(false);
-        for folder in open {
-            self.browser.set_folder_open(folder, false, cx);
+        let changed: Vec<u64> = folders.filter(|&folder| space.is_open(folder) != open).collect();
+        // The core reports each, and the first report has them all folded.
+        self.folding = (!changed.is_empty()).then_some(open);
+        for folder in changed {
+            self.browser.set_folder_open(folder, open, cx);
         }
     }
 
@@ -112,6 +112,7 @@ impl Shell {
             (Row::Tab(tab), _) => self.depth(tab),
             (Row::NewTab, _) => 0,
         };
+        let chosen = matches!(row, Row::Tab(tab) if self.chosen.contains(&tab)) && !selected;
         let developer = selected && !folder && self.page(self.selected).developer_mode;
         let plate = content
             .when(selected, |plate| {
@@ -128,6 +129,7 @@ impl Shell {
                 plate
             })
             .id("plate")
+            .when(chosen, |plate| plate.bg(self.palette.plate(CHOSEN)))
             .when_some(hover.filter(|_| !selected), |plate, hover| {
                 plate.bg(self.palette.plate(HOVERED).opacity(hover))
             })
@@ -163,7 +165,8 @@ impl Shell {
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(row, *hovered, cx);
                 shell.hover_tooltip(row, *hovered, cx);
-                shell.hover_card(row, *hovered, cx)
+                shell.hover_card(row, *hovered, cx);
+                shell.folder_preview(row, *hovered, cx)
             }))
             // The ghost is a picture of a row that stays in the list.
             .when(self.a11y && !ghost, |element| self.row_access(element, row, selected))
@@ -316,13 +319,22 @@ impl Shell {
             None => title(&self.palette, self.folder_name(folder), false).pr(px(TITLE_END_INSET)),
         };
         let renaming = renaming.is_some();
-        let icon = self.swaps.glyph(
-            Swapped::Folder(folder),
-            folder_glyph(open),
-            FAVICON_DRAWN,
-            self.palette.text(SECONDARY).into(),
-        );
-        let plate = plate(icon, label).child(self.framed(folder, 0.));
+        let emoji_icon = self.folder_icon(folder);
+        let icon = match has_icon(&emoji_icon) {
+            true => emoji(emoji_icon),
+            false => self
+                .swaps
+                .glyph(
+                    Swapped::Folder(folder),
+                    folder_glyph(open),
+                    FAVICON_DRAWN,
+                    self.palette.text(SECONDARY).into(),
+                )
+                .into_any_element(),
+        };
+        let plate = plate(icon, label)
+            .child(self.framed(folder, 0.))
+            .children(self.drawn_for_picker(Subject::Folder(folder)));
         self.row(Row::Tab(folder), plate, ghost, cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
@@ -502,6 +514,7 @@ impl Shell {
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
             MouseButton::Left if event.modifiers.alt && self.alt_press_row(tab, cx) => {}
+            MouseButton::Left if !self.is_folder(tab) && self.choose_by_press(tab, event, cx) => {}
             MouseButton::Left => {
                 self.end_hovers(cx);
                 if self.is_folder(tab) {
@@ -592,7 +605,9 @@ impl Shell {
                         cx.stop_propagation();
                         return shell.rename_tab(tab, cx);
                     }
-                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                    if (event.modifiers.alt && shell.alt_press_row(tab, cx))
+                        || shell.choose_by_press(tab, event, cx)
+                    {
                         return cx.stop_propagation();
                     }
                     shell.show_row(tab, cx)
@@ -608,10 +623,10 @@ impl Shell {
             )
     }
 
-    /// Where `tab`'s row or tile is, for the icon picker to hang under while it waits for it to
-    /// settle.
-    pub(super) fn drawn_for_picker(&self, tab: u64) -> Option<impl IntoElement + use<>> {
-        let pending = Some(Pending::Icon(Subject::Tab(tab)));
+    /// Where the row or tile of `subject`, a tab or a folder, is, for the icon picker to hang under
+    /// while it waits for it to settle.
+    pub(super) fn drawn_for_picker(&self, subject: Subject) -> Option<impl IntoElement + use<>> {
+        let pending = Some(Pending::Icon(subject));
         (self.picker_pending.map(|(picker, _)| picker) == pending).then(|| {
             let drawn = self.tab_row_drawn.clone();
             canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
@@ -793,7 +808,7 @@ impl Shell {
                 }))
             })
             .child(icon);
-        let bounds = self.drawn_for_picker(tab);
+        let bounds = self.drawn_for_picker(Subject::Tab(tab));
         // The field of a rename takes the row's clicks while it's up.
         let plate = plate(icon.into_any_element(), label).child(self.framed(tab, 0.));
         let row = self.row(Row::Tab(tab), plate, ghost, cx);
@@ -806,7 +821,9 @@ impl Shell {
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
                     }
-                    if event.modifiers.alt && shell.alt_press_row(tab, cx) {
+                    if (event.modifiers.alt && shell.alt_press_row(tab, cx))
+                        || shell.choose_by_press(tab, event, cx)
+                    {
                         return;
                     }
                     // On the way back to the pinned URL, the favicon's click shows the tab.
@@ -1649,6 +1666,30 @@ mod tests {
         assert!(!host.take().iter().any(|call| call.starts_with("select")));
     }
 
+    /// Expand All Folders opens the Space's closed folders and Collapse All Folders closes its
+    /// open ones, each on one fold, leaving the rest alone.
+    #[gpui::test]
+    fn expand_and_collapse_all_fold_only_the_folders_that_change(cx: &mut TestAppContext) {
+        let docs = [(20, ("Docs".into(), true)), (22, ("Work".into(), false))];
+        let folders = Folders { folders: docs.into(), ..Default::default() };
+        let (shell, cx, host) = window_with(cx, vec![20, 21, 22, 23], vec![4], 4, folders);
+        let folds = |command, cx: &mut VisualTestContext| {
+            host.take();
+            shell.update(cx, |shell, cx| shell.run(command, "ui", cx));
+            let calls = host.take();
+            let folds = calls.into_iter().filter(|call| call.starts_with("folder open"));
+            (folds.collect::<Vec<_>>(), shell.read_with(cx, |shell, _| shell.folding))
+        };
+        assert_eq!(
+            folds(Command::ExpandFolders, cx),
+            (vec!["folder open 22 true".into()], Some(true))
+        );
+        assert_eq!(
+            folds(Command::CollapseFolders, cx),
+            (vec!["folder open 20 false".into()], Some(false))
+        );
+    }
+
     /// A dragged row that rests on another tab's row's middle for less than SPLIT_REST still goes
     /// where it's let go; one that rests there longer joins that tab in a split view, as Arc's
     /// does, with the row lit and no drop line.
@@ -1751,7 +1792,7 @@ mod tests {
     #[gpui::test]
     fn a_press_opens_or_closes_a_folder(cx: &mut TestAppContext) {
         let docs = [(20, ("Docs".into(), true))];
-        let folders = Folders { folders: docs.into(), parents: Default::default() };
+        let folders = Folders { folders: docs.into(), ..Default::default() };
         let (shell, cx, host) = window_with(cx, vec![20, 21], vec![4], 4, folders);
         let (x, y) = close_button(&shell, cx, 20);
         let middle = point(px(x - 100.), px(y));
@@ -2063,5 +2104,59 @@ mod tests {
             cx.simulate_click(at, Modifiers::none());
             assert!(host.take().contains(&"select 3".into()), "page {page}, drawn {drawn}");
         }
+    }
+
+    /// ⌘-click chooses rows along with the one shown and ⇧-click the rows through one, drawn with
+    /// the secondary fill without showing them. ⇧⌘C copies their links, ⌘W closes them as one
+    /// step, and a plain click or Esc lets them go, as Arc's do.
+    #[gpui::test]
+    fn command_and_shift_clicks_choose_rows_to_close_or_copy_together(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3, 4, 5, 6], 3);
+        shell.update(cx, |shell, cx| {
+            for tab in 2..=6 {
+                let url = format!("https://{tab}.example/").into();
+                shell.set_page(tab, Page { url, ..shell.page(tab) }, cx);
+            }
+        });
+        let at = |cx: &mut VisualTestContext, tab| {
+            let (x, y) = close_button(&shell, cx, tab);
+            point(px(x - 100.), px(y))
+        };
+        let chosen =
+            |cx: &mut VisualTestContext| shell.read_with(cx, |shell, _| shell.chosen_in_order());
+        let command = cx.update(|_, cx| Modifiers::secondary_key(cx));
+        host.take();
+        let five = at(cx, 5);
+        cx.simulate_click(five, command);
+        assert_eq!(chosen(cx), [3, 5]);
+        let six = at(cx, 6);
+        cx.simulate_click(six, Modifiers::shift());
+        assert_eq!(chosen(cx), [3, 5, 6]);
+        assert!(!host.take().iter().any(|call| call.starts_with("select")));
+
+        shell.update(cx, |shell, cx| shell.run(Command::CopyUrl, "keys", cx));
+        let links = "copy https://3.example/\nhttps://5.example/\nhttps://6.example/";
+        assert!(host.take().contains(&links.to_string()));
+        shell.update(cx, |shell, cx| shell.run(Command::Stop, "keys", cx));
+        assert!(chosen(cx).is_empty());
+
+        cx.simulate_click(five, command);
+        cx.simulate_click(six, command);
+        let two = at(cx, 2);
+        cx.simulate_click(two, Modifiers::shift());
+        assert_eq!(chosen(cx), [2, 3, 4, 5, 6]);
+        cx.simulate_click(two, command);
+        host.take_edits();
+        shell.update(cx, |shell, cx| shell.run(Command::CloseTab, "keys", cx));
+        assert_eq!(host.take_edits(), ["close 6", "close 5", "close 4", "close 3"]);
+        assert!(chosen(cx).is_empty());
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let reopened = host.take_edits();
+        assert!(reopened.len() == 4 && reopened.iter().all(|edit| edit.starts_with("reopen")));
+
+        cx.simulate_click(five, command);
+        assert_eq!(chosen(cx), [3, 5]);
+        cx.simulate_click(six, Modifiers::none());
+        assert!(chosen(cx).is_empty());
     }
 }
