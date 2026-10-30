@@ -834,7 +834,6 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
             .unwrap_or(focus),
         None => driven()?.window,
     };
-    log!("browser: drive keys to {window:#x}");
     for &kind in kinds {
         let event = KeyPressEvent {
             response_type: kind,
