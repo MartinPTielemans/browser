@@ -1719,6 +1719,8 @@ impl theme_picker::Host for PreviewPicker {
     fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
 
     fn hide(&self) {}
+
+    fn detent(&self) {}
 }
 
 /// The dialog over the preview's window, which it covers, for its host can't move it.
