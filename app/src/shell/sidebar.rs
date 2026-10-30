@@ -206,7 +206,7 @@ impl Shell {
     /// Tabs opened in the Space shown while the sidebar is hidden, whose rows aren't seen: a toast
     /// says so, and its Show reveals the top one's row (Arc's release notes; the words are ours).
     pub(super) fn toast_opened(&mut self, tabs: &[u64], cx: &mut Context<Self>) {
-        let Some(&tab) = tabs.first().filter(|_| self.sidebar_hidden && !self.reveal_shown()) else {
+        let Some(&tab) = tabs.first().filter(|_| self.unseen_sidebar()) else {
             return;
         };
         let text = match tabs.len() {
@@ -218,6 +218,54 @@ impl Shell {
             shell.update(cx, |shell, cx| shell.reveal_row(tab, cx)).ok();
         });
         self.browser.toast_button(&text, ("Show", "show"), show, OPENED_TIME, cx);
+    }
+
+    /// Whether what's added to the sidebar goes unseen: it's hidden, its reveal isn't out, and the
+    /// window is the one in front, where the toast shows.
+    fn unseen_sidebar(&self) -> bool {
+        self.sidebar_hidden && !self.reveal_shown() && self.browser.in_front()
+    }
+
+    /// Spaces made while the sidebar is hidden, as by an import or an agent, whose icons in the
+    /// switcher aren't seen: a toast says so, and its Show shows the first with the sidebar back
+    /// (Arc's release notes; the words are ours). The form's own Space brings the sidebar back
+    /// itself. Spaces made while the toast still tells of others are told of with them.
+    pub(super) fn toast_spaces(&mut self, made: Vec<u64>, cx: &mut Context<Self>) {
+        let form = self.form.as_ref().map(|form| form.space);
+        let made: Vec<u64> = made.into_iter().filter(|&space| Some(space) != form).collect();
+        if made.is_empty() || !self.unseen_sidebar() {
+            return;
+        }
+        let (told, at) = &mut self.spaces_toasted;
+        if at.is_none_or(|at| at.elapsed() >= OPENED_TIME) {
+            told.clear();
+        }
+        told.extend(made);
+        *at = Some(Instant::now());
+        let first = told[0];
+        let text = match told.len() {
+            1 => {
+                let name = self.spaces.iter().find(|space| space.id == first);
+                format!("Added the Space “{}”", name.map_or("", |space| space.name.as_ref()))
+            }
+            count => format!("Added {count} Spaces"),
+        };
+        let shell = cx.entity().downgrade();
+        let show = Rc::new(move |cx: &mut App| {
+            shell.update(cx, |shell, cx| shell.show_made_space(first, cx)).ok();
+        });
+        self.browser.toast_button(&text, ("Show", "show"), show, OPENED_TIME, cx);
+    }
+
+    /// The Space toast's Show: the Space, if it's still there, with the sidebar back.
+    fn show_made_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        if !self.spaces.iter().any(|each| each.id == space) {
+            return;
+        }
+        if self.sidebar_hidden && !self.reveal_shown() {
+            self.toggle_sidebar(cx);
+        }
+        self.show_space(space, cx);
     }
 
     /// Whether the selected tab's row is scrolled wholly out past the list's top (true) or its
@@ -588,6 +636,40 @@ mod tests {
         Folders, SIDEBAR_MAX, SIDEBAR_MIN, SIDEBAR_WIDTH, Shell, drag::detents::shell_with,
         recorder::Recorder,
     };
+
+    /// A Space made while the sidebar is hidden gets a toast whose Show shows it with the sidebar
+    /// back. Spaces made one after another are told of together. None for the window's first
+    /// Spaces, one ⌘Z brings back, the form's own, a window behind another, or the sidebar shown.
+    #[gpui::test]
+    fn a_space_made_with_the_sidebar_hidden_is_toasted(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[1], Folders::default());
+        let spaces = |ids: &'static [u64]| {
+            move |shell: &mut Shell, cx: &mut Context<Shell>| {
+                let entry = |&id: &u64| {
+                    (id, format!("Space {id}").into(), None, 0, "".into(), "".into(), "".into())
+                };
+                shell.set_spaces(ids.iter().map(entry).collect(), cx)
+            }
+        };
+        shell.update(cx, spaces(&[1, 2]));
+        assert!(host.toasts.borrow().is_empty(), "a toast with the sidebar shown");
+        shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+        shell.update(cx, spaces(&[1]));
+        shell.update(cx, spaces(&[1, 2]));
+        assert!(host.toasts.borrow().is_empty(), "a toast for a Space brought back");
+        host.behind.set(true);
+        shell.update(cx, spaces(&[1, 2, 3]));
+        assert!(host.toasts.borrow().is_empty(), "a toast from a window behind");
+        host.behind.set(false);
+        shell.update(cx, spaces(&[1, 2, 3, 4]));
+        assert_eq!(*host.toasts.borrow(), ["Added the Space “Space 4”"]);
+        shell.update(cx, spaces(&[1, 2, 3, 4, 5]));
+        assert_eq!(host.toasts.borrow().last().unwrap(), "Added 2 Spaces");
+        let show = host.toast_run.borrow_mut().take().expect("no Show");
+        cx.update(|cx| show(cx));
+        assert!(!shell.read_with(cx, |shell, _| shell.sidebar_hidden), "Show left it hidden");
+        assert_eq!(host.shown.borrow().last(), Some(&4), "Show didn't show the first Space");
+    }
 
     /// A tab opening while the sidebar is hidden gets a toast whose Show brings the sidebar back at
     /// its row; tabs moving, or opening with the sidebar shown, get none.

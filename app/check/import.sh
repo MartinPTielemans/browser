@@ -6,7 +6,7 @@
 # Chrome's password importer: the view says how many came in, deletes the file when asked, and a
 # second file with a login's password changed says it conflicted and kept the saved one. Settings'
 # Passwords tab lists what came in, and the app menu's Import from Other Browsers… shows Import
-# again. Each step is captured.
+# again. With the sidebar hidden, Arc's Spaces say so in a toast. Each step is captured.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
@@ -86,6 +86,10 @@ if [ "$active" != 1 ]; then
   exit 0
 fi
 first=$(space)
+# With the sidebar hidden, the Spaces an import makes say so in a toast over the browser window,
+# as their icons in the switcher aren't seen. It comes back before the Personal Space's capture.
+send key s cmd
+expect '^browser: sidebar hidden$' "⌘S didn't hide the sidebar before the import"
 # The toolbar's tabs, 55 wide or as wide as their names, 1 apart, centred: Import is the middle
 # one. Its list has a row for each browser, its Import… button at the row's end; then a browser's
 # choices, a row each, with Back and Import under them.
@@ -110,6 +114,8 @@ await '^browser: import done: 2 Spaces, 6 pinned tabs and 3 favorites came in fr
   fail "the import didn't finish once the Work profile loaded"
 ../tools/window-screenshot.sh "$pid" "$out/import-done.png" || fail "no window to capture"
 expect "^browser: spaces $first [0-9]* [0-9]*\$" "the import didn't add Arc's two Spaces after the first"
+expect '^browser: toast shown Added 2 Spaces \[show\]$' \
+  "Arc's two Spaces made with the sidebar hidden had no toast"
 spaces=$(grep '^browser: spaces' "$log" | tail -1)
 personal=$(echo "$spaces" | cut -d' ' -f4)
 work=$(echo "$spaces" | cut -d' ' -f5)
@@ -212,6 +218,8 @@ send menu Import from Other Browsers…
 expect '^browser: settings tab Import$' "Import from Other Browsers… didn't show Settings' Import tab"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send key s cmd
+expect '^browser: sidebar shown$' "⌘S didn't bring the sidebar back after the import"
 # The Personal Space shows its pinned tabs: HN, then Reading with a, b and c and Deep with d.
 send key 2 ctrl
 expect "^browser: space $personal in " "⌃2 didn't show Arc's Personal Space"
@@ -225,6 +233,7 @@ echo "  Firefox their bookmarks as a Space and their history; and a second impor
 echo "  A passwords file comes in, says how many, and is deleted when asked; a second one says its"
 echo "  changed login conflicted and kept the saved one; Settings' Passwords tab lists the three,"
 echo "  and the app menu's Import from Other Browsers… shows Import again."
+echo "  With the sidebar hidden, Arc's two Spaces say so in a toast."
 echo "  Windows: $out/import-list.png, $out/import-pick.png, $out/import-done.png,"
 echo "  $out/import-again.png, $out/import-chrome.png, $out/import-firefox.png,"
 echo "  $out/import-passwords.png, $out/import-passwords-conflict.png, $out/import-personal.png"

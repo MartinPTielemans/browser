@@ -1132,6 +1132,10 @@ pub struct Shell {
     downloads_seen: HashSet<u64>,
     /// Every tab a Space has listed, so a tab a Space lists that none did is new, not moved.
     listed: HashSet<u64>,
+    /// Every Space listed, so one ⌘Z brings back isn't new; and the new ones the toast tells of,
+    /// and when it last did, so Spaces made one after another are told of together.
+    spaces_listed: HashSet<u64>,
+    spaces_toasted: (Vec<u64>, Option<Instant>),
     downloads_read: bool,
     flight: Option<Flight>,
     /// The picture of the page another window shows, in place of it, and the pictures to let go of.
@@ -1358,6 +1362,8 @@ impl Shell {
             recent_downloads: RecentDownloads::default(),
             downloads_seen: HashSet::new(),
             listed: HashSet::new(),
+            spaces_listed: HashSet::new(),
+            spaces_toasted: (Vec::new(), None),
             downloads_read: false,
             flight: None,
             picture: None,
@@ -1680,6 +1686,10 @@ impl Shell {
         let ids: Vec<String> = spaces.iter().map(|(id, ..)| id.to_string()).collect();
         log!("browser: spaces {}", ids.join(" "));
         let width = self.library_width();
+        let filled = !self.spaces.is_empty();
+        let listed = &mut self.spaces_listed;
+        let made: Vec<u64> =
+            spaces.iter().map(|&(id, ..)| id).filter(|&id| listed.insert(id)).collect();
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
@@ -1766,6 +1776,10 @@ impl Shell {
         }
         if self.show_favorites() {
             self.log_favorites();
+        }
+        // The window's first Spaces, as at launch, were made before it.
+        if filled {
+            self.toast_spaces(made, cx);
         }
         self.follow_dock(cx);
         self.update_menus(cx);
