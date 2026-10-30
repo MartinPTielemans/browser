@@ -2746,7 +2746,7 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     // under Wayland, as for a shortcut the page gets first (gpui_linux::hold_keys).
     #[cfg(target_os = "linux")]
     if reserved && command.opens_field() {
-        gpui_linux::hold_keys(&held_keystroke(key));
+        gpui_linux::hold_keys(Some(&held_keystroke(key)));
     }
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
@@ -2783,7 +2783,7 @@ unsafe extern "C" fn tab_key_before_page(
     if holds == Some(true) {
         unsafe { platform::host_hold_keys() };
         #[cfg(target_os = "linux")]
-        gpui_linux::hold_keys(&held_keystroke(unsafe { &*key }));
+        gpui_linux::hold_keys(Some(&held_keystroke(unsafe { &*key })));
     }
     false
 }
