@@ -16,7 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ "${1:-}" = --steps ]; then
-  # Inside the session (headless.sh --then), with its displays and the app's log in $LOG.
+  # Inside the session (headless.sh --run), on its Wayland display.
   out=$2
   : > "$out/failed"
   fail() {
@@ -32,6 +32,17 @@ if [ "${1:-}" = --steps ]; then
     fail "no \"$1\" in ${3:-the log}"
   }
   mark() { wc -l < "${1:-$LOG}"; }
+  # The app, in a process group of its own, which its helpers are in too. It's up once it has
+  # loaded its page and shown its UI, which a still picture of a software renderer may never say.
+  LOG=$out/app.log
+  setsid build/Browser/chrome > "$LOG" 2>&1 &
+  app=$!
+  trap 'kill -- "-$app" 2> /dev/null || true' EXIT
+  for _ in $(seq 300); do
+    grep -q '^browser: loaded ' "$LOG" && break
+    sleep 0.1
+  done
+  await '^browser: UI shown ' 0
   step() { echo "$*" >&3; }
   # The browser window's place on the output, and its size.
   read -r wx wy ww wh < <(swaymsg -t get_tree | jq -r \
@@ -104,8 +115,7 @@ home=$(mktemp -d)
 trap 'rm -rf "$home"' EXIT
 env BROWSER_PROFILE_DIR="$home/profile" BROWSER_URL='data:text/html,<title>drops</title>' \
   BROWSER_ONBOARDING=skip \
-  ../tools/headless.sh --then "$PWD/check/drops.sh --steps $out" \
-  "$out/start.png" 'browser: loaded' build/Browser/chrome > "$out/run.log" 2>&1 || true
+  ../tools/headless.sh --run check/drops.sh --steps "$out" > "$out/run.log" 2>&1 || true
 if [ ! -f "$out/line.png" ] || [ -f "$out/failed" ]; then
   cat "$out/failed" 2> /dev/null || echo "FAIL: see $out/run.log" >&2
   exit 1
