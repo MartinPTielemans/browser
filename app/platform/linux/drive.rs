@@ -62,7 +62,7 @@ use x11rb::{
 
 use crate::{
     BrowserWindow, CX, MENUS, WINDOWS, bc, floats, menu_window, overlays, panels, platform,
-    reveal_window, settings_window,
+    popovers, reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -228,12 +228,13 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
 }
 
 /// The views of the app's windows that show over a browser window: the overlays, the find bar and
-/// the offer to save a password, then ilo's menu.
+/// the offer to save a password, then ilo's menu, then the Site Controls and Capture.
 fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(panels::shown());
     views.extend(menu_window::shown());
     views.extend(reveal_window::shown());
+    views.extend(popovers::shown());
     views
 }
 
