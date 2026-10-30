@@ -196,6 +196,7 @@ class WindowViews : public views::WidgetObserver,
   aura::Window* content() const { return widget_->GetNativeView(); }
   x11::Window window() const { return XWindowOf(widget_); }
   bool ui_has_keyboard() const { return ui_has_keyboard_; }
+  bool ui_holds_for_page() const { return ui_holds_for_page_; }
   bool overlay_has_keyboard() const { return overlay_has_keyboard_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
@@ -384,6 +385,7 @@ class WindowViews : public views::WidgetObserver,
       return;
     }
     ui_has_keyboard_ = false;
+    ui_holds_for_page_ = false;
     ui_text_input_.SetKeyboard(overlay_has_keyboard_);
     if (ui_ != x11::Window::None && IsWithin(InputFocus(), ui_)) {
       SetInputFocus(window());
@@ -396,7 +398,11 @@ class WindowViews : public views::WidgetObserver,
   // back too, and the two would go on without end (#531).
   void UITakesKeyboard() {
     ui_has_keyboard_ = true;
+    // With no page shown, the keys only reach the window's shortcuts through the UI, which holds
+    // them for the next page shown, as the Mac's window does.
+    ui_holds_for_page_ = std::ranges::none_of(panes_, [](const Slot& slot) { return slot.page; });
     ui_lent_ = false;
+    page_lent_.RemoveAll();
     if (auto* client = aura::client::GetFocusClient(content())) {
       client->ResetFocusWithinActiveWindow(content());
     }
@@ -479,13 +485,27 @@ class WindowViews : public views::WidgetObserver,
 
   // aura::client::FocusChangeObserver: the core focusing a page gives it the keyboard, as Chromium
   // focusing a window of its own in the browser window does, such as an extension's popup or a
-  // tab's dialog, which gives it back to the UI as it goes if the UI had it.
-  void OnWindowFocused(aura::Window* gained_focus, aura::Window*) override {
+  // tab's dialog. That gives it back as it goes to the UI or page that had it, as Chrome's views
+  // restore the focus, which here would leave it with the window, where no page hears the keys.
+  void OnWindowFocused(aura::Window* gained_focus, aura::Window* lost_focus) override {
     if (gained_focus && gained_focus != content()) {
-      ui_lent_ = !InSlot(gained_focus) && (ui_lent_ || ui_has_keyboard_);
+      if (InSlot(gained_focus)) {
+        ui_lent_ = false;
+        page_lent_.RemoveAll();
+      } else if (ui_has_keyboard_) {
+        ui_lent_ = true;
+      } else if (lost_focus && InSlot(lost_focus)) {
+        page_lent_.RemoveAll();
+        page_lent_.Add(lost_focus);
+      }
       PageTakesKeyboard();
     } else if (ui_lent_) {
       UITakesKeyboard();
+    } else if (!page_lent_.windows().empty()) {
+      // Not while the focus client tells of the change.
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE,
+          base::BindOnce(&WindowViews::PageTakesBackKeyboard, weak_factory_.GetWeakPtr()));
     }
   }
 
@@ -577,6 +597,20 @@ class WindowViews : public views::WidgetObserver,
   }
 
  private:
+  // The page a window of Chromium's took the keyboard from has it back, if it's still shown and the
+  // window still has it.
+  void PageTakesBackKeyboard() {
+    if (page_lent_.windows().empty()) {
+      return;
+    }
+    aura::Window* page = page_lent_.Pop();
+    aura::client::FocusClient* client = aura::client::GetFocusClient(content());
+    aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+    if (client && !ui_has_keyboard_ && (!focused || focused == content()) && InSlot(page)) {
+      client->FocusWindow(page);
+    }
+  }
+
   // Sizes the UI to the window's content.
   void SizeUI() {
     const gfx::Size pixels = ContentPixelsOf(widget_);
@@ -613,8 +647,11 @@ class WindowViews : public views::WidgetObserver,
   bool held_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
-  // A window of Chromium's own has the keyboard the UI had, and gives it back as it goes.
+  // The UI has the keyboard while no page shows, for the next page shown (KeyboardForPage).
+  bool ui_holds_for_page_ = false;
+  // A window of Chromium's own has the keyboard the UI or a page had, and gives it back as it goes.
   bool ui_lent_ = false;
+  aura::WindowTracker page_lent_;
   // Whether the core took the input focus back down to the UI's window since the focus last left or
   // entered the window.
   bool retook_ = false;
@@ -817,8 +854,9 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
 
 bool KeyboardForPage(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
+  // The UI's, unless it only holds it while no page shows.
   if (views && views->ui_has_keyboard()) {
-    return false;
+    return views->ui_holds_for_page();
   }
   aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
   aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
