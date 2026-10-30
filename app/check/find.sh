@@ -342,9 +342,15 @@ expect "^browser: today $second $first $source\$" "the source's tab isn't under 
 # replaces the focused one, which takes the keyboard back from a Task Manager that opened first.
 expect "^browser: loaded $source " "the source's tab didn't load"
 # Chrome's Task Manager, from the menu as Arc's, is a window of its own, which ⌘W closes as in
-# Chrome, giving the browser window the keyboard back with its tabs.
-send menu "Open Task Manager"
-expect '^browser: command task-manager via ui$' "Open Task Manager didn't reach the UI"
+# Chrome, giving the browser window the keyboard back with its tabs. Off the Mac it's Shift+Esc
+# from the page, as Chrome's there.
+if [ "$(uname)" = Linux ]; then
+  send key escape shift
+  expect '^browser: command task-manager via page$' "Shift+Esc in the page didn't reach the UI"
+else
+  send menu "Open Task Manager"
+  expect '^browser: command task-manager via ui$' "Open Task Manager didn't reach the UI"
+fi
 # Off the Mac the window manager gives it the keyboard a moment after it opens.
 managed='^browser: key window titled Task Manager'
 for _ in $(seq 100); do
