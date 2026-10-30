@@ -481,6 +481,12 @@ expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't t
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
 post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
+# A key sent while the keyboard leaves the closing Settings window for the browser's is lost, so
+# ⌘W waits for the click to finish and the browser window to have the keyboard.
+await "^browser: drive $step done" || fail "the driver didn't finish the click on Settings' close button"
+send state
+[ "$key" = BrowserCoreNSWindow ] ||
+  fail "the browser window didn't get the keyboard back from Settings: it's in $key"
 # Back to the page's tab alone, as the run had them.
 send key w cmd
 expect "^browser: tab $n closed\$" "⌘W didn't close the right pane"
