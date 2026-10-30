@@ -8,7 +8,8 @@
 # The store run installs from Google's Web Store, adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
 # need the network and run only when named: ./check.sh store.
-# Updates runs only when named too, until it passes on the Mac.
+# Updates runs only when named too, until it passes on the Mac. So does keychain, which uses the
+# real Keychain, on the prod build and only in a check VM.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
 # take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
 # build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
@@ -57,7 +58,7 @@ runs="load keys tabs window popup history spaces agents profiles restore relaunc
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
 runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
 runs="$runs appearance"
-named="store adblock-live widevine updates"
+named="store adblock-live widevine updates keychain"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
