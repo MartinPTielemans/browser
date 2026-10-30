@@ -10,8 +10,8 @@
 //! X11 only: under Wayland no client can hand another's surfaces input.
 //! shortcut: a core call that hands Chromium's windows the events would drive Wayland too.
 //!
-//! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, clickkey,
-//! doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
+//! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, middleclick,
+//! clickkey, doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
 //! rightrelease, dragover, dragdrop, dragleave, move, scroll, wheel, pageswipe, key, keydown, keyup,
 //! flags, type, resize, place, order, layout, state, title, pasteboard, front, menu, menubar, choose,
 //! dismiss, window, agentspace, agentmayact,
@@ -49,7 +49,7 @@ use std::{
 };
 
 use browser::log;
-use gpui::{Keystroke, Menu, MenuItem, Modifiers};
+use gpui::{Keystroke, Menu, MenuItem, Modifiers, px};
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -80,6 +80,9 @@ unsafe extern "C" {
 
 /// Starts reading commands from stdin.
 pub fn start() {
+    // Its events are the pointer the app has, as the X server's own, which it never moves, would
+    // otherwise come and go under GPUI's pointer as windows change around it.
+    gpui_linux::drive_pointer();
     std::thread::spawn(|| {
         let mut number = 0;
         for line in std::io::stdin().lock().lines() {
@@ -491,6 +494,26 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
             y: inside.dst_y,
             ..at
         });
+    }
+    // The toast lets the pointer through but on its plate, which a click there lands on.
+    if let Some((view, plate)) = floats::toast_plate()
+        && top.child == view as usize as u32
+    {
+        let view = view as usize as u32;
+        let inside = connection
+            .translate_coordinates(*root, view, at.root_x, at.root_y)
+            .ok()?
+            .reply()
+            .ok()?;
+        let point = |each: i16| px((f64::from(each) / scale()) as f32);
+        if plate.contains(&gpui::point(point(inside.dst_x), point(inside.dst_y))) {
+            return Some(Target {
+                window: view,
+                x: inside.dst_x,
+                y: inside.dst_y,
+                ..at
+            });
+        }
     }
     Some(match child == browser.ui {
         true => Target {
@@ -1507,10 +1530,14 @@ fn run_command(line: &str) -> Option<()> {
             }
             connection.flush().ok()
         }
-        "click" | "rightclick" | "doubleclick" => {
+        "click" | "rightclick" | "middleclick" | "doubleclick" => {
             let (x, y) = point(&mut words)?;
             let at = target_at(x, y)?;
-            let which = if action == "rightclick" { 3 } else { 1 };
+            let which = match action {
+                "rightclick" => 3,
+                "middleclick" => 2,
+                _ => 1,
+            };
             click(at, which, click_modifiers(words), false)?;
             if action == "doubleclick" {
                 click(at, 1, none, true)?;
