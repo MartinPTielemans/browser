@@ -64,6 +64,16 @@ fn with<R>(kind: Kind, f: impl FnOnce(&mut Popover) -> R) -> Option<R> {
     POPOVERS.with_borrow_mut(|all| all.iter_mut().find(|each| each.kind == kind).map(f))
 }
 
+/// The views of those shown that still take clicks, for the driver.
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter())
+            .filter(|p| p.shown.is_some_and(|shown| !shown.released))
+            .map(|p| p.view)
+            .collect()
+    })
+}
+
 fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::SiteControls => "site controls",
