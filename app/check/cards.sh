@@ -1,7 +1,8 @@
 # Resting on a sidebar tab's row shows its hover card beside the rows (#430): a picture of a tab
 # not shown, taken once the switches that hid it are quiet and never on a switch, its title and
 # host, and its buttons. The tab shown has no picture, as its page is beside the card. The next row
-# swaps its card in at once, and leaving the rows, scrolling them or a key lets it go. It comes in
+# swaps its card in at once, and leaving the rows, scrolling them or a key lets it go. Its buttons
+# each make their call on the first click (#818). It comes in
 # and goes out in Dia's motion, which card-motion.mp4 records. The card takes the Space's look,
 # dark and light. Reports how long the switches take, beside the tabs run's.
 
@@ -113,9 +114,61 @@ for _ in 1 2 3 4 5; do
 done
 expect "^browser: hover card pictured $a\$" "the tab hidden last wasn't pictured after the switches"
 none_since "^browser: hover card pictured $b\$" || fail "the tab shown was pictured after the switches"
+
+# The card's buttons each make their call on the first click, as a hand comes onto the card from
+# its row (#818). card_button <name>: the centre of that button on the card shown last, from where
+# the UI put the card and the buttons it logged, right to left from its bottom right corner.
+card_button() {
+  buttons=$(grep '^browser: hover card shown ' "$log" | tail -1 | cut -d' ' -f6-)
+  frame=$(grep '^browser: hover card at ' "$log" | tail -1 | cut -d' ' -f5-)
+  echo "$buttons|$frame" | awk -F'|' -v want="$1" '{
+    n = split($1, b, " ") - 1; split($2, f, " ")
+    for (i = 1; i <= n && b[i] != want; i++);
+    if (i > n) exit 1
+    printf "%d %d\n", f[1] + f[3] - 10 - (n - i) * 30 - 14, f[2] + f[4] - 10 - 14 }'
+}
+# Rests on the row at $1 $2 till tab $3's card is at rest with the button $4, then clicks it as a
+# hand would: onto the card, which lets the card's window take the mouse, then on it again.
+click_card_button() {
+  send move "$1" "$2"
+  expect "^browser: hover card shown $3 \(.* \)\{0,1\}$4 " \
+    "tab $3's card didn't show with its $4 button"
+  expect '^browser: hover card settled$' "tab $3's card didn't come to rest before its $4 button"
+  at=$(card_button "$4") || fail "tab $3's card has no $4 button"
+  ../tools/window-screenshot.sh "$pid" "$out/card-$4-before.png" || fail "no window to capture"
+  send move $at
+  send move $at
+  send click $at
+  expect "^browser: hover card $4 $3\$" "a click on the card's $4 button didn't reach it"
+  expect "^browser: command $4 via hover card\$" "the card's $4 button didn't make its call"
+  expect '^browser: hover card hidden$' "the card didn't go after its $4 button"
+}
+# Pin moves the row up into the pinned tabs, and its card then offers Unpin, which puts it back.
+click_card_button $(row 1) "$a" pin
+expect_lists "$a" "$b" "after the card's Pin"
+../tools/window-screenshot.sh "$pid" "$out/card-pin-after.png" || fail "no window to capture"
+click_card_button $(pinned_row 0) "$a" unpin
+expect "^browser: pinned \$" "the card's Unpin left the pinned tabs \"$(pinned)\""
+../tools/window-screenshot.sh "$pid" "$out/card-unpin-after.png" || fail "no window to capture"
+# Favorite makes it a tile, whose card offers Remove from Favorites, which puts it back.
+send move $page_point
+at=$(today | tr ' ' '\n' | grep -nx "$a" | cut -d: -f1)
+click_card_button $(row $((at - 1))) "$a" favorite
+expect "^browser: favorites $a\$" "the card's Favorite didn't make tab $a a favorite"
+../tools/window-screenshot.sh "$pid" "$out/card-favorite-after.png" || fail "no window to capture"
+click_card_button 114 110 "$a" unfavorite
+expect "^browser: favorites \$" "the card's Remove from Favorites left a favorite"
+../tools/window-screenshot.sh "$pid" "$out/card-unfavorite-after.png" || fail "no window to capture"
+# Split puts the hidden tab beside the one shown.
+send move $page_point
+at=$(today | tr ' ' '\n' | grep -nx "$a" | cut -d: -f1)
+click_card_button $(row $((at - 1))) "$a" split
+expect "^browser: splits \(.*[ +]\)\{0,1\}$a\([+ ].*\)\{0,1\}\$" \
+  "the card's Split didn't put tab $a in a split view"
+../tools/window-screenshot.sh "$pid" "$out/card-split-after.png" || fail "no window to capture"
 exec 3>&-
 quit
 
 app_ms=$(sed -n 's/^browser: selected [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: resting on a tab's row shows its card beside the rows, with a picture of its page once it's hidden and the switch quiet, and none for the tab shown; the next row swaps in at once, leaving the rows, a scroll or a key typed in the page lets it go, it comes and goes in Dia's motion, and the card takes a light Space's look."
-echo "  Switch, key to the core's report, with cards pictured: $app_ms. Windows: $out/card-dark.png, $out/card-shown-tab.png, $out/card-light.png. Motion: $out/card-motion.mp4"
+echo "ok: resting on a tab's row shows its card beside the rows, with a picture of its page once it's hidden and the switch quiet, and none for the tab shown; the next row swaps in at once, leaving the rows, a scroll or a key typed in the page lets it go, it comes and goes in Dia's motion, the card takes a light Space's look, and its Pin, Unpin, Favorite, Remove from Favorites and Split each make their call on the first click."
+echo "  Switch, key to the core's report, with cards pictured: $app_ms. Windows: $out/card-dark.png, $out/card-shown-tab.png, $out/card-light.png, and $out/card-<button>-before.png and -after.png for each button. Motion: $out/card-motion.mp4"
