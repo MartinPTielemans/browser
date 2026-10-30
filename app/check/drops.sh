@@ -57,6 +57,16 @@ if [ "${1:-}" = --steps ]; then
     done
     px=$x py=$y
   }
+  # As await, with the pointer moving a pixel back and forth, as a hand's does: Chromium updates a
+  # drag over the page only as it moves, from once it has read what the drag carries.
+  hover() {
+    for i in $(seq 100); do
+      step move $((px + i % 2)) "$py"
+      tail -n "+$(($2 + 1))" "${3:-$LOG}" | grep -q -- "$1" && return 0
+      sleep 0.1
+    done
+    fail "no \"$1\" in ${3:-the log}"
+  }
   # Starts another app's drag of what it carries, types and data in turn, from its window in the
   # output's corner.
   n=0
@@ -77,10 +87,10 @@ if [ "${1:-}" = --steps ]; then
   drag text/x-moz-url $'https://example.com/\r\nExample' text/uri-list $'https://example.com/\r\n'
   at=$(mark)
   to $((ww * 2 / 3)) $((wh / 2))
-  await '^browser: drop targets for ' "$at"
+  hover '^browser: drop targets for ' "$at"
   at=$(mark)
   to 100 300
-  await '^browser: drop line in ' "$at"
+  hover '^browser: drop line in ' "$at"
   await '^drag: target text/uri-list$' 0 "$dlog"
   sleep 0.3
   grim "$out/line.png"
