@@ -12,7 +12,8 @@ use std::{
 use gpui::{
     AnyElement, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight, Hsla,
     Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ObjectFit, Pixels, Point, RenderImage, SharedString, Stateful, Subscription, WeakEntity, Window,
+    ObjectFit, Pixels, Point, RenderImage, SharedString, Stateful, StyledText, Subscription,
+    WeakEntity, Window,
     canvas, div, img, linear_color_stop, linear_gradient, list,
     prelude::*, px, relative, svg,
 };
@@ -1029,24 +1030,45 @@ impl Shell {
         let archive = if library.items.is_empty() {
             let empty = match (self.section, library.query.is_empty()) {
                 (Section::Spaces, _) => "",
-                (Section::Archive, true) => "Today tabs you close are kept here for 30 days.",
+                (Section::Archive, true) => "Closed Today tabs stay here for 30 days.",
                 (Section::Archive, false) => "No archived tabs match.",
                 (Section::Downloads, true) => "Files you download show here.",
                 (Section::Downloads, false) => "No downloads match.",
-                (Section::Media, true) => {
-                    "Captures you save and images and videos you download show here."
-                }
+                (Section::Media, true) => "Saved captures and downloaded media show here.",
                 (Section::Media, false) => "No media match.",
             };
+            // A block, not a flex row, whose text would keep its one line's width past the list's
+            // edges: it wraps in the list's width, centred.
+            let line = StyledText::new(empty);
+            let laid = line.layout().clone();
+            let drawn = self.empty_drawn.clone();
+            let section = self.section.name();
+            let log_drawn = canvas(
+                |_, _, _| {},
+                move |_, _, _, _| {
+                    let bounds = laid.bounds();
+                    let lines: usize =
+                        laid.line_layouts().iter().map(|line| line.wrap_boundaries.len() + 1).sum();
+                    let at = format!(
+                        "{section} at {:.0} {:.0} lines {lines}",
+                        f32::from(bounds.origin.x),
+                        f32::from(bounds.size.width)
+                    );
+                    if drawn.replace(at.clone()) != at {
+                        log!("browser: library empty {at}");
+                    }
+                },
+            )
+            .absolute()
+            .size_full();
             div()
                 .size_full()
-                .flex()
-                .justify_center()
                 .pt(px(HEADING_TOP + 40.))
                 .px(px(HEADING_X))
+                .text_center()
                 .text_size(px(text::SMALL))
                 .text_color(self.palette.text(SECONDARY))
-                .child(empty)
+                .child(div().relative().child(line).child(log_drawn))
                 .into_any_element()
         } else {
             let item =
@@ -2270,9 +2292,9 @@ mod rename_tests;
 #[cfg(test)]
 mod tests {
     use super::{
-        ARCHIVE_TOP, ARCHIVED_LEFT, Archived, CARD_WIDTH, COLUMN_WIDTH, Captured, Download,
-        DownloadAction, DownloadChoice, DownloadState, HEADING_BOTTOM, HEADING_HEIGHT, HEADING_TOP,
-        Item, LIBRARY_BAND, Line, MEDIA_GAP, MEDIA_TILE, Medium, SECTION_WIDTH, SECTION_X, Space,
+        ARCHIVE_TOP, ARCHIVE_WIDTH, ARCHIVED_LEFT, Archived, CARD_WIDTH, COLUMN_WIDTH, Captured,
+        Download, DownloadAction, DownloadChoice, DownloadState, HEADING_BOTTOM, HEADING_HEIGHT,
+        HEADING_TOP, HEADING_X, Item, LIBRARY_BAND, Line, MEDIA_GAP, MEDIA_TILE, Medium, SECTION_WIDTH, SECTION_X, Space,
         bar_drawn, card_x, download_menu_items, downloads_progress, library_band, panel_at_rest, past_end,
         plus_x, receded_opacity, spaces_width,
     };
@@ -2377,6 +2399,35 @@ mod tests {
 
     /// A right-click on the Archived Tabs section offers Clear Archive, which has nothing to do
     /// while the archive is empty.
+    /// With nothing in it, each list's line wraps in the list's width, inside its margins, rather
+    /// than keeping its one line's width under the column and the card (#828).
+    #[gpui::test]
+    fn an_empty_section_s_line_wraps_inside_its_list(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        for section in [Section::Media, Section::Downloads, Section::Archive] {
+            shell.update(cx, |shell, cx| {
+                if shell.library_open {
+                    shell.show_section(section, cx);
+                } else {
+                    shell.section = section;
+                    shell.set_library(true, cx);
+                }
+                shell.library_motion = None;
+                shell.sidebar_fade = None;
+                cx.notify();
+            });
+            cx.run_until_parked();
+            let drawn = shell.read_with(cx, |shell, _| shell.empty_drawn.borrow().clone());
+            let words: Vec<&str> = drawn.split(' ').collect();
+            let (x, width): (f32, f32) = (words[2].parse().unwrap(), words[3].parse().unwrap());
+            assert_eq!(words[0], section.name(), "{drawn}");
+            assert!(x >= COLUMN_WIDTH + HEADING_X, "{drawn}");
+            assert!(x + width <= COLUMN_WIDTH + ARCHIVE_WIDTH - HEADING_X, "{drawn}");
+        }
+    }
+
     #[gpui::test]
     fn a_right_click_on_archived_tabs_offers_clear_archive(cx: &mut TestAppContext) {
         let host = Rc::new(Recorder::default());

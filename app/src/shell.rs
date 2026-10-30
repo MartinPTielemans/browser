@@ -989,6 +989,8 @@ pub struct Shell {
     slot_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// Whether each Space card's field was last drawn with its plate, for its log lines.
     fields_drawn: Rc<RefCell<HashMap<u64, bool>>>,
+    /// Where the Library's empty line was last laid out, for its log line.
+    empty_drawn: Rc<RefCell<String>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
     /// went past or back, from how far in it was then.
     scrolled: bool,
@@ -1331,6 +1333,7 @@ impl Shell {
             button_frames: Rc::default(),
             slot_frames: Rc::default(),
             fields_drawn: Rc::default(),
+            empty_drawn: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
             tools_on: false,

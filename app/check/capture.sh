@@ -2,7 +2,8 @@
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
 # that box to a pasteboard of the run's own and shows the toast with Save and Share. Save to
 # Library, the menu's first row, saves it into the profile's Media and says so, and the Library's
-# Media shows it first, opens it in a tab and deletes it from its menu. Escape and a second ⇧⌘2
+# Media shows it first, opens it in a tab and deletes it from its menu, and then says it is empty
+# in a line that wraps in its list, narrow and wide, light and dark. Escape and a second ⇧⌘2
 # leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
 # picture of the whole long page, past its view.
 
@@ -124,6 +125,43 @@ send choose Delete
 expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
 expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
 [ ! -e "$library" ] || fail "Delete left $library where it was"
+# Emptied, Media says what fills it in a line that wraps in the list's width, 12 in from its
+# edges at 112 and 416 (#828), as the window's light and dark, narrow and wide, show it.
+expect '^browser: library empty media at ' "Media emptied didn't draw its line"
+send layout
+frame=$(grep '^browser: layout content' "$log" | tail -1 |
+  sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+# The window's look now, light or dark, from the last line it logged.
+tone() {
+  case "$(grep '^browser: window light ' "$log" | tail -1)" in
+    *true) echo light ;;
+    *) echo dark ;;
+  esac
+}
+# The window at $2 by $3, captured in its look and then in the other, as $1-light and $1-dark.
+empty_media() {
+  send resize $2 $3
+  expect "^browser: drawn at $2x$3\$" "the window didn't draw at $2 by $3"
+  set -- "$1" $(grep '^browser: library empty media at ' "$log" | tail -1 | cut -d' ' -f6,7,9)
+  [ "$2" -ge 124 ] && [ $(($2 + $3)) -le 404 ] ||
+    fail "Media's empty line is $3 wide at $2, past the list's 124 to 404"
+  empty_lines="$empty_lines$1 $4, "
+  was=$(tone)
+  ../tools/window-screenshot.sh "$pid" "$out/media-empty-$1-$was.png" || fail "no window to capture"
+  if [ "$was" = light ]; then other=Dark light=false; else other=Light light=true; fi
+  send menu "$(cased "Appearance › $other")"
+  expect "^browser: window light $light\$" "View › Appearance › $other didn't change its look"
+  ../tools/window-screenshot.sh "$pid" "$out/media-empty-$1-$(tone).png" ||
+    fail "no window to capture"
+  send menu "$(cased 'Appearance › Automatic')"
+  expect "^browser: window light $([ "$was" = light ] && echo true || echo false)\$" \
+    "View › Appearance › Automatic didn't give the window its look back"
+}
+empty_lines=
+empty_media narrow 800 520
+empty_media wide 1240 760
+send resize $frame
+expect "^browser: drawn at ${frame/ /x}\$" "the window didn't draw back at its size"
 send menu "$(cased 'View Media…')"
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 # ⌘W closes the capture's tab, back to the long page, which a click gives the keyboard.
@@ -164,6 +202,9 @@ expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
 
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full." \
+echo "ok: capture. The box's picture is $size, the full page's $full. Media's empty line, in" \
+  "lines: ${empty_lines%, }." \
   "Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png," \
-  "$out/library-media.png, $out/media-menu.png"
+  "$out/library-media.png, $out/media-menu.png, $out/media-empty-narrow-light.png," \
+  "$out/media-empty-narrow-dark.png, $out/media-empty-wide-light.png," \
+  "$out/media-empty-wide-dark.png"
