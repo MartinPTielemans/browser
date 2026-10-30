@@ -6,6 +6,16 @@
 # leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
 # picture of the whole long page, past its view.
 
+# The line saying the PNG was copied to the run's own pasteboard, and the toast's buttons after it.
+# On Linux check.sh runs in a display of its own, whose clipboard is the run's, and there's no share
+# menu, so the toast has no Share.
+if [ "$(uname)" = Darwin ]; then
+  copied='^browser: pasteboard png [0-9]* bytes, private$'
+  buttons='save, share'
+else
+  copied='^browser: clipboard png [0-9]* bytes$'
+  buttons=save
+fi
 # A page longer than any view, with a box at a known place in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
 <body style="margin:0;height:6000px">
@@ -66,11 +76,11 @@ case "$size" in
   200x100 | 400x200) ;;
   *) fail "the picture of the 200 by 100 box is $size" ;;
 esac
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied" \
   "Copy didn't copy the PNG to the run's pasteboard"
 expect '^browser: capture left (copy)$' "capture mode didn't leave after Copy"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
-  "Copy didn't show its toast with Save and Share"
+expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
+  "Copy didn't show its toast with $buttons"
 expect '^browser: capture hidden$' "capture mode's window didn't hide after Copy"
 send state
 in_browser RenderWidgetHostViewCocoa "after Copy"
@@ -99,7 +109,7 @@ expect '^browser: toast settled$' "Save to Library's toast didn't settle"
 
 # Window › View Media… opens the Library on Media, the capture its first tile, as the newest. A
 # click on the tile, under the first heading, opens it in a tab and closes the Library.
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: command view-media via ui$' "Window › View Media… didn't run"
 expect '^browser: library section media$' "View Media… didn't open the Library on Media"
 expect '^browser: library captures [1-9][0-9]*$' "Media didn't list the capture saved"
@@ -114,7 +124,7 @@ media=$(sed -n 's|^browser: loaded \([0-9]*\) file://.*\.png$|\1|p' "$log" | tai
 
 # A right-click on the tile offers Open and Delete, which moves the capture to the Trash, as the
 # downloads' Move to Trash does, and out of Media.
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: library shown$' "View Media… didn't open the Library again"
 post rightclick $((112 + 8 + 47)) $((56 + 27 + 47))
 expect "^browser: menu shown $(cased 'Open, Delete')\$" \
@@ -124,7 +134,7 @@ send choose Delete
 expect "^browser: delete capture $library\$" "the tile's Delete didn't run"
 expect '^browser: library captures [0-9]*$' "Media wasn't listed again after Delete"
 [ ! -e "$library" ] || fail "Delete left $library where it was"
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 # ⌘W closes the capture's tab, back to the long page, which a click gives the keyboard.
 send key w cmd
@@ -157,9 +167,9 @@ full=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: tab [
   sed 's/.*: \([0-9]*x[0-9]*, [0-9]* bytes\)$/\1/')
 height=$(echo "$full" | sed 's/^[0-9]*x\([0-9]*\),.*/\1/')
 [ "$height" -ge 6000 ] || fail "the full page's picture is $full, not the page's 6000 points high"
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied" \
   "Capture Full Page didn't copy the PNG to the run's pasteboard"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
+expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
   "Capture Full Page didn't show its toast"
 
 exec 3>&-

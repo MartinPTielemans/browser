@@ -1,6 +1,6 @@
 # A new profile's first launch plays the onboarding over the window, captured at each step in a
 # light and a dark appearance: the intro draws ilo's wordmark and its line and goes on by itself,
-# or at any key; the import step lists the made-up Arc in src/import/fixture, never the Mac's own
+# or at any key; the import step lists a made-up browser, never the computer's own
 # browsers; Esc or Skip goes on from a step, the colour step's Return gives the first Space the
 # swatch picked, and the last step leaves the flow for the first Space's welcome with the command
 # bar up and a line under it. The default browser's step shows only while ilo isn't the default,
@@ -11,8 +11,23 @@
 # appearance instead.
 
 serve
-# The import step reads the fixture's home, set for each launch so the runs after keep their own.
-fixture="$PWD/src/import/fixture"
+# The import step reads a made-up home, set for each launch so the runs after keep their own: the
+# fixture's, with Arc, or on Linux, where Arc isn't, one with a Chrome profile.
+if [ "$(uname)" = Linux ]; then
+  fixture="$out/onboarding-home"
+  chrome="$fixture/.config/google-chrome"
+  mkdir -p "$chrome/Default"
+  printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' > "$chrome/Local State"
+  printf '%s' '{}' > "$chrome/Default/Preferences"
+  # A browser is listed only with something to bring.
+  printf '%s' '{"roots": {"bookmark_bar": {"type": "folder", "name": "Bookmarks bar", "children": [
+    {"type": "url", "name": "Example", "url": "https://example.org/"}]}}, "version": 1}' \
+    > "$chrome/Default/Bookmarks"
+  found=Chrome
+else
+  fixture="$PWD/src/import/fixture"
+  found=Arc
+fi
 # Captures the window as onboarding-$1.png.
 capture_step() {
   ../tools/window-screenshot.sh "$pid" "$out/onboarding-$1.png" || fail "no window to capture"
@@ -24,7 +39,7 @@ launch_new() {
   step=0
   rm -f "$saved"
   BROWSER_IMPORT_HOME="$fixture" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
-    "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+    "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await '^browser: onboarding step intro settled$' || fail "$1: the intro didn't draw"
@@ -41,7 +56,7 @@ grep -q '^browser: onboarding started$' "$log" || fail "a new profile didn't sta
 capture_step light-intro
 await '^browser: onboarding left intro via time$' || fail "light: the intro didn't go on by itself"
 await '^browser: onboarding step import settled$' || fail "light: the import step didn't come"
-grep -q '^browser: import found Arc$' "$log" || fail "light: the import step didn't find the fixture's Arc"
+grep -q "^browser: import found $found\$" "$log" || fail "light: the import step didn't find the made-up $found"
 for each in $steps; do
   [ "$each" = intro ] && continue
   # The import came before any key, so it's been waited for already.
@@ -63,7 +78,7 @@ quit
 # the run not skipping it.
 log="$out/onboarding-relaunch.log"
 step=0
-BROWSER_DRIVE=1 BROWSER_ONBOARDING=light "$app/Contents/MacOS/Browser" < "$out/drive" \
+BROWSER_DRIVE=1 BROWSER_ONBOARDING=light "$browser" < "$out/drive" \
   > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -82,8 +97,14 @@ send key a
 expect '^browser: onboarding left intro via key$' "dark: a key didn't skip the intro"
 expect '^browser: onboarding step import settled$' "dark: the import step didn't come"
 capture_step dark-import
-# Its words and chip end 24 in from the window's right and bottom, 20 tall.
+# Its words and chip end 24 in from the window's right and bottom, 20 tall. Linux knows no
+# window's frame (host_window_frame), so there the size is the driver's, of the window's content.
 frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
+if [ -z "$frame" ]; then
+  send layout
+  frame=$(grep '^browser: layout content ' "$log" | tail -1 |
+    sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+fi
 width=${frame% *}
 height=${frame#* }
 [ -n "$height" ] || fail "the window didn't log its frame"
@@ -141,10 +162,10 @@ expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type "${site#http://}index.html"
 send key return
 expect "^browser: loaded [0-9]* ${site}index.html\$" "the page from the command bar didn't load"
-windows=$(grep -c '^browser: window [0-9]* frame ' "$log")
+windows=$(grep -c '^browser: window opened ' "$log")
 send menu "Welcome to $app_name"
 expect '^browser: onboarding step intro settled$' "Welcome to $app_name over a page didn't play it"
-[ "$(grep -c '^browser: window [0-9]* frame ' "$log")" -gt "$windows" ] ||
+[ "$(grep -c '^browser: window opened ' "$log")" -gt "$windows" ] ||
   fail "Welcome to $app_name over a page didn't open a window for it"
 capture_step replay
 for each in $steps; do
@@ -155,4 +176,4 @@ expect '^browser: command bar shown$' "the replay in its own window didn't end w
 exec 3>&-
 quit
 
-echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's Arc, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"
+echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the made-up $found, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"

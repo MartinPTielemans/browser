@@ -146,7 +146,9 @@ done
 right_target="$((x + w - 100)) $((y + h / 2))"
 send dragover $((x + 40)) $((y + 30)) url "${site}notes.txt"
 send dragover $((x + 60)) $((y + 40))
-expect "^browser: drop targets for $a\$" "a link dragged over the page didn't bring the targets"
+# The first update brings them: AppKit's comes with the second dragover, after the one that
+# enters, and Aura's with the first, as XDND's first position enters and updates at once.
+await "^browser: drop targets for $a\$" || fail "a link dragged over the page didn't bring the targets"
 send dragover $right_target
 expect '^browser: drop target right$' "the right target isn't under the dragged link"
 expect '^browser: drag over [A-Za-z]* taken$' "the page's view didn't take the link on the target"
@@ -318,7 +320,7 @@ set -- $pages
 [ "${3%x*}" = 220 ] && [ "${5%%,*}" = "$((x + 230))" ] && [ "${6%x*}" -lt "$((w - 230))" ] ||
   fail "resized, the left pane isn't 220 wide, with the right one beside it: $pages"
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${size% *}x${size#* }\$" "the window didn't draw back at its size"
 read_pages
 [ "$pages" = "$expanded" ] || fail "back at its size the panes aren't as they were: $pages"
 send doubleclick $((x + 225)) 400
