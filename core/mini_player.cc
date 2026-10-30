@@ -4,6 +4,7 @@
 #include <cmath>
 #include <optional>
 
+#include "base/logging.h"
 #include "browser_core/hooks.h"
 #include "build/build_config.h"
 #include "chrome/browser/picture_in_picture/picture_in_picture_window_manager.h"
@@ -20,6 +21,10 @@
 #include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/linux/wayland.h"
+#endif
 
 namespace browser_core {
 
@@ -95,12 +100,17 @@ bool OnEvent(VideoOverlayWindowViews* window, ui::Event* event) {
     case ui::EventType::kMousePressed: {
       g_pressed.reset();
       const ui::MouseEvent* mouse = event->AsMouseEvent();
-      if (!mouse->IsOnlyLeftMouseButton() ||
-          window->ControlsHitTestContainsPoint(mouse->location())) {
+      if (!mouse->IsOnlyLeftMouseButton()) {
+        return false;
+      }
+      if (window->ControlsHitTestContainsPoint(mouse->location())) {
+        // check.sh reads these lines.
+        LOG(ERROR) << "browser: mini player pressed on its controls";
         return false;
       }
       if (!(mouse->flags() & ui::EF_IS_DOUBLE_CLICK)) {
         g_pressed = mouse->location();
+        LOG(ERROR) << "browser: mini player pressed at " << g_pressed->ToString();
         return false;
       }
       event->SetHandled();
@@ -113,14 +123,23 @@ bool OnEvent(VideoOverlayWindowViews* window, ui::Event* event) {
       if (!g_pressed || !views::View::ExceededDragThreshold(at - *g_pressed)) {
         return false;
       }
-      const gfx::Vector2d grip = g_pressed->OffsetFromOrigin();
+      const gfx::Point press = *g_pressed;
       g_pressed.reset();
       event->SetHandled();
+      // check.sh reads this line.
+      LOG(ERROR) << "browser: mini player moving from " << press.ToString();
+#if BUILDFLAG(IS_LINUX)
+      // The window manager or compositor moves it, as it moves a window by its title bar: under
+      // Wayland a window can't move itself, and under X11 Chromium's move loop left it in place,
+      // with a real pointer too (#813).
+      platform::StartMove(window, press);
+#else
       // As Chrome's caption would, but the window sees the press first. It may be gone after.
       if (window->IsMoveLoopSupported()) {
-        window->RunMoveLoop(grip, views::Widget::MoveLoopSource::kMouse,
+        window->RunMoveLoop(press.OffsetFromOrigin(), views::Widget::MoveLoopSource::kMouse,
                             views::Widget::MoveLoopEscapeBehavior::kDontHide);
       }
+#endif
       return true;
     }
     case ui::EventType::kMouseReleased:
