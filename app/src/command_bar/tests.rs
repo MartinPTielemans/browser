@@ -1515,6 +1515,7 @@ fn space_puts_new_space_first(cx: &mut TestAppContext) {
         "Export Space as Markdown…".into(),
         "Next Space ⌥⌘→".into(),
         "Previous Space ⌥⌘←".into(),
+        "Stop Recording Trace".into(),
     ];
     assert_eq!(bar.listed(), expected);
 }

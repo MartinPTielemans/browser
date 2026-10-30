@@ -210,3 +210,29 @@ fn a_card_showing_pictures_its_tab_again(cx: &mut TestAppContext) {
     }
     assert_eq!(asked, ["card picture 3"]);
 }
+
+/// A hidden sidebar out over the page counts its row's card as its own (#830): the pointer past
+/// the panel but on the card keeps it out, back over the panel too, and once it's off both, the
+/// sidebar slides away and the card goes with it.
+#[gpui::test]
+fn a_hidden_sidebar_stays_out_while_the_pointer_is_on_a_row_s_card(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tabs(cx);
+    shell.update(cx, |shell, cx| {
+        shell.sidebar_hidden = true;
+        shell.set_revealed(true, cx);
+    });
+    rest_on(&shell, cx, &host, 3);
+    let rest = host.card.borrow().clone().unwrap();
+    // As the Mac host has it, the card hears a move before the reveal does, in the same turn.
+    let pointer = |cx: &mut VisualTestContext, on: bool, x: f32| {
+        cx.update(|_, cx| (rest.events)(3, Event::Pointer(on), cx));
+        shell.update(cx, |shell, cx| shell.pointer_at(x, cx));
+        cx.run_until_parked();
+        let closed = host.take().contains(&"card close".to_string());
+        (shell.read_with(cx, |shell, _| shell.revealed), closed)
+    };
+    assert_eq!(pointer(cx, true, 600.), (true, false), "on the card, past the panel");
+    assert_eq!(pointer(cx, false, 100.), (true, false), "off the card, back over the panel");
+    assert_eq!(pointer(cx, true, 600.), (true, false), "on the card again");
+    assert_eq!(pointer(cx, false, 700.), (false, true), "off both, onto the page");
+}

@@ -523,10 +523,10 @@ post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
-# More Settings… sits under Advanced's box of switch rows, the haptics' and the link previews',
-# and on the Mac ⌥'s 42 under them, and the box of Export…'s row.
+# More Settings… sits under Advanced's box of three switch rows, the haptics', the link previews'
+# and restoring windows', and on the Mac ⌥'s 42 under them, and the box of Export…'s row.
 [ "$(uname)" = Darwin ] && option_row=42 || option_row=0
-send clickkey 120 $((263 + option_row))
+send clickkey 120 $((303 + option_row))
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
 expect '^browser: loaded [0-9]* chrome://settings/$' \

@@ -241,9 +241,9 @@ void host_show_offer(void* ui_view);
 // Hides |ui_view|'s offer. If it had the keyboard, its browser window gets it back.
 void host_hide_offer(void* ui_view);
 
-// Moves |ui_view|'s find bar, its offer and the HUD over it |right| points further in from the
-// window's right edge and |top| points further down, to the focused page's top right corner when a
-// split view's focused page isn't the top right one.
+// Moves |ui_view|'s find bar, its offer, and the HUD and the toast over it |right| points further
+// in from the window's right edge and |top| points further down, to the focused page's top right
+// corner when a split view's focused page isn't the top right one.
 void host_set_pane_corner(void* ui_view, double right, double top);
 
 // Makes the window of |hud_view| float over a browser window when shown, |right| and |top| points
@@ -320,8 +320,14 @@ void* host_add_link_preview(void* view, void (*dismissed)(void));
 void host_show_link_preview(void* ui_view);
 
 // The UI drew a frame of the link preview's motion, with its page at |left|, |top|, |width| by
-// |height| from the window's top left and at |opacity|, which the page's view follows.
-void host_link_preview_drew(double left, double top, double width, double height, double opacity);
+// |height| from the window's top left, with corners of |radius|, and at |opacity|, which the page's
+// view follows. Where the page shows under the preview's window, it's the hole the window has.
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double radius,
+                            double opacity);
 
 // The link preview takes no more clicks or keys as it leaves: the mouse goes through it, and the
 // browser window gets the keyboard back, with the focus where it was, if it had it.
@@ -379,7 +385,8 @@ void host_toast_takes_clicks(bool takes);
 // Where the toast's plate is in its window, from the window's top left corner, in points.
 void host_set_toast_plate(double x, double y, double width, double height);
 
-// Shows the toast's window over |ui_view|'s window, as the UI draws it now.
+// Shows the toast's window over |ui_view|'s window, at its focused page's corner
+// (host_set_pane_corner), as the UI draws it now.
 void host_show_toast(void* ui_view);
 
 // Hides the toast's window.

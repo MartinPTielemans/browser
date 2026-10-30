@@ -22,6 +22,7 @@
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/downloads.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/extensions.h"
@@ -451,6 +452,23 @@ size_t bc_agent_disconnected(const char* agent) {
 bool bc_tab_take_back(bc_id tab) {
   browser_core::Hold(tab);
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
+}
+
+bool bc_tab_give_to_agent(bc_id tab, bc_id space) {
+  browser_core::Space* from = browser_core::Space::Holding(tab);
+  browser_core::Space* to = browser_core::Space::FromId(space);
+  // The page goes as it is, with its profile's logins, so never into another profile's Space,
+  // where it would load again.
+  if (!from || from->agent() || !to || !to->agent() || from->profile() != to->profile()) {
+    return false;
+  }
+  browser_core::Window::MoveToSpace(tab, space, /*to_agent=*/true);
+  if (browser_core::Space::Holding(tab) != to) {
+    return false;
+  }
+  // One the user took back from an agent before is the agent's now.
+  browser_core::HandBack(tab);
+  return true;
 }
 
 bool bc_agent_hand_off(const char* agent, bc_id tab) {
@@ -1097,6 +1115,15 @@ void bc_set_warn_before_quitting(bool warn) {
   browser_core::SessionChanged();
 }
 
+bool bc_restore_windows(void) {
+  return browser_core::UserSettings().restore_windows;
+}
+
+void bc_set_restore_windows(bool restore) {
+  browser_core::UserSettings().restore_windows = restore;
+  browser_core::SessionChanged();
+}
+
 bool bc_warn_moving_profiles(void) {
   return browser_core::UserSettings().warn_moving_profiles;
 }
@@ -1211,7 +1238,9 @@ void bc_tab_show_in(bc_id id, void* view, bc_rect frame, double corner_radius) {
   if (!contents || !view || browser_core::Window::Showing(id)) {
     return;
   }
-  browser_core::platform::ShowPageIn(contents->GetNativeView(), view, ToRect(frame),
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  browser_core::platform::ShowPageIn(window ? window->widget() : nullptr,
+                                     contents->GetNativeView(), view, ToRect(frame),
                                      corner_radius);
   contents->Focus();
 }
@@ -1481,6 +1510,12 @@ size_t bc_ad_blocking_off_sites(bc_id profile_id, char* sites, size_t capacity) 
 void bc_ad_blocking_turn_on_site(bc_id profile_id, const char* site) {
   if (Profile* profile = LoadedProfile(profile_id); profile && site) {
     browser_core::TurnOnAdBlockingOnSite(profile, site);
+  }
+}
+
+void bc_tab_set_developer_mode(bc_id id, bool on) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    browser_core::developer_mode::Set(tab->profile(), tab->Url(), on);
   }
 }
 

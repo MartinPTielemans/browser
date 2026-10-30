@@ -8,8 +8,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, Radians, Role, SharedString,
-    Transformation, canvas, div, prelude::*, px, rgb, svg,
+    AnyElement, App, Bounds, ClickEvent, Context, MouseButton, MouseDownEvent, Pixels, Radians,
+    Role, SharedString, Transformation, Window, canvas, div, prelude::*, px, rgb, svg,
 };
 
 use super::{
@@ -24,7 +24,7 @@ use super::{
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, URL_BUTTON_GLYPH, URL_BUTTON_SIZE, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
-    scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
+    developer_outline, scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
     swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph}, title,
 };
 use super::{
@@ -199,10 +199,23 @@ impl Shell {
             Row::Tab(tab) if !ghost => self.keyed_ring(tab, PLATE_RADIUS),
             _ => None,
         };
+        let developer = selected && !folder && self.page(self.selected).developer_mode;
         let plate = content
             .relative()
             .children(ring)
-            .when(selected, |plate| selected_plate(&self.palette, plate, plate_in, hover.unwrap_or(0.)))
+            .when(selected, |plate| {
+                selected_plate(&self.palette, plate, plate_in, hover.unwrap_or(0.), developer)
+            })
+            .when(developer && !ghost, |plate| {
+                plate.child(self.logged_developer_outline(self.selected, PLATE_RADIUS))
+            })
+            .when(developer && ghost, |plate| {
+                plate.child(developer_outline(&self.palette, PLATE_RADIUS))
+            })
+            .when(selected && !developer && !ghost, |plate| {
+                self.developer_outline_gone();
+                plate
+            })
             .id("plate")
             .when_some(hover.filter(|_| !selected), |plate, hover| {
                 plate.bg(self.palette.plate(HOVERED).opacity(hover))
@@ -333,6 +346,35 @@ impl Shell {
                     .pr(px(TITLE_END_INSET))
                     .child(title(&self.palette, row.title.clone(), false)),
             ))
+    }
+
+    /// `developer_outline` for the shown `tab`, which logs where it draws once that changes.
+    pub(super) fn logged_developer_outline(&self, tab: u64, radius: f32) -> gpui::Div {
+        let drawn = self.developer_outline_drawn.clone();
+        let logged = move |bounds: Bounds<Pixels>, _: &mut Window, _: &mut App| {
+            if drawn.get() == Some((tab, bounds)) {
+                return;
+            }
+            drawn.set(Some((tab, bounds)));
+            // check.sh reads this line.
+            log!(
+                "browser: developer outline {tab} at {:.0} {:.0} {:.0} {:.0}",
+                f32::from(bounds.origin.x),
+                f32::from(bounds.origin.y),
+                f32::from(bounds.size.width),
+                f32::from(bounds.size.height)
+            );
+        };
+        developer_outline(&self.palette, radius)
+            .child(canvas(logged, |_, _, _, _| {}).size_full())
+    }
+
+    /// The shown tab drew without its Developer Mode outline: logs that it went, once.
+    pub(super) fn developer_outline_gone(&self) {
+        if self.developer_outline_drawn.take().is_some() {
+            // check.sh reads this line.
+            log!("browser: developer outline none");
+        }
     }
 
     /// A tab's row, its split view's for the split's first tab, or a folder's, or its `ghost`.
@@ -607,7 +649,7 @@ impl Shell {
             .pr(px(SEGMENT_END))
             .when(!first, |segment| segment.child(line))
             .child(icon)
-            .child(title(palette, self.title(tab), focused))
+            .child(title(palette, self.title(tab), focused || page.developer_mode))
             .when(width >= LOADING_ROW_MIN, |segment| segment.children(self.status_dot(tab)))
     }
 
@@ -773,7 +815,8 @@ impl Shell {
         let away = page.away_from_pinned_url;
         let back = away && self.pointer_favicon() == Some(tab);
         let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
-        let title = title(&self.palette, label, Row::Tab(tab) == self.selected_row());
+        let bright = Row::Tab(tab) == self.selected_row() || page.developer_mode;
+        let title = title(&self.palette, label, bright);
         // The close button shows under the pointer, and the title truncates before it.
         let close = self.close_button(vec![tab], cx);
         let renaming =
