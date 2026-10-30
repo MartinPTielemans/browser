@@ -890,8 +890,12 @@ bool RestoreSavedWindow(Window& window, size_t index) {
   return true;
 }
 
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
-  Space* space = Space::Create(saved_space.name, id, saved_space.agent);
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved_space,
+                    bc_id id,
+                    size_t at) {
+  Space* space = Space::Create(saved_space.name, id, saved_space.agent, at);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);
