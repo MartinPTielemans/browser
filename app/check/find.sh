@@ -435,7 +435,8 @@ for _ in $(seq 50); do
     break
 done
 expect "^browser: pasteboard text $word\$" "⌘C in undocked DevTools didn't copy the console's text"
-grep '^browser: command ' "$log" | grep -qv ' javascript-console ' &&
+# A command logs "command <name> via <where>"; the command bar's own lines aren't commands.
+grep -E '^browser: command .* via ' "$log" | grep -qv ' javascript-console ' &&
   fail "⌘A or ⌘C in undocked DevTools ran a command of the app's"
 ../tools/window-screenshot.sh "$pid" "$out/devtools-undocked.png" || fail "no window to capture"
 send window 1
