@@ -2270,8 +2270,11 @@ void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_b
 
 void Window::GiveKeyboardToPage() {
   // Held by the window, the keyboard is the page's (KeyboardForPage), as when the page shown before
-  // left with it, so FocusPage gives it to the page shown.
+  // left with it, so FocusPage gives it to the page shown. Given now, as a closing command bar
+  // leaves it with the page: a key that came first would reach the window, where nothing takes it.
+  // A page still loading has no view to take it yet, and takes it once its view comes.
   platform::ReleaseKeyboard(widget_.get());
+  FocusPage();
   FocusPageSoon();
 }
 
