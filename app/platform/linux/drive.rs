@@ -60,8 +60,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
-    settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, popovers,
+    reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -234,6 +234,7 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
 fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(panels::shown());
+    views.extend(popovers::shown());
     views.extend(menu_window::shown());
     views.extend(reveal_window::shown());
     views
