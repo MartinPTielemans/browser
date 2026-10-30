@@ -55,6 +55,10 @@ bool KeyboardInChild(views::Widget* widget);
 // (bc_window_overlay_takes_keyboard).
 void OverlayTakesKeyboard(views::Widget* widget, bool takes);
 
+// Holds the keys that reach |widget|'s window after a page's shortcut that opens a bar, until the
+// bar has the keyboard or the page kept the shortcut (bc_window_hold_keys). In window_views.cc.
+void HoldKeys(views::Widget* widget);
+
 // A text field of the app's UI in |widget|'s window, or of an overlay over it, is focused with its
 // caret at |caret|, in DIPs from the window's top left, or none is (bc_window_ui_text_input).
 void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret);

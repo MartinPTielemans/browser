@@ -2778,6 +2778,11 @@ unsafe extern "C" fn tab_key_before_page(
     });
     if holds == Some(true) {
         unsafe { platform::host_hold_keys() };
+        // On Linux the core holds them, as they reach its window.
+        #[cfg(target_os = "linux")]
+        unsafe {
+            bc::bc_window_hold_keys(bc::bc_tab_window(tab))
+        };
     }
     false
 }

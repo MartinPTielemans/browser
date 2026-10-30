@@ -286,6 +286,14 @@ bool bc_window_dialog(bc_id id, bc_rect* frame) {
 #endif
 }
 
+void bc_window_hold_keys(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  if (views::Widget* widget = OpenWidget(id)) {
+    browser_core::platform::HoldKeys(widget);
+  }
+#endif
+}
+
 void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
 #if BUILDFLAG(IS_LINUX)
   if (views::Widget* widget = OpenWidget(id)) {

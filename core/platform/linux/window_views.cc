@@ -17,6 +17,7 @@
 #include "base/scoped_multi_source_observation.h"
 #include "base/scoped_observation.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/focus_ring_aura.h"
 #include "browser_core/platform/linux/ui_text_input.h"
@@ -33,6 +34,7 @@
 #include "ui/compositor/layer_solid_color.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
+#include "ui/events/event_utils.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -163,6 +165,36 @@ std::vector<gfx::Rect> RoundShape(const gfx::Size& size, double radius, bool bot
 x11::Rectangle XRectangle(const gfx::Rect& rect) {
   return {static_cast<int16_t>(rect.x()), static_cast<int16_t>(rect.y()),
           static_cast<uint16_t>(rect.width()), static_cast<uint16_t>(rect.height())};
+}
+
+// How long keys wait for a bar after a page's shortcut that opens one, such as ⌘L, which the page
+// gets first: longer is the page keeping the shortcut. As the Mac's host waits (kHoldKeys).
+constexpr base::TimeDelta kHoldKeys = base::Milliseconds(400);
+
+// A key the X server gave the browser window, as its event had it.
+struct HeldKey {
+  bool press;
+  x11::KeyCode code;
+  x11::KeyButMask state;
+};
+
+// |event|'s key as the X server sent it, which Chromium keeps with the event it made of it.
+std::optional<HeldKey> HeldKeyOf(const ui::KeyEvent& event) {
+  const ui::Event::Properties* properties = event.properties();
+  if (!properties) {
+    return std::nullopt;
+  }
+  auto code = properties->find(ui::kPropertyKeyboardHwKeyCode);
+  auto state = properties->find(ui::kPropertyKeyboardState);
+  if (code == properties->end() || code->second.empty() || state == properties->end() ||
+      state->second.size() < 2) {
+    return std::nullopt;
+  }
+  return HeldKey{
+      .press = event.type() == ui::EventType::kKeyPressed,
+      .code = static_cast<x11::KeyCode>(code->second[0]),
+      .state = static_cast<x11::KeyButMask>(state->second[0] | state->second[1] << 8),
+  };
 }
 
 class WindowViews : public views::WidgetObserver,
@@ -376,6 +408,26 @@ class WindowViews : public views::WidgetObserver,
     if (!takes && ui_ != x11::Window::None && !ui_has_keyboard_ && IsWithin(InputFocus(), ui_)) {
       UITakesKeyboard();
     }
+    // The bar the keys were held for has the keyboard, and has them once it has the input focus.
+    // One that goes before it has it leaves them to the window.
+    if (takes) {
+      holding_ = false;
+    }
+    ReleaseKeys();
+  }
+
+  // Holds the keys that reach the window from now, after a page's shortcut that opens a bar, such
+  // as ⌘L, which the page gets first, so the keys typed after it don't go to the page before the
+  // bar has the keyboard (Ardia P§7). On X11: a compositor gives them to the bar itself.
+  void HoldKeys() {
+    if (ui_ == x11::Window::None) {
+      return;
+    }
+    holding_ = true;
+    const unsigned hold = ++hold_;
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+        FROM_HERE, base::BindOnce(&WindowViews::HoldEnded, weak_factory_.GetWeakPtr(), hold),
+        kHoldKeys);
   }
 
   // The UI lets the keyboard go to the window, which KeyboardForPage counts as the page's, and on
@@ -514,8 +566,23 @@ class WindowViews : public views::WidgetObserver,
   // ui::EventHandler, before the window's views and pages get the event:
   void OnKeyEvent(ui::KeyEvent* event) override {
     // The UI's or an overlay's, which on Wayland reach the window too.
-    if (ui_has_keyboard_ || overlay_has_keyboard_) {
+    if (ui_has_keyboard_ || overlay_has_keyboard_ || holding_) {
       event->StopPropagation();
+    }
+    // On X11 one that reaches the window while an overlay has the keyboard was typed before the
+    // input focus went to it, as the keys right after ⌘T are, and one while they're held, before a
+    // bar took the keyboard. Each waits, in order, for where it belongs (ReleaseKeys).
+    if (ui_ == x11::Window::None || (!overlay_has_keyboard_ && !holding_)) {
+      return;
+    }
+    if (std::optional<HeldKey> key = HeldKeyOf(*event)) {
+      held_keys_.push_back(*key);
+      // Once the X events read with it are, so they go on together.
+      if (!release_posted_) {
+        release_posted_ = true;
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+            FROM_HERE, base::BindOnce(&WindowViews::ReleasePosted, weak_factory_.GetWeakPtr()));
+      }
     }
   }
 
@@ -537,6 +604,11 @@ class WindowViews : public views::WidgetObserver,
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
     if (auto* focus = event.As<x11::FocusEvent>()) {
+      // The overlay with the keyboard took the input focus, for the keys that waited for it.
+      if (overlay_has_keyboard_ && focus->event == window() &&
+          focus->opcode == x11::FocusEvent::Out) {
+        ReleaseKeys();
+      }
       // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
           focus->mode == x11::NotifyMode::Ungrab || overlay_has_keyboard_) {
@@ -617,6 +689,55 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  void HoldEnded(unsigned hold) {
+    if (hold == hold_) {
+      holding_ = false;
+      ReleaseKeys();
+    }
+  }
+
+  void ReleasePosted() {
+    release_posted_ = false;
+    ReleaseKeys();
+  }
+
+  // Sends the keys that waited on where they belong, once that's known: to the overlay with the
+  // keyboard once it has the input focus, or, if none took the keyboard while they were held, back
+  // to the window, which gives them to its page, as one that keeps a shortcut gets the keys after
+  // it.
+  void ReleaseKeys() {
+    if (held_keys_.empty() || holding_) {
+      return;
+    }
+    x11::Window to = window();
+    if (overlay_has_keyboard_) {
+      to = InputFocus();
+      // None or PointerRoot, or still the window's, as the overlay takes it as it shows.
+      if (static_cast<uint32_t>(to) <= 1 || IsWithin(to, window())) {
+        return;
+      }
+    }
+    // check.sh reads this line, with the window named as the Mac's host names it.
+    fprintf(stderr, "browser: held %zu key events for %s\n", held_keys_.size(),
+            to == window() ? "BrowserCoreNSWindow" : "GPUIPanel");
+    x11::Connection* connection = x11::Connection::Get();
+    for (const HeldKey& key : held_keys_) {
+      x11::KeyEvent sent{
+          .opcode = key.press ? x11::KeyEvent::Press : x11::KeyEvent::Release,
+          .detail = key.code,
+          .time = x11::Time::CurrentTime,
+          .root = connection->default_root(),
+          .event = to,
+          .child = x11::Window::None,
+          .state = key.state,
+          .same_screen = true,
+      };
+      connection->SendEvent(sent, to, x11::EventMask::NoEvent).IgnoreError();
+    }
+    connection->Flush();
+    held_keys_.clear();
+  }
+
   // Sizes the UI to the window's content.
   void SizeUI() {
     const gfx::Size pixels = ContentPixelsOf(widget_);
@@ -653,6 +774,13 @@ class WindowViews : public views::WidgetObserver,
   bool held_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // The keys that reached the window and wait to go where they belong (ReleaseKeys), whether
+  // they're held for a bar after a page's shortcut, and that hold's count, as one ending doesn't
+  // end a later one.
+  std::vector<HeldKey> held_keys_;
+  bool holding_ = false;
+  unsigned hold_ = 0;
+  bool release_posted_ = false;
   // The UI has the keyboard while no page shows, for the next page shown (KeyboardForPage).
   bool ui_holds_for_page_ = false;
   // A window of Chromium's own has the keyboard the UI or a page had, and gives it back as it goes.
@@ -952,6 +1080,12 @@ bool KeyboardInChild(views::Widget* widget) {
 void OverlayTakesKeyboard(views::Widget* widget, bool takes) {
   if (WindowViews* views = ViewsOf(widget)) {
     views->OverlayTakesKeyboard(takes);
+  }
+}
+
+void HoldKeys(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->HoldKeys();
   }
 }
 

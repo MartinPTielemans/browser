@@ -1994,6 +1994,12 @@ BC_EXPORT bool bc_window_is_full_screen(bc_id window);
 // does, for the test driver. bc_window_toggle_maximized takes it out as Escape asks.
 BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 
+// On Linux under X11: the keys typed from now that reach |window|, after a page's shortcut that
+// opens a bar, such as ⌘L, which the page gets first, wait for the bar, and go to it once it has
+// the keyboard (bc_window_overlay_takes_keyboard), or on to the page after a moment if no bar
+// took it, as the page kept the shortcut. The app holds them itself elsewhere (host_hold_keys).
+BC_EXPORT void bc_window_hold_keys(bc_id window);
+
 #ifdef __cplusplus
 }
 #endif
