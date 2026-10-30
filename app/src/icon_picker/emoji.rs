@@ -21,22 +21,61 @@ pub use crate::tokens::icon_picker::emoji::EMOJI_SIZE;
 pub use crate::tokens::icon_picker::emoji::HEADER_TEXT;
 pub use crate::tokens::icon_picker::emoji::HEADER_LEFT;
 pub use crate::tokens::icon_picker::emoji::HEADER_BOTTOM;
+pub use crate::tokens::icon_picker::emoji::TONE_PLATE;
+pub use crate::tokens::icon_picker::emoji::TONE_EMOJI;
 /// How many emoji the picker remembers as used last.
 pub const RECENTS: usize = 16;
 
-/// The emoji picked last, newest first, kept as one emoji to a line.
+/// The skin tones the grid offers, in Unicode's order: one each, none of the mixed ones a pair's
+/// two people can have.
+pub const TONES: [SkinTone; 6] = [
+    SkinTone::Default,
+    SkinTone::Light,
+    SkinTone::MediumLight,
+    SkinTone::Medium,
+    SkinTone::MediumDark,
+    SkinTone::Dark,
+];
+
+/// The hand the tone button shows for `tone`.
+pub fn hand(tone: SkinTone) -> &'static str {
+    let hand = emojis::get("✋").expect("✋ is in the table");
+    hand.with_skin_tone(tone).unwrap_or(hand).as_str()
+}
+
+/// The line that keeps the skin tone among the recents, which a build without tones reads as no
+/// emoji and leaves out.
+const TONE_LINE: &str = "skin tone ";
+
+/// The emoji picked last, newest first, kept as one emoji to a line, and the skin tone the grid
+/// shows its emoji in, as its place in `TONES`.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Recents(Vec<String>);
+pub struct Recents(Vec<String>, usize);
 
 impl Recents {
     /// Reads what `to_text` wrote, leaving out what the table doesn't know.
     pub fn parse(text: &str) -> Self {
-        let each = text.lines().map(str::trim).filter(|line| emojis::get(line).is_some());
-        Recents(each.take(RECENTS).map(str::to_string).collect())
+        let lines = text.lines().map(str::trim);
+        let tone = (lines.clone())
+            .find_map(|line| line.strip_prefix(TONE_LINE)?.parse::<usize>().ok())
+            .filter(|&index| index < TONES.len())
+            .unwrap_or(0);
+        let each = lines.filter(|line| emojis::get(line).is_some());
+        Recents(each.take(RECENTS).map(str::to_string).collect(), tone)
     }
 
     pub fn to_text(&self) -> String {
-        self.0.iter().map(|emoji| format!("{emoji}\n")).collect()
+        let emoji = self.0.iter().map(|emoji| format!("{emoji}\n"));
+        let tone = (self.1 != 0).then(|| format!("{TONE_LINE}{}\n", self.1));
+        tone.into_iter().chain(emoji).collect()
+    }
+
+    pub fn tone(&self) -> SkinTone {
+        TONES[self.1]
+    }
+
+    pub fn set_tone(&mut self, tone: SkinTone) {
+        self.1 = TONES.iter().position(|&each| each == tone).unwrap_or(0);
     }
 
     /// Puts `emoji` first, once.
@@ -53,15 +92,27 @@ impl Recents {
 
 /// The emoji the system can draw. The table knows the newest Unicode's, which an older system's
 /// font draws as a missing glyph, or as its parts when it's a sequence, so the grid offers only
-/// these. Only the emoji the grid lists are asked about, once; a skin tone would be asked when the
-/// grid lists it.
-pub struct Drawable(HashSet<&'static str>);
+/// these. Only the emoji the grid lists are asked about, once, and a skin tone's when the grid
+/// first shows it.
+pub struct Drawable(HashSet<&'static str>, HashSet<u8>);
 
 impl Drawable {
     /// Asks `draws` about each emoji the grid lists.
     pub fn new(draws: impl Fn(&str) -> bool) -> Self {
         let base = emojis::iter().filter(|emoji| is_base(emoji));
-        Drawable(base.map(Emoji::as_str).filter(|emoji| draws(emoji)).collect())
+        let drawn = base.map(Emoji::as_str).filter(|emoji| draws(emoji)).collect();
+        Drawable(drawn, HashSet::from([SkinTone::Default as u8]))
+    }
+
+    /// Asks `draws` about each emoji in `tone`, the first time.
+    pub fn ask_tone(&mut self, tone: SkinTone, draws: impl Fn(&str) -> bool) {
+        if !self.1.insert(tone as u8) {
+            return;
+        }
+        let toned = emojis::iter().filter(|emoji| is_base(emoji)).filter_map(|emoji| {
+            emoji.with_skin_tone(tone).filter(|toned| toned.skin_tone() == Some(tone))
+        });
+        self.0.extend(toned.map(Emoji::as_str).filter(|emoji| draws(emoji)));
     }
 
     fn has(&self, emoji: &Emoji) -> bool {
@@ -90,16 +141,18 @@ impl Grid {
     pub fn new(query: &str, recents: &Recents, drawable: &Drawable) -> Self {
         let mut grid = Grid { items: Vec::new(), rows: Vec::new() };
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+        let tone = recents.tone();
+        let toned = |emoji: &'static Emoji| in_tone(emoji, tone, drawable);
         if words.is_empty() {
             grid.section("Recently Used", recents.emojis().filter(|emoji| drawable.has(emoji)));
             for group in Group::iter() {
                 let each = group.emojis().filter(|emoji| is_base(emoji) && drawable.has(emoji));
-                grid.section(group_name(group), each);
+                grid.section(group_name(group), each.map(toned));
             }
         } else {
             let found = emojis::iter()
                 .filter(|emoji| is_base(emoji) && drawable.has(emoji) && matches(emoji, &words));
-            grid.section("", found);
+            grid.section("", found.map(toned));
         }
         grid
     }
@@ -159,9 +212,17 @@ impl Grid {
     }
 }
 
-/// Emoji with no skin tone to pick, or in the one every emoji starts as; the tones come later.
+/// Emoji with no skin tone to pick, or in the one every emoji starts as, which the grid lists in
+/// the tone picked.
 fn is_base(emoji: &Emoji) -> bool {
     emoji.skin_tone().is_none_or(|tone| tone == SkinTone::Default)
+}
+
+/// `emoji` in `tone` if it has one and the system draws it, else as it is.
+fn in_tone(emoji: &'static Emoji, tone: SkinTone, drawable: &Drawable) -> &'static Emoji {
+    (emoji.with_skin_tone(tone))
+        .filter(|toned| toned.skin_tone() == Some(tone) && drawable.has(toned))
+        .unwrap_or(emoji)
 }
 
 /// Whether each of `words` (lowercase) is in the emoji's name or one of its shortcodes.
@@ -228,6 +289,50 @@ mod tests {
         assert!(grid.position("👍").is_some());
         assert!(grid.position("👍🏽").is_none());
         assert!(grid.items.iter().all(|emoji| !emoji.name().contains("skin tone")));
+    }
+
+    #[test]
+    fn a_tone_shows_each_emoji_that_has_one_in_it_and_the_rest_as_they_are() {
+        let mut recents = Recents::default();
+        recents.set_tone(SkinTone::MediumDark);
+        let mut drawable = all();
+        drawable.ask_tone(SkinTone::MediumDark, |_| true);
+        let toned = Grid::new("", &recents, &drawable);
+        assert!(toned.position("👍🏾").is_some());
+        assert!(toned.position("👍").is_none());
+        assert!(toned.position("🦊").is_some());
+        // The same emoji, one for one, so the plate keeps its place.
+        assert_eq!(toned.items.len(), Grid::new("", &Recents::default(), &all()).items.len());
+        assert!(Grid::new("thumbs", &recents, &drawable).position("👍🏾").is_some());
+    }
+
+    #[test]
+    fn a_tone_the_system_cant_draw_leaves_the_emoji_as_they_are() {
+        let mut recents = Recents::default();
+        recents.set_tone(SkinTone::Dark);
+        let mut drawable = all();
+        drawable.ask_tone(SkinTone::Dark, |emoji| !emoji.starts_with('👍'));
+        let grid = Grid::new("", &recents, &drawable);
+        assert!(grid.position("👍").is_some());
+        assert!(grid.position("👋🏿").is_some());
+    }
+
+    #[test]
+    fn the_tone_is_kept_with_the_recents_and_an_old_build_skips_it() {
+        let mut recents = Recents::parse("🦊\n");
+        assert_eq!(recents.to_text(), "🦊\n");
+        recents.set_tone(SkinTone::Light);
+        assert_eq!(recents.to_text(), "skin tone 1\n🦊\n");
+        let read = Recents::parse(&recents.to_text());
+        assert_eq!(read.tone(), SkinTone::Light);
+        assert_eq!(read, recents);
+        // An old build reads only the emoji, as `parse` did before tones.
+        let text = recents.to_text();
+        let old: Vec<_> = (text.lines())
+            .filter(|line| emojis::get(line).is_some())
+            .collect();
+        assert_eq!(old, ["🦊"]);
+        assert_eq!(Recents::parse("skin tone 9\n").tone(), SkinTone::Default);
     }
 
     #[test]
@@ -355,6 +460,6 @@ mod tests {
 
     #[test]
     fn recents_leave_out_what_the_table_doesnt_know() {
-        assert_eq!(Recents::parse("🦊\nabc\n\n日\n"), Recents(vec!["🦊".to_string()]));
+        assert_eq!(Recents::parse("🦊\nabc\n\n日\n"), Recents(vec!["🦊".to_string()], 0));
     }
 }

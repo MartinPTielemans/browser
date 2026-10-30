@@ -475,7 +475,7 @@ void HidePages(views::Widget* widget) {
 }
 
 // The app's host has no view for a link preview's page here yet, so nothing calls it with one.
-void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+void ShowPageIn(views::Widget*, gfx::NativeView, void*, const gfx::Rect&, double) {}
 
 std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
@@ -552,6 +552,12 @@ void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
 
 void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Windows; the page shows its last frame unscaled until it redraws.
+}
+
+// shortcut: a page out of every window has no compositor here either, as on Linux, so its picture
+// waits until it's shown; hold it as Linux's does once the Windows engine runs the cards check.
+base::ScopedClosureRunner DrawUnseen(views::Widget*, gfx::NativeView) {
+  return base::ScopedClosureRunner();
 }
 
 }  // namespace browser_core::platform

@@ -7,18 +7,20 @@ use crate::command_bar::PLACEHOLDER_TEXT;
 use crate::site_controls::Place;
 
 use gpui::{
-    Bounds, Context, DispatchPhase, Div, Hsla, MouseButton, MouseDownEvent, NavigationDirection,
-    Pixels, SharedString, Stateful, Window, canvas, div, point, prelude::*, px, rgba, size, svg,
+    Bounds, ClickEvent, Context, DispatchPhase, Div, Hsla, MouseButton, MouseDownEvent, MouseUpEvent,
+    NavigationDirection, Pixels, SharedString, Stateful, Window, canvas, div, point, prelude::*, px,
+    size, svg,
 };
 
 use super::{
     access::Accessible,
     beside::AtRest,
-    BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
-    NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
-    Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
-    URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP, commands::BAR_COMMANDS, fade_at,
-    host,
+    BACK_X, Command, FORWARD_X, HeldNav, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED,
+    NAV_PRESS_SCALE, NAV_RADIUS, NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY,
+    SIDEBAR_BUTTON_X, Shell, Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET,
+    URL_BUTTON_SIZE, URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP,
+    commands::BAR_COMMANDS, drag::held_depth, fade_at, host,
+    scaled::scaled_from_middle,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -77,16 +79,99 @@ impl Shell {
                 }
             })
         });
+        // Back and forward list the tab's history that way, held or right-clicked (history.rs).
+        let lists = matches!(command, Command::Back | Command::Forward);
         // A dimmed one names itself too, as the system's tooltips do.
-        self.with_tooltip(button, command, TipSide::Under, cx)
+        let button = self
+            .with_tooltip(button, command, TipSide::Under, cx)
             .when(enabled, |button| {
                 button
                     .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
-                    .on_click(cx.listener(move |shell, _, _, cx| {
-                        shell.run(command, "sidebar", cx)
+                    .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                        shell.click_nav(command, event.modifiers(), cx)
+                    }))
+                    .on_aux_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                        if let ClickEvent::Mouse(click) = event
+                            && click.up.button == MouseButton::Middle
+                        {
+                            shell.open_history(command, cx)
+                        }
                     }))
             })
-            .child(glyph)
+            // Back, forward and reload shrink a little while they're held.
+            .when(enabled && x != SIDEBAR_BUTTON_X, |button| {
+                let release =
+                    |shell: &mut Shell, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Shell>| {
+                        shell.release_nav();
+                        shell.let_go_nav(cx)
+                    };
+                button
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.hold_nav(x, command, cx);
+                            shell.press_nav(command, event.position, cx)
+                        }),
+                    )
+                    .on_mouse_up(MouseButton::Left, cx.listener(release))
+                    .on_mouse_up_out(MouseButton::Left, cx.listener(release))
+            })
+            .when(enabled && lists, |button| {
+                button.on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                        shell.ask_history(command == Command::Forward, event.position, cx)
+                    }),
+                )
+            })
+            .child(glyph);
+        scaled_from_middle(button, self.nav_scale(x))
+    }
+
+    /// The pointer pressed the header button at `x`, which runs `command`.
+    fn hold_nav(&mut self, x: f32, command: Command, cx: &mut Context<Self>) {
+        let pressed = Instant::now();
+        self.held_nav = Some(HeldNav { x, command, pressed, let_go: None, drawn_in: false });
+        cx.notify();
+    }
+
+    /// The pointer let go of the header button it pressed, or its menu took the press over.
+    pub(super) fn let_go_nav(&mut self, cx: &mut Context<Self>) {
+        if let Some(held) = self.held_nav.as_mut().filter(|held| held.let_go.is_none()) {
+            held.let_go = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
+    /// How small the header button at `x` is drawn, plate and glyph: smaller while it's held,
+    /// growing back from where it is once it's let go, as a row's plate does.
+    pub(super) fn nav_scale(&self, x: f32) -> f32 {
+        let Some(held) = self.held_nav.as_ref().filter(|held| held.x == x) else {
+            return 1.;
+        };
+        1. - (1. - NAV_PRESS_SCALE) * held_depth(held.pressed, held.let_go, Instant::now())
+    }
+
+    /// Lets the held header button go once it has grown back, and asks for the next frame only
+    /// while it's shrinking or growing, so a button at rest costs no frames.
+    pub(super) fn step_held_nav(&mut self, window: &mut Window) {
+        let Some(held) = &mut self.held_nav else {
+            return;
+        };
+        let name = held.command.name();
+        match (held.let_go, held_depth(held.pressed, held.let_go, Instant::now())) {
+            (Some(_), 0.) => {
+                // check.sh waits for these lines.
+                log!("browser: nav {name} at rest drawn");
+                self.held_nav = None;
+            }
+            (None, 1.) if !held.drawn_in => {
+                held.drawn_in = true;
+                log!("browser: nav {name} pressed drawn");
+            }
+            (None, 1.) => {}
+            _ => window.request_animation_frame(),
+        }
     }
 
     /// Gives `button`, a sidebar button's plate that runs `command`, a tooltip with the command's
@@ -188,9 +273,9 @@ impl Shell {
             .collect()
     }
 
-    /// A mouse's back and forward buttons anywhere over the UI go back and forward in the front
-    /// tab, as over Chrome's toolbar; over a page, the page takes them itself. The window hears
-    /// them, as the sidebar keeps its presses from what's under it.
+    /// A mouse's back and forward buttons anywhere over the UI show the previous and next Space,
+    /// as Arc's do (the owner's call); over a page, the page takes them itself and goes back and
+    /// forward. The window hears them, as the sidebar keeps its presses from what's under it.
     pub(super) fn navigate_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
@@ -202,8 +287,8 @@ impl Shell {
                         return;
                     }
                     let command = match direction {
-                        NavigationDirection::Back => Command::Back,
-                        NavigationDirection::Forward => Command::Forward,
+                        NavigationDirection::Back => Command::PreviousSpace,
+                        NavigationDirection::Forward => Command::NextSpace,
                     };
                     shell
                         .update(cx, |shell, cx| {
@@ -284,21 +369,31 @@ impl Shell {
         self.url_words(self.selected, url, self.empty_opacity(Instant::now()))
     }
 
-    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, or with no
-    /// tab, the command bar's placeholder, `shown` of the way in.
+    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, its whole
+    /// URL in Developer Mode, as Chrome's Always Show Full URLs has it, or with no tab, the command
+    /// bar's placeholder, `shown` of the way in.
     pub(super) fn url_words(&self, tab: u64, url: &str, shown: f32) -> (SharedString, Hsla) {
         if tab == 0 {
-            let mut color = Hsla::from(rgba(URL_PLACEHOLDER));
+            let mut color = self.palette.text(URL_PLACEHOLDER);
             color.a *= shown;
             return (PLACEHOLDER_TEXT.into(), color);
         }
-        let words = self.extension_name(url).unwrap_or_else(|| host(url).to_string().into());
+        let words = match self.extension_name(url) {
+            Some(name) => name,
+            None if self.page(tab).developer_mode => url.to_string().into(),
+            None => host(url).to_string().into(),
+        };
         (words, self.palette.text(SECONDARY).into())
     }
 
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
         let (words, color) = self.url_field_words(&url);
+        if *self.url_field_drawn.borrow() != words {
+            // check.sh reads this line.
+            log!("browser: url field {words}");
+            self.url_field_drawn.replace(words.clone());
+        }
         // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
         // before them, where the host stops short of them.
         let actions = self.action_buttons(cx);

@@ -107,7 +107,11 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today 
 
 // Makes |saved| a Space, its tabs unloaded in |window| and |profile|, with the id |id|, a deleted
 // Space's, if it isn't 0. The window shows its shown tab there. Returns it.
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved, bc_id id = 0);
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved,
+                    bc_id id = 0,
+                    size_t at = SIZE_MAX);
 
 // The Spaces as the user left them: their names, their tabs with each tab's history, the tab each
 // showed and the Space the window showed, and the favorites. The core saves them a while after
@@ -148,6 +152,11 @@ struct Settings {
   bool haptics = true;
   // Whether the app asks before the user's Quit quits.
   bool warn_before_quitting = true;
+  // Whether the user has dismissed the note on the first tabs auto-archive took.
+  bool archive_noted = false;
+  // Whether a launch brings back the last session's windows with their Today tabs, else one window
+  // showing no tab (RestoreSession).
+  bool restore_windows = true;
   // Whether the app warns before moving a tab to another profile's Space, which it does once.
   bool warn_moving_profiles = true;
   // Who shares the favorites: a BC_FAVORITES_ value.
@@ -160,6 +169,8 @@ struct Settings {
   bool send_crash_reports = false;
   // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
   bool link_previews = true;
+  // What the Library button's hover lists, as bc_hover_kinds' bits.
+  int hover_kinds = 15;
   // When the newest crash report the user was offered was written, in seconds since 1970, so no
   // report is offered twice, nor one older.
   double crash_report_offered = 0;
