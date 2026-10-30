@@ -286,7 +286,8 @@ expect "^browser: loaded $a ${site}notes.txt\$" "the URL typed after ⌘L didn't
   fail "the URL typed after ⌘L changed the panes shown: $(grep '^browser: panes ' "$log" | tail -1)"
 grep -q "^browser: loaded $b ${site}notes.txt\$" "$log" && fail "⌘L's URL loaded in the other pane"
 send key left cmd
-expect "^browser: loaded $a $site\$" "Back didn't take the left pane back to its page"
+# A page Back restores from the back/forward cache logs no load, only its state.
+expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "Back didn't take the left pane back to its page"
 # A toast shows over its pane, the focused one, as Arc's does: ⇧⌘C's toast sits at the right pane's
 # corner while it's focused, and the next, once a click focuses the left one, at that one's, as far
 # left as its right edge is.
