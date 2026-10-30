@@ -65,6 +65,8 @@ pub(super) struct Recorder {
     pub(super) os: Cell<Option<crate::default_browser::Os>>,
     /// The import finds no browser on the machine.
     pub(super) no_browsers: Cell<bool>,
+    /// The window is full screen, as Linux's window manager says, for `window_full_screen`.
+    pub(super) full_screen: Cell<bool>,
     /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
     pub(super) crash_reports: Cell<Option<bool>>,
     pub(super) agents: Cell<Option<bool>>,
@@ -761,7 +763,7 @@ impl Browser for Recorder {
     }
 
     fn window_full_screen(&self) -> bool {
-        false
+        self.full_screen.get()
     }
 
     fn show_reveal(&self, _: f32, _: &mut App) {}
