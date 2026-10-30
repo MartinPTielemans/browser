@@ -2,9 +2,10 @@
 # not shown, taken once the switches that hid it are quiet and never on a switch, its title and
 # host, and its buttons. The tab shown has no picture, as its page is beside the card. The next row
 # swaps its card in at once, and leaving the rows, scrolling them or a key lets it go. Its buttons
-# each make their call on the first click (#818). It comes in
-# and goes out in Dia's motion, which card-motion.mp4 records. The card takes the Space's look,
-# dark and light. Over a hidden sidebar out, the card counts as the sidebar's. Reports how long the switches take, beside the tabs run's.
+# each make their call on the first click (#818). It comes in and goes out in Dia's motion, which
+# card-motion.mp4 records. The card takes the Space's look, dark and light. Over a hidden sidebar
+# out, the card counts as the sidebar's (#830). Reports how long the switches take, beside the tabs
+# run's.
 
 # A page of colour, so its picture shows in the card.
 page='data:text/html,<title>loading</title>
