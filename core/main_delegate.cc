@@ -349,7 +349,10 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     // tab becomes an agent's to act in, so no agent sees one the user showed (agent_session.cc).
     std::string blink = command_line->GetSwitchValueASCII(switches::kEnableBlinkFeatures);
     blink += blink.empty() ? "" : ",";
-    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures, blink + "PasswordReveal");
+    // And ⌥-click on a link opens it in a split view, as Arc's does, not Chrome's download
+    // (chromium-core-alt-click-split.patch).
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    blink + "PasswordReveal,AltClickSplitView");
 #if BUILDFLAG(IS_MAC)
     platform::NameKeychainItem();
 #endif

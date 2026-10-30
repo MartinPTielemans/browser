@@ -237,9 +237,9 @@ void host_show_offer(void* ui_view);
 // Hides |ui_view|'s offer. If it had the keyboard, its browser window gets it back.
 void host_hide_offer(void* ui_view);
 
-// Moves |ui_view|'s find bar, its offer and the HUD over it |right| points further in from the
-// window's right edge and |top| points further down, to the focused page's top right corner when a
-// split view's focused page isn't the top right one.
+// Moves |ui_view|'s find bar, its offer, and the HUD and the toast over it |right| points further
+// in from the window's right edge and |top| points further down, to the focused page's top right
+// corner when a split view's focused page isn't the top right one.
 void host_set_pane_corner(void* ui_view, double right, double top);
 
 // Makes the window of |hud_view| float over a browser window when shown, |right| and |top| points
@@ -381,7 +381,8 @@ void host_toast_takes_clicks(bool takes);
 // Where the toast's plate is in its window, from the window's top left corner, in points.
 void host_set_toast_plate(double x, double y, double width, double height);
 
-// Shows the toast's window over |ui_view|'s window, as the UI draws it now.
+// Shows the toast's window over |ui_view|'s window, at its focused page's corner
+// (host_set_pane_corner), as the UI draws it now.
 void host_show_toast(void* ui_view);
 
 // Hides the toast's window.
