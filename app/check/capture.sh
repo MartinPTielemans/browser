@@ -4,12 +4,15 @@
 # second ⇧⌘2 leave capture mode and give the page the keyboard back. File › Capture Full Page copies
 # a picture of the whole long page, past its view.
 
-# The line saying the PNG was copied to the run's own pasteboard. On Linux check.sh runs in a display
-# of its own, whose clipboard is the run's.
+# The line saying the PNG was copied to the run's own pasteboard, and the toast's buttons after it.
+# On Linux check.sh runs in a display of its own, whose clipboard is the run's, and there's no share
+# menu, so the toast has no Share.
 if [ "$(uname)" = Darwin ]; then
   copied='^browser: pasteboard png [0-9]* bytes, private$'
+  buttons='save, share'
 else
   copied='^browser: clipboard png [0-9]* bytes$'
+  buttons=save
 fi
 # A page longer than any view, with a box at a known place in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
@@ -74,8 +77,8 @@ esac
 expect "$copied" \
   "Copy didn't copy the PNG to the run's pasteboard"
 expect '^browser: capture left (copy)$' "capture mode didn't leave after Copy"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
-  "Copy didn't show its toast with Save and Share"
+expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
+  "Copy didn't show its toast with $buttons"
 expect '^browser: capture hidden$' "capture mode's window didn't hide after Copy"
 send state
 in_browser RenderWidgetHostViewCocoa "after Copy"
@@ -106,7 +109,7 @@ height=$(echo "$full" | sed 's/^[0-9]*x\([0-9]*\),.*/\1/')
 [ "$height" -ge 6000 ] || fail "the full page's picture is $full, not the page's 6000 points high"
 expect "$copied" \
   "Capture Full Page didn't copy the PNG to the run's pasteboard"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
+expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
   "Capture Full Page didn't show its toast"
 
 exec 3>&-
