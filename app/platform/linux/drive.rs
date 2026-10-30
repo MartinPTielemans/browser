@@ -228,7 +228,15 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
     X.with_borrow_mut(|x| {
         if x.is_none() {
             let (connection, screen) = x11rb::connect(None).ok()?;
-            let root = connection.setup().roots[screen].root;
+            let root = &connection.setup().roots[screen];
+            // The display's own pointer, which the driver never moves otherwise, waits in the
+            // screen's corner, out of the pages: in a page, the X server tells GPUI's window the
+            // pointer left it each time its shape changes around the pages, as a panel's drag
+            // changes it, and GPUI takes that for the pointer leaving.
+            let corner = (root.width_in_pixels as i16 - 1, root.height_in_pixels as i16 - 1);
+            let root = root.root;
+            _ = connection.warp_pointer(x11rb::NONE, root, 0, 0, 0, 0, corner.0, corner.1);
+            _ = connection.flush();
             *x = Some(Rc::new((connection, root)));
         }
         x.clone()
