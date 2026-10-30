@@ -572,7 +572,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 - **Handoff.** At a sign-in, 2FA prompt or CAPTCHA, the tab pauses and a card reads "<agent> needs you", with Show tab and Hand back. It times out after 15 minutes (prototype).
 - **Take over / Hand back.** The Space has the button; while the user drives, the agent's actions pause.
 - **Status and activity.** The status line reads "Waiting for you" or "Waiting for your OK". The activity log in the Space lists actions newest first.
-- Dragging one of the user's tabs onto an Agent Space gives the agent that tab, once that drag ships with its activity-log entry. Until then no tab moves into one: Move to Space leaves Agent Spaces out, and a favorite stays a favorite in one.
+- **Giving a tab** (ours). A tab of the user's Move to, and Move to Space, list the agents' Spaces of its profile after the user's, and choosing one gives that agent the tab: it moves there, the agent may act in it as in its own, and the agent's log says "You gave it a tab". Moving it back to a Space of the user's takes it away; giving isn't a step of ⌘Z. Never another profile's agent, as the page goes as it is, with its logins, and never a favorite or a private window's tab. No agent path: an agent never takes the user's tabs. Dragging a tab onto an Agent Space isn't built.
 
 ### Command bar
 

@@ -881,12 +881,12 @@ void Window::CloseBelow(bc_id tab) {
 }
 
 // static
-void Window::MoveToSpace(bc_id tab, bc_id space) {
+void Window::MoveToSpace(bc_id tab, bc_id space, bool to_agent) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  // No tab moves into an agent's Space, which would put it in the agent's reach, and Chrome never
-  // moves a page between incognito and regular windows.
-  if (!from || !to || from == to || to->agent() || from->off_the_record() ||
+  // No tab moves into an agent's Space, which would put it in the agent's reach, unless the user
+  // gives it, and Chrome never moves a page between incognito and regular windows.
+  if (!from || !to || from == to || to->agent() != to_agent || from->off_the_record() ||
       to->off_the_record() || DeletingSpaces().contains(space)) {
     return;
   }

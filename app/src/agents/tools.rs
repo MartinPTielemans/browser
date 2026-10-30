@@ -287,6 +287,7 @@ pub fn describe(action: &str) -> &'static str {
         "released" => "Let go of the tab",
         "taken back" => "You took the tab over",
         "handed back" => "You handed the tab back",
+        "given" => "You gave it a tab",
         "stopped" => "You stopped it",
         "hand_off" => "Handed you a tab",
         "close_tab" => "Closed a tab",

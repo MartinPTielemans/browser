@@ -817,6 +817,8 @@ impl Browser for Fake {
 
     fn hand_back(&self, _: u64, _: &mut App) {}
 
+    fn give_to_agent(&self, _: u64, _: u64, _: &mut App) {}
+
     fn stop_agent(&self, _: SharedString, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}
