@@ -245,9 +245,9 @@ pub trait Browser {
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
-    /// Makes an empty Space named `name` after the others, in `profile` if it isn't 0, and returns
-    /// it.
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64;
+    /// Makes an empty Space named `name` right after `after`, else after the others, in `profile`
+    /// if it isn't 0, and returns it.
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
     /// title for an empty one.

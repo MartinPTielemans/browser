@@ -9,7 +9,7 @@ use super::{
     CARD_SLOT, CARD_SLOT_X, CARD_WIDTH, SPACES_INSET, card_x,
 };
 use crate::icon_picker::Subject;
-use crate::shell::{Naming, Pending, Section, Shell, recorder::Recorder};
+use crate::shell::{Command, Naming, Pending, Section, Shell, recorder::Recorder};
 
 /// A window with the Library open on Spaces, at rest, over the Spaces Home and Work, Home shown.
 fn library(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
@@ -186,6 +186,19 @@ fn the_brush_opens_the_theme_picker(cx: &mut TestAppContext) {
     let pending = shell.read_with(cx, |shell, _| shell.picker_pending.map(|(picker, _)| picker));
     assert_eq!(pending, Some(Pending::Theme(1)));
     assert_eq!(renaming_in_card(&shell, cx), None, "the brush renamed");
+}
+
+/// The command bar's Edit Theme…, Arc's, is the first command "theme" finds, and opens the theme
+/// picker for the Space shown, as its menu's Edit Theme Color… does, once the Library has gone.
+#[gpui::test]
+fn edit_theme_in_the_command_bar_opens_the_theme_picker(cx: &mut TestAppContext) {
+    let keys = crate::shell::UserKeys::default();
+    let found = crate::shell::find_commands("theme", &keys, |name, _| Some(name));
+    assert_eq!(found.first().map(|row| row.command), Some(Command::EditTheme));
+    let (shell, cx, _) = library(cx);
+    shell.update(cx, |shell, cx| shell.run(Command::EditTheme, "command-bar", cx));
+    let pending = shell.read_with(cx, |shell, _| shell.picker_pending.map(|(picker, _)| picker));
+    assert_eq!(pending, Some(Pending::Theme(1)));
 }
 
 /// Whether each card's field was last drawn with its plate, dashes and brush, by Space.
