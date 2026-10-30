@@ -92,6 +92,7 @@ pub extern "C" fn host_show_menu_window(
     );
     // The menu draws its panels' corners and shadows inside its window.
     gpui_linux::show_overlay(menu.view, ui_view, bounds, px(0.), true, left_menu);
+    eprintln!("focus-trace: menu is {:#x} over {:#x}", menu.view as usize, ui_view as usize);
     // check.sh reads it.
     eprintln!("browser: menu window at {left:.0},{top:.0} {width:.0}x{height:.0}");
 }
@@ -170,7 +171,8 @@ pub(crate) fn dismiss() -> bool {
 }
 
 /// The user left the menu. GPUI says so once its events are dispatched, outside any update.
-fn left_menu(_: *mut c_void) {
+fn left_menu(view: *mut c_void) {
+    eprintln!("focus-trace: menu {:#x} left", view as usize);
     if SHOWN.get().is_some()
         && let Some(menu) = MENU.get()
     {

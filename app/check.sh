@@ -32,6 +32,7 @@ set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 # Each run starts a new profile, which would play the onboarding first. Only its own run plays it.
 export BROWSER_ONBOARDING=skip
+export BROWSER_FOCUS_TRACE=1
 cd "$(dirname "$0")"
 if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
   # Under Xvfb, as CI runs it (check-linux.yml): a 1280 by 800 screen, as the sway session's

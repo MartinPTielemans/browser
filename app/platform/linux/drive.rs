@@ -81,6 +81,9 @@ pub fn start() {
     // Its events are the pointer the app has, as the X server's own, which it never moves, would
     // otherwise come and go under GPUI's pointer as windows change around it.
     gpui_linux::drive_pointer();
+    if std::env::var_os("BROWSER_FOCUS_TRACE").is_some() {
+        std::thread::spawn(trace_focus);
+    }
     std::thread::spawn(|| {
         let mut number = 0;
         for line in std::io::stdin().lock().lines() {
@@ -96,6 +99,52 @@ pub fn start() {
             }));
         }
     });
+}
+
+/// Diagnosis only: logs each focus change on the root's children, the browser windows and the
+/// overlays, with what has the input focus after it, in order with the app's log.
+fn trace_focus() {
+    let Ok((x, screen)) = x11rb::connect(None) else { return };
+    let root = x.setup().roots[screen].root;
+    let watch = |window: xproto::Window| {
+        let mask = EventMask::FOCUS_CHANGE | EventMask::STRUCTURE_NOTIFY;
+        _ = x.change_window_attributes(window, &ChangeWindowAttributesAux::new().event_mask(mask));
+    };
+    let mask = EventMask::SUBSTRUCTURE_NOTIFY;
+    _ = x.change_window_attributes(root, &ChangeWindowAttributesAux::new().event_mask(mask));
+    if let Ok(Ok(tree)) = x.query_tree(root).map(|c| c.reply()) {
+        tree.children.iter().copied().for_each(watch);
+    }
+    _ = x.flush();
+    let top = |mut window: xproto::Window| -> xproto::Window {
+        while window > 1 {
+            let Ok(Ok(tree)) = x.query_tree(window).map(|c| c.reply()) else { break };
+            if tree.parent == root || tree.parent == x11rb::NONE {
+                break;
+            }
+            window = tree.parent;
+        }
+        window
+    };
+    loop {
+        let Ok(event) = x.wait_for_event() else { return };
+        let (what, window, mode, detail) = match event {
+            Event::CreateNotify(e) => {
+                watch(e.window);
+                _ = x.flush();
+                eprintln!("focus-trace: created {:#x} override {}", e.window, e.override_redirect);
+                continue;
+            }
+            Event::FocusIn(e) => ("in", e.event, e.mode, e.detail),
+            Event::FocusOut(e) => ("out", e.event, e.mode, e.detail),
+            _ => continue,
+        };
+        let focus = x.get_input_focus().ok().and_then(|c| c.reply().ok()).map_or(0, |f| f.focus);
+        eprintln!(
+            "focus-trace: {what} {window:#x} {mode:?} {detail:?}, focus now {focus:#x} in {:#x}",
+            top(focus)
+        );
+    }
 }
 
 /// Runs `task` on the main thread once nothing more urgent is ready, such as the X events Chromium
