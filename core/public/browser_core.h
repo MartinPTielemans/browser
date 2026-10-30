@@ -742,6 +742,9 @@ typedef struct bc_host {
   // for the agent; else a screenshot's JPEG in base64, or for every other action the page's
   // accessibility tree, DevTools' Accessibility.getFullAXTree nodes as a JSON array.
   void (*agent_page_done)(void* context, bc_id tab, uint64_t request, const char* text, bool error);
+  // On Linux: |window| became the active one. Under X11 the UI's window in it hears nothing of that
+  // when the keyboard goes to the page, as a click on another window's page gives it.
+  void (*window_activated)(void* context, bc_id window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

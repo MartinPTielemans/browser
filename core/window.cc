@@ -2183,6 +2183,9 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
       SessionChanged();
     }
     UnloadIdleTabsSoon();
+    if (Host().window_activated) {
+      Host().window_activated(Host().context, id_);
+    }
   }
   ReportActiveBrowser();
 }

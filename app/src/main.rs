@@ -5296,6 +5296,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        #[cfg(target_os = "linux")]
+        window_activated: Some(window_activated),
         ..Default::default()
     };
     (args, host)
@@ -5341,6 +5343,17 @@ unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f6
     if let Some(ui_view) = ui_view_of(window) {
         gpui_linux::resize_embedded(ui_view, width as f32, height as f32);
     }
+}
+
+/// The browser window became active, as GPUI's window in it doesn't hear under X11 when a click
+/// in the page gives it the keyboard. After, as the core can tell of it inside the app's own call.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
+    update_app_later(move |_| {
+        if let Some(ui_view) = ui_view_of(window) {
+            key_window_changed(ui_view);
+        }
+    });
 }
 
 /// Under Wayland the window's input method composes `text` in the UI's text field that has the keys.
