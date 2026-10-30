@@ -5,13 +5,16 @@
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites cards extensions adblock adblock-lists windows private capture passwords
 #   links preview access trouble dialogs crash import quit onboarding passkeys mcp appearance
+#   about
 # The store run installs from Google's Web Store, adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
 # need the network and run only when named: ./check.sh store.
-# Updates runs only when named too, until it passes on the Mac.
+# Updates runs only when named too, until it passes on the Mac. So does keychain, which uses the
+# real Keychain, on the prod build and only in a check VM.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
-# take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
-# build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
+# take it full screen for a moment. Passkeys is the Mac's alone so far. Updates makes
+# build/Updates.app on the Mac, a copy with Sparkle and a feed of its own (build.sh updates), and
+# ilo's Flatpak on Linux, which a repository of the run's own updates (check/updates.sh).
 # In a check VM the check turns the Mac's appearance dark for the runs, which read the window's
 # dark look, and puts back the one it had after.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
@@ -60,8 +63,8 @@ fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
 runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
-runs="$runs appearance"
-named="store adblock-live widevine updates"
+runs="$runs appearance about"
+named="store adblock-live widevine updates keychain"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
@@ -125,7 +128,7 @@ if os.path.exists(sys.argv[1]):
     with open(sys.argv[1]) as f:
         prefs = json.load(f)
 prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = "\"right\""
-prefs.setdefault("download", {}).update(default_directory=sys.argv[2], prompt_for_download=False)
+prefs.setdefault("download", {})["default_directory"] = sys.argv[2]
 prefs.setdefault("extensions", {})["pinned_extensions"] = []
 exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
 for kind in ("window_placement", "permission_autoblocking_data"):

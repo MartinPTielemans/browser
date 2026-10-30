@@ -796,6 +796,8 @@ impl Browser for Fake {
     fn open_page(&self, _: &str, _: &mut App) {}
     fn site_search_settings(&self, _: &mut App) {}
 
+    fn clear_browsing_data(&self, _: &mut App) {}
+
     fn close_other_window(&self, _: &mut App) -> bool {
         false
     }

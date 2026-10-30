@@ -27,6 +27,7 @@
 #include "base/values.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/archive.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
 #include "browser_core/space.h"
@@ -806,6 +807,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
     }
     // The profile the browser started in loaded before the settings were read.
     ApplyAdBlocking();
+    ArchiveDefaultRead();
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
     if (saved) {

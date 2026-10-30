@@ -628,6 +628,7 @@ fn keystroke_text(keystroke: &Keystroke) -> String {
             text.push_str(name);
         }
     }
+    // Off the Mac the extensions' keys are written as the page's: cmd-y for ctrl-y.
     written_as(&(text + &keystroke.key))
 }
 

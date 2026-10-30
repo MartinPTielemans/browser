@@ -1,5 +1,5 @@
 //! The window over the page that draws Add Split View's targets while a tab dragged out of the
-//! sidebar is over it (`Shell::drop_targets`). As the zoom HUD is, it's a window of its own that
+//! sidebar is over it, and the agent's pointer (`Shell::over_page`). As the zoom HUD is, it's a window of its own that
 //! the host shows over the browser window, as its child, and the mouse goes through it, so the
 //! drag goes on in the browser window.
 
@@ -82,7 +82,7 @@ pub fn show(shown: bool, ui_view: *mut c_void, cx: &mut App) {
 impl Render for DropTargets {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         match self.shell.upgrade() {
-            Some(shell) => shell.read(cx).drop_targets(window),
+            Some(shell) => shell.read(cx).over_page(window, cx),
             None => div().into_any_element(),
         }
     }

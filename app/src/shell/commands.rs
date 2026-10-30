@@ -188,12 +188,17 @@ pub enum Command {
     /// Opens Chromium's search engines page in a new tab, where the profile's site searches are
     /// added and edited: each a name, a keyword and a URL with %s for the query.
     SiteSearchSettings,
+    /// Opens Chrome's Clear browsing data dialog in a new tab, for the Space's profile, as Arc's
+    /// Settings › Profiles does for each profile.
+    ClearBrowsingData,
     /// Opens the Settings window, or brings it to the front.
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
     KeyboardShortcuts,
     /// Opens the Settings window on its About tab: the version, the engine's and the credits.
     About,
+    /// Asks the updater to look, or says where the update stands, in a build that updates itself.
+    CheckForUpdates,
     /// Opens the Settings window on its Import tab.
     Import,
     /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
@@ -290,6 +295,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
     ("cmd-y", Command::ViewHistory, false),
+    ("shift-cmd-backspace", Command::ClearBrowsingData, false),
     // ⌃+ is ⌃⇧= on most layouts, as ⌘+ is.
     ("ctrl-+", Command::AddSplit, false),
     ("ctrl-shift-=", Command::AddSplit, false),
@@ -410,9 +416,12 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("View Media…", Command::ViewMedia, &["screenshots", "captures"]),
     ("View History", Command::ViewHistory, &[]),
     ("Site Search Settings", Command::SiteSearchSettings, &["search engines", "keywords"]),
+    ("Clear Browsing Data…", Command::ClearBrowsingData, &["history", "cookies", "cache"]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
     (concat!("About ", env!("APP_NAME")), Command::About, &["version", "credits", "licence"]),
+    // The app menu's, which Linux shows no bar for.
+    ("Check for Updates…", Command::CheckForUpdates, &["update", "upgrade"]),
     ("Import from Other Browsers…", Command::Import, &["bookmarks"]),
     ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
@@ -789,12 +798,14 @@ impl Command {
             Command::PreviousPane => "previous-pane",
             Command::ViewHistory => "view-history",
             Command::SiteSearchSettings => "site-search-settings",
+            Command::ClearBrowsingData => "clear-browsing-data",
             Command::Appearance(Appearance::Automatic) => "appearance-automatic",
             Command::Appearance(Appearance::Light) => "appearance-light",
             Command::Appearance(Appearance::Dark) => "appearance-dark",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::About => "about",
+            Command::CheckForUpdates => "check-for-updates",
             Command::Import => "import",
             Command::Passwords => "passwords",
             Command::Welcome => "welcome",
@@ -837,6 +848,12 @@ pub fn bind_keys(cx: &mut App) {
         // answered first, as an alert's does.
         if crate::dialog::asking(cx) {
             return;
+        }
+        // A shortcut in the UI opens its field before GPUI has read the keys typed after it, which
+        // it holds for the field under Wayland, as for one the page has (gpui_linux::hold_keys).
+        #[cfg(target_os = "linux")]
+        if run.0.opens_field() {
+            gpui_linux::hold_keys(None);
         }
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
             shell
@@ -1034,8 +1051,10 @@ impl Shell {
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
             Command::SiteSearchSettings => return self.browser.site_search_settings(cx),
+            Command::ClearBrowsingData => return self.browser.clear_browsing_data(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
             Command::About => return self.browser.about(cx),
+            Command::CheckForUpdates => return self.browser.check_for_updates(cx),
             Command::Import => return self.browser.import(cx),
             Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
@@ -1438,6 +1457,7 @@ impl Shell {
                 self.selected != 0 && !favorite && !self.sidebar_hidden
             }
             Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
+            Command::CheckForUpdates => self.browser.updates(),
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
             Command::NewFolder
@@ -1461,6 +1481,7 @@ impl Shell {
             | Command::AddExtension
             | Command::ViewHistory
             | Command::SiteSearchSettings
+            | Command::ClearBrowsingData
             | Command::KeyboardShortcuts
             | Command::About
             | Command::Import
@@ -1586,6 +1607,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ViewMedia
             | Command::ViewHistory
             | Command::SiteSearchSettings
+            | Command::ClearBrowsingData
             | Command::ManageExtensions
             | Command::AddExtension
             | Command::ToggleDeveloperMode
@@ -1828,6 +1850,52 @@ mod tests {
         assert_eq!(host.site_search_settings.get(), 1);
         private.update(cx, |shell, cx| shell.run(Command::SiteSearchSettings, "bar", cx));
         assert_eq!(host.site_search_settings.get(), 1, "a private window opened it");
+    }
+
+    /// ⇧⌘⌫ and the bar open Chrome's Clear browsing data dialog for the Space's profile, as Dia's
+    /// ⇧⌘⌫ does. A page may keep the key, as Chrome's isn't reserved. A private window's session
+    /// keeps nothing once it ends, so it offers none.
+    #[gpui::test]
+    fn clear_browsing_data_opens_from_its_key_and_the_bar_but_not_in_a_private_window(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui::AppContext as _;
+
+        use crate::shell::{Browser, recorder::Recorder};
+
+        let keys = UserKeys::default();
+        let key = "shift-cmd-backspace";
+        assert_eq!(keys.command_for(key, false), Some(Command::ClearBrowsingData));
+        assert_eq!(keys.command_for(key, true), None);
+        assert_eq!(keys.label(Command::ClearBrowsingData).as_deref(), Some("⇧⌘⌫"));
+
+        let host = Rc::new(Recorder::default());
+        let browser: Rc<dyn Browser> = host.clone();
+        let regular = cx.new(|cx| Shell::new(browser.clone(), cx));
+        let private =
+            cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
+        let found = |shell: &gpui::Entity<Shell>, typed: &str, cx: &mut gpui::TestAppContext| {
+            shell.read_with(cx, |shell, cx| {
+                find_commands(typed, &UserKeys::default(), |name, command| {
+                    shell.bar_name(name, command, cx)
+                })
+                .into_iter()
+                .map(|row| row.name.to_string())
+                .collect::<Vec<_>>()
+            })
+        };
+        let name = "Clear Browsing Data…".to_string();
+        for typed in ["clear browsing", "cookies"] {
+            assert!(found(&regular, typed, cx).contains(&name), "{typed}");
+            assert!(!found(&private, typed, cx).contains(&name), "{typed}");
+        }
+
+        regular.update(cx, |shell, cx| shell.run(Command::ClearBrowsingData, "key", cx));
+        assert_eq!(host.clear_browsing_data.get(), 1);
+        private.update(cx, |shell, cx| shell.run(Command::ClearBrowsingData, "key", cx));
+        assert_eq!(host.clear_browsing_data.get(), 1, "a private window opened it");
     }
 
     /// ⌥⌘V opens the clipboard's web link as a tab at the top of Today, and text that isn't one

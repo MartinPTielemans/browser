@@ -64,6 +64,9 @@ pub(super) struct Recorder {
     pub(super) default_browser: Cell<bool>,
     /// The system it says it runs on, the Mac unless a test says.
     pub(super) os: Cell<Option<crate::default_browser::Os>>,
+    /// The build updates itself, as `updates` answers, and how often Check for Updates ran.
+    pub(super) updates: Cell<bool>,
+    pub(super) checked_for_updates: Cell<usize>,
     /// The import finds no browser on the machine.
     pub(super) no_browsers: Cell<bool>,
     /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
@@ -114,6 +117,7 @@ pub(super) struct Recorder {
     pub(super) bar_open: Cell<bool>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
+    pub(super) clear_browsing_data: Cell<usize>,
     /// The pages `open_page` opened, in order.
     pub(super) opened_pages: RefCell<Vec<String>>,
     /// The text `copy` put on the clipboard, in order.
@@ -714,6 +718,10 @@ impl Browser for Recorder {
         self.site_search_settings.set(self.site_search_settings.get() + 1);
     }
 
+    fn clear_browsing_data(&self, _: &mut App) {
+        self.clear_browsing_data.set(self.clear_browsing_data.get() + 1);
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         Default::default()
     }
@@ -1076,6 +1084,14 @@ impl Browser for Recorder {
     fn shortcuts(&self, _: &mut App) {}
 
     fn about(&self, _: &mut App) {}
+
+    fn updates(&self) -> bool {
+        self.updates.get()
+    }
+
+    fn check_for_updates(&self, _: &mut App) {
+        self.checked_for_updates.set(self.checked_for_updates.get() + 1);
+    }
 
     fn import(&self, _: &mut App) {}
 
