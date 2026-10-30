@@ -65,6 +65,9 @@ impl Host for Recorder {
     fn set_ad_blocking(&self, tab: u64, on: bool) {
         self.push(format!("ad blocking {tab} {on}"));
     }
+    fn set_developer_mode(&self, tab: u64, on: bool) {
+        self.push(format!("developer mode {tab} {on}"));
+    }
     fn run(&self, run: Run, tab: u64, _: &mut App) {
         let run = match run {
             Run::Command(command) => format!("{command:?}"),
@@ -82,6 +85,7 @@ impl Host for Recorder {
             Run::Certificate => "certificate".into(),
             Run::RemoveLogin(login) => format!("remove login {} {}", login.site, login.username),
             Run::Passwords => "passwords".into(),
+            Run::ExtensionItem(id, item) => format!("extension {id} {item:?}"),
         };
         self.push(format!("run {run} {tab}"));
     }
@@ -143,6 +147,7 @@ fn site() -> Site {
         reset: Some("Reset permissions".into()),
         system_engine: None,
         ad_blocking: None,
+        developer_mode: None,
         logins: vec![],
     }
 }
@@ -157,7 +162,15 @@ fn login(username: &str, never: bool) -> Login {
 }
 
 fn extension() -> Extension {
-    Extension { id: "abc".into(), title: "Notes".into(), icon: None, enabled: true }
+    Extension {
+        id: "abc".into(),
+        title: "Notes".into(),
+        icon: None,
+        enabled: true,
+        pinned: false,
+        options: true,
+        removable: true,
+    }
 }
 
 fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
@@ -226,6 +239,13 @@ impl Panel {
 
     fn click(&mut self, (x, y): (f32, f32)) {
         self.cx.simulate_click(point(px(x), px(y)), Modifiers::none());
+        self.cx.run_until_parked();
+    }
+
+    fn right_click(&mut self, (x, y): (f32, f32)) {
+        let position = point(px(x), px(y));
+        self.cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::none());
+        self.cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::none());
         self.cx.run_until_parked();
     }
 
@@ -404,6 +424,46 @@ fn an_extension_runs_as_its_toolbar_button(cx: &mut TestAppContext) {
     panel.calls();
     panel.click(EXTENSION);
     panel.ran("extension abc 98 170 48 32");
+}
+
+/// A right-click on a tile gives its menu: Move to Top, which the first tile has done, then the
+/// pinned action's items. Pinning keeps the panel, whose grid the core redraws.
+#[gpui::test]
+fn a_right_click_on_a_tile_gives_its_menu(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    let each =
+        |id: &str, pinned: bool| Extension { id: id.to_string().into(), pinned, ..extension() };
+    let blocker = Extension { options: false, removable: false, ..each("def", false) };
+    panel.cx.cx.update(|cx| set_extensions(TAB, vec![each("abc", true), blocker], cx));
+    panel.cx.run_until_parked();
+    panel.calls();
+    panel.host.answer.set(Some(2));
+    panel.right_click(EXTENSION);
+    assert_eq!(
+        panel.calls(),
+        [
+            "menu Move to Top, , Unpin, Options, Remove, Manage Extension",
+            "run extension abc Unpin 7"
+        ]
+    );
+    panel.host.answer.set(Some(0));
+    panel.right_click(ADD);
+    assert_eq!(
+        panel.calls(),
+        ["menu Move to Top, , Pin, Manage Extension", "run extension def MoveToTop 7"]
+    );
+}
+
+/// Remove closes the panel for the browser window's dialog, which asks first.
+#[gpui::test]
+fn a_tiles_remove_closes_the_panel_to_ask(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    panel.calls();
+    panel.host.answer.set(Some(4));
+    panel.right_click(EXTENSION);
+    let calls = panel.calls();
+    assert_eq!(calls[0], "menu Move to Top, , Pin, Options, Remove, Manage Extension");
+    assert_eq!(calls[1..], ["release", "stop", "run extension abc Remove 7", "hide"]);
 }
 
 /// The core reports the unpinned extensions once the panel opens, and the grid takes them, four to
@@ -719,6 +779,23 @@ fn the_first_row_turns_ad_blocking_off_for_the_site(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
 }
 
+/// Developer Mode's row comes after ad blocking's and turns it the other way for the site; the core
+/// reports the site again with it.
+#[gpui::test]
+fn developer_mode_s_row_turns_it_on_and_off_for_the_site(cx: &mut TestAppContext) {
+    let site = Site { ad_blocking: Some(true), developer_mode: Some(true), ..site() };
+    let mut panel = Panel::new(cx, site.clone());
+    assert_eq!(panel.calls(), ["show 88 78.5 236 481.5"]);
+    panel.click(row(1));
+    assert_eq!(panel.calls(), [format!("developer mode {TAB} false")]);
+    panel.changed(Site { developer_mode: Some(false), ..site });
+    panel.click(row(1));
+    assert_eq!(panel.calls(), [format!("developer mode {TAB} true")]);
+    // Ad blocking's row stays first.
+    panel.click(row(0));
+    assert_eq!(panel.calls(), [format!("ad blocking {TAB} false")]);
+}
+
 /// Where it isn't the user's to change, such as a private window, the row isn't there.
 #[gpui::test]
 fn without_a_say_there_is_no_ad_blocking_row(cx: &mut TestAppContext) {
@@ -736,9 +813,12 @@ fn the_log_names_each_permission_and_its_value(_: &mut TestAppContext) {
     assert_eq!(described, format!("example.com: Connection is secure; {permissions}"));
     let bare = Site { permissions: Vec::new(), reset: None, ..site() };
     assert_eq!(describe(&bare), "example.com: Connection is secure; no permissions");
-    // Ad blocking is its first row, which check.sh counts.
-    let blocking = Site { ad_blocking: Some(false), ..bare };
+    // Ad blocking is its first row, which check.sh counts, and Developer Mode the next.
+    let blocking = Site { ad_blocking: Some(false), ..bare.clone() };
     assert_eq!(describe(&blocking), "example.com: Connection is secure; Ad blocking Off");
+    let developer = Site { developer_mode: Some(true), ..blocking };
+    let described = "example.com: Connection is secure; Ad blocking Off, Developer Mode On";
+    assert_eq!(describe(&developer), described);
 }
 
 #[gpui::test]

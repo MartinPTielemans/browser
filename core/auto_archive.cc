@@ -13,6 +13,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/wall_clock_timer.h"
+#include "browser_core/host.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
@@ -62,6 +63,15 @@ void ForEachUnseen(base::FunctionRef<void(bc_id, Tab*)> each) {
 
 void Schedule();
 
+// Whether auto-archive has taken tabs since the launch, for the note on them.
+bool g_archived = false;
+
+void NoteChanged() {
+  if (Host().archive_note_changed) {
+    Host().archive_note_changed(Host().context);
+  }
+}
+
 void ArchiveDue() {
   if (browser_shutdown::IsTryingToQuit()) {
     return;
@@ -81,6 +91,12 @@ void ArchiveDue() {
   for (bc_id id : due) {
     Window::CloseTab(id);
   }
+  if (!due.empty() && !g_archived) {
+    g_archived = true;
+    if (!UserSettings().archive_noted) {
+      NoteChanged();
+    }
+  }
   Schedule();
 }
 
@@ -99,6 +115,19 @@ void Schedule() {
 }
 
 }  // namespace
+
+bool ArchiveNoteShown() {
+  return g_archived && !UserSettings().archive_noted;
+}
+
+void DismissArchiveNote() {
+  if (!ArchiveNoteShown()) {
+    return;
+  }
+  UserSettings().archive_noted = true;
+  SessionChanged();
+  NoteChanged();
+}
 
 void ScheduleAutoArchive() {
   if (g_schedule_posted) {

@@ -243,6 +243,9 @@ struct Asked {
     /// The button under the pointer, and the one the last frame drew so.
     hovered: Option<&'static str>,
     drawn_hover: Option<&'static str>,
+    /// The button held down, and the one the last frame drew so.
+    pressed: Option<&'static str>,
+    drawn_press: Option<&'static str>,
     /// Where each button was said to be drawn, in the browser window.
     buttons_drawn: Rc<RefCell<HashMap<&'static str, Point<Pixels>>>>,
 }
@@ -349,6 +352,7 @@ pub fn ask_in(
     cx: &mut App,
 ) {
     let question = destructive(message, detail, action);
+    let confirmed = Box::new(move |_, cx: &mut App| confirmed(cx));
     dialog.update(cx, |dialog, cx| dialog.pose(question, confirmed, window, cx));
 }
 
@@ -380,6 +384,11 @@ pub fn asking(cx: &App) -> bool {
         .is_some_and(|dialog| dialog.asked.is_some())
 }
 
+/// Whether `pose` asks now: there's a dialog to ask in, and it isn't asking another question.
+pub fn can_pose(cx: &App) -> bool {
+    cx.try_global::<DialogWindow>().is_some() && !asking(cx)
+}
+
 /// Asks `message`, with `detail` under it, and calls `confirmed` if the user chooses `action`
 /// over Cancel, once the dialog has gone. The action is red, as what it does is hard to take
 /// back. Nothing while another dialog shows.
@@ -390,7 +399,7 @@ pub fn ask(
     confirmed: Box<dyn FnOnce(&mut App)>,
     cx: &mut App,
 ) {
-    pose(destructive(message, detail, action), confirmed, cx);
+    pose(destructive(message, detail, action), Box::new(move |_, cx| confirmed(cx)), cx);
 }
 
 /// Whether to do `action`, in red, or cancel.
@@ -410,9 +419,9 @@ fn destructive(message: String, detail: String, action: &'static str) -> Questio
     }
 }
 
-/// Asks `question`, and calls `confirmed` if the user chooses its action, once the dialog has
-/// gone. Nothing while another dialog shows.
-pub fn pose(question: Question, confirmed: Box<dyn FnOnce(&mut App)>, cx: &mut App) {
+/// Asks `question`, and calls `confirmed` with what its fields hold if the user chooses its action,
+/// once the dialog has gone. Nothing while another dialog shows.
+pub fn pose(question: Question, confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>, cx: &mut App) {
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
     };
@@ -453,6 +462,15 @@ pub fn withdraw_chrome(cx: &mut App) {
         return;
     };
     window.update(cx, |dialog, _, cx| dialog.withdraw(Source::Chrome, cx)).ok();
+}
+
+/// For the drivers, as AppKit's alerts are chosen on the Mac: answers with the button `label` names
+/// in the dialog that shows, as a click on it would. Returns whether it shows one.
+pub fn choose(label: &str, cx: &mut App) -> bool {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        return false;
+    };
+    window.update(cx, |dialog, _, cx| dialog.choose(label, cx)).unwrap_or(false)
 }
 
 /// Asks a page's `question`, the dialog `id` of `tab`, over its tab's card, `over` in the window
@@ -514,7 +532,7 @@ impl Dialog {
     fn pose(
         &mut self,
         question: Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -523,7 +541,7 @@ impl Dialog {
         }
         let answered = Box::new(move |reply: Reply, cx: &mut App| {
             if reply.accept {
-                confirmed(cx);
+                confirmed(reply.texts, cx);
             }
         });
         let request = Request { question, source: Source::User, over: None, page: None, answered };
@@ -571,6 +589,8 @@ impl Dialog {
             _leave: None,
             hovered: None,
             drawn_hover: None,
+            pressed: None,
+            drawn_press: None,
             buttons_drawn: Rc::default(),
         });
         self.host.show(over.map(|(over, _)| over));
@@ -587,6 +607,15 @@ impl Dialog {
         } else if asked.hovered == Some(name) {
             asked.hovered = None;
         }
+        cx.notify();
+    }
+
+    /// The button `name` was pressed, or let go of anywhere.
+    fn press(&mut self, name: &'static str, pressed: bool, cx: &mut Context<Self>) {
+        let Some(asked) = &mut self.asked else {
+            return;
+        };
+        asked.pressed = pressed.then_some(name);
         cx.notify();
     }
 
@@ -640,6 +669,21 @@ impl Dialog {
             true => self.answer(Answer::Cancel, cx),
             false => self.answer(Answer::Action, cx),
         }
+    }
+
+    /// The button `label` names was chosen, if the dialog shows one.
+    fn choose(&mut self, label: &str, cx: &mut Context<Self>) -> bool {
+        let Some(asked) = &self.asked else {
+            return false;
+        };
+        let answer = match label {
+            _ if asked.question.action == label => Answer::Action,
+            _ if asked.question.cancel == label => Answer::Cancel,
+            _ if asked.also.as_ref().is_some_and(|also| also == label) => Answer::Also,
+            _ => return false,
+        };
+        self.answer(answer, cx);
+        true
     }
 
     /// The user chose the action, the other answer or Cancel. The dialog leaves, and then what
@@ -809,6 +853,11 @@ impl Render for Dialog {
             asked.drawn_hover = asked.hovered;
             log!("browser: dialog hover {}", asked.hovered.unwrap_or("none"));
         }
+        // As the hover line, for a capture of the button held down.
+        if asked.pressed != asked.drawn_press {
+            asked.drawn_press = asked.pressed;
+            log!("browser: dialog pressed {}", asked.pressed.unwrap_or("none"));
+        }
         let question = &asked.question;
         let palette = palette::current(cx);
         let page = asked.source == Source::Page;
@@ -901,6 +950,18 @@ impl Render for Dialog {
             .relative()
             .child(button_frame("confirm", asked))
             .on_hover(cx.listener(|dialog, hovered, _, cx| dialog.hover("confirm", *hovered, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", true, cx)),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", false, cx)),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|dialog, _, _, cx| dialog.press("confirm", false, cx)),
+            )
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
         });
         let list = question.list.iter().map(|(line, sublines)| {

@@ -75,9 +75,10 @@ exec 3>&-
 quit
 
 # Dark: a key skips the intro, Skip at the window's bottom right leaves the import, and the colour
-# step's → and Return give the first Space the first swatch.
+# step's → and Return give the first Space the first swatch. The key goes in as soon as the intro
+# settles, with no capture first, as the intro goes on by itself after 3.4 s; the light pass
+# captures it.
 launch_new dark
-capture_step dark-intro
 send key a
 expect '^browser: onboarding left intro via key$' "dark: a key didn't skip the intro"
 expect '^browser: onboarding step import settled$' "dark: the import step didn't come"

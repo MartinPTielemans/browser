@@ -4,8 +4,9 @@
 # handler included. Nor does one outlive a quit.
 # Nothing goes to the crash collector, check/collector.py, while Send Crash Reports is off, as it is
 # at first: the next launch offers to send that crash's report in a toast, and keeps it. On, the
-# next launch sends the report, the minidump alone, without cookies, and deletes
-# it once the collector has it. One the collector refuses waits for the next launch, and turning
+# next launch sends the report, the minidump and Sentry's field saying to keep no IP address,
+# without cookies and with no annotation naming the profile's folder or the home, and deletes it
+# once the collector has it. One the collector refuses waits for the next launch, and turning
 # the switch off in Settings › Privacy deletes it, which only the Mac's run clicks so far.
 
 log="$out/crash.log"
@@ -22,7 +23,13 @@ prefs.setdefault("profile", {})["exit_type"] = "Normal"
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" || fail "the session couldn't be marked clean in $prefs"
-python3 -I check/collector.py "$out/collector-port" > "$out/collector.log" 2>&1 &
+# What no annotation may have: the switch that gives the profile, its folder and the home, which
+# have the user's name, as Windows writes them there.
+profile=$(dirname "$saved")
+home=$HOME
+! windows || { profile=$(cygpath -w "$profile") && home=$(cygpath -w "$HOME"); }
+python3 -I check/collector.py "$out/collector-port" --user-data-dir "$profile" "$home" \
+  > "$out/collector.log" 2>&1 &
 collector=$!
 for _ in $(seq 50); do
   [ -s "$out/collector-port" ] && break
@@ -125,7 +132,7 @@ send click $page_point
 if [ "$(uname)" = Darwin ] && [ "$active" = 1 ]; then
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings"
-  send clickkey 458 60
+  send clickkey 402 60
   expect '^browser: settings tab Privacy$' "a click on Privacy didn't show its tab"
   ../tools/window-screenshot.sh "$pid" "$out/privacy.png" || fail "no window to capture"
   send clickkey 592 133
@@ -146,6 +153,9 @@ fi
 exec 3>&-
 quit
 kill "$collector" 2>/dev/null || true
+annotations=$(grep -m1 '^annotations ' "$out/collector.log" | cut -d' ' -f2-)
 echo "ok: the crash left a minidump of $bytes bytes, which the next launch offered to send and" \
-  "kept with Send Crash Reports off, and sent with it on, and deleted once the collector had it." \
+  "kept with Send Crash Reports off, and sent with it on, and deleted once the collector had it," \
+  "with Sentry's field to keep no IP address and annotations naming neither the profile nor the" \
+  "home: $annotations." \
   "One the collector refused waited.$turned_off Windows: $windows"

@@ -14,10 +14,10 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, ClickEvent, Context, FocusHandle, Global, Image, KeyBinding, PathBuilder, Pixels,
-    Point, SharedString, Size, Task, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, canvas, div, img,
-    linear_color_stop, linear_gradient, point, prelude::*, px, size, svg,
+    App, Bounds, ClickEvent, Context, FocusHandle, Global, Image, KeyBinding, MouseButton,
+    MouseDownEvent, PathBuilder, Pixels, Point, SharedString, Size, Task, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
+    canvas, div, img, linear_color_stop, linear_gradient, point, prelude::*, px, size, svg,
 };
 
 use crate::{
@@ -77,6 +77,9 @@ const ENGINE_NAME: &str = "Safari's engine";
 const AD_BLOCKING: &str = "icons/shield.svg";
 /// Ours: the site's logins, in place of Chrome's key icon and its manage bubble.
 const PASSWORDS: &str = "icons/key-round.svg";
+/// Ours: Developer Mode's row, as Arc's panel's isn't recorded, and its command's in the bar.
+const DEVELOPER_MODE: &str = "icons/square-code.svg";
+const DEVELOPER_MODE_NAME: &str = "Developer Mode";
 const PASSWORDS_NAME: &str = "Passwords";
 use crate::tokens::site_controls::MANAGED_OPACITY;
 use crate::tokens::site_controls::DIVIDER;
@@ -179,6 +182,9 @@ pub struct Site {
     /// there: a page that isn't http(s), one Safari's engine shows, a private window, or with
     /// blocking off in Settings.
     pub ad_blocking: Option<bool>,
+    /// Whether the site's tabs show in Developer Mode, none where that isn't the user's to change:
+    /// a page that isn't http(s), or a private window.
+    pub developer_mode: Option<bool>,
 }
 
 /// A turned-on extension, as its action is for the tab's page.
@@ -189,6 +195,70 @@ pub struct Extension {
     pub icon: Option<Arc<Image>>,
     /// It acts on the page. One that doesn't is dimmed, as in the toolbar.
     pub enabled: bool,
+    /// Its action is pinned at the URL field's end, where the grid's first tiles come from.
+    pub pinned: bool,
+    /// It has an options page, which its menu opens.
+    pub options: bool,
+    /// The user may remove it, which the ad blocker the browser comes with isn't.
+    pub removable: bool,
+}
+
+/// An item of an extension tile's menu, the pinned action's with Move to Top.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExtensionItem {
+    /// Makes its action the first pinned, which pins it if it isn't, so its tile leads the grid.
+    MoveToTop,
+    Pin,
+    Unpin,
+    Options,
+    /// Removes it, once the user confirms in the browser window's dialog.
+    Remove,
+    /// Its details on Chrome's extensions page.
+    Manage,
+}
+
+impl ExtensionItem {
+    /// For the logs.
+    fn name(self) -> &'static str {
+        match self {
+            ExtensionItem::MoveToTop => "move-to-top",
+            ExtensionItem::Pin => "pin",
+            ExtensionItem::Unpin => "unpin",
+            ExtensionItem::Options => "options",
+            ExtensionItem::Remove => "remove",
+            ExtensionItem::Manage => "manage",
+        }
+    }
+
+    /// Whether the panel stays to show the grid it changes; the others close it for what they open.
+    fn stays(self) -> bool {
+        matches!(self, ExtensionItem::MoveToTop | ExtensionItem::Pin | ExtensionItem::Unpin)
+    }
+}
+
+/// The menu of the extension at `index` in the grid: Move to Top, which the first tile has done,
+/// then the pinned action's items, with Pin for an unpinned one.
+fn extension_items(
+    extension: &Extension,
+    index: usize,
+) -> Vec<(MenuEntry, Option<ExtensionItem>)> {
+    let item = |title: &'static str, run: ExtensionItem| (MenuEntry::new(title, true), Some(run));
+    let mut items = vec![
+        (MenuEntry::new("Move to Top", index > 0), Some(ExtensionItem::MoveToTop)),
+        (MenuEntry::line(), None),
+        match extension.pinned {
+            true => item("Unpin", ExtensionItem::Unpin),
+            false => item("Pin", ExtensionItem::Pin),
+        },
+    ];
+    if extension.options {
+        items.push(item("Options", ExtensionItem::Options));
+    }
+    if extension.removable {
+        items.push((MenuEntry::new("Remove", true).destructive(), Some(ExtensionItem::Remove)));
+    }
+    items.push(item("Manage Extension", ExtensionItem::Manage));
+    items
 }
 
 /// What the panel hangs from.
@@ -218,6 +288,8 @@ pub enum Run {
     RemoveLogin(Login),
     /// Every login of the tab's profile, in Settings.
     Passwords,
+    /// An item of the extension's tile's menu.
+    ExtensionItem(SharedString, ExtensionItem),
 }
 
 /// An action tile. Arc's row is Share, Boost, Capture a portion and Capture the full page; the
@@ -364,6 +436,9 @@ pub trait Host {
     /// Blocks ads and trackers on the site or lets them load, and reloads the page. The user's, as
     /// above.
     fn set_ad_blocking(&self, tab: u64, on: bool);
+    /// Turns Developer Mode on or off for the site, in the tab's profile. The user's view: agents
+    /// get none.
+    fn set_developer_mode(&self, tab: u64, on: bool);
     fn run(&self, run: Run, tab: u64, cx: &mut App);
     /// Shows ilo's menu of `items` at `position` in the panel's window, and calls `chosen` once it
     /// closes, with the index of the one chosen, if any.
@@ -398,6 +473,8 @@ struct Open {
     /// The browser window's size, which tooltips stay inside.
     window: Size<Pixels>,
     extensions: Vec<Extension>,
+    /// The grid's order as it last drew, by id.
+    drawn: Vec<SharedString>,
     /// None until the core first reports, which is when it shows.
     site: Option<Site>,
     height: f32,
@@ -491,10 +568,12 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
     }
 }
 
-/// The Settings heading's rows: Safari's engine, ad blocking, Passwords, the permissions, then
-/// Reset.
+/// The Settings heading's rows: Safari's engine, ad blocking, Developer Mode, Passwords, the
+/// permissions, then Reset.
 fn rows(site: &Site) -> usize {
-    let firsts = site.system_engine.is_some() as usize + site.ad_blocking.is_some() as usize;
+    let firsts = site.system_engine.is_some() as usize
+        + site.ad_blocking.is_some() as usize
+        + site.developer_mode.is_some() as usize;
     let logins = passwords::state(&site.logins).is_some() as usize;
     firsts + logins + site.permissions.len() + site.reset.is_some() as usize
 }
@@ -626,6 +705,7 @@ pub fn show(
             beak,
             window,
             extensions,
+            drawn: Vec::new(),
             site: None,
             height: 0.,
             hovered: None,
@@ -718,7 +798,10 @@ pub fn tab_closed(tab: u64, cx: &mut App) {
 fn describe(site: &Site) -> String {
     let ad_blocking = (site.ad_blocking.iter())
         .map(|&on| format!("Ad blocking {}", if on { "On" } else { "Off" }));
+    let developer_mode = (site.developer_mode.iter())
+        .map(|&on| format!("{DEVELOPER_MODE_NAME} {}", if on { "On" } else { "Off" }));
     let permissions: Vec<String> = ad_blocking
+        .chain(developer_mode)
         .chain(
             (site.permissions.iter())
                 .map(|permission| format!("{} {}", permission.name, permission.value.label())),
@@ -948,6 +1031,44 @@ impl SiteControls {
         self.host.menu(items, position, chosen, cx);
     }
 
+    /// Shows the menu of the extension at `index` in the grid at `position`. Pinning and Move to
+    /// Top keep the panel, whose grid the core redraws; the others close it for what they open.
+    fn extension_menu(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(open) = self.open.as_ref().filter(|open| open.closing.is_none()) else {
+            return;
+        };
+        let Some(extension) = open.extensions.get(index) else {
+            return;
+        };
+        let (tab, id) = (open.tab, extension.id.clone());
+        let (items, runs): (Vec<MenuEntry>, Vec<Option<ExtensionItem>>) =
+            extension_items(extension, index).into_iter().unzip();
+        let panel = cx.weak_entity();
+        let chosen = Box::new(move |chosen: Option<usize>, cx: &mut App| {
+            let Some(Some(item)) = chosen.and_then(|index| runs.get(index).copied()) else {
+                return;
+            };
+            panel
+                .update(cx, |panel, cx| {
+                    let open = panel.open.as_ref();
+                    if !open.is_some_and(|open| open.tab == tab && open.closing.is_none()) {
+                        return;
+                    }
+                    let run = Run::ExtensionItem(id.clone(), item);
+                    match item.stays() {
+                        true => {
+                            // check.sh reads this line.
+                            log!("browser: site controls extension {} {id}", item.name());
+                            panel.host.run(run, tab, cx);
+                        }
+                        false => panel.run(&format!("extension {}", item.name()), run, cx),
+                    }
+                })
+                .ok();
+        });
+        self.host.menu(items, position, chosen, cx);
+    }
+
     /// Turns blocking on the site the other way. The core reloads the page and reports the site
     /// again, which redraws the row.
     fn toggle_ad_blocking(&mut self, on: bool, cx: &mut Context<Self>) {
@@ -955,6 +1076,17 @@ impl SiteControls {
             // check.sh reads this line.
             log!("browser: site controls set ad blocking {}", if on { "on" } else { "off" });
             self.host.set_ad_blocking(open.tab, on);
+            cx.notify();
+        }
+    }
+
+    /// Turns Developer Mode for the site the other way. The core reports the site again, which
+    /// redraws the row, and each of its tabs.
+    fn toggle_developer_mode(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Some(open) = self.open.as_ref().filter(|open| open.closing.is_none()) {
+            // check.sh reads this line.
+            log!("browser: site controls set developer mode {}", if on { "on" } else { "off" });
+            self.host.set_developer_mode(open.tab, on);
             cx.notify();
         }
     }
@@ -1071,6 +1203,13 @@ impl SiteControls {
                     .on_click(cx.listener(move |panel, _, _, cx| {
                         panel.run("extension", Run::Extension(id.clone(), tile), cx)
                     }))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |panel, event: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            panel.extension_menu(index, event.position, cx)
+                        }),
+                    )
                     .children((extension.icon.clone()).map(|icon| {
                         let icon = img(icon).size(px(EXTENSION_ICON));
                         icon.when(!extension.enabled, |icon| icon.opacity(ACTION_DIMMED))
@@ -1358,6 +1497,12 @@ impl Render for SiteControls {
             // check.sh reads this line.
             log!("browser: site controls settled");
         }
+        let ids: Vec<SharedString> = (open.extensions.iter()).map(|each| each.id.clone()).collect();
+        if ids != open.drawn {
+            // check.sh reads this line.
+            log!("browser: site controls drew extensions {}", ids.join(" "));
+            open.drawn = ids;
+        }
         let Some(open) = self.open.as_ref() else {
             return root;
         };
@@ -1431,6 +1576,16 @@ impl Render for SiteControls {
                     Self::row(&palette, "site-ad-blocking".into(), y, AD_BLOCKING, on, name, state);
                 let row = row.on_click(
                     cx.listener(move |panel, _, _, cx| panel.toggle_ad_blocking(!on, cx)),
+                );
+                rows.push(row.into_any_element());
+                y += ROW_PITCH;
+            }
+            if let Some(on) = site.developer_mode {
+                let state = Some(if on { "On" } else { "Off" }.into());
+                let (id, name) = ("site-developer-mode".into(), DEVELOPER_MODE_NAME.into());
+                let row = Self::row(&palette, id, y, DEVELOPER_MODE, on, name, state);
+                let row = row.on_click(
+                    cx.listener(move |panel, _, _, cx| panel.toggle_developer_mode(!on, cx)),
                 );
                 rows.push(row.into_any_element());
                 y += ROW_PITCH;

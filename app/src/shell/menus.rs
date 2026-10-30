@@ -1,21 +1,24 @@
 //! The sidebar's menus, a Space's, a tab's, a favorite's, a folder's and the plus
 //! button's, and what their items do.
 
-use gpui::{Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
+use std::sync::Arc;
+
+use gpui::{App, Context, Hsla, Image, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
-    Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
+    AgentGrants, Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
     undo::{Prop, Value},
     user_keys,
 };
 use crate::{
+    dialog::{Field, Question},
     menu::{Highlight, Look, Swatch},
     space_icon::{SpaceIcon, has_icon},
-    theme::Appearance,
+    palette::Tone,
 };
 
 /// ilo's nouns, which stay capitalized in a sentence, as Chrome's Incognito does.
-const PROPER_NOUNS: [&str; 3] = ["Space", "Spaces", "Library"];
+const PROPER_NOUNS: [&str; 4] = ["Space", "Spaces", "Library", "Markdown"];
 
 /// `title`, written in title case, in sentence case, as Chromium's menus and the Windows and GNOME
 /// guidelines write theirs off the Mac, so ilo's menus read as the window's others do there.
@@ -52,6 +55,9 @@ pub struct MenuEntry {
     pub over: bool,
     /// The Space it stands for, whose swatch goes before its title.
     pub swatch: Option<Swatch>,
+    /// Whether it stands for a page, whose favicon goes before its title, or a globe without one.
+    pub page: bool,
+    pub favicon: Option<Arc<Image>>,
 }
 
 impl MenuEntry {
@@ -80,6 +86,8 @@ impl MenuEntry {
             destructive: false,
             over: false,
             swatch: None,
+            page: false,
+            favicon: None,
         }
     }
 
@@ -96,12 +104,17 @@ impl MenuEntry {
         MenuEntry { checked, ..self }
     }
 
-    pub(super) fn destructive(self) -> Self {
+    pub(crate) fn destructive(self) -> Self {
         MenuEntry { destructive: true, ..self }
     }
 
     fn swatch(self, swatch: Swatch) -> Self {
         MenuEntry { swatch: Some(swatch), ..self }
+    }
+
+    /// For a page with `favicon`.
+    pub(super) fn page(self, favicon: Option<Arc<Image>>) -> Self {
+        MenuEntry { page: true, favicon, ..self }
     }
 
     /// Shows the shortcut that runs `command`.
@@ -131,7 +144,7 @@ impl Shell {
         if self.private {
             return;
         }
-        let items = self.space_items(space);
+        let items = self.space_items(space, cx);
         self.show_menu(items, position, None, cx);
     }
 
@@ -157,7 +170,7 @@ impl Shell {
             items.push((MenuEntry::line(), Box::new(|_, _| {})));
             // Its Profile submenu's items name their parent by where it is, now further down.
             let after = items.len();
-            items.extend(self.space_items(space).into_iter().map(|(entry, action)| {
+            items.extend(self.space_items(space, cx).into_iter().map(|(entry, action)| {
                 let parent = entry.parent.map(|parent| parent + after);
                 (MenuEntry { parent, ..entry }, action)
             }));
@@ -166,11 +179,18 @@ impl Shell {
     }
 
     /// The Space's menu's items, for its name, its dot and the sidebar's empty space.
-    fn space_items(&self, space: u64) -> Vec<(MenuEntry, MenuAction)> {
+    fn space_items(&self, space: u64, cx: &App) -> Vec<(MenuEntry, MenuAction)> {
         let entry = self.spaces.iter().find(|each| each.id == space);
         let icon = entry.is_some_and(|each| has_icon(&each.icon));
         let theme = entry.is_some_and(|each| each.color.is_some() || each.theme.is_some());
         let mut items = space_menu_head(space, icon, theme);
+        // An agent's Space leads to what the agent did in it, and lists what the user let it do
+        // for good, to take back.
+        if let Some(each) = entry.filter(|each| !each.agent.is_empty()) {
+            let mut agent = self.agent_items(space, &each.agent, cx);
+            agent.extend(items);
+            items = agent;
+        }
         let at = items.len();
         items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
         let mut profiles = self.profile_items(space);
@@ -180,11 +200,60 @@ impl Shell {
         }
         profiles.extend(deletes);
         items.extend(profiles.into_iter().map(|(entry, action)| (entry.under(at), action)));
+        // Ours: Arc exports every Space at once, from Settings.
+        items.push((
+            MenuEntry::new("Export as Markdown…", true),
+            Box::new(move |shell, cx| {
+                // check.sh waits for this line.
+                log!("browser: command export-space via space menu");
+                shell.export_space(space, cx)
+            }),
+        ));
         items.push((MenuEntry::line(), Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Delete Space", self.spaces.len() > 1).destructive(),
             Box::new(move |shell, cx| shell.delete_space(space, cx)),
         ));
+        items
+    }
+
+    /// The head of an agent's Space's menu: its activity, Revoke Permission with what the user
+    /// answered for good on each site, Take Back All Tabs and Disconnect.
+    fn agent_items(&self, space: u64, name: &str, cx: &App) -> Vec<(MenuEntry, MenuAction)> {
+        let AgentGrants { sites: grants, connected, tabs } =
+            self.browser.agent_permissions(space, cx);
+        let mut items: Vec<(MenuEntry, MenuAction)> = vec![
+            (
+                MenuEntry::new("Agent Activity…", true),
+                Box::new(|shell, cx| shell.browser.agent_activity(cx)),
+            ),
+            (MenuEntry::new("Revoke Permission", !grants.is_empty()), Box::new(|_, _| {})),
+        ];
+        let several = grants.len() > 1;
+        for (site, may) in grants {
+            let title = MenuEntry::label(if may { "Always Allow" } else { "Never" });
+            let title = format!("{title} on {site}");
+            items.push((
+                MenuEntry::named(title, true).under(1),
+                Box::new(move |shell, cx| shell.browser.revoke_agent(space, Some(site), cx)),
+            ));
+        }
+        if several {
+            items.push((MenuEntry::line().under(1), Box::new(|_, _| {})));
+            items.push((
+                MenuEntry::new("All Sites", true).under(1),
+                Box::new(move |shell, cx| shell.browser.revoke_agent(space, None, cx)),
+            ));
+        }
+        items.push((
+            MenuEntry::new("Take Back All Tabs", tabs),
+            Box::new(move |shell, cx| shell.browser.take_back_agent_tabs(space, cx)),
+        ));
+        items.push((
+            MenuEntry::named(format!("Disconnect {name}"), connected),
+            Box::new(move |shell, cx| shell.browser.disconnect_agent(space, cx)),
+        ));
+        items.push((MenuEntry::line(), Box::new(|_, _| {})));
         items
     }
 
@@ -229,11 +298,11 @@ impl Shell {
         );
     }
 
-    /// The look of the window's menus: light only where the Space's theme asks for it, as the rest
-    /// of the window is dark, with the Space's accent under the row the pointer or the keys are on.
+    /// The look of the window's menus: the Space's window's, dark or light, with its accent under
+    /// the row the pointer or the keys are on.
     pub fn menu_look(&self) -> Look {
-        let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
-        Look { light: light && !self.private, highlight: Highlight::of(&self.palette_of(self.space)) }
+        let palette = self.palette_of(self.space);
+        Look { light: palette.tone == Tone::Light, highlight: Highlight::of(&palette) }
     }
 
     /// Shows `items` at `position` in ilo's menu, or with the one at `over` there, as a pop-up
@@ -360,7 +429,13 @@ impl Shell {
 
     /// Moves the tab to the Space, warning the first time it goes to another profile's, where its
     /// page loads again without this profile's cookies and logins.
-    pub(super) fn move_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+    pub(super) fn move_to_space(
+        &mut self,
+        tab: u64,
+        space: u64,
+        pin: bool,
+        cx: &mut Context<Self>,
+    ) {
         let profile_of =
             |space| self.spaces.iter().find(|each| each.id == space).map(|each| each.profile);
         let to = profile_of(space);
@@ -369,7 +444,7 @@ impl Shell {
             .find(|each| each.pinned.contains(&tab) || each.today.contains(&tab))
             .map_or(self.space, |each| each.id);
         if profile_of(from) == to || !self.browser.warn_moving_profiles(cx) {
-            return self.send_to_space(tab, space, cx);
+            return self.send_to_space(tab, space, pin, cx);
         }
         let name = (self.profiles.iter())
             .find(|(profile, _)| Some(*profile) == to)
@@ -386,7 +461,7 @@ impl Shell {
                 shell
                     .update(cx, |shell, cx| {
                         shell.browser.set_warn_moving_profiles(false, cx);
-                        shell.send_to_space(tab, space, cx);
+                        shell.send_to_space(tab, space, pin, cx);
                     })
                     .ok();
             }),
@@ -394,16 +469,55 @@ impl Shell {
         );
     }
 
-    /// Makes a profile, named as Chrome numbers them, and puts the empty Space in it.
+    /// Makes a profile and puts the empty Space in it, named at once. In the New Space form it's
+    /// made with the name Chrome would number it, which the Profile row then shows in a field, as
+    /// Finder's New Folder does. Elsewhere the dialog asks for the name first, and Cancel makes
+    /// none. Left empty, the name is the numbered one.
     fn new_profile(&mut self, space: u64, cx: &mut Context<Self>) {
         let names: Vec<SharedString> = self.profiles.iter().map(|(_, name)| name.clone()).collect();
-        let name = new_profile_name(&names);
-        let profile = self.browser.create_profile(&name, cx);
+        let numbered = new_profile_name(&names);
+        if self.form().is_some_and(|form| form.space == space) {
+            if let Some(profile) = self.make_profile(space, &numbered, cx) {
+                self.name_profile(profile, numbered.into(), cx);
+            }
+            return;
+        }
+        let question = Question {
+            icon: None,
+            message: "New Profile".into(),
+            detail: "A profile keeps its own logins, cookies, history and extensions.".into(),
+            list: Vec::new(),
+            action: "Create".into(),
+            cancel: "Cancel".into(),
+            tone: crate::dialog::Tone::Accent,
+            also: None,
+            fields: vec![Field {
+                placeholder: numbered.clone().into(),
+                text: numbered.clone().into(),
+                secure: false,
+            }],
+            check: None,
+            return_cancels: false,
+        };
+        let shell = cx.weak_entity();
+        let made = Box::new(move |texts: Vec<String>, cx: &mut App| {
+            let typed = texts.first().map_or("", |text| text.trim());
+            let name = if typed.is_empty() { numbered } else { typed.to_string() };
+            shell.update(cx, |shell, cx| shell.make_profile(space, &name, cx)).ok();
+        });
+        self.browser.tell(question, made, cx);
+    }
+
+    /// Makes a profile named `name`, puts the empty Space in it, and returns it.
+    fn make_profile(&mut self, space: u64, name: &str, cx: &mut Context<Self>) -> Option<u64> {
+        let profile = self.browser.create_profile(name, cx);
         // check.sh waits for this line.
         log!("browser: create profile {profile} {name}");
-        if profile != 0 {
-            self.browser.set_space_profile(space, profile, cx);
+        if profile == 0 {
+            return None;
         }
+        self.browser.set_space_profile(space, profile, cx);
+        Some(profile)
     }
 
     /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,
@@ -421,6 +535,14 @@ impl Shell {
         } else {
             self.today_tab_menu(keys, tab, position)
         };
+        // A tab the user holds from an agent says so first, and gives it back (#404).
+        let mut held = self.held_items(tab);
+        let shift = held.len();
+        held.extend(items.into_iter().map(|(entry, name, action)| {
+            let parent = entry.parent.map(|parent| parent + shift);
+            (MenuEntry { parent, ..entry }, name, action)
+        }));
+        let items = held;
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         self.context_menu(
             entries,
@@ -444,6 +566,35 @@ impl Shell {
         cx.notify();
     }
 
+    /// The head of the menu of a tab the user holds from the agent whose Space shows: that they
+    /// took it back or the agent handed it to them, and Hand Back.
+    fn held_items(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let Some(space) = self.shown_space().filter(|space| !space.agent.is_empty()) else {
+            return Vec::new();
+        };
+        let held = (self.agent_status.iter())
+            .filter(|status| status.space == space.id)
+            .flat_map(|status| &status.held)
+            .find(|(id, _)| *id == tab);
+        let Some((_, why)) = held else {
+            return Vec::new();
+        };
+        let name = &space.agent;
+        let state = match why.is_empty() {
+            true => MenuEntry::label("Taken Back from"),
+            false => MenuEntry::label("Handed to You by"),
+        };
+        vec![
+            (MenuEntry::named(format!("{state} {name}"), false), "", Box::new(|_, _| {})),
+            (
+                MenuEntry::named(format!("{} {name}", MenuEntry::label("Hand Back to")), true),
+                "hand-back",
+                Box::new(move |shell, cx| shell.browser.hand_back(tab, cx)),
+            ),
+            (MenuEntry::line(), "", Box::new(|_, _| {})),
+        ]
+    }
+
     /// A favorite's menu.
     fn favorite_menu(
         &self,
@@ -458,10 +609,13 @@ impl Shell {
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ),
+            replace_pinned_url(tab, "Replace Favorite URL with Current", page.away_from_pinned_url),
             (
                 MenuEntry::new("Duplicate Tab", true),
                 "duplicate-tab",
-                Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+                Box::new(move |shell, cx| {
+                    shell.browser.duplicate(tab, cx);
+                }),
             ),
             (
                 MenuEntry::new("Remove from Favorites", !self.agents_space_shown()),
@@ -470,7 +624,11 @@ impl Shell {
                 Box::new(move |shell, cx| shell.move_tab_to(tab, false, 0, 0, cx)),
             ),
         ];
-        // An icon the tab had as a pinned tab.
+        items.push((
+            MenuEntry::new("Change Icon…", true),
+            "change-icon",
+            Box::new(move |shell, cx| shell.change_icon(tab, cx)),
+        ));
         if has_icon(&page.icon) {
             items.push(remove_icon(tab));
         }
@@ -515,7 +673,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.pin_tab(tab, false, cx)),
             ),
             (
-                MenuEntry::new("Add to Favorites", true),
+                MenuEntry::new("Add to Favorites", self.has_room_for(tab)),
                 "add-to-favorites",
                 Box::new(move |shell, cx| shell.favorite_tab(tab, usize::MAX, cx)),
             ),
@@ -525,39 +683,53 @@ impl Shell {
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ),
-            (
-                MenuEntry::new("Rename Tab", true),
-                "rename-tab",
-                Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
-            ),
-            (
-                MenuEntry::new("Change Icon…", true),
-                "change-icon",
-                Box::new(move |shell, cx| shell.change_icon(tab, cx)),
-            ),
         ];
+        // Arc's Pinned URL › Replace Pinned URL with Current and Edit….
+        let pinned_url = items.len();
+        items.push((MenuEntry::new("Pinned URL", true), "", Box::new(|_, _| {})));
+        let (entry, name, action) =
+            replace_pinned_url(tab, "Replace Pinned URL with Current", page.away_from_pinned_url);
+        items.push((entry.under(pinned_url), name, action));
+        items.push((
+            MenuEntry::new("Edit…", true).under(pinned_url),
+            "edit-pinned-url",
+            Box::new(move |shell, cx| shell.edit_pinned_url(tab, cx)),
+        ));
+        items.push((
+            MenuEntry::new("Rename Tab", true),
+            "rename-tab",
+            Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
+        ));
+        items.push((
+            MenuEntry::new("Change Icon…", true),
+            "change-icon",
+            Box::new(move |shell, cx| shell.change_icon(tab, cx)),
+        ));
         if !page.icon.is_empty() {
             items.push(remove_icon(tab));
         }
         items.push((
             MenuEntry::new("Duplicate Tab", true),
             "duplicate-tab",
-            Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+            Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
         if self.panes(tab).len() > 1 {
             items.push(separate(tab));
         }
-        // Each other Space, in the switcher's order.
+        // Each other Space, in the switcher's order, then the agents' it can be given to.
         let others = self.spaces_to_move_to(false);
+        let agents = self.agents_to_give(tab);
         let move_to = items.len();
-        items.push((MenuEntry::new("Move to Space", !others.is_empty()), "", Box::new(|_, _| {})));
+        let any = !others.is_empty() || !agents.is_empty();
+        items.push((MenuEntry::new("Move to Space", any), "", Box::new(|_, _| {})));
         for (space, name, _) in others {
             items.push((
                 MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
                 "move-to-space",
-                Box::new(move |shell, cx| shell.move_to_space(tab, space, cx)),
+                Box::new(move |shell, cx| shell.move_to_space(tab, space, false, cx)),
             ));
         }
+        items.extend(self.give_items(tab, agents, move_to));
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         // One closed already has nothing to close.
         items.push((
@@ -644,13 +816,20 @@ impl Shell {
             "rename-tab",
             Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
         ));
-        // Dimmed while the tab is silent, as Arc's; a muted one unmutes.
-        let mute = if page.muted { "Unmute" } else { "Mute" };
-        items.push((
-            MenuEntry::new(mute, page.audible || page.muted),
-            "toggle-mute",
-            Box::new(move |shell, cx| shell.toggle_mute(tab, cx)),
-        ));
+        // Dimmed while the tab is silent, as Arc's; a muted one unmutes. A split's offers it under
+        // each of its tabs' names, as Arc's does.
+        for &pane in &panes {
+            let page = self.page(pane);
+            let mute = if page.muted { "Unmute" } else { "Mute" };
+            let mut entry = MenuEntry::new(mute, page.audible || page.muted);
+            if panes.len() > 1 {
+                let name = items.len();
+                let title = self.tabs.get(&pane).map(|tab| tab.title.clone()).unwrap_or_default();
+                items.push((MenuEntry::named(title, true), "", Box::new(|_, _| {})));
+                entry = entry.under(name);
+            }
+            items.push((entry, "toggle-mute", Box::new(move |shell, cx| shell.toggle_mute(pane, cx))));
+        }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Add Split View", panes.len() < MAX_PANES),
@@ -663,7 +842,7 @@ impl Shell {
         items.push((
             MenuEntry::new("Duplicate", true),
             "duplicate-tab",
-            Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+            Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
         // A private window's tabs stay in it. The others: every one of the user's Spaces, the
         // tab's checked, then a new one.
@@ -677,11 +856,12 @@ impl Shell {
                     "move-to-space",
                     Box::new(move |shell, cx| {
                         if !shown {
-                            shell.move_to_space(tab, space, cx)
+                            shell.move_to_space(tab, space, false, cx)
                         }
                     }),
                 ));
             }
+            items.extend(self.give_items(tab, self.agents_to_give(tab), move_to));
             items.push((MenuEntry::line().under(move_to), "", Box::new(|_, _| {})));
             items.push((
                 MenuEntry::new("New Space…", true).under(move_to),
@@ -713,18 +893,53 @@ impl Shell {
             .collect()
     }
 
+    /// The agents' Spaces the user can give `tab` to, by id and name: a tab of the user's own,
+    /// to an agent whose Space is in its profile, as the page goes as it is (bc_tab_give_to_agent).
+    fn agents_to_give(&self, tab: u64) -> Vec<(u64, SharedString)> {
+        let Some(from) = (self.spaces.iter())
+            .find(|space| space.pinned.contains(&tab) || space.today.contains(&tab))
+            .filter(|space| space.agent.is_empty())
+        else {
+            return Vec::new();
+        };
+        (self.spaces.iter())
+            .filter(|space| !space.agent.is_empty() && space.profile == from.profile)
+            .map(|space| (space.id, space.name.clone()))
+            .collect()
+    }
+
+    /// Move to's items that give `tab` to an agent, under the item at `move_to`.
+    fn give_items(
+        &self,
+        tab: u64,
+        agents: Vec<(u64, SharedString)>,
+        move_to: usize,
+    ) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let item = |(space, name)| -> (MenuEntry, &'static str, MenuAction) {
+            (
+                MenuEntry::named(name, true).swatch(self.space_swatch(space)).under(move_to),
+                "give-to-agent",
+                Box::new(move |shell: &mut Shell, cx: &mut Context<Shell>| {
+                    shell.browser.give_to_agent(tab, space, cx)
+                }),
+            )
+        };
+        agents.into_iter().map(item).collect()
+    }
+
     /// `space`'s swatch: its theme's first two colours, or its one colour going lighter down as
     /// the window's gradient does, with the untinted palette's accent for a Space without one.
     pub(super) fn space_swatch(&self, space: u64) -> Swatch {
-        if let Some(theme) = self.theme_of(space) {
+        let theme = self.theme_of(space).map(|theme| theme.shown(self.tone_of(space) == Tone::Dark));
+        if let Some(theme) = theme {
             let colors = theme.colors();
             if let [from, to, ..] = colors[..] {
                 return Swatch { from, to };
             }
         }
         let entry = self.spaces.iter().find(|each| each.id == space);
-        let color = self.theme_of(space).map(|theme| theme.main_color());
-        let untinted = || crate::theme::packed(crate::palette::Palette::of(None).accent);
+        let color = theme.map(|theme| theme.main_color());
+        let untinted = || crate::theme::packed(crate::palette::Palette::of(None, self.tone_of(space)).accent);
         let color = color.or(entry.and_then(|each| each.color)).unwrap_or_else(untinted);
         let hsla = Hsla::from(rgb(color));
         let lighter = crate::theme::packed(Rgba::from(Hsla { l: (hsla.l + 0.25).min(1.), ..hsla }));
@@ -743,8 +958,15 @@ impl Shell {
     /// The + button's menu, by Arc's menus' names for what it makes (ours: Arc's + menu isn't
     /// recorded).
     pub(super) fn plus_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let items = [("New Space…", Command::NewSpace), ("New Folder…", Command::NewFolder)];
-        let entries = items.iter().map(|&(title, _)| MenuEntry::new(title, true)).collect();
+        let items = [
+            ("New Space…", Command::NewSpace),
+            ("New Folder…", Command::NewFolder),
+            ("New Split View", Command::AddSplit),
+        ];
+        let split = self.selected != 0 && self.panes(self.selected).len() < MAX_PANES;
+        let enabled = |command| command != Command::AddSplit || split;
+        let entries =
+            items.iter().map(|&(title, command)| MenuEntry::new(title, enabled(command))).collect();
         self.context_menu(
             entries,
             position,
@@ -813,6 +1035,23 @@ fn separate(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     )
 }
 
+/// The menu item that makes the page a pinned tab or a favorite is at the one it goes back to,
+/// dimmed while it's there.
+fn replace_pinned_url(
+    tab: u64,
+    title: &'static str,
+    away: bool,
+) -> (MenuEntry, &'static str, MenuAction) {
+    (
+        MenuEntry::new(title, away),
+        "replace-pinned-url",
+        Box::new(move |shell, cx| {
+            let url = shell.page(tab).url.to_string();
+            shell.change(Prop::PinnedUrl(tab), Value::Text(url), cx)
+        }),
+    )
+}
+
 /// The menu item that gives a tab back its favicon.
 pub(super) fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     (
@@ -847,6 +1086,7 @@ mod tests {
             ("Back to Pinned URL", "Back to pinned URL"),
             ("In Each Profile's Spaces", "In each profile's Spaces"),
             ("Duplicate", "Duplicate"),
+            ("Show in Folder", "Show in folder"),
         ];
         for (title, sentence) in cases {
             assert_eq!(sentence_case(title), sentence);
@@ -953,6 +1193,35 @@ mod tests {
         assert_eq!(keyed, ["Copy Link"]);
     }
 
+    /// A split's menu offers Mute under each of its tabs' names, and its Duplicate copies the whole
+    /// split, joined again in its order and orientation, as Arc's does.
+    #[gpui::test]
+    fn a_splits_menu_mutes_each_tab_and_duplicates_the_split(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11, 12], Folders::default());
+        shell.update(cx, |shell, cx| {
+            let split = crate::shell::Split { tabs: vec![10, 11], stacked: true, ..Default::default() };
+            shell.set_tabs(1, Vec::new(), vec![10, 11, 12], vec![split], Folders::default(), cx);
+            shell.set_title(10, "Ten".into(), cx);
+            shell.set_title(11, "Eleven".into(), cx);
+            shell.set_page(11, page("https://example.com/", true, false), cx);
+        });
+        let menu = tab_menu(&shell, &host, cx, 11);
+        let mutes: Vec<&str> = (menu.iter().map(String::as_str))
+            .filter(|title| title.contains("Mute"))
+            .collect();
+        assert_eq!(mutes, ["Ten › Mute (disabled)", "Eleven › Mute"]);
+        host.take();
+        host.take_edits();
+        shell.update(cx, |shell, cx| shell.duplicate_row(11, cx));
+        let calls = host.take();
+        assert_eq!(calls[..2], ["duplicate 10", "duplicate 11"]);
+        let edits = host.take_edits();
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        let copies: Vec<&str> = edits[0].split(' ').skip(1).collect();
+        assert_eq!(copies[2], "false", "the second copy joins the first on its right");
+        assert!(calls.contains(&format!("split stacked {} true", copies[1])), "{calls:?}");
+    }
+
     /// The last tab has none below to archive, and a tab with no page has no link to copy or share.
     /// Move to marks each Space with its swatch, and New Space… with none (#320).
     #[gpui::test]
@@ -1043,6 +1312,8 @@ mod tests {
                 "Unpin Tab",
                 "Add to Favorites",
                 "Back to Pinned URL (disabled)",
+                "Pinned URL › Replace Pinned URL with Current (disabled)",
+                "Pinned URL › Edit…",
                 "Rename Tab",
                 "Change Icon…",
                 "Duplicate Tab",
@@ -1050,5 +1321,27 @@ mod tests {
                 "Close Tab",
             ]
         );
+    }
+
+    /// Away from its pinned URL, a pinned tab's Replace Pinned URL with Current makes the page it's
+    /// at the one it goes back to, and a favorite's Replace Favorite URL with Current does the same.
+    #[gpui::test]
+    fn replace_with_current_keeps_the_page_its_at(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10], Folders::default());
+        let away = Page { away_from_pinned_url: true, ..page("https://away.test/", false, false) };
+        shell.update(cx, |shell, cx| shell.set_page(1, away.clone(), cx));
+        tab_menu(&shell, &host, cx, 1);
+        host.take_edits();
+        cx.update(|cx| host.choose("Replace Pinned URL with Current", cx));
+        assert_eq!(host.take_edits(), ["pinned url 1 https://away.test/"]);
+        shell.update(cx, |shell, cx| {
+            shell.set_favorites(vec![(20, 0)], cx);
+            shell.set_page(20, away, cx)
+        });
+        let menu = tab_menu(&shell, &host, cx, 20);
+        assert_eq!(menu[..2], ["Back to Favorite URL", "Replace Favorite URL with Current"]);
+        assert!(menu.contains(&"Change Icon…".to_string()), "{menu:?}");
+        cx.update(|cx| host.choose("Replace Favorite URL with Current", cx));
+        assert_eq!(host.take_edits(), ["pinned url 20 https://away.test/"]);
     }
 }
