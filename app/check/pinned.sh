@@ -614,7 +614,7 @@ expect "^browser: outline -\\[$e $c\\]\$" "Collapse Pinned Tabs didn't collapse 
 bar_command focus-sidebar "Focus Sidebar" "focus sidebar"
 expect "^browser: sidebar keyed $t\$" "Focus Sidebar didn't ring the tab shown's row"
 expect "^browser: sidebar ring $t at " "the ring wasn't drawn round the tab shown's row"
-in_browser GPUIView "Focus Sidebar didn't give the sidebar the keyboard"
+in_browser AccessKitSubclassOfGPUIView "Focus Sidebar didn't give the sidebar the keyboard"
 settled
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-keyed.png" || fail "no window to capture"
 send key up
