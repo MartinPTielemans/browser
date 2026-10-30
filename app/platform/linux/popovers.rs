@@ -178,6 +178,16 @@ pub(crate) fn resized(ui_view: *mut c_void) {
     }
 }
 
+/// The views of those that show and still take clicks and keys, for the driver.
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter())
+            .filter(|p| p.shown.is_some_and(|shown| !shown.released))
+            .map(|p| p.view)
+            .collect()
+    })
+}
+
 /// `ui_view`'s window is closing: what shows over it goes.
 pub(crate) fn forget_window(ui_view: *mut c_void) {
     for kind in [Kind::SiteControls, Kind::Capture] {

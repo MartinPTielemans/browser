@@ -65,6 +65,9 @@ impl Host for Recorder {
     fn set_ad_blocking(&self, tab: u64, on: bool) {
         self.push(format!("ad blocking {tab} {on}"));
     }
+    fn set_developer_mode(&self, tab: u64, on: bool) {
+        self.push(format!("developer mode {tab} {on}"));
+    }
     fn run(&self, run: Run, tab: u64, _: &mut App) {
         let run = match run {
             Run::Command(command) => format!("{command:?}"),
@@ -144,6 +147,7 @@ fn site() -> Site {
         reset: Some("Reset permissions".into()),
         system_engine: None,
         ad_blocking: None,
+        developer_mode: None,
         logins: vec![],
     }
 }
@@ -775,6 +779,23 @@ fn the_first_row_turns_ad_blocking_off_for_the_site(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
 }
 
+/// Developer Mode's row comes after ad blocking's and turns it the other way for the site; the core
+/// reports the site again with it.
+#[gpui::test]
+fn developer_mode_s_row_turns_it_on_and_off_for_the_site(cx: &mut TestAppContext) {
+    let site = Site { ad_blocking: Some(true), developer_mode: Some(true), ..site() };
+    let mut panel = Panel::new(cx, site.clone());
+    assert_eq!(panel.calls(), ["show 88 78.5 236 481.5"]);
+    panel.click(row(1));
+    assert_eq!(panel.calls(), [format!("developer mode {TAB} false")]);
+    panel.changed(Site { developer_mode: Some(false), ..site });
+    panel.click(row(1));
+    assert_eq!(panel.calls(), [format!("developer mode {TAB} true")]);
+    // Ad blocking's row stays first.
+    panel.click(row(0));
+    assert_eq!(panel.calls(), [format!("ad blocking {TAB} false")]);
+}
+
 /// Where it isn't the user's to change, such as a private window, the row isn't there.
 #[gpui::test]
 fn without_a_say_there_is_no_ad_blocking_row(cx: &mut TestAppContext) {
@@ -792,9 +813,12 @@ fn the_log_names_each_permission_and_its_value(_: &mut TestAppContext) {
     assert_eq!(described, format!("example.com: Connection is secure; {permissions}"));
     let bare = Site { permissions: Vec::new(), reset: None, ..site() };
     assert_eq!(describe(&bare), "example.com: Connection is secure; no permissions");
-    // Ad blocking is its first row, which check.sh counts.
-    let blocking = Site { ad_blocking: Some(false), ..bare };
+    // Ad blocking is its first row, which check.sh counts, and Developer Mode the next.
+    let blocking = Site { ad_blocking: Some(false), ..bare.clone() };
     assert_eq!(describe(&blocking), "example.com: Connection is secure; Ad blocking Off");
+    let developer = Site { developer_mode: Some(true), ..blocking };
+    let described = "example.com: Connection is secure; Ad blocking Off, Developer Mode On";
+    assert_eq!(describe(&developer), described);
 }
 
 #[gpui::test]

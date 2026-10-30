@@ -404,3 +404,20 @@ fn back_forward_and_reload_shrink_a_little_while_held(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(shell.read_with(cx, |shell, _| shell.held_nav.is_none()), "the sidebar button");
 }
+
+/// The URL field says the page's host, and its whole URL while it's in Developer Mode.
+#[gpui::test]
+fn the_url_field_shows_the_whole_url_in_developer_mode(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+    let url = "http://localhost:3000/app?tab=2#top";
+    let mut words = |developer_mode| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: url.into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+            shell.set_selected(1, cx);
+            shell.url_field_words(url).0.to_string()
+        })
+    };
+    assert_eq!(words(false), "localhost");
+    assert_eq!(words(true), url);
+}
