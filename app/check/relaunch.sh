@@ -154,8 +154,11 @@ exited
 
 launch_logged "$out/relaunch-d.log"
 await '^browser: window opened [0-9]' || fail "no window opened after the last one closed"
-grep -q '^browser: launch window frame 140 100 1040 680$' "$log" ||
-  fail "the launch window opened at $(grep '^browser: launch window frame ' "$log" | cut -d' ' -f5-), not where the last window closed at 140 100 1040 680"
+# Linux shows no launch window (host_show_launch_window), only the browser window.
+if [ "$(uname)" != Linux ]; then
+  grep -q '^browser: launch window frame 140 100 1040 680$' "$log" ||
+    fail "the launch window opened at $(grep '^browser: launch window frame ' "$log" | cut -d' ' -f5-), not where the last window closed at 140 100 1040 680"
+fi
 first=$(windows_opened | head -1)
 [ "$(frame_of "$first")" = "140 100 1040 680" ] ||
   fail "the window opened at $(frame_of "$first"), not where the last window closed at 140 100 1040 680"
