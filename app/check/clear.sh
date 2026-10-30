@@ -125,6 +125,8 @@ switch "2 cmd" "$c"
 send key c cmd shift
 expect '^browser: command copy-url via page$' "⇧⌘C with the page focused didn't reach the UI"
 expect '^browser: copied https://example.org/$' "⇧⌘C didn't copy the tab's URL"
+clipboard_holds https://example.org/ ||
+  fail "⇧⌘C left the clipboard holding \"$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n)\""
 # The toast says so, 8 inside the card's top right corner.
 expect '^browser: toast shown Copied Current URL$' "⇧⌘C's toast didn't say it copied the URL"
 expect '^browser: toast settled$' "⇧⌘C's toast didn't settle"
@@ -134,6 +136,8 @@ send key c cmd shift alt
 expect '^browser: command copy-markdown-link via ui$' "⌥⇧⌘C with the UI focused didn't run"
 expect '^browser: copied \[Example Domain](https://example.org/)$' \
   "⌥⇧⌘C didn't copy a Markdown link to the tab"
+clipboard_holds '[Example Domain](https://example.org/)' ||
+  fail "⌥⇧⌘C left the clipboard holding \"$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n)\""
 
 # Clear and the URL field's button fade in while the pointer is over the sidebar, and out when it
 # leaves. The button copies the URL, and doesn't open the command bar as the rest of the field does.
