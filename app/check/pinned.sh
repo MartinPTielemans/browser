@@ -503,8 +503,8 @@ send type later
 send key return
 expect "^browser: renamed folder $f later\$" "the folder didn't take the name typed over its old one"
 ../tools/window-screenshot.sh "$pid" "$out/folder-restored.png" || fail "no window to capture"
-# Export… in Settings › Advanced, in the box under the three switch rows, writes the Space's pinned tabs
-# as Markdown links, the folder a list of what it holds.
+# Export… in Settings › Advanced, in the box under the three switch rows, writes the Space's pinned
+# tabs as Markdown links, the folder a list of what it holds.
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
 send clickkey 491 60
