@@ -1799,6 +1799,19 @@ fn run_command(line: &str) -> Option<()> {
                 Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
                     text_property(window, "_NET_WM_NAME").unwrap_or_default()
                 }
+                // A dialog of Chromium's in it is an aura window, which the X server has no title
+                // for, so the core gives it.
+                Some(Keyboard::Browser(browser, _))
+                    if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
+                {
+                    let length =
+                        unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
+                    let mut title = vec![0u8; length + 1];
+                    let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
+                    unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
+                    title.truncate(length);
+                    String::from_utf8_lossy(&title).into_owned()
+                }
                 Some(Keyboard::Browser(browser, _)) => {
                     text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
                 }
