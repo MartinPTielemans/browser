@@ -150,7 +150,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // pinned URL, a Today tab to the top of its Today tabs. A window showing the tab goes with it, as
   // Chrome's active tab does to another window, and its old Space shows next what it would once the
   // tab closed. Into another profile's Space it goes as a new tab, as bc_tab_move_to_space says.
-  static void MoveToSpace(bc_id tab, bc_id space);
+  // Into an agent's Space only |to_agent|, as the user gives the agent the tab
+  // (bc_tab_give_to_agent), and then nowhere else.
+  static void MoveToSpace(bc_id tab, bc_id space, bool to_agent = false);
 
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;

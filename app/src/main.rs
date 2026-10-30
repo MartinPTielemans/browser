@@ -770,11 +770,22 @@ fn open_tab_behind(window: bc::bc_id, url: &str, when_shown: bool) -> u64 {
 
 /// Puts `tab` in a split view with `with`, on its right, and shows it in `window`. The pane being
 /// added for it, if there is one, gives the split its room first, so it shows at once at its place.
-fn split_tab(window: bc::bc_id, tab: u64, with: u64, cx: &mut App) {
-    shell::pane_added(cx);
+/// ⌘Z takes it back out, or closes it if it was `opened` for the split.
+fn split_tab(window: bc::bc_id, tab: u64, with: u64, opened: bool, cx: &mut App) {
+    shell::pane_added(tab, with, opened, cx);
     unsafe {
         bc::bc_tab_split_with(tab, with, false);
         bc::bc_window_select(window, tab);
+    }
+}
+
+/// `tab`, opened to join a split view in `window`, joined it: that window's ⌘Z closes it.
+fn split_opened(window: bc::bc_id, tab: u64, cx: &mut App) {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|each| each.id == window).map(|each| each.shell.clone())
+    });
+    if let Some(shell) = shell {
+        shell.update(cx, |shell, cx| shell.split_opened(tab, cx)).ok();
     }
 }
 
@@ -785,7 +796,7 @@ fn open_split(window: bc::bc_id, url: &str, with: u64, cx: &mut App) {
     };
     let tab = unsafe { bc::bc_tab_open(window, url.as_ptr(), false) };
     if tab != 0 {
-        split_tab(window, tab, with, cx);
+        split_tab(window, tab, with, true, cx);
     }
 }
 
@@ -1591,7 +1602,7 @@ impl command_bar::Host for Bar {
     }
 
     fn split(&self, tab: u64, with: u64, cx: &mut App) {
-        split_tab(front().0, tab, with, cx);
+        split_tab(front().0, tab, with, false, cx);
     }
 
     fn open_split(&self, url: &str, with: u64, cx: &mut App) {
@@ -1957,17 +1968,20 @@ impl Browser for Engine {
     fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
         let (window, url) = (self.window, url.to_string());
         // After the drop that asked, which Chromium is still handling.
-        update_app_later(move |_| {
+        update_app_later(move |cx| {
             let tab = open_tab_behind(window, &url, false);
             if tab == 0 {
                 return;
             }
+            let joined = unsafe { bc::bc_tab_split_with(tab, with, left) };
             unsafe {
-                bc::bc_tab_split_with(tab, with, left);
                 if stacked {
                     bc::bc_tab_set_split_stacked(with, true);
                 }
                 bc::bc_window_select(window, tab);
+            }
+            if joined {
+                split_opened(window, tab, cx);
             }
         });
     }
@@ -2225,6 +2239,10 @@ impl Browser for Engine {
 
     fn hand_back(&self, tab: u64, _: &mut App) {
         agents_core::update(move |agents, cx| agents.hand_back(tab, cx));
+    }
+
+    fn give_to_agent(&self, tab: u64, space: u64, _: &mut App) {
+        agents_core::update(move |agents, cx| agents.give(tab, space, cx));
     }
 
     fn stop_agent(&self, agent: SharedString, _: &mut App) {
@@ -5356,13 +5374,20 @@ unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *cons
 
 unsafe extern "C" fn tab_opened(
     _: *mut c_void,
-    _: bc::bc_id,
+    window: bc::bc_id,
     tab: bc::bc_id,
     opener: bc::bc_id,
     foreground: bool,
 ) {
     let side = if foreground { "foreground" } else { "background" };
     log!("browser: tab {tab} opened by {opener} in the {side}");
+    // A link ⌥⌘-clicked, or opened in a split view from the page's menu, joined its page's split,
+    // which ⌘Z takes back as it does the user's other ways in.
+    let mut split = [0; 3];
+    let count = unsafe { bc::bc_tab_split(tab, split.as_mut_ptr(), split.len()) };
+    if opener != 0 && count > 1 && split[..count.min(3)].contains(&opener) {
+        update_app_later(move |cx| split_opened(window, tab, cx));
+    }
 }
 
 // Called while Chromium closes the tab, which can be inside a GPUI update that asked for it, so

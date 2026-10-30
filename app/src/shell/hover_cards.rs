@@ -133,7 +133,7 @@ impl Shell {
                     Action::Unfavorite => self.move_tab_to(tab, false, 0, 0, cx),
                     Action::Split => {
                         if let Some(with) = self.split_partner(tab) {
-                            self.browser.split_with(tab, with, false, cx);
+                            self.join_split(tab, with, false, false, cx);
                         }
                     }
                 }
