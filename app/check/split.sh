@@ -147,10 +147,11 @@ for modifiers in alt "alt cmd"; do
   n=$(splits | cut -d+ -f2)
   expect "^browser: selected $n\( in .*\)\{0,1\}\$" "the link's pane isn't focused"
   expect "^browser: panes $a $n\$" "the window doesn't show the link beside the page"
+  # Before read_keyboard's layout, which expect would read past: the page loads within it.
+  expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in its pane"
   read_keyboard
   [ "$keyboard" = "$right" ] ||
     fail "the link's pane didn't get the keyboard at once: ${keyboard:-none} has it"
-  expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in its pane"
   send key w cmd
   expect "^browser: tab $n closed\$" "⌘W didn't close the link's pane"
   expect "^browser: panes $a\$" "⌘W on the link's pane didn't leave the page alone"
