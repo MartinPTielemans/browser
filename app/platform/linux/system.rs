@@ -1,6 +1,7 @@
 //! What the Linux host does through GPUI's Linux platform rather than in host.cc, as GPUI already
 //! has it: the clipboard, the file chooser portal, the browser window's activation, the touchpad's
-//! swipes over the page, Control's release and a file's drag, and on X11 a window's frame.
+//! swipes over the page, Control's release and a file's drag, and on X11 a window's frame and the
+//! screens'.
 
 use std::{
     ffi::{CStr, c_char, c_void},
@@ -84,6 +85,20 @@ pub extern "C" fn host_window_frame(
     };
     unsafe { [*x, *y, *width, *height] = frame };
     true
+}
+
+/// The screens' visible frames, as host.h says, the primary first: none under Wayland, whose
+/// compositor places windows itself (host_centered).
+#[unsafe(no_mangle)]
+pub extern "C" fn host_screens(frames: *mut f64, count: usize) -> usize {
+    let screens = crate::drive::screens().unwrap_or_default();
+    if !frames.is_null() {
+        let frames = unsafe { std::slice::from_raw_parts_mut(frames, count * 4) };
+        for (frame, screen) in frames.chunks_exact_mut(4).zip(&screens) {
+            frame.copy_from_slice(screen);
+        }
+    }
+    screens.len()
 }
 
 /// Starts the system's drag of the file at `path`, as host.h says: XDND on X11, the data device's

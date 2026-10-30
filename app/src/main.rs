@@ -3718,7 +3718,10 @@ unsafe extern "C" fn started(_: *mut c_void) {
         match display.is_null() {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
-            true => gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32),
+            true => {
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                drive::on_x11();
+            }
             false => {
                 gpui_linux::embed_wayland(display, keyboard);
                 gpui_linux::watch_embedder_swipes(system::swiped);

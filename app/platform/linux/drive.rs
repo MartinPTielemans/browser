@@ -51,6 +51,7 @@ use x11rb::{
     connection::Connection,
     protocol::{
         Event,
+        randr::ConnectionExt as _,
         xproto::{
             self, ButtonPressEvent, ChangeWindowAttributesAux, ConfigureWindowAux,
             ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent,
@@ -209,14 +210,18 @@ thread_local! {
     /// Whether the scripted input method types (`ime_key`), and what it composes, if anything.
     static IME_ON: Cell<bool> = const { Cell::new(false) };
     static COMPOSITION: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Whether the app is on X11 (`on_x11`). Under Wayland the views are pointers, which as X ids
+    /// could name another client's windows.
+    static ON_X11: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The app is on X11, as Chromium is, from before its first window opens (host_screens).
+pub(crate) fn on_x11() {
+    ON_X11.set(true);
 }
 
 fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
-    // Under Wayland the views are pointers, which as X ids could name another client's windows.
-    let window = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.id))?;
-    let (mut width, mut height) = (0., 0.);
-    let wayland = unsafe { bc::bc_window_wayland_surface(window, &mut width, &mut height) };
-    wayland.is_null().then_some(())?;
+    ON_X11.get().then_some(())?;
     X.with_borrow_mut(|x| {
         if x.is_none() {
             let (connection, screen) = x11rb::connect(None).ok()?;
@@ -998,6 +1003,35 @@ pub(crate) fn browser_frame(ui: xproto::Window) -> Option<[f64; 4]> {
     let x = server()?;
     let (connection, _) = &*x;
     frame(connection.query_tree(ui).ok()?.reply().ok()?.parent)
+}
+
+/// Each monitor's frame in points from the root's top-left corner, less what the window manager
+/// keeps for its panels (_NET_WORKAREA), the primary first (host_screens).
+pub(crate) fn screens() -> Option<Vec<[f64; 4]>> {
+    let x = server()?;
+    let (connection, root) = &*x;
+    let reply = connection.randr_get_monitors(*root, true).ok()?.reply().ok()?;
+    let mut monitors = reply.monitors;
+    monitors.sort_by_key(|monitor| !monitor.primary);
+    let atom = connection.intern_atom(false, b"_NET_WORKAREA").ok()?.reply().ok()?.atom;
+    let work = (connection.get_property(false, *root, atom, xproto::AtomEnum::CARDINAL, 0, 4))
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
+        .and_then(|property| Some(property.value32()?.map(f64::from).collect::<Vec<_>>()))
+        .filter(|work| work.len() == 4);
+    let scale = scale();
+    let frames = monitors.iter().map(|monitor| {
+        let (mut left, mut top) = (f64::from(monitor.x), f64::from(monitor.y));
+        let mut right = left + f64::from(monitor.width);
+        let mut bottom = top + f64::from(monitor.height);
+        // The first desktop's, which spans the monitors.
+        if let Some(&[x, y, width, height]) = work.as_deref() {
+            (left, top) = (left.max(x), top.max(y));
+            (right, bottom) = (right.min(x + width), bottom.min(y + height));
+        }
+        [left, top, (right - left).max(0.), (bottom - top).max(0.)].map(|n| n / scale)
+    });
+    Some(frames.collect())
 }
 
 /// The text property `name` of `window`, as UTF-8.

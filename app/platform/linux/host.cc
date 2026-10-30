@@ -305,12 +305,8 @@ void host_capture_name(char* name, size_t capacity) {
   }
 }
 
-// No sight of the displays' layout (host_centered), so a window opens where the compositor puts it.
-size_t host_screens(double* frames, size_t count) {
-  return 0;
-}
-
-// host_window_frame is system.rs's, through the X server the driver reads the windows from.
+// host_screens and host_window_frame are system.rs's, through the X server the driver reads the
+// windows from.
 
 // shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
 void host_watch_finished_launching(void (*finished)(void)) {
