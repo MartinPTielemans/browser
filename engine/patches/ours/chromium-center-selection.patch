@@ -1,0 +1,24 @@
+Lets Jump to Selection (⌘J, ⌃J off the Mac) scroll the page back to its selection on every
+platform. WebContentsImpl::CenterSelection asks the focused frame widget to center it only on the
+Mac, though the renderer's half, FrameWidgetInputHandler::CenterSelection and
+WebLocalFrameImpl::CenterSelection, is on every platform. The core's bc_tab_jump_to_selection
+calls it (#762).
+
+--- a/content/browser/web_contents/web_contents_impl.cc
++++ b/content/browser/web_contents/web_contents_impl.cc
+@@ -7149,7 +7149,6 @@
+ 
+ void WebContentsImpl::CenterSelection() {
+   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::CenterSelection");
+-#if BUILDFLAG(IS_MAC)
+   auto* input_handler = GetFocusedFrameWidgetInputHandler();
+   if (!input_handler) {
+     return;
+@@ -7157,7 +7156,6 @@
+ 
+   last_interaction_time_ = ui::EventTimeForNow();
+   input_handler->CenterSelection();
+-#endif
+ }
+ 
+ void WebContentsImpl::Paste() {

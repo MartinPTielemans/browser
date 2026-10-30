@@ -213,6 +213,9 @@ expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 typed_after() {
   post key "$1" cmd
   send type "$2"
+  # Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
+  # it has the input focus, so there where they land, which every caller checks, is the proof.
+  [ "$(uname)" = Linux ] && return
   expect '^browser: held [0-9]* key events for GPUIPanel$' \
     "keys typed right after ⌘$(echo "$1" | tr a-z A-Z) $3 didn't wait for its bar"
 }
