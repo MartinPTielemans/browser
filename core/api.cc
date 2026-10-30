@@ -1,6 +1,7 @@
 // The C API in public/browser_core.h, over the core's C++.
 
 #include <algorithm>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
@@ -10,8 +11,11 @@
 #include "base/functional/callback_helpers.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/agent_autofill.h"
+#include "browser_core/agent_page.h"
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
@@ -24,16 +28,19 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/held_keys.h"
 #include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/page_menu.h"
+#include "browser_core/page_text.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/playready.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -67,6 +74,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
@@ -302,6 +310,15 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
 #endif
 }
 
+void bc_hold_keys(void) {
+  browser_core::held_keys::Hold();
+}
+
+void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                       void* context) {
+  browser_core::held_keys::Give(take, context);
+}
+
 bool bc_window_restore(bc_id id) {
   browser_core::Window* window = browser_core::Window::FromId(id);
   return window && browser_core::RestoreSession(*window);
@@ -356,8 +373,11 @@ void bc_window_activate(bc_id id) {
   widget->Activate();
 }
 
-bc_id bc_space_create(const char* name) {
-  browser_core::Space* space = browser_core::Space::Create(name ? name : "");
+bc_id bc_space_create(const char* name, bc_id after) {
+  const std::vector<browser_core::Space*> all = browser_core::Space::All();
+  auto it = std::ranges::find(all, after, &browser_core::Space::id);
+  const size_t at = it == all.end() ? SIZE_MAX : static_cast<size_t>(it - all.begin()) + 1;
+  browser_core::Space* space = browser_core::Space::Create(name ? name : "", 0, std::nullopt, at);
   space->SetProfile(browser_core::DirOf(browser_core::StartProfile()));
   return space->id();
 }
@@ -394,6 +414,9 @@ bool bc_agent_may_act(const char* agent,
   if (refused.empty() && (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab))) {
     refused = "The tab isn't in the agent's own Space.";
   }
+  if (refused.empty() && browser_core::IsHeld(tab)) {
+    refused = "The user has this tab until they hand it back. Ask for it with ask_for_tab.";
+  }
   if (refused.empty() && contents &&
       browser_core::Tab::FromWebContents(contents)->system_page()) {
     // Its Space never switches a tab there, but the rule is the core's to keep, not the UI's.
@@ -426,7 +449,115 @@ size_t bc_agent_disconnected(const char* agent) {
 }
 
 bool bc_tab_take_back(bc_id tab) {
+  browser_core::Hold(tab);
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
+}
+
+bool bc_agent_hand_off(const char* agent, bc_id tab) {
+  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || browser_core::IsHeld(tab)) {
+    return false;
+  }
+  browser_core::Hold(tab);
+  return true;
+}
+
+bool bc_tab_hand_back(bc_id tab) {
+  return browser_core::HandBack(tab);
+}
+
+bool bc_tab_held(bc_id tab) {
+  return browser_core::IsHeld(tab);
+}
+
+bc_id bc_agent_open_tab(const char* agent, const char* url) {
+  const GURL target(url ? url : "");
+  if (!agent || !*agent || !target.SchemeIsHTTPOrHTTPS()) {
+    return 0;
+  }
+  browser_core::Space* space = nullptr;
+  for (browser_core::Space* each : browser_core::Space::All()) {
+    if (each->agent() && each->agent()->id == agent) {
+      space = each;
+    }
+  }
+  // The window showing the agent's Space, or else the first of the user's, for its Browser.
+  browser_core::Window* window = nullptr;
+  for (browser_core::Window* each : browser_core::Window::All()) {
+    if (!each->off_the_record() && (!window || (space && each->space() == space->id()))) {
+      window = each;
+    }
+  }
+  Profile* profile = space ? browser_core::ProfileFor(space->profile()) : nullptr;
+  content::WebContents* contents =
+      window && profile ? window->OpenTab(profile, target, /*when_shown=*/false) : nullptr;
+  if (!contents) {
+    return 0;
+  }
+  const bc_id tab = browser_core::Tab::IdOf(contents);
+  space->Add(tab, /*opener=*/0, /*foreground=*/false);
+  browser_core::AgentActed(agent, tab);
+  if (browser_core::Host().tab_opened) {
+    browser_core::Host().tab_opened(browser_core::Host().context, window->id(), tab, 0, false);
+  }
+  return tab;
+}
+
+bool bc_agent_navigate(const char* agent, bc_id tab, const char* url) {
+  const GURL target(url ? url : "");
+  if (!agent || !browser_core::Space::AgentMayAct(agent, tab) || browser_core::IsHeld(tab) ||
+      !target.SchemeIsHTTPOrHTTPS() || !browser_core::Window::PageOf(tab)) {
+    return false;
+  }
+  LoadInTab(tab, target, ui::PAGE_TRANSITION_TYPED);
+  return true;
+}
+
+size_t bc_agent_list_tabs(const char* agent, bc_id* tabs, size_t capacity) {
+  if (!agent || !*agent) {
+    return 0;
+  }
+  // The agent's Space, found here as bc_agent_open_tab finds it, so no other Space is listed.
+  const browser_core::Space* space = nullptr;
+  for (const browser_core::Space* each : browser_core::Space::All()) {
+    if (each->agent() && each->agent()->id == agent) {
+      space = each;
+    }
+  }
+  if (!space) {
+    return 0;
+  }
+  std::vector<bc_id> listed = space->pinned();
+  std::ranges::copy(space->today(), std::back_inserter(listed));
+  std::copy_n(listed.begin(), std::min(capacity, listed.size()), tabs);
+  return listed.size();
+}
+
+void bc_agent_page(const char* agent,
+                   bc_id tab,
+                   uint64_t request,
+                   int action,
+                   int64_t element,
+                   const char* text) {
+  const bool may =
+      agent && browser_core::Space::AgentMayAct(agent, tab) && !browser_core::IsHeld(tab);
+  // A tab the browser unloaded to save memory gets its page back, not shown.
+  content::WebContents* contents = may ? browser_core::Window::PageOf(tab) : nullptr;
+  if (!contents) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](bc_id tab, uint64_t request) {
+                         if (browser_core::Host().agent_page_done) {
+                           browser_core::Host().agent_page_done(
+                               browser_core::Host().context, tab, request,
+                               "The tab isn't in the agent's own Space.", true);
+                         }
+                       },
+                       tab, request));
+    return;
+  }
+  browser_core::AgentPage::CreateForWebContents(contents);
+  browser_core::AgentPage::FromWebContents(contents)->Act(request, action, element,
+                                                          text ? text : "");
 }
 
 bc_id bc_space_profile(bc_id id) {
@@ -833,6 +964,12 @@ bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   return window ? window->RestoreArchived(archived) : 0;
 }
 
+void bc_window_answer_downloads(bc_id window_id, bool cancel) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->AnswerDownloads(cancel);
+  }
+}
+
 void bc_extension_answer(bc_id question, bool accept) {
   browser_core::InstallQuestion::Answer(question, accept);
 }
@@ -850,6 +987,17 @@ void bc_extension_set_pinned(bc_id profile_id, const char* id, bool pinned) {
 bool bc_extension_remove(bc_id profile_id, const char* id) {
   Profile* profile = LoadedProfile(profile_id);
   return profile && id && browser_core::RemoveExtension(profile, id);
+}
+
+void bc_extension_crash_told(bc_id profile_id, const char* id) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && id) {
+    browser_core::ExtensionCrashTold(profile, id);
+  }
+}
+
+bool bc_extension_turn_on(bc_id profile_id, const char* id) {
+  Profile* profile = LoadedProfile(profile_id);
+  return profile && id && browser_core::TurnOnExtension(profile, id);
 }
 
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
@@ -896,6 +1044,15 @@ void bc_set_haptics(bool haptics) {
   browser_core::SessionChanged();
 }
 
+void bc_set_appearance(int appearance) {
+  // Chromium's own override of the system's scheme, which every page's color provider follows.
+  using Scheme = ui::NativeTheme::PreferredColorScheme;
+  ui::NativeTheme::SetPreferredColorSchemeOverride(
+      appearance == 1   ? std::optional(Scheme::kLight)
+      : appearance == 2 ? std::optional(Scheme::kDark)
+                        : std::nullopt);
+}
+
 bool bc_link_previews(void) {
   return browser_core::UserSettings().link_previews;
 }
@@ -912,6 +1069,23 @@ bool bc_option_reveals_sidebar(void) {
 void bc_set_option_reveals_sidebar(bool reveals) {
   browser_core::UserSettings().option_reveals_sidebar = reveals;
   browser_core::SessionChanged();
+}
+
+int bc_hover_kinds(void) {
+  return browser_core::UserSettings().hover_kinds;
+}
+
+void bc_set_hover_kinds(int kinds) {
+  browser_core::UserSettings().hover_kinds = kinds;
+  browser_core::SessionChanged();
+}
+
+bool bc_archive_note(void) {
+  return browser_core::ArchiveNoteShown();
+}
+
+void bc_dismiss_archive_note(void) {
+  browser_core::DismissArchiveNote();
 }
 
 bool bc_warn_before_quitting(void) {
@@ -1101,6 +1275,23 @@ void bc_tab_go_forward(bc_id id) {
   }
 }
 
+void bc_tab_history(bc_id id, bool forward) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ListHistory(forward);
+  }
+}
+
+void bc_tab_go_to_history(bc_id id, int offset) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
+    browser_core::Tab::FromWebContents(contents)->GoToOffset(offset);
+  }
+}
+
+bc_id bc_tab_open_history(bc_id id, int offset) {
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  return window ? window->OpenHistory(id, offset) : 0;
+}
+
 void bc_tab_reload(bc_id id, bool bypass_cache) {
   if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->Reload(bypass_cache);
@@ -1162,6 +1353,10 @@ void bc_widevine_remove(void) {
   browser_core::widevine::Remove();
 }
 
+int bc_playready_needs() {
+  return browser_core::platform::PlayReadyNeeds();
+}
+
 void bc_tab_stop(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::Tab::FromWebContents(contents)->Stop();
@@ -1207,6 +1402,23 @@ void bc_tab_capture(bc_id id, uint64_t request, bool full_page, bc_rect rect) {
 void bc_tab_picture(bc_id id, uint64_t request, int width, int height) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::PicturePage(contents, request, gfx::Size(std::max(width, 0), std::max(height, 0)));
+  }
+}
+
+void bc_tab_read_text(bc_id id, uint64_t request) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::PageText::GetOrCreateForWebContents(contents)->Read(request);
+  } else if (browser_core::Host().tab_text) {
+    // A tab without its page, or none: nothing to read, told from a task of its own.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](bc_id tab, uint64_t request) {
+                         if (browser_core::Host().tab_text) {
+                           browser_core::Host().tab_text(browser_core::Host().context, tab,
+                                                         request, nullptr);
+                         }
+                       },
+                       id, request));
   }
 }
 
@@ -1473,7 +1685,13 @@ void bc_tab_close_below(bc_id id) {
 }
 
 void bc_tab_move_to_space(bc_id id, bc_id space) {
+  browser_core::Space* from = browser_core::Space::Holding(id);
+  const bool agents = from && from->agent();
   browser_core::Window::MoveToSpace(id, space);
+  browser_core::Space* to = browser_core::Space::Holding(id);
+  if (agents && to && !to->agent()) {
+    browser_core::FillForUser(id);
+  }
 }
 
 void bc_tab_close(bc_id id, bool split) {

@@ -366,7 +366,7 @@ fn moving_a_tab_to_a_space_of_the_same_profile_is_undone_but_not_to_another_prof
     cx: &mut TestAppContext,
 ) {
     let (shell, host) = plain(cx, vec![10, 11]);
-    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, cx));
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, false, cx));
     assert_eq!(host.take_edits(), ["space 11 2"]);
     assert_eq!(host.undo_toasts.borrow().as_slice(), ["Tab Moved to Space"]);
     report(&shell, cx, Vec::new(), vec![10]);
@@ -378,10 +378,78 @@ fn moving_a_tab_to_a_space_of_the_same_profile_is_undone_but_not_to_another_prof
 
     // Another profile's Space opens it there as a new tab, which has nothing to give back.
     let (shell, host) = plain(cx, vec![10, 11]);
-    shell.update(cx, |shell, cx| shell.send_to_space(11, 3, cx));
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 3, false, cx));
     host.take_edits();
     assert!(!undo(&shell, cx));
     assert!(host.take_edits().is_empty());
+}
+
+#[gpui::test]
+fn pin_to_space_pins_the_tab_before_it_moves_and_one_undo_puts_it_back_in_today(
+    cx: &mut TestAppContext,
+) {
+    let (shell, host) = plain(cx, vec![10, 11]);
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, true, cx));
+    assert_eq!(host.take_edits(), ["pinned 11 true", "space 11 2"]);
+    report(&shell, cx, Vec::new(), vec![10]);
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(2, vec![11], Vec::new(), Vec::new(), Folders::default(), cx)
+    });
+    undo(&shell, cx);
+    assert_eq!(host.take_edits(), ["space 11 1", "move 11 false 0 1"]);
+
+    // A pinned tab moves pinned already.
+    let (shell, host) = window(cx, vec![11], vec![10], Folders::default(), Vec::new());
+    shell.update(cx, |shell, cx| shell.send_to_space(11, 2, true, cx));
+    assert_eq!(host.take_edits(), ["space 11 2"]);
+}
+
+/// New Space… makes the Space right after the one shown, as Arc's does, not after the others.
+#[gpui::test]
+fn a_new_space_goes_right_after_the_space_shown(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10]);
+    shell.update(cx, |shell, cx| shell.set_space(2, cx));
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::NewSpace, "ui", cx));
+    assert!(host.take().contains(&"create space Space 4 after 2".to_string()));
+}
+
+/// The command bar finds each other Space by its name, to focus it, pin the tab in it or move the
+/// tab to it, Focus first as in Arc's, and the Space shown's closed folders, to open one with the
+/// folders it's in.
+#[gpui::test]
+fn the_command_bar_finds_spaces_and_closed_folders_by_name(cx: &mut TestAppContext) {
+    let folders = Folders {
+        folders: HashMap::from([(5, ("Reading".into(), false)), (6, ("Recipes".into(), false))]),
+        parents: HashMap::from([(6, 5), (7, 6)]),
+        ..Folders::default()
+    };
+    let (shell, host) = window(cx, vec![5, 6, 7], vec![10], folders, Vec::new());
+    shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+    let found = |typed: &str, cx: &mut TestAppContext| {
+        shell.read_with(cx, |shell, _| {
+            let found = Vec::new();
+            let keys = crate::shell::UserKeys::default();
+            let rows = crate::shell::with_named_rows(found, typed, &shell.named_bar_rows(), &keys);
+            rows.into_iter().map(|row| (row.name.to_string(), row.command)).collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(
+        found("two", cx),
+        [
+            ("Focus Two".to_string(), Command::SelectSpace(1)),
+            ("Pin to Two".to_string(), Command::PinToSpace(2)),
+            ("Move to Two".to_string(), Command::MoveToSpace(2)),
+        ]
+    );
+    // Nothing typed lists none, and the Space shown has none.
+    assert!(found("", cx).is_empty());
+    assert!(found("one", cx).iter().all(|(name, _)| !name.ends_with("One")));
+    let recipes = found("recipes", cx);
+    assert_eq!(recipes, [("Open Recipes".to_string(), Command::OpenFolder(6))]);
+    host.take();
+    shell.update(cx, |shell, cx| shell.run(Command::OpenFolder(6), "command-bar", cx));
+    assert_eq!(host.take(), ["folder 6 open true", "folder 5 open true"]);
 }
 
 #[gpui::test]

@@ -9,6 +9,7 @@
 
 #include "base/containers/span.h"
 #include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
 
@@ -95,6 +96,12 @@ void ReleaseKeyboard(views::Widget* widget);
 // Runs |change|, which may move the keyboard in |widget|'s window, then gives the keyboard back to
 // what had it, if that's still in the window.
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change);
+
+// Holds |page|, which no window shows, hidden in |widget|'s window until the runner returned runs,
+// so it has the window's compositor to draw unseen with, as for a picture of it. Where a hidden
+// page's view keeps its compositor, as on the Mac, or |page| is in a window already, it does
+// nothing.
+base::ScopedClosureRunner DrawUnseen(views::Widget* widget, gfx::NativeView page);
 
 // Whether |view|, a page's, stretches the frame it last drew to fill itself as it resizes, until
 // the page draws at the new size, rather than shows that frame at its old size in the top-left

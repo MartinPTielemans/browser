@@ -1,6 +1,6 @@
 //! What the Linux host does through GPUI's Linux platform rather than in host.cc, as GPUI already
 //! has it: the clipboard, the file chooser portal, the browser window's activation, the touchpad's
-//! swipes over the page and Control's release.
+//! swipes over the page, Control's release and a file's drag.
 
 use std::{
     ffi::{CStr, c_char, c_void},
@@ -25,9 +25,7 @@ pub fn copy_png(png: &[u8]) {
 
 /// Asks where to save the capture, through the desktop's file chooser portal, and saves it there.
 pub fn save_png(png: &[u8]) {
-    let mut name = [0 as c_char; 64];
-    unsafe { platform::host_capture_name(name.as_mut_ptr(), name.len()) };
-    let name = unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned();
+    let name = crate::capture_name();
     let png = png.to_vec();
     crate::update_app_later(move |cx| {
         // The portal opens in the folder given, and GPUI asks for one; the home folder is always
@@ -60,6 +58,22 @@ pub fn watch_activation<T: 'static>(
         platform::host_window_active(ui_view, window.is_window_active(), whole_window)
     })
     .detach();
+}
+
+/// Starts the system's drag of the file at `path`, as host.h says: XDND on X11, the data device's
+/// drag under Wayland, from the press the left button holds.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_drag_file(path: *const c_char, ended: extern "C" fn(taken: bool)) -> bool {
+    let path = PathBuf::from(unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned());
+    if !path.exists() {
+        return false;
+    }
+    gpui_linux::start_file_drag(&path, move |taken| {
+        // After the event that let it go, out of the display's handling.
+        if let Some(cx) = crate::CX.with_borrow(Clone::clone) {
+            cx.foreground_executor().spawn(async move { ended(taken) }).detach();
+        }
+    })
 }
 
 /// Calls `released` once Control is no longer held, after the event that shows it, as a ⌃Tab walk

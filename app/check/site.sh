@@ -2,7 +2,8 @@
 # page's text field, along its bottom, puts what's in it in the title, and an unseen link in its
 # top-left 40 points goes to a text file, and so does another, 200 by 40 points, 100 in from the page's
 # left and top, which the link target's plate shows the address of. "d" typed in the page downloads a file, "q" the same
-# file as another, "s" one that takes longer than the run to come, and "k" opens the cookie page,
+# file as another, "s" one that takes longer than the run to come, "v" a two-second video,
+# check/clip.mp4, and "k" opens the cookie page,
 # once a check, as later runs type in it too. A click in its top right 480 by 140 points puts
 # "corner" in the title. "x" and "z" each open check.crx, an extension the
 # extensions run puts there, which Chrome installs from. "a" asks to manage windows on all the
@@ -15,7 +16,7 @@ mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
 <a id=d download href="notes.txt"></a><a id=s download href="slow.bin"></a>
-<a id=q download="trash.txt" href="notes.txt"></a>
+<a id=q download="trash.txt" href="notes.txt"></a><a id=v download href="clip.mp4"></a>
 <a id=k href="clear.html"></a><a id=x href="check.crx"></a><a id=z href="check.crx?again"></a>
 <a href="notes.txt" style="position:fixed;left:0;top:0;width:40px;height:40px"></a>
 <a href="notes.txt" style="position:fixed;left:100px;top:100px;width:200px;height:40px"></a>
@@ -45,6 +46,10 @@ onkeydown = e => {
 };
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
+# A test pattern, 160 by 90 at 15 frames a second, without sound: ffmpeg -f lavfi -i
+# testsrc2=size=160x90:rate=15:duration=2 -c:v libx264 -profile:v baseline -pix_fmt yuv420p -crf 32
+# -movflags +faststart -an clip.mp4
+cp check/clip.mp4 "$out/site/clip.mp4"
 # Its text field takes the keyboard as it loads, and the title says "ready" once it's drawn and
 # what's typed in it after that.
 printf '%s' '<title>loading</title><textarea id=text autofocus></textarea>
@@ -52,6 +57,14 @@ printf '%s' '<title>loading</title><textarea id=text autofocus></textarea>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
 </script>' > "$out/site/autofocus.html"
+# Its title says its prefers-color-scheme, "scheme dark" or "scheme light", as it loads and each
+# time the scheme changes.
+printf '%s' '<title>loading</title><script>
+const dark = matchMedia("(prefers-color-scheme: dark)");
+const say = () => document.title = "scheme " + (dark.matches ? "dark" : "light");
+say();
+dark.onchange = say;
+</script>' > "$out/site/scheme.html"
 # Its title says "login" once it's drawn, "filled" each time Chrome fills a saved password in, and
 # "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
 # highlighted fills it too, but only a fill the user chose gives the page its value, with a change
@@ -319,7 +332,9 @@ handler = functools.partial(Handler, directory=sys.argv[1])
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
 print("Serving HTTP on 127.0.0.1 port", server.server_address[1], "...")
 server.serve_forever()
-' "$out/site" > "$out/site.log" 2>&1 &
+' "$out/site" > "$out/site.log" 2>&1 3>&- 4>&- 5>&- &
+# It runs on past the run that started it, so it holds none of a run's pipes, the driver's or an
+# MCP client's, whose reader would never hear them close.
 server=$!
 for _ in $(seq 50); do
   grep -q '^Serving HTTP' "$out/site.log" && break

@@ -17,7 +17,7 @@ use super::access::Accessible as _;
 use crate::tokens::shell::{SHOWN_MARKER, SHOWN_MARKER_HIT};
 
 use super::{
-    PLATE_INSET, ROW_HEIGHT, Row, SELECTED, Slot,
+    PLATE_INSET, ROW_HEIGHT, Row, Slot,
     CARD_INSET, PRIVATE_SHADE, REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
     REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX,
     SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Settle, Shell, Space, settle_progress, spring,
@@ -310,7 +310,7 @@ impl Shell {
             .w_full()
             .h(px(SHOWN_MARKER))
             .rounded(px(SHOWN_MARKER / 2.))
-            .bg(self.palette.plate(SELECTED));
+            .bg(self.palette.selected(0.));
         let marker = div()
             .id("shown-marker")
             .absolute()
@@ -494,9 +494,10 @@ impl Shell {
         // window or display.
         if !(0. ..CARD_INSET).contains(&x) {
             self.reveal_wait = None;
-            // The page's question keeps it out until it's answered, and its menu until it closes.
+            // A question keeps it out until it's answered, and its menu until it closes.
             if x > held
                 && self.question().is_none()
+                && self.agent_question.is_none()
                 && !self.menu_open
             {
                 self.set_revealed(false, cx);

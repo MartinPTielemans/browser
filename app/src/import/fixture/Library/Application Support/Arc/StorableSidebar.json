@@ -14,6 +14,7 @@
             "customInfo": {
               "iconType": { "emoji_v2": "🏠" },
               "windowTheme": {
+                "windowAppearance": { "single": { "_0": "dark" } },
                 "background": {
                   "single": {
                     "_0": {
@@ -28,8 +29,11 @@
                                   { "red": 0.2, "green": 0.4, "blue": 0.8, "alpha": 1, "colorSpace": "extendedSRGB" },
                                   { "red": 1.1, "green": 0.5, "blue": -0.05, "alpha": 1, "colorSpace": "extendedSRGB" }
                                 ],
-                                "overlayColors": [],
-                                "modifiers": { "intensityFactor": 0.6, "noiseFactor": 0.3, "overlay": "base" },
+                                "overlayColors": [
+                                  { "red": 0, "green": 0, "blue": 0, "alpha": 0, "colorSpace": "extendedSRGB" },
+                                  { "red": 0.2, "green": 0.8, "blue": 0.6, "alpha": 1, "colorSpace": "extendedSRGB" }
+                                ],
+                                "modifiers": { "intensityFactor": 0.6, "noiseFactor": 0.3, "overlay": "sand" },
                                 "translucencyStyle": "bold",
                                 "wheel": { "analogous": {} }
                               }
@@ -52,9 +56,10 @@
             "customInfo": {
               "iconType": { "icon": "flash" },
               "windowTheme": {
+                "windowAppearance": { "appearanceBased": { "light": "light", "dark": "dark" } },
                 "background": {
-                  "single": {
-                    "_0": {
+                  "appearanceBased": {
+                    "light": {
                       "contentOverBackgroundAppearance": "light",
                       "isVibrant": true,
                       "style": {
@@ -65,6 +70,22 @@
                                 "color": { "red": 0.9, "green": 0.6, "blue": 0.7, "alpha": 1, "colorSpace": "extendedSRGB" },
                                 "modifiers": { "intensityFactor": 0.9, "noiseFactor": 0, "overlay": "base" },
                                 "translucencyStyle": "subtle"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "dark": {
+                      "contentOverBackgroundAppearance": "dark",
+                      "isVibrant": false,
+                      "style": {
+                        "color": {
+                          "_0": {
+                            "basicColor": {
+                              "_0": {
+                                "color": { "red": 0.1, "green": 0.1, "blue": 0.2, "alpha": 1, "colorSpace": "extendedSRGB" },
+                                "translucencyStyle": "dark"
                               }
                             }
                           }

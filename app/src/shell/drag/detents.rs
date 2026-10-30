@@ -33,10 +33,10 @@ pub(super) fn at(x: f32, y: f32) -> Point<Pixels> {
     point(px(x), px(y))
 }
 
-pub(super) const X: f32 = 80.;
+pub(in crate::shell) const X: f32 = 80.;
 
 /// Presses `tab`'s row, in the middle.
-pub(super) fn press(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, tab: u64) -> f32 {
+pub(in crate::shell) fn press(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, tab: u64) -> f32 {
     shell.update(cx, |shell, _| {
         let y = row_y(shell, tab);
         shell.press_row(tab, at(X, y));
@@ -44,7 +44,7 @@ pub(super) fn press(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, tab: u
     })
 }
 
-pub(super) fn drag_to(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, x: f32, y: f32) {
+pub(in crate::shell) fn drag_to(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, x: f32, y: f32) {
     shell.update(cx, |shell, cx| shell.drag_to(at(x, y), cx));
 }
 

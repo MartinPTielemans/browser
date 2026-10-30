@@ -471,6 +471,7 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("archive_after", saved.settings.archive_after.InSecondsF())
                            .Set("haptics", saved.settings.haptics)
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
+                           .Set("archive_noted", saved.settings.archive_noted)
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
                            .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
                            .Set("unload_idle_tabs", saved.settings.unload_idle_tabs)
@@ -478,6 +479,7 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
                            .Set("option_reveals_sidebar", saved.settings.option_reveals_sidebar)
+                           .Set("hover_kinds", saved.settings.hover_kinds)
                            .Set("crash_report_offered", saved.settings.crash_report_offered)
                            .Set("widevine", saved.settings.widevine));
   return base::WriteJson(root);
@@ -708,6 +710,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.haptics = settings->FindBool("haptics").value_or(true);
     saved.settings.warn_before_quitting =
         settings->FindBool("warn_before_quitting").value_or(true);
+    saved.settings.archive_noted = settings->FindBool("archive_noted").value_or(false);
     saved.settings.warn_moving_profiles =
         settings->FindBool("warn_moving_profiles").value_or(true);
     if (const std::string* scope = settings->FindString("favorites_scope")) {
@@ -720,6 +723,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
     saved.settings.option_reveals_sidebar =
         settings->FindBool("option_reveals_sidebar").value_or(true);
+    saved.settings.hover_kinds = settings->FindInt("hover_kinds").value_or(15);
     saved.settings.crash_report_offered =
         settings->FindDouble("crash_report_offered").value_or(0);
     saved.settings.widevine = settings->FindBool("widevine").value_or(false);
@@ -894,8 +898,12 @@ bool RestoreSavedWindow(Window& window, size_t index) {
   return true;
 }
 
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
-  Space* space = Space::Create(saved_space.name, id, saved_space.agent);
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved_space,
+                    bc_id id,
+                    size_t at) {
+  Space* space = Space::Create(saved_space.name, id, saved_space.agent, at);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);

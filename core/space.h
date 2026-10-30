@@ -53,11 +53,12 @@ class Space {
     std::string name;
   };
 
-  // With the id |id|, a deleted Space's, if it isn't 0, which puts it back at its place. The
-  // agent's if there's |agent|, else the user's.
+  // With the id |id|, a deleted Space's, if it isn't 0. The agent's if there's |agent|, else the
+  // user's. At |at| in the Spaces' order, else after the others.
   static Space* Create(std::string name,
                        bc_id id = 0,
-                       std::optional<Agent> agent = std::nullopt);
+                       std::optional<Agent> agent = std::nullopt,
+                       size_t at = SIZE_MAX);
   // A private window's Space, its tabs in the off-the-record profile of the profile in the
   // directory |profile|. It holds Today tabs alone, and isn't among All(), so it's never saved,
   // archived or listed with the Spaces. It goes with its window.

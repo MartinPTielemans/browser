@@ -61,6 +61,17 @@ pub trait Host {
     fn close(&self, tab: u64);
     /// Makes `tab` a Today tab of the Space `window` shows, and shows it there, as it is.
     fn keep(&self, window: u64, tab: u64);
+    /// The user closed the preview over the browser window `window`, for ⌘Z and ⇧⌘T to open
+    /// again; `undone` if Redo closed it, as that history has it already.
+    fn closed(&self, window: u64, closed: Closed, undone: bool, cx: &mut App);
+}
+
+/// A preview the user closed: the tab it was over, the page it was at and where its link was.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Closed {
+    pub over: u64,
+    pub url: SharedString,
+    pub link: Point<Pixels>,
 }
 
 /// What a key in the preview does.
@@ -79,6 +90,26 @@ pub fn key_action(keystroke: &str, reserved: bool) -> Option<KeyAction> {
         ("cmd-w" | "escape", true) => Some(KeyAction::Close),
         ("cmd-enter", false) => Some(KeyAction::Keep),
         _ => None,
+    }
+}
+
+/// Whether `url` joins a call, which opens as a tab, not in a preview, as Arc's meeting links do:
+/// Google Meet's, Zoom's, Microsoft Teams', Webex's, Whereby's and Jitsi Meet's.
+pub fn is_meeting(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (host, path) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    let host = host.rsplit_once('@').map_or(host, |(_, host)| host);
+    let host = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
+    let on = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    let under = |paths: &[&str]| paths.iter().any(|each| path.starts_with(each));
+    let room = path.len() > 1;
+    match host.as_str() {
+        "meet.google.com" | "whereby.com" | "meet.jit.si" => room,
+        "teams.microsoft.com" => under(&["/l/meetup-join/", "/meet/"]),
+        "teams.live.com" => under(&["/meet/"]),
+        _ if on("zoom.us") => under(&["/j/", "/my/", "/w/", "/s/", "/wc/"]),
+        _ if on("webex.com") => under(&["/meet/", "/join/"]) || path.contains("j.php"),
+        _ => false,
     }
 }
 
@@ -216,7 +247,11 @@ struct Preview {
     page: Bounds<Pixels>,
     radius: f32,
     tab: u64,
+    /// The tab whose link it opened from.
+    over: u64,
     url: SharedString,
+    /// Redo closed it, so ⌘Z's history has it already.
+    undone: bool,
     /// Where the link was clicked in the browser window.
     link: Point<Pixels>,
     /// When the app asked for it, from which its first frame is timed.
@@ -325,18 +360,19 @@ fn update<R>(
 }
 
 /// Shows `tab`'s page, at `url`, over the browser window `window`, whose page is at `page` with
-/// corners of that radius, growing from `link` there, where the link was clicked. A preview
-/// showing goes at once.
+/// corners of that radius, growing from `link` there, where the link in `over`'s page was clicked.
+/// A preview showing goes at once.
 pub fn show(
     window: u64,
     tab: u64,
+    over: u64,
     url: SharedString,
     (page, radius): (Bounds<Pixels>, f32),
     link: Point<Pixels>,
     cx: &mut App,
 ) {
     update(cx, |preview, gpui_window, cx| {
-        preview.finish();
+        preview.finish(cx);
         // check.sh reads this line.
         log!("browser: link preview {tab} {url}");
         let shown = Preview {
@@ -344,7 +380,9 @@ pub fn show(
             page,
             radius,
             tab,
+            over,
             url,
+            undone: false,
             link,
             asked: Instant::now(),
             shown: None,
@@ -409,6 +447,19 @@ pub fn key(window: u64, tab: u64, keystroke: &str, reserved: bool, cx: &mut App)
     })
 }
 
+/// Redo closes the preview over `over` in the browser window `window`, if it shows. Whether it did.
+pub fn close_over(window: u64, over: u64, cx: &mut App) -> bool {
+    update(cx, |preview, _, cx| {
+        let shown = preview.preview.as_mut();
+        let Some(shown) = shown.filter(|shown| shown.window == window && shown.over == over) else {
+            return false;
+        };
+        shown.undone = true;
+        preview.close("redo", cx)
+    })
+    .unwrap_or(false)
+}
+
 /// The user left the preview for another window. The host has released it already.
 pub fn dismissed(cx: &mut App) {
     update(cx, |preview, _, cx| preview.close("dismissed", cx));
@@ -453,7 +504,7 @@ impl LinkPreview {
                 .update(cx, |preview, cx| {
                     // Unless another preview took its place meanwhile.
                     if preview.preview.as_ref().is_some_and(|shown| shown.tab == tab) {
-                        preview.finish();
+                        preview.finish(cx);
                         cx.notify();
                     }
                 })
@@ -464,8 +515,8 @@ impl LinkPreview {
     }
 
     /// Ends the preview shown, if any, where its leaving would: its page closed or kept, and its
-    /// window hidden.
-    fn finish(&mut self) {
+    /// window hidden. One the user closed is the window's to reopen.
+    fn finish(&mut self, cx: &mut App) {
         let Some(shown) = self.preview.take() else {
             return;
         };
@@ -476,9 +527,13 @@ impl LinkPreview {
                 log!("browser: link preview kept {}", shown.tab);
                 self.host.hide();
             }
-            _ => {
+            leaving => {
                 self.host.hide();
                 self.host.close(shown.tab);
+                if leaving.is_some() {
+                    let Preview { window, over, url, link, undone, .. } = shown;
+                    self.host.closed(window, Closed { over, url, link }, undone, cx);
+                }
             }
         }
     }

@@ -54,7 +54,13 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\chrome.exe"; IconFilename: "
 Root: HKCU; Subkey: "Software\Classes\IloHTML"; ValueType: string; ValueData: "ilo HTML Document"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\IloHTML\DefaultIcon"; ValueType: string; ValueData: "{app}\ilo.ico,0"
 Root: HKCU; Subkey: "Software\Classes\IloHTML\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"" ""%1"""
-; The capabilities Windows lists in Settings' Default apps, so http, https and HTML files can be ilo's.
+; And PDFs, under the engine's PDF ProgId (chromium-windows-app-names.patch). Only offered: .pdf's
+; own key isn't touched, so ilo opens PDFs only once the user picks it for them.
+Root: HKCU; Subkey: "Software\Classes\IloPDF"; ValueType: string; ValueData: "ilo PDF Document"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\IloPDF\DefaultIcon"; ValueType: string; ValueData: "{app}\ilo.ico,0"
+Root: HKCU; Subkey: "Software\Classes\IloPDF\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"" ""%1"""
+; The capabilities Windows lists in Settings' Default apps, so http, https, HTML files and PDFs can
+; be ilo's.
 Root: HKCU; Subkey: "Software\ilo"; Flags: uninsdeletekeyifempty
 Root: HKCU; Subkey: "Software\ilo\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\ilo\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "{#AppName}, an Arc-style browser"
@@ -62,6 +68,7 @@ Root: HKCU; Subkey: "Software\ilo\Capabilities\URLAssociations"; ValueType: stri
 Root: HKCU; Subkey: "Software\ilo\Capabilities\URLAssociations"; ValueType: string; ValueName: "https"; ValueData: "IloHTML"
 Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".htm"; ValueData: "IloHTML"
 Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".html"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pdf"; ValueData: "IloPDF"
 ; Register those capabilities with Windows, so it shows ilo as a choice.
 Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppName}"; ValueData: "Software\ilo\Capabilities"; Flags: uninsdeletevalue
 ; The engine's notification helper, which Windows starts for a click on a notification and which

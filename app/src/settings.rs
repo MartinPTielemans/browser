@@ -7,12 +7,14 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
-use std::sync::LazyLock;
 use std::time::Instant;
 
+use browser::agents::{self, Agents, Client};
+use browser::build_info;
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
+use browser::theme::Appearance;
 use browser::import::ImportView;
 use browser::log;
 use browser::passwords::{self, Login};
@@ -20,8 +22,8 @@ use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Ref
 use browser::text_input::{self, TextInput};
 use browser::widevine::{self, Widevine, WidevineRow};
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
-    KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
+    AnyElement, App, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
+    Global, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
     TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -84,6 +86,9 @@ use browser::tokens::settings::LINK_PREVIEWS_TILE;
 use browser::tokens::settings::OPTION_REVEAL_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
+use browser::tokens::settings::AGENTS_TILE;
+use browser::tokens::settings::CLIENT_TILE;
+use browser::tokens::settings::EXPORT_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 /// The chip's plate, as Paper's alpha, for the ladder to go over.
@@ -100,6 +105,15 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
     ("30 days", 30. * 24. * 3600.),
 ];
 
+/// How long a Today tab waits unseen before it's archived, in words: "12 hours".
+pub(crate) fn archive_after_words() -> String {
+    let after = unsafe { bc::bc_archive_after() };
+    match ARCHIVE_AFTER.iter().find(|&&(_, seconds)| seconds == after) {
+        Some((label, _)) => label.trim_end_matches(" (default)").to_owned(),
+        None => format!("{:.0} hours", after / 3600.),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     General,
@@ -108,18 +122,20 @@ enum Tab {
     Import,
     Shortcuts,
     Privacy,
+    Agents,
     Advanced,
     About,
 }
 
 impl Tab {
-    const ALL: [Tab; 8] = [
+    const ALL: [Tab; 9] = [
         Tab::General,
         Tab::Profiles,
         Tab::Passwords,
         Tab::Import,
         Tab::Shortcuts,
         Tab::Privacy,
+        Tab::Agents,
         Tab::Advanced,
         Tab::About,
     ];
@@ -139,6 +155,7 @@ impl Tab {
             Tab::Import => "Import",
             Tab::Shortcuts => "Shortcuts",
             Tab::Privacy => "Privacy",
+            Tab::Agents => "Agents",
             Tab::Advanced => "Advanced",
             Tab::About => "About",
         }
@@ -152,6 +169,7 @@ impl Tab {
             Tab::Import => "icons/arrow-down-to-line.svg",
             Tab::Shortcuts => "icons/keyboard.svg",
             Tab::Privacy => "icons/lock.svg",
+            Tab::Agents => "icons/sparkles.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
             Tab::About => "icons/info.svg",
         }
@@ -159,9 +177,27 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
+/// Or the switch for whether those keys count the favorites.
 enum Keys {
     Of(Command),
-    Text(&'static str),
+    /// Keys no command holds, which can't be changed: a binding's keystroke.
+    Fixed(&'static str),
+    /// A run of them, from the first keystroke to the last.
+    Span(&'static str, &'static str),
+    FavoritesNumbered,
+}
+
+impl Keys {
+    /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
+    fn fixed(&self) -> Option<String> {
+        match *self {
+            Keys::Of(_) | Keys::FavoritesNumbered => None,
+            Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
+            Keys::Span(first, last) => {
+                Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
+            }
+        }
+    }
 }
 
 /// The Shortcuts tab, in the menus' order and names.
@@ -180,11 +216,13 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
-            ("Tabs 1 to 8", Keys::Text("⌘1 – ⌘8")),
+            ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
+            ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
             ("Clear Today", Keys::Of(Command::Clear)),
+            ("Reset all tabs in this Space", Keys::Of(Command::ResetSpaceTabs)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
             ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
@@ -219,10 +257,13 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
-            ("Spaces 1 to 9", Keys::Text("⌃1 – ⌃9")),
+            ("Spaces 1 to 9", Keys::Span("ctrl-1", "ctrl-9")),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
+            ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
+            ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
             ("View Library", Keys::Of(Command::ViewLibrary)),
             ("View Archive", Keys::Of(Command::ViewArchive)),
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
@@ -264,9 +305,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Settings", Keys::Of(Command::Settings)),
             ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
             // main.rs binds these.
-            (concat!("Hide ", env!("APP_NAME")), Keys::Text("⌘H")),
-            ("Hide Others", Keys::Text("⌥⌘H")),
-            ("Minimize", Keys::Text("⌘M")),
+            (concat!("Hide ", env!("APP_NAME")), Keys::Fixed("cmd-h")),
+            ("Hide Others", Keys::Fixed("alt-cmd-h")),
+            ("Minimize", Keys::Fixed("cmd-m")),
             (concat!("Quit ", env!("APP_NAME")), Keys::Of(Command::Quit)),
         ],
     ),
@@ -297,6 +338,8 @@ pub struct Settings {
     recording: Option<Command>,
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
+    /// The Shortcuts tab's search, which narrows its rows to what it finds.
+    search: Entity<TextInput>,
     default_browser: Entity<DefaultBrowser>,
     /// The sites with ad blocking off, as General last logged them for check.sh.
     off_sites_logged: Option<String>,
@@ -316,6 +359,8 @@ pub struct Settings {
     #[cfg(target_os = "linux")]
     dialog: Entity<dialog::Dialog>,
     widevine: Entity<WidevineRow>,
+    /// Draws the Agents tab again as the agents change.
+    _agents: Option<Subscription>,
 }
 
 /// Settings' dialog, which it draws in its own content, so there's nothing to show.
@@ -328,6 +373,9 @@ impl dialog::Host for InWindow {
 
     fn hide(&self) {}
 }
+
+/// The activity the Agents tab lists, newest first: the log keeps more, for the run.
+const ACTIVITY_SHOWN: usize = 50;
 
 /// The system's default browser, for General's row.
 struct System;
@@ -434,6 +482,11 @@ impl Global for SettingsWindow {}
 /// Shows the Settings window on its Shortcuts tab.
 pub fn show_shortcuts(cx: &mut App) {
     show_on(Tab::Shortcuts, cx);
+}
+
+/// Shows the Settings window on its Agents tab, with each agent's activity.
+pub fn show_agents(cx: &mut App) {
+    show_on(Tab::Agents, cx);
 }
 
 /// Shows the Settings window on its About tab.
@@ -604,11 +657,29 @@ fn open(cx: &mut App) {
             };
             let widevine = cx.new(|_| WidevineRow::new(Rc::new(Module)));
             cx.observe(&widevine, |_, _, cx| cx.notify()).detach();
+            let agents = agents::global(cx);
+            let agents = agents.map(|agents| cx.observe(&agents, |_, _, cx| cx.notify()));
+            let search = cx.new(|cx| {
+                TextInput::new("Search", cx)
+                    .placeholder_color(rgb(DETAIL))
+                    .caret_color(rgb(TEXT))
+            });
+            let mut searched = String::new();
+            cx.observe(&search, move |_, search, cx| {
+                let typed = search.read(cx).text();
+                if typed != searched {
+                    searched = typed.to_string();
+                    log_found(&searched, cx);
+                }
+                cx.notify();
+            })
+            .detach();
             Settings {
                 #[cfg(target_os = "linux")]
                 dialog,
                 default_browser,
                 widevine,
+                _agents: agents,
                 tab: Tab::General,
                 focus: cx.focus_handle(),
                 shown: false,
@@ -618,6 +689,7 @@ fn open(cx: &mut App) {
                 focus_renaming: false,
                 recording: None,
                 refused: None,
+                search,
                 off_sites_logged: None,
                 turn_on_logged: Rc::default(),
                 passwords_profile: None,
@@ -929,7 +1001,7 @@ impl Settings {
         &self,
         name: &'static str,
         on: bool,
-        set: fn(bool),
+        set: impl Fn(bool, &mut App) + 'static,
         accent: Rgba,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -944,7 +1016,7 @@ impl Settings {
             .on_click(cx.listener(move |settings, _, _, cx| {
                 // check.sh waits for this line.
                 log!("browser: {name} {}", if on { "off" } else { "on" });
-                set(!on);
+                set(!on, cx);
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
             }))
@@ -1183,8 +1255,8 @@ impl Settings {
         let send = unsafe { bc::bc_send_crash_reports() };
         let send = self.toggle("send crash reports", send, set_send_crash_reports, accent, cx);
         let detail = format!(
-            "Reports go to {}. Turning this off deletes those not yet sent.",
-            crash_reports_collector()
+            "Only sent while this is on, to {}. Turning it off deletes those not yet sent.",
+            collector_name(&crash_reports_collector())
         );
         let row = detailed_row("Send crash reports", detail, Some(send));
         div().child(group(&RowLook::settings(), [row])).into_any_element()
@@ -1355,6 +1427,183 @@ impl Settings {
         }
     }
 
+    /// The switch that lets agents in, the clients to connect, and what the agents did in this
+    /// run, newest first.
+    fn agents(&self, agents: &Entity<Agents>, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
+        let on = agents.read(cx).is_on();
+        let switch = {
+            let agents = agents.clone();
+            let set = move |on, cx: &mut App| agents.update(cx, |agents, cx| agents.set_on(on, cx));
+            self.toggle("agents", on, set, accent, cx)
+        };
+        let model = agents.read(cx);
+        let about: SharedString = match model.trouble() {
+            Some(trouble) => trouble,
+            None if on => {
+                "On: a connected client reaches the browser through the bridge beside it.".into()
+            }
+            None => "They work in a Space of their own, which you can watch, and never see your \
+                     passwords, cookies or autofill."
+                .into(),
+        };
+        let clients = Client::ALL.map(|client| self.client(agents, client, cx));
+        // A list for each agent, as each has its own Space (decision 8): what the user let it do
+        // or never do on a site, to revoke, then what it did.
+        let model = agents.read(cx);
+        let now = std::time::SystemTime::now();
+        let lists: Vec<gpui::Div> = (Client::ALL.into_iter())
+            .filter_map(|client| {
+                let grants = self.grants(agents, client, cx);
+                let entries: Vec<gpui::Div> = (model.activity(client.id()).take(ACTIVITY_SHOWN))
+                    .map(|entry| {
+                        let what = agents::tools::describe(&entry.action);
+                        let refused = (entry.steps.iter().map(|step| &step.refused))
+                            .find(|refused| !refused.is_empty())
+                            .unwrap_or(&entry.refused);
+                        let steps = (entry.steps.iter())
+                            .map(|step| agents::tools::describe(&step.action));
+                        let detail: SharedString = if !refused.is_empty() {
+                            format!("Refused: {refused}").into()
+                        } else if !entry.steps.is_empty() {
+                            steps.collect::<Vec<_>>().join(" · ").into()
+                        } else {
+                            entry.site.clone()
+                        };
+                        let detail = Some(detail).filter(|detail| !detail.is_empty());
+                        let ago = div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL));
+                        described(None, what.into(), detail).child(ago.child(agents::ago(entry.at, now)))
+                    })
+                    .collect();
+                (grants.is_some() || !entries.is_empty()).then(|| {
+                    let entries = (!entries.is_empty()).then(|| group(&RowLook::settings(), entries));
+                    let groups = div().flex().flex_col().gap(px(BOX_GAP));
+                    let groups = groups.children(grants).children(entries);
+                    div().flex().flex_col().child(header(client.name())).child(groups)
+                })
+            })
+            .collect();
+        let activity = match lists.is_empty() {
+            true => div().flex().flex_col().child(header("Activity")).child(group(&RowLook::settings(), [described(
+                None,
+                "Nothing yet".into(),
+                Some("What agents do while the browser runs shows here.".into()),
+            )])),
+            false => div().flex().flex_col().gap(px(SECTION_GAP)).children(lists),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(BOX_GAP))
+            .child(group(&RowLook::settings(), [described(
+                Some(("icons/sparkles.svg", AGENTS_TILE)),
+                "Let agents use the browser".into(),
+                Some(about),
+            )
+            .child(div().flex_none().ml(px(PADDING)).child(switch))]))
+            .child(group(&RowLook::settings(), clients))
+            .child(activity.mt(px(SECTION_GAP - BOX_GAP)))
+            .into_any_element()
+    }
+
+    /// The sites where the user answered the agent for good, each with Revoke, and Revoke All
+    /// for several, then the tabs of its Space the user doesn't hold, with Take Back All; None
+    /// for none.
+    fn grants(&self, agents: &Entity<Agents>, client: Client, cx: &App) -> Option<gpui::Div> {
+        let grants = agents.read(cx).grants(client.id());
+        let revoke = |site: Option<SharedString>, title| {
+            let id = format!("revoke-{}-{}", client.id(), site.as_deref().unwrap_or(""));
+            let agents = agents.clone();
+            button(&RowLook::settings(), gpui::ElementId::Name(id.into()), title).ml(px(PADDING)).on_click(
+                move |_, _, cx| {
+                    agents.update(cx, |agents, cx| {
+                        agents.revoke(client.id(), site.as_deref(), cx)
+                    })
+                },
+            )
+        };
+        let several = grants.len() > 1;
+        let mut rows: Vec<gpui::Div> = (grants.into_iter())
+            .map(|(site, may)| {
+                let answer = if may { "Always Allow" } else { "Never" };
+                let row = described(None, site.clone(), Some(answer.into()));
+                row.child(revoke(Some(site), "Revoke"))
+            })
+            .collect();
+        if several {
+            rows.push(described(None, "All sites".into(), None).child(revoke(None, "Revoke All")));
+        }
+        let tabs = agents.read(cx).tabs_to_take(client.id(), cx).len();
+        if tabs > 0 {
+            let agents = agents.clone();
+            let take = button(&RowLook::settings(), ("take-back-agent-tabs", client as usize), "Take Back All")
+                .ml(px(PADDING))
+                .on_click(move |_, _, cx| {
+                    agents.update(cx, |agents, cx| agents.take_back_all(client.id(), cx))
+                });
+            let open = match tabs {
+                1 => "1 tab it may act in".into(),
+                _ => format!("{tabs} tabs it may act in"),
+            };
+            rows.push(described(None, "Its tabs".into(), Some(open.into())).child(take));
+        }
+        (!rows.is_empty()).then(|| group(&RowLook::settings(), rows))
+    }
+
+    /// A client's row: whether it's connected, and Connect, or Disconnect, with Copy Setup for a
+    /// client the browser can't set up itself.
+    fn client(&self, agents: &Entity<Agents>, client: Client, cx: &mut Context<Self>) -> gpui::Div {
+        let model = agents.read(cx);
+        let connected = model.is_connected(client);
+        let detail: SharedString = if let Some(why) = model.failure(client) {
+            why
+        } else if model.is_connecting(client) {
+            "Connecting…".into()
+        } else if connected && model.is_live(client) {
+            "Connected, and at work".into()
+        } else if connected && client == Client::Other {
+            format!(
+                "Runs {}. Copy Setup copies it with its token.",
+                model.command()
+            )
+            .into()
+        } else if connected {
+            format!("Connected in {}", client.config()).into()
+        } else if client == Client::Other {
+            "Any MCP client".into()
+        } else {
+            format!("Not connected. Connect adds the browser to {}", client.config()).into()
+        };
+        let index = client as usize;
+        let setup = (connected && client == Client::Other).then(|| model.setup(client)).flatten();
+        let copy = setup.map(|setup| {
+            button(&RowLook::settings(), ("copy-agent-setup", index), "Copy Setup").on_click(move |_, _, cx| {
+                // check.sh reads this line.
+                log!("browser: agent setup copied");
+                cx.write_to_clipboard(ClipboardItem::new_string(setup.clone()));
+            })
+        });
+        let agents = agents.clone();
+        let action = match connected {
+            true => button(&RowLook::settings(), ("disconnect-agent", index), "Disconnect").on_click(move |_, _, cx| {
+                agents.update(cx, |agents, cx| agents.disconnect(client, cx))
+            }),
+            false => button(&RowLook::settings(), ("connect-agent", index), "Connect").on_click(move |_, _, cx| {
+                // check.sh reads this line.
+                log!("browser: connect agent {}", client.id());
+                agents.update(cx, |agents, cx| agents.connect(client, cx))
+            }),
+        };
+        let icon = match client {
+            Client::ClaudeCode => "icons/terminal.svg",
+            Client::Codex => "icons/square-terminal.svg",
+            Client::Other => "icons/cable.svg",
+        };
+        described(Some((icon, CLIENT_TILE)), client.name().into(), Some(detail))
+            .min_h(px(PROFILE_ROW))
+            .children(copy.map(|copy| copy.ml(px(PADDING))))
+            .child(action.ml(px(PADDING)))
+    }
+
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
@@ -1375,6 +1624,22 @@ impl Settings {
         let widevine = self.widevine.read(cx).shown().then(|| {
             group(&RowLook::settings(), [self.widevine_row(cx)]).mt(px(BOX_GAP))
         });
+        let export = button(&RowLook::settings(), "export-spaces", "Export…")
+            .on_click(|_, _, cx| crate::export_spaces(cx));
+        let export = div()
+            .h(px(PROFILE_ROW))
+            .px(px(PADDING))
+            .flex()
+            .items_center()
+            .child(tile("icons/file.svg", EXPORT_TILE))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child("Export each Space's favorites and pinned tabs as Markdown"),
+            )
+            .child(div().flex_none().ml(px(PADDING)).child(export));
         div()
             .child(group(
                 &RowLook::settings(),
@@ -1393,6 +1658,7 @@ impl Settings {
                 .into_iter()
                 .chain(option),
             ))
+            .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
@@ -1433,30 +1699,62 @@ impl Settings {
             }));
     }
 
-    /// The commands by section, each with its keys in a chip. A click on a command's chip
-    /// records its next keys; escape leaves them and ⌫ takes them away. ↺ gives a command its
-    /// default back, and Restore Defaults every command.
+    /// The search, then the commands it finds by section, each with its keys in a chip. A click on
+    /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
+    /// a command its default back, and Restore Defaults every command, with the favorites numbered.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
-        let sections = SHORTCUTS.iter().enumerate().map(|(index, (section, rows))| {
-            let rows = rows.iter().map(|(name, keys)| {
-                let control = match keys {
-                    Keys::Of(command) => self.shortcut(*command, accent, cx),
-                    Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
-                };
-                row(None, *name, control)
-            });
-            div()
-                .when(index > 0, |section| section.mt(px(SECTION_GAP)))
-                .child(
+        let typed = self.search.read(cx).text().to_string();
+        let found = found(&typed, cx);
+        let sections = SHORTCUTS.iter().filter_map(|(section, rows)| {
+            let rows: Vec<gpui::Div> = rows
+                .iter()
+                .filter(|(name, _)| found.contains(name))
+                .map(|(name, keys)| {
+                    let control = match (keys, keys.fixed()) {
+                        (Keys::Of(command), _) => self.shortcut(*command, accent, cx),
+                        (Keys::FavoritesNumbered, _) => {
+                            let on = shell::user_keys(cx).favorites_numbered();
+                            self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
+                        }
+                        (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
+                            .into_any_element(),
+                    };
+                    row(None, *name, control)
+                })
+                .collect();
+            (!rows.is_empty()).then(|| {
+                div().mt(px(SECTION_GAP)).child(
                     div()
                         .mb(px(HEADER_GAP))
                         .pl(px(PADDING))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(*section),
-                )
-                .child(group(&RowLook::settings(), rows))
+                    )
+                    .child(group(&RowLook::settings(), rows))
+            })
         });
         let sections: Vec<gpui::Div> = sections.collect();
+        // Ours: Arc's look for a search that finds nothing isn't recorded.
+        let none = sections.is_empty().then(|| {
+            div().mt(px(SECTION_GAP)).pl(px(PADDING)).text_color(rgb(DETAIL)).child("No Results")
+        });
+        let search = div()
+            .h(px(CONTROL_HEIGHT))
+            .px(px(CONTROL_PADDING))
+            .flex()
+            .items_center()
+            .rounded(px(CONTROL_RADIUS))
+            .bg(rgb(CONTROL))
+            // Keys typed here are the search's, not a command's being recorded.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|settings, _, _, cx| {
+                    settings.recording = None;
+                    settings.refused = None;
+                    cx.notify();
+                }),
+            )
+            .child(self.search.clone());
         let restore = button(&RowLook::settings(), "restore-shortcuts", "Restore Defaults");
         let restore = restore.on_click(cx.listener(|settings, _, _, cx| {
             shell::change_keys(cx, UserKeys::reset_all);
@@ -1468,7 +1766,9 @@ impl Settings {
             cx.notify();
         }));
         div()
+            .child(search)
             .children(sections)
+            .children(none)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(restore))
             .into_any_element()
     }
@@ -1614,25 +1914,36 @@ const _: () = {
     assert!(bc::BC_FAVORITES_SPACE == 2);
 };
 
-fn set_warn_before_quitting(warn: bool) {
+fn set_warn_before_quitting(warn: bool, _: &mut App) {
     unsafe { bc::bc_set_warn_before_quitting(warn) };
 }
 
-fn set_unload_idle_tabs(unload: bool) {
+fn set_unload_idle_tabs(unload: bool, _: &mut App) {
     unsafe { bc::bc_set_unload_idle_tabs(unload) };
 }
 
 /// In every profile; a site's own stays as the user set it in the Site Controls.
-fn set_ad_blocking(on: bool) {
+fn set_ad_blocking(on: bool, _: &mut App) {
     unsafe { bc::bc_set_ad_blocking(on) };
 }
 
-fn set_haptics(haptics: bool) {
+fn set_haptics(haptics: bool, _: &mut App) {
     unsafe { bc::bc_set_haptics(haptics) };
 }
 
-pub(crate) fn set_send_crash_reports(send: bool) {
+pub(crate) fn set_send_crash_reports(send: bool, _: &mut App) {
     unsafe { bc::bc_set_send_crash_reports(send) };
+}
+
+/// What the Privacy tab calls the collector at `host`: Sentry, by its region, else its host.
+pub(crate) fn collector_name(host: &str) -> String {
+    match host {
+        _ if host.ends_with(".ingest.de.sentry.io") => "Sentry (EU region)".into(),
+        _ if host.ends_with(".ingest.sentry.io") || host.ends_with(".ingest.us.sentry.io") => {
+            "Sentry".into()
+        }
+        _ => host.into(),
+    }
 }
 
 /// The host crash reports go to, or nothing in a build that names none.
@@ -1644,22 +1955,19 @@ pub(crate) fn crash_reports_collector() -> String {
     String::from_utf8_lossy(&host).into_owned()
 }
 
-fn set_link_previews(previews: bool) {
+fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
 }
 
-fn set_option_reveals(reveals: bool) {
+fn set_option_reveals(reveals: bool, _: &mut App) {
     unsafe { bc::bc_set_option_reveals_sidebar(reveals) };
 }
 
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built
 /// from, each of which opens in a tab.
 fn about() -> AnyElement {
-    let mut version = match option_env!("APP_BUILD") {
-        Some(build) => format!("Version {} ({build})", env!("CARGO_PKG_VERSION")),
-        None => format!("Version {}", env!("CARGO_PKG_VERSION")),
-    };
-    if let Some(engine) = ENGINE_VERSION.as_deref() {
+    let mut version = format!("Version {}", build_info::version());
+    if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
     let open = |id: &'static str, url: Option<String>| {
@@ -1699,23 +2007,6 @@ fn about() -> AnyElement {
         .child(group(&RowLook::settings(), notices).mt(px(BOX_GAP)))
         .into_any_element()
 }
-
-/// The engine's version: on the Mac, the name of the folder its framework's current version is in,
-/// as Chromium names it.
-static ENGINE_VERSION: LazyLock<Option<String>> = LazyLock::new(|| {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
-    let frameworks = std::env::current_exe().ok()?.parent()?.parent()?.join("Frameworks");
-    std::fs::read_dir(frameworks).ok()?.flatten().find_map(|entry| {
-        let name = entry.file_name();
-        if !name.to_str()?.ends_with(" Framework.framework") {
-            return None;
-        }
-        let current = std::fs::read_link(entry.path().join("Versions/Current")).ok()?;
-        Some(current.to_str()?.to_owned())
-    })
-});
 
 /// The URL of `name`, one of the licence files the app carries (tools/licences.sh): in the bundle's
 /// Resources on the Mac, beside the binary elsewhere. None where the build left it out, as `cargo
@@ -1766,6 +2057,33 @@ fn detailed_row(
         .children(control.map(|control| div().flex_none().ml(px(PADDING)).child(control)))
 }
 
+/// A section's header, over its box.
+fn header(title: &'static str) -> gpui::Div {
+    div()
+        .mb(px(HEADER_GAP))
+        .pl(px(PADDING))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(title)
+}
+
+/// A row with a line under its name that says more, and room after for its controls.
+fn described(
+    icon: Option<(&'static str, u32)>,
+    name: SharedString,
+    detail: Option<SharedString>,
+) -> gpui::Div {
+    let detail = detail.map(|detail| {
+        div().truncate().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(detail)
+    });
+    div()
+        .px(px(PADDING))
+        .py(px(PADDING))
+        .flex()
+        .items_center()
+        .children(icon.map(|(glyph, color)| tile(glyph, color)))
+        .child(div().flex_1().min_w_0().child(div().truncate().child(name)).children(detail))
+}
+
 /// Keys as a chip, as the command bar shows a command's, in `color`.
 fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
     div()
@@ -1785,6 +2103,8 @@ fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
 /// Why keys weren't given to a command, as its row says it.
 fn refusal(refused: Refused) -> String {
     let holder = match refused {
+        // Off the Mac ⌘ is pressed as Ctrl and ⌃ as Alt.
+        Refused::Plain if shell::OFF_THE_MAC => return "Add Ctrl or Alt".into(),
         Refused::Plain => return "Add ⌘ or ⌃".into(),
         Refused::Taken(Holder::System(name)) => name,
         Refused::Taken(Holder::Command(command)) => command_name(command),
@@ -1813,6 +2133,30 @@ fn command_name(command: Command) -> &'static str {
 
 /// Where the user's keys are kept: in the profile directory, beside Chromium's profiles, as the
 /// core keeps no settings of the app's own.
+/// The names of the Shortcuts tab's rows that a search for `typed` finds, by their names or the
+/// keys their chips show.
+fn found(typed: &str, cx: &App) -> Vec<&'static str> {
+    let user = shell::user_keys(cx);
+    let rows = SHORTCUTS.iter().flat_map(|(_, rows)| rows.iter());
+    let found = rows.filter(|(name, keys)| {
+        let label = match keys {
+            Keys::Of(command) => user.label(*command),
+            Keys::FavoritesNumbered => None,
+            _ => keys.fixed(),
+        };
+        shell::shortcut_found(typed, name, label.as_deref())
+    });
+    found.map(|(name, _)| *name).collect()
+}
+
+fn log_found(typed: &str, cx: &App) {
+    // check.sh waits for this line.
+    match typed {
+        "" => log!("browser: shortcuts search cleared"),
+        _ => log!("browser: shortcuts search {typed:?} finds {}", found(typed, cx).join(", ")),
+    }
+}
+
 fn shortcuts_path() -> String {
     format!("{}/Shortcuts", crate::profile_dir())
 }
@@ -1821,6 +2165,29 @@ fn shortcuts_path() -> String {
 pub fn read_shortcuts(cx: &mut App) {
     let text = std::fs::read_to_string(shortcuts_path()).unwrap_or_default();
     cx.set_global(UserKeys::parse(&text));
+}
+
+/// Where View › Appearance's choice is kept, beside the keys.
+fn appearance_path() -> String {
+    format!("{}/Appearance", crate::profile_dir())
+}
+
+/// Reads View › Appearance's choice, automatic if there's none.
+pub fn read_appearance(cx: &mut App) {
+    let text = std::fs::read_to_string(appearance_path()).unwrap_or_default();
+    cx.set_global(shell::AppAppearance(Appearance::named(text.trim()).unwrap_or_default()));
+}
+
+pub fn save_appearance(appearance: Appearance) {
+    if let Err(error) = std::fs::write(appearance_path(), appearance.name()) {
+        log!("couldn't save the appearance: {error}");
+    }
+}
+
+/// Include Favorites in ⌘1–⌘8, kept with the user's keys.
+fn set_favorites_numbered(numbered: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_favorites_numbered(numbered));
+    save_shortcuts(cx);
 }
 
 fn save_shortcuts(cx: &App) {
@@ -1858,6 +2225,10 @@ impl Render for Settings {
             Tab::Privacy => self.privacy(accent, cx),
             Tab::Import => match &self.import {
                 Some(import) => import.clone().into_any_element(),
+                None => div().into_any_element(),
+            },
+            Tab::Agents => match agents::global(cx) {
+                Some(agents) => self.agents(&agents, accent, cx),
                 None => div().into_any_element(),
             },
             Tab::Advanced => self.advanced(accent, cx),
