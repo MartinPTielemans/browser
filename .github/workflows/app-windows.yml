@@ -5,7 +5,9 @@
 name: UI on Windows
 
 on:
+  # Branches only: an engine release's tag, pushed with the owner's token, starts nothing here.
   push:
+    branches: ['**']
     paths: [app/**, core/public/**, tools/parity.sh, tools/window-capture.ps1, .github/workflows/app-windows.yml, '!**/*.md']
   pull_request:
     paths: [app/**, core/public/**, tools/parity.sh, tools/window-capture.ps1, .github/workflows/app-windows.yml, '!**/*.md']
