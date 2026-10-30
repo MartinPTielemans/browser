@@ -140,16 +140,18 @@ capture_step dark-in
 send key escape
 expect '^browser: command bar hidden$' "dark: Esc didn't close the command bar the flow left up"
 
-# Help › Welcome to ilo plays it again here, as the window shows no page.
+# Help › Welcome to ilo plays it again here, as the window shows no page, recorded from before it
+# starts until after the intro has gone on by itself to the import, as its motion's proof.
+record onboarding-intro 5
 send menu "Welcome to $app_name"
 expect '^browser: command welcome via ui$' "Welcome to $app_name didn't run"
 expect '^browser: onboarding step intro settled$' "Welcome to $app_name didn't play the intro again"
+recorded
+expect '^browser: onboarding left intro via time$' "the replayed intro didn't go on by itself"
 for each in $steps; do
+  [ "$each" = intro ] && continue
   send key escape
-  case "$each" in
-    intro) expect '^browser: onboarding left intro via key$' "Esc didn't skip the replayed intro" ;;
-    *) expect "^browser: onboarding left $each via escape\$" "Esc didn't leave the replayed $each step" ;;
-  esac
+  expect "^browser: onboarding left $each via escape\$" "Esc didn't leave the replayed $each step"
 done
 expect '^browser: onboarding done$' "the replay didn't end after its last step"
 expect '^browser: command bar shown$' "the replay didn't end with the command bar"
@@ -169,13 +171,16 @@ send menu "Welcome to $app_name"
 expect '^browser: onboarding step intro settled$' "Welcome to $app_name over a page didn't play it"
 [ "$(count_windows)" -gt "$windows" ] ||
   fail "Welcome to $app_name over a page didn't open a window for it"
+send key escape
+expect '^browser: onboarding left intro via key$' "Esc didn't skip the replayed intro"
+expect '^browser: onboarding step import settled$' "the replay's import step didn't come"
 capture_step replay
 for each in $steps; do
-  send key escape
+  [ "$each" = intro ] || send key escape
 done
 expect '^browser: onboarding done$' "the replay in its own window didn't end"
 expect '^browser: command bar shown$' "the replay in its own window didn't end with the command bar"
 exec 3>&-
 quit
 
-echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's $found, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"
+echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's $found, the default browser's step while ilo isn't the default, the colour and the opt-ins the build offers, each left by Esc or Skip and the colour kept by Return, for the welcome with the command bar up, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png, and the replayed intro's motion in $out/onboarding-intro.mp4"

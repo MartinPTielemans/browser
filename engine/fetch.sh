@@ -1,10 +1,11 @@
 #!/bin/bash
 # Downloads the prebuilt engine, checked against its hash, into .deps/prebuilt, and prints the
-# path of its Chromium.app, or on Linux and Windows its Chromium directory. On the Mac it's the one
-# prebuilt.ini names, which publish.sh makes. On Linux and Windows it's the newest engine-linux or
-# engine-windows release built from a commit in this checkout's history, which
-# .github/workflows/engine-linux.yml and engine-windows-cross.yml make. It exits with 2 when no
-# engine fits this checkout, which CI takes for a reason to skip, and 1 on any other failure.
+# path of its Chromium.app, or on Linux and Windows its Chromium directory. It's the newest
+# engine-mac, engine-linux or engine-windows release built from a commit in this checkout's
+# history, in the repository prebuilt.ini names: the owner's Mac publishes the Mac's
+# (tools/mac-engine-publish.sh), and .github/workflows/engine-linux.yml and engine-windows-cross.yml
+# the others. It exits with 2 when no engine fits this checkout, which CI takes for a reason to
+# skip, and 1 on any other failure.
 # `fetch.sh symbols` does the same for the Windows engine's PDBs, which its release has beside it,
 # for crash reports (tools/symbols.sh).
 # Usage: fetch.sh [symbols]
@@ -25,11 +26,8 @@ none() {
 case $(uname -sm) in
 "Darwin arm64")
   [ -z "$symbols" ] || fail "the Mac engine's symbols are its dSYMs, beside Chromium.app."
-  [ -e prebuilt.ini ] || none "no prebuilt engine is published yet. Build one with engine/build.sh."
-  commit=$(git config -f prebuilt.ini prebuilt.commit)
-  url=$(git config -f prebuilt.ini prebuilt.url)
-  sha256=$(git config -f prebuilt.ini prebuilt.sha256)
-  app=Chromium.app
+  platform=mac asset=Chromium-mac-arm64.tar.xz app=Chromium.app
+  publisher="tools/mac-engine-publish.sh on the Mac, after engine/build.sh"
   sha256sum() { shasum -a 256 "$@"; }
   ;;
 "Linux x86_64" | MINGW*" x86_64")
@@ -39,26 +37,28 @@ case $(uname -sm) in
   esac
   [ -z "$symbols" ] || [ "$platform" = windows ] ||
     fail "only the Windows engine keeps its symbols apart; the Linux engine's are in its files."
-  repo=$(git config -f prebuilt.ini prebuilt.url | sed -E 's#^(https://github.com/[^/]+/[^/]+)/.*#\1#')
-  # The release's tag is on the commit it was built from. The nearest one in this history wins.
-  commit=
-  best=
-  while read -r tagged _; do
-    git merge-base --is-ancestor "$tagged" HEAD 2>/dev/null || continue
-    distance=$(git rev-list --count "$tagged..HEAD")
-    if [ -z "$best" ] || [ "$distance" -lt "$best" ]; then
-      commit=$tagged
-      best=$distance
-    fi
-  done < <(git ls-remote --tags "$repo.git" "refs/tags/engine-$platform-*")
-  [ -n "$commit" ] ||
-    none "no prebuilt $platform engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or run the engine-$platform workflow."
-  url=$repo/releases/download/engine-$platform-${commit:0:12}/$asset
-  sha256=$(curl -fsSL "$url.sha256") || none "the release engine-$platform-${commit:0:12} has no $asset yet."
   app=Chromium
+  publisher="the engine-$platform workflow"
   ;;
 *) fail "there's a prebuilt engine for Macs with Apple silicon, x86-64 Linux and x64 Windows only." ;;
 esac
+
+repo=$(git config -f prebuilt.ini prebuilt.repository)
+# The release's tag is on the commit it was built from. The nearest one in this history wins.
+commit=
+best=
+while read -r tagged _; do
+  git merge-base --is-ancestor "$tagged" HEAD 2>/dev/null || continue
+  distance=$(git rev-list --count "$tagged..HEAD")
+  if [ -z "$best" ] || [ "$distance" -lt "$best" ]; then
+    commit=$tagged
+    best=$distance
+  fi
+done < <(git ls-remote --tags "$repo.git" "refs/tags/engine-$platform-*")
+[ -n "$commit" ] ||
+  none "no prebuilt $platform engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or publish one with $publisher."
+url=$repo/releases/download/engine-$platform-${commit:0:12}/$asset
+sha256=$(curl -fsSL "$url.sha256") || none "the release engine-$platform-${commit:0:12} has no $asset yet."
 
 # The engine holds the core of the commit it was built from. A different header would bind the app
 # to functions or layouts the engine doesn't have.

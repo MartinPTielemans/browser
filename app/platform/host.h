@@ -592,11 +592,13 @@ void host_day_starts(double starts[4]);
 // Updates: Sparkle on the Mac (platform/mac/updates.mm), WinSparkle on Windows
 // (platform/windows/updates.cc).
 
-// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe Storage" in
-// the Keychain, when the app's signature is new, as after a move to another signing identity.
-// Where macOS asks and the user doesn't allow it, an alert offers Try Again until it can, or Quit,
-// when this returns false and the app quits before Chromium starts. Without the key, Chromium
-// can't read the profile's cookies and passwords.
+// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe
+// Storage" in the Keychain, when the app's signature is new, as after a move to another signing
+// identity, and makes the item again so it's granted to the new signature (tools/requirement.sh
+// says why that carries over from Apple Development to Developer ID). Where macOS asks and the
+// user doesn't allow it, an alert offers Try Again until it can, or Quit, when this returns false
+// and the app quits before Chromium starts. Without the key, Chromium can't read the profile's
+// cookies and passwords.
 bool host_keep_keychain_key(void);
 
 // Whether this build updates itself: a release build that carries the updater, its feed and its

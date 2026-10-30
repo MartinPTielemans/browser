@@ -51,13 +51,19 @@ fi
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-# What both install: the engine but the import library the app links, and Browser.dll beside it.
+# What both install: the engine but the import library the app links, and Browser.dll, uBlock
+# Origin and the licences beside it.
 mkdir "$stage/app"
 if [ -z "$alone" ]; then
   cp -r "$engine/." "$stage/app/"
   rm -f "$stage/app/chrome.dll.lib" "$stage/app/.from"
 fi
 cp "$dll" "$here/Assets/ilo.ico" "$stage/app/"
+# uBlock Origin beside chrome.exe, where the core loads it, and the licences About opens, as
+# build.sh puts them beside the engine.
+cp -R "$("$app/fetch-ublock.sh")" "$stage/app/ublock"
+"$app/../tools/licences.sh" "$stage/app" "$app/windows/Cargo.toml" \
+  "$(rustc -vV | sed -n 's/^host: //p')" --features prod
 
 # The Store's: Windows reads the manifest and its logos from the package's top.
 cp -r "$stage/app" "$stage/msix"
