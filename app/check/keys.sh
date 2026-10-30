@@ -230,17 +230,21 @@ for shortcut in t l; do
   expect '^browser: command bar hidden$' "escape didn't close the command bar"
   in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 done
-send ime on
-typed_after l nihongo "with the page focused, composing,"
-expect '^browser: command bar drew "nihongo"$' \
-  "a composition typed right after ⌘L didn't go to the command bar: $(drew 'command bar')"
-send state
-[ "$marked" = 0,7 ] || fail "the command bar didn't take all of the composition: marked $marked"
-send key escape
-send key escape
-expect '^browser: command bar hidden$' "escape didn't close the command bar"
-send ime off
-in_browser RenderWidgetHostViewCocoa "after the command bar closed"
+if [ "$(uname)" = Linux ]; then
+  echo "skip: composing right after ⌘L: the Linux driver types plain keys in a page."
+else
+  send ime on
+  typed_after l nihongo "with the page focused, composing,"
+  expect '^browser: command bar drew "nihongo"$' \
+    "a composition typed right after ⌘L didn't go to the command bar: $(drew 'command bar')"
+  send state
+  [ "$marked" = 0,7 ] || fail "the command bar didn't take all of the composition: marked $marked"
+  send key escape
+  send key escape
+  expect '^browser: command bar hidden$' "escape didn't close the command bar"
+  send ime off
+  in_browser RenderWidgetHostViewCocoa "after the command bar closed"
+fi
 send click $sidebar_point
 in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
 for shortcut in t l; do
