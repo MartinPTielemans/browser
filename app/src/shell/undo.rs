@@ -48,6 +48,8 @@ impl What {
     pub const MOVE_TO_SPACE: What = What::said("Move to Space", "Tab Moved to Space");
     pub const DELETE_FOLDER: What = What::said("Delete Folder", "Folder Deleted");
     pub const REMOVE_FROM_SPLIT: What = What::quiet("Remove from Split");
+    pub const SPLIT: What = What::quiet("Split View");
+    pub const CHANGE_ORIENTATION: What = What::quiet("Change Orientation");
     pub const RENAME_TAB: What = What::quiet("Rename Tab");
     pub const RENAME_FOLDER: What = What::quiet("Rename Folder");
     pub const RENAME_SPACE: What = What::quiet("Rename Space");
@@ -146,6 +148,19 @@ pub(super) enum Edit {
     },
     /// Takes a tab out of its split view.
     Separate(u64),
+    /// Puts a tab in a split view with another, as `Join` does, stacking the split if `stacked`,
+    /// which the user did and ⌘Z takes back out.
+    Split {
+        tab: u64,
+        with: u64,
+        left: bool,
+        stacked: bool,
+    },
+    /// Takes a tab out of the split view it joined, with `back`: the `Put` back to its row and
+    /// place, or the `Join` back to the split it was in. The tab shown stays shown.
+    Unsplit { tab: u64, back: Box<Edit> },
+    /// Stacks the pages of a tab's split view top to bottom, or puts them side by side.
+    Stack { tab: u64, stacked: bool },
     /// Gives a name, an icon or a colour back.
     Set(Prop, Value),
     /// Brings back the tabs the window's Clear `clear` closed in `space`. Each of these three asks
@@ -229,7 +244,15 @@ impl Edit {
                 id(tab);
                 id(with);
             }
-            Edit::Separate(tab) => id(tab),
+            Edit::Separate(tab) | Edit::Stack { tab, .. } => id(tab),
+            Edit::Split { tab, with, .. } => {
+                id(tab);
+                id(with);
+            }
+            Edit::Unsplit { tab, back } => {
+                id(tab);
+                back.rekey(from, to);
+            }
             Edit::ReopenPreview(closed) | Edit::ClosePreview(closed) => id(&mut closed.over),
             Edit::Set(prop, _) => match prop {
                 Prop::TabName(each)
@@ -311,6 +334,58 @@ impl Edit {
                 let join = shell.join_of(tab)?;
                 shell.browser.separate(tab, cx);
                 Some(join)
+            }
+            Edit::Split {
+                tab,
+                with,
+                left,
+                stacked,
+            } => {
+                if !shell.has_tab(tab) || !shell.has_tab(with) {
+                    return None;
+                }
+                let undo = shell.unsplit_of(tab, with)?;
+                shell.browser.split_with(tab, with, left, cx);
+                if stacked {
+                    shell.browser.set_split_stacked(with, true, cx);
+                }
+                Some(undo)
+            }
+            Edit::Unsplit { tab, back } => {
+                let Some(Edit::Join { with, left, .. }) = shell.join_of(tab) else {
+                    return None;
+                };
+                let (panes, stacked) = shell.split_of(tab)?;
+                // A split of two goes with the tab, and its orientation with it, for Redo to give.
+                let stacked = stacked && panes.len() == 2;
+                let shown = shell.selected;
+                match *back {
+                    join @ Edit::Join { .. } => {
+                        if join.apply(shell, cx).is_none() {
+                            shell.browser.separate(tab, cx);
+                        }
+                    }
+                    put => {
+                        shell.browser.separate(tab, cx);
+                        put.apply(shell, cx);
+                    }
+                }
+                // The core shows the tab that leaves, where the user had another of its split. The
+                // shell still has that one selected, so this goes past its check.
+                if shown != tab && panes.contains(&shown) {
+                    shell.browser.select(shown, cx);
+                }
+                Some(Edit::Split {
+                    tab,
+                    with,
+                    left,
+                    stacked,
+                })
+            }
+            Edit::Stack { tab, stacked } => {
+                let (_, now) = shell.split_of(tab)?;
+                shell.browser.set_split_stacked(tab, stacked, cx);
+                Some(Edit::Stack { tab, stacked: now })
             }
             Edit::Set(prop, value) => {
                 let now = shell.value_of(prop)?;
@@ -640,6 +715,41 @@ impl Shell {
         self.keep(What::REMOVE_FROM_SPLIT, join, cx);
     }
 
+    /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
+    /// stacks the split if `stacked`: one step, which ⌘Z takes back to where `tab` was.
+    pub(super) fn join_split(
+        &mut self,
+        tab: u64,
+        with: u64,
+        left: bool,
+        stacked: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.keep_split(tab, with, cx);
+        self.browser.split_with(tab, with, left, cx);
+        if stacked {
+            self.browser.set_split_stacked(with, true, cx);
+        }
+    }
+
+    /// `tab` is joining `with` in a split view, which ⌘Z takes it back out of.
+    pub(super) fn keep_split(&mut self, tab: u64, with: u64, cx: &mut Context<Self>) {
+        let undo = self.unsplit_of(tab, with);
+        self.keep(What::SPLIT, undo, cx);
+    }
+
+    /// `tab`, opened to join a split view, joined it: ⌘Z closes it.
+    pub fn split_opened(&mut self, tab: u64, cx: &mut Context<Self>) {
+        self.keep(What::SPLIT, Some(Edit::Close(vec![tab])), cx);
+    }
+
+    /// Stacks the pages of `tab`'s split view top to bottom, or puts them side by side.
+    pub(super) fn stack_split(&mut self, tab: u64, stacked: bool, cx: &mut Context<Self>) {
+        let undo = self.split_of(tab).map(|(_, now)| Edit::Stack { tab, stacked: now });
+        self.browser.set_split_stacked(tab, stacked, cx);
+        self.keep(What::CHANGE_ORIENTATION, undo, cx);
+    }
+
     /// Gives a name, an icon or a colour its new value, remembering the old, unless it's the same.
     pub(super) fn change(&mut self, prop: Prop, value: Value, cx: &mut Context<Self>) {
         let before = self.value_of(prop);
@@ -804,6 +914,29 @@ impl Shell {
                 with: panes[at - 1],
                 left: false,
             },
+        })
+    }
+
+    /// The step that takes `tab` out of the split view it's joining with `with`, back to where it
+    /// is: the split it's in, else its row. None where the core won't join them, as `with`'s split
+    /// is full or has it.
+    fn unsplit_of(&self, tab: u64, with: u64) -> Option<Edit> {
+        let panes = self.split_of(with).map_or_else(|| vec![with], |(panes, _)| panes);
+        if panes.contains(&tab) || panes.len() >= super::MAX_PANES {
+            return None;
+        }
+        let back = self.join_of(tab).or_else(|| self.put_back(tab))?;
+        Some(Edit::Unsplit {
+            tab,
+            back: Box::new(back),
+        })
+    }
+
+    /// The tabs of `tab`'s split view, in any Space, and whether it's stacked.
+    fn split_of(&self, tab: u64) -> Option<(Vec<u64>, bool)> {
+        self.spaces.iter().find_map(|space| {
+            let panes = space.panes(tab);
+            (panes.len() > 1).then(|| (panes, space.stacked(tab)))
         })
     }
 
