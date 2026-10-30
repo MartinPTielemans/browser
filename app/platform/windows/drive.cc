@@ -482,6 +482,8 @@ void PostKey(UINT vk, int modifiers, bool down, bool repeat = false) {
   const bool system = ((held & kAlt) && !(held & kCtrl)) || vk == VK_F10;
   const UINT message =
       down ? (system ? WM_SYSKEYDOWN : WM_KEYDOWN) : (system ? WM_SYSKEYUP : WM_KEYUP);
+  fprintf(stderr, "browser: diag key %u down %d to %s ctrl %d\n", vk, down,
+          Utf8(ClassOf(KeyTarget())).c_str(), (GetKeyState(VK_CONTROL) & 0x8000) != 0);
   PostMessageW(KeyTarget(), message, vk, lparam);
 }
 

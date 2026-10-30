@@ -3090,6 +3090,7 @@ fn keystroke(key: &bc::bc_key) -> String {
 fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> bool {
     let key = unsafe { &*key };
     let keystroke = keystroke(key);
+    eprintln!("browser: diag page key {tab} {keystroke:?} reserved {reserved} modifiers {}", key.modifiers);
     // Read without an update, as every key the page gets comes here.
     let cx = CX.with_borrow(Clone::clone);
     let command = cx.and_then(|cx| {
