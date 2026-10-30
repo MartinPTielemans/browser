@@ -965,7 +965,8 @@ A new profile's first launch (*Ours*: Arc's and Dia's are films and sign-ups of 
 
 Sparkle 2 (Dia and Ardia, P§24). Its feed URL is a default service URL, so forks change it (principle 2).
 
-- "Check for Updates…" sits in the app menu. Automatic checks run every 8 hours (**Ardia**).
+- "Check for Updates…" sits in the app menu, and in the command bar, as Linux shows no menu bar. Automatic checks run every 8 hours (**Ardia**).
+- On Linux ilo is the Flatpak, and Flatpak's portal is the updater: it looks every half hour, ilo installs a build it announces beside the running one at once, and then offers Restart or Later. Check for Updates… says where the update stands, or offers the restart again. Outside a Flatpak, as a dev build, nothing updates ilo and the command isn't offered.
 - ilo needs macOS 15 (Sequoia) or later, the owner's call (#678); Arc needs 13 (Ventura). The bundle says so (`LSMinimumSystemVersion`), so macOS won't open it on an older Mac and the feed offers that Mac no update. README.md and each release's notes name it.
 - An install waits until no window is in full screen.
 - The first launch after an update opens its release notes.

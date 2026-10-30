@@ -520,6 +520,12 @@ pub trait Browser {
     fn shortcuts(&self, cx: &mut App);
     /// Opens the Settings window on its About tab.
     fn about(&self, cx: &mut App);
+    /// Whether this build updates itself: a release with its updater, or on Linux the Flatpak.
+    fn updates(&self) -> bool {
+        false
+    }
+    /// Check for Updates…: asks the updater to look, or says where the update stands.
+    fn check_for_updates(&self, _: &mut App) {}
     /// Opens the Settings window on its Import tab.
     fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
