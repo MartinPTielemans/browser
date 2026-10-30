@@ -2183,6 +2183,11 @@ BC_EXPORT bool bc_window_is_full_screen(bc_id window);
 // does, for the test driver. bc_window_toggle_maximized takes it out as Escape asks.
 BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 
+// On Linux, the title of the window of Chromium's own with the keys in |window|
+// (bc_window_keyboard_in_child), such as a tab's dialog, copied into |title| as bc_space_name does,
+// or an empty string. For the test driver, as the X server has none for it.
+BC_EXPORT size_t bc_window_child_title(bc_id window, char* title, size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif
