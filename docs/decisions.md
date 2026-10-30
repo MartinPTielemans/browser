@@ -109,6 +109,6 @@ Consequences now:
 
 ## 9. Crash reports: opt-in, to Sentry (EU region)
 
-No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. Its stacks can hold a URL or page text. Its annotations say the version, the switches, features and field trials, the GPU, the extensions' IDs and the event being handled, but no folder of the user's, whose path has their name. The report tells Sentry to infer no IP address from its connection, so it keeps neither an address nor the place one gives; a project setting couldn't do both, and a fork's own Sentry gets the same. Official builds send them to ilo's project in Sentry's EU region, which takes Chromium's minidumps, as self-hosted collectors do. The collector is a default service URL: a fork names its own or none.
+No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. A report can hold a URL or page text but no user folder, and it asks Sentry to infer no IP. Official builds send them to ilo's Sentry in the EU, which takes minidumps. The collector is a default service URL: a fork names its own or none.
 
 Revisit if Sentry stops taking minidumps or keeping them in the EU.
