@@ -76,6 +76,9 @@ unsafe extern "C" {
 
 /// Starts reading commands from stdin.
 pub fn start() {
+    // Its events are the pointer the app has, as the X server's own, which it never moves, would
+    // otherwise come and go under GPUI's pointer as windows change around it.
+    gpui_linux::drive_pointer();
     std::thread::spawn(|| {
         let mut number = 0;
         for line in std::io::stdin().lock().lines() {
