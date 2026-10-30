@@ -482,8 +482,10 @@ expect "browser: tab $c without its page\$" "turning the switch on didn't unload
 post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 # A key sent while the keyboard leaves the closing Settings window for the browser's is lost, so
-# ⌘W waits for the click to finish and the browser window to have the keyboard.
-await "^browser: drive $step done" || fail "the driver didn't finish the click on Settings' close button"
+# ⌘W waits for the click to finish and the browser window to have the keyboard. On the Mac the
+# click's done can go with the window it closed, as in favorites.sh, so there the state says.
+[ "$(uname)" = Darwin ] ||
+  await "^browser: drive $step done" || fail "the driver didn't finish the click on Settings' close button"
 send state
 [ "$key" = BrowserCoreNSWindow ] ||
   fail "the browser window didn't get the keyboard back from Settings: it's in $key"
