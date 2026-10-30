@@ -7,6 +7,8 @@
 # next launch sends the report, the minidump alone, without cookies, and deletes
 # it once the collector has it. One the collector refuses waits for the next launch, and turning
 # the switch off in Settings › Privacy deletes it, which only the Mac's run clicks so far.
+# On Windows it runs on the folder check/git-bash.sh gives chrome.exe, as only the prod build's
+# lines up by itself.
 
 log="$out/crash.log"
 crashpad="$(dirname "$saved")/Crashpad"
@@ -32,9 +34,12 @@ done
 collector_url="http://127.0.0.1:$(cat "$out/collector-port")"
 reports="$collector_url/api/1/minidump/?sentry_key=check"
 page='data:text/html,<title>crash</title>'
-# The reports waiting to be sent.
+# The reports waiting to be sent: Crashpad's pending folder, or on Windows its reports folder, which
+# holds them all, and only unsent ones as its handler sends none.
+waiting="$crashpad/pending"
+! windows || waiting="$crashpad/reports"
 pending() {
-  find "$crashpad/pending" -name '*.dmp' 2>/dev/null | wc -l | tr -d ' '
+  find "$waiting" -name '*.dmp' 2>/dev/null | wc -l | tr -d ' '
 }
 # Waits up to 10 s for $1 reports to be waiting.
 await_pending() {
@@ -58,8 +63,8 @@ crash() {
   wait "$pid" || status=$?
   [ "$status" -ne 0 ] || fail "the app exited cleanly from its crash test"
   # The handler writes the report as the browser dies, and may still be at it.
-  await_pending 1 || fail "Crashpad wrote no minidump in $crashpad/pending"
-  dump=$(find "$crashpad/pending" -name '*.dmp' | head -1)
+  await_pending 1 || fail "Crashpad wrote no minidump in $waiting"
+  dump=$(find "$waiting" -name '*.dmp' | head -1)
   head -c 4 "$dump" | grep -q '^MDMP$' || fail "$dump isn't a minidump"
   for _ in $(seq 20); do
     pgrep -f "$procs" > /dev/null || break
