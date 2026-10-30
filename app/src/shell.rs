@@ -92,6 +92,7 @@ mod swap;
 mod swipe;
 mod themes;
 mod tile_theme;
+mod toolbar;
 mod trouble;
 mod undo;
 
@@ -117,6 +118,10 @@ pub use history::HistoryPage;
 pub use library::{Archived, Captured, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use themes::{AppAppearance, app_appearance};
+pub use toolbar::{
+    ShowToolbar, ToolbarLayout, toolbar_from, toolbar_layout, toolbar_shown, toolbar_text,
+    under_toolbar,
+};
 pub use menus::{MenuEntry, new_profile_name};
 pub use page_menu::{PageMenuItem, made_up as made_up_page_menu};
 pub use side_panel::SidePanel;
@@ -127,7 +132,7 @@ pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use picture::{PagePicture, picture_answered};
 pub(crate) use picture::next_request;
 pub use recent_downloads::{FilePreview, HOVER_ALL};
-use clean_link::clean_link;
+pub use clean_link::clean_link;
 use commands::ShellHandle;
 use fly_in::Flight;
 use library::{MediaVideo, RECEDE_X, Section};
@@ -1246,6 +1251,9 @@ pub struct Shell {
     /// watches that draw the window again once either changes.
     system_tone: Tone,
     app_appearance: Appearance,
+    /// Whether the toolbar shows over the page, as the user chose (`ShowToolbar`), as the window
+    /// last drew.
+    toolbar: bool,
     forced_tone: Option<Tone>,
     window_active: bool,
     window_watches: Vec<Subscription>,
@@ -1460,6 +1468,7 @@ impl Shell {
             palettes: RefCell::default(),
             system_tone: Tone::Dark,
             app_appearance: Appearance::Automatic,
+            toolbar: false,
             forced_tone: None,
             window_active: true,
             window_watches: Vec::new(),
@@ -1661,7 +1670,7 @@ impl Shell {
     /// While a pane is being added beside the tab shown, the pages shown make room for it, and
     /// they make room for a side panel.
     pub fn page_frame(&self, viewport: Size<Pixels>) -> (Bounds<Pixels>, f32) {
-        let (frame, _) = self.card_frames(viewport);
+        let frame = self.page_card(viewport);
         let radius = if self.card_left() == 0. { 0. } else { CARD_RADIUS };
         match self.adding_pane {
             Some(with) => {
@@ -1671,6 +1680,18 @@ impl Shell {
             }
             None => (frame, radius),
         }
+    }
+
+    /// The card the page shows on in a window whose content is `viewport`: under the toolbar while
+    /// it shows.
+    fn page_card(&self, viewport: Size<Pixels>) -> Bounds<Pixels> {
+        let (card, _) = self.card_frames(viewport);
+        if self.toolbar_shows() { under_toolbar(card) } else { card }
+    }
+
+    /// Whether the page's top corners are square, as it's under the toolbar.
+    pub fn page_under_toolbar(&self) -> bool {
+        self.toolbar_shows()
     }
 
     /// Where the page goes as the window's content takes `viewport`, unless it's held where it is
@@ -1690,7 +1711,7 @@ impl Shell {
         };
         if self.page_laid != Some(frame) {
             self.page_laid = Some(frame);
-            self.browser.lay_out_page(frame.0, frame.1, cx);
+            self.browser.lay_out_page(frame.0, frame.1, self.toolbar_shows(), cx);
             // The card moved, such as with the sidebar, and the plate in its corner with it.
             self.show_link(cx);
         }
@@ -2876,6 +2897,8 @@ impl Render for Shell {
                 false => log!("browser: tiles stay put"),
             }
         }
+        // As View › Show Toolbar chose, in this window or another.
+        self.set_toolbar(toolbar_shown(cx), cx);
         self.lay_out_moving_page(cx);
         self.show_page_dialog(cx);
         let card_left = self.card_left();
@@ -2946,6 +2969,7 @@ impl Render for Shell {
             && self.library.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
         let own_buttons = self.draws_own_window_buttons().then(|| self.window_buttons(cx));
+        let toolbar = self.toolbar(cx);
         self.breath.arm(cx);
         div()
             .key_context(KEY_CONTEXT)
@@ -2998,6 +3022,7 @@ impl Render for Shell {
             .children(self.crash_cards(cx))
             .children(self.pane_gaps(cx))
             .children(self.pane_handles(cx))
+            .children(toolbar)
             .children(self.side_panel(cx))
             .children(under)
             .children(sidebar)
@@ -3036,7 +3061,7 @@ impl Shell {
             .collect();
         if let Some(with) = self.adding_pane {
             let count = self.panes(with).len() + 1;
-            let (full, _) = self.card_frames(self.viewport);
+            let full = self.page_card(self.viewport);
             cards.push(card(pane_frames(full, count, self.stacked(with), &[])[count - 1], self.palette.page));
         }
         cards
@@ -3073,8 +3098,10 @@ impl Shell {
                 self.drawn_top.replace((self.top_offset(), self.drawn_tiles()));
                 let rest = self.rest_press_listener(Self::press_top_at_rest, cx);
                 let rest = rest.absolute().top(px(URL_FIELD_TOP)).left_0().w(px(self.width()));
+                // The field is the toolbar's while it shows.
+                let field = (!self.toolbar).then(|| self.with_page(self.url_field(cx)));
                 sidebar
-                    .child(self.with_page(self.url_field(cx)))
+                    .children(field)
                     .children(self.scroll_edge_line().map(|line| self.with_page(line)))
                     .child(self.space_pages(cx))
                     // Over the pages, which they scroll with when they're tall.

@@ -92,7 +92,12 @@ impl Shell {
         let plate = self.palette.plate(crate::palette::HOVERED_PLATE);
         let mut handles = Vec::new();
         for (index, (tab, pane)) in panes.into_iter().zip(frames).enumerate() {
-            let strip = if stacked && index > 0 { SPLIT_GAP } else { f32::from(frame.top()) };
+            // The toolbar has the split's controls in place of the handles over the card.
+            let over_card = !stacked || index == 0;
+            if over_card && self.toolbar_shows() {
+                continue;
+            }
+            let strip = if over_card { f32::from(frame.top()) } else { SPLIT_GAP };
             let dots = (0..3).map(|_| div().size(px(DOT)).rounded_full().bg(rest));
             let handle = div()
                 .id(("split-controls", index))

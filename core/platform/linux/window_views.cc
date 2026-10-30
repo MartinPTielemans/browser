@@ -155,7 +155,8 @@ struct Slot {
   gfx::Insets insets;
   // With DevTools docked, where the page goes in the slot, from its top-left.
   gfx::Rect page_in_devtools;
-  // Only the bottom corners are round, for the side panel under the app's header.
+  // Only the bottom corners are round, for the side panel under the app's header or a page under
+  // its toolbar.
   bool bottom_corners_only = false;
 };
 
@@ -834,6 +835,7 @@ void ShowPages(views::Widget* widget,
                                                         *pane.color & 0xff))
                    : SkColors::kTransparent);
     slot.insets = InsetsOf(pane.frame, size);
+    slot.bottom_corners_only = pane.square_top;
     hidden ? holder->Hide() : holder->Show();
   }
   if (panes.size() > 1 && focused < panes.size()) {

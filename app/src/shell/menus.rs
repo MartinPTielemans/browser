@@ -117,7 +117,7 @@ impl MenuEntry {
     }
 
     /// Shows the shortcut that runs `command`.
-    fn shortcut(self, command: Command, keys: &UserKeys) -> Self {
+    pub(super) fn shortcut(self, command: Command, keys: &UserKeys) -> Self {
         let shortcut = keys.keys(command).first().map(|&key| key.to_string());
         MenuEntry { shortcut, ..self }
     }
@@ -695,7 +695,7 @@ impl Shell {
     /// else one Share… that opens its share sheet, as on Windows, which lists none; else nothing,
     /// as on Linux, which has neither, so the menu never holds a Share that leads nowhere. Dimmed
     /// for a page with no link.
-    fn push_share(
+    pub(super) fn push_share(
         &self,
         items: &mut Vec<(MenuEntry, &'static str, MenuAction)>,
         tab: u64,

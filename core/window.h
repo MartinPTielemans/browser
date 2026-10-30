@@ -191,7 +191,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void SetSidebarWidth(double width);
   // Where the selected tab's page goes, in the window, and the radius of its corners. A split view
   // shares it out between its pages.
-  void SetPageFrame(const gfx::Rect& frame, double corner_radius);
+  void SetPageFrame(const gfx::Rect& frame, double corner_radius, bool square_top);
   // The ring the focused page of a split view has inside its edge, 0xRRGGBB.
   void SetFocusColor(uint32_t color);
   // What the pages it shows show until their first frame, 0xRRGGBB.
@@ -431,6 +431,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The focused page's part of it in a split view, else all of it: where the tab's dialogs go.
   gfx::Rect focused_frame_;
   double page_corner_radius_ = 0;
+  bool page_square_top_ = false;
   // Whether the app is moving the page frame on its own (SetPageMoving).
   bool page_moving_ = false;
   double sidebar_width_;

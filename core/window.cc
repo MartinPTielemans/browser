@@ -1249,6 +1249,8 @@ void Window::LayOutPage() {
     StretchOnResize(contents, page_moving_ || MovingPages().contains(Tab::IdOf(contents)));
     platform::Pane& pane = panes.emplace_back(Tab::PageViewOf(contents), frame);
     pane.color = page_color_;
+    // Only the panes at the frame's top are under the toolbar.
+    pane.square_top = page_square_top_ && frame.y() == page_frame_.y();
     DevToolsContentsResizingStrategy strategy;
     if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
       // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
@@ -1363,9 +1365,10 @@ void Window::ShowNothing() {
   ReportSelected();
 }
 
-void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
+void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius, bool square_top) {
   page_frame_ = frame;
   page_corner_radius_ = corner_radius;
+  page_square_top_ = square_top;
   if (shown_) {
     Show(shown_.get(), frame);
   }

@@ -667,9 +667,14 @@ fn show_menu(
 }
 
 /// Tells the core where the window's page goes and the radius of its corners
-/// (`Shell::page_frame`).
-fn set_page_frame(window: bc::bc_id, (frame, radius): (Bounds<Pixels>, f32)) {
-    unsafe { bc::bc_window_set_page_frame(window, rect(frame), f64::from(radius)) };
+/// (`Shell::page_frame`), the top ones square `under_toolbar`.
+fn set_page_frame(
+    window: bc::bc_id,
+    (frame, radius): (Bounds<Pixels>, f32),
+    under_toolbar: bool,
+) {
+    let (frame, radius) = (rect(frame), f64::from(radius));
+    unsafe { bc::bc_window_set_page_frame(window, frame, radius, under_toolbar) };
 }
 
 /// Tells the core where the window's page, at `page`, and its side panel's page go, in a window
@@ -680,7 +685,7 @@ fn set_frames(
     page: (Bounds<Pixels>, f32),
     viewport: Size<Pixels>,
 ) {
-    set_page_frame(window, page);
+    set_page_frame(window, page, shell.page_under_toolbar());
     let panel = shell.side_panel_page(viewport).unwrap_or_default();
     unsafe { bc::bc_window_set_side_panel_frame(window, rect(panel)) };
 }
@@ -1051,6 +1056,20 @@ impl link_preview::Host for LinkPreviewHost {
         if let Some(shell) = shell {
             shell.update(cx, |shell, cx| shell.preview_closed(closed, undone, cx)).ok();
         }
+    }
+
+    fn navigate(&self, tab: u64, nav: link_preview::Nav) {
+        match nav {
+            link_preview::Nav::Back => unsafe { bc::bc_tab_go_back(tab) },
+            link_preview::Nav::Forward => unsafe { bc::bc_tab_go_forward(tab) },
+            link_preview::Nav::Reload => unsafe { bc::bc_tab_reload(tab, false) },
+            link_preview::Nav::Stop => unsafe { bc::bc_tab_stop(tab) },
+        }
+    }
+
+    fn copy(&self, text: &str) {
+        let text = CString::new(text.replace('\0', "")).unwrap_or_default();
+        unsafe { platform::host_copy(text.as_ptr()) };
     }
 }
 
@@ -2548,8 +2567,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_focus_page(self.window) };
     }
 
-    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
-        set_page_frame(self.window, (frame, radius));
+    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, under_toolbar: bool, cx: &mut App) {
+        set_page_frame(self.window, (frame, radius), under_toolbar);
         // After the shell's update, which may be drawing its window.
         let window = self.window;
         cx.defer(move |cx| link_preview::page_moved(window, (frame, radius), cx));
@@ -2570,6 +2589,10 @@ impl Browser for Engine {
     fn set_appearance(&self, appearance: Appearance, _: &mut App) {
         settings::save_appearance(appearance);
         give_host_appearance(appearance);
+    }
+
+    fn save_toolbar(&self, shown: bool, _: &mut App) {
+        settings::save_toolbar(shown);
     }
 
     fn page_moving(&self, moving: bool, _: &mut App) {
@@ -3963,6 +3986,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
         settings::read_appearance(cx);
+        settings::read_toolbar(cx);
         give_host_appearance(shell::app_appearance(cx));
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
@@ -4244,6 +4268,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 )),
                 MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
+                item(bar.toolbar_title(), Command::ToggleToolbar),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -4862,9 +4887,10 @@ unsafe extern "C" fn tab_state_changed(
             _ => Trouble::Fine,
         },
         system_engine: state.system_engine,
+        color: state.has_color.then_some(state.color),
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
-        update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));
+        update_app(|cx| link_preview::set_page(tab, &page, cx));
     }
     update_shells(|shell, cx| shell.set_page(tab, page.clone(), cx));
 }

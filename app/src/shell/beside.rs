@@ -12,7 +12,7 @@ use gpui::{
 use gpui::canvas;
 
 use super::{
-    Command, FOOTER_HEIGHT, LIST_TOP, PLATE_INSET, Shell, TILE_HEIGHT, URL_FIELD_HEIGHT,
+    Command, FOOTER_HEIGHT, PLATE_INSET, Shell, TILE_HEIGHT, URL_FIELD_HEIGHT,
     URL_FIELD_TOP, drag::in_sidebar,
 };
 
@@ -74,7 +74,7 @@ impl Shell {
                     .bottom_0()
                     .left(px(x))
                     .w(px(width))
-                    .child(self.still_url_field(tab))
+                    .children((!self.toolbar).then(|| self.still_url_field(tab)))
                     .child(rows)
                     .children(self.still_tiles(&favorites, tab));
                 Some(div().absolute().size_full().overflow_hidden().child(page))
@@ -90,13 +90,14 @@ impl Shell {
             return None;
         }
         let x = at.x - x;
-        let field = (URL_FIELD_TOP..URL_FIELD_TOP + URL_FIELD_HEIGHT).contains(&at.y);
+        let field = !self.toolbar
+            && (URL_FIELD_TOP..URL_FIELD_TOP + URL_FIELD_HEIGHT).contains(&at.y);
         if field && (PLATE_INSET..width - PLATE_INSET).contains(&x) {
             return Some(self.field_part_at(x - PLATE_INSET));
         }
         // Tiles that scroll with the list go under the URL field.
         let top = self.tiles_top();
-        let mut tiles = tiles.iter().filter(|_| at.y >= LIST_TOP);
+        let mut tiles = tiles.iter().filter(|_| at.y >= self.list_start());
         tiles.find_map(|(&tab, &[left, tile_top, tile_width])| {
             let over = (left..left + tile_width).contains(&x)
                 && (top + tile_top..top + tile_top + TILE_HEIGHT).contains(&at.y);
@@ -159,7 +160,7 @@ impl Shell {
         }
         match pressed {
             AtRest::Field => self.clicked_bar_target(Command::EditUrl, "sidebar", cx),
-            AtRest::CopyUrl => self.copy_url_from_button(cx),
+            AtRest::CopyUrl => self.copy_url_from_button("sidebar", cx),
             AtRest::Tile(tab) => self.clicked_tile(tab, cx),
             AtRest::SiteControls | AtRest::Action => {}
         }

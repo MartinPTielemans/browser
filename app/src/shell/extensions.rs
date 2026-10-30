@@ -16,7 +16,7 @@ use crate::site_controls;
 use super::{
     MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
     ShellHandle, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X,
-    URL_FIELD_TOP, UserKeys, user_keys,
+    UserKeys, user_keys,
 };
 
 use crate::tokens::shell::extensions::HOST_ROOM;
@@ -345,7 +345,7 @@ impl Shell {
     /// that leave the host its room with the field's button shown, so they keep their places as
     /// it comes and goes.
     pub(super) fn shown_actions(&self) -> (usize, bool) {
-        let field = self.width() - 2. * PLATE_INSET;
+        let field = f32::from(self.field_frame().size.width);
         let room = field - (URL_FIELD_TEXT_X - PLATE_INSET) - HOST_ROOM - URL_BUTTON_INSET;
         let places = ((room - URL_BUTTON_SIZE) / URL_BUTTON_SIZE).floor().max(0.) as usize;
         fit_actions(places, self.extension_actions.len())
@@ -354,10 +354,11 @@ impl Shell {
     /// Place `index`'s button in the window, the places in a row at the URL field's end.
     fn action_bounds(&self, index: usize) -> Bounds<Pixels> {
         let (shown, overflow) = self.shown_actions();
-        let end = self.width() - PLATE_INSET - URL_BUTTON_INSET;
+        let field = self.field_frame();
+        let end = f32::from(field.right()) - URL_BUTTON_INSET;
         let left = end - (shown + overflow as usize - index) as f32 * URL_BUTTON_SIZE;
         Bounds::new(
-            point(px(left), px(URL_FIELD_TOP + URL_BUTTON_INSET)),
+            point(px(left), field.top() + px(URL_BUTTON_INSET)),
             size(px(URL_BUTTON_SIZE), px(URL_BUTTON_SIZE)),
         )
     }

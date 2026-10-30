@@ -44,11 +44,13 @@ struct DockedDevTools {
 
 // A page to show, at |frame| from the top-left of the window's content, with its DevTools if
 // they're docked, and |color|, 0xRRGGBB, under it where it hasn't drawn, as the app's card is.
+// With |square_top|, only its bottom corners are round, as it's under the app's toolbar.
 struct Pane {
   gfx::NativeView page;
   gfx::Rect frame;
   std::optional<DockedDevTools> devtools;
   std::optional<uint32_t> color;
+  bool square_top = false;
 };
 
 // An extension's side panel page, at |frame| like a pane's. The app draws its header above it, so

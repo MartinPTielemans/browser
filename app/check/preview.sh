@@ -4,8 +4,8 @@
 # and the page behind doesn't get the click. ⌘W with its page focused closes it, and not the tab
 # behind. ⌘Z reopens a closed one over its tab at its page, and so does ⇧⌘T while no tab has closed
 # since. A favorite's link opens it too. A call's link, such as Google Meet's, opens as a tab
-# instead. With the Settings switch off, the link goes in the pinned tab. Reports how long the
-# first preview took to draw its first frame.
+# instead. With the Settings switch off, the link goes in the pinned tab. With the toolbar, the
+# header has its controls. Reports how long the first preview took to draw its first frame.
 
 serve
 # The test page's top 40% is a link to the same server under another name, localhost, which is
@@ -112,6 +112,19 @@ send key escape
 in_order "after Esc" '^browser: link preview closing (escape)$' '^browser: link preview released$' \
   '^browser: link preview hidden$' "^browser: tab $p closed\$"
 still_home "after Esc"
+
+# With the toolbar, the page starts under it and the preview's header has its controls, as Arc's
+# Peek does.
+send key d cmd shift
+expect '^browser: toolbar shown$' "⇧⌘D didn't show the toolbar"
+check_layout "under the toolbar" toolbar
+open_preview "under the toolbar"
+../tools/window-screenshot.sh "$pid" "$out/preview-toolbar.png" || fail "no window to capture"
+send key escape
+expect "^browser: tab $p closed\$" "Esc didn't close the preview under the toolbar"
+send key d cmd shift
+expect '^browser: toolbar hidden$' "⇧⌘D again didn't take the toolbar away"
+check_layout "with the toolbar gone"
 
 # ⌘↩ keeps it as the top Today tab, shown, as it is: its page doesn't load again.
 open_preview "for ⌘↩"
@@ -232,5 +245,5 @@ none_since '^browser: link preview ' || fail "with previews off, the link opened
 
 exec 3>&-
 quit
-echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. A Google Meet link opens as a tab of the Space shown instead. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png, $out/preview-meeting.png"
+echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. A Google Meet link opens as a tab of the Space shown instead. With the Settings switch off, the link goes in the pinned tab. The toolbar shows in it. Windows: $out/preview-open.png, $out/preview-toolbar.png, $out/preview-kept.png, $out/preview-reopened.png, $out/preview-meeting.png"
 echo "  The first preview's first frame came $first_frame after the click reached the UI."

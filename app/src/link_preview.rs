@@ -19,13 +19,13 @@ use gpui::{
 
 use crate::elevation::Level;
 use crate::palette::{self, STATE_HOVERED, STATE_PRESSED};
-use crate::shell::{cubic_bezier, scaled::scaled};
+use crate::shell::{Page, clean_link, cubic_bezier, scaled::scaled, toolbar_shown};
 use crate::tokens::dialog::{DIM, DIM_OPACITY};
 use crate::tokens::link_preview::{
     FRAME, HEADER_LEFT, HEADER_TEXT, INSET_MAX, INSET_MIN, INSET_SHARE, MIN_RADIUS,
 };
 use crate::tokens::shell::{
-    NAV, NAV_RADIUS, TITLE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
+    NAV, NAV_DISABLED, NAV_RADIUS, TITLE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
 };
 
 actions!(link_preview, [Close, Keep]);
@@ -64,6 +64,20 @@ pub trait Host {
     /// The user closed the preview over the browser window `window`, for ⌘Z and ⇧⌘T to open
     /// again; `undone` if Redo closed it, as that history has it already.
     fn closed(&self, window: u64, closed: Closed, undone: bool, cx: &mut App);
+    /// Takes the preview's page, whose tab is `tab`, back or forward, or reloads or stops it, from
+    /// the toolbar's buttons in its header.
+    fn navigate(&self, tab: u64, nav: Nav);
+    /// Puts `text` on the clipboard, as the toolbar's Copy URL does.
+    fn copy(&self, text: &str);
+}
+
+/// What the toolbar's buttons in the header do to the preview's page.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Nav {
+    Back,
+    Forward,
+    Reload,
+    Stop,
 }
 
 /// A preview the user closed: the tab it was over, the page it was at and where its link was.
@@ -250,6 +264,10 @@ struct Preview {
     /// The tab whose link it opened from.
     over: u64,
     url: SharedString,
+    /// What its page can do, for the toolbar's buttons in its header.
+    can_go_back: bool,
+    can_go_forward: bool,
+    loading: bool,
     /// Redo closed it, so ⌘Z's history has it already.
     undone: bool,
     /// Where the link was clicked in the browser window.
@@ -382,6 +400,9 @@ pub fn show(
             tab,
             over,
             url,
+            can_go_back: false,
+            can_go_forward: false,
+            loading: true,
             undone: false,
             link,
             asked: Instant::now(),
@@ -418,11 +439,14 @@ pub fn page_moved(window: u64, (page, radius): (Bounds<Pixels>, f32), cx: &mut A
     });
 }
 
-/// `tab`'s page is at `url` now, as it navigated.
-pub fn set_url(tab: u64, url: SharedString, cx: &mut App) {
+/// `tab`'s page is `page` now, as it navigated or loaded.
+pub fn set_page(tab: u64, page: &Page, cx: &mut App) {
     update(cx, |preview, _, cx| {
         if let Some(shown) = preview.preview.as_mut().filter(|shown| shown.tab == tab) {
-            shown.url = url;
+            shown.url = page.url.clone();
+            shown.can_go_back = page.can_go_back;
+            shown.can_go_forward = page.can_go_forward;
+            shown.loading = page.loading;
             cx.notify();
         }
     });
@@ -580,8 +604,23 @@ impl Render for LinkPreview {
         }
         let palette = palette::current(cx);
         let radius = shown.radius() + FRAME;
-        let site = SharedString::from(site_of(&shown.url).to_string());
-        let button = |id: &'static str, icon: &'static str| {
+        // With the toolbar, the header has its controls and the whole URL, as Arc's Peek does.
+        let toolbar = toolbar_shown(cx);
+        let (tab, url) = (shown.tab, shown.url.clone());
+        let nav = [
+            ("link-preview-back", "icons/nav-back.svg", Nav::Back, shown.can_go_back),
+            ("link-preview-forward", "icons/nav-forward.svg", Nav::Forward, shown.can_go_forward),
+            match shown.loading {
+                true => ("link-preview-reload", "icons/nav-stop.svg", Nav::Stop, true),
+                false => ("link-preview-reload", "icons/nav-reload.svg", Nav::Reload, true),
+            },
+        ];
+        let site = match toolbar {
+            true => url.clone(),
+            false => SharedString::from(site_of(&url).to_string()),
+        };
+        let button = |id: &'static str, icon: &'static str, enabled: bool| {
+            let glyph = palette.on_overlay_glyph(if enabled { NAV } else { NAV_DISABLED });
             div()
                 .id(id)
                 .flex_none()
@@ -590,22 +629,44 @@ impl Render for LinkPreview {
                 .items_center()
                 .justify_center()
                 .rounded(px(NAV_RADIUS))
-                .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
-                .active(|style| style.bg(palette.plate(STATE_PRESSED)))
+                .when(enabled, |button| {
+                    button
+                        .hover(|style| style.bg(palette.plate(STATE_HOVERED)))
+                        .active(|style| style.bg(palette.plate(STATE_PRESSED)))
+                })
                 .child(
                     svg()
                         .path(icon)
                         .size(px(URL_BUTTON_GLYPH))
-                        .text_color(palette.on_overlay_glyph(NAV)),
+                        .text_color(glyph),
                 )
         };
+        let nav = nav.into_iter().filter(|_| toolbar).map(|(id, icon, nav, enabled)| {
+            button(id, icon, enabled).when(enabled, |button| {
+                button.on_click(cx.listener(move |preview, _, _, _| {
+                    // check.sh waits for this line.
+                    log!("browser: link preview {nav:?}");
+                    preview.host.navigate(tab, nav);
+                }))
+            })
+        });
+        let copy = toolbar.then(|| {
+            let link = clean_link(&url);
+            button("link-preview-copy-url", "icons/link.svg", !link.is_empty()).on_click(
+                cx.listener(move |preview, _, _, _| {
+                    log!("browser: command copy-url via link preview");
+                    preview.host.copy(&link);
+                }),
+            )
+        });
         let header = div()
             .h(px(HEADER))
             .flex()
             .items_center()
             .gap(px(URL_BUTTON_INSET))
-            .pl(px(HEADER_LEFT))
+            .pl(px(if toolbar { URL_BUTTON_INSET } else { HEADER_LEFT }))
             .pr(px(URL_BUTTON_INSET))
+            .children(nav)
             .child(
                 div()
                     .flex_1()
@@ -615,14 +676,15 @@ impl Render for LinkPreview {
                     .text_color(palette.on_overlay(TITLE))
                     .child(site),
             )
+            .children(copy)
             .child(
-                button("link-preview-keep", "icons/maximize.svg").on_click(
+                button("link-preview-keep", "icons/maximize.svg", true).on_click(
                     cx.listener(|preview, _, _, cx| {
                         preview.keep("button", cx);
                     }),
                 ),
             )
-            .child(button("link-preview-close", "icons/x.svg").on_click(cx.listener(
+            .child(button("link-preview-close", "icons/x.svg", true).on_click(cx.listener(
                 |preview, _, _, cx| {
                     preview.close("button", cx);
                 },

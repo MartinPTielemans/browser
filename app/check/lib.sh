@@ -269,7 +269,7 @@ summary() {
 
 # The page view keeps the sidebar's 228 points on its left and 10 on its other sides, over GPUI's
 # view, which fills the window. A full-screen page ("fills") covers the whole window, and with the
-# sidebar hidden ("inset") it's 10 in from every side.
+# sidebar hidden ("inset") it's 10 in from every side, and with the toolbar ("toolbar") under it.
 check_layout() {
   send layout
   layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout')
@@ -287,6 +287,8 @@ check_layout() {
   expected_radius=6
   [ "${2:-}" = fills ] && expected="0,0 $content" && expected_radius=
   [ "${2:-}" = inset ] && expected="10,10 $((width - 20))x$((height - 20))"
+  # Under the toolbar, 44 tall at the card's top (tokens.toml › shell.toolbar).
+  [ "${2:-}" = toolbar ] && expected="$left,54 $((width - left - 10))x$((height - 64))"
   [ "$view" = "$expected" ] || fail "$1: the page view is at $view in a $content window"
   [ "$radius" = "$expected_radius" ] ||
     fail "$1: the page's corners have a radius of ${radius:-0}, not ${expected_radius:-0}"

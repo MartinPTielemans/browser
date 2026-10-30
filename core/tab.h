@@ -238,6 +238,8 @@ class Tab : public content::WebContentsObserver,
   void TitleWasSet(content::NavigationEntry* entry) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
   void DidUpdateAudioMutingState(bool muted) override;
+  void DidChangeThemeColor() override;
+  void OnBackgroundColorChanged() override;
   void DidGetUserInteraction(const blink::WebInputEvent& event) override;
   void OnVisibilityChanged(content::Visibility visibility) override;
   void WebContentsDestroyed() override;

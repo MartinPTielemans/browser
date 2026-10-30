@@ -174,6 +174,12 @@ void UpdateOcclusion(NSWindow* window) {
 constexpr CACornerMask kAllCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner |
                                      kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
 
+// |view|'s bottom corners, which are its layer's minimum Y's only if the view is flipped.
+CACornerMask BottomCorners(NSView* view) {
+  return view.isFlipped ? kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner
+                        : kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+}
+
 }  // namespace
 
 void AddWindowViews(views::Widget* widget, void* ui_view) {
@@ -231,17 +237,22 @@ void ShowPages(views::Widget* widget,
     record.page = page_view;
     record.devtools = devtools_view;
     Unhide(page_view, hidden);
+    // Under the app's toolbar, only the bottom corners are round.
+    auto rounded = [&](NSView* each) {
+      return pane.square_top ? BottomCorners(each) : kAllCorners;
+    };
     if (devtools_view) {
       Unhide(devtools_view, hidden);
-      RoundCorners(devtools_view, corner_radius, kAllCorners);
+      RoundCorners(devtools_view, corner_radius, rounded(devtools_view));
       record.pageInDevTools = pane.devtools->page_frame.ToCGRect();
       RoundCorners(page_view, corner_radius,
-                   CornersReached(page_view, record.pageInDevTools, pane.frame.size().ToCGSize()));
+                   CornersReached(page_view, record.pageInDevTools, pane.frame.size().ToCGSize()) &
+                       rounded(page_view));
       if (devtools_view.superview != view) {
         [view addSubview:devtools_view positioned:NSWindowAbove relativeTo:view.uiView];
       }
     } else {
-      RoundCorners(page_view, corner_radius, kAllCorners);
+      RoundCorners(page_view, corner_radius, rounded(page_view));
     }
     if (page_view.superview != view) {
       [view addSubview:page_view];
@@ -265,9 +276,7 @@ void ShowPages(views::Widget* widget,
     record.page = panel_view;
     record.insets = insets(side_panel->frame);
     Unhide(panel_view, hidden);
-    RoundCorners(panel_view, corner_radius,
-                 panel_view.isFlipped ? kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner
-                                      : kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner);
+    RoundCorners(panel_view, corner_radius, BottomCorners(panel_view));
     if (panel_view.superview != view) {
       [view addSubview:panel_view];
     }

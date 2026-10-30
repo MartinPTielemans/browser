@@ -15,7 +15,7 @@ use crate::palette::{Palette, Tone};
 use super::{
     access::Accessible,
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
-    HOVERED, LIST_TOP,
+    HOVERED, LIST_TOP, URL_FIELD_TOP,
     PLATE_INSET, Place, Row, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
     TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
     TILE_UNTHEMED, TILE_UNTHEMED_LIGHT, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
@@ -87,7 +87,7 @@ impl Shell {
                 .id("favorites")
                 .when(self.a11y, |tiles| tiles.role(Role::TabList).aria_label("Favorites"))
                 .absolute()
-                .top(px(LIST_TOP))
+                .top(px(self.list_start()))
                 .left_0()
                 .w(px(self.width()))
                 .when(self.tiles_scroll(), |tiles| {
@@ -271,7 +271,7 @@ impl Shell {
     /// Where the Space's pages start with `count` tiles: under them, else under the URL field.
     pub(super) fn list_top_with(&self, count: usize) -> f32 {
         let rows = self.tile_places(count).last().map_or(0., |&[_, top, _]| top + TILE_HEIGHT);
-        LIST_TOP + if count > 0 { rows + TILE_GAP } else { 0. }
+        self.list_start() + if count > 0 { rows + TILE_GAP } else { 0. }
     }
 
     /// Where the Space's pages start: under the tiles.
@@ -290,7 +290,7 @@ impl Shell {
     /// Whether the tiles scroll with the list, as they do while they're taller than
     /// TALL_FAVORITES of the window.
     pub(super) fn tiles_scroll(&self) -> bool {
-        self.list_top() - LIST_TOP > TALL_FAVORITES * f32::from(self.viewport.height)
+        self.list_top() - self.list_start() > TALL_FAVORITES * f32::from(self.viewport.height)
     }
 
     /// How far the tiles have gone up with the list.
@@ -302,19 +302,25 @@ impl Shell {
     }
 
     /// Where the tiles' top is drawn.
+    /// Where the favorites start: under the URL field, or where it would be while it's the
+    /// toolbar's, as Arc's move up under the window's buttons.
+    pub(super) fn list_start(&self) -> f32 {
+        if self.toolbar { URL_FIELD_TOP } else { LIST_TOP }
+    }
+
     pub(super) fn tiles_top(&self) -> f32 {
-        LIST_TOP - self.tiles_scrolled()
+        self.list_start() - self.tiles_scrolled()
     }
 
     /// Where the Space's pages are drawn from: under the tiles, or under the URL field while the
     /// tiles scroll with them.
     pub(super) fn pages_top(&self) -> f32 {
-        if self.tiles_scroll() { LIST_TOP } else { self.drawn_list_top() }
+        if self.tiles_scroll() { self.list_start() } else { self.drawn_list_top() }
     }
 
     /// Where the sidebar under the tiles starts, as they're drawn.
     pub(super) fn under_tiles(&self) -> f32 {
-        (self.list_top() - self.tiles_scrolled()).max(LIST_TOP)
+        (self.list_top() - self.tiles_scrolled()).max(self.list_start())
     }
 
     /// The room a page leaves above its rows for the tiles that scroll with it.
@@ -580,7 +586,8 @@ impl Shell {
             tile
         });
         (!favorites.is_empty()).then(|| {
-            div().absolute().top(px(LIST_TOP)).left_0().w(px(self.width())).children(tiles)
+            let top = self.list_start();
+            div().absolute().top(px(top)).left_0().w(px(self.width())).children(tiles)
         })
     }
 }

@@ -260,6 +260,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Show/Hide Toolbar", Keys::Of(Command::ToggleToolbar)),
             ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
             ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
             ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
@@ -2156,6 +2157,23 @@ fn appearance_path() -> String {
 pub fn read_appearance(cx: &mut App) {
     let text = std::fs::read_to_string(appearance_path()).unwrap_or_default();
     cx.set_global(shell::AppAppearance(Appearance::named(text.trim()).unwrap_or_default()));
+}
+
+/// Where View › Show Toolbar's choice is kept, beside the appearance.
+fn toolbar_path() -> String {
+    format!("{}/Toolbar", crate::profile_dir())
+}
+
+/// Reads View › Show Toolbar's choice, hidden if there's none, as Arc's is at first.
+pub fn read_toolbar(cx: &mut App) {
+    let text = std::fs::read_to_string(toolbar_path()).unwrap_or_default();
+    cx.set_global(shell::ShowToolbar(shell::toolbar_from(&text)));
+}
+
+pub fn save_toolbar(shown: bool) {
+    if let Err(error) = std::fs::write(toolbar_path(), shell::toolbar_text(shown)) {
+        log!("couldn't save the toolbar: {error}");
+    }
 }
 
 pub fn save_appearance(appearance: Appearance) {

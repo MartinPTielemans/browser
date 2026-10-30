@@ -918,7 +918,7 @@ impl Browser for Fake {
     fn focus_page(&self, _: &mut App) {}
 
     // There's no page, and the window's buttons stay where GPUI put them.
-    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
+    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
 
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
@@ -929,6 +929,8 @@ impl Browser for Fake {
 
     // The preview keeps nothing for a next launch.
     fn set_appearance(&self, _: Appearance, _: &mut App) {}
+
+    fn save_toolbar(&self, _: bool, _: &mut App) {}
 
     fn page_moving(&self, _: bool, _: &mut App) {}
 

@@ -134,6 +134,8 @@ pub enum Command {
     PreviousSpace,
     /// Hides the docked sidebar, or shows it.
     ToggleSidebar,
+    /// Shows the toolbar over the page in every window, or hides it (View › Show Toolbar).
+    ToggleToolbar,
     /// Opens the Library, or closes it.
     ViewLibrary,
     /// Opens the Library on the archive.
@@ -263,6 +265,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
     ("cmd-s", Command::ToggleSidebar, false),
+    ("shift-cmd-d", Command::ToggleToolbar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
     ("cmd-y", Command::ViewHistory, false),
@@ -338,6 +341,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
+    ("Show Toolbar", Command::ToggleToolbar, &["hide", "url bar", "address bar"]),
     ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
     ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
     ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
@@ -664,6 +668,7 @@ impl Command {
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
             Command::ToggleSidebar => "toggle-sidebar",
+            Command::ToggleToolbar => "toggle-toolbar",
             Command::ViewLibrary => "view-library",
             Command::ViewArchive => "view-archive",
             Command::ClearArchive => "clear-archive",
@@ -806,7 +811,8 @@ impl Shell {
                 self.set_new_tab(false, cx);
                 let editing = (self.selected != 0).then(|| (self.selected, self.url(self.selected)));
                 // A click on the URL field opens the bar over the field, and ⌘L centred (Arc).
-                let field = if from == "sidebar" { self.url_field_bounds() } else { None };
+                let clicked = matches!(from, "sidebar" | "toolbar");
+                let field = if clicked { self.url_field_bounds() } else { None };
                 return self.browser.command_bar(editing, self.bar_tabs(), field, cx);
             }
             Command::CloseTab => {
@@ -970,6 +976,7 @@ impl Shell {
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::ToggleToolbar => return self.toggle_toolbar(cx),
             Command::Appearance(appearance) => return self.set_app_appearance(appearance, cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
@@ -1114,9 +1121,9 @@ impl Shell {
 
     /// A click on the URL field's Copy URL button: copies with the toast, as Arc's does, and
     /// shows a checkmark in the glyph's place for `COPIED_TIME`.
-    pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn copy_url_from_button(&mut self, from: &str, cx: &mut Context<Self>) {
         // check.sh waits for this line.
-        log!("browser: command copy-url via sidebar");
+        log!("browser: command copy-url via {from}");
         let Some((text, toast)) = self.url_to_copy(false) else {
             return;
         };
@@ -1255,6 +1262,7 @@ impl Shell {
             | Command::NewPrivateWindow
             | Command::CloseWindow
             | Command::ToggleSidebar
+            | Command::ToggleToolbar
             | Command::NewSpace
             | Command::RenameSpace
             | Command::ExportSpace
@@ -1307,6 +1315,7 @@ impl Shell {
             Command::ToggleSidebar if name == HIDE_SIDEBAR => {
                 (!self.sidebar_hidden).then_some(name)
             }
+            Command::ToggleToolbar => Some(self.toolbar_title()),
             _ => Some(name),
         }
     }

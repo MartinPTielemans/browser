@@ -993,6 +993,8 @@ void Tab::ReportState() {
         .trouble = BC_PAGE_FINE,
         .net_error = 0,
         .system_engine = false,
+        .has_color = false,
+        .color = 0,
     };
     Host().tab_state_changed(Host().context, id_, &state);
     return;
@@ -1005,6 +1007,15 @@ void Tab::ReportState() {
   const std::string url =
       (page ? page->url() : waiting_ ? waiting_->url : contents->GetVisibleURL()).spec();
   const RecentlyAudibleHelper* audible = RecentlyAudibleHelper::FromWebContents(contents);
+  // The page's colour, as the app's toolbar takes it: its theme-color, else its background's.
+  // Safari's engine's page has neither.
+  std::optional<SkColor> color;
+  if (!page) {
+    color = contents->GetThemeColor();
+    if (!color) {
+      color = contents->GetBackgroundColor();
+    }
+  }
   const bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = CanGoBack(),
@@ -1018,6 +1029,9 @@ void Tab::ReportState() {
       .trouble = Trouble(),
       .net_error = Trouble() == BC_PAGE_NETWORK_ERROR ? net_error_ : 0,
       .system_engine = page != nullptr,
+      .has_color = color.has_value(),
+      .color = color ? SkColorGetR(*color) << 16 | SkColorGetG(*color) << 8 | SkColorGetB(*color)
+                     : 0,
   };
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
@@ -1219,6 +1233,14 @@ void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause
 }
 
 void Tab::DidUpdateAudioMutingState(bool muted) {
+  ReportStateSoon();
+}
+
+void Tab::DidChangeThemeColor() {
+  ReportStateSoon();
+}
+
+void Tab::OnBackgroundColorChanged() {
   ReportStateSoon();
 }
 

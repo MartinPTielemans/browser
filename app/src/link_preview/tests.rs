@@ -49,6 +49,12 @@ impl Host for Recorder {
         let undone = if undone { " undone" } else { "" };
         self.push(format!("closed {window} over {} {} {x} {y}{undone}", closed.over, closed.url));
     }
+    fn navigate(&self, tab: u64, nav: Nav) {
+        self.push(format!("{nav:?} {tab}"));
+    }
+    fn copy(&self, text: &str) {
+        self.push(format!("copy {text}"));
+    }
 }
 
 const WINDOW: u64 = 1;
@@ -197,6 +203,34 @@ fn its_buttons_keep_and_close_it(cx: &mut TestAppContext) {
     shown.calls();
     shown.click(CLOSE_BUTTON);
     assert_eq!(shown.calls(), ["release", "hide", "close 7", CLOSED]);
+}
+
+/// With the toolbar, its header has the toolbar's back, forward and reload, and Copy URL, for its
+/// own page, as Arc's Peek does; without, it has none of them.
+#[gpui::test]
+fn the_toolbar_shows_in_it(cx: &mut TestAppContext) {
+    // Mirrored from the close button, 33 apart as keep and close are.
+    const BACK: (f32, f32) = (287., 56.);
+    const FORWARD: (f32, f32) = (320., 56.);
+    const RELOAD: (f32, f32) = (353., 56.);
+    const COPY: (f32, f32) = (677., 56.);
+    let mut shown = Shown::new(cx);
+    shown.click(BACK);
+    assert_eq!(shown.calls(), Vec::<String>::new());
+
+    shown.cx.cx.update(|cx| cx.set_global(crate::shell::ShowToolbar(true)));
+    let url = "https://www.example.org/a?utm_source=x".into();
+    let page = Page { url, can_go_back: true, ..Page::default() };
+    shown.cx.cx.update(|cx| set_page(TAB, &page, cx));
+    shown.cx.run_until_parked();
+    for spot in [BACK, FORWARD, RELOAD, COPY] {
+        shown.click(spot);
+    }
+    let calls = ["Back 7", "Reload 7", "copy https://www.example.org/a"];
+    assert_eq!(shown.calls(), calls, "forward has nowhere to go");
+    shown.cx.cx.update(|cx| set_page(TAB, &Page { loading: true, ..page }, cx));
+    shown.click(RELOAD);
+    assert_eq!(shown.calls(), ["Stop 7"]);
 }
 
 /// A click on the dim closes it; one on the card doesn't.

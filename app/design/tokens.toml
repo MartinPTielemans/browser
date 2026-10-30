@@ -1293,6 +1293,18 @@ ring-scale = 2.0
 near-white-ring = 0xffff_ff4d
 black = 0x0000_00ff
 
+[shell.toolbar]
+# The toolbar over the page (View › Show Toolbar), ours, as Arc's isn't measured: a strip at the
+# card's top, the URL field's height and 4 pt over and under it, with the header's buttons 6 pt in
+# from its ends and 34 apart, as the sidebar's are, and the URL field 6 after Copy URL. A line of
+# the ink at divider parts it from the page.
+height = 44.0
+field-inset = 4.0
+button-inset = 6.0
+button-pitch = 34.0
+field-gap = 6.0
+divider = 0.1
+
 [shell.trouble]
 # The empty card's line is body, as the sidebar's New Tab row.
 words-size = 13.0

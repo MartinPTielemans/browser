@@ -92,6 +92,10 @@ typedef struct bc_tab_state {
   // The system's engine shows the page, WebKit on the Mac, in place of Chromium
   // (bc_tab_set_system_engine).
   bool system_engine;
+  // The page's colour, 0xRRGGBB, as the app's toolbar takes it: its theme-color, else the
+  // background its CSS gives it. Without either, or in the system's engine, has_color is false.
+  bool has_color;
+  uint32_t color;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -1306,10 +1310,14 @@ BC_EXPORT void bc_window_set_sidebar_width(bc_id window, double width);
 BC_EXPORT bc_id bc_window_space_tab(bc_id window, bc_id space);
 
 // Where the window shows its tab's page, in the window, and the radius of the page's corners, 0 for
-// square ones. Set it again when the layout changes; the page keeps its distance from the window's
-// edges as the window resizes. A split view's pages share it, 10 apart, each as wide as the others
-// side by side, or as tall stacked.
-BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame, double corner_radius);
+// square ones, with only the bottom ones round if |square_top|, as under the app's toolbar. Set it
+// again when the layout changes; the page keeps its distance from the window's edges as the window
+// resizes. A split view's pages share it, 10 apart, each as wide as the others side by side, or as
+// tall stacked, and only those at its top have square top corners.
+BC_EXPORT void bc_window_set_page_frame(bc_id window,
+                                        bc_rect frame,
+                                        double corner_radius,
+                                        bool square_top);
 
 // The colour of the ring inside the edge of the focused page of a split view, 0xRRGGBB.
 BC_EXPORT void bc_window_set_focus_color(bc_id window, uint32_t color);

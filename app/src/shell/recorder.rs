@@ -88,6 +88,10 @@ pub(super) struct Recorder {
     pub(super) window_light: Cell<Option<bool>>,
     /// The appearance View › Appearance last chose.
     pub(super) appearance: Cell<Option<Appearance>>,
+    /// What View › Show Toolbar last kept for the next launch.
+    pub(super) toolbar_saved: Cell<Option<bool>>,
+    /// Whether the page was last laid out under the toolbar.
+    pub(super) under_toolbar: Cell<bool>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
     /// The system has a share sheet of its own.
@@ -793,8 +797,9 @@ impl Browser for Recorder {
         self.record("focus page".into())
     }
 
-    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {
+    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, under_toolbar: bool, _: &mut App) {
         self.page_events.borrow_mut().push("layout");
+        self.under_toolbar.set(under_toolbar);
     }
 
     fn set_focus_color(&self, _: u32, _: &mut App) {}
@@ -807,6 +812,10 @@ impl Browser for Recorder {
 
     fn set_appearance(&self, appearance: Appearance, _: &mut App) {
         self.appearance.set(Some(appearance));
+    }
+
+    fn save_toolbar(&self, shown: bool, _: &mut App) {
+        self.toolbar_saved.set(Some(shown));
     }
 
     fn page_moving(&self, moving: bool, _: &mut App) {

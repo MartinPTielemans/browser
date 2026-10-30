@@ -14,6 +14,8 @@ pub struct MenuBar {
     /// The shown Space's profile's extensions that run in the window, for the Extensions menu.
     pub extensions: Vec<Extension>,
     pub sidebar_hidden: bool,
+    /// Whether the toolbar shows over the page.
+    pub toolbar: bool,
     /// Whether the tab shown is pinned, or None with none shown.
     pub pinned: Option<bool>,
     /// Spaces › Change Profile: each profile by id and name, whether the Space shown can change to
@@ -36,6 +38,11 @@ impl MenuBar {
     /// View's item for ⌘S, by what it does now, as Arc's.
     pub fn sidebar_title(&self) -> &'static str {
         if self.sidebar_hidden { "Show Sidebar" } else { "Hide Sidebar" }
+    }
+
+    /// View's item for ⇧⌘D, by what it does now, as Arc's.
+    pub fn toolbar_title(&self) -> &'static str {
+        if self.toolbar { "Hide Toolbar" } else { "Show Toolbar" }
     }
 
     /// Tabs' item for ⌘D, by the tab shown, as Arc's, which names both with none shown.
@@ -67,6 +74,7 @@ impl Shell {
             spaces,
             extensions,
             sidebar_hidden: self.sidebar_hidden,
+            toolbar: self.toolbar,
             pinned,
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
             appearance: self.app_appearance,

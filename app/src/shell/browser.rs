@@ -313,8 +313,9 @@ pub trait Browser {
     /// loading has a view, unless the UI takes it back first.
     fn focus_page(&self, cx: &mut App);
     /// Lays the page out at `frame` in the window, with corners of `radius`
-    /// (`Shell::page_frame`). A split view's pages share it.
-    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, cx: &mut App);
+    /// (`Shell::page_frame`), the top ones square if it's `under_toolbar`. A split view's pages
+    /// share it.
+    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, under_toolbar: bool, cx: &mut App);
     /// The colour of the ring inside a split view's focused page, 0xRRGGBB.
     fn set_focus_color(&self, color: u32, cx: &mut App);
     /// What the window's pages show until their first frame, 0xRRGGBB.
@@ -324,6 +325,8 @@ pub trait Browser {
     /// Keeps View › Appearance's choice for the next launch, and gives it the app's native parts
     /// and its pages, which follow it as they follow the system's.
     fn set_appearance(&self, appearance: Appearance, cx: &mut App);
+    /// Keeps View › Show Toolbar's choice for the next launch.
+    fn save_toolbar(&self, shown: bool, cx: &mut App);
     /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
     /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
     /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.
@@ -607,6 +610,8 @@ pub struct Page {
     pub trouble: Trouble,
     /// Safari's engine shows the page, in place of Chromium.
     pub system_engine: bool,
+    /// The page's colour, 0xRRGGBB, which the toolbar takes: its theme-color, else its background.
+    pub color: Option<u32>,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the

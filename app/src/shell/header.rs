@@ -44,11 +44,13 @@ use crate::tokens::shell::header::URL_PLACEHOLDER;
 use crate::tokens::text;
 
 impl Shell {
-    /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
-    /// back does on a page with no history.
-    fn nav_button(
+    /// A header button at `x` and `top`, with the glyph `icon`, that runs `command`, in the
+    /// sidebar's header or the toolbar. One that can't dims, as back does on a page with no
+    /// history.
+    pub(super) fn nav_button(
         &self,
         x: f32,
+        top: f32,
         icon: &'static str,
         command: Command,
         enabled: bool,
@@ -56,7 +58,7 @@ impl Shell {
     ) -> impl IntoElement + use<> {
         let color = Hsla::from(self.palette.glyph(if enabled { NAV } else { NAV_DISABLED }));
         // Reload and stop are one button, which changes with the tab shown's page.
-        let glyph = match x == RELOAD_X {
+        let glyph = match matches!(command, Command::Reload | Command::Stop) {
             true => self.swaps.glyph(Swapped::Reload(self.selected), icon, NAV_GLYPH, color),
             false => svg().path(icon).size(px(NAV_GLYPH)).text_color(color).into_any_element(),
         };
@@ -64,7 +66,7 @@ impl Shell {
             .id(command.name())
             .absolute()
             .left(px(x))
-            .top(px(NAV_TOP))
+            .top(px(top))
             .size(px(NAV_SIZE))
             .flex()
             .items_center()
@@ -99,7 +101,7 @@ impl Shell {
                     }))
             })
             // Back, forward and reload shrink a little while they're held.
-            .when(enabled && x != SIDEBAR_BUTTON_X, |button| {
+            .when(enabled && command != Command::ToggleSidebar, |button| {
                 let release =
                     |shell: &mut Shell, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Shell>| {
                         shell.release_nav();
@@ -250,7 +252,7 @@ impl Shell {
     }
 
     /// The sidebar button, back, forward, and reload, which is stop while the page loads, as many
-    /// as fit.
+    /// as fit. Back, forward and reload are the toolbar's while it's on.
     pub(super) fn nav_buttons(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let page = self.page(self.selected);
         let reload = match page.loading {
@@ -266,9 +268,10 @@ impl Shell {
         let width = self.width();
         buttons
             .into_iter()
+            .take(if self.toolbar { 1 } else { buttons.len() })
             .filter(|&(x, ..)| x + NAV_SIZE <= width - NAV_END)
             .map(|(x, icon, command, enabled)| {
-                self.nav_button(x, icon, command, enabled, cx).into_any_element()
+                self.nav_button(x, NAV_TOP, icon, command, enabled, cx).into_any_element()
             })
             .collect()
     }
@@ -304,15 +307,26 @@ impl Shell {
         .size_0()
     }
 
-    /// The URL field's box in the window, while the docked sidebar shows it.
+    /// The URL field's box in the window, while the toolbar or the docked sidebar shows it.
     pub(super) fn url_field_bounds(&self) -> Option<Bounds<Pixels>> {
+        if let Some(toolbar) = self.toolbar_layout() {
+            return Some(toolbar.field);
+        }
         let docked = !self.page_fullscreen && !self.sidebar_hidden && self.sidebar_motion.is_none();
-        (docked && self.form().is_none() && self.library.is_none()).then(|| {
-            Bounds::new(
+        let shown = docked && !self.toolbar && self.form().is_none() && self.library.is_none();
+        shown.then(|| self.field_frame())
+    }
+
+    /// Where the URL field goes in the window, shown or not: in the toolbar while it shows, else
+    /// in the sidebar's header, where the sidebar would be docked.
+    pub(super) fn field_frame(&self) -> Bounds<Pixels> {
+        match self.toolbar_layout() {
+            Some(toolbar) => toolbar.field,
+            None => Bounds::new(
                 point(px(PLATE_INSET), px(URL_FIELD_TOP)),
                 size(px(self.width() - 2. * PLATE_INSET), px(URL_FIELD_HEIGHT)),
-            )
-        })
+            ),
+        }
     }
 
     /// Where the Site Controls button ends, in from the URL field's end: Arc's place, or before
@@ -332,8 +346,16 @@ impl Shell {
         if self.selected == 0 {
             return;
         }
-        let place = match self.url_field_bounds() {
-            Some(field) => {
+        let place = match (self.toolbar_layout(), self.url_field_bounds()) {
+            // Its button is after the field in the toolbar.
+            (Some(toolbar), _) => {
+                let button = Bounds::new(
+                    point(px(toolbar.site_controls), px(toolbar.top)),
+                    size(px(NAV_SIZE), px(NAV_SIZE)),
+                );
+                Place::Button { field: toolbar.field, button }
+            }
+            (None, Some(field)) => {
                 let left = field.right() - px(self.site_controls_end() + URL_BUTTON_SIZE);
                 let button = Bounds::new(
                     point(left, field.top() + px(URL_BUTTON_INSET)),
@@ -341,7 +363,9 @@ impl Shell {
                 );
                 Place::Button { field, button }
             }
-            None => Place::Corner(point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET))),
+            (None, None) => {
+                Place::Corner(point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET)))
+            }
         };
         let extensions = self.site_controls_extensions();
         self.browser.site_controls(self.selected, place, self.viewport, extensions, cx);
@@ -381,7 +405,82 @@ impl Shell {
         (words, self.palette.text(SECONDARY).into())
     }
 
+    /// The sidebar's URL field, in its header.
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let frame = Bounds::new(
+            point(px(PLATE_INSET), px(URL_FIELD_TOP)),
+            size(px(self.width() - 2. * PLATE_INSET), px(URL_FIELD_HEIGHT)),
+        );
+        self.url_field_at(frame, false, cx)
+    }
+
+    /// Copy URL on `button`, a plate in the URL field or on the toolbar: a link that turns into a
+    /// check once it has copied, and the click from `from`, which takes it only while `live`.
+    pub(super) fn copy_url_tool(
+        &self,
+        button: Stateful<Div>,
+        from: &'static str,
+        live: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let button = button.when(self.a11y, |button| button.button_named("Copy URL"));
+        self.with_tooltip(button, Command::CopyUrl, TipSide::Under, cx)
+            .when(live, |button| {
+                button.on_click(
+                    cx.listener(move |shell, _, _, cx| shell.copy_url_from_button(from, cx)),
+                )
+            })
+            .child(self.swaps.glyph(
+                Swapped::CopyUrl,
+                if self.url_copied.is_some() { CHECK } else { LINK },
+                URL_BUTTON_GLYPH,
+                self.palette.glyph(NAV).into(),
+            ))
+            .into_any_element()
+    }
+
+    /// Site Controls' button on `button`, a plate in the URL field or on the toolbar, which takes
+    /// the press from `from` only while `live`.
+    pub(super) fn site_controls_tool(
+        &self,
+        button: Stateful<Div>,
+        from: &'static str,
+        live: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        button
+            .when(self.a11y, |button| {
+                button.button_named("Site Controls").pressed_by_mouse_down(true, false)
+            })
+            .when(live, |button| {
+                // On the press, as a pop-up button opens: a click while the panel shows closes it
+                // first, and its press then toggles rather than opens it again.
+                button.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |shell, _, _, cx| {
+                        cx.stop_propagation();
+                        shell.run(Command::SiteControls, from, cx);
+                    }),
+                )
+            })
+            .child(
+                svg()
+                    .path("icons/sliders-horizontal.svg")
+                    .size(px(URL_BUTTON_GLYPH))
+                    .text_color(self.palette.glyph(NAV)),
+            )
+            .into_any_element()
+    }
+
+    /// The URL field at `frame` in what holds it: the sidebar's header, or the window for the
+    /// toolbar. In the sidebar, Copy URL and Site Controls are in it, shown while the pointer is
+    /// over the sidebar; on the toolbar they're either side of it.
+    pub(super) fn url_field_at(
+        &self,
+        frame: Bounds<Pixels>,
+        in_toolbar: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
         let (words, color) = self.url_field_words(&url);
         // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
@@ -389,52 +488,21 @@ impl Shell {
         let actions = self.action_buttons(cx);
         let buttons_width = actions.len() as f32 * URL_BUTTON_SIZE;
         let live = self.tools_live();
-        let tools = self.tools_shown() && !url.is_empty();
+        let tools = !in_toolbar && self.tools_shown() && !url.is_empty();
         let end = self.site_controls_end();
+        let tool = |id, end| {
+            // Fading out, it takes no click.
+            self.field_tool(id, end).when(live, |button| {
+                button
+                    .block_mouse_except_scroll()
+                    .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+            })
+        };
         let copy = tools.then(|| {
-            let button = self.field_tool("copy-url", end + TOOL_PITCH);
-            let button = button.when(self.a11y, |button| button.button_named("Copy URL"));
-            self.with_tooltip(button, Command::CopyUrl, TipSide::Under, cx)
-                // Fading out, it takes no click.
-                .when(live, |button| {
-                    button
-                        .block_mouse_except_scroll()
-                        .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
-                        .on_click(cx.listener(|shell, _, _, cx| shell.copy_url_from_button(cx)))
-                })
-                .child(self.swaps.glyph(
-                    Swapped::CopyUrl,
-                    if self.url_copied.is_some() { CHECK } else { LINK },
-                    URL_BUTTON_GLYPH,
-                    self.palette.glyph(NAV).into(),
-                ))
+            self.copy_url_tool(tool("copy-url", end + TOOL_PITCH), "sidebar", live, cx)
         });
-        let site_controls = tools.then(|| {
-            self.field_tool("site-controls", end)
-                .when(self.a11y, |button| {
-                    button.button_named("Site Controls").pressed_by_mouse_down(true, false)
-                })
-                .when(live, |button| {
-                    button
-                        .block_mouse_except_scroll()
-                        .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
-                        // On the press, as a pop-up button opens: a click while the panel shows
-                        // closes it first, and its press then toggles rather than opens it again.
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|shell, _, _, cx| {
-                                cx.stop_propagation();
-                                shell.run(Command::SiteControls, "sidebar", cx);
-                            }),
-                        )
-                })
-                .child(
-                    svg()
-                        .path("icons/sliders-horizontal.svg")
-                        .size(px(URL_BUTTON_GLYPH))
-                        .text_color(self.palette.glyph(NAV)),
-                )
-        });
+        let site_controls =
+            tools.then(|| self.site_controls_tool(tool("site-controls", end), "sidebar", live, cx));
         let engine = self.engine_mark(self.selected);
         // The password manager's key, after the host (ours, for Chrome's key icon): a click brings
         // back the offer showing another tab closed, or opens the Site Controls, which list the
@@ -463,6 +531,7 @@ impl Shell {
             false if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
             false => URL_BUTTON_INSET + buttons_width,
         };
+        let from = if in_toolbar { "toolbar" } else { "sidebar" };
         // A button, as it is: a press opens the command bar on the URL, where it's edited. It's
         // called what it shows, the host.
         let field = div().id("url-field").when(self.a11y, |field| {
@@ -472,10 +541,10 @@ impl Shell {
         });
         field
             .absolute()
-            .top(px(URL_FIELD_TOP))
-            .left(px(PLATE_INSET))
-            .w(px(self.width() - 2. * PLATE_INSET))
-            .h(px(URL_FIELD_HEIGHT))
+            .top(frame.top())
+            .left(frame.left())
+            .w(frame.size.width)
+            .h(frame.size.height)
             .flex()
             .items_center()
             .pl(px(URL_FIELD_TEXT_X - PLATE_INSET))
@@ -486,9 +555,16 @@ impl Shell {
                 MouseButton::Left,
                 cx.listener(|shell, _, _, cx| shell.pressed_bar_target(cx)),
             )
-            .on_click(cx.listener(|shell, _, _, cx| {
-                shell.clicked_bar_target(Command::EditUrl, "sidebar", cx)
+            .on_click(cx.listener(move |shell, _, _, cx| {
+                shell.clicked_bar_target(Command::EditUrl, from, cx)
             }))
+            // Copy URL, Share and Show Toolbar or Hide Toolbar, as Arc's.
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|shell, event: &MouseDownEvent, _, cx| {
+                    shell.url_field_menu(event.position, cx)
+                }),
+            )
             .bg(self.palette.plate(URL_FIELD))
             // It brightens under the pointer as a tile does, from the same white 0.10 (ours).
             .hover(|style| style.bg(self.palette.plate(TILE_HOVERED)))

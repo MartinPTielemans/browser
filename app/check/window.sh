@@ -11,16 +11,17 @@
 # The command bar opens in full screen and keeps the keyboard when a page commits under it, then
 # gives the keyboard to the new page, and scrolling a long page doesn't stutter. Dragging the
 # window's background moves the window, and the buttons, URL field and rows keep their presses. A
-# double-click there zooms it, and one in the
-# sidebar below the rows opens a new tab. ⌘S, with the page or the UI focused, and the sidebar
-# button hide the sidebar and the window's buttons, and the card takes its place, through a resize;
-# ⌘S brings them back, and the core hears the page moves for each motion and is still after it. The
-# pointer kept at the window's edge brings the hidden sidebar out, and one passing it doesn't. The
-# sidebar's edge drags its width between 164 and 500, stopping at them, and dragged on past half the
-# narrowest it hides the sidebar, keeping its width; a double-click on it puts the width back. A
-# page that hasn't drawn yet shows the card's colour, not white. In a check VM, the sidebar over grey
-# backdrops is Dia's composite, dark and then light, with the Mac's appearance, and View ›
-# Appearance turns the light window dark and back.
+# double-click there zooms it, and one in the sidebar below the rows opens a new tab. ⇧⌘D, with
+# the page or the UI focused, shows the toolbar over the page, which starts under it, and takes it
+# away. ⌘S, with the page or the UI focused, and the sidebar button hide the sidebar and the
+# window's buttons, and the card takes its place, through a resize; ⌘S brings them back, and the
+# core hears the page moves for each motion and is still after it. The pointer kept at the
+# window's edge brings the hidden sidebar out, and one passing it doesn't. The sidebar's edge drags
+# its width between 164 and 500, stopping at them, and dragged on past half the narrowest it hides
+# the sidebar, keeping its width; a double-click on it puts the width back. A page that hasn't drawn
+# yet shows the card's colour, not white. In a check VM, the sidebar over grey backdrops is Dia's
+# composite, dark and then light, with the Mac's appearance, and View › Appearance turns the light
+# window dark and back.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -571,6 +572,19 @@ check_layout "after a resize with the sidebar hidden" inset
 send key s cmd
 toggle ui shown "⌘S after a resize"
 
+# ⇧⌘D shows the toolbar over the page, with the page focused or the UI, and the page starts under
+# it; ⇧⌘D again takes it away (docs/ux-spec.md › Toolbar).
+for focus in page ui; do
+  if [ $focus = page ]; then send click $page_point; else send click 110 400; fi
+  send key d cmd shift
+  expect '^browser: toolbar shown$' "⇧⌘D with the $focus focused didn't show the toolbar"
+  check_layout "with the toolbar, from the $focus" toolbar
+  ../tools/window-screenshot.sh "$pid" "$out/toolbar-$focus.png" || fail "no window to capture"
+  send key d cmd shift
+  expect '^browser: toolbar hidden$' "⇧⌘D again with the $focus focused didn't hide the toolbar"
+  check_layout "with the toolbar hidden again, from the $focus"
+done
+
 # With the sidebar hidden, the pointer at the window's left edge brings it out over the page in a
 # window of its own, which takes clicks and leaves the keyboard to the browser window, and the
 # pointer well past it sends it away. A click on its sidebar button, or ⌘S, docks the sidebar.
@@ -749,4 +763,4 @@ fi
 exec 3>&-
 quit
 echo "edge: $edge"
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png${light_shots:-}"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, and going away as the page takes the window full screen leaves both windowed, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. ⇧⌘D from the page and the UI shows the toolbar, the page under it, and takes it away. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/display-gone-entering.png, $out/display-gone-entering-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/toolbar-page.png, $out/toolbar-ui.png, $out/before-paint.png${light_shots:-}"
