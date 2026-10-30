@@ -2332,6 +2332,7 @@ mod tests {
         let folders = Folders {
             folders: [(10, ("Docs".into(), true))].into(),
             parents: [(2, 10)].into(),
+            ..Default::default()
         };
         let split = Split { tabs: vec![5, 6], ..Split::default() };
         let card = space(&[1, 10, 2], &[4, 5, 6], folders, vec![split]);
@@ -2357,6 +2358,7 @@ mod tests {
         let folders = Folders {
             folders: [(10, ("Docs".into(), false))].into(),
             parents: [(2, 10), (3, 10)].into(),
+            ..Default::default()
         };
         let mut card = space(&[10, 2, 3], &[], folders, Vec::new());
         assert_eq!(card.card_lines(), [Line::Folder(10, 0)]);
@@ -2512,7 +2514,8 @@ mod tests {
         let first = point(px(left + MEDIA_TILE / 2.), px(top + MEDIA_TILE / 2.));
         cx.simulate_click(first, Modifiers::none());
         cx.run_until_parked();
-        assert!(host.take().contains(&"open file:///tmp/my%20photo.jpg".to_string()));
+        let opened = host.take();
+        assert!(opened.iter().any(|call| call.starts_with("open file:///tmp/my%20photo.jpg ")));
         assert!(!shell.read_with(cx, |shell, _| shell.library_open), "the Library stayed open");
     }
 

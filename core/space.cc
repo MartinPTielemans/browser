@@ -224,6 +224,11 @@ std::string Space::FolderName(bc_id folder) const {
   return it == folders_.end() ? std::string() : it->second.name;
 }
 
+std::string Space::FolderIcon(bc_id folder) const {
+  auto it = folders_.find(folder);
+  return it == folders_.end() ? std::string() : it->second.icon;
+}
+
 bool Space::IsOpen(bc_id folder) const {
   auto it = folders_.find(folder);
   return it != folders_.end() && it->second.open;
@@ -424,6 +429,13 @@ bc_id Space::AddFolder(std::string name, bc_id folder, size_t index) {
 void Space::RenameFolder(bc_id folder, std::string name) {
   if (auto it = folders_.find(folder); it != folders_.end()) {
     it->second.name = std::move(name);
+    ReportChanged();
+  }
+}
+
+void Space::SetFolderIcon(bc_id folder, std::string icon) {
+  if (auto it = folders_.find(folder); it != folders_.end() && it->second.icon != icon) {
+    it->second.icon = std::move(icon);
     ReportChanged();
   }
 }
