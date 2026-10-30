@@ -12,6 +12,11 @@ namespace browser_core {
 // time chosen change.
 void ScheduleAutoArchive();
 
+// The note on the first tabs auto-archive takes: shown from then until the user dismisses it, and
+// never again after that (bc_archive_note).
+bool ArchiveNoteShown();
+void DismissArchiveNote();
+
 }  // namespace browser_core
 
 #endif  // BROWSER_CORE_AUTO_ARCHIVE_H_

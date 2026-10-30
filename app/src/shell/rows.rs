@@ -19,7 +19,7 @@ use super::{
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
-    Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
+    Shell, Slot, Swapped, TITLE_END_INSET, URL_BUTTON_GLYPH, URL_BUTTON_SIZE, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
     developer_outline, scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
     swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph}, title,
@@ -41,6 +41,21 @@ pub(super) const CLEAR_TIP: &str = "Clear unpinned tabs in this space";
 
 impl Shell {
     /// Closes every folder of the Space shown, all on one fold.
+    /// Opens `folder` of the Space shown, with the folders it's in, and scrolls the sidebar to it,
+    /// as the command bar's Open does.
+    pub(super) fn open_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
+        let Some(space) = self.shown_space() else {
+            return;
+        };
+        let folders = std::iter::once(folder).chain(space.holders(folder));
+        let shut: Vec<u64> = folders.filter(|&each| !space.is_open(each)).collect();
+        for &each in &shut {
+            self.browser.set_folder_open(each, true, cx);
+        }
+        self.revealing = (!shut.is_empty()).then_some(folder);
+        self.scroll_to_row(folder);
+    }
+
     pub(super) fn collapse_folders(&mut self, cx: &mut Context<Self>) {
         let Some(space) = self.shown_space() else {
             return;
@@ -883,21 +898,54 @@ impl Shell {
                 .text_color(self.palette.text(FORM_TEXT))
                 .child(renaming.name.clone());
         }
-        row.on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                if event.click_count == 2 {
-                    shell.rename_space(space, cx);
-                }
-            }),
-        )
-        .on_mouse_down(
-            MouseButton::Right,
-            cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                shell.space_menu(space, event.position, cx)
-            }),
-        )
-        .child(div().truncate().child(name))
+        // Arc's edit button, only while the pointer is over the row, opens the Space's menu. Over
+        // the name's end, so the name keeps its width.
+        let edit = div()
+            .id("space-edit")
+            .absolute()
+            .right(px(FAVICON_X))
+            .top(px((NAME_HEIGHT - URL_BUTTON_SIZE) / 2.))
+            .size(px(URL_BUTTON_SIZE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+            .opacity(0.)
+            .group_hover("space-name", |style| style.opacity(1.))
+            .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+            .when(self.a11y, |edit| {
+                edit.button_named("Edit Space").pressed_by_mouse_down(true, false)
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    shell.space_menu(space, event.position, cx)
+                }),
+            )
+            .child(
+                svg()
+                    .path("icons/ellipsis.svg")
+                    .size(px(URL_BUTTON_GLYPH))
+                    .text_color(self.palette.glyph(NAV)),
+            );
+        row.group("space-name")
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    if event.click_count == 2 {
+                        shell.rename_space(space, cx);
+                    }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.space_menu(space, event.position, cx)
+                }),
+            )
+            .child(div().truncate().child(name))
+            .child(edit)
     }
 
     /// The line over Today, and Clear at its end, where the titles end.

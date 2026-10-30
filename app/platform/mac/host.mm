@@ -1,7 +1,9 @@
+#import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <VideoToolbox/VideoToolbox.h>
 #import <objc/runtime.h>
 
 #include <dlfcn.h>
@@ -10,6 +12,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cmath>
 #include <initializer_list>
 #include <iterator>
 #include <memory>
@@ -2841,6 +2844,12 @@ NSString* CaptureName() {
 
 }  // namespace
 
+void host_capture_name(char* name, size_t capacity) {
+  if (capacity) {
+    strlcpy(name, CaptureName().UTF8String, capacity);
+  }
+}
+
 void host_copy_png(const uint8_t* png, size_t size) {
   NSPasteboard* pasteboard = CopyPasteboard();
   [pasteboard clearContents];
@@ -3489,6 +3498,20 @@ void host_file_preview(const char* path, uint64_t id,
       }
       CFRelease(source);
     }
+    // A video's is its first frame.
+    if (!thumbnail) {
+      AVURLAsset* asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:file] options:nil];
+      AVAssetImageGenerator* generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
+      generator.appliesPreferredTrackTransform = YES;
+      generator.maximumSize = CGSizeMake(96, 96);
+      CGImageRef image = [generator copyCGImageAtTime:kCMTimeZero actualTime:nullptr error:nil];
+      if (image) {
+        thumbnail = PNGOf(image);
+        width = CGImageGetWidth(image);
+        height = CGImageGetHeight(image);
+        CGImageRelease(image);
+      }
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
       if (thumbnail) {
         done(id, static_cast<const uint8_t*>(thumbnail.bytes), thumbnail.length, width, height,
@@ -3521,6 +3544,100 @@ void host_file_preview(const char* path, uint64_t id,
       done(id, static_cast<const uint8_t*>(png.bytes), png.length, side, side, false);
     });
   });
+}
+
+// A video playing for a Media tile, at the size of the frames it gives.
+@interface BrowserVideo : NSObject
+@property(nonatomic) AVPlayer* player;
+@property(nonatomic) AVPlayerItemVideoOutput* output;
+@property(nonatomic) int side;
+// The observer that takes it back to its start at its end.
+@property(nonatomic) id ended;
+@end
+
+@implementation BrowserVideo
+@end
+
+void* host_video_open(const char* path, int side) {
+  NSURL* url = [NSURL fileURLWithPath:@(path)];
+  BrowserVideo* video = [[BrowserVideo alloc] init];
+  video.side = side;
+  video.player = [AVPlayer playerWithURL:url];
+  // A check run makes no sound, and Media's tiles never do.
+  video.player.muted = YES;
+  video.player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+  __weak AVPlayer* player = video.player;
+  video.ended = [NSNotificationCenter.defaultCenter
+      addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                  object:video.player.currentItem
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification*) {
+                [player seekToTime:kCMTimeZero];
+                [player play];
+              }];
+  [video.player play];
+  return (__bridge_retained void*)video;
+}
+
+bool host_video_frame(void* handle, uint8_t* pixels) {
+  BrowserVideo* video = (__bridge BrowserVideo*)handle;
+  AVPlayerItem* item = video.player.currentItem;
+  if (item.status != AVPlayerItemStatusReadyToPlay) {
+    return false;
+  }
+  CGFloat side = video.side;
+  if (!video.output) {
+    // Decoded at the tile's size, its shorter side the tile's, as the frames are copied each time.
+    CGSize size = item.presentationSize;
+    if (size.width <= 0 || size.height <= 0) {
+      return false;
+    }
+    CGFloat scale = side / std::min(size.width, size.height);
+    video.output = [[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:@{
+      (__bridge NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+      (__bridge NSString*)kCVPixelBufferWidthKey : @(std::ceil(size.width * scale)),
+      (__bridge NSString*)kCVPixelBufferHeightKey : @(std::ceil(size.height * scale)),
+    }];
+    [item addOutput:video.output];
+  }
+  CMTime time = [video.output itemTimeForHostTime:CACurrentMediaTime()];
+  if (![video.output hasNewPixelBufferForItemTime:time]) {
+    return false;
+  }
+  CVPixelBufferRef buffer =
+      [video.output copyPixelBufferForItemTime:time itemTimeForDisplay:nullptr];
+  if (!buffer) {
+    return false;
+  }
+  CGImageRef frame = nullptr;
+  VTCreateCGImageFromCVPixelBuffer(buffer, nullptr, &frame);
+  CVPixelBufferRelease(buffer);
+  if (!frame) {
+    return false;
+  }
+  // BGRA, its middle filling the square.
+  CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  CGContextRef context = CGBitmapContextCreate(
+      pixels, video.side, video.side, 8, video.side * 4, space,
+      static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) | kCGBitmapByteOrder32Little);
+  CGColorSpaceRelease(space);
+  if (context) {
+    CGFloat width = CGImageGetWidth(frame), height = CGImageGetHeight(frame);
+    CGFloat scale = side / std::min(width, height);
+    CGRect filled = CGRectMake((side - width * scale) / 2, (side - height * scale) / 2,
+                               width * scale, height * scale);
+    CGContextDrawImage(context, filled, frame);
+    CGContextRelease(context);
+  }
+  CGImageRelease(frame);
+  return context != nullptr;
+}
+
+void host_video_close(void* handle) {
+  BrowserVideo* video = (__bridge_transfer BrowserVideo*)handle;
+  [NSNotificationCenter.defaultCenter removeObserver:video.ended];
+  [video.player pause];
+  [video.player replaceCurrentItemWithPlayerItem:nil];
 }
 
 void host_copy(const char* text) {

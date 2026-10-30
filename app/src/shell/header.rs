@@ -273,9 +273,9 @@ impl Shell {
             .collect()
     }
 
-    /// A mouse's back and forward buttons anywhere over the UI go back and forward in the front
-    /// tab, as over Chrome's toolbar; over a page, the page takes them itself. The window hears
-    /// them, as the sidebar keeps its presses from what's under it.
+    /// A mouse's back and forward buttons anywhere over the UI show the previous and next Space,
+    /// as Arc's do (the owner's call); over a page, the page takes them itself and goes back and
+    /// forward. The window hears them, as the sidebar keeps its presses from what's under it.
     pub(super) fn navigate_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
@@ -287,8 +287,8 @@ impl Shell {
                         return;
                     }
                     let command = match direction {
-                        NavigationDirection::Back => Command::Back,
-                        NavigationDirection::Forward => Command::Forward,
+                        NavigationDirection::Back => Command::PreviousSpace,
+                        NavigationDirection::Forward => Command::NextSpace,
                     };
                     shell
                         .update(cx, |shell, cx| {
