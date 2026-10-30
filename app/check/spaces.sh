@@ -302,7 +302,8 @@ expect "^browser: library resized $spaces_wide\$" "the Library didn't settle at 
 # A right-click on the second card, 404 in and half its 240 wide, shows that Space's menu, with
 # the colour it was given, and leaves the Library open on the Space shown.
 post rightclick 524 $((${content#*x} / 2))
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on the second Space's card didn't show its menu"
 none_since '^browser: library space ' || fail "a right-click on a card showed its Space"
 send dismiss
@@ -494,7 +495,8 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 # A right-click on the sidebar's empty space, three rows under the Space's one Today row, shows
 # New Tab and the Space's menu, and New Tab opens the command bar, as ⌘T does.
 post rightclick $(row 3)
-expect "^browser: menu shown $(cased "New Tab, Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "New Tab, Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click under the Space's rows didn't show New Tab and the Space's menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-empty-menu.png" || fail "no window to capture"
 send choose "$(cased 'New Tab')"
@@ -506,7 +508,8 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar New 
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
 post rightclick $name_point
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on the Space's name didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
 send choose Rename Space
@@ -539,7 +542,8 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # its clicks go to the key window, in points from its top left. Escape closes it with no change,
 # and the menu offers Remove Icon only once there is an icon.
 post rightclick $name_point
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on the Space's name didn't offer Change Icon…"
 send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for $first on icon\$" "Change Icon… didn't open the icon picker"
@@ -552,7 +556,8 @@ send key escape
 expect '^browser: icon picker hidden$' "escape didn't close the icon picker"
 none_since '^browser: iconed space' || fail "escape in the icon picker gave the Space an icon"
 post rightclick $name_point
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on the Space's name offered Remove Icon without an icon"
 send choose "$(cased 'Change Icon…')"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
@@ -583,7 +588,7 @@ expect '^browser: icon picker hidden$' "an emoji picked on the Emoji tab didn't 
 # takes the icon away.
 post rightclick $name_point
 expect "^browser: menu shown $(cased "Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
-Delete Space")\$" "a right-click on the Space's name didn't offer Remove Icon"
+Export as Markdown…, Delete Space")\$" "a right-click on the Space's name didn't offer Remove Icon"
 send choose "$(cased 'Change Icon…')"
 expect "^browser: icon picker for $first on emoji\$" \
   "Change Icon… didn't open the picker on the Emoji tab for a Space with an emoji"
@@ -594,7 +599,8 @@ expect "^browser: iconed space $first none\$" "the icon picker's trash didn't ta
 expect '^browser: icon picker hidden$' "the icon picker's trash didn't close it"
 # Remove Icon in the menu does the same.
 post rightclick $name_point
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "the Space's menu offered Remove Icon after the trash"
 send choose "$(cased 'Change Icon…')"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
@@ -603,7 +609,7 @@ expect "^browser: iconed space $first glyph:bolt\$" \
   "a click on a glyph didn't become the Space's icon"
 post rightclick $name_point
 expect "^browser: menu shown $(cased "Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
-Delete Space")\$" "a right-click on the Space's name didn't offer Remove Icon"
+Export as Markdown…, Delete Space")\$" "a right-click on the Space's name didn't offer Remove Icon"
 send choose "$(cased 'Remove Icon')"
 expect "^browser: iconed space $first none\$" "Remove Icon didn't take the Space's icon away"
 # Edit Theme Color… in the Space's menu opens the theme picker too. A swatch is the Space's colour,
@@ -611,7 +617,8 @@ expect "^browser: iconed space $first none\$" "Remove Icon didn't take the Space
 # window's colours out, the window following as it goes; the core keeps the theme once it's let go.
 # A click outside the picker closes it.
 post rightclick $name_point
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on the Space's name didn't offer Edit Theme Color…"
 send choose "$(cased 'Edit Theme Color…')"
 expect "^browser: theme picker for $first\$" "Edit Theme Color… didn't open the theme picker"
@@ -664,7 +671,8 @@ expect '^browser: theme picker hidden$' "a click outside the theme picker didn't
 # Remove Theme Color, offered once the Space has a colour, takes its theme and colour away, and the
 # menu offers it no more.
 post rightclick $name_point
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on the Space's name didn't offer Remove Theme Color"
 send choose "$(cased 'Remove Theme Color')"
 expect "^browser: colored space $first none\$" \
@@ -672,7 +680,8 @@ expect "^browser: colored space $first none\$" \
 expect "^browser: themed space $first none\$" \
   "Remove Theme Color didn't take the Space's theme away"
 post rightclick $name_point
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "the Space's menu offered Remove Theme Color without a colour"
 send choose Rename Space
 send key escape
@@ -681,7 +690,8 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # Return deletes the Space once the dialog has gone. Its tabs close with it, and ⇧⌘T reopens them
 # here.
 post rightclick 131 $dots_y
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "Delete Space didn't ask first"
@@ -693,7 +703,8 @@ send state
 [ "$key" = BrowserCoreNSWindow ] || fail "the window didn't get the keyboard back: $key has it"
 none_since '^browser: spaces' || fail "a click around the dialog deleted the Space"
 post rightclick 131 $dots_y
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog settled$' "Delete Space didn't ask again"
@@ -718,7 +729,8 @@ expect "^browser: loaded [0-9]* https://example.com/\$" "the Space came back wit
 expect "^browser: settled space $second\$" "the Space ⌘Z brought back didn't settle"
 # Deleted again, its tab reopens here with ⇧⌘T, and ⌘Z brings back the Space without it.
 post rightclick 131 $dots_y
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "the Space came back without its name"
@@ -749,7 +761,8 @@ other=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
 send window 1
 post rightclick 131 $dots_y
 # ⌘Z brought the Space back with its theme.
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $empty_profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $empty_profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on a dot in the first window didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete in the first window didn't delete the Space"
@@ -773,7 +786,8 @@ expect "^browser: window closed $other\$" "⇧⌘W didn't close the second windo
 send window 1
 # Empty, it goes without asking, and says so too.
 post rightclick 131 $dots_y
-expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $empty_profile, Delete Space")\$" \
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $themed, $empty_profile, \
+Export as Markdown…, Delete Space")\$" \
   "a right-click on a dot didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete didn't delete the empty Space"
@@ -782,7 +796,7 @@ expect "$deleted" "the toast didn't say the empty Space went"
 # The last Space can't go.
 post rightclick $name_point
 expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
-Delete Space (disabled)")\$" \
+Export as Markdown…, Delete Space (disabled)")\$" \
   "the last Space's menu offered Delete"
 send choose Rename Space
 send key escape

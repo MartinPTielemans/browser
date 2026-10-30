@@ -1235,8 +1235,8 @@ impl Settings {
         let send = unsafe { bc::bc_send_crash_reports() };
         let send = self.toggle("send crash reports", send, set_send_crash_reports, accent, cx);
         let detail = format!(
-            "Reports go to {}. Turning this off deletes those not yet sent.",
-            crash_reports_collector()
+            "Only sent while this is on, to {}. Turning it off deletes those not yet sent.",
+            collector_name(&crash_reports_collector())
         );
         let row = detailed_row("Send crash reports", detail, Some(send));
         div().child(group(&RowLook::settings(), [row])).into_any_element()
@@ -1905,6 +1905,17 @@ fn set_haptics(haptics: bool, _: &mut App) {
 
 pub(crate) fn set_send_crash_reports(send: bool, _: &mut App) {
     unsafe { bc::bc_set_send_crash_reports(send) };
+}
+
+/// What the Privacy tab calls the collector at `host`: Sentry, by its region, else its host.
+pub(crate) fn collector_name(host: &str) -> String {
+    match host {
+        _ if host.ends_with(".ingest.de.sentry.io") => "Sentry (EU region)".into(),
+        _ if host.ends_with(".ingest.sentry.io") || host.ends_with(".ingest.us.sentry.io") => {
+            "Sentry".into()
+        }
+        _ => host.into(),
+    }
 }
 
 /// The host crash reports go to, or nothing in a build that names none.

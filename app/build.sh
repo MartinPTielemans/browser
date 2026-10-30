@@ -155,6 +155,9 @@ plutil -replace CFBundleName -string "$name" "$plist"
 plutil -replace CFBundleDisplayName -string "$name" "$plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$plist"
 plutil -replace CFBundleVersion -string "$build" "$plist"
+# macOS 15 (Sequoia) or later, the owner's call (#678). Below it macOS won't open the app, and
+# Sparkle's generate_appcast copies it into the feed's entry, so an older Mac is offered no update.
+plutil -replace LSMinimumSystemVersion -string 15.0 "$plist"
 rm "$app/Contents/Resources/app.icns"
 cp branding/Assets.car "branding/$name.icns" "$app/Contents/Resources/"
 plutil -replace CFBundleIconFile -string "$name" "$plist"
