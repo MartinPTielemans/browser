@@ -411,9 +411,12 @@ if [ "$(uname)" = Linux ]; then
   echo "skip: dragging the Mini Player on Linux (#813): it doesn't move from a press off its" \
     "controls, and the suspects are X11's RunMoveLoop grab, or openbox's for a caption drag, and" \
     "the move loop ignoring the driver's synthetic events."
+  # About its middle, but kept on the screen, whose right edge it's placed near: the edge may push
+  # it left, still over where it was.
   send pip wheel $((pw / 2)) $((ph / 3)) -2 cmd
-  mini_player_at "w > pw * 1.15 && h > ph * 1.15 && (2 * x + w - 2 * px - pw) ^ 2 <= 16 &&
-    (2 * y + h - 2 * py - ph) ^ 2 <= 16" "Ctrl with a scroll didn't grow the Mini Player in place"
+  mini_player_at "w > pw * 1.15 && h > ph * 1.15 && (2 * y + h - 2 * py - ph) ^ 2 <= 16 &&
+    x <= px && x + w >= px + pw && 2 * x + w <= 2 * px + pw + 4" \
+    "Ctrl with a scroll didn't grow the Mini Player in place"
   ../tools/window-screenshot.sh "$pid" "$out/mini-player.png" || fail "no window to capture"
   shown "$b"
   send pip doubleclick $((pw / 2)) $((ph / 4))
