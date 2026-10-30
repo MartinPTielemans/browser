@@ -102,7 +102,7 @@ pub extern "C" fn host_screens(frames: *mut f64, count: usize) -> usize {
 }
 
 /// Where the next browser window goes after the one of `ui_view`, as host.h says: as big, a step
-/// down and to the right, back to its screen's left or top edge where it would go past the other.
+/// down and to the right, moved back where it would go past its screen's edge.
 /// Left as it is under Wayland, whose compositor places windows itself (host_centered).
 #[unsafe(no_mangle)]
 pub extern "C" fn host_cascaded(
@@ -123,12 +123,8 @@ pub extern "C" fn host_cascaded(
     };
     let (mut next_x, mut next_y) = (left + STEP, top + STEP);
     if let Some(&[sx, sy, sw, sh]) = screens.iter().find(inside).or(screens.first()) {
-        if next_x + w > sx + sw {
-            next_x = sx;
-        }
-        if next_y + h > sy + sh {
-            next_y = sy;
-        }
+        next_x = next_x.min(sx + sw - w).max(sx);
+        next_y = next_y.min(sy + sh - h).max(sy);
     }
     unsafe { [*x, *y, *width, *height] = [next_x, next_y, w, h] };
 }
