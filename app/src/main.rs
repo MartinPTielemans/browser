@@ -5641,7 +5641,7 @@ unsafe extern "C" fn tab_media_unsupported(
 /// Google's Widevine module moved along: the notes that offer it and Settings' row say where to.
 /// Later, as the user's yes in a note or Settings calls back from inside their update.
 unsafe extern "C" fn widevine_changed(_: *mut c_void, state: c_int) {
-    // check-widevine.sh reads this line.
+    // check/widevine.sh reads this line.
     log!("browser: widevine state {}", Widevine::from_core(state).name());
     update_app_later(|cx| {
         let shells: Vec<_> = WINDOWS
