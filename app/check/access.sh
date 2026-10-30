@@ -8,18 +8,16 @@
 # AT-SPI through tools/atspi-tree.sh, which needs dbus-daemon and at-spi2-core. Without them the
 # run says it skipped, and it never asks for the permission.
 
-# Each role as the run's reader writes it, how the tab shown says it's selected, and what the
-# command bar's field says it holds. AccessKit gives AT-SPI a field's text only from text runs,
-# which GPUI's fields don't have, so off the Mac it says nothing.
+# Each role as the run's reader writes it, and how the tab shown says it's selected.
 if [ "$(uname)" = Linux ]; then
   screen_reader=Orca reader=../tools/atspi-tree.sh
   heading=heading button=button tab_group='page tab list' tab='page tab' shown=selected
-  field=entry typed= suggestion='list item' menu_role=menu menu_at=' menu "Menu"'
+  field=entry suggestion='list item' menu_role=menu menu_at=' menu "Menu"'
   submenu_role=menu menu_item='menu item' separator=separator
 else
   screen_reader=VoiceOver reader=../tools/ax-tree.sh
   heading=AXHeading/- button=AXButton/- tab_group=AXTabGroup/- tab=AXRadioButton/AXTabButton
-  shown=value=1 field=AXTextField/- typed=' value=docs' suggestion=AXStaticText/
+  shown=value=1 field=AXTextField/- suggestion=AXStaticText/
   menu_role='AXMenu/[^ ]*' menu_at=' AXMenu/' submenu_role=AXMenu/- menu_item='AXMenuItem/[^ ]*'
   separator=AXSplitter/
 fi
@@ -113,7 +111,7 @@ else
     expect '^browser: command bar suggestions "docs"' "the command bar didn't suggest for \"docs\""
     bar="$out/access-bar.txt"
     read_tree '"Suggestions"' > "$bar"
-    grep -q " $field \"Search or Enter URL\"$typed" "$bar" ||
+    grep -q " $field \"Search or Enter URL\" value=docs" "$bar" ||
       fail "the command bar's field isn't a text field with what was typed: $bar"
     rows=$(under '"Suggestions"' "$bar")
     [ "$(echo "$rows" | grep -c " $suggestion")" -ge 2 ] ||
@@ -162,9 +160,7 @@ else
     grep -q " $menu_role \"Menu\"" "$menu" || fail "the tab's menu isn't a menu: $menu"
     echo "$rows" | grep -q " $menu_item \"Duplicate\"" || fail "Duplicate isn't a menu item: $menu"
     echo "$rows" | grep -q " $separator" || fail "the lines between groups aren't separators: $menu"
-    # AccessKit doesn't give AT-SPI a menu item's expanded state, so off the Mac the submenu
-    # itself is what says Move to opens one.
-    [ "$(uname)" = Linux ] || echo "$rows" | grep -q " $menu_item \"Move to\" .*collapsed" ||
+    echo "$rows" | grep -q " $menu_item \"Move to\" .*collapsed" ||
       fail "Move to doesn't say it opens a submenu: $menu"
     send key m
     expect '^browser: menu highlights Move to at ' "typing m didn't select Move to"
@@ -172,7 +168,7 @@ else
     expect '^browser: menu submenu Move to shown at ' "→ didn't open Move to's submenu"
     submenu="$out/access-menu-submenu.txt"
     read_tree "$submenu_role \"Move to\"" > "$submenu"
-    [ "$(uname)" = Linux ] || grep -q " $menu_item \"Move to\" .*expanded" "$submenu" ||
+    grep -q " $menu_item \"Move to\" .*expanded" "$submenu" ||
       fail "Move to doesn't say its submenu is open: $submenu"
     under " $submenu_role \"Move to\"" "$submenu" | grep -q " $menu_item \"New Space…\"" ||
       fail "Move to's submenu doesn't list New Space…: $submenu"

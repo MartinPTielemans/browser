@@ -789,7 +789,17 @@ impl Browser for Fake {
     ) {
     }
 
-    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: bool, _: &mut App) {}
+    fn capture(
+        &self,
+        _: u64,
+        _: Bounds<Pixels>,
+        _: f32,
+        _: bool,
+        _: bool,
+        _: menu::Look,
+        _: &mut App,
+    ) {
+    }
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 
@@ -905,6 +915,8 @@ impl Browser for Fake {
     fn create_profile(&self, _: &str, _: &mut App) -> u64 {
         0
     }
+
+    fn rename_profile(&self, _: u64, _: &str, _: &mut App) {}
 
     // The tests' made-up Arc, so the import's step shows a browser to pick.
     fn import_host(&self) -> Rc<dyn browser::import::Host> {
@@ -1089,7 +1101,12 @@ impl Browser for Fake {
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
     }
 
-    fn tell(&self, _: dialog::Question, _: Box<dyn FnOnce(&mut App)>, _: &mut App) -> bool {
+    fn tell(
+        &self,
+        _: dialog::Question,
+        _: Box<dyn FnOnce(Vec<String>, &mut App)>,
+        _: &mut App,
+    ) -> bool {
         false
     }
 
