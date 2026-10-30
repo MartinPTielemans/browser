@@ -24,6 +24,7 @@
 #include "browser_core/platform/keyboard.h"
 #include "browser_core/script_dialog.h"
 #include "browser_core/session.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/site_controls.h"
 #include "browser_core/space.h"
@@ -993,6 +994,7 @@ void Tab::ReportState() {
         .trouble = BC_PAGE_FINE,
         .net_error = 0,
         .system_engine = false,
+        .developer_mode = developer_mode::On(profile(), Url()),
     };
     Host().tab_state_changed(Host().context, id_, &state);
     return;
@@ -1018,6 +1020,7 @@ void Tab::ReportState() {
       .trouble = Trouble(),
       .net_error = Trouble() == BC_PAGE_NETWORK_ERROR ? net_error_ : 0,
       .system_engine = page != nullptr,
+      .developer_mode = developer_mode::On(profile(), GURL(url)),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
@@ -1164,7 +1167,6 @@ void Tab::ReportTitle() {
 }
 
 void Tab::DidGetUserInteraction(const blink::WebInputEvent& event) {
-  input_modifiers_ = event.GetModifiers();
   // A click, not the keyboard coming to the page: the core moves the keyboard between the pages of
   // a split view itself, and focus reports posted from those moves arrive after the next one.
   if (event.GetType() == blink::WebInputEvent::Type::kMouseDown) {

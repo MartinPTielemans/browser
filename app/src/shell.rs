@@ -91,6 +91,7 @@ mod split_targets;
 mod swap;
 mod swipe;
 mod themes;
+mod trace;
 mod tile_theme;
 mod trouble;
 mod undo;
@@ -101,7 +102,7 @@ pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowBut
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, key_name,
-    keystroke_label, Run, menu_item, pane_added, run_from_bar, shown_tab,
+    keystroke_label, Run, menu_item, pane_added, run_from_bar, shown_tab, with_named_rows,
 };
 pub use drag::dropped_urls;
 pub use drm_note::PlayReady;
@@ -124,6 +125,7 @@ pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
+pub use trace::{RECORDING, STOP, recorded as trace_recorded};
 pub use picture::{PagePicture, picture_answered};
 pub(crate) use picture::next_request;
 pub use recent_downloads::{FilePreview, HOVER_ALL};
@@ -401,6 +403,10 @@ use crate::tokens::shell::TILE;
 /// A tile, and the URL field, under the pointer: the ladder's hover over its resting plate.
 pub(crate) const TILE_HOVERED: f32 = crate::palette::state_alpha(TILE, crate::palette::STATE_HOVERED);
 use crate::tokens::shell::TILE_RING;
+use crate::tokens::shell::DEVELOPER_OUTLINE;
+use crate::tokens::shell::DEVELOPER_OUTLINE_WIDTH;
+use crate::tokens::shell::DEVELOPER_SELECTED;
+use crate::tokens::shell::DEVELOPER_TILE;
 use crate::tokens::shell::TILE_UNTHEMED;
 use crate::tokens::shell::TILE_UNTHEMED_LIGHT;
 use crate::tokens::shell::NAV;
@@ -627,6 +633,8 @@ enum Naming {
     /// A pinned tab's pinned URL, in its row in place of its title.
     PinnedUrl(u64),
     Folder(u64),
+    /// A new profile's name, in the New Space form's Profile row.
+    Profile(u64),
 }
 
 impl Naming {
@@ -634,7 +642,7 @@ impl Naming {
     fn tab(self) -> Option<u64> {
         match self {
             Naming::Tab(tab) | Naming::PinnedUrl(tab) => Some(tab),
-            Naming::Space(_) | Naming::Folder(_) => None,
+            Naming::Space(_) | Naming::Folder(_) | Naming::Profile(_) => None,
         }
     }
 }
@@ -784,6 +792,10 @@ struct Drag {
     /// holds the drop until it has turned.
     shape: Shape,
     held: bool,
+    /// The Space it was pressed in, and while it's held at the sidebar's left or right edge, which
+    /// and since when, for paging to the Space on that side.
+    space: u64,
+    edge: Option<(bool, Instant)>,
 }
 
 /// How far a dragged tab has turned from its row into its tile as it crossed into or out of the
@@ -1097,6 +1109,10 @@ pub struct Shell {
     reveal_motion: Option<(f32, Instant)>,
     /// The pointer is at the window's left edge, waiting to bring the sidebar out.
     reveal_wait: Option<Task<()>>,
+    /// Where across the window the pointer was last, for the reveal, and whether it's on a row's
+    /// hover card, which keeps the sidebar out as the panel does.
+    reveal_x: f32,
+    pointer_on_card: bool,
     /// The Copy URL button shows a checkmark until this one-shot timer ends.
     url_copied: Option<Task<()>>,
     /// The tab, direction and place of the history menu asked for, until its pages come.
@@ -1176,6 +1192,10 @@ pub struct Shell {
     /// What the menu bar was last given for this window, and the window's title.
     menus: MenuBar,
     window_title: SharedString,
+    /// What the URL field said when it last drew, for its log line.
+    url_field_drawn: RefCell<SharedString>,
+    /// The tab whose Developer Mode outline last drew, and where, for its log lines.
+    developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
     /// The other turned-on extensions' actions, which the core reports while the Site Controls
@@ -1380,6 +1400,8 @@ impl Shell {
             revealed: false,
             reveal_motion: None,
             reveal_wait: None,
+            reveal_x: 0.,
+            pointer_on_card: false,
             url_copied: None,
             history_asked: None,
             nav_hold: None,
@@ -1421,6 +1443,8 @@ impl Shell {
             extensions: HashMap::new(),
             menus: MenuBar::default(),
             window_title: SharedString::default(),
+            url_field_drawn: RefCell::default(),
+            developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
             side_panel: None,
@@ -1910,7 +1934,14 @@ impl Shell {
         self.opened = None;
         self.closing.clear();
         self.clearing.clear();
-        self.drag = None;
+        // A tab dragged to the sidebar's edge pages with it, to drop there; any other drag ends.
+        match self.drag.as_mut().filter(|drag| drag.edge.is_some() && !drag.dropped) {
+            Some(drag) => {
+                drag.to = Place::List(false, usize::MAX);
+                drag.line = None;
+            }
+            None => self.drag = None,
+        }
         if self.show_favorites() {
             self.log_favorites();
         }
@@ -1966,7 +1997,8 @@ impl Shell {
             self.slides.clear();
         } else if let Some(mut before) = before {
             // A favorite dragged into the list comes from where the pointer has it.
-            if let Some(drag) = self.drag.as_ref().filter(|drag| drag.moving) {
+            let here = |drag: &&Drag| drag.moving && drag.space == space;
+            if let Some(drag) = self.drag.as_ref().filter(here) {
                 before.entry(Slot::Tab(drag.tab)).or_insert(drag.top);
             }
             // A folder the user opened or closed moves the rows under it on its own spring.
@@ -2253,6 +2285,7 @@ impl Shell {
     }
 
     pub fn set_page(&mut self, tab: u64, page: Page, cx: &mut Context<Self>) {
+        let developer_mode = self.developer_mode(tab);
         // check.sh reads these lines.
         let flag = |on| if on { 1 } else { 0 };
         log!(
@@ -2281,6 +2314,9 @@ impl Shell {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
             log!("browser: page {tab} icon {icon}");
         }
+        if page.developer_mode != entry.page.developer_mode {
+            log!("browser: page {tab} developer mode {}", flag(page.developer_mode));
+        }
         self.swaps.page_changed(tab, self.selected, &entry.page, &page, Instant::now());
         let trouble = (page.trouble != entry.page.trouble).then_some(page.trouble);
         let changed = entry.keep_page(page);
@@ -2291,6 +2327,10 @@ impl Shell {
         self.tab_changed(tab, changed, cx);
         if let Some(trouble) = trouble {
             self.trouble_changed(tab, trouble, cx);
+        }
+        // View › Developer names it, so only its change rebuilds the menus, not each load.
+        if tab == self.selected && self.developer_mode(tab) != developer_mode {
+            self.update_menus(cx);
         }
     }
 
@@ -2799,9 +2839,11 @@ impl Render for Shell {
         {
             let field = renaming.name.focus_handle(cx);
             window.focus(&field, cx);
-            // check.sh waits for this line, which says the field has the keyboard.
-            if let Naming::Folder(folder) = renaming.naming {
-                log!("browser: rename folder {folder}");
+            // check.sh waits for these lines, which say the field has the keyboard.
+            match renaming.naming {
+                Naming::Folder(folder) => log!("browser: rename folder {folder}"),
+                Naming::Profile(profile) => log!("browser: rename profile {profile}"),
+                _ => {}
             }
             renaming._blur =
                 Some(text_input::on_leave(&field, window, cx, |shell, window, cx| {
@@ -3206,17 +3248,31 @@ impl Shell {
                 let segments = panes
                     .iter()
                     .map(|&pane| self.segment(&self.palette, pane, width, pane == tab, pane == selected));
+                let developer = panes.contains(&selected) && self.page(selected).developer_mode;
                 return row.child(
                     split_plate(segments)
-                        .when(panes.contains(&selected), |plate| selected_plate(&self.palette, plate, 1., 0.)),
+                        .when(panes.contains(&selected), |plate| {
+                            selected_plate(&self.palette, plate, 1., 0., developer)
+                        })
+                        .when(developer, |plate| {
+                            plate.child(developer_outline(&self.palette, PLATE_RADIUS))
+                        }),
                 );
             }
+            let page = self.page(tab);
             let icon = div()
-                .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+                .when(page.unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
                 .child(self.tab_icon(tab));
+            let bright = tab == selected || page.developer_mode;
+            let developer = tab == selected && page.developer_mode;
             row.child(
-                plate(icon, title(&self.palette, self.title(tab), tab == selected).pr(px(TITLE_END_INSET)))
-                    .when(tab == selected, |plate| selected_plate(&self.palette, plate, 1., 0.)),
+                plate(icon, title(&self.palette, self.title(tab), bright).pr(px(TITLE_END_INSET)))
+                    .when(tab == selected, |plate| {
+                        selected_plate(&self.palette, plate, 1., 0., developer)
+                    })
+                    .when(developer, |plate| {
+                        plate.child(developer_outline(&self.palette, PLATE_RADIUS))
+                    }),
             )
         };
         let (plus, new_tab) = new_tab_label(&self.palette);
@@ -3785,10 +3841,31 @@ fn split_plate(segments: impl IntoIterator<Item = impl IntoElement>) -> gpui::Di
         .children(segments)
 }
 
-/// The selected tab's plate, at `opacity` while it fades in.
-fn selected_plate(palette: &Palette, plate: gpui::Div, opacity: f32, hover: f32) -> gpui::Div {
+/// The selected tab's plate, at `opacity` while it fades in, a step firmer at rest in Developer
+/// Mode, which the pointer takes to the same plate as another tab's.
+fn selected_plate(
+    palette: &Palette,
+    plate: gpui::Div,
+    opacity: f32,
+    hover: f32,
+    developer: bool,
+) -> gpui::Div {
     let fill = palette.selected(hover);
+    let firmer = if developer { DEVELOPER_SELECTED - crate::palette::STATE_SELECTED } else { 0. };
+    let fill = Hsla { a: (fill.a + firmer * (1. - hover)).min(1.), ..fill };
     plate.bg(fill.opacity(fill.a * opacity)).shadow(palette.selected_shadow(opacity))
+}
+
+/// The shown tab's outline in Developer Mode, inside its plate's or tile's `radius` corners, over
+/// its fill.
+fn developer_outline(palette: &Palette, radius: f32) -> gpui::Div {
+    div()
+        .absolute()
+        .inset_0()
+        .rounded(px(radius))
+        .border(px(DEVELOPER_OUTLINE_WIDTH))
+        .border_dashed()
+        .border_color(palette.text(DEVELOPER_OUTLINE))
 }
 
 /// A tab row's title, cut off at the row's trailing edge.

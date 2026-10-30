@@ -672,9 +672,15 @@ impl Shell {
         self.keep(what, before, cx);
     }
 
-    /// Moves `tab` to `space`. Into another profile's Space it goes as a new tab, which has
-    /// nothing to give back.
-    pub(super) fn send_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+    /// Moves `tab` to `space`, pinning it first if `pin`, which the one undo takes back too. Into
+    /// another profile's Space it goes as a new tab, which has nothing to give back.
+    pub(super) fn send_to_space(
+        &mut self,
+        tab: u64,
+        space: u64,
+        pin: bool,
+        cx: &mut Context<Self>,
+    ) {
         let same_profile = |this: &Self| {
             let profile = |id: u64| {
                 this.spaces
@@ -686,6 +692,11 @@ impl Shell {
             from.is_some() && from == profile(space)
         };
         let before = same_profile(self).then(|| self.put_back(tab)).flatten();
+        // The core moves a pinned tab pinned, into another profile's Space too.
+        let pinned = matches!(self.spot_of(tab).map(|spot| spot.at), Some(At::Pinned { .. }));
+        if pin && !pinned {
+            self.browser.set_pinned(tab, true, cx);
+        }
         self.browser.move_to_space(tab, space, cx);
         self.keep(What::MOVE_TO_SPACE, before, cx);
     }

@@ -447,7 +447,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::{edge_shares, expanded_shares, pane_edges, pane_frames};
-    use crate::shell::{Command, Folders, Shell, Split, recorder::Recorder};
+    use crate::shell::{Command, Folders, Page, Shell, Split, recorder::Recorder};
     use gpui::{
         AppContext, Bounds, Entity, Modifiers, MouseButton, MouseDownEvent, TestAppContext, point,
         px, size,
@@ -703,6 +703,30 @@ mod tests {
         let titles = host.menus.borrow().last().cloned().unwrap_or_default();
         assert_eq!(titles.first().map(|(title, _)| title.as_ref()), Some("Change Orientation"));
         assert_eq!(host.menu_at.get(), Some(at));
+    }
+
+    /// In a split, the URL field is the focused page's, as Arc's address bar is the panel's: ⌘L,
+    /// a click on the field and Copy URL act on that page, and on the other once a click in it
+    /// focuses it, as the core reports.
+    #[gpui::test]
+    fn the_url_field_is_the_focused_pages(cx: &mut TestAppContext) {
+        let (left, right) = ("https://example.org/left", "https://example.com/right");
+        let (shell, host) = split_of(&[10, 11], 11, 0, 1200., cx);
+        shell.update(cx, |shell, cx| {
+            for (tab, url) in [(10, left), (11, right)] {
+                shell.set_page(tab, Page { url: url.into(), ..Page::default() }, cx);
+            }
+        });
+        for (focused, url) in [(11, right), (10, left)] {
+            shell.update(cx, |shell, cx| {
+                shell.set_selected(focused, cx);
+                shell.run(Command::EditUrl, "page", cx);
+                shell.run(Command::EditUrl, "sidebar", cx);
+                shell.run(Command::CopyUrl, "ui", cx);
+            });
+            assert_eq!(host.bar_edits.take(), [Some(focused), Some(focused)]);
+            assert_eq!(host.copied.take(), [url]);
+        }
     }
 
     #[gpui::test]

@@ -188,7 +188,7 @@ impl browser::import::Host for CoreImport {
     }
 
     fn create_space(&self, name: &str, icon: &str, theme: Option<&Theme>) -> u64 {
-        let space = crate::create_space(name);
+        let space = crate::create_space(name, 0);
         let icon = CString::new(icon).unwrap_or_default();
         unsafe { bc::bc_space_set_icon(space, icon.as_ptr()) };
         if let Some(theme) = theme {

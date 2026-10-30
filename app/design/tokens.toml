@@ -11,12 +11,11 @@
 # Timings, springs and other motion stay in the code: the design file has no motion.
 
 [capture]
-# Arc's, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen, the pill that
-# says how, and the menu. Their corners are ilo's own radii, the menu's concentric with its rows
-# (inset ROW_INSET, so 12 + 4) and its field (inset FIELD_INSET, so 6 + 10).
+# Arc's layout, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen and the
+# pill that says how. Their look is ilo's: the ring in the Space's accent, and the pill and the
+# menu in ilo's menu's panel ([menu]), in the window's tone.
 ring = 4.0
 ring-radius = 6.0
-ring-color = 0x151c_2fff
 # The page around what's chosen is grey, Rec. 601's luma at this much of its brightness, which
 # gives Arc's grey to the level at each of the three measured.
 dim = 0.749
@@ -25,38 +24,11 @@ pill-height = 67.0
 pill-radius = 16.0
 pill-bottom = 35.5
 pill-text-size = 13.0
-pill-text = 0x471c_9dff
-# The pill's lilac glow, fitted by eye to its edge over the grey page (interim).
-glow = 0x825a_9666
-glow-blur = 90.0
+# The menu, 10 in from the ring's left, with a glyph before each row's title.
 menu-left = 10.0
-menu-width = 273.0
-menu-radius = 16.0
-menu-fill = 0x120f_2cff
-field-inset = 10.0
-field-top = 13.0
-field-height = 29.5
-field-fill = 0x2320_3bff
-field-text = 0xaaa9_b4ff
-field-text-left = 10.0
-rows-top = 7.5
-row = 40.0
 glyph = 14.0
-glyph-left = 18.0
-# Arc's glyphs are white 0.3, under 3:1 on the menu; ours are Paper at the least alpha, in
-# 25ths, at which they reach it there and on a hovered row (decision 6).
-glyph-color = 0.4
-text-left = 42.0
-text-size = 13.0
-separator = 9.0
-separator-color = 0xffff_ff0f
-menu-bottom = 6.0
-row-inset = 4.0
 # The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
 margin = 8.0
-# The menu's words.
-menu-text = 0xffff_ffff
-pill-fill = 0xffff_ffff
 
 [command-bar]
 # The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
@@ -309,6 +281,10 @@ search-radius = 6.0
 search-padding = 8.0
 list-bottom = 6.0
 emoji-size = 20.0
+# The skin tone button at the search's right end, a hand in the tone the grid shows, which opens
+# the six tones along the field (ours: Arc's isn't recorded): a plate 4 short of the field's height.
+tone-plate = 20.0
+tone-emoji = 14.0
 # A group's header takes a row, its text on the plates' left edge and the row's bottom.
 header-text = 11.0
 header-left = 4.0
@@ -640,6 +616,7 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 link-previews-tile = 0x30b0c7
+restore-windows-tile = 0x5856d6
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
 password-tile = 0x8e8e93
@@ -859,6 +836,15 @@ tile = 0.1
 tile-ring = 0.45
 tile-unthemed = 0x0000_00ff
 tile-unthemed-light = 0xffff_ffff
+# A tab in Developer Mode (docs/ux-spec.md › Developer Mode; ours, as Arc's isn't recorded and its
+# yellow and black aren't ilo's). The one shown has a dashed outline, a work in progress, in the
+# ink, so it reads on every theme, over its row's fill, a step firmer than another tab's, or in
+# place of its tile's ring. Every tab in it keeps its title in the full ink, and a favorite's tile
+# rests a step firmer, so the sidebar sets them apart.
+developer-outline = 0.62
+developer-outline-width = 1.0
+developer-selected = 0.26
+developer-tile = 0.16
 # The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
 # with nowhere to go, over a hover plate of 0.077.
 nav = 0.6
@@ -1060,6 +1046,9 @@ plus-size = 30.0
 plus-glyph = 14.0
 # The room after the +, to the Library's edge.
 plus-after = 37.0
+# Ours: a tab dragged over another Space's card rings it in that card's accent, this wide, inside
+# its edge (Arc's isn't recorded).
+card-drop-ring = 2.0
 # The search field, on the window buttons' row. Arc's Filter button is left out, and the field
 # takes its place.
 search-x = 120.0

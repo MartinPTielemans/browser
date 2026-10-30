@@ -273,9 +273,9 @@ impl Shell {
             .collect()
     }
 
-    /// A mouse's back and forward buttons anywhere over the UI go back and forward in the front
-    /// tab, as over Chrome's toolbar; over a page, the page takes them itself. The window hears
-    /// them, as the sidebar keeps its presses from what's under it.
+    /// A mouse's back and forward buttons anywhere over the UI show the previous and next Space,
+    /// as Arc's do (the owner's call); over a page, the page takes them itself and goes back and
+    /// forward. The window hears them, as the sidebar keeps its presses from what's under it.
     pub(super) fn navigate_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
@@ -287,8 +287,8 @@ impl Shell {
                         return;
                     }
                     let command = match direction {
-                        NavigationDirection::Back => Command::Back,
-                        NavigationDirection::Forward => Command::Forward,
+                        NavigationDirection::Back => Command::PreviousSpace,
+                        NavigationDirection::Forward => Command::NextSpace,
                     };
                     shell
                         .update(cx, |shell, cx| {
@@ -369,21 +369,31 @@ impl Shell {
         self.url_words(self.selected, url, self.empty_opacity(Instant::now()))
     }
 
-    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, or with no
-    /// tab, the command bar's placeholder, `shown` of the way in.
+    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, its whole
+    /// URL in Developer Mode, as Chrome's Always Show Full URLs has it, or with no tab, the command
+    /// bar's placeholder, `shown` of the way in.
     pub(super) fn url_words(&self, tab: u64, url: &str, shown: f32) -> (SharedString, Hsla) {
         if tab == 0 {
             let mut color = self.palette.text(URL_PLACEHOLDER);
             color.a *= shown;
             return (PLACEHOLDER_TEXT.into(), color);
         }
-        let words = self.extension_name(url).unwrap_or_else(|| host(url).to_string().into());
+        let words = match self.extension_name(url) {
+            Some(name) => name,
+            None if self.page(tab).developer_mode => url.to_string().into(),
+            None => host(url).to_string().into(),
+        };
         (words, self.palette.text(SECONDARY).into())
     }
 
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
         let (words, color) = self.url_field_words(&url);
+        if *self.url_field_drawn.borrow() != words {
+            // check.sh reads this line.
+            log!("browser: url field {words}");
+            self.url_field_drawn.replace(words.clone());
+        }
         // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
         // before them, where the host stops short of them.
         let actions = self.action_buttons(cx);
