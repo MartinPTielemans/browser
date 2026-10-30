@@ -44,7 +44,7 @@ use std::{
 };
 
 use browser::log;
-use gpui::{Keystroke, Menu, MenuItem, Modifiers};
+use gpui::{Keystroke, Menu, MenuItem, Modifiers, px};
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -59,8 +59,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, panels, platform, reveal_window,
-    settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, menu_window, overlays, panels, platform,
+    reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -452,6 +452,26 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
             y: inside.dst_y,
             ..at
         });
+    }
+    // The toast lets the pointer through but on its plate, which a click there lands on.
+    if let Some((view, plate)) = floats::toast_plate()
+        && top.child == view as usize as u32
+    {
+        let view = view as usize as u32;
+        let inside = connection
+            .translate_coordinates(*root, view, at.root_x, at.root_y)
+            .ok()?
+            .reply()
+            .ok()?;
+        let point = |each: i16| px((f64::from(each) / scale()) as f32);
+        if plate.contains(&gpui::point(point(inside.dst_x), point(inside.dst_y))) {
+            return Some(Target {
+                window: view,
+                x: inside.dst_x,
+                y: inside.dst_y,
+                ..at
+            });
+        }
     }
     Some(match child == browser.ui {
         true => Target {
