@@ -9,7 +9,8 @@
 // HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's, the Site
 // Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's, Settings is
 // settings_window.rs's, as GPUI's Linux platform shows them, the shadows under the overlays and the
-// Site Controls are shadows.rs's, and the window buttons, which the UI draws, are window_buttons.rs's.
+// Site Controls are shadows.rs's, the window buttons, which the UI draws, are window_buttons.rs's,
+// and a download's preview is previews.rs's.
 
 #include "../host.h"
 
@@ -497,13 +498,6 @@ bool host_trash(const char* path) {
     }
   }
   return access(path, F_OK) != 0 && errno == ENOENT;
-}
-
-// shortcut: no file previews yet; the downloads list shows its generic icon.
-void host_file_preview(const char*,
-                       uint64_t id,
-                       void (*done)(uint64_t, const uint8_t*, size_t, double, double, bool)) {
-  Later([done, id] { done(id, nullptr, 0, 0, 0, false); });
 }
 
 // shortcut: no video playback yet; Media's video tiles show their icon.
