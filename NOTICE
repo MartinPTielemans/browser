@@ -1,5 +1,8 @@
 This repository adapts material from other projects, and ilo's builds carry some of them. Their
-attribution notices follow. Chromium's own, for the engine, are in the browser, at chrome://credits.
+attribution notices follow. The Mac's and Linux's builds carry this file with LICENSE, ilo's own,
+and THIRD-PARTY.txt, the Rust crates built into the app and their licenses (tools/licences.sh),
+and Settings › About opens each. Chromium's own, for the engine and what it's built from, are in the
+browser, at chrome://credits.
 
 Ardia (https://github.com/mantrakp04/ardia), Apache License 2.0
 Used in docs/ux-spec.md, docs/ux-parity.md, core/browser_window_stand_in.{h,cc},
@@ -179,8 +182,8 @@ names and groups, which are Unicode's and CLDR's, and their shortcodes, which ar
 
 Outfit (https://github.com/Outfitio/Outfit-Fonts), SIL Open Font License 1.1
 Used in app/assets/fonts/Outfit-Medium.ttf, unmodified, at commit
-902773808eb372f70fb34e8946dd1ffe604efc79. The license's full text is next to it, in
-app/assets/fonts/OFL.txt.
+902773808eb372f70fb34e8946dd1ffe604efc79, and built into the app. The license's full text is next
+to it, in app/assets/fonts/OFL.txt, and at the end of this file.
 
   Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts)
 
@@ -190,17 +193,32 @@ release 4.1's static instances (extras/ttf in Inter-4.1.zip, at commit
 e3a3d4c57d5ecc01453a575621882a384c1995a3), subset with fontTools 4.68's pyftsubset, keeping every
 name record and the hinting, to U+0000-024F, U+02B0-036F, U+0370-03FF, U+0400-052F, U+1E00-1EFF,
 U+2000-206F, U+20A0-20CF, U+2100-214F, U+2190-21FF, U+2200-22FF, U+2300-23FF, U+25A0-25FF, U+FEFF
-and U+FFFD. The license's full text is next to them, in app/assets/fonts/Inter-OFL.txt.
+and U+FFFD, and built into the app on Linux and Windows. The license's full text is next to them,
+in app/assets/fonts/Inter-OFL.txt, and at the end of this file.
 
   Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 
 uBlock Origin (https://github.com/gorhill/uBlock), GNU General Public License v3.0 or later
-Shipped modified, in the app's framework's resources, as app/build.sh puts it there: release
-1.75.0, the version and sha256 app/ublock.ini pins, whose source is at
-https://github.com/gorhill/uBlock/tree/1.75.0. app/fetch-ublock.sh adds a "key" to its manifest
+Shipped modified, in the app's framework's resources on the Mac and beside the engine's chrome
+elsewhere, as app/build.sh puts it there: release 1.75.0, the version and sha256 app/ublock.ini
+pins, whose source is at https://github.com/gorhill/uBlock/tree/1.75.0. app/fetch-ublock.sh adds a "key" to its manifest
 and changes js/tab.js and js/traffic.js, each saying so on its first line, so its housekeeping
 timers don't wake an idle browser; the script is the record of each change. The license travels
-with it, as its LICENSE.txt, and the filter lists it bundles keep their own.
+with it, as its LICENSE.txt. What it bundles keeps its own license, in its file's header or in a
+file beside it:
+- its own filter lists, in assets/ublock/, GNU General Public License v3.0 or later;
+- EasyList and EasyPrivacy (https://easylist.to/), GNU General Public License v3.0 or later, or
+  Creative Commons Attribution-ShareAlike 3.0, in assets/thirdparties/easylist/;
+- Peter Lowe's ad and tracking server list (https://pgl.yoyo.org/as/), the McRae General Public
+  License version 4.r53, in assets/thirdparties/pgl.yoyo.org/;
+- the Public Suffix List (https://publicsuffix.org/), Mozilla Public License 2.0, in
+  assets/thirdparties/publicsuffix.org/;
+- the Online Malicious URL Blocklist (https://gitlab.com/malware-filter/urlhaus-filter), CC0 1.0,
+  in assets/thirdparties/urlhaus-filter/;
+- the JavaScript libraries in lib/, such as CodeMirror, CSSTree and lz4, under the licenses their
+  folders or files' headers name;
+- Font Awesome 4.7's icons, in img/fontawesome/, under the licenses its LICENSE.txt names;
+- the fonts in css/fonts/: Inter, SIL Open Font License 1.1, and Metropolis, the Unlicense.
 
   uBlock Origin - a comprehensive, efficient content blocker
   Copyright (C) 2014-present Raymond Hill
@@ -588,7 +606,9 @@ ungoogled-chromium (https://github.com/ungoogled-software/ungoogled-chromium), B
 The engine is Chromium with its patches, and those of ungoogled-chromium-macos,
 ungoogled-chromium-portablelinux and ungoogled-chromium-windows (same license), at the tags
 engine/pins.ini names. Chromium's own notices, for the engine and every project it builds in, are
-in the browser, at chrome://credits.
+in the browser, at chrome://credits. .github/actions/engine-windows-stage/, which builds the Windows
+engine in CI, is adapted from ungoogled-chromium-windows's stage action, with its license beside
+it.
 
   BSD 3-Clause License
 
@@ -823,3 +843,92 @@ Apache License 2.0, the full text, for Ardia and GPUI above:
      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
      See the License for the specific language governing permissions and
      limitations under the License.
+
+SIL Open Font License 1.1, the full text, for Outfit and Inter above:
+
+  -----------------------------------------------------------
+  SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+  -----------------------------------------------------------
+
+  PREAMBLE
+  The goals of the Open Font License (OFL) are to stimulate worldwide
+  development of collaborative font projects, to support the font creation
+  efforts of academic and linguistic communities, and to provide a free and
+  open framework in which fonts may be shared and improved in partnership
+  with others.
+
+  The OFL allows the licensed fonts to be used, studied, modified and
+  redistributed freely as long as they are not sold by themselves. The
+  fonts, including any derivative works, can be bundled, embedded,
+  redistributed and/or sold with any software provided that any reserved
+  names are not used by derivative works. The fonts and derivatives,
+  however, cannot be released under any other type of license. The
+  requirement for fonts to remain under this license does not apply
+  to any document created using the fonts or their derivatives.
+
+  DEFINITIONS
+  "Font Software" refers to the set of files released by the Copyright
+  Holder(s) under this license and clearly marked as such. This may
+  include source files, build scripts and documentation.
+
+  "Reserved Font Name" refers to any names specified as such after the
+  copyright statement(s).
+
+  "Original Version" refers to the collection of Font Software components as
+  distributed by the Copyright Holder(s).
+
+  "Modified Version" refers to any derivative made by adding to, deleting,
+  or substituting -- in part or in whole -- any of the components of the
+  Original Version, by changing formats or by porting the Font Software to a
+  new environment.
+
+  "Author" refers to any designer, engineer, programmer, technical
+  writer or other person who contributed to the Font Software.
+
+  PERMISSION AND CONDITIONS
+  Permission is hereby granted, free of charge, to any person obtaining
+  a copy of the Font Software, to use, study, copy, merge, embed, modify,
+  redistribute, and sell modified and unmodified copies of the Font
+  Software, subject to the following conditions:
+
+  1) Neither the Font Software nor any of its individual components,
+  in Original or Modified Versions, may be sold by itself.
+
+  2) Original or Modified Versions of the Font Software may be bundled,
+  redistributed and/or sold with any software, provided that each copy
+  contains the above copyright notice and this license. These can be
+  included either as stand-alone text files, human-readable headers or
+  in the appropriate machine-readable metadata fields within text or
+  binary files as long as those fields can be easily viewed by the user.
+
+  3) No Modified Version of the Font Software may use the Reserved Font
+  Name(s) unless explicit written permission is granted by the corresponding
+  Copyright Holder. This restriction only applies to the primary font name as
+  presented to the users.
+
+  4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+  Software shall not be used to promote, endorse or advertise any
+  Modified Version, except to acknowledge the contribution(s) of the
+  Copyright Holder(s) and the Author(s) or with their explicit written
+  permission.
+
+  5) The Font Software, modified or unmodified, in part or in whole,
+  must be distributed entirely under this license, and must not be
+  distributed under any other license. The requirement for fonts to
+  remain under this license does not apply to any document created
+  using the Font Software.
+
+  TERMINATION
+  This license becomes null and void if any of the above conditions are
+  not met.
+
+  DISCLAIMER
+  THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+  OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+  COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+  INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+  DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+  OTHER DEALINGS IN THE FONT SOFTWARE.

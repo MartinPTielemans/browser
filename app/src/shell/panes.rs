@@ -147,7 +147,7 @@ impl Shell {
                     // check.sh waits for this line.
                     log!("browser: command change-orientation via split controls");
                     let stacked = shell.stacked(tab);
-                    shell.browser.set_split_stacked(tab, !stacked, cx)
+                    shell.stack_split(tab, !stacked, cx)
                 }),
             ),
             (
@@ -293,9 +293,10 @@ impl Shell {
             let copy = self.browser.duplicate(tab, cx);
             if copy != 0 {
                 self.browser.split_with(copy, tab, false, cx);
+                self.split_opened(copy, cx);
             }
         } else if shown.len() < MAX_PANES {
-            self.browser.split_with(tab, self.selected, false, cx);
+            self.join_split(tab, self.selected, false, false, cx);
         } else {
             return false;
         }

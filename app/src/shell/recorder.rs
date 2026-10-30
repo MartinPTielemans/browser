@@ -611,7 +611,9 @@ impl Browser for Recorder {
 
     fn print(&self, _: u64, _: &mut App) {}
 
-    fn devtools(&self, _: u64, _: i32, _: &mut App) {}
+    fn devtools(&self, tab: u64, what: i32, _: &mut App) {
+        self.record(format!("devtools {tab} {what}"));
+    }
 
     fn task_manager(&self, _: &mut App) {}
 
