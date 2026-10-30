@@ -11,6 +11,8 @@ use gpui::{
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, point, prelude::*, px,
     size,
 };
+#[cfg(target_os = "linux")]
+use gpui::{DispatchPhase, MouseExitEvent};
 
 use crate::{ns_view, platform, update_window, window_with_view};
 
@@ -27,17 +29,28 @@ impl Render for Reveal {
         let panel = {
             let (moved, left) = (self.shell.clone(), self.shell.clone());
             gpui::div()
-                .id("reveal")
                 .size_full()
                 .on_mouse_move(move |event, _, cx| {
                     let x = event.position.x.into();
                     moved.update(cx, |shell, cx| shell.pointer_at(x, cx));
                 })
-                .on_hover(move |hovered, _, cx| {
-                    if !*hovered {
-                        left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx));
-                    }
-                })
+                // The window's own leave rather than the div's hover, which GPUI counts only after
+                // a move over it: a press with none before it, on a panel that came out under a
+                // still pointer, would leave the pointer's going unheard.
+                .child(
+                    gpui::canvas(
+                        |_, _, _| {},
+                        move |_, _, window, _| {
+                            window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+                                if phase == DispatchPhase::Capture {
+                                    left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx));
+                                }
+                            });
+                        },
+                    )
+                    .absolute()
+                    .size_full(),
+                )
                 .child(panel)
                 .into_any_element()
         };
