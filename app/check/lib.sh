@@ -102,7 +102,12 @@ exited() {
     pgrep -f "$procs" > /dev/null || break
     sleep 0.5
   done
-  # It exits once no process is left to send it a crash.
+  # It exits once no process is left to send it a crash, which can take it a moment after the
+  # last one; a handler still there after the wait is stuck, as #761's fork child was.
+  for _ in $(seq 10); do
+    pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null || break
+    sleep 0.5
+  done
   pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null &&
     fail "Crashpad's handler outlived the app"
   pgrep -f "$procs" > /dev/null && fail "Chromium helper processes were left running"
