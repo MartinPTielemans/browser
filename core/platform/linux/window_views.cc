@@ -396,6 +396,7 @@ class WindowViews : public views::WidgetObserver,
   // back too, and the two would go on without end (#531).
   void UITakesKeyboard() {
     ui_has_keyboard_ = true;
+    ui_lent_ = false;
     if (auto* client = aura::client::GetFocusClient(content())) {
       client->ResetFocusWithinActiveWindow(content());
     }
@@ -476,10 +477,15 @@ class WindowViews : public views::WidgetObserver,
     forget(side_panel_);
   }
 
-  // aura::client::FocusChangeObserver: the core focusing a page gives it the keyboard.
+  // aura::client::FocusChangeObserver: the core focusing a page gives it the keyboard, as Chromium
+  // focusing a window of its own in the browser window does, such as an extension's popup or a
+  // tab's dialog, which gives it back to the UI as it goes if the UI had it.
   void OnWindowFocused(aura::Window* gained_focus, aura::Window*) override {
-    if (gained_focus && InSlot(gained_focus)) {
+    if (gained_focus && gained_focus != content()) {
+      ui_lent_ = !InSlot(gained_focus) && (ui_lent_ || ui_has_keyboard_);
       PageTakesKeyboard();
+    } else if (ui_lent_) {
+      UITakesKeyboard();
     }
   }
 
@@ -562,7 +568,7 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
- private:
+  // Whether |window| is a page or DevTools a slot holds, or in one.
   bool InSlot(aura::Window* window) const {
     auto holds = [window](const Slot& slot) {
       return slot.holder && slot.holder->Contains(window);
@@ -570,6 +576,7 @@ class WindowViews : public views::WidgetObserver,
     return std::ranges::any_of(panes_, holds) || holds(side_panel_);
   }
 
+ private:
   // Sizes the UI to the window's content.
   void SizeUI() {
     const gfx::Size pixels = ContentPixelsOf(widget_);
@@ -606,6 +613,8 @@ class WindowViews : public views::WidgetObserver,
   bool held_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
+  // A window of Chromium's own has the keyboard the UI had, and gives it back as it goes.
+  bool ui_lent_ = false;
   // Whether the core took the input focus back down to the UI's window since the focus last left or
   // entered the window.
   bool retook_ = false;
@@ -822,7 +831,7 @@ bool KeyboardForPage(views::Widget* widget) {
       return !slot.devtools || !slot.devtools->Contains(focused);
     }
   }
-  // The side panel.
+  // The side panel, or a window of Chromium's own, such as an extension's popup.
   return false;
 }
 
@@ -884,6 +893,16 @@ void UITakesKeyboard(views::Widget* widget) {
 bool KeyboardIsUI(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   return views && views->ui_has_keyboard();
+}
+
+bool KeyboardInChild(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || views->ui_has_keyboard()) {
+    return false;
+  }
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+  return focused && focused != widget->GetNativeView() && !views->InSlot(focused);
 }
 
 void OverlayTakesKeyboard(views::Widget* widget, bool takes) {

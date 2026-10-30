@@ -246,6 +246,14 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 #endif
 }
 
+bool bc_window_keyboard_in_child(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  return browser_core::platform::KeyboardInChild(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
 bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);

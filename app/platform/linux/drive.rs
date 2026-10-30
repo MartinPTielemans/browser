@@ -30,7 +30,8 @@
 //! active <0|1>, marked <none|start,length>" once Chromium and GPUI have handled its events, with
 //! what the UI's field with the keys has marked. The window and view
 //! are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is
-//! BrowserCoreNSWindow for a browser window and GPUIPanel for an overlay, and focus
+//! BrowserCoreNSWindow for a browser window, GPUIPanel for an overlay and NativeWidgetMacNSWindow for
+//! a window of Chromium's, such as an extension's popup or a tab's dialog, and focus
 //! RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the UI and GPUIView for an
 //! overlay's. Active is whether the input focus is in one of the app's windows.
 
@@ -374,6 +375,9 @@ fn keyboard() -> (&'static str, &'static str, bool) {
         Some(Keyboard::Overlay(_)) => ("GPUIPanel", "GPUIView", true),
         Some(Keyboard::Settings(..)) => ("GPUIWindow", "GPUIView", true),
         Some(Keyboard::Browser(browser, _)) => {
+            if unsafe { bc::bc_window_keyboard_in_child(browser.id) } {
+                return ("NativeWidgetMacNSWindow", "RenderWidgetHostViewCocoa", true);
+            }
             match unsafe { bc::bc_window_keyboard_is_ui(browser.id) } {
                 true => ("BrowserCoreNSWindow", "AccessKitSubclassOfGPUIView", true),
                 false => ("BrowserCoreNSWindow", "RenderWidgetHostViewCocoa", true),
