@@ -130,6 +130,8 @@ pub(super) struct Recorder {
     pub(super) anchors: RefCell<Vec<crate::tooltip::Anchor>>,
     /// The last hover card the shell asked for, for a test to press its buttons.
     pub(super) card: RefCell<Option<crate::hover_card::Rest>>,
+    /// The folder preview asked for last, whose choice a test makes.
+    pub(super) folder_preview: RefCell<Option<crate::folder_preview::Rest>>,
     /// Where the shell last put the link target's plate, in the window.
     pub(super) link_frame: Cell<Option<Bounds<Pixels>>>,
     /// What the shell did to tabs, folders and Spaces that ⌘Z puts back, in order, such as
@@ -278,8 +280,15 @@ impl Browser for Recorder {
         self.moves.set(self.moves.get() + 1);
     }
 
-    fn open_at(&self, urls: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
-        self.record(format!("open {}", urls.join(" ")));
+    fn open_at(
+        &self,
+        urls: &[String],
+        pinned: bool,
+        folder: u64,
+        index: usize,
+        _: &mut App,
+    ) -> u64 {
+        self.record(format!("open {} {pinned} {folder} {index}", urls.join(" ")));
         Default::default()
     }
 
@@ -293,8 +302,18 @@ impl Browser for Recorder {
         self.edit(format!("rename folder {folder} {name}"));
     }
 
+    fn set_folder_icon(&self, folder: u64, icon: &str, _: &mut App) {
+        self.edit(format!("folder icon {folder} {icon}"));
+    }
+
+    fn duplicate_folder(&self, folder: u64, _: &mut App) -> u64 {
+        let made = self.make();
+        self.edit(format!("duplicate folder {folder} {made}"));
+        made
+    }
+
     fn set_folder_open(&self, folder: u64, open: bool, _: &mut App) {
-        self.record(format!("folder {folder} open {open}"));
+        self.record(format!("folder open {folder} {open}"))
     }
 
     fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
@@ -887,6 +906,7 @@ impl Browser for Recorder {
 
     fn copy(&self, text: &str, _: &mut App) {
         self.copied.borrow_mut().push(text.to_owned());
+        self.record(format!("copy {text}"))
     }
 
     fn share_services(&self, _: &str) -> Vec<SharedString> {
@@ -933,6 +953,13 @@ impl Browser for Recorder {
                 self.record(format!("tooltip {} {}", tip.text, tip.keys.concat()))
             }
             None => self.record("tooltip none".into()),
+        }
+    }
+
+    fn folder_preview(&self, ask: crate::folder_preview::Ask, _: &mut App) {
+        self.record(ask.label());
+        if let crate::folder_preview::Ask::Rest(rest) = ask {
+            *self.folder_preview.borrow_mut() = Some(rest);
         }
     }
 

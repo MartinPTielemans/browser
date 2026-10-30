@@ -27,9 +27,13 @@ pkill() {
   done
 }
 # Runs the app. A native program can't read Git Bash's fifo, so cat passes the driver's commands on
-# through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid.
+# through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid. chrome_elf
+# starts Crashpad before the app adds its profile, in the folder chrome.exe's own --user-data-dir
+# names, or else the prod build's, so the profile the app will use, a run's own too, goes there
+# as well: the crash run's reports are then in its Crashpad folder, where the core works with them.
 windows_browser() {
-  exec "$app/chrome.exe" "$@" < <(cat)
+  exec "$app/chrome.exe" "--user-data-dir=$(cygpath -w "${BROWSER_PROFILE_DIR:-$profile_dir}")" \
+    "$@" < <(cat)
 }
 # Writes the image $1 as the BMP $2, as sips does on the Mac.
 to_bmp() {
