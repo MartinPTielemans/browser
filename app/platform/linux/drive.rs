@@ -834,6 +834,8 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
             .unwrap_or(focus),
         None => driven()?.window,
     };
+    let focus = connection.get_input_focus().ok().and_then(|c| c.reply().ok()).map(|r| r.focus);
+    log!("browser: drive keys to {window:#x}, input focus {focus:x?}");
     for &kind in kinds {
         let event = KeyPressEvent {
             response_type: kind,
