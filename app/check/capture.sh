@@ -44,6 +44,15 @@ in_page() {
   awk -v x="$1" -v y="$2" -v left="$left" -v top="$top" 'BEGIN { print x + left, y + top }'
 }
 
+# A copied picture goes to a pasteboard of the run's own on the Mac, and off it to the clipboard of
+# the run's headless session, where the toast has no Share, as there's no system share menu.
+copied_png='^browser: pasteboard png [0-9]* bytes, private$'
+copied_toast='^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$'
+if [ "$(uname)" != Darwin ]; then
+  copied_png='^browser: clipboard png [0-9]* bytes$'
+  copied_toast='^browser: toast shown Screenshot Copied to Clipboard \[save\]$'
+fi
+
 capture_mode page
 # The box is 200 by 100 at 300, 200 in the page.
 send move $(in_page 400 250)
@@ -65,10 +74,10 @@ case "$size" in
   200x100 | 400x200) ;;
   *) fail "the picture of the 200 by 100 box is $size" ;;
 esac
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied_png" \
   "Copy didn't copy the PNG to the run's pasteboard"
 expect '^browser: capture left (copy)$' "capture mode didn't leave after Copy"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
+expect "$copied_toast" \
   "Copy didn't show its toast with Save and Share"
 expect '^browser: capture hidden$' "capture mode's window didn't hide after Copy"
 send state
@@ -116,9 +125,9 @@ full=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: tab [
   sed 's/.*: \([0-9]*x[0-9]*, [0-9]* bytes\)$/\1/')
 height=$(echo "$full" | sed 's/^[0-9]*x\([0-9]*\),.*/\1/')
 [ "$height" -ge 6000 ] || fail "the full page's picture is $full, not the page's 6000 points high"
-expect '^browser: pasteboard png [0-9]* bytes, private$' \
+expect "$copied_png" \
   "Capture Full Page didn't copy the PNG to the run's pasteboard"
-expect '^browser: toast shown Screenshot Copied to Clipboard \[save, share\]$' \
+expect "$copied_toast" \
   "Capture Full Page didn't show its toast"
 
 exec 3>&-

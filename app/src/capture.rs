@@ -17,6 +17,7 @@ use gpui::{
 use image::{Frame, RgbaImage};
 
 use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED};
+use crate::shell::{Command, Run};
 use crate::toast;
 
 actions!(capture, [Leave]);
@@ -734,7 +735,23 @@ impl Capture {
 }
 
 impl Render for Capture {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The browser's shortcuts work here too, below capture mode's own keys, as off the Mac no
+        // menu bar takes them first. A second ⇧⌘2 leaves here: the shell's run of it can't reach
+        // this window while it handles the key.
+        div()
+            .key_context(crate::shell::KEY_CONTEXT)
+            .on_action(cx.listener(|capture, run: &Run, window, cx| match run.0 {
+                Command::CapturePortion => capture.leave("toggle", window, cx),
+                _ => cx.propagate(),
+            }))
+            .size_full()
+            .child(self.layer(window, cx))
+    }
+}
+
+impl Capture {
+    fn layer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div()
             .id("capture")
             .key_context("Capture")

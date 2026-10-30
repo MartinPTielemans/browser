@@ -188,6 +188,22 @@ fn the_second_shift_cmd_2_leaves(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn shift_cmd_2_typed_in_capture_mode_leaves_it(cx: &mut TestAppContext) {
+    let mut mode = Mode::shown(cx);
+    // The shell's binding and its run of the command, which can't reach capture mode's window
+    // while that window handles the key, as off the Mac no menu bar takes it first.
+    mode.cx.cx.update(|cx| {
+        let run = Run(Command::CapturePortion);
+        cx.bind_keys([KeyBinding::new("shift-cmd-2", run, Some(crate::shell::KEY_CONTEXT))]);
+        cx.on_action(|_: &Run, cx| {
+            start(TAB, Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.))), 8., cx)
+        });
+    });
+    mode.keys("shift-cmd-2");
+    assert_eq!(mode.calls(), ["hide".to_string(), format!("end {TAB}")]);
+}
+
+#[gpui::test]
 fn a_click_takes_the_element_under_the_pointer(cx: &mut TestAppContext) {
     let mut mode = Mode::shown(cx);
     mode.hover(100., 100., rect(50., 60., 200., 80.));
