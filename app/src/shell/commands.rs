@@ -843,6 +843,12 @@ pub fn bind_keys(cx: &mut App) {
         if crate::dialog::asking(cx) {
             return;
         }
+        // A shortcut in the UI opens its field before GPUI has read the keys typed after it, which
+        // it holds for the field under Wayland, as for one the page has (gpui_linux::hold_keys).
+        #[cfg(target_os = "linux")]
+        if run.0.opens_field() {
+            gpui_linux::hold_keys(None);
+        }
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
             shell
                 .update(cx, |shell, cx| shell.run(run.0, "ui", cx))
