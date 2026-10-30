@@ -26,6 +26,39 @@ pkill() {
     taskkill $force //PID "$id" > /dev/null 2>&1 || true
   done
 }
+# Closes the windows the process $1 shows, as their close buttons would. taskkill without /F closes
+# every top-level window, the hidden Chrome window of each profile too, and when one of those goes
+# first it closes its tabs, which the browser then archives, and the app doesn't quit.
+close_windows() {
+  WINPID="$1" powershell.exe -NoProfile -NonInteractive -Command '
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class Shown {
+  delegate bool EnumProc(IntPtr hwnd, IntPtr data);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc proc, IntPtr data);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+  [DllImport("user32.dll")] static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+  public static int Close(uint process) {
+    int closed = 0;
+    EnumWindows((hwnd, data) => {
+      uint owner;
+      GetWindowThreadProcessId(hwnd, out owner);
+      // Unowned: an overlay is owned by its browser window and goes with it.
+      if (owner == process && IsWindowVisible(hwnd) && GetWindow(hwnd, 4) == IntPtr.Zero) {
+        PostMessageW(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
+        closed++;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return closed;
+  }
+}
+"@
+    if ([Shown]::Close([uint32]$env:WINPID) -eq 0) { exit 1 }' > /dev/null
+}
 # Runs the app. A native program can't read Git Bash's fifo, so cat passes the driver's commands on
 # through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid.
 windows_browser() {
