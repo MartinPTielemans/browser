@@ -31,7 +31,10 @@ impl Host for Recorder {
         self.push(format!("show {window}"));
     }
     // A frame of the motion, which tells nothing of what the user did.
-    fn drew(&self, _: Bounds<Pixels>, _: f32) {}
+    fn drew(&self, _: Bounds<Pixels>, _: f32, _: f32) {}
+    fn page_under(&self) -> bool {
+        false
+    }
     fn release(&self) {
         self.push("release".into());
     }

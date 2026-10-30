@@ -38,7 +38,7 @@ log="$out/preview.log"
 step=0
 rm -f "$saved"
 # Meet's host goes to the run's server, which speaks no TLS, so a call's link never reaches Google.
-BROWSER_DRIVE=1 BROWSER_URL="${site}preview.html" "$app/Contents/MacOS/Browser" \
+BROWSER_DRIVE=1 BROWSER_URL="${site}preview.html" "$browser" \
   --host-resolver-rules="MAP meet.google.com 127.0.0.1:$port" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"

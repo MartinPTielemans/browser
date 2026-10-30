@@ -20,6 +20,7 @@
 #include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
@@ -472,6 +473,7 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("haptics", saved.settings.haptics)
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
                            .Set("archive_noted", saved.settings.archive_noted)
+                           .Set("restore_windows", saved.settings.restore_windows)
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
                            .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
                            .Set("unload_idle_tabs", saved.settings.unload_idle_tabs)
@@ -712,6 +714,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.archive_noted = settings->FindBool("archive_noted").value_or(false);
     saved.settings.warn_moving_profiles =
         settings->FindBool("warn_moving_profiles").value_or(true);
+    saved.settings.restore_windows = settings->FindBool("restore_windows").value_or(true);
     if (const std::string* scope = settings->FindString("favorites_scope")) {
       saved.settings.favorites_scope = ScopeFromName(*scope);
     }
@@ -794,6 +797,12 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
       LoadArchive(std::exchange(saved->archive, {}));
       UserSettings() = saved->settings;
       LoadedWindows() = std::exchange(saved->windows, {});
+      // Without the last session's windows, the launch opens one, where the front one was, and
+      // windowed, as a new window would be.
+      if (!UserSettings().restore_windows && !LoadedWindows().empty()) {
+        LoadedWindows().erase(LoadedWindows().begin() + 1, LoadedWindows().end());
+        LoadedWindows().front().fullscreen = false;
+      }
     }
     // The profile the browser started in loaded before the settings were read.
     ApplyAdBlocking();
@@ -885,7 +894,8 @@ bool RestoreSavedWindow(Window& window, size_t index) {
       break;
     }
   }
-  window.ShowSpace(space);
+  // A new window's shows no page.
+  window.ShowSpace(space, /*page=*/UserSettings().restore_windows);
   // The window is on screen already, so this is the transition the user would start. Only the
   // front window's: one behind would take the user to its own macOS Space as the browser launches,
   // so it comes back windowed, at the frame it had before full screen.
@@ -905,10 +915,13 @@ Space* RestoreSpace(Window& window,
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);
   space->SetProfile(DirOf(profile));
+  // Else the Space comes back as a new window shows it: its pinned tabs, none shown, and no Today
+  // tabs, which go in the archive.
+  const bool whole = UserSettings().restore_windows;
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
     // Without its page until it's first shown, which saves launch making a page for each tab.
     const bc_id tab = Tab::Restore(profile, saved_tab);
-    if (tab && index == saved_space.shown) {
+    if (tab && whole && index == saved_space.shown) {
       window.SetSelectedIn(space->id(), tab);
     }
     return tab;
@@ -959,13 +972,22 @@ Space* RestoreSpace(Window& window,
                              ? saved_tab.pinned_url
                              : saved_tab.history[saved_tab.current].virtual_url(),
                          space->id(), saved_tab.site);
-      if (static_cast<int>(j) == saved_space.shown_own_favorite) {
+      if (whole && static_cast<int>(j) == saved_space.shown_own_favorite) {
         window.SetSelectedIn(space->id(), tab);
       }
     }
   }
-  // Bottom up, as each goes at the top.
+  // Bottom up, as each goes at the top, of the Space or of the archive.
   for (size_t j = saved_space.today.size(); j-- > 0;) {
+    if (!whole) {
+      const SavedTab& saved_tab = saved_space.today[j];
+      if (saved_tab.current >= 0 &&
+          static_cast<size_t>(saved_tab.current) < saved_tab.history.size()) {
+        const sessions::SerializedNavigationEntry& entry = saved_tab.history[saved_tab.current];
+        Archive(/*tab=*/0, entry.virtual_url(), base::UTF16ToUTF8(entry.title()));
+      }
+      continue;
+    }
     if (bc_id tab = today_ids[j] = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
       space->Add(tab, /*opener=*/0, /*foreground=*/false);
     }
@@ -1025,7 +1047,8 @@ bool RestoreSession(Window& window) {
   for (const SavedSpace& saved_space : saved->spaces) {
     Space* space = RestoreSpace(window, ProfileFor(saved_space.profile), saved_space);
     RestoredSpaces().push_back(space->id());
-    if (saved_space.shown_favorite >= 0 && favorites[saved_space.shown_favorite]) {
+    if (UserSettings().restore_windows && saved_space.shown_favorite >= 0 &&
+        favorites[saved_space.shown_favorite]) {
       window.SetSelectedIn(space->id(), favorites[saved_space.shown_favorite]);
     }
   }
@@ -1033,7 +1056,7 @@ bool RestoreSession(Window& window) {
   Favorites::Complete();
   // A session saved with no regular window open shows the first Space.
   if (!RestoreSavedWindow(window, 0)) {
-    window.ShowSpace(RestoredSpaces().front());
+    window.ShowSpace(RestoredSpaces().front(), /*page=*/UserSettings().restore_windows);
   }
   return true;
 }

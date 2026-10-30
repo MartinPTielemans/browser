@@ -503,7 +503,8 @@ pub trait Browser {
     );
     /// Starts capture mode over the tab's page, at `frame` in the window with corners of `radius`,
     /// or leaves it if it's on; or with `full_page` captures all of the page and copies it. Its
-    /// menu offers Save to Library with `library`, as a private window has no Library.
+    /// menu offers Save to Library with `library`, as a private window has no Library, and it
+    /// draws in the window's menus' `look`.
     fn capture(
         &self,
         tab: u64,
@@ -511,6 +512,7 @@ pub trait Browser {
         radius: f32,
         full_page: bool,
         library: bool,
+        look: crate::menu::Look,
         cx: &mut App,
     );
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers

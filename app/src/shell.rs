@@ -1116,6 +1116,10 @@ pub struct Shell {
     reveal_motion: Option<(f32, Instant)>,
     /// The pointer is at the window's left edge, waiting to bring the sidebar out.
     reveal_wait: Option<Task<()>>,
+    /// Where across the window the pointer was last, for the reveal, and whether it's on a row's
+    /// hover card, which keeps the sidebar out as the panel does.
+    reveal_x: f32,
+    pointer_on_card: bool,
     /// The Copy URL button shows a checkmark until this one-shot timer ends.
     url_copied: Option<Task<()>>,
     /// The tab, direction and place of the history menu asked for, until its pages come.
@@ -1403,6 +1407,8 @@ impl Shell {
             revealed: false,
             reveal_motion: None,
             reveal_wait: None,
+            reveal_x: 0.,
+            pointer_on_card: false,
             url_copied: None,
             history_asked: None,
             nav_hold: None,

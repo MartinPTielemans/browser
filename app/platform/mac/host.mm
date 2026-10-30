@@ -502,6 +502,10 @@ NSRect Unconstrained(id, SEL, NSRect frame, NSScreen*) {
   return frame;
 }
 
+BOOL Never(id, SEL) {
+  return NO;
+}
+
 // Another app that asks which of ours is in front takes the first window at the normal level, in
 // the window server's order: T3 Code's window capture does, and so do others. Our windows over a
 // browser window are child windows, ahead of it in that order, so a tooltip or an overlay's shadow
@@ -766,11 +770,13 @@ void SetCaptureCursor() {
   [(g_capture_camera ? g_capture_cursor : NSCursor.arrowCursor) set];
 }
 
-// At the browser window's top right corner, where the toast draws itself.
+// At the browser window's top right corner, where the toast draws itself, or in a split view at the
+// focused pane's (host_set_pane_corner).
 void PlaceToast() {
   NSRect frame = g_toast_over->window.frame;
   NSSize size = g_toast.frame.size;
-  [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - size.width, NSMaxY(frame) - size.height)];
+  [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - g_toast_over->page_right - size.width,
+                                      NSMaxY(frame) - g_toast_over->page_top - size.height)];
 }
 
 // Where the UI asked, which it has kept inside the browser window: its window is wider than the
@@ -2238,6 +2244,9 @@ void host_set_pane_corner(void* ui_view, double right, double top) {
   if (g_hud_shown && g_hud_over == browser) {
     PlaceHud();
   }
+  if (g_toast_shown && g_toast_over == browser) {
+    PlaceToast();
+  }
 }
 
 void host_add_hud(void* hud_view, double right, double top, double margin) {
@@ -2657,7 +2666,11 @@ void host_show_link_preview(void* ui_view) {
   });
 }
 
-void host_link_preview_drew(double left, double top, double width, double height,
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double,
                             double opacity) {
   // Posted, so the page takes the frame the UI is drawing now.
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -3127,8 +3140,19 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
   g_card.styleMask = NSWindowStyleMaskBorderless;
   g_card.hasShadow = NO;
   g_card.ignoresMouseEvents = YES;
-  // A click on its buttons leaves the keyboard where it was, in the page or the browser window.
-  ((NSPanel*)g_card).becomesKeyOnlyIfNeeded = YES;
+  // A click on its buttons leaves the keyboard where it was, in the page or the browser window, as
+  // the browser window losing it ends the card before the click reaches the button (#818). The
+  // panel's own class, since GPUI's is every overlay's and the others take the keyboard.
+  static Class card_class;
+  if (!card_class) {
+    Class panel = object_getClass(g_card);
+    SEL key = @selector(canBecomeKeyWindow);
+    card_class = objc_allocateClassPair(panel, "ILOHoverCardPanel", 0);
+    class_addMethod(card_class, key, (IMP)Never,
+                    method_getTypeEncoding(class_getInstanceMethod(panel, key)));
+    objc_registerClassPair(card_class);
+  }
+  object_setClass(g_card, card_class);
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
   void (^left_window)(NSNotification*) = ^(NSNotification*) {
     if (g_card_shown && g_card_away) {
@@ -3149,11 +3173,45 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
                   usingBlock:left_window];
 }
 
-// Lets the mouse through the card's window but on its plate, with the pointer at |screen|.
-void PlaceCardClicks(NSPoint screen) {
+// Lets the mouse through the card's window but on its plate, with the pointer at |screen|. Returns
+// whether that changed, as the pointer came onto the plate or left it.
+bool PlaceCardClicks(NSPoint screen) {
   NSPoint at = [g_card convertPointFromScreen:screen];
   at.y = NSHeight(g_card.frame) - at.y;
+  const bool was = g_card.ignoresMouseEvents;
   g_card.ignoresMouseEvents = !NSPointInRect(at, g_card_plate);
+  return was != g_card.ignoresMouseEvents;
+}
+
+// The move onto the plate or off it, to |screen|, went to the window under it, so the card hears
+// it too: on it, or the card would go as the row is left with the pointer on it, and off it, or a
+// hidden sidebar would stay out for it (#830).
+void MovedOverCard(NSPoint screen, NSEvent* move) {
+  [g_card_view mouseMoved:[NSEvent mouseEventWithType:NSEventTypeMouseMoved
+                                             location:[g_card convertPointFromScreen:screen]
+                                        modifierFlags:move.modifierFlags
+                                            timestamp:move.timestamp
+                                         windowNumber:g_card.windowNumber
+                                              context:nil
+                                          eventNumber:0
+                                           clickCount:0
+                                             pressure:0]];
+}
+
+// The pointer moved, or dragged, to where |move| says: the card takes the mouse there or doesn't,
+// and hears the move that changes that. The reveal's monitor asks it first, and the card's own
+// then finds nothing changed.
+void CardHearsMove(NSEvent* move) {
+  if (!g_card_monitor) {
+    return;
+  }
+  NSPoint at = move.locationInWindow;
+  if (move.window) {
+    at = [move.window convertPointToScreen:at];
+  }
+  if (PlaceCardClicks(at) && move.window != g_card && move.type == NSEventTypeMouseMoved) {
+    MovedOverCard(at, move);
+  }
 }
 
 // The pointer's moves over the page go to the page's view, so the card's window doesn't hear them:
@@ -3176,11 +3234,7 @@ void WatchCard() {
                                        }
                                        return event;
                                      }
-                                     NSPoint at = event.locationInWindow;
-                                     if (event.window) {
-                                       at = [event.window convertPointToScreen:at];
-                                     }
-                                     PlaceCardClicks(at);
+                                     CardHearsMove(event);
                                      return event;
                                    }];
 }
@@ -3857,6 +3911,9 @@ void host_show_reveal(void* ui_view, double width) {
                                          at = [event.window convertPointToScreen:at];
                                        }
                                        at = [browser->window convertPointFromScreen:at];
+                                       // The card hears it first, so the reveal knows whether
+                                       // the pointer is on it, which keeps the sidebar out.
+                                       CardHearsMove(event);
                                        browser->reveal_pointer(ui_view, at.x);
                                        return event;
                                      }];

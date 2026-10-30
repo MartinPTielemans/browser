@@ -106,6 +106,8 @@ pub(super) struct Recorder {
     pub(super) site_controls_extensions: RefCell<Vec<Vec<SharedString>>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
+    /// And the tab whose URL it edits, if any.
+    pub(super) bar_edits: RefCell<Vec<Option<u64>>>,
     /// Each time the shell opened Search Tabs: the tabs it lists, in order.
     pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
@@ -970,12 +972,13 @@ impl Browser for Recorder {
 
     fn command_bar(
         &self,
-        _: Option<(u64, SharedString)>,
+        editing: Option<(u64, SharedString)>,
         _: Vec<BarTab>,
         field: Option<Bounds<Pixels>>,
         _: &mut App,
     ) {
         self.command_bars.borrow_mut().push(field);
+        self.bar_edits.borrow_mut().push(editing.map(|(tab, _)| tab));
         self.bar_open.set(true);
     }
 
@@ -1032,12 +1035,14 @@ impl Browser for Recorder {
         _: f32,
         full_page: bool,
         _: bool,
+        look: crate::menu::Look,
         _: &mut App,
     ) {
         let (x, y) = (f32::from(frame.origin.x), f32::from(frame.origin.y));
         let (width, height) = (f32::from(frame.size.width), f32::from(frame.size.height));
         let what = if full_page { "full page" } else { "portion" };
-        self.record(format!("capture {what} {tab} at {x} {y} {width} {height}"));
+        let tone = if look.light { "light" } else { "dark" };
+        self.record(format!("capture {what} {tab} at {x} {y} {width} {height} {tone}"));
     }
 
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App) {

@@ -155,6 +155,9 @@ struct Settings {
   bool warn_before_quitting = true;
   // Whether the user has dismissed the note on the first tabs auto-archive took.
   bool archive_noted = false;
+  // Whether a launch brings back the last session's windows with their Today tabs, else one window
+  // showing no tab (RestoreSession).
+  bool restore_windows = true;
   // Whether the app warns before moving a tab to another profile's Space, which it does once.
   bool warn_moving_profiles = true;
   // Who shares the favorites: a BC_FAVORITES_ value.

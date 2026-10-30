@@ -64,6 +64,9 @@ mod floats;
 #[path = "../platform/linux/held_escape.rs"]
 mod held_escape;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/link_preview_window.rs"]
+mod link_preview_window;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/menu_window.rs"]
 mod menu_window;
 #[cfg(target_os = "linux")]
@@ -337,7 +340,14 @@ mod platform {
             dismissed: extern "C" fn(),
         ) -> *mut c_void;
         pub fn host_show_link_preview(ui_view: *mut c_void);
-        pub fn host_link_preview_drew(left: f64, top: f64, width: f64, height: f64, opacity: f64);
+        pub fn host_link_preview_drew(
+            left: f64,
+            top: f64,
+            width: f64,
+            height: f64,
+            radius: f64,
+            opacity: f64,
+        );
         pub fn host_release_link_preview();
         pub fn host_hide_link_preview();
         pub fn host_add_capture(view: *mut c_void, dismissed: extern "C" fn());
@@ -1050,10 +1060,16 @@ impl link_preview::Host for LinkPreviewHost {
         }
     }
 
-    fn drew(&self, page: Bounds<Pixels>, opacity: f32) {
+    fn drew(&self, page: Bounds<Pixels>, radius: f32, opacity: f32) {
         let (left, top) = (f64::from(page.origin.x), f64::from(page.origin.y));
         let (width, height) = (f64::from(page.size.width), f64::from(page.size.height));
-        unsafe { platform::host_link_preview_drew(left, top, width, height, f64::from(opacity)) };
+        let (radius, opacity) = (f64::from(radius), f64::from(opacity));
+        unsafe { platform::host_link_preview_drew(left, top, width, height, radius, opacity) };
+    }
+
+    fn page_under(&self) -> bool {
+        // No window of the app's holds a page on Linux (link_preview_window.rs).
+        cfg!(target_os = "linux")
     }
 
     fn release(&self) {
@@ -2905,12 +2921,13 @@ impl Browser for Engine {
         radius: f32,
         full_page: bool,
         library: bool,
+        look: menu::Look,
         cx: &mut App,
     ) {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, library, cx),
+                false => capture::start(tab, frame, radius, library, look, cx),
             },
             cx,
         );
@@ -3587,6 +3604,7 @@ fn open_window_as(
                     overlays::place_dialog(ui_view);
                     menu_window::resized(ui_view);
                     popovers::resized(ui_view);
+                    link_preview_window::resized(ui_view);
                     reveal_window::place(ui_view);
                 }
             })
@@ -4689,6 +4707,15 @@ fn save_launch_picture(cx: &mut App) {
         return;
     };
     save_launch_frame(window.ui_view);
+    // A launch that doesn't bring the windows back shows their Spaces without Today tabs, so a
+    // picture of this sidebar would show tabs that aren't there. Without one it shows the plain
+    // window, as a new profile's first launch does.
+    if !unsafe { bc::bc_restore_windows() } {
+        forget_launch_pictures();
+        // check.sh reads this line.
+        log!("browser: launch picture not taken");
+        return;
+    }
     let width = window.shell.upgrade().map_or(0., |shell| shell.read(cx).card_left());
     let Ok(profile) = CString::new(profile_dir()) else {
         return;
@@ -4697,6 +4724,20 @@ fn save_launch_picture(cx: &mut App) {
     let taken = unsafe { platform::host_save_launch_picture(window.ui_view, profile, width.into()) };
     // check.sh reads this line.
     log!("browser: launch picture {}", if taken { "taken" } else { "not taken" });
+}
+
+/// Deletes the launch pictures the host kept in the profile directory, one a window size
+/// (LaunchPicturePath in platform/mac/host.mm).
+fn forget_launch_pictures() {
+    let Ok(files) = std::fs::read_dir(profile_dir()) else {
+        return;
+    };
+    for file in files.flatten() {
+        let name = file.file_name();
+        if name.to_string_lossy().starts_with("launch-picture-") {
+            _ = std::fs::remove_file(file.path());
+        }
+    }
 }
 
 /// Keeps the frame of the browser window of `ui_view` for the next launch's first window to open
@@ -5666,7 +5707,7 @@ unsafe extern "C" fn tab_media_unsupported(
 /// Google's Widevine module moved along: the notes that offer it and Settings' row say where to.
 /// Later, as the user's yes in a note or Settings calls back from inside their update.
 unsafe extern "C" fn widevine_changed(_: *mut c_void, state: c_int) {
-    // check-widevine.sh reads this line.
+    // check/widevine.sh reads this line.
     log!("browser: widevine state {}", Widevine::from_core(state).name());
     update_app_later(|cx| {
         let shells: Vec<_> = WINDOWS

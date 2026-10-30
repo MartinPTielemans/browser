@@ -77,7 +77,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/mojom/api_permission_id.mojom-shared.h"
 #include "extensions/common/permissions/permissions_data.h"
-#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -630,13 +629,10 @@ void Window::AdjustNavigate(NavigateParams& params) {
             ProfileId(DirOf(profile->GetOriginalProfile())), private_window));
     return;
   }
-  // ⌥⌘-click on a link opens it beside its page in a split view, as Chrome's does, and so does
-  // ⌥⇧-click, as Dia's does, which the page asks for as a new window.
-  constexpr int kAltShift = blink::WebInputEvent::kAltKey | blink::WebInputEvent::kShiftKey;
+  // ⌥-click on a link opens it beside its page in a split view, as Arc's does, and so does
+  // ⌥⌘-click, as Chrome's does (chromium-core-alt-click-split.patch).
   Tab* source = params.source_contents ? Tab::FromWebContents(params.source_contents) : nullptr;
-  const bool split = source && (params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW ||
-                                (params.disposition == WindowOpenDisposition::NEW_WINDOW &&
-                                 (source->input_modifiers() & kAltShift) == kAltShift));
+  const bool split = source && params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW;
   window->split_with_ = split ? Tab::IdOf(params.source_contents) : 0;
   // Popups become tabs (decision 3). So do new windows: the app opens its own.
   if (split || params.disposition == WindowOpenDisposition::NEW_POPUP ||
