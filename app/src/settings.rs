@@ -7,13 +7,14 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
-use std::sync::LazyLock;
 use std::time::Instant;
 
 use browser::agents::{self, Agents, Client};
+use browser::build_info;
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
+use browser::theme::Appearance;
 use browser::import::ImportView;
 use browser::log;
 use browser::passwords::{self, Login};
@@ -82,10 +83,12 @@ use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::RESTORE_WINDOWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
 use browser::tokens::settings::CLIENT_TILE;
+use browser::tokens::settings::EXPORT_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 /// The chip's plate, as Paper's alpha, for the ladder to go over.
@@ -101,6 +104,15 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
     ("7 days", 7. * 24. * 3600.),
     ("30 days", 30. * 24. * 3600.),
 ];
+
+/// How long a Today tab waits unseen before it's archived, in words: "12 hours".
+pub(crate) fn archive_after_words() -> String {
+    let after = unsafe { bc::bc_archive_after() };
+    match ARCHIVE_AFTER.iter().find(|&&(_, seconds)| seconds == after) {
+        Some((label, _)) => label.trim_end_matches(" (default)").to_owned(),
+        None => format!("{:.0} hours", after / 3600.),
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -165,9 +177,27 @@ impl Tab {
 }
 
 /// The keys a row of the Shortcuts tab shows: a command's shortcut, or keys the app binds itself.
+/// Or the switch for whether those keys count the favorites.
 enum Keys {
     Of(Command),
-    Text(&'static str),
+    /// Keys no command holds, which can't be changed: a binding's keystroke.
+    Fixed(&'static str),
+    /// A run of them, from the first keystroke to the last.
+    Span(&'static str, &'static str),
+    FavoritesNumbered,
+}
+
+impl Keys {
+    /// A row's keys that can't be changed, as a menu shows them, Ctrl+1 – Ctrl+8 off the Mac.
+    fn fixed(&self) -> Option<String> {
+        match *self {
+            Keys::Of(_) | Keys::FavoritesNumbered => None,
+            Keys::Fixed(keys) => Some(shell::keystroke_label(keys)),
+            Keys::Span(first, last) => {
+                Some(format!("{} – {}", shell::keystroke_label(first), shell::keystroke_label(last)))
+            }
+        }
+    }
 }
 
 /// The Shortcuts tab, in the menus' order and names.
@@ -186,7 +216,8 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
-            ("Tabs 1 to 8", Keys::Text("⌘1 – ⌘8")),
+            ("Tabs 1 to 8", Keys::Span("cmd-1", "cmd-8")),
+            ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
@@ -226,10 +257,21 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
-            ("Spaces 1 to 9", Keys::Text("⌃1 – ⌃9")),
+            ("Go to Space 1", Keys::Of(Command::SelectSpace(0))),
+            ("Go to Space 2", Keys::Of(Command::SelectSpace(1))),
+            ("Go to Space 3", Keys::Of(Command::SelectSpace(2))),
+            ("Go to Space 4", Keys::Of(Command::SelectSpace(3))),
+            ("Go to Space 5", Keys::Of(Command::SelectSpace(4))),
+            ("Go to Space 6", Keys::Of(Command::SelectSpace(5))),
+            ("Go to Space 7", Keys::Of(Command::SelectSpace(6))),
+            ("Go to Space 8", Keys::Of(Command::SelectSpace(7))),
+            ("Go to Space 9", Keys::Of(Command::SelectSpace(8))),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
+            ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
+            ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
             ("View Library", Keys::Of(Command::ViewLibrary)),
             ("View Archive", Keys::Of(Command::ViewArchive)),
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
@@ -260,7 +302,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Developer Tools", Keys::Of(Command::DevTools)),
             ("Inspect Elements", Keys::Of(Command::InspectElements)),
             ("JavaScript Console", Keys::Of(Command::JavaScriptConsole)),
+            ("Toggle Developer Mode", Keys::Of(Command::ToggleDeveloperMode)),
             ("Open Task Manager", Keys::Of(Command::TaskManager)),
+            ("Record a Trace", Keys::Of(Command::RecordTrace)),
             ("Manage Extensions", Keys::Of(Command::ManageExtensions)),
             ("Add Extension", Keys::Of(Command::AddExtension)),
         ],
@@ -271,9 +315,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Settings", Keys::Of(Command::Settings)),
             ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
             // main.rs binds these.
-            (concat!("Hide ", env!("APP_NAME")), Keys::Text("⌘H")),
-            ("Hide Others", Keys::Text("⌥⌘H")),
-            ("Minimize", Keys::Text("⌘M")),
+            (concat!("Hide ", env!("APP_NAME")), Keys::Fixed("cmd-h")),
+            ("Hide Others", Keys::Fixed("alt-cmd-h")),
+            ("Minimize", Keys::Fixed("cmd-m")),
             (concat!("Quit ", env!("APP_NAME")), Keys::Of(Command::Quit)),
         ],
     ),
@@ -1221,8 +1265,8 @@ impl Settings {
         let send = unsafe { bc::bc_send_crash_reports() };
         let send = self.toggle("send crash reports", send, set_send_crash_reports, accent, cx);
         let detail = format!(
-            "Reports go to {}. Turning this off deletes those not yet sent.",
-            crash_reports_collector()
+            "Only sent while this is on, to {}. Turning it off deletes those not yet sent.",
+            collector_name(&crash_reports_collector())
         );
         let row = detailed_row("Send crash reports", detail, Some(send));
         div().child(group(&RowLook::settings(), [row])).into_any_element()
@@ -1575,11 +1619,29 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let restore = unsafe { bc::bc_restore_windows() };
+        let restore = self.toggle("restore windows", restore, set_restore_windows, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
         let widevine = self.widevine.read(cx).shown().then(|| {
             group(&RowLook::settings(), [self.widevine_row(cx)]).mt(px(BOX_GAP))
         });
+        let export = button(&RowLook::settings(), "export-spaces", "Export…")
+            .on_click(|_, _, cx| crate::export_spaces(cx));
+        let export = div()
+            .h(px(PROFILE_ROW))
+            .px(px(PADDING))
+            .flex()
+            .items_center()
+            .child(tile("icons/file.svg", EXPORT_TILE))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child("Export each Space's favorites and pinned tabs as Markdown"),
+            )
+            .child(div().flex_none().ml(px(PADDING)).child(export));
         div()
             .child(group(&RowLook::settings(), [
                 row(
@@ -1592,7 +1654,13 @@ impl Settings {
                     "Preview links to other sites from pinned tabs and favorites",
                     previews,
                 ),
+                row(
+                    Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
+                    "Restore windows from last session",
+                    restore,
+                ),
             ]))
+            .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
@@ -1635,7 +1703,7 @@ impl Settings {
 
     /// The search, then the commands it finds by section, each with its keys in a chip. A click on
     /// a command's chip records its next keys; escape leaves them and ⌫ takes them away. ↺ gives
-    /// a command its default back, and Restore Defaults every command.
+    /// a command its default back, and Restore Defaults every command, with the favorites numbered.
     fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let typed = self.search.read(cx).text().to_string();
         let found = found(&typed, cx);
@@ -1644,9 +1712,14 @@ impl Settings {
                 .iter()
                 .filter(|(name, _)| found.contains(name))
                 .map(|(name, keys)| {
-                    let control = match keys {
-                        Keys::Of(command) => self.shortcut(*command, accent, cx),
-                        Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                    let control = match (keys, keys.fixed()) {
+                        (Keys::Of(command), _) => self.shortcut(*command, accent, cx),
+                        (Keys::FavoritesNumbered, _) => {
+                            let on = shell::user_keys(cx).favorites_numbered();
+                            self.toggle("favorites numbered", on, set_favorites_numbered, accent, cx)
+                        }
+                        (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
+                            .into_any_element(),
                     };
                     row(None, *name, control)
                 })
@@ -1721,7 +1794,7 @@ impl Settings {
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
         let restore = user.is_set(command).then(|| {
             div()
-                .id(SharedString::from(format!("restore-{}", command.name())))
+                .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
                 .flex()
                 .items_center()
@@ -1733,7 +1806,7 @@ impl Settings {
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
-            .id(command.name())
+            .id(SharedString::from(command.key_name()))
             .when(recording, |chip| chip.border_1().border_color(accent))
             .hover(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_HOVERED))))
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
@@ -1757,7 +1830,7 @@ impl Settings {
             true => None,
             false => {
                 // check.sh waits for this line.
-                log!("browser: shortcut recording {}", command.name());
+                log!("browser: shortcut recording {}", command.key_name());
                 Some(command)
             }
         };
@@ -1856,12 +1929,28 @@ fn set_ad_blocking(on: bool, _: &mut App) {
     unsafe { bc::bc_set_ad_blocking(on) };
 }
 
+/// Off, the next launch opens one window with no Today tabs, theirs going in the archive.
+fn set_restore_windows(restore: bool, _: &mut App) {
+    unsafe { bc::bc_set_restore_windows(restore) };
+}
+
 fn set_haptics(haptics: bool, _: &mut App) {
     unsafe { bc::bc_set_haptics(haptics) };
 }
 
 pub(crate) fn set_send_crash_reports(send: bool, _: &mut App) {
     unsafe { bc::bc_set_send_crash_reports(send) };
+}
+
+/// What the Privacy tab calls the collector at `host`: Sentry, by its region, else its host.
+pub(crate) fn collector_name(host: &str) -> String {
+    match host {
+        _ if host.ends_with(".ingest.de.sentry.io") => "Sentry (EU region)".into(),
+        _ if host.ends_with(".ingest.sentry.io") || host.ends_with(".ingest.us.sentry.io") => {
+            "Sentry".into()
+        }
+        _ => host.into(),
+    }
 }
 
 /// The host crash reports go to, or nothing in a build that names none.
@@ -1880,11 +1969,8 @@ fn set_link_previews(previews: bool, _: &mut App) {
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built
 /// from, each of which opens in a tab.
 fn about() -> AnyElement {
-    let mut version = match option_env!("APP_BUILD") {
-        Some(build) => format!("Version {} ({build})", env!("CARGO_PKG_VERSION")),
-        None => format!("Version {}", env!("CARGO_PKG_VERSION")),
-    };
-    if let Some(engine) = ENGINE_VERSION.as_deref() {
+    let mut version = format!("Version {}", build_info::version());
+    if let Some(engine) = build_info::ENGINE_VERSION.as_deref() {
         version = format!("{version}, on Chromium {engine}");
     }
     let open = |id: &'static str, url: Option<String>| {
@@ -1924,23 +2010,6 @@ fn about() -> AnyElement {
         .child(group(&RowLook::settings(), notices).mt(px(BOX_GAP)))
         .into_any_element()
 }
-
-/// The engine's version: on the Mac, the name of the folder its framework's current version is in,
-/// as Chromium names it.
-static ENGINE_VERSION: LazyLock<Option<String>> = LazyLock::new(|| {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
-    let frameworks = std::env::current_exe().ok()?.parent()?.parent()?.join("Frameworks");
-    std::fs::read_dir(frameworks).ok()?.flatten().find_map(|entry| {
-        let name = entry.file_name();
-        if !name.to_str()?.ends_with(" Framework.framework") {
-            return None;
-        }
-        let current = std::fs::read_link(entry.path().join("Versions/Current")).ok()?;
-        Some(current.to_str()?.to_owned())
-    })
-});
 
 /// The URL of `name`, one of the licence files the app carries (tools/licences.sh): in the bundle's
 /// Resources on the Mac, beside the binary elsewhere. None where the build left it out, as `cargo
@@ -2037,6 +2106,8 @@ fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
 /// Why keys weren't given to a command, as its row says it.
 fn refusal(refused: Refused) -> String {
     let holder = match refused {
+        // Off the Mac ⌘ is pressed as Ctrl and ⌃ as Alt.
+        Refused::Plain if shell::OFF_THE_MAC => return "Add Ctrl or Alt".into(),
         Refused::Plain => return "Add ⌘ or ⌃".into(),
         Refused::Taken(Holder::System(name)) => name,
         Refused::Taken(Holder::Command(command)) => command_name(command),
@@ -2053,7 +2124,6 @@ fn command_name(command: Command) -> &'static str {
     });
     named.chain(match command {
         Command::SelectTab(_) => Some("Tabs 1 to 8"),
-        Command::SelectSpace(_) => Some("Spaces 1 to 9"),
         Command::RecentTabBack => Some("Last Used Tab"),
         Command::Undo => Some("Undo"),
         Command::Redo => Some("Redo"),
@@ -2073,7 +2143,8 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
     let found = rows.filter(|(name, keys)| {
         let label = match keys {
             Keys::Of(command) => user.label(*command),
-            Keys::Text(text) => Some(text.to_string()),
+            Keys::FavoritesNumbered => None,
+            _ => keys.fixed(),
         };
         shell::shortcut_found(typed, name, label.as_deref())
     });
@@ -2096,6 +2167,29 @@ fn shortcuts_path() -> String {
 pub fn read_shortcuts(cx: &mut App) {
     let text = std::fs::read_to_string(shortcuts_path()).unwrap_or_default();
     cx.set_global(UserKeys::parse(&text));
+}
+
+/// Where View › Appearance's choice is kept, beside the keys.
+fn appearance_path() -> String {
+    format!("{}/Appearance", crate::profile_dir())
+}
+
+/// Reads View › Appearance's choice, automatic if there's none.
+pub fn read_appearance(cx: &mut App) {
+    let text = std::fs::read_to_string(appearance_path()).unwrap_or_default();
+    cx.set_global(shell::AppAppearance(Appearance::named(text.trim()).unwrap_or_default()));
+}
+
+pub fn save_appearance(appearance: Appearance) {
+    if let Err(error) = std::fs::write(appearance_path(), appearance.name()) {
+        log!("couldn't save the appearance: {error}");
+    }
+}
+
+/// Include Favorites in ⌘1–⌘8, kept with the user's keys.
+fn set_favorites_numbered(numbered: bool, cx: &mut App) {
+    shell::change_keys(cx, |keys| keys.set_favorites_numbered(numbered));
+    save_shortcuts(cx);
 }
 
 fn save_shortcuts(cx: &App) {

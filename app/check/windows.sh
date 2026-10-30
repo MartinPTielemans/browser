@@ -1,6 +1,7 @@
 # ⌘N opens another window on the same Spaces, showing the key window's Space with no page, whose
-# card shows its one line, and a click on the card with ⌘T's bar open only closes the bar. It never
-# shows another window's page: a Space it switches to and back shows the first tab no window shows.
+# card shows its one line, and a click on the card with ⌘T's bar open only closes the bar. Settings
+# opened from it and closed by its button gives it the keyboard back. The new window never shows
+# another window's page: a Space it switches to and back shows the first tab no window shows.
 # The Spaces menu acts on the window in front. A click on a row whose page another window shows
 # moves the page there live, with no second load, and the window it left keeps its rows and draws a
 # picture of the page in its card, which a click on takes the page back from, live. A window that
@@ -99,6 +100,20 @@ expect '^browser: new tab plate 0$' "a click on the card left New Tab's plate"
 send window 2
 [ "$(grep -c '^browser: command new-tab via card$' "$log" || true)" = "$opened" ] ||
   fail "the click that closed the command bar opened it again"
+
+# Settings opened from the second window and closed by its close button gives the keyboard back to
+# that window, which AppKit makes key from inside the close (#819: the shell heard it there, inside
+# GPUI's update, and the app aborted).
+send key , cmd
+expect '^browser: settings shown ' "⌘, in the second window didn't show Settings"
+# The driver's done for a click that closes its window can be lost with the window, as in
+# favorites.sh, so Settings going is waited for.
+post clickkey 16 16
+expect '^browser: settings hidden$' "the close button didn't hide Settings"
+# The app is still there to answer, which fails with "the app exited" if the close aborted it.
+send front
+grep '^browser: front ' "$log" | tail -1 | grep -q ' key driven,' ||
+  fail "after Settings closed, the second window isn't key: $(grep '^browser: front ' "$log" | tail -1)"
 
 # A Space the new window makes and leaves: back in the first Space it shows the first tab no other
 # window shows, the one the page opened, and the first window keeps the page.

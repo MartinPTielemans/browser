@@ -22,12 +22,14 @@
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/downloads.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/extensions.h"
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/held_keys.h"
 #include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
@@ -39,6 +41,7 @@
 #include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/playready.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -72,6 +75,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
@@ -331,6 +335,15 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
 #endif
 }
 
+void bc_hold_keys(void) {
+  browser_core::held_keys::Hold();
+}
+
+void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                       void* context) {
+  browser_core::held_keys::Give(take, context);
+}
+
 bool bc_window_restore(bc_id id) {
   browser_core::Window* window = browser_core::Window::FromId(id);
   return window && browser_core::RestoreSession(*window);
@@ -385,8 +398,11 @@ void bc_window_activate(bc_id id) {
   widget->Activate();
 }
 
-bc_id bc_space_create(const char* name) {
-  browser_core::Space* space = browser_core::Space::Create(name ? name : "");
+bc_id bc_space_create(const char* name, bc_id after) {
+  const std::vector<browser_core::Space*> all = browser_core::Space::All();
+  auto it = std::ranges::find(all, after, &browser_core::Space::id);
+  const size_t at = it == all.end() ? SIZE_MAX : static_cast<size_t>(it - all.begin()) + 1;
+  browser_core::Space* space = browser_core::Space::Create(name ? name : "", 0, std::nullopt, at);
   space->SetProfile(browser_core::DirOf(browser_core::StartProfile()));
   return space->id();
 }
@@ -962,6 +978,12 @@ bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   return window ? window->RestoreArchived(archived) : 0;
 }
 
+void bc_window_answer_downloads(bc_id window_id, bool cancel) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->AnswerDownloads(cancel);
+  }
+}
+
 void bc_extension_answer(bc_id question, bool accept) {
   browser_core::InstallQuestion::Answer(question, accept);
 }
@@ -979,6 +1001,17 @@ void bc_extension_set_pinned(bc_id profile_id, const char* id, bool pinned) {
 bool bc_extension_remove(bc_id profile_id, const char* id) {
   Profile* profile = LoadedProfile(profile_id);
   return profile && id && browser_core::RemoveExtension(profile, id);
+}
+
+void bc_extension_crash_told(bc_id profile_id, const char* id) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && id) {
+    browser_core::ExtensionCrashTold(profile, id);
+  }
+}
+
+bool bc_extension_turn_on(bc_id profile_id, const char* id) {
+  Profile* profile = LoadedProfile(profile_id);
+  return profile && id && browser_core::TurnOnExtension(profile, id);
 }
 
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
@@ -1025,6 +1058,15 @@ void bc_set_haptics(bool haptics) {
   browser_core::SessionChanged();
 }
 
+void bc_set_appearance(int appearance) {
+  // Chromium's own override of the system's scheme, which every page's color provider follows.
+  using Scheme = ui::NativeTheme::PreferredColorScheme;
+  ui::NativeTheme::SetPreferredColorSchemeOverride(
+      appearance == 1   ? std::optional(Scheme::kLight)
+      : appearance == 2 ? std::optional(Scheme::kDark)
+                        : std::nullopt);
+}
+
 bool bc_link_previews(void) {
   return browser_core::UserSettings().link_previews;
 }
@@ -1034,12 +1076,38 @@ void bc_set_link_previews(bool previews) {
   browser_core::SessionChanged();
 }
 
+int bc_hover_kinds(void) {
+  return browser_core::UserSettings().hover_kinds;
+}
+
+void bc_set_hover_kinds(int kinds) {
+  browser_core::UserSettings().hover_kinds = kinds;
+  browser_core::SessionChanged();
+}
+
+bool bc_archive_note(void) {
+  return browser_core::ArchiveNoteShown();
+}
+
+void bc_dismiss_archive_note(void) {
+  browser_core::DismissArchiveNote();
+}
+
 bool bc_warn_before_quitting(void) {
   return browser_core::UserSettings().warn_before_quitting;
 }
 
 void bc_set_warn_before_quitting(bool warn) {
   browser_core::UserSettings().warn_before_quitting = warn;
+  browser_core::SessionChanged();
+}
+
+bool bc_restore_windows(void) {
+  return browser_core::UserSettings().restore_windows;
+}
+
+void bc_set_restore_windows(bool restore) {
+  browser_core::UserSettings().restore_windows = restore;
   browser_core::SessionChanged();
 }
 
@@ -1157,7 +1225,9 @@ void bc_tab_show_in(bc_id id, void* view, bc_rect frame, double corner_radius) {
   if (!contents || !view || browser_core::Window::Showing(id)) {
     return;
   }
-  browser_core::platform::ShowPageIn(contents->GetNativeView(), view, ToRect(frame),
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  browser_core::platform::ShowPageIn(window ? window->widget() : nullptr,
+                                     contents->GetNativeView(), view, ToRect(frame),
                                      corner_radius);
   contents->Focus();
 }
@@ -1221,6 +1291,23 @@ void bc_tab_go_forward(bc_id id) {
   }
 }
 
+void bc_tab_history(bc_id id, bool forward) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ListHistory(forward);
+  }
+}
+
+void bc_tab_go_to_history(bc_id id, int offset) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
+    browser_core::Tab::FromWebContents(contents)->GoToOffset(offset);
+  }
+}
+
+bc_id bc_tab_open_history(bc_id id, int offset) {
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  return window ? window->OpenHistory(id, offset) : 0;
+}
+
 void bc_tab_reload(bc_id id, bool bypass_cache) {
   if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->Reload(bypass_cache);
@@ -1280,6 +1367,10 @@ void bc_widevine_download(void) {
 
 void bc_widevine_remove(void) {
   browser_core::widevine::Remove();
+}
+
+int bc_playready_needs() {
+  return browser_core::platform::PlayReadyNeeds();
 }
 
 void bc_tab_stop(bc_id id) {
@@ -1406,6 +1497,12 @@ size_t bc_ad_blocking_off_sites(bc_id profile_id, char* sites, size_t capacity) 
 void bc_ad_blocking_turn_on_site(bc_id profile_id, const char* site) {
   if (Profile* profile = LoadedProfile(profile_id); profile && site) {
     browser_core::TurnOnAdBlockingOnSite(profile, site);
+  }
+}
+
+void bc_tab_set_developer_mode(bc_id id, bool on) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    browser_core::developer_mode::Set(tab->profile(), tab->Url(), on);
   }
 }
 
