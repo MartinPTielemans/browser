@@ -641,11 +641,17 @@ expect "^browser: page $r developer mode 1\$" "the tab didn't go back to Develop
 # http has no certificate to show, so the lock doesn't take the click.
 send click 120 $(footer_y)
 none_since '^browser: site controls run certificate' || fail "the lock ran without a certificate"
-# Share closes them and hangs the system's share menu from its tile, at 122 118.
-send click 122 118
-expect '^browser: site controls run share$' "a click on Share didn't run it"
-expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
-expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
+# Share closes them and hangs the system's share menu from its tile, at 122 118. Linux has no share
+# menu, so no Share tile, and escape closes them there instead.
+if [ "$(uname)" = Darwin ]; then
+  send click 122 118
+  expect '^browser: site controls run share$' "a click on Share didn't run it"
+  expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
+  expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
+else
+  send key escape
+  expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
+fi
 # Hover still works once they've closed: the pointer out to the page hides the URL field's buttons,
 # and back over the sidebar shows them. While they were open the buttons stayed, as the pointer
 # over the sidebar keeps them.
