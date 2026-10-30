@@ -13,7 +13,8 @@ loaded=
 for row in licence:LICENSE notices:NOTICE libraries:THIRD-PARTY.txt; do
   id=${row%%:*} file=${row#*:}
   send menu "About ilo"
-  expect '^browser: settings \(shown\|tab\) About$' "About ilo didn't show Settings' About tab"
+  # Settings says which tab it shows as it opens, changes tab or draws, which differ by OS.
+  expect '^browser: settings \(shown\|tab\|drew\) About$' "About ilo didn't show Settings' About tab"
   # About logs where each Open is once, on its first draw.
   await "^browser: settings open $id at " || fail "About didn't draw the $id row's Open"
   [ -n "$loaded" ] || ../tools/window-screenshot.sh "$pid" "$out/about.png" all ||
