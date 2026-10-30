@@ -1278,6 +1278,14 @@ BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
 // returns how many it has. Each folder is followed by what's in it. They sit above its Today tabs.
 BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
 
+// Whether the Space's pinned tabs and folders show, which collapsing its pinned tabs hides but for
+// the tab shown, as a closed folder does. They show until bc_space_set_pinned_open hides them, and
+// the session keeps it.
+BC_EXPORT bool bc_space_pinned_open(bc_id space);
+
+// Then space_changed.
+BC_EXPORT void bc_space_set_pinned_open(bc_id space, bool open);
+
 // Whether |id| is a folder, and if it is, whether it shows what's in it in |open|.
 BC_EXPORT bool bc_folder(bc_id id, bool* open);
 
@@ -1453,9 +1461,9 @@ BC_EXPORT void bc_window_page_moving(bc_id window, bool moving);
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
 // Gives the page the window shows the keyboard, from the UI or wherever in the window it is, as a
-// press that shows a tab does. The window holds it for the page, as when the page shown before
-// left with it, so a page still loading takes it as bc_window_select's would, unless a click in
-// the UI comes first. The user's: agents get none.
+// press that shows a tab does, before it returns. The window holds it for a page still loading, as
+// when the page shown before left with it, so that page takes it as bc_window_select's would, unless
+// a click in the UI comes first. The user's: agents get none.
 BC_EXPORT void bc_window_focus_page(bc_id window);
 
 // Clears the Space the window shows: closes its Today tabs but those any window shows, as
@@ -1593,6 +1601,10 @@ BC_EXPORT void bc_set_restore_windows(bool restore);
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);
 BC_EXPORT void bc_set_link_previews(bool previews);
+// Whether ⌥ pressed and let go alone brings the hidden sidebar out over the page, as the user
+// chose. The core keeps it with the Spaces.
+BC_EXPORT bool bc_option_reveals_sidebar(void);
+BC_EXPORT void bc_set_option_reveals_sidebar(bool reveals);
 // What the Library button's hover lists, as the user picked from the button's menu: bits for
 // images (1), videos (2), other files (4) and the captures saved to the Library (8), all by
 // default. The core keeps it with the Spaces.

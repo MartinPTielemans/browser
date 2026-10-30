@@ -261,9 +261,9 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
     views
 }
 
-/// The browser window the overlay, dialog, panel or popover of `view` shows over, by its UI's
-/// view, and where in its content, if it shows: ilo's menu shows over it there (menu_window.rs), as
-/// a field's in it does.
+/// The browser window the overlay, dialog, panel or popover of `view` shows over, by its UI's view,
+/// and where in its content, if it shows: ilo's menu shows over it there (menu_window.rs), as a
+/// field's in it does.
 pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
     let overlay = OVERLAYS.with_borrow(|overlays| {
         (overlays.iter().flatten())

@@ -17,7 +17,7 @@ use crate::build_info::{self, BuildInfo};
 use super::{
     COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, drag::dropped_urls, drm_note, extensions, keys,
+    clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
     panes::pane_frames,
     trace,
     swap::{CHECK, LINK},
@@ -61,10 +61,16 @@ pub enum Command {
     NewFolder,
     /// Closes every folder of the Space shown.
     CollapseFolders,
+    /// Hides the pinned rows of the Space shown but the tab shown's, as a closed folder does.
+    CollapsePinned,
+    /// Shows them again.
+    ExpandPinned,
     /// Opens every folder of the Space shown.
     ExpandFolders,
     /// Shows the sidebar's row of the tab shown: opens its folders and scrolls the list to it.
     RevealTab,
+    /// Gives the sidebar the keyboard, its arrows moving over the rows (sidebar_keys.rs).
+    FocusSidebar,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
     /// Loads the pinned URL of each pinned tab of the Space shown that's away from it, as Arc's
@@ -288,6 +294,8 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("f12", Command::DevTools, false),
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
+    // Chrome's off the Mac, where the Task Manager is a window of Chromium's own.
+    ("shift-escape", Command::TaskManager, false),
     // Arc's, unreserved: a page or field that uses ⌃D, as a Mac text field's forward delete,
     // keeps it. Off the Mac it would be Alt+D, Chrome's, so it has none there.
     ("ctrl-d", Command::ToggleDeveloperMode, false),
@@ -346,8 +354,11 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Clear Archive", Command::ClearArchive, &[]),
     ("Favorite Tab", Command::FavoriteTab, &["add to favorites"]),
     ("Collapse All Folders", Command::CollapseFolders, &[]),
+    ("Collapse Pinned Tabs", Command::CollapsePinned, &["hide pinned"]),
+    ("Expand Pinned Tabs", Command::ExpandPinned, &["show pinned"]),
     ("Expand All Folders", Command::ExpandFolders, &[]),
     ("Reveal Tab in Sidebar", Command::RevealTab, &["locate"]),
+    ("Focus Sidebar", Command::FocusSidebar, &["keyboard", "arrow keys"]),
     ("New Folder…", Command::NewFolder, &[]),
     ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
     ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
@@ -728,8 +739,11 @@ impl Command {
             Command::RenameTab => "rename-tab",
             Command::NewFolder => "new-folder",
             Command::CollapseFolders => "collapse-folders",
+            Command::CollapsePinned => "collapse-pinned",
+            Command::ExpandPinned => "expand-pinned",
             Command::ExpandFolders => "expand-folders",
             Command::RevealTab => "reveal-tab",
+            Command::FocusSidebar => "focus-sidebar",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::ResetSpaceTabs => "reset-space-tabs",
             Command::ToggleMute => "toggle-mute",
@@ -863,6 +877,7 @@ pub fn bind_keys(cx: &mut App) {
     });
     extensions::bind(cx);
     drm_note::bind(cx);
+    sidebar_keys::bind(cx);
 }
 
 /// The command bar is about to put `tab` in a split view with `with`: the pages shown take back the
@@ -983,7 +998,10 @@ impl Shell {
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.fold_folders(false, cx),
             Command::ExpandFolders => return self.fold_folders(true, cx),
+            Command::CollapsePinned => return self.set_pinned_open(false, cx),
+            Command::ExpandPinned => return self.set_pinned_open(true, cx),
             Command::RevealTab => return self.reveal_tab(cx),
+            Command::FocusSidebar => return self.focus_sidebar(cx),
             // In an agent's Space ⌘↩ is the bar's Take Over or Hand Back.
             Command::BackToPinnedUrl if self.agent_bar().is_some() => {
                 return self.agent_bar_primary(cx);
@@ -1265,7 +1283,8 @@ impl Shell {
     /// The clipboard's web link, read now, as one URL to open, or None for anything else.
     pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
         let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
-        let urls = dropped_urls([(text.trim(), false)]);
+        // Text that isn't a web link opens nothing here, not a search, as Arc's ⌥⌘V does.
+        let urls = dropped_urls([(text.trim(), false)], |_| None);
         if urls.is_empty() {
             // check.sh reads this line.
             log!("browser: pasted no URL");
@@ -1440,6 +1459,16 @@ impl Shell {
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
+            Command::CollapsePinned => self.shown_space().is_some_and(|space| {
+                !space.pinned.is_empty() && !space.folders.pinned_shut
+            }),
+            Command::ExpandPinned => {
+                self.shown_space().is_some_and(|space| space.folders.pinned_shut)
+            }
+            // The Library and a page's full screen keep the sidebar away.
+            Command::FocusSidebar => {
+                self.library.is_none() && !self.page_fullscreen && !self.sidebar_rows().is_empty()
+            }
             Command::ExpandFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| !space.is_open(folder))
             }),
@@ -1586,6 +1615,8 @@ fn private_runs(command: Command) -> bool {
             | Command::FavoriteTab
             | Command::NewFolder
             | Command::CollapseFolders
+            | Command::CollapsePinned
+            | Command::ExpandPinned
             | Command::ExpandFolders
             | Command::BackToPinnedUrl
             | Command::ResetSpaceTabs

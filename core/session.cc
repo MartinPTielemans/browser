@@ -213,6 +213,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   to.theme = space.theme();
   to.profile = space.profile();
   to.agent = space.agent();
+  to.pinned_open = space.pinned_open();
   int index = 0;
   // Each folder saved, to where it is among them.
   std::map<bc_id, int> folders;
@@ -430,6 +431,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     if (!space.theme.empty()) {
       dict.Set("theme", space.theme);
     }
+    if (!space.pinned_open) {
+      dict.Set("pinned_open", false);
+    }
     if (!space.profile.empty()) {
       dict.Set("profile", space.profile);
     }
@@ -481,6 +485,7 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("ad_blocking", saved.settings.ad_blocking)
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
+                           .Set("option_reveals_sidebar", saved.settings.option_reveals_sidebar)
                            .Set("hover_kinds", saved.settings.hover_kinds)
                            .Set("crash_report_offered", saved.settings.crash_report_offered)
                            .Set("widevine", saved.settings.widevine));
@@ -576,6 +581,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     if (const std::string* theme = space->FindString("theme")) {
       to.theme = *theme;
     }
+    to.pinned_open = space->FindBool("pinned_open").value_or(true);
     if (const std::string* profile = space->FindString("profile")) {
       to.profile = *profile;
     }
@@ -724,6 +730,8 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.send_crash_reports =
         settings->FindBool("send_crash_reports").value_or(false);
     saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
+    saved.settings.option_reveals_sidebar =
+        settings->FindBool("option_reveals_sidebar").value_or(true);
     saved.settings.hover_kinds = settings->FindInt("hover_kinds").value_or(15);
     saved.settings.crash_report_offered =
         settings->FindDouble("crash_report_offered").value_or(0);
@@ -916,6 +924,7 @@ Space* RestoreSpace(Window& window,
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetTheme(saved_space.theme);
+  space->SetPinnedOpen(saved_space.pinned_open);
   space->SetProfile(DirOf(profile));
   // Else the Space comes back as a new window shows it: its pinned tabs, none shown, and no Today
   // tabs, which go in the archive.

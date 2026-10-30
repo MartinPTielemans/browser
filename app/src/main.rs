@@ -182,6 +182,7 @@ mod platform {
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
+        pub fn host_watch_option_taps(tapped: extern "C" fn(*mut c_void));
         pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
@@ -535,6 +536,11 @@ extern "C" fn swiped(ui_view: *mut c_void, x: f64, y: f64, back: bool) -> bool {
     let at = point(px(x as f32), px(y as f32));
     update_window(window_with_view(ui_view), |shell, cx| shell.swiped(at, back, cx))
         .unwrap_or(false)
+}
+
+/// ⌥ was pressed and let go alone in the window whose UI draws in `ui_view`.
+extern "C" fn option_tapped(ui_view: *mut c_void) {
+    update_window(window_with_view(ui_view), |shell, cx| shell.option_tapped(cx));
 }
 
 /// The window whose UI draws in `ui_view`, or 0.
@@ -1968,6 +1974,10 @@ impl Browser for Engine {
         unsafe { bc::bc_folder_set_open(folder, open) };
     }
 
+    fn set_pinned_open(&self, space: u64, open: bool, _: &mut App) {
+        unsafe { bc::bc_space_set_pinned_open(space, open) };
+    }
+
     fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
         unsafe { bc::bc_folder_move(folder, to, index) };
     }
@@ -2771,6 +2781,10 @@ impl Browser for Engine {
         unsafe { platform::host_hide_reveal(self.ui_view) };
     }
 
+    fn option_reveals_sidebar(&self) -> bool {
+        unsafe { bc::bc_option_reveals_sidebar() }
+    }
+
     fn saved_sidebar_width(&self) -> Option<f32> {
         let width = unsafe { bc::bc_window_sidebar_width(self.window) };
         (width > 0.).then_some(width as f32)
@@ -2881,6 +2895,27 @@ impl Browser for Engine {
 
     fn hide_undo_toast(&self, cx: &mut App) {
         toast::hide_undo(cx);
+    }
+
+    fn in_front(&self) -> bool {
+        front().0 == self.window
+    }
+
+    fn toast_button(
+        &self,
+        text: &str,
+        (label, name): (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        time: Duration,
+        cx: &mut App,
+    ) {
+        let text = text.to_string();
+        let button = toast::Button {
+            label: toast::Label::Text(label.into()),
+            name,
+            run: Rc::new(move |_, cx| run(cx)),
+        };
+        with_overlays(move |cx| toast::show_with_buttons(&text, vec![button], time, cx), cx);
     }
 
     fn full_screen_note(&self, shown: bool, cx: &mut App) {
@@ -3253,6 +3288,8 @@ unsafe extern "C" fn tab_key_before_page(
     }
     // Any key ends the hover card, as in Dia, the page's as the UI's.
     update_app(hover_card::close);
+    // The page has the keyboard, so the sidebar's ring of Focus Sidebar has gone stale.
+    update_tab_window(tab, |shell, cx| shell.leave_keys("page", cx));
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
@@ -3620,9 +3657,16 @@ extern "C" fn dragged(
         .iter()
         .map(|item| (unsafe { CStr::from_ptr(item.url) }.to_string_lossy(), item.file))
         .collect();
-    let urls = shell::dropped_urls(items.iter().map(|(url, file)| (url.as_ref(), *file)));
+    let items = items.iter().map(|(url, file)| (url.as_ref(), *file));
+    let window = window_with_view(ui_view);
+    let search = |text: &str| {
+        url_for(text, |text, url, capacity| unsafe {
+            bc::bc_search_url(window, std::ptr::null(), text, url, capacity)
+        })
+    };
+    let urls = shell::dropped_urls(items, search);
     let position = point(px(x as f32), px(y as f32));
-    let answer = update_window(window_with_view(ui_view), |shell, cx| match phase {
+    let answer = update_window(window, |shell, cx| match phase {
         platform::DRAG_OVER => !urls.is_empty() && shell.drag_in(position, cx),
         platform::DRAG_DROP => shell.drop_in(position, &urls, cx),
         _ => {
@@ -3717,6 +3761,9 @@ fn open_window_as(
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, cx| {
                 let viewport = window.viewport_size();
+                // First, as a page's full screen can end with the window's.
+                #[cfg(target_os = "linux")]
+                shell.bounds_changed(cx);
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
                     shell.full_screen_step("laid", viewport);
@@ -3726,7 +3773,6 @@ fn open_window_as(
                 // Mac's does.
                 #[cfg(target_os = "linux")]
                 {
-                    shell.bounds_changed(cx);
                     panels::place(ui_view);
                     overlays::place_dialog(ui_view);
                     menu_window::resized(ui_view);
@@ -3990,6 +4036,7 @@ fn finish_opening(
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
         platform::host_watch_swipes(swiped);
+        platform::host_watch_option_taps(option_tapped);
         platform::host_watch_resigning_active(launch_picture_on_resigning);
         platform::host_watch_active(became_active);
     }
@@ -4429,6 +4476,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 )),
                 MenuItem::separator(),
                 item(bar.sidebar_title(), Command::ToggleSidebar),
+                item(bar.pinned_item().0, bar.pinned_item().1),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -4492,6 +4540,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Next Tab", Command::NextTab),
                 item("Previous Tab", Command::PreviousTab),
                 item("Reveal Tab in Sidebar", Command::RevealTab),
+                item("Focus Sidebar", Command::FocusSidebar),
                 MenuItem::separator(),
                 item("Clear Today", Command::Clear),
                 item("Reset all tabs in this Space", Command::ResetSpaceTabs),
@@ -4998,7 +5047,8 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
             });
         }
     }
-    let mut folders = Folders::default();
+    let pinned_shut = unsafe { !bc::bc_space_pinned_open(space) };
+    let mut folders = Folders { pinned_shut, ..Default::default() };
     for &row in &pinned {
         let mut open = false;
         if unsafe { bc::bc_folder(row, &mut open) } {

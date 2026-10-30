@@ -744,14 +744,11 @@ expect "^browser: spaces $first\$" "Delete didn't delete the Space"
 sed -n "/^browser: drive $step: /,\$p" "$log" | grep -A 999 '^browser: dialog hidden$' |
   grep -q "^browser: spaces $first\$" || fail "the Space went before the dialog did"
 [ "$(today)" = "$a" ] || fail "deleting another Space left this one's Today as \"$(today)\""
-# The toast says so, and ⌘Z brings the Space back where it was, with its name and its tab, and
-# shows it.
-# The toast names ⌘Z as the platform's keys write it.
-case "$(uname)" in
-  Darwin) undo_key=⌘Z ;;
-  *) undo_key=Ctrl+Z ;;
-esac
-deleted="^browser: toast shown Space deleted! Use $undo_key to undo\\.\$"
+# The toast says so, in Chrome's words off the Mac (#772), and ⌘Z brings the Space back where it
+# was, with its name and its tab, and shows it.
+undo=⌘Z
+{ windows || [ "$(uname)" = Linux ]; } && undo=Ctrl+Z
+deleted="^browser: toast shown Space deleted! Use $undo to undo\\.\$"
 expect "$deleted" "the toast didn't say the Space went"
 expect '^browser: toast settled$' "the toast didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/space-deleted.png" || fail "no window to capture"
