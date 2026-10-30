@@ -439,14 +439,14 @@ expect '^browser: recent downloads hidden$' "the recent downloads stayed with no
 send click $page_point
 send type v
 expect '^browser: download [0-9]* done clip.mp4$' "the page's video didn't download"
-send menu 'View Media…'
+send menu "$(cased 'View Media…')"
 expect '^browser: library section media$' "View Media… didn't open the Library on Media"
 expect '^browser: library shown$' "View Media… didn't open the Library"
 if [ "$(uname)" = Darwin ]; then
   expect '^browser: media video playing clip.mp4$' "the video's tile didn't play it"
   ../tools/window-screenshot.sh "$pid" "$out/media-video.png" || fail "no window to capture"
 fi
-send menu 'View Media…'
+send menu "$(cased 'View Media…')"
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 if [ "$(uname)" = Darwin ]; then
   expect '^browser: media video stopped clip.mp4$' "the video played on with the Library closed"
