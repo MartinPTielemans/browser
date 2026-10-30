@@ -213,3 +213,99 @@ fn the_wait_for_the_profile_runs_the_build_with_its_arguments() {
     assert!(started.elapsed() >= std::time::Duration::from_millis(300), "it waited for the lock");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// The dialog's window, which shows nothing in a test: what it asks is read through its buttons.
+struct DialogWindow;
+
+impl crate::dialog::Host for DialogWindow {
+    fn show(&self, _: Option<gpui::Bounds<gpui::Pixels>>) {}
+    fn hide(&self) {}
+}
+
+/// The dialog's window, and how many times Restart restarted.
+fn updating(cx: &mut gpui::TestAppContext) -> std::rc::Rc<std::cell::Cell<usize>> {
+    cx.update(|cx| crate::dialog::open(std::rc::Rc::new(DialogWindow), cx)).expect("no dialog");
+    let restarts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = restarts.clone();
+    cx.update(|cx| on_restart(move |_| counted.set(counted.get() + 1), cx));
+    restarts
+}
+
+/// Chooses the dialog's button `label`, and lets the dialog go, after which its action runs.
+fn choose(label: &str, cx: &mut gpui::TestAppContext) -> bool {
+    let chosen = cx.update(|cx| crate::dialog::choose(label, cx));
+    cx.executor().advance_clock(std::time::Duration::from_secs(1));
+    cx.run_until_parked();
+    chosen
+}
+
+fn asking(cx: &mut gpui::TestAppContext) -> bool {
+    cx.run_until_parked();
+    cx.update(|cx| crate::dialog::asking(cx))
+}
+
+// Installing asks nothing; the build being in offers the restart, whose Restart starts it.
+#[gpui::test]
+fn a_build_installed_offers_a_restart_into_it(cx: &mut gpui::TestAppContext) {
+    let restarts = updating(cx);
+    cx.update(|cx| changed(State::Installing, cx));
+    assert!(!asking(cx), "nothing to restart into yet");
+    cx.update(|cx| changed(State::Ready, cx));
+    assert!(asking(cx), "no offer to restart");
+    assert!(choose("Restart", cx));
+    assert_eq!(restarts.get(), 1);
+    assert!(!asking(cx));
+}
+
+// Later leaves the build for the next launch, and Check for Updates… offers the restart again.
+#[gpui::test]
+fn later_leaves_the_restart_to_check_for_updates(cx: &mut gpui::TestAppContext) {
+    let restarts = updating(cx);
+    cx.update(|cx| changed(State::Ready, cx));
+    assert!(choose("Later", cx));
+    assert_eq!(restarts.get(), 0);
+    cx.update(check);
+    assert!(asking(cx), "Check for Updates… didn't offer the restart");
+    assert!(choose("Restart", cx));
+    assert_eq!(restarts.get(), 1);
+}
+
+// Short of a build that's in, Check for Updates… only tells, with OK, which restarts nothing.
+#[gpui::test]
+fn check_for_updates_tells_where_the_update_stands(cx: &mut gpui::TestAppContext) {
+    let restarts = updating(cx);
+    for state in [State::Current, State::Installing, State::Failed("No network".into())] {
+        cx.update(|cx| changed(state.clone(), cx));
+        assert!(!asking(cx), "{state:?} asked unprompted");
+        cx.update(check);
+        assert!(asking(cx), "Check for Updates… said nothing at {state:?}");
+        assert!(!choose("Restart", cx));
+        assert!(choose("OK", cx));
+    }
+    assert_eq!(restarts.get(), 0);
+}
+
+#[test]
+fn what_check_for_updates_says() {
+    let said = |state: Option<&State>| {
+        let question = question(state);
+        let words = [question.message, question.detail, question.action, question.cancel];
+        words.map(|word| word.to_string())
+    };
+    let name = env!("APP_NAME");
+    let looking = format!("{name} looks for one every half hour while it’s open.");
+    assert_eq!(said(None), ["No update yet", &looking, "", "OK"]);
+    assert_eq!(said(Some(&State::Current)), said(None));
+    let installing = "It will offer to restart once the new version is in.";
+    let updating = format!("{name} is updating");
+    assert_eq!(said(Some(&State::Installing)), [&updating, installing, "", "OK"]);
+    // A portal that never answered says so, rather than that it's looking.
+    let failed = State::Failed("Flatpak’s portal didn’t answer: no bus".into());
+    assert_eq!(
+        said(Some(&failed)),
+        [&format!("{name} couldn’t update"), "Flatpak’s portal didn’t answer: no bus", "", "OK"]
+    );
+    let ready = format!("A new version of {name} is ready");
+    let restart = format!("Restart {name} to use it.");
+    assert_eq!(said(Some(&State::Ready)), [&ready, &restart, "Restart", "Later"]);
+}

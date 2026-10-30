@@ -76,8 +76,8 @@ pub trait Browser {
     /// Opens a tab loading `url` in a split view with `with`, at its left end if `left`, else its
     /// right end, stacking a new split if `stacked`, and shows it there.
     fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, cx: &mut App);
-    /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
-    /// hides it.
+    /// Shows the window over the page that draws `Shell::over_page`, drawing it again, or hides
+    /// it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
@@ -255,6 +255,9 @@ pub trait Browser {
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);
+    /// Opens Chrome's Clear browsing data dialog in a tab of the Space shown, for its profile. The
+    /// user's, as site_search_settings is.
+    fn clear_browsing_data(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
@@ -539,6 +542,12 @@ pub trait Browser {
     fn shortcuts(&self, cx: &mut App);
     /// Opens the Settings window on its About tab.
     fn about(&self, cx: &mut App);
+    /// Whether this build updates itself: a release with its updater, or on Linux the Flatpak.
+    fn updates(&self) -> bool {
+        false
+    }
+    /// Check for Updates…: asks the updater to look, or says where the update stands.
+    fn check_for_updates(&self, _: &mut App) {}
     /// Opens the Settings window on its Import tab.
     fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.

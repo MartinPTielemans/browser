@@ -20,6 +20,7 @@
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/autofill_data.h"
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
@@ -57,12 +58,16 @@
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "components/autofill/core/common/autofill_prefs.h"
+#include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/tabs/public/tab_interface.h"
 #include "components/zoom/page_zoom.h"
 #include "components/zoom/zoom_controller.h"
@@ -251,6 +256,14 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 #endif
 }
 
+bool bc_window_keyboard_in_child(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  return browser_core::platform::KeyboardInChild(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
 bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
@@ -261,6 +274,22 @@ bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
   }
   *frame = {static_cast<double>(ring->x()), static_cast<double>(ring->y()),
             static_cast<double>(ring->width()), static_cast<double>(ring->height())};
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool bc_window_dialog(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> dialog =
+      widget ? browser_core::platform::DialogFrame(widget) : std::nullopt;
+  if (!dialog) {
+    return false;
+  }
+  *frame = {static_cast<double>(dialog->x()), static_cast<double>(dialog->y()),
+            static_cast<double>(dialog->width()), static_cast<double>(dialog->height())};
   return true;
 #else
   return false;
@@ -617,6 +646,88 @@ bc_id bc_profile_create(const char* name) {
 
 bool bc_profile_delete(bc_id profile) {
   return browser_core::DeleteProfile(profile);
+}
+
+size_t bc_profile_download_folder(bc_id profile_id, char* path, size_t capacity) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  return CopyString(
+      profile ? DownloadPrefs::FromBrowserContext(profile)->DownloadPath().AsUTF8Unsafe() : "",
+      path, capacity);
+}
+
+bool bc_profile_set_download_folder(bc_id profile_id, const char* path) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  const base::FilePath folder = base::FilePath::FromUTF8Unsafe(path ? path : "");
+  if (!profile || !folder.IsAbsolute()) {
+    return false;
+  }
+  DownloadPrefs* prefs = DownloadPrefs::FromBrowserContext(profile);
+  if (prefs->IsDownloadPathManaged()) {
+    return false;
+  }
+  // As Chrome's Location setting, which sets where Save Page As starts too.
+  prefs->SetDownloadPath(folder);
+  return true;
+}
+
+// The pref of a BC_SAVE_ value, or null.
+static const char* OfferPref(int what) {
+  switch (what) {
+    case BC_SAVE_PASSWORDS:
+      return password_manager::prefs::kCredentialsEnableService;
+    case BC_SAVE_ADDRESSES:
+      return autofill::prefs::kAutofillProfileEnabled;
+    case BC_SAVE_CARDS:
+      return autofill::prefs::kAutofillCreditCardEnabled;
+  }
+  return nullptr;
+}
+
+bool bc_profile_offers_to_save(bc_id profile_id, int what, bool* offers) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  const char* pref = OfferPref(what);
+  if (!profile || !pref || !offers) {
+    return false;
+  }
+  *offers = profile->GetPrefs()->GetBoolean(pref);
+  return true;
+}
+
+bool bc_profile_set_offers_to_save(bc_id profile_id, int what, bool offer) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  PrefService* prefs = profile ? profile->GetPrefs() : nullptr;
+  const char* pref = OfferPref(what);
+  if (!prefs || !pref || !prefs->IsUserModifiablePreference(pref)) {
+    return false;
+  }
+  prefs->SetBoolean(pref, offer);
+  return true;
+}
+
+size_t bc_profile_search_engines(bc_id profile, char* engines, size_t capacity) {
+  return CopyString(browser_core::DefaultEngineChoices(browser_core::ProfileOrLoad(profile)),
+                    engines, capacity);
+}
+
+size_t bc_profile_search_engine(bc_id profile, char* keyword, size_t capacity) {
+  return CopyString(
+      base::UTF16ToUTF8(browser_core::DefaultEngine(browser_core::ProfileOrLoad(profile))),
+      keyword, capacity);
+}
+
+bool bc_profile_set_search_engine(bc_id profile, const char* keyword) {
+  return keyword && browser_core::SetDefaultEngine(browser_core::ProfileOrLoad(profile),
+                                                   base::UTF8ToUTF16(keyword));
+}
+
+double bc_profile_archive_after(bc_id profile_id) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  return profile ? browser_core::ProfileArchiveAfter(profile).InSecondsF() : 0;
+}
+
+bool bc_profile_set_archive_after(bc_id profile, double seconds) {
+  return seconds > 0 && browser_core::SetProfileArchiveAfter(browser_core::ProfileOrLoad(profile),
+                                                              base::Seconds(seconds));
 }
 
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
@@ -1251,14 +1362,25 @@ bc_id bc_tab_open(bc_id window_id, const char* url, bool when_shown) {
   return tab;
 }
 
-size_t bc_typed_url(const char* text, char* url, size_t capacity) {
-  Profile* profile = browser_core::StartProfile();
+// The profile |window_id| shows, else the one the core started with.
+static Profile* SearchProfile(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  Profile* profile = window ? ProfileOf(*window) : nullptr;
+  return profile ? profile : browser_core::StartProfile();
+}
+
+size_t bc_typed_url(bc_id window, const char* text, char* url, size_t capacity) {
+  Profile* profile = SearchProfile(window);
   const GURL typed = profile && text ? browser_core::TypedUrl(profile, text) : GURL();
   return typed.is_valid() ? CopyString(typed.spec(), url, capacity) : 0;
 }
 
-size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity) {
-  Profile* profile = browser_core::StartProfile();
+size_t bc_search_url(bc_id window,
+                     const char* keyword,
+                     const char* text,
+                     char* url,
+                     size_t capacity) {
+  Profile* profile = SearchProfile(window);
   const std::u16string engine = keyword ? base::UTF8ToUTF16(keyword) : std::u16string();
   const GURL search = profile && text ? browser_core::SearchUrl(profile, engine, text) : GURL();
   return search.is_valid() ? CopyString(search.spec(), url, capacity) : 0;
@@ -1586,6 +1708,14 @@ void bc_profile_read_logins(bc_id profile) {
 
 void bc_profile_remove_login(bc_id profile, const char* key, const char* username, bool never) {
   browser_core::Passwords::Remove(profile, key ? key : "", username ? username : "", never);
+}
+
+void bc_profile_read_autofill(bc_id profile) {
+  browser_core::autofill_data::Read(profile);
+}
+
+void bc_profile_remove_autofill(bc_id profile, const char* key) {
+  browser_core::autofill_data::Remove(profile, key ? key : "");
 }
 
 bool bc_profile_import_passwords(bc_id profile, const char* path) {

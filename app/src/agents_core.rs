@@ -167,7 +167,8 @@ impl Browser for Core {
     }
 
     fn url_for(&self, text: &str) -> Option<String> {
-        crate::url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
+        // Searches with the engine of the profile the core started with, as no window is asked.
+        crate::url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(0, text, url, capacity) })
     }
 
     fn ask(&self, question: Option<Question>, cx: &mut App) {

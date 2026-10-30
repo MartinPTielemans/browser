@@ -31,7 +31,8 @@
 //! active <0|1>, marked <none|start,length>" once Chromium and GPUI have handled its events, with
 //! what the UI's field with the keys has marked. The window and view
 //! are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is
-//! BrowserCoreNSWindow for a browser window and GPUIPanel for an overlay, and focus
+//! BrowserCoreNSWindow for a browser window, GPUIPanel for an overlay and NativeWidgetMacNSWindow for
+//! a window of Chromium's, such as an extension's popup or a tab's dialog, and focus
 //! RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the UI and GPUIView for an
 //! overlay's. Active is whether the input focus is in one of the app's windows.
 
@@ -387,6 +388,9 @@ fn keyboard() -> (&'static str, &'static str, bool) {
         Some(Keyboard::Overlay(_)) => ("GPUIPanel", "GPUIView", true),
         Some(Keyboard::Settings(..)) => ("GPUIWindow", "GPUIView", true),
         Some(Keyboard::Browser(browser, _)) => {
+            if unsafe { bc::bc_window_keyboard_in_child(browser.id) } {
+                return ("NativeWidgetMacNSWindow", "RenderWidgetHostViewCocoa", true);
+            }
             match unsafe { bc::bc_window_keyboard_is_ui(browser.id) } {
                 true => ("BrowserCoreNSWindow", "AccessKitSubclassOfGPUIView", true),
                 false => ("BrowserCoreNSWindow", "RenderWidgetHostViewCocoa", true),
@@ -946,6 +950,15 @@ fn ring(id: bc::bc_id, height: f64) -> Option<String> {
     Some(format!(", BrowserCoreFocusRing {x:.0},{y:.0} {width:.0}x{high:.0}"))
 }
 
+/// A tab's dialog over `id`, such as print preview, from the content's top-left corner, and its
+/// size, as the Mac's driver lists a child window.
+fn dialog(id: bc::bc_id) -> Option<String> {
+    let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+    unsafe { bc::bc_window_dialog(id, &mut frame) }.then_some(())?;
+    let bc::bc_rect { x, y, width, height } = frame;
+    Some(format!("{x:.0},{y:.0} {width:.0}x{height:.0}"))
+}
+
 /// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
 /// the Mac's driver gives AppKit's, or "hidden" for each.
 fn buttons(id: bc::bc_id) -> Option<String> {
@@ -1406,9 +1419,10 @@ fn run_command(line: &str) -> Option<()> {
             Some(())
         }
         // The window's content and the views the X server has in it: GPUI's, and the overlays
-        // and floats over it, as the Mac's lists its child windows. The floats, such as the zoom
-        // HUD, take no input, so they're left out of overlay_views. shortcut: the pages are aura
-        // windows in Chromium's window, which the X server doesn't see, so they aren't listed.
+        // and floats over it, with a tab's dialog, which the core reports, as the Mac's lists its
+        // child windows. The floats, such as the zoom HUD, take no input, so they're left out of
+        // overlay_views. shortcut: the pages are aura windows in Chromium's window, which the X
+        // server doesn't see, so they aren't listed.
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
@@ -1418,6 +1432,9 @@ fn run_command(line: &str) -> Option<()> {
                 "browser: layout content {width:.0}x{height:.0}, GPUIView 0,0 {width:.0}x{height:.0}{pages}{ring}"
             );
             log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
+            if let Some(dialog) = dialog(browser.id) {
+                log!("browser: layout child {dialog}");
+            }
             let [left, top, ..] = frame(browser.window)?;
             let views = overlay_views().into_iter().map(|view| view as usize as u32);
             for view in views.chain(popups(browser.window).unwrap_or_default()) {
