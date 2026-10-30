@@ -349,6 +349,10 @@ none_since '^browser: recent downloads hidden$' ||
 ../tools/window-screenshot.sh "$pid" "$out/recent-downloads.png" || fail "no window to capture"
 send move $page_point
 expect '^browser: recent downloads hidden$' "the recent downloads stayed after the pointer left"
+# A finished download's menu, with Chrome's word off the Mac for the file manager there.
+file_manager=Finder
+[ "$(uname)" = Darwin ] || file_manager=Folder
+finished_menu=$(cased "Open, Show in $file_manager, Move to Trash, Remove from List, Clear List")
 # Remove from List in the cancelled download's menu takes it off the list, and Clear List in the
 # finished one's takes off every download that isn't running and keeps their files.
 send key j cmd shift
@@ -362,7 +366,7 @@ send choose "$(cased 'Remove from List')"
 expect "^browser: download $s Remove via download menu\$" "Remove from List didn't reach it"
 expect "^browser: downloads $((listed - 1))\$" "Remove from List didn't take the download off"
 post rightclick 300 111
-expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
+expect "^browser: menu shown $finished_menu\$" \
   "a right-click on the finished download's row didn't show its menu"
 send choose "$(cased 'Clear List')"
 expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
@@ -409,7 +413,7 @@ send move 24 $((height - 25))
 expect '^browser: recent downloads shown 1$' \
   "resting on the Library button didn't show the second download"
 post rightclick 120 $((height - 78))
-expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
+expect "^browser: menu shown $finished_menu\$" \
   "a right-click on the recent download's row didn't show its menu"
 send choose "$(cased 'Move to Trash')"
 expect "^browser: download $t Trash via download menu\$" "Move to Trash didn't reach the download"
