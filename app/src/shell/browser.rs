@@ -245,9 +245,9 @@ pub trait Browser {
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
-    /// Makes an empty Space named `name` after the others, in `profile` if it isn't 0, and returns
-    /// it.
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64;
+    /// Makes an empty Space named `name` right after `after`, else after the others, in `profile`
+    /// if it isn't 0, and returns it.
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
     /// title for an empty one.
@@ -269,6 +269,8 @@ pub trait Browser {
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.
     fn create_profile(&self, name: &str, cx: &mut App) -> u64;
+    /// Names `profile` `name`.
+    fn rename_profile(&self, profile: u64, name: &str, cx: &mut App);
     /// What the import view (crate::import) reads and adds through, for the first launch's step.
     fn import_host(&self) -> Rc<dyn crate::import::Host>;
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
@@ -299,12 +301,13 @@ pub trait Browser {
         confirmed: Box<dyn FnOnce(&mut App)>,
         cx: &mut App,
     );
-    /// Asks `question` in the browser's dialog, and calls `confirmed` if the user chooses its
-    /// action, once the dialog has gone. Returns whether it asks: not while it asks another.
+    /// Asks `question` in the browser's dialog, and calls `confirmed` with what its fields hold if
+    /// the user chooses its action, once the dialog has gone. Returns whether it asks: not while it
+    /// asks another.
     fn tell(
         &self,
         question: crate::dialog::Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         cx: &mut App,
     ) -> bool;
     /// Gives the UI the keyboard, from the page if the page has it.
@@ -492,7 +495,8 @@ pub trait Browser {
     );
     /// Starts capture mode over the tab's page, at `frame` in the window with corners of `radius`,
     /// or leaves it if it's on; or with `full_page` captures all of the page and copies it. Its
-    /// menu offers Save to Library with `library`, as a private window has no Library.
+    /// menu offers Save to Library with `library`, as a private window has no Library, and it
+    /// draws in the window's menus' `look`.
     fn capture(
         &self,
         tab: u64,
@@ -500,6 +504,7 @@ pub trait Browser {
         radius: f32,
         full_page: bool,
         library: bool,
+        look: crate::menu::Look,
         cx: &mut App,
     );
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers

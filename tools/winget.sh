@@ -31,7 +31,9 @@ case $url in
 https://*) ;;
 *) fail "winget downloads the installer over https, not $url." ;;
 esac
-sha256=$(sha256sum "$installer" | cut -d' ' -f1)
+# From stdin: given a Windows path, as RUNNER_TEMP is in Git Bash, sha256sum escapes its
+# backslashes and marks the line with a leading one.
+sha256=$(sha256sum <"$installer" | cut -d' ' -f1)
 
 dir=$3/manifests/$(echo "${id:0:1}" | tr '[:upper:]' '[:lower:]')/${id//.//}/$version
 mkdir -p "$dir"

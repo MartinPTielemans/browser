@@ -939,9 +939,10 @@ BC_EXPORT void bc_window_set_title(bc_id window, const char* title);
 // takes the user's focus.
 BC_EXPORT void bc_window_activate(bc_id window);
 
-// Makes an empty Space named |name|, in the profile the core started with, after the others. Any
-// window can show it. It's the user's. Then spaces_changed.
-BC_EXPORT bc_id bc_space_create(const char* name);
+// Makes an empty Space named |name|, in the profile the core started with, right after the Space
+// |after|, as Arc puts a new Space after the one shown, or after the others if |after| is 0 or
+// gone. Any window can show it. It's the user's. Then spaces_changed.
+BC_EXPORT bc_id bc_space_create(const char* name, bc_id after);
 
 // A Space is the user's or an agent's, from when it's made for as long as it lives, and saved with
 // it (decision 8). An agent is an AI client, such as Claude Code, driving the browser through the
@@ -1465,6 +1466,14 @@ BC_EXPORT void bc_set_appearance(int appearance);
 // Spaces.
 BC_EXPORT bool bc_warn_before_quitting(void);
 BC_EXPORT void bc_set_warn_before_quitting(bool warn);
+// Whether a launch brings back the windows open when the browser last quit, each Space's Today
+// tabs and the tab each showed, as the user chose. Else it opens one window where the front one
+// was, out of full screen, showing the Space it showed with no tab, as a new window does, and the
+// Today tabs go in the archive. The Spaces, their folders and pinned tabs and the favorites come
+// back either way. The core keeps it with the Spaces, and reads it before bc_saved_window_frames
+// and bc_window_restore.
+BC_EXPORT bool bc_restore_windows(void);
+BC_EXPORT void bc_set_restore_windows(bool restore);
 // Whether a link to another site clicked in a pinned tab or a favorite opens in a link preview
 // (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
 BC_EXPORT bool bc_link_previews(void);

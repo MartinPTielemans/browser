@@ -64,9 +64,9 @@ expect '^browser: capture element at [0-9.]* [0-9.]*: 300 200 200 100$' \
 send click $(in_page 400 250)
 expect '^browser: capture chose 300 200 200 100$' "a click on the box didn't take it"
 ../tools/window-screenshot.sh "$pid" "$out/capture-chosen.png" || fail "no window to capture"
-# The menu is 10 in from the ring's left, level with its top; Copy is its second row, 90 to 130
-# down, under Save to Library.
-send click $(in_page 442 306)
+# The menu is 10 in from the ring's left, level with its top; Copy is its second row, 61 to 85
+# down, under Send To…, a line and Save to Library.
+send click $(in_page 442 269)
 expect '^browser: capture run copy$' "the menu's Copy didn't run"
 expect '^browser: tab [0-9]* captured [0-9]*: [0-9]*x[0-9]*, [0-9]* bytes$' \
   "Copy didn't get a picture of the box"
@@ -85,14 +85,14 @@ expect '^browser: capture hidden$' "capture mode's window didn't hide after Copy
 send state
 in_browser RenderWidgetHostViewCocoa "after Copy"
 
-# Save to Library, 50 to 90 down, saves the box's picture without a question and says so.
+# Save to Library, 37 to 61 down, saves the box's picture without a question and says so.
 capture_mode page
 send move $(in_page 400 250)
 expect '^browser: capture element at [0-9.]* [0-9.]*: 300 200 200 100$' \
   "the pointer over the box didn't light it the second time"
 send click $(in_page 400 250)
 expect '^browser: capture chose 300 200 200 100$' "a second click on the box didn't take it"
-send click $(in_page 442 266)
+send click $(in_page 442 245)
 expect '^browser: capture run save-to-library$' "the menu's Save to Library didn't run"
 expect '^browser: capture left (save-to-library)$' "capture mode didn't leave after Save to Library"
 expect '^browser: toast shown Saved to Library$' "Save to Library didn't say so"
@@ -157,6 +157,40 @@ expect '^browser: capture left (toggle)$' "a second ⇧⌘2 didn't leave capture
 send state
 in_browser RenderWidgetHostViewCocoa "after a second ⇧⌘2"
 
+# Capture mode's pill and menu are ilo's menu's panel in the window's look, the ring and a
+# highlighted row its Space's accent: captured in the look the window has and then in the other,
+# as capture-pill-light.png, capture-menu-light.png and their dark pair.
+tone() {
+  case "$(grep '^browser: window light ' "$log" | tail -1)" in
+    *true) echo light ;;
+    *) echo dark ;;
+  esac
+}
+capture_look() {
+  capture_mode page
+  expect "^browser: capture pill drawn $1\$" "capture mode's pill didn't draw in the $1 look"
+  send move $(in_page 400 250)
+  expect '^browser: capture element at [0-9.]* [0-9.]*: 300 200 200 100$' \
+    "the pointer over the box didn't light it in the $1 look"
+  ../tools/window-screenshot.sh "$pid" "$out/capture-pill-$1.png" || fail "no window to capture"
+  send click $(in_page 400 250)
+  expect '^browser: capture chose 300 200 200 100$' \
+    "a click on the box didn't take it in the $1 look"
+  expect "^browser: capture menu drawn $1\$" "capture's menu didn't draw in the $1 look"
+  ../tools/window-screenshot.sh "$pid" "$out/capture-menu-$1.png" || fail "no window to capture"
+  send key escape
+  expect '^browser: capture left (escape)$' "escape didn't leave capture mode in the $1 look"
+}
+was=$(tone)
+capture_look "$was"
+if [ "$was" = light ]; then other=Dark light=false; else other=Light light=true; fi
+send menu "$(cased "Appearance › $other")"
+expect "^browser: window light $light\$" "View › Appearance › $other didn't change its look"
+capture_look "$(tone)"
+send menu "$(cased 'Appearance › Automatic')"
+expect "^browser: window light $([ "$was" = light ] && echo true || echo false)\$" \
+  "View › Appearance › Automatic didn't give the window its look back"
+
 # The whole page, beyond its view: at least its 6000 points high.
 send menu "Capture Full Page"
 expect '^browser: command capture-full-page via ui$' "File › Capture Full Page didn't run"
@@ -176,4 +210,5 @@ exec 3>&-
 quit
 echo "ok: capture. The box's picture is $size, the full page's $full." \
   "Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png," \
-  "$out/library-media.png, $out/media-menu.png"
+  "$out/library-media.png, $out/media-menu.png, $out/capture-pill-light.png," \
+  "$out/capture-menu-light.png, $out/capture-pill-dark.png, $out/capture-menu-dark.png"

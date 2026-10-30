@@ -9,13 +9,17 @@
 // HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's, the Site
 // Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's, Settings is
 // settings_window.rs's, as GPUI's Linux platform shows them, the shadows under the overlays and the
-// Site Controls are shadows.rs's, and the window buttons, which the UI draws, are window_buttons.rs's.
+// Site Controls are shadows.rs's, the window buttons, which the UI draws, are window_buttons.rs's,
+// and a download's preview is previews.rs's.
 
 #include "../host.h"
 
 #include <ctype.h>
 #include <errno.h>
+#include <langinfo.h>
+#include <locale.h>
 #include <spawn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -222,6 +226,22 @@ std::string DefaultFor(const std::string& type) {
   return "";
 }
 
+// The day the user's weeks start on, as tm_wday counts from Sunday: their LC_TIME locale's, read
+// from glibc as GTK's calendar reads it, a day counted from an origin day, 1 being the origin.
+// Monday where the locale can't be loaded, as most have it.
+int FirstWeekday() {
+  locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
+  if (!locale) {
+    return 1;
+  }
+  // The origin is a date in a number: 1997-11-30, a Sunday, or 1997-12-01, a Monday.
+  const auto origin = static_cast<uint32_t>(
+      reinterpret_cast<uintptr_t>(nl_langinfo_l(_NL_TIME_WEEK_1STDAY, locale)));
+  const int first = nl_langinfo_l(_NL_TIME_FIRST_WEEKDAY, locale)[0];
+  freelocale(locale);
+  return ((origin == 19971201 ? 1 : 0) + first - 1) % 7;
+}
+
 }  // namespace
 
 extern "C" {
@@ -359,8 +379,8 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   g_key_window_changed = changed;
 }
 
-// shortcut: nothing says when the browser window goes full screen, as the window manager's own
-// shortcut does it, and only Chromium's window hears it; the core's widget would report it.
+// The window's bounds change as it goes full screen or comes back, by the window manager's own
+// shortcut too, and the UI asks the core then (Shell::bounds_changed), so nothing watches here.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
 // GPUI's Wayland client hands the app the touchpad's three-finger swipes over the page
@@ -411,10 +431,6 @@ void host_window_closed(void* ui_view) {
   if (ActiveWindows().erase(ui_view)) {
     CheckAppActive();
   }
-}
-
-bool host_can_draw_emoji(const char*) {
-  return true;
 }
 
 // Under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own, and under
@@ -468,6 +484,8 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   return -1;
 }
 
+// Chrome's own windows, such as its Task Manager, take Ctrl+W themselves, which closes them:
+// with no menu bar taking a key for every window, as the Mac's does, the UI never gets theirs.
 bool host_close_other_window(void) {
   return false;
 }
@@ -497,14 +515,9 @@ bool host_trash(const char* path) {
   return access(path, F_OK) != 0 && errno == ENOENT;
 }
 
-// shortcut: no file previews yet; the downloads list shows its generic icon.
-void host_file_preview(const char*,
-                       uint64_t id,
-                       void (*done)(uint64_t, const uint8_t*, size_t, double, double, bool)) {
-  Later([done, id] { done(id, nullptr, 0, 0, 0, false); });
-}
-
-// shortcut: no video playback yet; Media's video tiles show their icon.
+// shortcut: no video playback yet; Media's video tiles show their icon. When they play, it's to be
+// through Chromium's own decoder in the core, not a system library such as GStreamer, whose
+// codecs vary by distribution.
 void* host_video_open(const char*, int) {
   return nullptr;
 }
@@ -535,8 +548,7 @@ void host_day_starts(double starts[4]) {
   today.tm_isdst = -1;
   tm yesterday = today;
   yesterday.tm_mday -= 1;
-  // shortcut: weeks start on Monday, as most locales have it; the locale's own isn't read yet.
-  const int first_day = 1;  // As tm_wday counts, from Sunday.
+  const int first_day = FirstWeekday();
   tm week = today;
   week.tm_mday -= (today.tm_wday - first_day + 7) % 7;
   tm last_week = week;

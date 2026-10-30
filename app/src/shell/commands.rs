@@ -124,12 +124,20 @@ pub enum Command {
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
+    /// Opens the theme picker for the Space shown, as its menu's Edit Theme Color… does.
+    EditTheme,
     /// Saves the Space shown's pinned tabs, folders and Today tabs as Markdown links.
     ExportSpace,
     /// Puts the Space shown in this profile, or with none in a new one.
     ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
     SelectSpace(usize),
+    /// Moves the tab shown to this Space, as the tab menu's Move to does.
+    MoveToSpace(u64),
+    /// Pins the tab shown and moves it to this Space, at the bottom of its pinned tabs.
+    PinToSpace(u64),
+    /// Opens this folder of the Space shown, with the folders it's in, and scrolls to it.
+    OpenFolder(u64),
     NextSpace,
     PreviousSpace,
     /// Hides the docked sidebar, or shows it.
@@ -338,9 +346,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
-    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "theme"]),
-    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "theme"]),
-    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "theme"]),
+    ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "app theme"]),
+    ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "app theme"]),
+    ("Dark Appearance", Command::Appearance(Appearance::Dark), &["dark mode", "app theme"]),
     (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
     ("Capture…", Command::CapturePortion, &["screenshot"]),
     ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
@@ -355,6 +363,9 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
+    // Arc's bar's name, where its Space menu says Edit Theme Color…. "theme" finds it before the
+    // Appearance rows, whose "app theme" it finds as a later word.
+    ("Edit Theme…", Command::EditTheme, &["theme", "color", "colour"]),
     ("Export Space as Markdown…", Command::ExportSpace, &["save", "links", "backup"]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
     ("Next Space", Command::NextSpace, &[]),
@@ -429,7 +440,9 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
         return Vec::new();
     };
     let shell = shell.read(cx);
-    find_commands(typed, user_keys(cx), |name, command| shell.bar_name(name, command))
+    let keys = user_keys(cx);
+    let found = find_commands(typed, keys, |name, command| shell.bar_name(name, command));
+    with_named_rows(found, typed, &shell.named_bar_rows(), keys)
 }
 
 /// The commands of BAR_COMMANDS that match `typed`, best first and then in the table's order, at
@@ -442,16 +455,47 @@ pub fn find_commands(
     mut named: impl FnMut(&'static str, Command) -> Option<&'static str>,
 ) -> Vec<BarCommand> {
     let typed = typed.trim().to_lowercase();
-    let mut found: Vec<(Match, &'static str, Command)> = (BAR_COMMANDS.iter())
+    let found = (BAR_COMMANDS.iter())
         .zip(LOWERCASE_NAMES.iter())
         .filter_map(|(&(name, command, keywords), lowercase)| {
             let matched = match typed.is_empty() {
                 true => Match::Letters,
                 false => match_of(lowercase, keywords, &typed)?,
             };
-            Some((matched, named(name, command)?, command))
+            Some((matched, SharedString::from(named(name, command)?), command))
         })
         .collect();
+    ranked(found, &typed, keys)
+}
+
+/// `found` with the rows of `rows` that match `typed`, each a row's name, what it's for, which
+/// finds it as a hidden word does, and its command, ranked as `find_commands` ranks. None with
+/// nothing typed, so the commands-only list starts with the table's commands alone (ours).
+pub fn with_named_rows(
+    found: Vec<BarCommand>,
+    typed: &str,
+    rows: &[(SharedString, SharedString, Command)],
+    keys: &UserKeys,
+) -> Vec<BarCommand> {
+    let typed = typed.trim().to_lowercase();
+    if typed.is_empty() {
+        return found;
+    }
+    let found = found.into_iter().map(|row| (row.matched, row.name, row.command));
+    let named = rows.iter().filter_map(|(name, of, command)| {
+        let of = of.to_lowercase();
+        let matched = match_of(&name.to_lowercase(), &[of.as_str()], &typed)?;
+        Some((matched, name.clone(), *command))
+    });
+    ranked(found.chain(named).collect(), &typed, keys)
+}
+
+/// `found` best first, equals in their order, at most BAR_ROWS unless nothing is `typed`.
+fn ranked(
+    mut found: Vec<(Match, SharedString, Command)>,
+    typed: &str,
+    keys: &UserKeys,
+) -> Vec<BarCommand> {
     // Stable, so equals keep the table's order.
     found.sort_by_key(|&(matched, ..)| std::cmp::Reverse(matched));
     if !typed.is_empty() {
@@ -459,7 +503,7 @@ pub fn find_commands(
     }
     (found.into_iter())
         .map(|(matched, name, command)| BarCommand {
-            name: name.into(),
+            name,
             command,
             shortcut: keys.label(command).map(Into::into),
             matched,
@@ -598,7 +642,16 @@ impl Command {
         )
     }
 
-    /// The command's name in the log and in the user's saved keys.
+    /// The command's name as Settings knows it, in the user's saved keys and the lines it logs:
+    /// its name, with the number of a Space's, as each of ⌃1–⌃9 has keys of its own.
+    pub fn key_name(self) -> String {
+        match self {
+            Command::SelectSpace(index) => format!("select-space-{}", index + 1),
+            _ => self.name().to_string(),
+        }
+    }
+
+    /// The command's name in the log.
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
@@ -658,9 +711,13 @@ impl Command {
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
+            Command::EditTheme => "edit-theme",
             Command::ExportSpace => "export-space",
             Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
+            Command::MoveToSpace(_) => "move-to-space",
+            Command::PinToSpace(_) => "pin-to-space",
+            Command::OpenFolder(_) => "open-folder",
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
             Command::ToggleSidebar => "toggle-sidebar",
@@ -978,9 +1035,18 @@ impl Shell {
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
+            Command::EditTheme => return self.edit_space_theme(self.space, cx),
             Command::ExportSpace => return self.export_space(self.space, cx),
             Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
+            Command::MoveToSpace(space) | Command::PinToSpace(space) => {
+                let pin = matches!(command, Command::PinToSpace(_));
+                if self.selected != 0 {
+                    self.move_to_space(self.selected, space, pin, cx);
+                }
+                return;
+            }
+            Command::OpenFolder(folder) => return self.open_folder(folder, cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
             Command::PreviousSpace => {
                 return self.show_space_at(space.and_then(|index| index.checked_sub(1)), cx);
@@ -1205,7 +1271,8 @@ impl Shell {
         let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
         let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
         let pane = pane_frames(frame, panes.len(), stacked, &shares)[focused];
-        self.browser.capture(self.selected, pane, radius, full_page, !self.private, cx);
+        let look = self.menu_look();
+        self.browser.capture(self.selected, pane, radius, full_page, !self.private, look, cx);
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.
@@ -1257,6 +1324,7 @@ impl Shell {
             | Command::ToggleSidebar
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
             | Command::ExportSpace
             | Command::ViewLibrary
             | Command::ViewArchive
@@ -1312,6 +1380,42 @@ impl Shell {
     }
 }
 
+impl Shell {
+    /// The command bar's rows for the Spaces and the folders, each with what it's for and its
+    /// command, as Arc's bar has them: Focus for each other Space, then Pin to and Move to for
+    /// each other of the user's while a tab is shown, and Open for each closed folder of the Space
+    /// shown. A private window has one Space and no folders.
+    pub(super) fn named_bar_rows(&self) -> Vec<(SharedString, SharedString, Command)> {
+        if self.private {
+            return Vec::new();
+        }
+        let tab = self.selected != 0 && !self.favorites.contains(&self.selected);
+        let mut rows = Vec::new();
+        for (index, space) in self.spaces.iter().enumerate() {
+            if space.id == self.space {
+                continue;
+            }
+            let name = &space.name;
+            let mut row = |verb: &str, command| {
+                rows.push((format!("{verb} {name}").into(), name.clone(), command));
+            };
+            row("Focus", Command::SelectSpace(index));
+            if tab && space.agent.is_empty() {
+                row("Pin to", Command::PinToSpace(space.id));
+                row("Move to", Command::MoveToSpace(space.id));
+            }
+        }
+        if let Some(space) = self.shown_space() {
+            let shut = |row: &&u64| space.is_folder(**row) && !space.is_open(**row);
+            for &folder in space.pinned.iter().filter(shut) {
+                let name = space.folders.folders[&folder].0.clone();
+                rows.push((format!("Open {name}").into(), name, Command::OpenFolder(folder)));
+            }
+        }
+        rows
+    }
+}
+
 /// `space`'s pinned tabs, without its folders, and its Today tabs, in the sidebar's order.
 fn space_tabs(space: &Space) -> impl Iterator<Item = u64> + '_ {
     let pinned = space.pinned.iter().filter(|&&row| !space.is_folder(row));
@@ -1333,9 +1437,13 @@ fn private_runs(command: Command) -> bool {
             | Command::ResetSpaceTabs
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::EditTheme
             | Command::ExportSpace
             | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
+            | Command::MoveToSpace(_)
+            | Command::PinToSpace(_)
+            | Command::OpenFolder(_)
             | Command::NextSpace
             | Command::PreviousSpace
             | Command::ViewLibrary

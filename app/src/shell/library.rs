@@ -12,9 +12,8 @@ use std::{
 use gpui::{
     AnyElement, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight, Hsla,
     Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ObjectFit, Pixels, Point, RenderImage, SharedString, Stateful, Subscription, Window, canvas,
-    div, img,
-    linear_color_stop, linear_gradient, list,
+    ObjectFit, Pixels, Point, RenderImage, SharedString, Stateful, Subscription, WeakEntity, Window,
+    canvas, div, img, linear_color_stop, linear_gradient, list,
     prelude::*, px, relative, svg,
 };
 
@@ -24,6 +23,7 @@ use super::{
     NAV_RADIUS, NAV_SIZE, PLATE_INSET, SECONDARY, SEGMENT_FAVICON_X, Shell, Space, UNSELECTED_TITLE,
     clean_link, divider_box, favicon, folder_icon, host, SPACE_SWATCH_SHOWN, dashed_square,
     plate, row_box, space_icon_drawn, spring_to, split_plate, still_clear, title, Naming,
+    PLATE_HEIGHT, PLATE_RADIUS, selected_plate,
     header::TipSide, keystroke_label,
     display_face::{cap_top, display_text},
 };
@@ -112,6 +112,7 @@ use crate::tokens::shell::library::PLUS_GAP;
 use crate::tokens::shell::library::PLUS_SIZE;
 use crate::tokens::shell::library::PLUS_GLYPH;
 use crate::tokens::shell::library::PLUS_AFTER;
+use crate::tokens::shell::library::CARD_DROP_RING;
 
 use crate::tokens::shell::library::SEARCH_X;
 use crate::tokens::shell::library::SEARCH_TOP;
@@ -1135,6 +1136,9 @@ impl Shell {
     /// click shows the Space, and a right-click shows its menu.
     fn space_card(&self, space: &Space, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let id = space.id;
+        // An agent's Space keeps its tabs, and takes none, as the sidebar's drag leaves it.
+        let user = space.agent.is_empty();
+        let shell = cx.weak_entity();
         // The card is the Space's window, opaque, so it's drawn in the Space's own palette.
         let palette = self.palette_of(id);
         let underlay = Hsla::from(palette.underlay);
@@ -1159,7 +1163,19 @@ impl Shell {
                 let panes = space.panes(tab);
                 if panes.len() == 1 {
                     let label = title(&palette, self.title(tab), false).pr(px(PLATE_INSET));
-                    return card_row(depth, plate(self.tab_icon_in(&palette, tab), label));
+                    let plate = plate(self.tab_icon_in(&palette, tab), label);
+                    if !user {
+                        return card_row(depth, plate);
+                    }
+                    let dragged = CardTab { tab, space: id, depth };
+                    let shell = shell.clone();
+                    let plate = plate.id(("card-tab", tab)).on_drag(
+                        dragged,
+                        move |dragged, _, _, cx| {
+                            cx.new(|_| CardGhost { shell: shell.clone(), dragged: *dragged })
+                        },
+                    );
+                    return card_row(depth, plate);
                 }
                 let plate = CARD_WIDTH - 2. * PLATE_INSET - depth as f32 * FOLDER_INDENT;
                 let plate = plate - (FAVICON_X - PLATE_INSET - SEGMENT_FAVICON_X);
@@ -1188,14 +1204,25 @@ impl Shell {
                     shell.space_menu(id, event.position, cx)
                 }),
             )
+            .when(user, |card| {
+                card.on_drop(cx.listener(move |shell, dragged: &CardTab, _, cx| {
+                    shell.drop_on_card(*dragged, id, cx)
+                }))
+            })
             .group("space-card")
-            // Over the gradient and under the rows.
+            // Over the gradient and under the rows, ringed while another card's tab is over it.
             .child(
                 div()
                     .absolute()
                     .inset_0()
                     .rounded(px(CARD_RADIUS))
-                    .group_hover("space-card", |style| style.bg(palette.plate(STATE_HOVERED))),
+                    .group_hover("space-card", |style| style.bg(palette.plate(STATE_HOVERED)))
+                    .can_drop(move |dragged, _, _| {
+                        user && dragged.downcast_ref::<CardTab>().is_some_and(|d| d.space != id)
+                    })
+                    .group_drag_over::<CardTab>("space-card", |style| {
+                        style.border(px(CARD_DROP_RING)).border_color(palette.accent)
+                    }),
             )
             .child(field)
             .child(div().children(rows))
@@ -1361,6 +1388,35 @@ impl Shell {
     }
 
     /// Shows `space`, from its card, and closes the Library.
+    /// A tab's row dragged from one Space's card let go over `space`'s: the tab moves there, as
+    /// Move to moves it, pinned if it was, and the Library stays open over both cards.
+    fn drop_on_card(&mut self, dragged: CardTab, space: u64, cx: &mut Context<Self>) {
+        if dragged.space == space {
+            return;
+        }
+        // check.sh waits for this line.
+        log!("browser: library dragged {} to space {space}", dragged.tab);
+        self.move_to_space(dragged.tab, space, false, cx);
+    }
+
+    /// What follows the pointer while a card's tab is dragged: its row, lifted off the card.
+    fn card_ghost(&self, dragged: CardTab) -> AnyElement {
+        let CardTab { tab, space, depth } = dragged;
+        let palette = self.palette_of(space);
+        let behind = Hsla::from(self.space_color_at(space, 0.5, 0.));
+        let behind = Hsla::from(palette.underlay).blend(behind);
+        let label = title(&palette, self.title(tab), true).pr(px(PLATE_INSET));
+        let row = selected_plate(&palette, plate(self.tab_icon_in(&palette, tab), label), 1., 0.);
+        div()
+            .w(px(CARD_WIDTH - 2. * PLATE_INSET - depth as f32 * FOLDER_INDENT))
+            .h(px(PLATE_HEIGHT))
+            .rounded(px(PLATE_RADIUS))
+            .bg(behind)
+            .shadow(Level::Popover.shadow())
+            .child(row)
+            .into_any_element()
+    }
+
     fn pick_space(&mut self, space: u64, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: library space {space}");
@@ -2110,7 +2166,29 @@ fn bar_drawn(downloads: &[Download]) -> Option<u32> {
 }
 
 /// A row of a Space's card, `depth` folders in.
-fn card_row(depth: usize, plate: gpui::Div) -> AnyElement {
+/// A tab's row dragged from a Space's card in the Library: the tab, its Space and how deep in its
+/// folders it is.
+#[derive(Clone, Copy)]
+pub(super) struct CardTab {
+    tab: u64,
+    space: u64,
+    depth: usize,
+}
+
+/// The drag's view, which draws the row from the Shell as it is each frame.
+struct CardGhost {
+    shell: WeakEntity<Shell>,
+    dragged: CardTab,
+}
+
+impl Render for CardGhost {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let shell = self.shell.upgrade();
+        div().children(shell.map(|shell| shell.read(cx).card_ghost(self.dragged)))
+    }
+}
+
+fn card_row(depth: usize, plate: impl IntoElement) -> AnyElement {
     row_box().pl(px(PLATE_INSET + depth as f32 * FOLDER_INDENT)).child(plate).into_any_element()
 }
 
@@ -2184,6 +2262,8 @@ pub(super) fn of(received: i64, total: i64) -> String {
     }
 }
 
+#[cfg(test)]
+mod drag_tests;
 #[cfg(test)]
 mod rename_tests;
 
