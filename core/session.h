@@ -91,6 +91,8 @@ struct SavedSpace {
   // Each top to bottom.
   std::vector<SavedTab> pinned;
   std::vector<SavedFolder> folders;
+  // Whether its pinned tabs and folders showed, or were collapsed.
+  bool pinned_open = true;
   std::vector<SavedTab> today;
   // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
   int shown = -1;
@@ -170,6 +172,8 @@ struct Settings {
   bool send_crash_reports = false;
   // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
   bool link_previews = true;
+  // Whether ⌥ pressed alone brings the hidden sidebar out over the page.
+  bool option_reveals_sidebar = true;
   // What the Library button's hover lists, as bc_hover_kinds' bits.
   int hover_kinds = 15;
   // When the newest crash report the user was offered was written, in seconds since 1970, so no

@@ -83,6 +83,7 @@ use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::OPTION_REVEAL_TILE;
 use browser::tokens::settings::RESTORE_WINDOWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
@@ -1948,6 +1949,16 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let option = unsafe { bc::bc_option_reveals_sidebar() };
+        let option = self.toggle("option reveals sidebar", option, set_option_reveals, accent, cx);
+        // The Mac's alone so far (host_watch_option_taps).
+        let option = cfg!(target_os = "macos").then(|| {
+            row(
+                Some(("icons/panel-left.svg", OPTION_REVEAL_TILE)),
+                "Show the hidden sidebar when ⌥ is pressed alone",
+                option,
+            )
+        });
         let restore = unsafe { bc::bc_restore_windows() };
         let restore = self.toggle("restore windows", restore, set_restore_windows, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
@@ -1972,23 +1983,28 @@ impl Settings {
             )
             .child(div().flex_none().ml(px(PADDING)).child(export));
         div()
-            .child(group(&RowLook::settings(), [
-                row(
-                    Some(("icons/vibrate.svg", HAPTICS_TILE)),
-                    "Haptic feedback when swiping between Spaces",
-                    haptics,
-                ),
-                row(
-                    Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
-                    "Preview links to other sites from pinned tabs and favorites",
-                    previews,
-                ),
-                row(
-                    Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
-                    "Restore windows from last session",
-                    restore,
-                ),
-            ]))
+            .child(group(
+                &RowLook::settings(),
+                [
+                    row(
+                        Some(("icons/vibrate.svg", HAPTICS_TILE)),
+                        "Haptic feedback when swiping between Spaces",
+                        haptics,
+                    ),
+                    row(
+                        Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
+                        "Preview links to other sites from pinned tabs and favorites",
+                        previews,
+                    ),
+                    row(
+                        Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
+                        "Restore windows from last session",
+                        restore,
+                    ),
+                ]
+                .into_iter()
+                .chain(option),
+            ))
             .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
@@ -2275,6 +2291,10 @@ pub(crate) fn crash_reports_collector() -> String {
 
 fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
+}
+
+fn set_option_reveals(reveals: bool, _: &mut App) {
+    unsafe { bc::bc_set_option_reveals_sidebar(reveals) };
 }
 
 thread_local! {

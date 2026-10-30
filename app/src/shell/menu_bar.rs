@@ -3,7 +3,7 @@
 
 use gpui::{App, Context, SharedString};
 
-use super::{Extension, Shell, menus::space_menu_label, trace};
+use super::{Command, Extension, Shell, menus::space_menu_label, trace};
 use crate::theme::Appearance;
 
 /// What the key window's menu bar shows that changes with it.
@@ -16,6 +16,8 @@ pub struct MenuBar {
     pub sidebar_hidden: bool,
     /// Whether the tab shown is pinned, or None with none shown.
     pub pinned: Option<bool>,
+    /// Whether the Space shown has its pinned rows collapsed.
+    pub pinned_shut: bool,
     /// Whether the page shown is in Developer Mode, or None where it can't change: no web page, or
     /// a private window.
     pub developer_mode: Option<bool>,
@@ -52,6 +54,15 @@ impl MenuBar {
         }
     }
 
+    /// View's item that collapses the pinned rows or expands them, by what it does now, after the
+    /// sidebar's, as Arc's.
+    pub fn pinned_item(&self) -> (&'static str, Command) {
+        match self.pinned_shut {
+            true => ("Expand Pinned Tabs", Command::ExpandPinned),
+            false => ("Collapse Pinned Tabs", Command::CollapsePinned),
+        }
+    }
+
     /// View › Developer's item for the page's Developer Mode, by what it would do, as the command
     /// bar names it. None leaves it out, as Arc's shows only with a page.
     pub fn developer_mode_title(&self) -> Option<&'static str> {
@@ -85,6 +96,7 @@ impl Shell {
             extensions,
             sidebar_hidden: self.sidebar_hidden,
             pinned,
+            pinned_shut: self.shown_space().is_some_and(|space| space.folders.pinned_shut),
             developer_mode: self.developer_mode(self.selected),
             tracing: trace::recording(cx),
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
@@ -140,8 +152,8 @@ mod tests {
     use super::ProfileChoice;
     use crate::shell::{Command, Folders, Page, drag::detents::shell_with};
 
-    /// Tabs › Pin Tab is named by the tab shown, and with none both ways; View's sidebar item by
-    /// what it does now.
+    /// Tabs › Pin Tab is named by the tab shown, and with none both ways; View's sidebar and pinned
+    /// tabs items by what they do now.
     #[gpui::test]
     fn the_menu_bar_names_items_by_what_they_do_now(cx: &mut TestAppContext) {
         let (shell, host) = shell_with(cx, &[1], &[10], Folders::default());
@@ -153,6 +165,11 @@ mod tests {
         assert_eq!(host.menu_bar.borrow().pin_title(), "Unpin Tab");
         shell.update(cx, |shell, cx| shell.run(Command::ToggleSidebar, "ui", cx));
         assert_eq!(host.menu_bar.borrow().sidebar_title(), "Show Sidebar");
+        assert_eq!(host.menu_bar.borrow().pinned_item().1, Command::CollapsePinned);
+        let shut = Folders { pinned_shut: true, ..Folders::default() };
+        shell.update(cx, |shell, cx| shell.set_tabs(1, vec![1], vec![10], Vec::new(), shut, cx));
+        let item = host.menu_bar.borrow().pinned_item();
+        assert_eq!(item, ("Expand Pinned Tabs", Command::ExpandPinned));
     }
 
     /// View › Developer turns the page's Developer Mode the other way, named by what it would do,

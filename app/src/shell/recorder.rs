@@ -72,6 +72,8 @@ pub(super) struct Recorder {
     /// The opt-ins' switches, as `crash_reports` and `agents` answer, None for one not offered.
     pub(super) crash_reports: Cell<Option<bool>>,
     pub(super) agents: Cell<Option<bool>>,
+    /// The user turned off ⌥ bringing the hidden sidebar out.
+    pub(super) option_off: Cell<bool>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -151,6 +153,10 @@ pub(super) struct Recorder {
     /// button does.
     pub(super) undo_toasts: RefCell<Vec<String>>,
     pub(super) undo_toast: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
+    /// What the last toast with a button other than Undo runs, its words in `toasts`.
+    pub(super) toast_run: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
+    /// Another browser window is in front of this one.
+    pub(super) behind: Cell<bool>,
     /// The Edit menu's Undo and Redo titles it was last given.
     pub(super) edit_titles: RefCell<(Option<String>, Option<String>)>,
     /// The platform has Apple's engine for a tab's page.
@@ -315,6 +321,10 @@ impl Browser for Recorder {
 
     fn set_folder_open(&self, folder: u64, open: bool, _: &mut App) {
         self.record(format!("folder open {folder} {open}"))
+    }
+
+    fn set_pinned_open(&self, space: u64, open: bool, _: &mut App) {
+        self.record(format!("pinned open {space} {open}"))
     }
 
     fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
@@ -903,6 +913,10 @@ impl Browser for Recorder {
 
     fn hide_reveal(&self, _: &mut App) {}
 
+    fn option_reveals_sidebar(&self) -> bool {
+        !self.option_off.get()
+    }
+
     fn detent(&self, _: &mut App) {
         self.detents.set(self.detents.get() + 1);
     }
@@ -941,6 +955,22 @@ impl Browser for Recorder {
 
     fn hide_undo_toast(&self, _: &mut App) {
         self.undo_toast.borrow_mut().take();
+    }
+
+    fn in_front(&self) -> bool {
+        !self.behind.get()
+    }
+
+    fn toast_button(
+        &self,
+        text: &str,
+        _: (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        _: Duration,
+        _: &mut App,
+    ) {
+        self.toasts.borrow_mut().push(text.into());
+        *self.toast_run.borrow_mut() = Some(run);
     }
 
     fn full_screen_note(&self, shown: bool, _: &mut App) {

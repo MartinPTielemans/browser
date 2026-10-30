@@ -54,6 +54,8 @@ pub trait Browser {
     /// unloaded, and returns it, or 0.
     fn duplicate_folder(&self, folder: u64, cx: &mut App) -> u64;
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App);
+    /// Collapses `space`'s pinned rows, or expands them.
+    fn set_pinned_open(&self, space: u64, open: bool, cx: &mut App);
     /// Moves `folder`, with what's in it, to `index` in `to`, else in the pinned tabs, counted as
     /// `move_tab` counts.
     fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App);
@@ -375,6 +377,8 @@ pub trait Browser {
     /// Keeps the docked sidebar's width for the next launch.
     fn set_sidebar_width(&self, width: f32, cx: &mut App);
     fn hide_reveal(&self, cx: &mut App);
+    /// Whether ⌥ pressed alone brings the hidden sidebar out, as the user chose.
+    fn option_reveals_sidebar(&self) -> bool;
     /// A detent on the trackpad, as a swipe's nearest Space changes.
     fn detent(&self, cx: &mut App);
     /// Calls `Shell::control_released` once the user lets go of ⌃.
@@ -439,6 +443,18 @@ pub trait Browser {
     /// Shows `text` in the toast with an Undo button and ⌘Z's chip after it, which runs `undo` as
     /// the key does, for `time` and for as long as the pointer is over it.
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App);
+    /// Whether this window is the browser window in front, over which the toast shows.
+    fn in_front(&self) -> bool;
+    /// Shows `text` in the toast with a button after it, its label and its name in the logs, which
+    /// runs `run`, for `time` and for as long as the pointer is over it.
+    fn toast_button(
+        &self,
+        text: &str,
+        button: (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        time: Duration,
+        cx: &mut App,
+    );
     /// Takes the toast away if it has an Undo button, as the undo it offered has been done.
     fn hide_undo_toast(&self, cx: &mut App);
     /// Gives the Edit menu's Undo and Redo the titles of what they'd undo and redo, plain Undo and
@@ -692,6 +708,9 @@ pub struct Folders {
     pub folders: HashMap<u64, (SharedString, bool)>,
     /// The folder holding each pinned tab or folder in one.
     pub parents: HashMap<u64, u64>,
+    /// Whether its pinned rows are collapsed, which hides them as a closed folder hides what's in
+    /// it.
+    pub pinned_shut: bool,
     /// Each folder's icon, an emoji, which the sidebar draws in place of the folder; those without
     /// one aren't here.
     pub icons: HashMap<u64, SharedString>,

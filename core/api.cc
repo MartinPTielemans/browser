@@ -847,6 +847,17 @@ void bc_folder_rename(bc_id folder, const char* name) {
   }
 }
 
+bool bc_space_pinned_open(bc_id id) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return !space || space->pinned_open();
+}
+
+void bc_space_set_pinned_open(bc_id id, bool open) {
+  if (browser_core::Space* space = browser_core::Space::FromId(id)) {
+    space->SetPinnedOpen(open);
+  }
+}
+
 size_t bc_folder_icon(bc_id folder, char* icon, size_t capacity) {
   browser_core::Space* space = browser_core::Space::HoldingFolder(folder);
   return space ? CopyString(space->FolderIcon(folder), icon, capacity) : 0;
@@ -1238,6 +1249,15 @@ bool bc_link_previews(void) {
 
 void bc_set_link_previews(bool previews) {
   browser_core::UserSettings().link_previews = previews;
+  browser_core::SessionChanged();
+}
+
+bool bc_option_reveals_sidebar(void) {
+  return browser_core::UserSettings().option_reveals_sidebar;
+}
+
+void bc_set_option_reveals_sidebar(bool reveals) {
+  browser_core::UserSettings().option_reveals_sidebar = reveals;
   browser_core::SessionChanged();
 }
 

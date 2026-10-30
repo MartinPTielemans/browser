@@ -1601,6 +1601,45 @@ void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool ba
                                         }];
 }
 
+void host_watch_option_taps(void (*tapped)(void* ui_view)) {
+  static void (*g_tapped)(void* ui_view);
+  g_tapped = tapped;
+  // ⌥ pressed and let go with nothing else between. A key, another modifier, a press or a scroll
+  // makes it part of something else: a shortcut, a typed character, an ⌥-click or a zoom.
+  static bool alone = false;
+  static NSEventModifierFlags held = 0;
+  constexpr NSEventMask kBetween = NSEventMaskKeyDown | NSEventMaskLeftMouseDown |
+                                   NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown |
+                                   NSEventMaskScrollWheel | NSEventMaskMagnify;
+  [NSEvent
+      addLocalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged | kBetween
+                                   handler:^NSEvent*(NSEvent* event) {
+                                     if (event.type != NSEventTypeFlagsChanged) {
+                                       alone = false;
+                                       return event;
+                                     }
+                                     constexpr NSEventModifierFlags kModifiers =
+                                         NSEventModifierFlagCommand | NSEventModifierFlagShift |
+                                         NSEventModifierFlagOption | NSEventModifierFlagControl;
+                                     const NSEventModifierFlags was = held;
+                                     held = event.modifierFlags & kModifiers;
+                                     if (held == NSEventModifierFlagOption && was == 0) {
+                                       alone = true;
+                                     } else if (held == 0 && was == NSEventModifierFlagOption &&
+                                                alone) {
+                                       alone = false;
+                                       // The browser window with the keyboard, not an
+                                       // overlay of it.
+                                       if (Browser* browser = BrowserOf(NSApp.keyWindow)) {
+                                         g_tapped((__bridge void*)browser->ui_view);
+                                       }
+                                     } else {
+                                       alone = false;
+                                     }
+                                     return event;
+                                   }];
+}
+
 bool host_after_menus(void (*apply)(void)) {
   if (g_menus_open.allObjects.count == 0) {
     return false;

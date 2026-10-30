@@ -120,6 +120,8 @@ class Space {
   std::string FolderName(bc_id folder) const;
   std::string FolderIcon(bc_id folder) const;
   bool IsOpen(bc_id folder) const;
+  // Whether the pinned tabs and folders show, which collapsing them hides.
+  bool pinned_open() const { return pinned_open_; }
 
   void SetName(std::string name);
   void SetColor(std::optional<uint32_t> color);
@@ -173,6 +175,7 @@ class Space {
   void RenameFolder(bc_id folder, std::string name);
   void SetFolderIcon(bc_id folder, std::string icon);
   void SetOpen(bc_id folder, bool open);
+  void SetPinnedOpen(bool open);
   // Deletes |folder|, leaving what was in it where it was, in the folder that held it.
   void DeleteFolder(bc_id folder);
 
@@ -273,6 +276,7 @@ class Space {
     bool open = true;
   };
   std::map<bc_id, Folder> folders_;
+  bool pinned_open_ = true;
   // Each pinned tab or folder inside a folder, to the folder.
   std::map<bc_id, bc_id> folder_of_;
   std::vector<bc_id> today_;

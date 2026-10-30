@@ -1523,6 +1523,7 @@ mod tests {
             folders: [(20, ("Docs".into(), true)), (22, ("Old".into(), true))].into(),
             parents: [(21, 20)].into(),
             icons: [(22, "📚".into())].into(),
+            ..Default::default()
         };
         let (shell, host) = shell_with(cx, &[20, 21, 22], &[24], folders);
         let menu = tab_menu(&shell, &host, cx, 20);

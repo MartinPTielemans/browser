@@ -447,6 +447,13 @@ void Space::SetOpen(bc_id folder, bool open) {
   }
 }
 
+void Space::SetPinnedOpen(bool open) {
+  if (pinned_open_ != open) {
+    pinned_open_ = open;
+    ReportChanged();
+  }
+}
+
 void Space::DeleteFolder(bc_id folder) {
   if (!IsFolder(folder)) {
     return;

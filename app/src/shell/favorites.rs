@@ -471,6 +471,7 @@ impl Shell {
                 tile.child(self.logged_developer_outline(tab, TILE_RADIUS))
             })
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+            .children(self.keyed_ring(tab, TILE_RADIUS))
             .child(self.icon_drawn(tab))
     }
 
