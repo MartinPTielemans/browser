@@ -1200,7 +1200,9 @@ void bc_tab_show_in(bc_id id, void* view, bc_rect frame, double corner_radius) {
   if (!contents || !view || browser_core::Window::Showing(id)) {
     return;
   }
-  browser_core::platform::ShowPageIn(contents->GetNativeView(), view, ToRect(frame),
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  browser_core::platform::ShowPageIn(window ? window->widget() : nullptr,
+                                     contents->GetNativeView(), view, ToRect(frame),
                                      corner_radius);
   contents->Focus();
 }

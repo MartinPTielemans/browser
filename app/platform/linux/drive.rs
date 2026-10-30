@@ -60,8 +60,8 @@ use x11rb::{
 };
 
 use crate::{
-    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, menu_window, overlays, panels, platform,
-    reveal_window, settings_window,
+    BrowserWindow, CX, MENUS, WINDOWS, bc, floats, link_preview_window, menu_window, overlays,
+    panels, platform, reveal_window, settings_window,
 };
 
 unsafe extern "C" {
@@ -233,6 +233,7 @@ fn overlay_views() -> Vec<*mut c_void> {
     views.extend(panels::shown());
     views.extend(menu_window::shown());
     views.extend(reveal_window::shown());
+    views.extend(link_preview_window::shown());
     views
 }
 
