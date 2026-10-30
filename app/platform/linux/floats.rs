@@ -87,7 +87,8 @@ fn add(kind: Kind, view: *mut c_void) {
     });
 }
 
-/// The views of the floats that show, for the test driver's layout (drive.rs).
+/// The views of the floats that show, for the test driver (drive.rs). The X server finds the toast
+/// under the pointer only on its plate while it has buttons, and the others not at all.
 pub(crate) fn shown() -> Vec<*mut c_void> {
     FLOATS.with_borrow(|floats| {
         (floats.iter()).filter(|float| !float.over.is_null()).map(|float| float.view).collect()
@@ -318,12 +319,6 @@ fn toast_pointer() {
     let Some(view) = find(Kind::Toast, |float| float.view) else { return };
     let plate = TOAST.with_borrow(|toast| toast.plate.filter(|_| toast.takes));
     gpui_linux::set_overlay_pointer(view, Some(plate.as_slice()));
-}
-
-/// For the driver: the toast's window while it shows. The X server finds it under the pointer only
-/// on its plate while it has buttons.
-pub(crate) fn shown() -> Option<*mut c_void> {
-    find(Kind::Toast, |float| (!float.over.is_null()).then_some(float.view)).flatten()
 }
 
 #[unsafe(no_mangle)]

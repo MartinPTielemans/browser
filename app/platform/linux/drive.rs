@@ -1419,9 +1419,7 @@ fn run_command(line: &str) -> Option<()> {
             );
             log!("browser: layout buttons {}", buttons(browser.id).unwrap_or_default());
             let [left, top, ..] = frame(browser.window)?;
-            let views = (overlay_views().into_iter())
-                .chain(floats::shown())
-                .map(|view| view as usize as u32);
+            let views = overlay_views().into_iter().map(|view| view as usize as u32);
             for view in views.chain(popups(browser.window).unwrap_or_default()) {
                 let [x, y, width, height] = frame(view)?;
                 log!(
