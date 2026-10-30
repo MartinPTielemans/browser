@@ -2496,6 +2496,11 @@ impl Browser for Engine {
         unsafe { bc::bc_profile_create(name.as_ptr()) }
     }
 
+    fn rename_profile(&self, profile: u64, name: &str, _: &mut App) {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_profile_rename(profile, name.as_ptr()) };
+    }
+
     fn import_host(&self) -> Rc<dyn browser::import::Host> {
         Rc::new(import_host::CoreImport)
     }
@@ -2530,7 +2535,7 @@ impl Browser for Engine {
     fn tell(
         &self,
         question: dialog::Question,
-        confirmed: Box<dyn FnOnce(&mut App)>,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
         cx: &mut App,
     ) -> bool {
         if !dialog::can_pose(cx) {
@@ -3012,7 +3017,7 @@ impl Browser for Engine {
             check: None,
             return_cancels: false,
         };
-        dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
+        dialog::pose(question, Box::new(|_, _| unsafe { bc::bc_quit() }), cx);
     }
 }
 
@@ -4099,7 +4104,7 @@ fn check_for_updates(cx: &mut App) {
                 concat!(env!("APP_NAME"), " looks for one every half hour while it’s open.").into(),
             ),
         };
-        dialog::pose(notice(message, detail), Box::new(|_| {}), cx);
+        dialog::pose(notice(message, detail), Box::new(|_, _| {}), cx);
     }
 }
 

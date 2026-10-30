@@ -627,6 +627,8 @@ enum Naming {
     /// A pinned tab's pinned URL, in its row in place of its title.
     PinnedUrl(u64),
     Folder(u64),
+    /// A new profile's name, in the New Space form's Profile row.
+    Profile(u64),
 }
 
 impl Naming {
@@ -634,7 +636,7 @@ impl Naming {
     fn tab(self) -> Option<u64> {
         match self {
             Naming::Tab(tab) | Naming::PinnedUrl(tab) => Some(tab),
-            Naming::Space(_) | Naming::Folder(_) => None,
+            Naming::Space(_) | Naming::Folder(_) | Naming::Profile(_) => None,
         }
     }
 }
@@ -2796,9 +2798,11 @@ impl Render for Shell {
         {
             let field = renaming.name.focus_handle(cx);
             window.focus(&field, cx);
-            // check.sh waits for this line, which says the field has the keyboard.
-            if let Naming::Folder(folder) = renaming.naming {
-                log!("browser: rename folder {folder}");
+            // check.sh waits for these lines, which say the field has the keyboard.
+            match renaming.naming {
+                Naming::Folder(folder) => log!("browser: rename folder {folder}"),
+                Naming::Profile(profile) => log!("browser: rename profile {profile}"),
+                _ => {}
             }
             renaming._blur =
                 Some(text_input::on_leave(&field, window, cx, |shell, window, cx| {
