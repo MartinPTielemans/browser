@@ -24,8 +24,9 @@ use browser::flatpak;
 use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_preview,
-    link_target, log, menu, offer, passwords, site_controls, theme_picker, toast, tooltip, zoom_hud,
+    capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
+    icon_picker, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -62,6 +63,9 @@ mod emoji;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/floats.rs"]
 mod floats;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/frames.rs"]
+mod frames;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/held_escape.rs"]
 mod held_escape;
@@ -109,8 +113,9 @@ mod settings;
 const COMMAND_BAR: c_int = 0;
 const ICON_PICKER: c_int = 1;
 const THEME_PICKER: c_int = 2;
+const FOLDER_PREVIEW: c_int = 3;
 /// The Site Controls aren't one of the host's overlays, but its elevation call takes them too.
-const SITE_CONTROLS: c_int = 3;
+const SITE_CONTROLS: c_int = 4;
 
 use browser::bc;
 
@@ -1685,6 +1690,26 @@ extern "C" fn icon_picker_dismissed() {
     update_app(icon_picker::dismissed);
 }
 
+struct FolderPreviewHost;
+
+impl folder_preview::Host for FolderPreviewHost {
+    fn show(&self, left: f32, top: f32, height: f32) {
+        let (left, top, width) = (left.into(), top.into(), folder_preview::WIDTH.into());
+        unsafe {
+            platform::host_show_overlay(FOLDER_PREVIEW, front().1, false, left, top, width);
+            platform::host_set_overlay_height(FOLDER_PREVIEW, height.into());
+        }
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_overlay(FOLDER_PREVIEW) };
+    }
+}
+
+extern "C" fn folder_preview_dismissed() {
+    update_app(folder_preview::dismissed);
+}
+
 /// The theme picker's requests, to the host's overlay window, over the window in front.
 struct ThemeHost;
 
@@ -1921,6 +1946,15 @@ impl Browser for Engine {
     fn rename_folder(&self, folder: u64, name: &str, _: &mut App) {
         let name = CString::new(name).unwrap_or_default();
         unsafe { bc::bc_folder_rename(folder, name.as_ptr()) };
+    }
+
+    fn set_folder_icon(&self, folder: u64, icon: &str, _: &mut App) {
+        let icon = CString::new(icon).unwrap_or_default();
+        unsafe { bc::bc_folder_set_icon(folder, icon.as_ptr()) };
+    }
+
+    fn duplicate_folder(&self, folder: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_folder_duplicate(folder) }
     }
 
     fn set_folder_open(&self, folder: u64, open: bool, _: &mut App) {
@@ -2968,6 +3002,10 @@ impl Browser for Engine {
         hover_card::hover(hover, cx);
     }
 
+    fn folder_preview(&self, ask: folder_preview::Ask, cx: &mut App) {
+        folder_preview::ask(ask, cx);
+    }
+
     fn card_picture(&self, tab: u64, cx: &mut App) {
         let request = hover_card::asking(tab, cx);
         // check.sh reads this line: a hidden page draws for its picture from here.
@@ -3910,6 +3948,14 @@ fn finish_opening(
             platform::host_set_overlay_growth(ICON_PICKER, x.into(), y.into());
         }
     }
+    if let Some(preview) = folder_preview::open(Rc::new(FolderPreviewHost), cx)
+        && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
+    {
+        let radius = folder_preview::RADIUS.into();
+        elevate(FOLDER_PREVIEW, Level::Popover);
+        let dismissed = folder_preview_dismissed;
+        unsafe { platform::host_add_overlay(FOLDER_PREVIEW, view, radius, dismissed) };
+    }
     if let Some(picker) = theme_picker::open(Rc::new(ThemeHost), cx)
         && let Ok(view) = picker.update(cx, |_, window, _| ns_view(window))
     {
@@ -4316,6 +4362,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                 item("Close Window", Command::CloseWindow),
                 item("Archive Tab", Command::CloseTab),
                 MenuItem::separator(),
+                item("Share…", Command::Share),
                 item("Capture…", Command::CapturePortion),
                 item("Capture Full Page", Command::CaptureFullPage),
                 item("Save Page As", Command::SavePage),
@@ -4338,6 +4385,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                     PasteAndMatchStyle,
                     OsAction::PasteAndMatchStyle,
                 ),
+                item("Paste URL as New Tab", Command::PasteUrlAsTab),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
@@ -4922,6 +4970,10 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
         let mut open = false;
         if unsafe { bc::bc_folder(row, &mut open) } {
             folders.folders.insert(row, (name(bc::bc_folder_name, row), open));
+            let icon = name(bc::bc_folder_icon, row);
+            if !icon.is_empty() {
+                folders.icons.insert(row, icon);
+            }
         }
         match unsafe { bc::bc_folder_of(row) } {
             0 => {}
