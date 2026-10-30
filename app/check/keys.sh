@@ -317,7 +317,12 @@ expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
 send clickkey 581 203
 expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"
 send key t cmd ctrl
-expect '^browser: shortcut new-tab ctrl-cmd-t$' "⌃⌘T didn't become New Tab's key"
+# Off the Mac ⌃ presses Alt, as ⌥ does (docs/ux-spec.md › Keyboard).
+new_tab_key=ctrl-cmd-t
+if [ "$(uname)" = Linux ]; then
+  new_tab_key=alt-cmd-t
+fi
+expect "^browser: shortcut new-tab $new_tab_key\$" "⌃⌘T didn't become New Tab's key"
 ../tools/window-screenshot.sh "$pid" "$out/shortcuts.png" || fail "no window to capture"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
