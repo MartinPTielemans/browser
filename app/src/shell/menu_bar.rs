@@ -1,9 +1,9 @@
 //! What the menu bar shows that changes with the window, and the window's title, which the Window
 //! menu lists it by (docs/ux-spec.md › Menus).
 
-use gpui::{Context, SharedString};
+use gpui::{App, Context, SharedString};
 
-use super::{Extension, Shell, menus::space_menu_label};
+use super::{Extension, Shell, menus::space_menu_label, trace};
 use crate::theme::Appearance;
 
 /// What the key window's menu bar shows that changes with it.
@@ -16,6 +16,11 @@ pub struct MenuBar {
     pub sidebar_hidden: bool,
     /// Whether the tab shown is pinned, or None with none shown.
     pub pinned: Option<bool>,
+    /// Whether the page shown is in Developer Mode, or None where it can't change: no web page, or
+    /// a private window.
+    pub developer_mode: Option<bool>,
+    /// Whether a trace is recording, which Help › Troubleshooting's item stops.
+    pub tracing: bool,
     /// Spaces › Change Profile: each profile by id and name, whether the Space shown can change to
     /// it and whether it's in it, then whether New Profile can be chosen. None in a private window.
     pub profiles: Option<(Vec<ProfileChoice>, bool)>,
@@ -46,11 +51,23 @@ impl MenuBar {
             None => "Pin/Unpin Tab",
         }
     }
+
+    /// View › Developer's item for the page's Developer Mode, by what it would do, as the command
+    /// bar names it. None leaves it out, as Arc's shows only with a page.
+    pub fn developer_mode_title(&self) -> Option<&'static str> {
+        self.developer_mode.map(super::commands::developer_mode_title)
+    }
+
+    /// Help › Troubleshooting's item for the trace, by what it would do, as the command bar names
+    /// it.
+    pub fn trace_title(&self) -> &'static str {
+        trace::title(self.tracing)
+    }
 }
 
 impl Shell {
     /// What the menu bar shows for this window now.
-    pub(super) fn menu_bar(&self) -> MenuBar {
+    pub(super) fn menu_bar(&self, cx: &App) -> MenuBar {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         // A private window lists no Spaces, as its one Space isn't one of them, and only the
         // extensions the user allowed in Incognito, which Chrome runs in a private session.
@@ -68,6 +85,8 @@ impl Shell {
             extensions,
             sidebar_hidden: self.sidebar_hidden,
             pinned,
+            developer_mode: self.developer_mode(self.selected),
+            tracing: trace::recording(cx),
             profiles: self.profile_choices(self.space).filter(|_| !self.private),
             appearance: self.app_appearance,
         }
@@ -76,7 +95,7 @@ impl Shell {
     /// Gives the menu bar what it shows now, once that changes, so most tab switches and page
     /// updates leave the menus as they are.
     pub(super) fn update_menus(&mut self, cx: &mut Context<Self>) {
-        let bar = self.menu_bar();
+        let bar = self.menu_bar(cx);
         if bar == self.menus {
             return;
         }
@@ -93,7 +112,7 @@ impl Shell {
     pub(super) fn refresh_menus(&mut self, cx: &mut Context<Self>) {
         // The menu bar is the key window's, so its Undo and Redo name this window's steps.
         self.send_edit_titles(true, cx);
-        self.menus = self.menu_bar();
+        self.menus = self.menu_bar(cx);
         self.browser.set_menus(&self.menus, cx);
     }
 
@@ -119,7 +138,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::ProfileChoice;
-    use crate::shell::{Command, Folders, drag::detents::shell_with};
+    use crate::shell::{Command, Folders, Page, drag::detents::shell_with};
 
     /// Tabs › Pin Tab is named by the tab shown, and with none both ways; View's sidebar item by
     /// what it does now.
@@ -134,6 +153,27 @@ mod tests {
         assert_eq!(host.menu_bar.borrow().pin_title(), "Unpin Tab");
         shell.update(cx, |shell, cx| shell.run(Command::ToggleSidebar, "ui", cx));
         assert_eq!(host.menu_bar.borrow().sidebar_title(), "Show Sidebar");
+    }
+
+    /// View › Developer turns the page's Developer Mode the other way, named by what it would do,
+    /// and is left out for a page that has none, as Arc's shows only with a page.
+    #[gpui::test]
+    fn developer_mode_s_item_follows_the_page(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[], &[10], Folders::default());
+        let title = || host.menu_bar.borrow().developer_mode_title();
+        shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+        assert_eq!(title(), None);
+        let page = |url: &str, developer_mode| Page {
+            url: url.to_string().into(),
+            developer_mode,
+            ..Page::default()
+        };
+        shell.update(cx, |shell, cx| shell.set_page(10, page("http://localhost:3000/", true), cx));
+        assert_eq!(title(), Some("Turn off Developer Mode for this site"));
+        shell.update(cx, |shell, cx| shell.set_page(10, page("http://localhost:3000/", false), cx));
+        assert_eq!(title(), Some("Turn on Developer Mode for this site"));
+        shell.update(cx, |shell, cx| shell.set_page(10, page("chrome://settings/", false), cx));
+        assert_eq!(title(), None);
     }
 
     /// The window is titled by the tab shown, as the sidebar names it, and by its Space with none.
