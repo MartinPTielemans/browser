@@ -340,7 +340,8 @@ send menubar Edit
 expect "^browser: menu bar Edit: .*, Paste$maybe, Paste and Match Style$maybe, Select All" \
   "the Edit menu has no Paste and Match Style after Paste"
 send menubar View
-expect "^browser: menu bar View: Hide Sidebar$maybe, " "View doesn't name ⌘S Hide Sidebar"
+expect "^browser: menu bar View: Appearance › .*, Hide Sidebar$maybe, " \
+  "View doesn't name ⌘S Hide Sidebar after Appearance"
 send menubar Tabs
 expect "^browser: menu bar Tabs: .*, Pin Tab$maybe, .*, Reveal Tab in Sidebar$maybe, Clear Today" \
   "Tabs doesn't name ⌘D Pin Tab for a Today tab, or lacks Reveal Tab in Sidebar or Clear Today"
