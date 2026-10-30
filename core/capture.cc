@@ -1,6 +1,7 @@
 #include "browser_core/capture.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -31,9 +32,11 @@
 #include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/native_theme/native_theme.h"
 
 namespace browser_core {
 
@@ -101,6 +104,19 @@ std::optional<Pixels> PngToPixels(gfx::Size at_most, std::optional<std::vector<u
   return ToPixels(bitmap);
 }
 
+// The width, in DIPs, of a page's scrollbar across a side |side| long, or 0 where leaving it out
+// would leave too little of the page. The web's theme's, as the system's is another width.
+int ScrollbarSize(int side) {
+  const int size = std::ceil(
+      ui::NativeTheme::GetInstanceForWeb()
+          ->GetPartSize(ui::NativeTheme::Part::kScrollbarVerticalTrack,
+                        ui::NativeTheme::State::kNormal,
+                        ui::NativeTheme::ExtraParams(
+                            std::in_place_type<ui::NativeTheme::ScrollbarTrackExtraParams>))
+          .width());
+  return side - size > 4 * size ? size : 0;
+}
+
 void Pictured(bc_id tab, uint64_t request, std::optional<Pixels> pixels) {
   LogHandover("picture made", "tab " + base::NumberToString(tab));
   if (Host().tab_pictured) {
@@ -147,9 +163,13 @@ void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_
   // The compositor's last frame, at the display's scale, made the app's on a worker: a page in a
   // big window is millions of pixels, which the UI thread, drawing the page's next frames, has no
   // time for. A PNG would take longer still, made here and read in the app. A small one the
-  // compositor scales as it copies, so it costs only its own pixels.
-  const gfx::Size whole =
-      gfx::ScaleToCeiledSize(view->GetViewBounds().size(), view->GetDeviceScaleFactor());
+  // compositor scales as it copies, so it costs only its own pixels. It leaves out the strips at
+  // the right and bottom edges where a page's scrollbars go, as Chrome's tab thumbnails do: a
+  // scrollbar looks out of place in a picture.
+  gfx::Rect copied(view->GetViewBounds().size());
+  copied.Inset(
+      gfx::Insets::TLBR(0, 0, ScrollbarSize(copied.height()), ScrollbarSize(copied.width())));
+  const gfx::Size whole = gfx::ScaleToCeiledSize(copied.size(), view->GetDeviceScaleFactor());
   const gfx::Size fitted = Fitted(whole, at_most);
   // A hidden page's view gives up its compositor on the Mac, so nothing draws it and a copy waits
   // for a frame that never comes. Held as captured, still hidden to the page, as Chrome holds a
@@ -165,7 +185,7 @@ void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_
                                                /*stay_awake=*/false, /*is_activity=*/false);
   }
   view->CopyFromSurface(
-      gfx::Rect(), fitted == whole ? gfx::Size() : fitted, base::TimeDelta(),
+      copied, fitted == whole ? gfx::Size() : fitted, base::TimeDelta(),
       base::BindOnce(
           [](bc_id tab, uint64_t request, base::ScopedClosureRunner held,
              base::ScopedClosureRunner drawing, const content::CopyFromSurfaceResult& result) {

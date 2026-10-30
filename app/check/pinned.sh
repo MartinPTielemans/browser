@@ -15,7 +15,8 @@
 # dragged onto the list from the page or another app open as tabs where the pointer lets go, and
 # dragged text that isn't a web link doesn't. A split made with a pinned tab is pinned. Away from
 # its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change its pinned URL, which
-# ⌘Z gives back, and ⌘-click on its favicon goes back keeping the page in a new tab.
+# ⌘Z gives back, and ⌘-click on its favicon goes back keeping the page in a new tab. Export Space as
+# Markdown… saves the Space's folders, pinned tabs and Today tabs as a list of links.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -70,14 +71,16 @@ send press $today_top
 none_since '^browser: detent$' || fail "pressing a row clicked the trackpad"
 send dragto 100 270
 send dragto 100 230
-send dragto 100 200
+# Between the pinned rows, as a rest on a row's middle would join that tab in a split view, and the
+# capture takes longer than that rest.
+send dragto 100 175
 ../tools/window-screenshot.sh "$pid" "$out/drag.png" || fail "no window to capture"
 none_since '^browser: dragged' || fail "a row dropped before the pointer let go"
 [ "$(detents)" -gt "$clicks" ] || fail "a row dragged up past the pinned rows didn't click"
 # Holding the row at its place doesn't click again, nor does letting go.
-send dragto 100 201
+send dragto 100 176
 none_since '^browser: detent$' || fail "a row held at its place clicked again"
-send release 100 200
+send release 100 175
 none_since '^browser: detent$' || fail "letting go of a row clicked the trackpad"
 expect "^browser: dragged $b to pinned 1\$" "a drag of the Today tab up didn't pin it"
 expect_lists "$a $b $c" " *" "after dragging the Today tab into the pinned tabs"
@@ -316,7 +319,8 @@ exited
 # URL. A click on its favicon goes back there and shows it.
 log="$out/pinned-restored.log"
 step=0
-BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+rm -f "$out/space.md"
+BROWSER_DRIVE=1 BROWSER_EXPORT_FILE="$out/space.md" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
@@ -448,6 +452,15 @@ expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collap
 expect '^browser: command collapse-folders via command bar$' "Collapse All Folders didn't run collapse-folders"
 expect "^browser: outline $f-\\[$c\\]\$" "Collapse All Folders didn't close the folder: $(outline)"
 expect '^browser: new tab plate 0$' "running a command left New Tab's plate"
+# Export Space as Markdown… saves the folder with its tab nested under it, the pinned tab's link to
+# its pinned URL, then the Today tab. The run names the file, as it can't drive the save panel, and
+# leaves out the Space's name and the pages' titles, which it doesn't choose.
+bar_command export-space "Export Space as Markdown…" export
+expect "^browser: exported 2 links to .*/space.md\$" \
+  "Export Space as Markdown… didn't save the Space's two links"
+exported=$(sed -e '1s/^# .*/#/' -e 's/\[.*\](/[](/' "$out/space.md")
+[ "$exported" = "$(printf '#\n\n## Pinned\n\n- work\n  - []('"$site"')\n\n## Today\n\n- [](https://example.org/)')" ] ||
+  fail "the Space wasn't saved as its folder, then its Today tab: $exported"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
@@ -458,7 +471,7 @@ log="$out/folder-restored.log"
 step=0
 # The run names the file Export… writes, as it can't drive the system's save panel.
 rm -f "$out/spaces.md"
-BROWSER_EXPORT_LINKS="$out/spaces.md" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_EXPORT_FILE="$out/spaces.md" BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"

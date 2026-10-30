@@ -581,28 +581,9 @@ fn remove_login(profile: bc::bc_id, login: &passwords::Login) {
 /// Saves the Spaces' favorites and pinned tabs as a Markdown file of links where the user picks,
 /// for Settings' Export…. The user's alone, as Settings is.
 fn export_spaces(cx: &mut App) {
-    let Some(shell) = shell_with_view(front().1).upgrade() else {
-        return;
-    };
-    let (markdown, links) = shell.read(cx).links_markdown();
-    let save = move |path: std::path::PathBuf| match std::fs::write(&path, markdown) {
-        // check.sh reads this line.
-        Ok(()) => log!("browser: exported {links} links to {}", path.display()),
-        Err(error) => log!("couldn't export the Spaces to {}: {error}", path.display()),
-    };
-    // A check run names its file, as it can't drive the system's panel.
-    if let Some(file) = std::env::var_os("BROWSER_EXPORT_LINKS") {
-        return save(file.into());
+    if let Some(shell) = shell_with_view(front().1).upgrade() {
+        shell.update(cx, |shell, cx| shell.export_spaces(cx));
     }
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    let chosen = cx.prompt_for_new_path(&home, Some("Spaces.md"));
-    cx.foreground_executor()
-        .spawn(async move {
-            if let Ok(Ok(Some(path))) = chosen.await {
-                save(path);
-            }
-        })
-        .detach();
 }
 
 fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
@@ -1058,6 +1039,15 @@ impl link_preview::Host for LinkPreviewHost {
     fn keep(&self, window: u64, tab: u64) {
         unsafe { bc::bc_window_keep_preview(window, tab) };
     }
+
+    fn closed(&self, window: u64, closed: link_preview::Closed, undone: bool, cx: &mut App) {
+        let shell = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|each| each.id == window).map(|each| each.shell.clone())
+        });
+        if let Some(shell) = shell {
+            shell.update(cx, |shell, cx| shell.preview_closed(closed, undone, cx)).ok();
+        }
+    }
 }
 
 extern "C" fn link_preview_dismissed() {
@@ -1067,6 +1057,35 @@ extern "C" fn link_preview_dismissed() {
 thread_local! {
     /// Whether the host has a view for a link preview's page, which only the Mac's has so far.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// A link is dragged over `tab`'s page: the window showing it shows the split view's targets, and
+/// takes the drag while it's on one, opening the link there when it's let go.
+unsafe extern "C" fn tab_link_dragged(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    phase: c_int,
+    url: *const c_char,
+    x: f64,
+    y: f64,
+) -> bool {
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
+        return false;
+    };
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    let point = point(px(x as f32), px(y as f32));
+    let Some(window) = cx.update(|cx| tab_window(tab, cx)) else {
+        return false;
+    };
+    let answer = update_window(window.id, |shell, cx| match phase as u32 {
+        bc::BC_LINK_DRAG_OVER => shell.link_over_page(tab, point, &url, cx),
+        bc::BC_LINK_DRAG_DROP => shell.link_dropped(tab, point, cx),
+        _ => {
+            shell.link_left_page(cx);
+            false
+        }
+    });
+    answer.unwrap_or(false)
 }
 
 /// A link clicked in `tab`'s page leads to another site. A pinned tab's or a favorite's opens in
@@ -1095,6 +1114,13 @@ unsafe extern "C" fn tab_link_to_site(
         return false;
     };
     let url = unsafe { CStr::from_ptr(url) }.to_owned();
+    // A call's link opens as a tab of the Space shown, the one used last, as it outlasts a look.
+    if link_preview::is_meeting(&url.to_string_lossy()) {
+        // check.sh waits for this line.
+        log!("browser: meeting link from {tab} opens as a tab");
+        update_app_later(move |_| open_tab(window, &url.to_string_lossy()));
+        return true;
+    }
     // Outside the navigation that asked, which the core cancels once this returns.
     update_app_later(move |cx| {
         let preview = unsafe { bc::bc_tab_open_preview(tab, url.as_ptr()) };
@@ -1104,7 +1130,7 @@ unsafe extern "C" fn tab_link_to_site(
         }
         let link = page.0.origin + point(px(x as f32), px(y as f32));
         let url = url.to_string_lossy().into_owned().into();
-        link_preview::show(window, preview, url, page, link, cx);
+        link_preview::show(window, preview, tab, url, page, link, cx);
     });
     true
 }
@@ -1661,8 +1687,8 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_close_below(tab) };
     }
 
-    fn duplicate(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_duplicate(tab) };
+    fn duplicate(&self, tab: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_tab_duplicate(tab) }
     }
 
     fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
@@ -1765,6 +1791,24 @@ impl Browser for Engine {
         }
     }
 
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, _: &mut App) {
+        let (window, url) = (self.window, url.to_string());
+        // After the drop that asked, which Chromium is still handling.
+        update_app_later(move |_| {
+            let tab = open_tab_behind(window, &url, false);
+            if tab == 0 {
+                return;
+            }
+            unsafe {
+                bc::bc_tab_split_with(tab, with, left);
+                if stacked {
+                    bc::bc_tab_set_split_stacked(with, true);
+                }
+                bc::bc_window_select(window, tab);
+            }
+        });
+    }
+
     fn show_drop_targets(&self, shown: bool, cx: &mut App) {
         let ui_view = self.ui_view;
         // After the shell's draw, which asks for it.
@@ -1797,6 +1841,31 @@ impl Browser for Engine {
 
     fn reopen_tab(&self, closed: u64, _: &mut App) -> u64 {
         unsafe { bc::bc_window_reopen_tab(self.window, closed) }
+    }
+
+    fn reopen_preview(
+        &self,
+        closed: &link_preview::Closed,
+        page: (Bounds<Pixels>, f32),
+        _: &mut App,
+    ) {
+        let (window, closed) = (self.window, closed.clone());
+        // Outside the shell's update, as the core tells the shell of the tab it opens.
+        update_app_later(move |cx| {
+            let Ok(url) = CString::new(closed.url.as_ref()) else {
+                return;
+            };
+            let preview = unsafe { bc::bc_tab_open_preview(closed.over, url.as_ptr()) };
+            if preview == 0 {
+                log!("browser: link preview over {} not reopened", closed.over);
+                return;
+            }
+            link_preview::show(window, preview, closed.over, closed.url, page, closed.link, cx);
+        });
+    }
+
+    fn close_preview(&self, over: u64, cx: &mut App) -> bool {
+        link_preview::close_over(self.window, over, cx)
     }
 
     fn pinned_url(&self, tab: u64) -> String {
@@ -1886,6 +1955,18 @@ impl Browser for Engine {
 
     fn go_forward(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_go_forward(tab) };
+    }
+
+    fn tab_history(&self, tab: u64, forward: bool, _: &mut App) {
+        unsafe { bc::bc_tab_history(tab, forward) };
+    }
+
+    fn go_to_history(&self, tab: u64, offset: i32, _: &mut App) {
+        unsafe { bc::bc_tab_go_to_history(tab, offset) };
+    }
+
+    fn open_history(&self, tab: u64, offset: i32, _: &mut App) {
+        unsafe { bc::bc_tab_open_history(tab, offset) };
     }
 
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
@@ -2055,6 +2136,29 @@ impl Browser for Engine {
         }
     }
 
+    fn save_markdown(&self, name: &str, markdown: String, links: usize, cx: &mut App) {
+        let save = move |path: std::path::PathBuf| match std::fs::write(&path, markdown) {
+            // check.sh reads this line.
+            Ok(()) => log!("browser: exported {links} links to {}", path.display()),
+            Err(error) => log!("couldn't export to {}: {error}", path.display()),
+        };
+        // A check names its file, as it can't drive the system's panel.
+        if !cfg!(feature = "prod")
+            && let Some(file) = std::env::var_os("BROWSER_EXPORT_FILE")
+        {
+            return save(file.into());
+        }
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+        let chosen = cx.prompt_for_new_path(&home, Some(name));
+        cx.foreground_executor()
+            .spawn(async move {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    save(path);
+                }
+            })
+            .detach();
+    }
+
     fn close_page_menu(&self, tab: u64, command: Option<i32>, _: &mut App) {
         unsafe { bc::bc_tab_close_page_menu(tab, command.unwrap_or(0)) };
     }
@@ -2167,6 +2271,10 @@ impl Browser for Engine {
 
     fn view_history(&self, _: &mut App) {
         open_tab(self.window, "chrome://history");
+    }
+
+    fn open_page(&self, url: &str, _: &mut App) {
+        open_tab(self.window, url);
     }
 
     fn site_search_settings(&self, _: &mut App) {
@@ -4015,11 +4123,17 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
             "Help",
             vec![
                 item(concat!("Welcome to ", env!("APP_NAME")), Command::Welcome),
+                item("Help Center", Command::HelpCenter),
+                item("What's New", Command::WhatsNew),
                 item("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
                 MenuItem::separator(),
+                item("Report a Problem…", Command::ReportProblem),
                 MenuItem::submenu(menu(
                     "Troubleshooting",
-                    vec![item("Open Task Manager", Command::TaskManager)],
+                    vec![
+                        item("Copy Build Info", Command::CopyBuildInfo),
+                        item("Open Task Manager", Command::TaskManager),
+                    ],
                 )),
             ],
         ),
@@ -4517,6 +4631,34 @@ unsafe extern "C" fn tab_favicon_changed(
     update_shells(|shell, cx| shell.set_favicon(tab, favicon.clone(), cx));
 }
 
+unsafe extern "C" fn tab_history(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    forward: bool,
+    entries: *const bc::bc_history_entry,
+    count: usize,
+) {
+    let entries = match count {
+        0 => &[][..],
+        _ => unsafe { std::slice::from_raw_parts(entries, count) },
+    };
+    let text = |text: *const c_char| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let pages: Vec<_> = (entries.iter())
+        .map(|entry| shell::HistoryPage {
+            offset: entry.offset,
+            url: text(entry.url).into(),
+            title: text(entry.title).into(),
+            favicon: (!entry.favicon.is_null()).then(|| {
+                let png = unsafe { std::slice::from_raw_parts(entry.favicon, entry.favicon_size) };
+                Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))
+            }),
+        })
+        .collect();
+    let way = if forward { "forward" } else { "back" };
+    log!("browser: history {tab} {way} {}", pages.len());
+    update_shells(|shell, cx| shell.show_history(tab, forward, pages.clone(), cx));
+}
+
 unsafe extern "C" fn archive_changed(
     _: *mut c_void,
     tabs: *const bc::bc_archived_tab,
@@ -4759,6 +4901,48 @@ unsafe extern "C" fn window_extension_popup(
             false => log!("browser: extension popup {extension}"),
         }
     }
+}
+
+/// On Linux and Windows, Chrome asks whether to quit, or close the last private window, cancelling
+/// `count` downloads running. In the words of Chrome's alert on the Mac, with the app's name where
+/// it names Chromium, and ↩ on Continue Downloading, as there.
+unsafe extern "C" fn window_downloads_question(
+    _: *mut c_void,
+    window: bc::bc_id,
+    count: c_int,
+    last_private: bool,
+) {
+    let question = dialog::Question {
+        icon: None,
+        message: match count {
+            1 => "Download is in progress",
+            _ => "Downloads are in progress",
+        }
+        .into(),
+        detail: match last_private {
+            true => "Quit Incognito mode anyway?",
+            false => concat!("Quit ", env!("APP_NAME"), " anyway?"),
+        }
+        .into(),
+        list: Vec::new(),
+        action: "Quit".into(),
+        cancel: "Continue Downloading".into(),
+        // Quit cancels the downloads, which can't be taken back.
+        tone: dialog::Tone::Destructive,
+        also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: true,
+    };
+    let answered =
+        Box::new(move |cancel, _: &mut App| unsafe { bc::bc_window_answer_downloads(window, cancel) });
+    // With no UI to ask in, the browser stays open, as it does with no dialog to ask in.
+    if CX.with_borrow(Option::is_none) {
+        unsafe { bc::bc_window_answer_downloads(window, false) };
+        return;
+    }
+    // A private window's close can ask from inside the app's own call.
+    update_app_later(move |cx| dialog::ask_chrome(question, answered, cx));
 }
 
 unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
@@ -5289,9 +5473,10 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     const CRASH_TEST: &str = "--crash-after-start";
     // Where the user's crash reports go if they send them, a default service URL that a fork or a
     // self-hosted collector names in branding/crash-reports. Without one the build sends none, and
-    // Settings doesn't offer to. A check's own, given to the app, comes after and wins.
+    // Settings doesn't offer to. Only the prod build names it, as only it reaches users, so no dev
+    // build or check sends to the product's collector; crash.sh gives the app its own.
     let collector = include_str!("../branding/crash-reports").trim();
-    if !collector.is_empty() {
+    if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
@@ -5330,6 +5515,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         tab_state_changed: Some(tab_state_changed),
         tab_title_changed: Some(tab_title_changed),
         tab_favicon_changed: Some(tab_favicon_changed),
+        tab_history: Some(tab_history),
         archive_changed: Some(archive_changed),
         page_favicon: Some(page_favicon),
         downloads_changed: Some(downloads_changed),
@@ -5365,6 +5551,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
         tab_link_to_site: Some(tab_link_to_site),
+        tab_link_dragged: Some(tab_link_dragged),
         crash_report_offered: Some(crash_report_offered),
         #[cfg(target_os = "linux")]
         ui_composed: Some(ui_composed),
@@ -5373,6 +5560,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         history_added: Some(history_added),
         tab_text: Some(tab_text),
         agent_page_done: Some(agent_page_done),
+        window_downloads_question: Some(window_downloads_question),
         ..Default::default()
     };
     (args, host)

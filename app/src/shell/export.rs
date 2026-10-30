@@ -1,26 +1,62 @@
-//! The user's Spaces as a Markdown file of links: each Space's favorites, then its pinned tabs with
-//! each folder a list of what it holds (docs/ux-spec.md › Settings).
+//! Spaces as Markdown lists of links, which the user saves where they pick: one Space's pinned tabs,
+//! folders and Today tabs from its menu (docs/ux-spec.md › Spaces › Renaming and deleting), or
+//! every Space's favorites and pinned tabs from Settings (docs/ux-spec.md › Settings).
+
+use gpui::Context;
 
 use super::{Shell, Space};
 
-/// A pinned row as it's written: a link, or a folder and what it holds.
+/// A row as it's written: a link, or a folder and what it holds.
 enum Item {
     Link(String, String),
     Folder(String, Vec<Item>),
 }
 
 impl Shell {
+    /// Asks where to save `space` as Markdown, named for it, and saves it there. The user's alone:
+    /// it's a file they keep, so no agent tool asks for it.
+    pub(super) fn export_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        let Some(each) = self.spaces.iter().find(|each| each.id == space) else {
+            return;
+        };
+        let (markdown, links) = self.space_markdown(each);
+        let name = file_name(&each.name);
+        self.browser.save_markdown(&name, markdown, links, cx);
+    }
+
+    /// Asks where to save every Space of the user's as Markdown, and saves it there, for
+    /// Settings' Export…. The user's alone, as Settings is.
+    pub fn export_spaces(&mut self, cx: &mut Context<Self>) {
+        let (markdown, links) = self.links_markdown();
+        self.browser.save_markdown("Spaces.md", markdown, links, cx);
+    }
+
+    /// `space` as Markdown, its name a heading over its pinned rows, folders holding theirs nested
+    /// under them, then its Today tabs, and how many links it holds.
+    fn space_markdown(&self, space: &Space) -> (String, usize) {
+        let mut markdown = format!("# {}\n", text(space_name(space)));
+        let mut links = 0;
+        let today = self.rows_in(space, &space.today, 0);
+        for (heading, items) in [("Pinned", self.rows_in(space, &space.pinned, 0)), ("Today", today)]
+        {
+            if !items.is_empty() {
+                markdown.push_str(&format!("\n## {heading}\n\n"));
+                links += write(&mut markdown, &items, 0);
+            }
+        }
+        (markdown, links)
+    }
+
     /// Every Space of the user's, top to bottom, as Markdown, and how many links it holds. An
     /// agent's Spaces are the agent's, and Today tabs come and go, so neither is written.
     pub fn links_markdown(&self) -> (String, usize) {
         let mut markdown = String::from("# Spaces\n");
         let mut links = 0;
         for space in self.spaces.iter().filter(|space| space.agent.is_empty()) {
-            let name = if space.name.is_empty() { "Space" } else { space.name.as_ref() };
-            markdown.push_str(&format!("\n## {}\n", text(name)));
+            markdown.push_str(&format!("\n## {}\n", text(space_name(space))));
             let favorites: Vec<Item> =
                 self.favorites_of(space).into_iter().filter_map(|tab| self.link(tab)).collect();
-            let pinned = self.pinned_items(space, 0);
+            let pinned = self.rows_in(space, &space.pinned, 0);
             for (heading, items) in [("Favorites", favorites), ("Pinned", pinned)] {
                 if !items.is_empty() {
                     markdown.push_str(&format!("\n### {heading}\n\n"));
@@ -31,27 +67,33 @@ impl Shell {
         (markdown, links)
     }
 
-    /// The pinned rows `folder` holds in `space`, or its rows outside folders for 0, top to
-    /// bottom, each tab of a split view a link of its own.
-    fn pinned_items(&self, space: &Space, folder: u64) -> Vec<Item> {
+    /// The rows of `rows` that `folder` holds, or those outside folders for 0, top to bottom, each
+    /// tab of a split view a link of its own.
+    fn rows_in(&self, space: &Space, rows: &[u64], folder: u64) -> Vec<Item> {
         let later = |row: &u64| space.splits.iter().any(|split| split.tabs[1..].contains(row));
-        let rows =
-            space.pinned.iter().filter(|row| !later(row) && space.folder_of(**row) == folder);
+        let rows = rows.iter().filter(|row| !later(row) && space.folder_of(**row) == folder);
         rows.flat_map(|&row| match space.folders.folders.get(&row) {
-            Some((name, _)) => vec![Item::Folder(name.to_string(), self.pinned_items(space, row))],
+            Some((name, _)) => {
+                vec![Item::Folder(name.to_string(), self.rows_in(space, &space.pinned, row))]
+            }
             None => space.panes(row).into_iter().filter_map(|tab| self.link(tab)).collect(),
         })
         .collect()
     }
 
-    /// `tab` as a link to the URL it goes back to, or to its page's for a tab without one.
+    /// `tab` as a link: a pinned tab's or a favorite's to the URL it goes back to, else to its
+    /// page's.
     fn link(&self, tab: u64) -> Option<Item> {
         let mut url = self.browser.pinned_url(tab);
         if url.is_empty() {
-            url = self.tabs.get(&tab).map(|tab| tab.page.url.to_string()).unwrap_or_default();
+            url = self.url(tab).to_string();
         }
         (!url.is_empty()).then(|| Item::Link(self.title(tab).to_string(), url))
     }
+}
+
+fn space_name(space: &Space) -> &str {
+    if space.name.is_empty() { "Space" } else { space.name.as_ref() }
 }
 
 /// Writes `items` as a list, nested `depth` deep, and returns how many links it wrote.
@@ -69,7 +111,7 @@ fn write(markdown: &mut String, items: &[Item], depth: usize) -> usize {
     })
 }
 
-/// `name` as Markdown text, which a bracket, a backslash or a list's mark would otherwise change.
+/// `name` as Markdown text, which a bracket, a backslash or emphasis's marks would otherwise change.
 fn text(name: &str) -> String {
     let mut text = String::with_capacity(name.len());
     for c in name.chars() {
@@ -97,56 +139,15 @@ fn href(url: &str) -> String {
     href
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-    use std::rc::Rc;
-
-    use gpui::{AppContext, TestAppContext};
-
-    use crate::shell::{Folders, Shell, recorder::Recorder};
-
-    /// Each of the user's Spaces gets its favorites and its pinned tabs, folders holding theirs
-    /// nested under them, and an agent's Space and Today tabs are left out.
-    #[gpui::test]
-    fn spaces_export_as_markdown_links(cx: &mut TestAppContext) {
-        let host = Rc::new(Recorder::default());
-        host.pinned_urls.borrow_mut().extend([
-            (30, "https://mail.example/".to_string()),
-            (10, "https://docs.example/a (draft)".to_string()),
-            (12, "https://plan.example/".to_string()),
-            (13, "https://notes.example/".to_string()),
-            (20, "https://agent.example/".to_string()),
-        ]);
-        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
-        shell.update(cx, |shell, cx| {
-            shell.set_spaces(
-                vec![
-                    (1, "Work".into(), None, 0, "".into(), "".into(), "".into()),
-                    (2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into()),
-                    (3, "Home".into(), None, 2, "".into(), "".into(), "".into()),
-                ],
-                cx,
-            );
-            shell.set_favorites(vec![(30, 1)], cx);
-            let folders = Folders {
-                folders: HashMap::from([(50, ("Q3 [plans]".into(), false))]),
-                parents: HashMap::from([(12, 50), (13, 50)]),
-            };
-            shell.set_tabs(1, vec![10, 50, 12, 13], vec![11], Vec::new(), folders, cx);
-            shell.set_tabs(2, vec![20], Vec::new(), Vec::new(), Folders::default(), cx);
-            shell.set_space(1, cx);
-            for (tab, title) in [(30, "Mail"), (10, "Draft"), (12, "Plan"), (13, "Notes")] {
-                shell.set_title(tab, title.into(), cx);
-            }
-        });
-        let (markdown, links) = shell.read_with(cx, |shell, _| shell.links_markdown());
-        assert_eq!(
-            markdown,
-            "# Spaces\n\n## Work\n\n### Favorites\n\n- [Mail](https://mail.example/)\n\n\
-             ### Pinned\n\n- [Draft](https://docs.example/a%20%28draft%29)\n- Q3 \\[plans\\]\n  \
-             - [Plan](https://plan.example/)\n  - [Notes](https://notes.example/)\n\n## Home\n"
-        );
-        assert_eq!(links, 4);
-    }
+/// The file a Space saves as: its name, without what a file's name can't hold on any of the
+/// systems, then .md.
+fn file_name(name: &str) -> String {
+    let name: String = (name.chars())
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '-' } else { c })
+        .collect();
+    let name = name.trim().trim_start_matches('.');
+    format!("{}.md", if name.is_empty() { "Space" } else { name })
 }
+
+#[cfg(test)]
+mod tests;

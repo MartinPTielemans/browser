@@ -1,7 +1,10 @@
 //! Where the shell asks for the Site Controls, and the tooltips its buttons ask for, on a host
 //! that records them.
 
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     AppContext, Bounds, Entity, Modifiers, MouseButton, NavigationDirection, TestAppContext,
@@ -11,7 +14,8 @@ use gpui::{
 use crate::{
     passwords::Key,
     shell::{
-        Command, FOOTER_HEIGHT, Folders, NAV_SIZE, NAV_TOP, Page, SIDEBAR_BUTTON_X, Shell,
+        BACK_X, Command, FOOTER_HEIGHT, FORWARD_X, Folders, NAV_PRESS_SCALE, NAV_SIZE, NAV_TOP,
+        PRESS_TIME, Page, RELOAD_X, SIDEBAR_BUTTON_X, Shell, history::HOLD,
         library::LIBRARY_BACK_INSET, recorder::Recorder,
     },
     site_controls::Place,
@@ -316,4 +320,79 @@ fn the_key_brings_the_offer_back_or_opens_the_site_controls(cx: &mut TestAppCont
     press(at, cx);
     assert!(host.site_controls.take().is_empty(), "a press where the key was opened them");
     assert!(!host.take().iter().any(|call| call.starts_with("show offer")));
+}
+
+/// Back, forward and reload shrink about their middle, 1 pt in at each end, over PRESS_TIME while
+/// they're held, and grow back as long once let go; the click still goes on the release. Reload
+/// keeps shrinking as it turns into stop. Held for its menu, back grows back as the menu opens, and
+/// the sidebar button doesn't shrink. Grown back, the button is let go at the next frame, so a
+/// button at rest asks for no frames.
+#[gpui::test]
+fn back_forward_and_reload_shrink_a_little_while_held(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    let page = Page { url: "https://example.org/".into(), can_go_back: true, ..Page::default() };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+        shell.set_selected(10, cx);
+        shell.set_page(10, page.clone(), cx);
+    });
+    cx.run_until_parked();
+    host.take();
+    let at = |x: f32| point(px(x + NAV_SIZE / 2.), px(NAV_TOP + NAV_SIZE / 2.));
+    let scale = |cx: &mut VisualTestContext, x| shell.read_with(cx, |shell, _| shell.nav_scale(x));
+    // As if the press were `ago` seconds back, and the release `let_go` seconds back.
+    let back = |cx: &mut VisualTestContext, ago: f32, let_go: f32| {
+        shell.update(cx, |shell, _| {
+            let held = shell.held_nav.as_mut().unwrap();
+            let now = Instant::now();
+            held.pressed = now - Duration::from_secs_f32(ago);
+            held.let_go = held.let_go.map(|_| now - Duration::from_secs_f32(let_go));
+        })
+    };
+    let between = |scale: f32| scale < 1. && scale > NAV_PRESS_SCALE;
+    assert_eq!(NAV_SIZE * NAV_PRESS_SCALE, NAV_SIZE - 2.);
+
+    cx.simulate_mouse_down(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    back(cx, PRESS_TIME / 2., 0.);
+    assert!(between(scale(cx, BACK_X)), "half way in");
+    back(cx, PRESS_TIME * 2., 0.);
+    assert_eq!(scale(cx, BACK_X), NAV_PRESS_SCALE);
+    assert_eq!((scale(cx, FORWARD_X), scale(cx, RELOAD_X)), (1., 1.), "only the one held");
+    assert!(!host.take().contains(&"back 10".to_string()), "not before the release");
+
+    cx.simulate_mouse_up(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert!(host.take().contains(&"back 10".to_string()));
+    back(cx, PRESS_TIME * 3., PRESS_TIME / 2.);
+    assert!(between(scale(cx, BACK_X)), "half way out");
+    back(cx, PRESS_TIME * 3., PRESS_TIME);
+    assert_eq!(scale(cx, BACK_X), 1.);
+    shell.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.held_nav.is_none()), "let go once grown back");
+
+    cx.simulate_mouse_down(at(RELOAD_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    shell.update(cx, |shell, cx| shell.set_page(10, Page { loading: true, ..page.clone() }, cx));
+    cx.run_until_parked();
+    back(cx, PRESS_TIME * 2., 0.);
+    assert_eq!(scale(cx, RELOAD_X), NAV_PRESS_SCALE, "reload, turned into stop");
+    cx.simulate_mouse_up(at(RELOAD_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+
+    shell.update(cx, |shell, cx| shell.set_page(10, page.clone(), cx));
+    cx.simulate_mouse_down(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.executor().advance_clock(HOLD);
+    cx.run_until_parked();
+    assert!(host.take().contains(&"history 10 back".to_string()));
+    let let_go = shell.read_with(cx, |shell, _| shell.held_nav.as_ref().map(|held| held.let_go));
+    assert!(matches!(let_go, Some(Some(_))), "its menu took the press over");
+    cx.simulate_mouse_up(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+
+    shell.update(cx, |shell, _| shell.held_nav = None);
+    cx.simulate_mouse_down(at(SIDEBAR_BUTTON_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.held_nav.is_none()), "the sidebar button");
 }

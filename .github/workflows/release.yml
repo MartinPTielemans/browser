@@ -448,6 +448,8 @@ jobs:
 
       - run: |
           (cd assets && sha256sum -- ilo-* > SHA256SUMS)
+          # The Mac's minimum, LSMinimumSystemVersion in app/build.sh.
+          printf '\nThe Mac build needs macOS 15 (Sequoia) or later, on Apple silicon.\n' >> notes/notes.md
           if [ ! -f assets/ilo-windows-x64-setup.exe ]; then
             printf '\nThe Windows packages are not in this release yet.\n' >> notes/notes.md
             echo "No Windows packages: the Windows job failed. The draft has the Mac's and Linux's." >> "$GITHUB_STEP_SUMMARY"

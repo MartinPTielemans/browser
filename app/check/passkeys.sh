@@ -68,6 +68,7 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
   helper=$!
   exec 3> "$out/drive"
   exec 5> "$scratch/cdp"
+  echo authenticator >&5
   await_load
   tab=$(today | cut -d' ' -f1)
   await "^browser: title $tab ready\$" || fail "the passkey page didn't draw"

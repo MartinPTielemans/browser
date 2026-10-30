@@ -147,6 +147,16 @@ impl Shell {
                 .collect();
             log!("browser: extension keys {} {}", extension.id, keys.join(", "));
         }
+        // One the user added from an import's list that the other browser pinned is pinned as it
+        // comes in, by whichever window hears of it first.
+        if let Some(had) = self.extensions.get(&profile) {
+            let had: Vec<&str> = had.iter().map(|extension| extension.id.as_ref()).collect();
+            let now = extensions.iter().map(|each| (each.id.as_ref(), each.pinned));
+            for id in crate::import::extensions::to_pin(&had, now) {
+                log!("browser: extension {id} pinned as it was in the browser imported from");
+                self.browser.set_extension_pinned(profile, &id, true, cx);
+            }
+        }
         self.extensions.insert(profile, extensions);
         self.update_menus(cx);
     }

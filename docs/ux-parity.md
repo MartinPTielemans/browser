@@ -27,7 +27,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | New window / closed window | MVP | at its final frame with content / gone at once; ⌘N cascaded from the key window, its size and Space, no page *interim*; a launch brings back every window at its frame, Space, sidebar width and tab, the others after the first's first frame, or after the last window closed, that one at its frame *interim*; Arc's ⌘N and launch: measure | Dia P§1 |
 | [x] | Close confirmations | MVP | none: a closed window's tabs go to the window in front before it, live, so nothing is lost *interim*; Dia asks "Close 3 tabs?". Arc: measure | Dia P§1 |
 | [x] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
-| [x] | Window full screen with the sidebar | MVP | the sidebar stays docked, the window's buttons come down with it, the command bar opens; "To exit full screen, press ⎋." 41 tall at the card's top right for 4.8 s, again per Space *interim*; ⎋ leaves *interim* | Arc 1.170 rec |
+| [x] | Window full screen with the sidebar | MVP | the sidebar stays docked, the window's buttons come down with it, the command bar opens; "To exit full screen, press ⎋." (off the Mac "Press Esc to exit full screen") 41 tall at the card's top right for 4.8 s, again per Space *interim*; ⎋ leaves *interim* | Arc 1.170 rec |
 | [x] | Toast | MVP | 46.5 tall, 8 inside the card's top right corner; medium text with a key's chip; grows from 0.7 on spring 0.32 s / ζ 0.52, fades in over 100 ms, leaves over 70 ms. Text size and fill *interim* | Arc 1.170 rec |
 | [ ] | Toast's other uses | MVP | ⇧⌘C's says "Copied Current URL" (Arc 1.170 rec), for 2 s *interim*: built, `./check.sh clear`'s `url-toast.png`. Its share button not built, though the capture toast has Share; next, ⇧⌘C's toast takes the capture toast's share button. ⌘W's note for an archived tab isn't shown; whether Arc has one: measure | Arc 1.170 rec |
 
@@ -44,6 +44,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
 | [ ] | Nav glyphs | MVP | white 0.60; dimmed as disabled ones in an inactive window; reload turns to stop while loading. Built: 0.60 and stop, `./check.sh history`'s `history.png` and `loading.png`. Not built: dimmed in an inactive window, as no view reads the window's active state; next, the header's glyphs take the disabled 0.26 while GPUI's window isn't active, captured in `./check.sh favorites`' `settings.png` | Arc 1.170.0 cap |
 | [x] | Disabled nav glyph | MVP | white 0.26 against 0.60; reload too with no page | Arc 1.170.0 cap |
+| [ ] | Back and forward's history | MVP | right-click or a 0.5 s hold *interim* on back or forward: the tab's pages that way, nearest first, up to six, with favicons, at the pointer; picking one goes there. Built, with the core's bc_tab_history uncompiled; to tick, a capture of the menu over a tab with history | Arc help centre, Chrome |
+| [ ] | ⌘-click or middle-click on back, forward, reload | MVP | the result in a background tab under the tab, loading once shown. Built, with the core's bc_tab_open_history uncompiled; to tick, a run that ⌘-clicks back and sees the new tab's row at the page back goes to | Arc help centre, Chrome |
+| [ ] | Nav press | MVP | back, forward and reload shrink 1 pt in at each end, to 30/32, over 70 ms, linearly, while held, and grow back the same way; the command still runs on the release. Ours, decided by the owner (2026-10-29), Arc's isn't recorded. Built, and checked by `cargo test`; driven in `./check.sh tabs`, logged as `nav back pressed drawn` and `nav reload at rest drawn`, with `reload-pressed.png`; to tick, that run passing on the Mac and a look at the capture | ours |
 | [x] | Nav glyph size | MVP | sidebar 18.5 × 14.5, back and forward 14.5 × 12, reload 14 across; 1.75 pt strokes | Arc 1.170.0 cap |
 | [x] | URL field top | MVP | 46 below the window top | Arc 1.170.0 cap |
 | [x] | URL field size, radius, fill, font | MVP | 36 tall, 8 in, radius 12, white 0.10; text 13 pt, white 0.60 | Arc 1.170.0 cap |
@@ -130,7 +133,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Switching to another profile's Space | MVP | the window's profile switches with it, and its favorites | decision 5 |
 | [x] | Moving a tab across profiles | MVP | reloads in the new profile after a one-time warning, with its history | Dia P§1 |
 | [x] | Favorites per Space or per profile | MVP | per profile; confirm in Arc | Arc |
-| [x] | Switcher footer | MVP | 50 tall; Library 32 at 8 in on the left; + 32 at 8 in on the right, its menu New Space… and New Folder… *interim*, Arc's: measure | Arc 1.170.0 cap, ax |
+| [x] | Switcher footer | MVP | 50 tall; Library 32 at 8 in on the left; + 32 at 8 in on the right, its menu New Space…, New Folder… and New Split View *interim*, Arc's: measure | Arc 1.170.0 cap, ax |
 | [x] | Switcher band | MVP | 42 in from each side; items 36 × 34 at a 34 pitch; none with one Space; more than fit: narrower *interim*, Arc's: measure | Arc 1.170.0 ax |
 | [x] | Switcher dot | MVP | 8 pt; white 0.50 shown, 0.19 others | Arc 1.170.0 cap |
 | [x] || Space icons in the switcher | MVP | built: an emoji takes the dot's place in its item, the Space shown at full strength *interim*. Ticked on `./check.sh spaces`' `space-icon.png` and `space-emoji.png`. Arc's look: measure | — |
@@ -147,6 +150,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Space icon picker | MVP | popover 273 × 273 at radius 20 under the name, arrow at the icon; Emoji \| Icon and a trash; 56 glyphs 8 × 7 on a 31 pitch (Lucide's outlines), the Space's on a white 0.25 plate; Emoji tab a search and a scrolling 8-column grid of Unicode's groups, recents first, picked by click or ↩ (ours), only the emoji the system's font draws (CoreText, asked once a launch); grows in from the arrow and goes in one frame; Emoji ↔ Icon slides the content 273 over 0.2 s; hover white 0.12 on a glyph, the trash and the other segment *interim*, Arc's: measure | Arc 1.170.0 cap, Arc 1.170 rec |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
 | [x] | Undo delete | MVP | the toast says "Space deleted! Use ⌘Z to undo." for 5 s; ⌘Z brings the Space back where it was, with its tabs, and pages to it | Arc 1.170 rec |
+| [ ] | Export a Space as Markdown | MVP | the Space's menu and the command bar save its pinned tabs, folders nested, and Today tabs as a list of links, through the save panel; one Space a file where Arc's Export Data saves all in one. To tick: `./check.sh pinned`, which saves one and reads it back | Arc Settings, ours |
 | [x] | Undo delete motion | MVP | the switch's slide *interim*; Arc's: measure | Arc |
 | [x] | Agent Space kind in the data model | MVP | a Space is the user's or an agent's (the id and name its client gives) from when it's made, saved with the Spaces; no tab moves into an agent's; New Space makes the user's | decision 8, roadmap |
 | [ ] | Agent Space UI: switcher mark, confirm card, handoff card, take over, status, activity log, allowed sites with Revoke | 4 | ours to design; confirm times out 5 min, handoff 15 min | decision 8, Ours (prototype) |
@@ -212,20 +216,26 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
 | [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
+| [ ] | ⌥-click a sidebar row | MVP | another tab joins the page shown, the page shown alone splits with a copy, a split's tab leaves it. Built, and checked by `cargo test`; to tick: `./check.sh split`'s ⌥-click steps, `command split via sidebar`, run on the Mac | Arc help |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
+| [ ] | A split's menu | MVP | Mute under each tab's name; Duplicate copies the whole split. Built, and checked by `cargo test`; to tick: `./check.sh split`'s right-click on a split's row, its `menu shown` line and the two splits after Duplicate, run on the Mac | Arc help |
+| [ ] | Split controls | MVP | a handle over each pane, whose menu changes orientation, separates or closes that pane; its look and place ours *interim*. Built, and checked by `cargo test`'s `each_pages_split_controls_act_on_that_page`; to tick: `./check.sh split`'s step with `via split controls`, run on the Mac | Arc help |
 | [ ] | A split made in Pinned | MVP | stays pinned, the tab joining a pinned tab's split pinned at its page, as Arc's. Built in the core (`bc_tab_split_with`), which the drop on a target and Add Split View call. To tick: `./check.sh pinned`'s ⌥⇧-click on the pinned tab's link, its `browser: pinned` line holding both and `pinned-split.png` | Arc release notes |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
 | [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
 | [x] | Target under the card | MVP | 362 × 600, leaning 43 % toward the pointer, accent ≈ 0.15, dashes 7/7 ≈ 2 pt | Dia rec |
 | [x] | Target timing | MVP | slide ≈ 110 ms, grow ≈ 120 ms, no overshoot | Dia rec |
+| [ ] | A tab dropped on a tab's row | MVP | joins it on its right; the row is the target once the pointer rests 0.4 s on its middle half, with its hover fill and no drop line *interim*; Arc's: measure. Built, and checked by `cargo test`; to tick: `./check.sh split`'s `drop onto` and `dragged … onto` step, run on the Mac | Arc help |
+| [ ] | A link dragged onto the targets | MVP | the split targets come for a link dragged over the page, take it from the page only on a target, and let go there it opens in a pane on that side *interim*. Built, and checked by `cargo test`'s `a_link_let_go_on_a_target_opens_in_a_pane_there`; needs the engine with `chromium-core-page-link-drag.patch`. To tick: `./check.sh split`'s `split-link-targets.png` and `link dropped right`, run on the Mac | Arc help |
+| [x] | Top and bottom targets | MVP | a tab dragged to the card's top or bottom centre stacks it with the page; a page alone has all four targets, a split those along its orientation; sizes the side ones' turned, fitting between them *interim*; Arc's: measure. Built; `./check.sh split`'s `split-targets-top.png` shows the four targets, the top one lit under the tab, passing on the Mac | Arc help |
 | [x] | Drag picture | MVP | tab for 1–2 frames, then 209 × 109.5 window card; ours shows the favicon and title, not the page's image | Dia rec |
 | [x] || Pane motion | MVP | a dropped tab's pane coming in on its side, the divider dragged, a pane closing: built with a drop showing the split at once, the divider following the pointer and a closed pane's page taking the card at once *interim*. Ticked on `./check.sh split`'s `split-left.png`, `split-resized.png` and `split-separated.png`. Arc's: measure | Arc |
 | [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus. Not built: waits on a tab dragged out of the window (Tabs › Drag to another window / desktop); then a drop on no target opens the window there | Dia rec |
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
 | [x] | Expand Current Split | MVP | the focused pane takes the card, the other keeps 220 pt at any width; one frame; again does nothing; kept after a quit. A flag in the core's split, worked out at each layout so a resize holds the 220, and saved with the session. In View after Developer and in the command bar, no key; dragging or double-clicking the gap, or a pane joining or leaving, ends it *interim* | Arc 1.170.0 ax, rec |
 | [x] | Commands | MVP | Flip, Move Pane Left/Right, Separate All, in the command bar | Dia P§6 |
-| [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the sides *interim* | Dia P§6 |
+| [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the top and bottom | Dia P§6 |
 
 ## Settings
 
@@ -309,10 +319,10 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Fill dropdown | MVP | Chrome's, under the field. Built (#254): `check/passwords.sh` fills a saved throwaway login in from it, with a capture | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started: the Edit menu has no AutoFill items | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
-| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
+| [x] | Eye reveal in pages | MVP | once the user types, never for a filled password. The core turns on Blink's PasswordReveal, and blurs an agent's tab's page as its session starts and as it's handed back. `./check.sh passwords` passes on the Mac: cdp.py sees the eye hidden for the password filled in, shown once one is typed, and hidden again with the field's focus (`password-reveal.png`) | Dia |
 | [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: our Settings' Passwords lists usernames only, so nothing asks for a check; Chrome's page should do it in a tab, unverified | Chrome |
 | [x] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. `check/passkeys.sh` registers and signs in on a local page with a virtual security key (DevTools' WebAuthn domain, in the check only), and checks the dialog that waits for the key is a child window centred across the page, which escape closes, with a capture (passkeys-dialog). Security keys need no entitlement; iCloud Keychain's passkeys need Apple's `com.apple.developer.web-browser.public-key-credential` | Chrome |
-| [ ] | No agent path | MVP | agents never read or fill these. Holds today, since no call returns them and there is no MCP server; ticks with its allowlist test | decision 8 |
+| [x] | No agent path | MVP | agents never read or fill these. Holds: no core call an agent makes returns them, Chrome fills and offers nothing in an agent's tab (chromium-core-agent-no-autofill.patch), and the MCP server's tools are a fixed list, each asking the core only for an action its allowlist has (agent_session.cc's RefusedAction). `cargo test`'s `agents_get_only_the_allowlisted_tools` calls each tool and fails on a new one or one asking for another action | decision 8 |
 
 ## Downloads
 
@@ -325,7 +335,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Recent downloads over the Library button | MVP | up to 4 finished, newest at the bottom, 56 apart: 40 pt preview or 26 pt icon at 8, name 15 pt at 61 over its age; ours: after a 0.5 s rest (its own, not the tooltip's 0.73 s), 0.15 s fade, a row acts as the Library's *interim*; tooltip with key chips and glyph motion: #189 | owner's Arc cap |
 | [x] | Fly-in | MVP | ours: 32 → 16 pt icon from under the URL field to the button on a slight arc, 0.45 s on cubic-bezier(0.55, 0, 0.85, 0.4), fading over the last 30 %; Arc's: measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
 | [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
-| [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
+| [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert on the Mac and the app's dialog in its words on Linux and Windows; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
 
 ## Find in page
 
@@ -382,7 +392,11 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Chrome: cookies | MVP | not imported: no other browser's cookies or passwords are decrypted, and the user signs in again | #453 |
 | [x] | Firefox, Zen, LibreWolf: bookmarks, history | MVP | ours: as Chrome's family's, from `places.sqlite` | ours |
 | [x] | Safari: bookmarks, Reading List, history | MVP | ours: as Chrome's family's, the Reading List as a folder | ours |
-| [ ] | Chrome: extensions | MVP | listed with store links, not installed. Not built. Next: the import reads the profile's extensions from its Preferences and lists the Web Store's with their store links, checked with an extension in the import run's made-up Chrome | P§20 |
+| [ ] | Chrome: extensions | MVP | listed with store links, not installed. Built for Chrome's family and Arc, from each profile's `Extensions` folder, and checked by `cargo test`. To tick: an extension in the import run's made-up Chrome, and a capture of the list | P§20 |
+| [ ] | Extensions keep their pins | MVP | one pinned in the other browser is pinned once it's added from the list (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a run that adds one from the store | Arc help |
+| [ ] | Another ad blocker | MVP | left off the extension list, as uBlock Origin is built in, said once with Add Anyway (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a capture of the line | Arc help |
+| [ ] | Choose bookmark folders | MVP | Choose folders, a checkbox a folder, all ticked (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a capture of the box and an import run that unticks one | Arc help |
+| [ ] | Suggested favorites | MVP | the first launch's Your favorites, after the import: the sites its history visited most, ticked, worked out on the machine and sent nowhere (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: the onboarding run with a made-up Chrome's history, and a capture of the step | Arc help |
 | [x] | Full Disk Access | MVP | explain, link to System Settings, re-check on return; Safari's | P§20 |
 | [x] | Rerun | MVP | adds nothing | P§20 |
 | [x] | Where Chrome bookmarks land | MVP | ours: a Space named after the browser, the bar's bookmarks pinned, or in a folder past 12; measure Arc's | ours |
@@ -395,6 +409,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Automatic checks | MVP | every 8 h (Ardia). Built: `SUScheduledCheckInterval` 28800. The updates run reads Sparkle's next check, 8 h from the last; needs its Mac run | Ardia |
 | [ ] | No install during full screen | MVP | waits. Built: `platform/mac/updates.mm` holds a scheduled check's update while a window is full screen and shows it once none is. The updates run checks both; needs its Mac run | Ardia P§24 |
 | [ ] | Release notes after an update | MVP | first launch. Built: `platform/mac/updates.mm` keeps the notes for `host_take_update_notes`. Not checked: only a prod build opens them, for https notes, and an update needs a signed app to install, so the updates run checks only the alert's notes | Ardia P§24 |
+| [ ] | Minimum macOS | MVP | 15 (Sequoia), the owner's call; Arc: 13. Built: `build.sh` sets `LSMinimumSystemVersion`, which generate_appcast puts in the feed's entry; README.md and release.yml's notes name it. To tick: `plutil -extract LSMinimumSystemVersion raw build/Browser.app/Contents/Info.plist` reads 15.0, and the next appcast's entry has `sparkle:minimumSystemVersion` | Arc help, #678 |
 | [ ] | Feed URL is a default service URL | MVP | forks can change it. Built: `branding/update-feed`, which `build.sh` puts in the prod build; the updates run's build checks a feed of its own the same way. No run reads the product's | principle 2 |
 
 ## Keyboard
@@ -416,6 +431,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Arc's page menu items | MVP | Chrome's, plus Open Link in Split View and in Little Arc after New Window, and Capture Image…; without Lens, Reading Mode, Listen, QR Code, Send to Devices and Copy Link Text (ux-spec.md › Menus › Page menu). Built: a link's items in Arc's order, with Open Link in New Window and in Incognito Window; without Lens, Reading Mode, Listen, QR Code, Send to Devices and Copy Link Text; `./check.sh popup`'s `link-menu.png` and `page-menu.png`. Not built: Capture Image…, now that capture is built, with the image's box from the core; Little Arc with its feature; Cast… and Translate, for the owner, as ungoogled-chromium may lack them. No run right-clicks an image | Arc 1.170.0 ax |
 | [x] | Space list, Rename Space, View History, Services, Essential Keyboard Shortcuts | MVP | Spaces by name with ⌃1–⌃9; ⌘Y opens Chrome's history page; Help opens Settings › Shortcuts | Arc 1.170.0 menus |
 | [x] | About ilo, Import from Other Browsers… | MVP | app menu and command bar, opening Settings › About and Settings › Import; ilo's words for Arc's About Arc and Import from Another Browser…. Built (#681). Ticked on `./check.sh keys`' `about.png` and `./check.sh import`, which open them from the menu, passing on the Mac | Arc 1.170 menus |
+| [ ] | Help Center, What's New, Report a Problem…, Copy Build Info | MVP | Help menu and command bar. Help Center and What's New open ilo's site's /help and /whats-new; Report a Problem… opens a new issue on the bug report form with the version, Chromium and system filled in, sending nothing itself; Copy Build Info copies those details with a toast. Built (#681): `src/build_info.rs`, `shell/help_tests.rs`; needs its Mac run | Arc 1.170.0 menus, owner (2026-10-29) |
 | [ ] | Privacy Policy | MVP | app menu and command bar, opening ilo's page at a default service URL (principle 2). Not built: ilo has no policy page or URL yet; it waits for one | Arc 1.170 menus |
 | [ ] | Arc's other menu items | MVP | ux-spec.md › Menus: Blank Window and New Little Arc Window; Edit Theme…, Manage Spaces…, Network Inspector, Turn on Developer Mode, as each feature lands. Built: Arc's titles (Clear Today, Hide/Show Sidebar, Pin/Unpin Tab, Open Library…, View Downloads…, View Archive…), windows named by their shown tab, Reveal Tab in Sidebar, Change Profile and Paste and Match Style, and the menus Arc has for built features; `./check.sh clear` checks the menu bar's items in its log. Not built: Edit Theme… and New Profile in the menu bar, which have their pickers and forms; the rest with their features (Little Arc, Easels, Manage Spaces, the Appearance menu, a toolbar, Developer Mode) | Arc 1.170.0 ax |
 
@@ -426,6 +442,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Peek: triggers | 4 | measure | — |
 | [ ] | Peek: geometry, backdrop, buttons | 4 | measure | — |
 | [ ] | Peek: open, close, expand motion | 4 | measure | — |
+| [ ] | Peek: reopening | 4 | ⌘Z reopens the Peek closed last over its tab, at its page, and ⇧⌘Z closes it; ⇧⌘T reopens it while no tab has closed since; none in a private window. Built (#692): `Shell::preview_closed` keeps it as Close Link Preview, and a UI test runs ⌘Z, ⇧⌘Z and ⇧⌘T. To tick: `./check.sh preview` on the Mac, which closes one, reopens it with ⌘Z and then ⇧⌘T, each waiting for it to settle, with `preview-reopened.png` | Arc |
+| [ ] | Peek: meeting links | 4 | a call's link (Meet, Zoom, Teams, Webex, Whereby, Jitsi Meet) opens as a tab at the top of Today in the Space shown, not in Peek. Built (#692): `link_preview::is_meeting`, which a UI test holds to each service's meeting pages and not their others. To tick: `./check.sh preview` on the Mac, whose Meet link, its host mapped to the run's server, opens a tab shown with no preview, with `preview-meeting.png` | Arc |
 | [ ] | Little Arc: open | 4 | ⌥⌘N; centred above middle of the pointer's screen; last size, 900 × 640 first | Arc (Ardia), Ardia |
 | [ ] | Little Arc: bar | 4 | Space colour; favicon, host, title; ⌘L compact bar; Copy Link; ⌘O | Arc (Ardia), Ardia |
 | [ ] | Little Arc: ⌘O | 4 | moves the live page to the main window | Arc (Ardia) |

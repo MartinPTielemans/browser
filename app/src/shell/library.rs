@@ -19,7 +19,7 @@ use super::{
     NAV_RADIUS, NAV_SIZE, PLATE_INSET, SECONDARY, SEGMENT_FAVICON_X, Shell, Space, UNSELECTED_TITLE,
     clean_link, divider_box, favicon, folder_icon, host, SPACE_SWATCH_SHOWN, dashed_square,
     plate, row_box, space_icon_drawn, spring_to, split_plate, still_clear, title, Naming,
-    header::TipSide,
+    header::TipSide, keystroke_label,
     display_face::{cap_top, display_text},
 };
 use crate::{
@@ -774,10 +774,12 @@ impl Shell {
         let shell = cx.weak_entity();
         self.browser.confirm(
             "Clear the archive?".into(),
-            if count == 1 {
-                "Its tab leaves the archive. ⌘Z brings it back.".into()
-            } else {
-                format!("Its {count} tabs leave the archive. ⌘Z brings them back.")
+            {
+                let undo = keystroke_label("cmd-z");
+                match count {
+                    1 => format!("Its tab leaves the archive. {undo} brings it back."),
+                    _ => format!("Its {count} tabs leave the archive. {undo} brings them back."),
+                }
             },
             "Clear Archive",
             Box::new(move |cx| {

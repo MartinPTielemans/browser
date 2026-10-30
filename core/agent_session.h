@@ -20,7 +20,8 @@ namespace browser_core {
 // what the user's sessions keep, changes ad blocking or opens DevTools (decision 8).
 std::string RefusedAction(std::string_view action);
 
-// The core let |agent| act in |tab|: opens its session there if none is.
+// The core let |agent| act in |tab|: opens its session there if none is, blurring the page so no
+// password the user showed in it stays shown.
 void AgentActed(const std::string& agent, bc_id tab);
 
 // Ends |agent|'s session with |tab| for |why|, a BC_AGENT_SESSION_ value, and returns whether it
@@ -37,7 +38,8 @@ bool EndTabSession(bc_id tab, int why);
 // in it until they hand it back. For this run of the browser, as sessions are.
 void Hold(bc_id tab);
 
-// Hands |tab| back, and returns whether the user held it.
+// Hands |tab| back, blurring its page as a session's start does, and returns whether the user held
+// it.
 bool HandBack(bc_id tab);
 
 bool IsHeld(bc_id tab);
