@@ -86,7 +86,8 @@
 //                                         the normal level in the window server's order, which
 //                                         T3 Code's window capture takes. Each is "driven",
 //                                         "window <n>" for another browser window, "none", or
-//                                         "<class> <width>x<height> <accessibility role>"
+//                                         "<class> <width>x<height> <accessibility role>
+//                                         "<title>"" for another window, as a Save panel
 //   backdrop <grey>|off                   a window of the driver's in <grey> (0–255, sRGB) behind
 //                                         the browser window and 100 points past its edges, for
 //                                         the window's material to blur something known. Each
@@ -854,9 +855,9 @@ NSString* Describe(id element) {
     return NSStringFromClass([element class]);
   }
   NSWindow* window = element;
-  return [NSString stringWithFormat:@"%@ %.0fx%.0f %@", NSStringFromClass(window.class),
+  return [NSString stringWithFormat:@"%@ %.0fx%.0f %@ \"%@\"", NSStringFromClass(window.class),
                                     NSWidth(window.frame), NSHeight(window.frame),
-                                    window.accessibilityRole];
+                                    window.accessibilityRole, window.title];
 }
 
 // The app's first window on screen at the normal level, front to back, as another app finds it.

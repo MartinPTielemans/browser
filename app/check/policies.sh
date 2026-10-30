@@ -14,7 +14,10 @@ policies_check() {
   downloads="$PWD/$out/policies/downloads"
   profile_dir="$PWD/$out/policies/profile"
   rm -rf "${out:?}/policies"
-  mkdir -p "$downloads" "$profile_dir"
+  mkdir -p "$downloads" "$profile_dir/Default"
+  # A new profile asks where to save each download, which every run that downloads turns off, as
+  # check.sh does for the dev profile. This one leaves the folder to the policy.
+  printf '{"download": {"prompt_for_download": false}}' > "$profile_dir/Default/Preferences"
   # The run's policy, which lib.sh's cleanup takes out of the app's preferences after a failure too.
   policies=DownloadDirectory
   defaults write "$app_id" DownloadDirectory -string "$downloads"
@@ -50,7 +53,13 @@ onkeydown = e => {
   fi
   send type p
   expect '^browser: title [0-9]* key p$' "the page's script didn't get the p typed"
-  expect "^browser: download [0-9]* done $file\$" "the page's download didn't finish"
+  if ! await "^browser: download [0-9]* done $file\$"; then
+    # A Save panel or an alert holds a download back without a line of its own: front names it.
+    send front
+    ../tools/window-screenshot.sh "$pid" "$out/policies-fail.png" all
+    key=$(grep '^browser: front ' "$log" | tail -1 | sed 's/.*, key \(.*\), ax focused .*/\1/')
+    fail "the page's download didn't finish, with the key window $key. Windows: $out/policies-fail.png"
+  fi
   if [ ! -f "$downloads/$file" ]; then
     rm -f "$HOME/Downloads/$file"
     fail "the download didn't go in the policy's folder"
