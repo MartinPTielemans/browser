@@ -839,7 +839,8 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
             .map(|hovered| hovered.window)
             .filter(|&hovered| viewable(connection, hovered) && within(connection, hovered, focus))
             .unwrap_or(focus),
-        None => driven()?.window,
+        // A window of Chromium's own, such as the Task Manager, else none of the app's has it.
+        None => chromium_focus().or_else(|| driven().map(|browser| browser.window))?,
     };
     for &kind in kinds {
         let event = KeyPressEvent {
@@ -994,6 +995,31 @@ fn text_property(window: xproto::Window, name: &str) -> Option<String> {
         .reply()
         .ok()?;
     String::from_utf8(property.value).ok()
+}
+
+/// The window with the input focus while it's in one of this process's that isn't the app's own,
+/// such as Chromium's Task Manager, by the process id its window manager hint names.
+fn chromium_focus() -> Option<xproto::Window> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let pid = connection.intern_atom(false, b"_NET_WM_PID").ok()?.reply().ok()?.atom;
+    let focus = input_focus()?;
+    let mut window = focus;
+    loop {
+        let property = connection
+            .get_property(false, window, pid, xproto::AtomEnum::CARDINAL, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?;
+        if let Some(owner) = property.value32().and_then(|mut values| values.next()) {
+            return (owner == std::process::id()).then_some(focus);
+        }
+        let tree = connection.query_tree(window).ok()?.reply().ok()?;
+        if window == tree.root || tree.parent == x11rb::NONE {
+            return None;
+        }
+        window = tree.parent;
+    }
 }
 
 /// The title of the window with the input focus, or of the first window it's in that has one.
