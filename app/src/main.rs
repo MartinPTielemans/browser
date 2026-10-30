@@ -2345,6 +2345,10 @@ impl Browser for Engine {
         toast::hide_undo(cx);
     }
 
+    fn in_front(&self) -> bool {
+        front().0 == self.window
+    }
+
     fn toast_button(
         &self,
         text: &str,

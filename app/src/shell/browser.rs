@@ -349,6 +349,8 @@ pub trait Browser {
     /// Shows `text` in the toast with an Undo button and ⌘Z's chip after it, which runs `undo` as
     /// the key does, for `time` and for as long as the pointer is over it.
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App);
+    /// Whether this window is the browser window in front, over which the toast shows.
+    fn in_front(&self) -> bool;
     /// Shows `text` in the toast with a button after it, its label and its name in the logs, which
     /// runs `run`, for `time` and for as long as the pointer is over it.
     fn toast_button(
