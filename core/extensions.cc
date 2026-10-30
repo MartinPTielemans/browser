@@ -160,9 +160,10 @@ std::vector<KeyedCommand> KeyedCommands(Profile* profile, const extensions::Exte
 // another extension holds stays its.
 void AssignKeysChromeRefused(Profile* profile, const extensions::Extension& extension) {
   extensions::CommandService* service = extensions::CommandService::Get(profile);
-  const base::DictValue* suggested =
-      extensions::ExtensionPrefs::Get(profile)->ReadPrefAsDict(extension.id(), "commands");
+  extensions::ExtensionPrefs* prefs = extensions::ExtensionPrefs::Get(profile);
   auto assign = [&](const ui::Command& command) {
+    // Read again for each, as assigning one rewrites them.
+    const base::DictValue* suggested = prefs->ReadPrefAsDict(extension.id(), "commands");
     const base::DictValue* pref = suggested ? suggested->FindDict(command.command_name()) : nullptr;
     if (command.global() || command.accelerator().key_code() == ui::VKEY_UNKNOWN ||
         (pref && pref->FindBool("was_assigned").value_or(false)) ||
