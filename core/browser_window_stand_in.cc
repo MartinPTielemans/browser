@@ -410,6 +410,14 @@ void BrowserWindowStandIn::Close() {
 }
 
 void BrowserWindowStandIn::Activate() {
+#if BUILDFLAG(IS_WIN)
+  // Chrome asks a window that's active to activate again, as tab restore does for the tab it
+  // brings back, which on Windows focuses the window itself (DesktopNativeWidgetAura::Activate).
+  // That took the keyboard from the UI, and the page shown next took it from the window (#872).
+  if (widget() && widget()->IsActive()) {
+    return;
+  }
+#endif
   if (widget()) {
     widget()->Activate();
   }
