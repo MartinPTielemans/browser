@@ -771,7 +771,8 @@ send key escape
 expect '^browser: site controls closing (escape)$' "escape didn't close the Site Controls"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave after escape"
 # Reset permissions sets the site back to asking, and a click outside closes them. The pointer
-# comes to the button first, as a hand's does, which shows it.
+# comes to the button from the page first, as a hand's does, which shows it.
+away
 send move $site_controls_point
 expect '^browser: sidebar tools shown$' "the URL field's buttons didn't show under the pointer"
 send click $site_controls_point
