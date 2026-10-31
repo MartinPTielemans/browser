@@ -566,6 +566,7 @@ pub(crate) fn shell_with_view(ui_view: *mut c_void) -> WeakEntity<Shell> {
 #[cfg(target_os = "windows")]
 extern "C" fn window_close_asked(ui_view: *mut c_void) {
     let id = window_with_view(ui_view);
+    log!("browser: window close asked {id}");
     if id != 0 {
         unsafe { bc::bc_window_close(id) };
     }
