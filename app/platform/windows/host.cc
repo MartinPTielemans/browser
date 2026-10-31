@@ -23,7 +23,6 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
-#include <cwchar>
 #include <functional>
 #include <iterator>
 #include <map>
@@ -587,49 +586,6 @@ LRESULT CALLBACK MouseMoved(int code, WPARAM wparam, LPARAM lparam) {
 void WatchPointer() {
   if (!g_mouse_hook) {
     g_mouse_hook = SetWindowsHookExW(WH_MOUSE, MouseMoved, nullptr, GetCurrentThreadId());
-  }
-}
-
-// A press in a page gives its pane Windows' keyboard, as the core does when the page's own focus
-// changes (PaneKeyboard in core/platform/win/window_views.cc). A press in a page that already has
-// that focus changes nothing there, so the keyboard stayed with the browser window and keys typed
-// after a click in the page never reached it (#872). Not while another window is in front, such
-// as the command bar, which a click outside closes first.
-void PagePressed(HWND pressed) {
-  HWND root = pressed ? GetAncestor(pressed, GA_ROOT) : nullptr;
-  if (!root || root == pressed || GetActiveWindow() != root ||
-      std::ranges::none_of(UiViews(), [root](HWND holder) { return Root(holder) == root; })) {
-    return;
-  }
-  HWND pane = pressed;
-  for (HWND parent = GetParent(pane); parent && parent != root; parent = GetParent(pane)) {
-    pane = parent;
-  }
-  // The UI's holder takes the keyboard itself (HolderProc); the rest are Chromium's panes.
-  wchar_t name[32] = {};
-  GetClassNameW(pane, name, 32);
-  if (wcsncmp(name, L"Chrome_WidgetWin_", 17) != 0) {
-    return;
-  }
-  HWND focus = GetFocus();
-  if (focus != pane && !IsChild(pane, focus)) {
-    SetFocus(pane);
-  }
-}
-
-HHOOK g_press_hook = nullptr;
-
-LRESULT CALLBACK MousePressed(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION &&
-      (wparam == WM_LBUTTONDOWN || wparam == WM_RBUTTONDOWN || wparam == WM_MBUTTONDOWN)) {
-    PagePressed(reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->hwnd);
-  }
-  return CallNextHookEx(nullptr, code, wparam, lparam);
-}
-
-void WatchPresses() {
-  if (!g_press_hook) {
-    g_press_hook = SetWindowsHookExW(WH_MOUSE, MousePressed, nullptr, GetCurrentThreadId());
   }
 }
 
@@ -1205,7 +1161,6 @@ void* host_ui_view(void) {
     return window_class.lpszClassName;
   }();
   WatchForeground();
-  WatchPresses();
   // A window of its own until the core makes it a child of the browser window.
   HWND holder = CreateWindowExW(0, holder_class, L"", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0, 0,
                                 nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -2253,13 +2208,7 @@ bool host_drive_pointer(unsigned message, long x, long y) {
   if (message == WM_MOUSEMOVE && g_mouse_hook) {
     PointerMoved(point);
   }
-  if (g_menu_mouse_hook && MenuTakesPointer(message, point)) {
-    return true;
-  }
-  if (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN) {
-    PagePressed(WindowFromPoint(point));
-  }
-  return false;
+  return g_menu_mouse_hook && MenuTakesPointer(message, point);
 }
 
 bool host_drive_key(unsigned vk, long lparam) {
