@@ -96,6 +96,8 @@ expect "^browser: loaded $tab https://example.org/\$" "⌘R didn't load the page
 send key r cmd shift
 expect '^browser: command force-reload via ui$' "⇧⌘R didn't run force-reload"
 expect "^browser: loaded $tab https://example.org/\$" "⇧⌘R didn't load the page again"
+# The button is stop until the page says it has stopped loading, a little after its load (#1114).
+expect '^browser: nav shows reload$' "the stop button didn't turn back into reload"
 send click $reload_button
 expect '^browser: command reload via sidebar$' "a click on reload didn't reload"
 expect "^browser: loaded $tab https://example.org/\$" "a click on reload didn't load the page again"

@@ -14,8 +14,8 @@ use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size, WeakEnti
 use crate::theme::Appearance;
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
-    browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, MediaAction, MenuBar, MenuEntry, PageReply,
+    ShownPageDialog, browser::WindowButton,
 };
 
 /// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
@@ -224,6 +224,15 @@ impl Recorder {
         answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
     }
 
+    /// Chooses the last item titled `title`, for a title that's in two submenus.
+    pub(super) fn choose_last(&self, title: &str, cx: &mut App) {
+        let at = self.menus.borrow().last().and_then(|items| {
+            items.iter().rposition(|(each, enabled)| each.as_ref() == title && *enabled)
+        });
+        let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
+        answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
+    }
+
     /// Closes the last menu without a choice, as Escape or a click outside it does.
     pub(super) fn dismiss(&self, cx: &mut App) {
         let answer = self.answer.borrow_mut().take().expect("a menu to close");
@@ -380,6 +389,26 @@ impl Browser for Recorder {
     }
 
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        self.record(format!("share instead {tab}"));
+    }
+
+    fn media(&self, tab: u64, action: MediaAction, _: &mut App) {
+        self.record(format!("media {tab} {action:?}"));
+    }
+
+    fn cast(&self, tab: u64, _: &mut App) {
+        self.record(format!("cast {tab}"));
+    }
+
+    fn cast_close(&self, _: &mut App) {
+        self.record("cast close".to_owned());
+    }
+
+    fn cast_to(&self, tab: u64, id: SharedString, _: &mut App) {
+        self.record(format!("cast to {tab} {id}"));
+    }
 
     fn clear(&self, _: &mut App) -> u64 {
         let id = self.core.ticket();
@@ -981,7 +1010,7 @@ impl Browser for Recorder {
     fn toast_button(
         &self,
         text: &str,
-        _: (&'static str, &'static str),
+        _: (Option<&'static str>, &'static str),
         run: Rc<dyn Fn(&mut App)>,
         _: Duration,
         _: &mut App,

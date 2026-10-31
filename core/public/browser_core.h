@@ -92,6 +92,23 @@ typedef struct bc_tab_state {
   // The system's engine shows the page, WebKit on the Mac, in place of Chromium
   // (bc_tab_set_system_engine).
   bool system_engine;
+  // The page uses the camera, or the microphone, as Chrome's tab strip marks it.
+  bool camera;
+  bool microphone;
+  // The page shares a screen, a window or another tab, as a call does.
+  bool sharing;
+  // Another page shares this tab, as a call shows it.
+  bool shared;
+  // Another page shares a tab, and bc_tab_share_instead would have it share this one.
+  bool share_instead;
+  // The page's media, as Chrome's media controls show it: whether it has a session the browser
+  // can play, pause and skip (bc_tab_media), whether that's playing, its title and artist, each
+  // empty without one, and whether it has a next track.
+  bool media;
+  bool media_playing;
+  const char* media_title;
+  const char* media_artist;
+  bool media_next;
   // The tab shows its page in Developer Mode (bc_tab_set_developer_mode): the user turned it on for
   // the page's site, or it's localhost, as Chrome counts it, and they didn't turn it off there.
   bool developer_mode;
@@ -381,6 +398,25 @@ typedef struct bc_site_controls {
   int developer_mode;
 } bc_site_controls;
 
+// What a device to cast to is doing, as Chrome's Cast dialog shows it.
+#define BC_CAST_AVAILABLE 0
+#define BC_CAST_CONNECTING 1
+#define BC_CAST_CONNECTED 2
+#define BC_CAST_DISCONNECTING 3
+#define BC_CAST_UNAVAILABLE 4
+
+// A device Chrome's media router found on the network, as its Cast dialog lists it.
+typedef struct bc_cast_device {
+  // Chrome's, for bc_tab_cast_to.
+  const char* id;
+  // The device's own name, such as "Living Room TV".
+  const char* name;
+  // A BC_CAST_ value.
+  int state;
+  // Chrome's words for what it's doing or what went wrong, such as "Casting tab", or "".
+  const char* status;
+} bc_cast_device;
+
 
 // An agent's call the core checked, for the activity log (bc_agent_may_act).
 typedef struct bc_agent_activity {
@@ -628,6 +664,15 @@ typedef struct bc_host {
   // changes, until bc_site_controls_close: a permission changed or was used, the tab went to
   // another page, or a video started or stopped.
   void (*tab_site_controls)(void* context, bc_id tab, const bc_site_controls* controls);
+  // The tab's Cast dialog, in place of Chrome's: after bc_tab_cast, the page menu's Cast… or the
+  // page asking to cast, and again as the devices found change, with Chrome's header, such as
+  // "Cast tab", and the devices, |count| of them. Once it closes, with |header| null: on
+  // bc_cast_close, another tab's, the tab going, or casting starting, as Chrome's closes then.
+  void (*tab_cast)(void* context,
+                   bc_id tab,
+                   const char* header,
+                   const bc_cast_device* devices,
+                   size_t count);
   // The box of the element at (|x|, |y|) bc_tab_element_at asked for, its border's in points from
   // the top-left of the page's view, or a box 0 wide if there's none or the page went.
   void (*tab_element_box)(void* context, bc_id tab, double x, double y, bc_rect box);
@@ -1660,6 +1705,12 @@ BC_EXPORT void bc_age_tabs_for_testing(double seconds);
 // The user's: agents get none, as it keeps trackers off the user's pages.
 BC_EXPORT bool bc_ad_blocking(void);
 BC_EXPORT void bc_set_ad_blocking(bool on);
+// Whether a page may take its video or call into Picture in Picture as its tab is hidden, the
+// Mini Player, in every profile: on unless the user turned it off. Off blocks it by default, as
+// Chrome's settings do, and a site the user allows in its Site Controls still may. The core keeps
+// it with the Spaces. The user's: agents get none.
+BC_EXPORT bool bc_auto_picture_in_picture(void);
+BC_EXPORT void bc_set_auto_picture_in_picture(bool on);
 
 // Crash reports. Crashpad writes a minidump of every crash in the profile folder, and the core sends
 // one only while the user has Settings › Privacy › Send Crash Reports on, which is off by default:
@@ -1992,6 +2043,20 @@ BC_EXPORT void bc_tab_site_controls(bc_id tab);
 // pinned actions alone.
 BC_EXPORT void bc_site_controls_close(void);
 
+// Opens the tab's Cast dialog, as Chrome's View › Cast… does, which looks for devices on the
+// network with DIAL (ungoogled-chromium builds without mDNS). Then tab_cast. The last tab's closes
+// first: one shows at a time. Does nothing for a profile Chrome's media router doesn't serve. The
+// user's: agents get none, as casting shows the page to a screen others can see.
+BC_EXPORT void bc_tab_cast(bc_id tab);
+
+// Closes the Cast dialog. Then tab_cast with a null header.
+BC_EXPORT void bc_cast_close(void);
+
+// A click on the device |id| in the tab's Cast dialog, as on Chrome's: one with a problem clears
+// it, one casting stops, and one available casts the tab, or the page's presentation where it
+// has one. Then tab_cast as it changes.
+BC_EXPORT void bc_tab_cast_to(bc_id tab, const char* id);
+
 // Gives the site of the tab's page |value|, a BC_SITE_ value, for the permission of |type|, as
 // Chrome's page info does, if it's one of the permission's choices and bc_tab_site_controls is
 // watching that tab. The profile keeps it, as Chrome's site settings do. Then tab_site_controls.
@@ -2160,6 +2225,20 @@ BC_EXPORT void bc_tab_set_icon(bc_id tab, const char* icon);
 // doesn't. Then tab_state_changed.
 BC_EXPORT void bc_tab_set_muted(bc_id tab, bool muted);
 
+// While a page shares a tab and the tab's state has share_instead, has the page share this tab's
+// page in its place, as Chrome's Share this tab instead does. The user's: agents get none, as it
+// would show a page to whoever the call reaches. Then tab_state_changed, for both tabs.
+BC_EXPORT void bc_tab_share_instead(bc_id tab);
+
+// What bc_tab_media does to the page's media, as Chrome's media controls do.
+#define BC_MEDIA_PLAY 0
+#define BC_MEDIA_PAUSE 1
+#define BC_MEDIA_NEXT 2
+
+// Plays, pauses or skips the page's media, one of BC_MEDIA_, while its state has media. Then
+// tab_state_changed. The user's: agents act in the page instead.
+BC_EXPORT void bc_tab_media(bc_id tab, int action);
+
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
 // shows the tab first. Then tab_closed for each, and space_changed.
 BC_EXPORT void bc_tab_close_below(bc_id tab);
@@ -2301,6 +2380,12 @@ BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 // (bc_window_keyboard_in_child), such as a tab's dialog, copied into |title| as bc_space_name does,
 // or an empty string. For the test driver, as the X server has none for it.
 BC_EXPORT size_t bc_window_child_title(bc_id window, char* title, size_t capacity);
+
+// On Linux, under X11: answers the requests for the clipboard's contents that other clients have
+// sent Chromium, from what it holds, and dispatches no other event of its. The UI calls it while its
+// own read of the clipboard waits, as the owner it asks can be Chromium, which answers on the UI's
+// thread.
+BC_EXPORT void bc_answer_clipboard_requests(void);
 
 #ifdef __cplusplus
 }

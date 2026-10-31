@@ -68,6 +68,7 @@ mod link;
 #[cfg(test)]
 mod link_target;
 mod menu_bar;
+mod media_player;
 mod menus;
 mod naming;
 mod new_space;
@@ -77,6 +78,7 @@ mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
+mod cast;
 mod agent_bar;
 mod agent_pointer;
 mod agent_question;
@@ -101,7 +103,7 @@ mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
+pub use browser::{AgentGrants, Browser, Folders, MediaAction, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, copy_url_of_preview, find_commands,
@@ -127,6 +129,7 @@ pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
+pub use cast::{Cast, CastDevice, CastState};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use trace::{RECORDING, STOP, recorded as trace_recorded};
 pub use picture::{PagePicture, picture_answered};
@@ -258,6 +261,7 @@ use crate::tokens::shell::TILE_HEIGHT;
 use crate::tokens::shell::TILE_GAP;
 use crate::tokens::shell::TILE_MIN;
 use crate::tokens::shell::TILE_RADIUS;
+use crate::tokens::shell::{TILE_MARK, TILE_MARK_INSET};
 use crate::tokens::shell::TALL_FAVORITES;
 use crate::tokens::shell::NAME_HEIGHT;
 // The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
@@ -1278,6 +1282,9 @@ pub struct Shell {
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab whose question's card shows, and its moment on screen before Block and Allow work.
     question_settling: RefCell<Option<(u64, crate::settling::Settling)>>,
+    /// The Cast dialog the core reports for the tab it's for (cast.rs).
+    cast: Option<(u64, Cast)>,
+    cast_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// What an agent asks the user first, in every window (agent_question.rs).
     agent_question: Option<crate::agents::Question>,
     agent_question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -1285,6 +1292,11 @@ pub struct Shell {
     /// (agent_bar.rs).
     agent_status: Vec<crate::agents::Status>,
     agent_bar_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The tabs whose player × put away until their page plays again.
+    media_dismissed: HashSet<u64>,
+    /// The players last drawn, as the log has them, and where the bottom one is.
+    media_logged: RefCell<Vec<u64>>,
+    media_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// Whether a tooltip the agent bar asked for may be up, and whether its bar showed the agent
     /// at work, so it ends once that bar is gone (agent_bar.rs).
     agent_tip: Cell<Option<bool>>,
@@ -1532,11 +1544,16 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            cast: None,
+            cast_drawn: Rc::default(),
             question_settling: RefCell::default(),
             agent_question: None,
             agent_question_drawn: Rc::default(),
             agent_status: Vec::new(),
             agent_bar_drawn: Rc::default(),
+            media_dismissed: HashSet::new(),
+            media_logged: RefCell::default(),
+            media_drawn: Rc::default(),
             agent_tip: Cell::default(),
             drm_notes: HashMap::new(),
             keys: HashMap::new(),
@@ -2245,6 +2262,7 @@ impl Shell {
         }
         self.selected_for_picture(tab, cx);
         self.hid_for_cards(hidden, cx);
+        self.cast_for_shown(cx);
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
@@ -2412,6 +2430,36 @@ impl Shell {
         if (page.audible, page.muted) != (entry.page.audible, entry.page.muted) {
             let (audible, muted) = (flag(page.audible), flag(page.muted));
             log!("browser: page {tab} audible {audible} muted {muted}");
+        }
+        let capture = |page: &Page| [page.camera, page.microphone, page.sharing, page.shared];
+        if capture(&page) != capture(&entry.page) {
+            let [camera, microphone, sharing, shared] = capture(&page).map(flag);
+            // check.sh waits for these lines.
+            log!(
+                "browser: page {tab} camera {camera} microphone {microphone} sharing {sharing} \
+                 shared {shared}"
+            );
+        }
+        if page.share_instead != entry.page.share_instead {
+            // check.sh waits for this line.
+            log!("browser: page {tab} share instead {}", flag(page.share_instead));
+        }
+        let media = |page: &Page| {
+            (page.media, page.media_playing, page.media_next, page.media_title.clone())
+        };
+        if media(&page) != media(&entry.page) {
+            // check.sh waits for this line.
+            log!(
+                "browser: page {tab} media {} playing {} next {} {}",
+                flag(page.media),
+                flag(page.media_playing),
+                flag(page.media_next),
+                page.media_title
+            );
+        }
+        // A player put away comes back once its page plays again.
+        if page.media_playing && !entry.page.media_playing {
+            self.media_dismissed.remove(&tab);
         }
         if page.icon != entry.page.icon {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
@@ -2988,7 +3036,10 @@ impl Render for Shell {
             window.focus(&field, cx);
             // check.sh waits for these lines, which say the field has the keyboard.
             match renaming.naming {
-                Naming::Folder(folder) => log!("browser: rename folder {folder}"),
+                Naming::Folder(folder) => {
+                    log!("browser: rename folder {folder}");
+                    log!("browser: folder name field {}", renaming.name.read(cx).text());
+                }
                 Naming::Profile(profile) => log!("browser: rename profile {profile}"),
                 _ => {}
             }
@@ -3282,7 +3333,9 @@ impl Shell {
                     .children(self.dragged_tile(cx))
                     .children(self.turning_drag())
                     .children(self.question_card(cx))
+                    .children(self.cast_card(cx))
                     .children(self.agent_question_card(cx))
+                    .children(self.media_player_cards(cx))
                     .children(self.agent_bar_card(cx))
                     .children(self.drm_note_card(cx))
             }
@@ -3348,7 +3401,7 @@ impl Shell {
             .top(px(self.pages_top()))
             .left_0()
             .w(px(self.width()))
-            .bottom(px(FOOTER_HEIGHT))
+            .bottom(px(self.list_bottom()))
             .overflow_hidden()
             .children(pages)
             .child(self.rest_press_listener(Self::press_at_rest, cx).absolute().size_full())

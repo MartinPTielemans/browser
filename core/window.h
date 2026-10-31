@@ -109,6 +109,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);
+  // The hook for Chrome's tabs (hooks.h): |contents|, which asked to be shown, as Picture in
+  // Picture's way back to its tab does, shows in the window holding it, in its Space.
+  static void ActivateContents(content::WebContents* contents);
   // |tab|'s page committed in a new view: each window showing it gives that view the keyboard, if
   // the page had it.
   static void PageCommittedInNewView(bc_id tab);

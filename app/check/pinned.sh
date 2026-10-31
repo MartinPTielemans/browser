@@ -8,7 +8,9 @@
 # pinned tab again. Launched again, the app brings back the pinned tab pinned and away from its
 # pinned URL, without loading it. Dragging a row moves its tab in the pinned tabs, pins it and
 # unpins it, without showing it, and escape puts it back. New Folder makes a folder under the pinned
-# tabs, which takes the name typed. A row dragged right under it goes in and dragged left comes out,
+# tabs, which takes the name typed, as New Folder… in the sidebar's empty space does, and a tab's
+# Add to Folder › moves it into a folder or a new one in its place, named for its site, each one
+# step for ⌘Z. A row dragged right under it goes in and dragged left comes out,
 # a folder drags as a row, a click closes and opens it, and closed, it previews its tab, which the
 # keyboard shows. Launched again, the app brings it back closed and a double-click renames it. In
 # its menu, Copy All Links is Copy All Links as Markdown with ⌥ held and Change Icon… gives it an
@@ -259,7 +261,7 @@ expect "^browser: selected $c in " "a click on the pinned tab didn't show it"
 # in a field in its row, which takes a URL typed over it, and ⌘Z takes that back too (Arc).
 link_away
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" \
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Add to Folder › New Folder, Move to Space (disabled), Close Tab')\$" \
   "a right-click on the pinned tab away from its pinned URL didn't show its Pinned URL submenu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key p
@@ -281,7 +283,7 @@ expect "^browser: page $c away 0\$" "⇧⌘Z didn't replace the pinned URL again
 send key z cmd
 expect "^browser: page $c away 1\$" "⌘Z didn't give the pinned tab back its pinned URL again"
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on the pinned tab didn't show its menu"
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL, Pinned URL › Replace Pinned URL with Current, Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Add to Folder › New Folder, Move to Space (disabled), Close Tab')\$" "a right-click on the pinned tab didn't show its menu"
 send choose "$(cased 'Pinned URL › Edit…')"
 expect "^browser: edit pinned url $c\$" "Edit… didn't show the pinned URL in a field"
 send type "${site}notes.txt"
@@ -457,6 +459,64 @@ send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
 settled
 recorded
+# A right-click on the sidebar's empty space offers New Folder… after New Tab, which makes a folder
+# as the Tabs menu's does (#1088).
+post rightclick 100 500
+expect "^browser: menu shown $(cased 'New Tab, New Folder…'), " \
+  "a right-click on the sidebar's empty space didn't offer New Folder… after New Tab"
+../tools/window-screenshot.sh "$pid" "$out/empty-space-menu.png" || fail "no window to capture"
+send choose "$(cased 'New Folder…')"
+expect '^browser: command new-folder via sidebar$' \
+  "New Folder… in the empty space's menu didn't run"
+expect '^browser: rename folder [0-9]*$' "New Folder… from the empty space gave no name field"
+g=$(grep '^browser: rename folder' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: outline $f+\\[$c\\] $g+\\[\\]\$" \
+  "New Folder… from the empty space didn't make a folder at the bottom: $(outline)"
+send type read
+send key return
+expect "^browser: renamed folder $g read\$" "the folder from the empty space didn't take its name"
+# A name moves no row, so there's nothing to wait for.
+# A tab's menu has Add to Folder ›: New Folder, then the Space's folders. A folder takes the tab at
+# its bottom.
+post rightclick $(pinned_row 1)
+expect "^browser: menu shown .*, $(cased 'Duplicate Tab, Add to Folder › New Folder'), \
+$(cased 'Add to Folder') › work, $(cased 'Add to Folder') › read, $(cased 'Move to Space')" \
+  "the tab's menu didn't list Add to Folder › New Folder, work and read"
+send choose "$(cased 'Add to Folder') › read"
+expect '^browser: command add-to-folder via tab menu$' "Add to Folder › read didn't run"
+expect "^browser: outline $f+\\[\\] $g+\\[$c\\]\$" \
+  "Add to Folder › read didn't move the tab in: $(outline)"
+settled
+../tools/window-screenshot.sh "$pid" "$out/add-to-folder.png" || fail "no window to capture"
+# Add to Folder › New Folder puts the tab in a new folder in its place, named for its site.
+host=$(printf '%s\n' "$site" | sed 's#^[a-z]*://##; s#^www\.##; s#[:/?#].*##')
+post rightclick $(pinned_row 2)
+expect "^browser: menu shown .*, $(cased 'Add to Folder › New Folder'), " "the tab's menu again"
+send choose "$(cased 'Add to Folder › New Folder')"
+expect '^browser: command new-folder via tab menu$' "Add to Folder › New Folder didn't run"
+expect '^browser: rename folder [0-9]*$' "Add to Folder › New Folder gave no name field"
+h=$(grep '^browser: rename folder' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: folder name field $host\$" \
+  "the tab's folder wasn't named for $host: $(grep '^browser: folder name' "$log" | tail -1)"
+expect "^browser: outline $f+\\[\\] $g+\\[$h+\\[$c\\]\\]\$" \
+  "Add to Folder › New Folder didn't put the tab in a folder in its place: $(outline)"
+settled
+../tools/window-screenshot.sh "$pid" "$out/site-folder.png" || fail "no window to capture"
+send key escape
+# Each is one step for ⌘Z, and the empty folder goes with Delete Folder.
+send key z cmd
+expect "^browser: outline $f+\\[\\] $g+\\[$c\\]\$" \
+  "⌘Z didn't undo Add to Folder › New Folder: $(outline)"
+send key z cmd
+expect "^browser: outline $f+\\[$c\\] $g+\\[\\]\$" "⌘Z didn't undo Add to Folder › read: $(outline)"
+settled
+post rightclick $(pinned_row 2)
+expect "^browser: menu shown $(cased 'Rename Folder'), " \
+  "a right-click on the empty folder showed no menu"
+send choose "$(cased 'Delete Folder')"
+expect "^browser: outline $f+\\[$c\\]\$" \
+  "Delete Folder didn't take the empty folder away: $(outline)"
+settled
 # The command bar finds commands by their names' letters in order, those that start with what's
 # typed first, and one found by its letters alone last, after the suggestions. ↩ runs the command
 # selected.
@@ -573,15 +633,17 @@ send key return
 expect "^browser: iconed folder $f 🌟\$" "the picker's pick didn't become the folder's icon"
 expect '^browser: icon picker hidden$' "picking an emoji didn't close the icon picker"
 ../tools/window-screenshot.sh "$pid" "$out/folder-icon.png" || fail "no window to capture"
-# Export… in Settings › Advanced, in the box under the three switch rows, writes the Space's pinned
+# Export… in Settings › Advanced, in the box under the four switch rows, writes the Space's pinned
 # tabs as Markdown links, the folder a list of what it holds.
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+# The run's first ⌘, opens the window, which takes no click until it has drawn (#1101).
+expect '^browser: settings drew General$' "Settings didn't draw General"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-# On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other three.
+# On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other four.
 case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
-send clickkey 575 $((260 + option_row))
+send clickkey 575 $((302 + option_row))
 expect '^browser: exported [0-9]* links to .*/spaces\.md$' "Export… didn't write the Spaces' links"
 grep -qx -- '- later' "$out/spaces.md" ||
   fail "the export didn't list the folder: $(cat "$out/spaces.md")"
@@ -677,7 +739,7 @@ send menu Collapse Pinned Tabs
 expect '^browser: command collapse-pinned via ui$' "View › Collapse Pinned Tabs didn't run collapse-pinned"
 expect "^browser: outline -\\[$e $c\\]\$" "Collapse Pinned Tabs didn't collapse the pinned rows: $(outline)"
 
-# Focus Sidebar, which has no key until the user binds one, gives the sidebar the keyboard and rings
+# Focus Sidebar, on F6 unless the user gives it another key, gives the sidebar the keyboard and rings
 # the tab shown's row, the first ⌘1 counts. ↑ there stays, past the collapsed pinned rows, ↓ moves
 # the ring down, and return shows the ringed tab with its page holding the keyboard. From the View
 # menu, a key in the page clicked ends the ring, and escape gives the page the keyboard back

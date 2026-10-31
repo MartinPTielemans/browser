@@ -57,7 +57,7 @@ expect_tabs "$b $a" "$b" "after opening a tab"
 # Below. Dragged onto the Space's name, the row takes the tab out of Today into a tile, and its
 # press shows the tab, as Arc's does.
 post rightclick $(row 1)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" \
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" \
   "a right-click on the bottom Today row didn't show Arc's tab menu"
 send dismiss
 send press $(row 1)
@@ -391,13 +391,15 @@ expect '^browser: drag shape row$' "a tile dragged into the list didn't turn int
 expect '^browser: detent$' "a tile dragged into the list didn't click the trackpad"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-drag-out.png" || fail "no window to capture"
 send dragto 100 300
+# The put-back can end within the escape's step, before the release.
+escaped=$((step + 1))
 send key escape
 expect '^browser: command stop via ' "escape during a tile's drag didn't reach the UI"
 send release 100 300
 none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
 [ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
 # A press hits the frame drawn, so the next drag waits for the put-back's.
-expect '^browser: drag put back$' "Escape's put-back didn't finish"
+expect '^browser: drag put back$' "Escape's put-back didn't finish" "$escaped"
 # Three tiles in the sidebar at its narrowest take two rows, 94 points, more than 40 % of a window
 # 220 tall, so they scroll with the list, under the URL field (Ardia).
 send drag $(tiled_row 0) 200 112
@@ -535,12 +537,13 @@ post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
-# More Settings… sits under Advanced's box of three switch rows, the haptics', the link previews'
-# and restoring windows', and on the Mac and Linux ⌥'s 42 under them, and the box of Export…'s row.
-# On Linux the box of Widevine's module, which Chromium downloads there, puts it 93 lower.
+# More Settings… sits under Advanced's box of four switch rows, the haptics', the link previews',
+# the Mini Player's and restoring windows', and on the Mac and Linux ⌥'s 42 under them, and the
+# box of Export…'s row. On Linux the box of Widevine's module, which Chromium downloads there, puts
+# it 93 lower.
 case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
 [ "$(uname)" = Linux ] && widevine=93 || widevine=0
-send clickkey 120 $((303 + option_row + widevine))
+send clickkey 120 $((345 + option_row + widevine))
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
 expect '^browser: loaded [0-9]* chrome://settings/$' \
