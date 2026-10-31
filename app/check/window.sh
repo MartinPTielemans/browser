@@ -274,10 +274,12 @@ check_buttons "after full screen"
 # and the transition shows no frame of the other layout.
 resizes=$(page_resizes)
 send key f
+asked=$step
 expect '^browser: page entered full screen$' "the page didn't go full screen"
 expect '^browser: window entered full screen$' "the window didn't go full screen with the page"
 check_layout "with the page full screen" fills
-none_since '^browser: toast shown To exit full screen' ||
+# From the key on, as check_layout sends a command of its own.
+logged "^browser: toast shown $note" "$asked" &&
   fail "a page's full screen showed the window's note on leaving it"
 resized_once "going full screen" "$content"
 ../tools/window-screenshot.sh "$pid" "$out/page-fullscreen.png" || fail "no window to capture"
