@@ -57,7 +57,7 @@ expect_tabs "$b $a" "$b" "after opening a tab"
 # Below. Dragged onto the Space's name, the row takes the tab out of Today into a tile, and its
 # press shows the tab, as Arc's does.
 post rightclick $(row 1)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" \
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" \
   "a right-click on the bottom Today row didn't show Arc's tab menu"
 send dismiss
 send press $(row 1)
