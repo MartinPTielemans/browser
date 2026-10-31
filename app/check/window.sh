@@ -205,6 +205,8 @@ slow=$(echo "$timing" | sed 's/.* slow \([0-9]*\) .*/\1/')
 # screen can judge the scroll, and a VM reports it, as Linux's headless session does.
 if [ "$(uname)" = Linux ]; then
   timing="$timing, in a headless session, not judged"
+elif windows; then
+  timing="$timing, on Windows, whose checks run in GitHub's VMs, not judged"
 elif [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   timing="$timing, in a VM, not judged"
 elif [ $((slow * 100)) -gt "$frames" ]; then
