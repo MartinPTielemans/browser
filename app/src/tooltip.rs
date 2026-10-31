@@ -438,7 +438,7 @@ impl Render for Tooltip {
             }
         };
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.
-        let rim = shape(div().absolute().size_full())
+        let rim = shape(div().absolute().top_0().left_0().size_full())
             .border(px(RIM))
             .border_color(Level::Popover.rim());
         root.child(
