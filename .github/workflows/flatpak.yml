@@ -2,14 +2,23 @@
 # then installed and started on X11 in Xvfb to see that its first window draws.
 # Run it by hand to build from a branch whose packaging didn't change. release.yml calls it for a
 # release's Flatpak, the `ilo-flatpak` artifact, and its crash reports' symbols.
+# A push or a run by hand whose core/public/browser_core.h no published Linux engine has is
+# skipped, as nothing can run it, as check-linux.yml skips it (#882). A release fails instead: it
+# needs its commit's engine.
 name: Flatpak
 
 on:
+  # Branches only: an engine release's tag, pushed with the owner's token, starts nothing here.
   push:
+    branches: ['**']
     paths: [app/platform/linux/flatpak/**, tools/flatpak.sh, .github/workflows/flatpak.yml]
   workflow_dispatch:
   workflow_call:
     inputs:
+      release:
+        description: A release's bundle, which fails rather than skips without its engine
+        type: boolean
+        default: true
       symbols:
         description: Upload the bundle's crash reports' symbols (tools/symbols.sh)
         type: boolean
@@ -28,8 +37,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      - id: engine
+        env:
+          RELEASE: ${{ inputs.release }}
+        run: |
+          status=0
+          engine/fetch.sh > /dev/null 2> "$RUNNER_TEMP/fetch.log" || status=$?
+          cat "$RUNNER_TEMP/fetch.log" >&2
+          case $status in
+          0) echo "found=true" >> "$GITHUB_OUTPUT" ;;
+          2)
+            why=$(tail -1 "$RUNNER_TEMP/fetch.log")
+            if [ "$RELEASE" = true ]; then
+              echo "::error::No Linux engine fits this commit, so the release has no Flatpak. $why"
+              exit 1
+            fi
+            echo "::notice::No Linux engine fits this commit, so no Flatpak is built. $why"
+            printf 'Skipped: no Linux engine fits this commit, so no Flatpak is built.\n\n%s\n' "$why" >> "$GITHUB_STEP_SUMMARY"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            ;;
+          *) exit "$status" ;;
+          esac
+
       # The UI's build as in app-linux.yml; Xvfb and ImageMagick to start the bundle and see it.
       - name: Install tools
+        if: ${{ steps.engine.outputs.found == 'true' }}
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
@@ -39,7 +71,8 @@ jobs:
           # user namespaces.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - uses: actions/cache@v4
+      - if: ${{ steps.engine.outputs.found == 'true' }}
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -48,12 +81,13 @@ jobs:
           key: flatpak-${{ hashFiles('app/Cargo.lock', 'app/linux/Cargo.lock', 'app/setup.sh', 'app/patches/**') }}
           restore-keys: flatpak-
 
-      - run: tools/flatpak.sh
+      - if: ${{ steps.engine.outputs.found == 'true' }}
+        run: tools/flatpak.sh
 
       # The engine's and the app's files as the bundle has them: its build strips nothing
       # (no-debuginfo), so chrome and libBrowser.so keep their symbol tables.
       - name: Crash reports' symbols
-        if: ${{ inputs.symbols }}
+        if: ${{ inputs.symbols && steps.engine.outputs.found == 'true' }}
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_URL: ${{ vars.SENTRY_URL }}
@@ -61,13 +95,15 @@ jobs:
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
         run: tools/symbols.sh app/build/Browser
 
-      - uses: actions/upload-artifact@v4
+      - if: ${{ steps.engine.outputs.found == 'true' }}
+        uses: actions/upload-artifact@v4
         with:
           name: ilo-flatpak
           path: app/build/ilo.flatpak
           retention-days: 14
 
       - name: Install and start
+        if: ${{ steps.engine.outputs.found == 'true' }}
         run: |
           flatpak install --user -y --noninteractive app/build/ilo.flatpak
           mkdir -p app/build/flatpak-start
@@ -87,7 +123,7 @@ jobs:
           grep -q "browser: UI shown" ilo.log
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && steps.engine.outputs.found == 'true' }}
         with:
           name: ilo-flatpak-start
           path: app/build/flatpak-start

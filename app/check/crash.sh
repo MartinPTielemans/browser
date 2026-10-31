@@ -4,9 +4,12 @@
 # handler included. Nor does one outlive a quit.
 # Nothing goes to the crash collector, check/collector.py, while Send Crash Reports is off, as it is
 # at first: the next launch offers to send that crash's report in a toast, and keeps it. On, the
-# next launch sends the report, the minidump alone, without cookies, and deletes
-# it once the collector has it. One the collector refuses waits for the next launch, and turning
+# next launch sends the report, the minidump and Sentry's field saying to keep no IP address,
+# without cookies and with no annotation naming the profile's folder or the home, and deletes it
+# once the collector has it. One the collector refuses waits for the next launch, and turning
 # the switch off in Settings › Privacy deletes it, which only the Mac's run clicks so far.
+# On Windows it runs on the folder check/git-bash.sh gives chrome.exe, as only the prod build's
+# lines up by itself.
 
 log="$out/crash.log"
 crashpad="$(dirname "$saved")/Crashpad"
@@ -22,7 +25,13 @@ prefs.setdefault("profile", {})["exit_type"] = "Normal"
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" || fail "the session couldn't be marked clean in $prefs"
-python3 -I check/collector.py "$out/collector-port" > "$out/collector.log" 2>&1 &
+# What no annotation may have: the switch that gives the profile, its folder and the home, which
+# have the user's name, as Windows writes them there.
+profile=$(dirname "$saved")
+home=$HOME
+! windows || { profile=$(cygpath -w "$profile") && home=$(cygpath -w "$HOME"); }
+python3 -I check/collector.py "$out/collector-port" --user-data-dir "$profile" "$home" \
+  > "$out/collector.log" 2>&1 &
 collector=$!
 for _ in $(seq 50); do
   [ -s "$out/collector-port" ] && break
@@ -32,9 +41,12 @@ done
 collector_url="http://127.0.0.1:$(cat "$out/collector-port")"
 reports="$collector_url/api/1/minidump/?sentry_key=check"
 page='data:text/html,<title>crash</title>'
-# The reports waiting to be sent.
+# The reports waiting to be sent: Crashpad's pending folder, or on Windows its reports folder, which
+# holds them all, and only unsent ones as its handler sends none.
+waiting="$crashpad/pending"
+! windows || waiting="$crashpad/reports"
 pending() {
-  find "$crashpad/pending" -name '*.dmp' 2>/dev/null | wc -l | tr -d ' '
+  find "$waiting" -name '*.dmp' 2>/dev/null | wc -l | tr -d ' '
 }
 # Waits up to 10 s for $1 reports to be waiting.
 await_pending() {
@@ -58,8 +70,8 @@ crash() {
   wait "$pid" || status=$?
   [ "$status" -ne 0 ] || fail "the app exited cleanly from its crash test"
   # The handler writes the report as the browser dies, and may still be at it.
-  await_pending 1 || fail "Crashpad wrote no minidump in $crashpad/pending"
-  dump=$(find "$crashpad/pending" -name '*.dmp' | head -1)
+  await_pending 1 || fail "Crashpad wrote no minidump in $waiting"
+  dump=$(find "$waiting" -name '*.dmp' | head -1)
   head -c 4 "$dump" | grep -q '^MDMP$' || fail "$dump isn't a minidump"
   for _ in $(seq 20); do
     pgrep -f "$procs" > /dev/null || break
@@ -125,7 +137,7 @@ send click $page_point
 if [ "$(uname)" = Darwin ] && [ "$active" = 1 ]; then
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings"
-  send clickkey 402 60
+  send clickkey 430 60
   expect '^browser: settings tab Privacy$' "a click on Privacy didn't show its tab"
   ../tools/window-screenshot.sh "$pid" "$out/privacy.png" || fail "no window to capture"
   send clickkey 592 133
@@ -146,6 +158,9 @@ fi
 exec 3>&-
 quit
 kill "$collector" 2>/dev/null || true
+annotations=$(grep -m1 '^annotations ' "$out/collector.log" | cut -d' ' -f2-)
 echo "ok: the crash left a minidump of $bytes bytes, which the next launch offered to send and" \
-  "kept with Send Crash Reports off, and sent with it on, and deleted once the collector had it." \
+  "kept with Send Crash Reports off, and sent with it on, and deleted once the collector had it," \
+  "with Sentry's field to keep no IP address and annotations naming neither the profile nor the" \
+  "home: $annotations." \
   "One the collector refused waited.$turned_off Windows: $windows"

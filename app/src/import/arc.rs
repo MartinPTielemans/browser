@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::found::{Found, FromProfile, Node, Space, Tab, opens_here};
-use crate::theme::{Appearance, MAX_COLORS, Theme};
+use crate::theme::{Appearance, MAX_COLORS, Place, Texture, Theme, place_of};
 
 /// The sidebar `json` holds, or why it can't be read.
 pub fn parse(json: &str) -> Result<Found, String> {
@@ -47,6 +47,7 @@ pub fn parse(json: &str) -> Result<Found, String> {
         spaces,
         favorites,
         history: Vec::new(),
+        extensions: Vec::new(),
     })
 }
 
@@ -226,46 +227,119 @@ fn icon(icon: &Value) -> String {
     known.map(crate::space_icon::glyph).unwrap_or_default()
 }
 
-/// The theme of Arc's `windowTheme`: its first colour as our main one, as many colours as it has
-/// up to ours, its intensity, its grain and its appearance. Arc places its colours freely, where
-/// ours keep set angles from the main one, so only the first keeps its exact colour.
+/// The theme of Arc's `windowTheme`: one look, or a light and a dark one, and its appearance.
+/// `windowAppearance` forces light or dark; without it, two looks follow the system, and one
+/// looks as its `translucencyStyle` says, else follows the system too, as Ardia reads Arc's.
 fn theme(window_theme: &Value) -> Option<Theme> {
-    let background = window_theme.pointer("/background/single/_0")?;
+    let background = window_theme.get("background")?;
+    let single = background.pointer("/single/_0").and_then(look);
+    let based = background.get("appearanceBased");
+    let light = single.or_else(|| based?.get("light").and_then(look));
+    let dark = match single {
+        Some(_) => None,
+        None => based.and_then(|based| based.get("dark")).and_then(look),
+    };
+    let (main, style) = light.or(dark)?;
+    let two = light.is_some() && dark.is_some();
+    let appearance = window_appearance(window_theme.get("windowAppearance"))
+        .unwrap_or(if two { Appearance::Automatic } else { style });
+    Some(match (appearance, light, dark) {
+        (Appearance::Automatic, Some(_), Some((dark, _))) => Theme { dark: Some(dark.look()), ..main },
+        (Appearance::Dark, _, Some((dark, _))) => Theme { appearance, ..dark },
+        _ => Theme { appearance, ..main },
+    })
+}
+
+/// `{"single": {"_0": "light"}}` forces light, and `{"appearanceBased": {"light": "light",
+/// "dark": "dark"}}` follows the system; one that says the same for both forces that.
+fn window_appearance(value: Option<&Value>) -> Option<Appearance> {
+    let named = |value: Option<&Value>| match value?.as_str()? {
+        "light" => Some(Appearance::Light),
+        "dark" => Some(Appearance::Dark),
+        _ => None,
+    };
+    let value = value?;
+    if let Some(single) = named(value.pointer("/single/_0")) {
+        return Some(single);
+    }
+    let based = value.get("appearanceBased")?;
+    let (light, dark) = (named(based.get("light"))?, named(based.get("dark"))?);
+    Some(if light == dark { light } else { Appearance::Automatic })
+}
+
+/// One of Arc's looks: its first colour as our main one, as many colours as it has up to ours,
+/// counting a gradient's third, overlaid one, its intensity, its grain and our texture for its;
+/// and the appearance its `translucencyStyle` names, else automatic. Arc places its colours
+/// freely, as ours can be, so each of the others is placed in the field at its own hue and
+/// lightness, at the main one's saturation, which is the theme's, and the third also comes
+/// exactly, as it lies over the other two. A basic colour is one colour with no grain.
+fn look(background: &Value) -> Option<(Theme, Appearance)> {
     let style = background.pointer("/style/color/_0")?;
-    let (colors, modifiers) = if let Some(gradient) = style.pointer("/blendedGradient/_0") {
-        let colors: Vec<u32> = gradient
+    let (colors, config) = if let Some(gradient) = style.pointer("/blendedGradient/_0") {
+        let mut colors: Vec<u32> = gradient
             .get("baseColors")?
             .as_array()?
             .iter()
             .filter_map(color)
             .collect();
-        (colors, gradient.get("modifiers"))
+        // Arc's third colour is the second of its overlay colours, the first being clear.
+        let overlay = gradient.get("overlayColors").and_then(Value::as_array);
+        if let Some(third) = overlay.and_then(|overlay| overlay.get(1)).and_then(color) {
+            colors.push(third);
+        }
+        (colors, gradient)
     } else {
-        let single = style.pointer("/blendedSingleColor/_0")?;
-        (vec![color(single.get("color")?)?], single.get("modifiers"))
+        let single = style.pointer("/blendedSingleColor/_0").or_else(|| style.pointer("/basicColor/_0"))?;
+        (vec![color(single.get("color")?)?], single)
     };
     let main = *colors.first()?;
+    let basic = style.get("basicColor").is_some();
     let factor = |key: &str| {
-        modifiers?
+        config
+            .get("modifiers")?
             .get(key)?
             .as_f64()
             .map(|value| value.clamp(0., 1.) as f32)
     };
-    let appearance = match background
-        .get("contentOverBackgroundAppearance")
-        .and_then(Value::as_str)
-    {
+    let appearance = match config.get("translucencyStyle").and_then(Value::as_str) {
         Some("dark") => Appearance::Dark,
         Some("light") => Appearance::Light,
         _ => Appearance::Automatic,
     };
     let theme = Theme::of_color(main).with_count(colors.len().min(MAX_COLORS));
-    Some(Theme {
+    let overlay = config.get("modifiers").and_then(|modifiers| modifiers.get("overlay"));
+    let theme = Theme {
         intensity: factor("intensityFactor").unwrap_or(theme.intensity),
-        grain: factor("noiseFactor").unwrap_or(0.),
-        appearance,
+        grain: if basic { 0. } else { factor("noiseFactor").unwrap_or(0.) },
+        texture: overlay.and_then(Value::as_str).map_or(Texture::Noise, texture),
+        third: colors.get(2).copied().filter(|_| theme.count == MAX_COLORS),
+        places: places(&theme, &colors),
         ..theme
-    })
+    };
+    Some((theme, appearance))
+}
+
+/// Where `colors` after the main one go round `theme`'s main one, each at its own place in the
+/// field; none for a theme of one colour.
+fn places(theme: &Theme, colors: &[u32]) -> Option<[Place; 2]> {
+    let place = |index: usize| match colors.get(index) {
+        Some(&color) => {
+            let at = Theme::of_color(color);
+            place_of(theme.x, theme.y, at.x, at.y)
+        }
+        None => theme.place(index),
+    };
+    (theme.count > 1).then(|| [place(1), place(2)])
+}
+
+/// Ours for Arc's texture `name`; its grain, or one it doesn't have yet, as noise.
+fn texture(name: &str) -> Texture {
+    match name {
+        "sand" => Texture::Dust,
+        "denim" => Texture::Weave,
+        "tweed" => Texture::Fleck,
+        _ => Texture::Noise,
+    }
 }
 
 /// 0xRRGGBB of an Arc colour, its extended sRGB brought into sRGB.

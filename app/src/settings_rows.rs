@@ -4,10 +4,11 @@
 use gpui::{Rgba, SharedString, div, prelude::*, px, rgb, svg};
 
 use crate::tokens::settings::{
-    BOX, BOX_LINE, CONTROL, CONTROL_HEIGHT, CONTROL_PADDING, CONTROL_PRESSED, CONTROL_RADIUS,
-    DETAIL, KNOB, KNOB_HEIGHT, KNOB_INSET, KNOB_ON, KNOB_WIDTH, LINE_INSET, ON_CONTROL, ON_DETAIL,
-    ON_LINE, ON_PRESSED, ON_SWITCH_OFF, PADDING, RADIUS, SWITCH_HEIGHT, SWITCH_OFF, SWITCH_WIDTH,
-    TEXT, TILE, TILE_GAP, TILE_GLYPH, TILE_GLYPH_COLOR, TILE_RADIUS,
+    BOX, BOX_LINE, CHECK_BOX, CHECK_GAP, CHECK_GLYPH, CHECK_RADIUS, CHEVRONS, CONTROL,
+    CONTROL_HEIGHT, CONTROL_PADDING, CONTROL_PRESSED, CONTROL_RADIUS, DETAIL, KNOB, KNOB_HEIGHT,
+    KNOB_INSET, KNOB_ON, KNOB_WIDTH, LINE_INSET, ON_CONTROL, ON_DETAIL, ON_LINE, ON_PRESSED,
+    ON_SWITCH_OFF, PADDING, RADIUS, SWITCH_HEIGHT, SWITCH_OFF, SWITCH_WIDTH, TEXT, TILE, TILE_GAP,
+    TILE_GLYPH, TILE_GLYPH_COLOR, TILE_RADIUS,
 };
 
 /// A switch is 36 by 16, with a knob 21 by 13, 1.5 in, that slides across over 150 ms (ours).
@@ -133,6 +134,46 @@ pub fn button(
         .child(title.into())
 }
 
+/// A square push button with `glyph` on it, such as a list's + and −, darker while pressed.
+pub fn icon_button(
+    look: &Look,
+    id: impl Into<gpui::ElementId>,
+    glyph: &'static str,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .size(px(CONTROL_HEIGHT))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(CONTROL_RADIUS))
+        .bg(look.control)
+        .active({
+            let pressed = look.pressed;
+            move |button| button.bg(pressed)
+        })
+        .child(svg().path(glyph).size(px(TILE_GLYPH)).text_color(look.ink))
+}
+
+/// A pop-up button `width` wide showing `label`, with its chevrons at its end, pressed while its
+/// menu is `open`. It opens on a press, as a pop-up button does, which its caller listens for.
+pub fn popup(look: &Look, label: impl Into<SharedString>, width: f32, open: bool) -> gpui::Div {
+    div()
+        .flex_none()
+        .w(px(width))
+        .h(px(CONTROL_HEIGHT))
+        .pl(px(CONTROL_PADDING))
+        .pr(px(PADDING - (CHEVRONS - 8.) / 2.))
+        .flex()
+        .items_center()
+        .justify_between()
+        .rounded(px(CONTROL_RADIUS))
+        .bg(if open { look.pressed } else { look.control })
+        .child(div().min_w_0().truncate().child(label.into()))
+        .child(svg().path("icons/chevrons-up-down.svg").size(px(CHEVRONS)).text_color(look.ink))
+}
+
 /// A switch, on or off, with its knob `slid` of the way to that side.
 pub fn switch(look: &Look, on: bool, slid: f32, accent: Rgba) -> impl IntoElement {
     let travel = SWITCH_WIDTH - KNOB_WIDTH - 2. * KNOB_INSET;
@@ -153,4 +194,36 @@ pub fn switch(look: &Look, on: bool, slid: f32, accent: Rgba) -> impl IntoElemen
                 .rounded_full()
                 .bg(rgb(if on { KNOB_ON } else { KNOB })),
         )
+}
+
+/// A checkbox, ticked in `accent` with a `tick`, else a line round the switch's off fill.
+pub fn checkbox(look: &Look, on: bool, accent: Rgba, tick: Rgba) -> gpui::Div {
+    let tick = svg().path("icons/check.svg").size(px(CHECK_GLYPH)).text_color(tick);
+    div()
+        .flex_none()
+        .size(px(CHECK_BOX))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(CHECK_RADIUS))
+        .when(on, |ticked| ticked.bg(accent).child(tick))
+        .when(!on, |empty| empty.border_1().border_color(look.line).bg(look.switch_off))
+}
+
+/// A row with a checkbox before its name, as a list to tick from has.
+pub fn checked_row(
+    look: &Look,
+    on: bool,
+    name: impl Into<SharedString>,
+    accent: Rgba,
+    tick: Rgba,
+) -> gpui::Div {
+    div()
+        .px(px(PADDING))
+        .py(px(PADDING))
+        .flex()
+        .items_center()
+        .gap(px(CHECK_GAP))
+        .child(checkbox(look, on, accent, tick))
+        .child(div().flex_1().min_w_0().truncate().child(name.into()))
 }

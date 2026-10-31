@@ -15,8 +15,6 @@ dependencies = [
 [[package]]
 name = "accesskit_atspi_common"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "023da0e5097f46df7092d5280b02efb9bbf8d93298daeced42652463e357d636"
 dependencies = [
  "accesskit",
  "accesskit_consumer",
@@ -634,6 +632,7 @@ dependencies = [
 name = "browser"
 version = "0.1.0"
 dependencies = [
+ "async-io",
  "bindgen",
  "cc",
  "emojis",
@@ -663,6 +662,7 @@ dependencies = [
  "gpui",
  "gpui_linux",
  "gpui_platform",
+ "image",
  "raw-window-handle",
  "x11rb",
 ]

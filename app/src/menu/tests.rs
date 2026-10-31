@@ -11,7 +11,7 @@ use gpui::{
 
 use super::{
     CHECK, GAP, Key, Layout, Look, Outcome, PADDING, Pointer, ROW_X, Request, Swatch, Tracking,
-    described, key_of, lay_out, lay_out_over,
+    as_held, described, described_held, key_of, lay_out, lay_out_over,
 };
 use crate::elevation::Level as Elevation;
 use crate::shell::MenuEntry;
@@ -473,6 +473,54 @@ fn the_host_drives_the_menu_and_the_menu_closes_outside_its_update(cx: &mut Test
     assert_eq!(host.calls.borrow().iter().filter(|call| **call == "hide").count(), 6);
 }
 
+/// An item's ⌥ alternate takes no row of its own, as AppKit's: holding ⌥ shows it in the item's
+/// place, where a click picks it, and once ⌥ is let go the item is back.
+#[gpui::test]
+fn holding_option_shows_and_picks_an_items_alternate(cx: &mut TestAppContext) {
+    let markdown = MenuEntry { alternate: true, ..item("Copy Link as Markdown") };
+    let entries = vec![item("Copy Link"), markdown, item("Rename…")];
+    let layout = lay_out(&entries, at(100., 100.), area(), &width_of);
+    assert_eq!(layout.levels[0].items, [0, 2]);
+    assert_eq!(described(&entries), "Copy Link, Rename…");
+    assert_eq!(described_held(&entries, true), "Copy Link as Markdown, Rename…");
+    assert_eq!((as_held(&entries, 0, true), as_held(&entries, 0, false)), (1, 0));
+    assert_eq!(as_held(&entries, 2, true), 2);
+
+    let host = Rc::new(Recorder::default());
+    let window = cx.update(|cx| super::open(host.clone(), cx)).expect("no window for the menu");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    let reach = crate::elevation::Level::Popover.reach();
+    let window_at = point(px(100. - reach.sides), px(100. - reach.above));
+    let copy = point(px(150.), px(100. + PADDING + 12.)) - window_at;
+    let click = |alt: Modifiers, cx: &mut VisualTestContext| {
+        let chosen = Rc::new(Cell::new(None));
+        let answer = chosen.clone();
+        let items = entries.clone();
+        cx.cx.update(|cx: &mut App| {
+            let request = Request {
+                items,
+                at: at(100., 100.),
+                area: area(),
+                look: Look::dark(),
+                chosen: Box::new(move |index, _| answer.set(Some(index))),
+            };
+            super::show(request, cx);
+        });
+        cx.run_until_parked();
+        cx.simulate_modifiers_change(alt);
+        cx.cx.update(|cx: &mut App| {
+            super::pointer(Pointer::Released, point(px(100.), px(100.)) - window_at, cx);
+            super::pointer(Pointer::Moved, copy, cx);
+            super::pointer(Pointer::Pressed, copy, cx);
+            super::pointer(Pointer::Released, copy, cx);
+        });
+        cx.run_until_parked();
+        chosen.get()
+    };
+    assert_eq!(click(Modifiers::alt(), cx), Some(Some(1)));
+    assert_eq!(click(Modifiers::none(), cx), Some(Some(0)));
+}
+
 /// A pop-up button's menu, such as the Space form's Profile: the current choice checked and over
 /// the button's title.
 fn pop_up() -> Vec<MenuEntry> {
@@ -658,7 +706,7 @@ fn contrast(a: u32, b: u32) -> f32 {
 #[test]
 fn every_label_reads_at_4_5_to_1_in_both_looks() {
     use super::{DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL, Highlight, PRESSED};
-    use crate::{palette::Palette, theme::{Appearance, Theme}};
+    use crate::{palette::{Palette, Tone}, theme::{Appearance, Theme}};
     for look in [Look { light: false, ..Look::dark() }, Look { light: true, ..Look::dark() }] {
         let palette = look.palette();
         let panel = palette.fill >> 8;
@@ -680,7 +728,7 @@ fn every_label_reads_at_4_5_to_1_in_both_looks() {
             let angle = step as f32 * std::f32::consts::TAU / 24.;
             for distance in [0., 0.35, 0.7, 1.] {
                 let theme = Theme { appearance, ..Theme::at(distance * angle.cos(), distance * angle.sin()) };
-                palettes.push(Palette::of(Some(&theme)));
+                palettes.extend([Tone::Dark, Tone::Light].map(|tone| Palette::of(Some(&theme), tone)));
             }
         }
     }

@@ -1,5 +1,6 @@
 #include "browser_core/page_text.h"
 
+#include <algorithm>
 #include <string_view>
 #include <utility>
 
@@ -8,8 +9,10 @@
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "browser_core/agent_page.h"
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_mode.h"
@@ -98,6 +101,43 @@ void Append(std::string& text, std::string_view piece) {
   text += piece;
 }
 
+// Blink cuts a node's URL at this length, so a longer one is matched by what's left of it.
+constexpr size_t kMaxUrlLength = 10000;
+
+bool IsReadable(std::string_view url, const std::set<std::string, std::less<>>& readable) {
+  if (url.size() < kMaxUrlLength) {
+    return readable.contains(url);
+  }
+  return std::ranges::any_of(readable,
+                             [url](const std::string& each) { return each.starts_with(url); });
+}
+
+// The URLs of the frames an agent may read: each one IsWebFrame admits, inside frames it admits, as
+// agent_page.cc outlines them. A URL a frame it doesn't admit has too is left out, as the snapshot
+// can't tell those frames apart.
+std::set<std::string, std::less<>> ReadableUrls(content::WebContents& contents) {
+  std::set<std::string, std::less<>> readable;
+  std::set<std::string, std::less<>> refused;
+  contents.GetPrimaryMainFrame()->ForEachRenderFrameHostWithAction(
+      [&](content::RenderFrameHost* frame) {
+        std::string url = frame->GetLastCommittedURL().spec();
+        if (!IsWebFrame(frame)) {
+          refused.insert(std::move(url));
+          // Nor what's in it, whose own documents a refused one's subtree in the snapshot has.
+          frame->ForEachRenderFrameHost([&refused](content::RenderFrameHost* inner) {
+            refused.insert(inner->GetLastCommittedURL().spec());
+          });
+          return content::RenderFrameHost::FrameIterationAction::kSkipChildren;
+        }
+        readable.insert(std::move(url));
+        return content::RenderFrameHost::FrameIterationAction::kContinue;
+      });
+  for (const std::string& url : refused) {
+    readable.erase(url);
+  }
+  return readable;
+}
+
 void Report(bc_id tab, uint64_t request, std::optional<std::string> text) {
   if (Host().tab_text) {
     Host().tab_text(Host().context, tab, request, text ? text->c_str() : nullptr);
@@ -106,7 +146,8 @@ void Report(bc_id tab, uint64_t request, std::optional<std::string> text) {
 
 }  // namespace
 
-std::string TextOf(const ui::AXTreeUpdate& update) {
+std::string TextOf(const ui::AXTreeUpdate& update,
+                   const std::set<std::string, std::less<>>& readable) {
   if (update.nodes.empty()) {
     return std::string();
   }
@@ -129,6 +170,12 @@ std::string TextOf(const ui::AXTreeUpdate& update) {
     const ui::AXNodeData& node = *step.node;
     if (step.leaving) {
       NewLine(text);
+      continue;
+    }
+    // A frame's document an agent may not read, an extension's above all, with all that's in it.
+    // Every document's root is a kRootWebArea, a frame's too.
+    if (node.role == ax::mojom::Role::kRootWebArea &&
+        !IsReadable(node.GetStringAttribute(ax::mojom::StringAttribute::kUrl), readable)) {
       continue;
     }
     // Hidden, or a field, a password field above all, whose value is the user's alone.
@@ -193,7 +240,7 @@ void PageText::Snapshot() {
 
 void PageText::Snapshotted(uint64_t request, ui::AXTreeUpdate& update) {
   asked_.erase(request);
-  Answer(request, TextOf(update));
+  Answer(request, TextOf(update, ReadableUrls(GetWebContents())));
 }
 
 void PageText::Answer(uint64_t request, std::optional<std::string> text) {

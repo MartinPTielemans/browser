@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -19,21 +20,25 @@
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/autofill_data.h"
 #include "browser_core/capture.h"
 #include "browser_core/cast_dialog.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/downloads.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/extensions.h"
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/held_keys.h"
 #include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/notes.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/page_text.h"
 #include "browser_core/password_offer.h"
@@ -55,12 +60,16 @@
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "components/autofill/core/common/autofill_prefs.h"
+#include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/tabs/public/tab_interface.h"
 #include "components/zoom/page_zoom.h"
 #include "components/zoom/zoom_controller.h"
@@ -74,6 +83,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
@@ -100,23 +110,6 @@ views::Widget* OpenWidget(bc_id id) {
   views::Widget* widget = window ? window->widget() : nullptr;
   return widget && !widget->IsClosed() ? widget : nullptr;
 }
-
-#if BUILDFLAG(IS_LINUX)
-// Takes window |id|'s |widget| out of full screen. Linux reports no change Chromium asks for
-// itself, so a page full screen leaves with it here, as the Mac's does as AppKit says it's leaving.
-void LeaveFullScreen(bc_id id, views::Widget* widget) {
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  // The app lays the page leaving out once, at the window's new size.
-  if (window && window->FullScreenForPage()) {
-    browser_core::platform::HoldPagesForResize(widget);
-  }
-  widget->SetFullscreen(false);
-  // Found again: the window's resize runs the app, which may close it.
-  if (browser_core::Window* still = browser_core::Window::FromId(id)) {
-    still->LeavingFullScreen();
-  }
-}
-#endif
 
 // Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
 size_t CopyString(const std::string& text, char* to, size_t capacity) {
@@ -248,6 +241,14 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 #endif
 }
 
+bool bc_window_keyboard_in_child(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  return browser_core::platform::KeyboardInChild(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
 bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
@@ -261,6 +262,33 @@ bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
   return true;
 #else
   return false;
+#endif
+}
+
+bool bc_window_dialog(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> dialog =
+      widget ? browser_core::platform::DialogFrame(widget) : std::nullopt;
+  if (!dialog) {
+    return false;
+  }
+  *frame = {static_cast<double>(dialog->x()), static_cast<double>(dialog->y()),
+            static_cast<double>(dialog->width()), static_cast<double>(dialog->height())};
+  return true;
+#else
+  return false;
+#endif
+}
+
+size_t bc_window_child_title(bc_id id, char* title, size_t capacity) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  return CopyString(widget ? base::UTF16ToUTF8(browser_core::platform::ChildTitle(widget))
+                           : std::string(),
+                    title, capacity);
+#else
+  return CopyString(std::string(), title, capacity);
 #endif
 }
 
@@ -288,7 +316,7 @@ void bc_window_toggle_maximized(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else if (widget->IsMaximized()) {
     widget->Restore();
   } else {
@@ -307,6 +335,15 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
     browser_core::platform::SetUITextInput(widget, caret);
   }
 #endif
+}
+
+void bc_hold_keys(void) {
+  browser_core::held_keys::Hold();
+}
+
+void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
+                       void* context) {
+  browser_core::held_keys::Give(take, context);
 }
 
 bool bc_window_restore(bc_id id) {
@@ -363,8 +400,11 @@ void bc_window_activate(bc_id id) {
   widget->Activate();
 }
 
-bc_id bc_space_create(const char* name) {
-  browser_core::Space* space = browser_core::Space::Create(name ? name : "");
+bc_id bc_space_create(const char* name, bc_id after) {
+  const std::vector<browser_core::Space*> all = browser_core::Space::All();
+  auto it = std::ranges::find(all, after, &browser_core::Space::id);
+  const size_t at = it == all.end() ? SIZE_MAX : static_cast<size_t>(it - all.begin()) + 1;
+  browser_core::Space* space = browser_core::Space::Create(name ? name : "", 0, std::nullopt, at);
   space->SetProfile(browser_core::DirOf(browser_core::StartProfile()));
   return space->id();
 }
@@ -438,6 +478,23 @@ size_t bc_agent_disconnected(const char* agent) {
 bool bc_tab_take_back(bc_id tab) {
   browser_core::Hold(tab);
   return browser_core::EndTabSession(tab, BC_AGENT_SESSION_TAKEN_BACK);
+}
+
+bool bc_tab_give_to_agent(bc_id tab, bc_id space) {
+  browser_core::Space* from = browser_core::Space::Holding(tab);
+  browser_core::Space* to = browser_core::Space::FromId(space);
+  // The page goes as it is, with its profile's logins, so never into another profile's Space,
+  // where it would load again.
+  if (!from || from->agent() || !to || !to->agent() || from->profile() != to->profile()) {
+    return false;
+  }
+  browser_core::Window::MoveToSpace(tab, space, /*to_agent=*/true);
+  if (browser_core::Space::Holding(tab) != to) {
+    return false;
+  }
+  // One the user took back from an agent before is the agent's now.
+  browser_core::HandBack(tab);
+  return true;
 }
 
 bool bc_agent_hand_off(const char* agent, bc_id tab) {
@@ -587,6 +644,100 @@ bool bc_profile_delete(bc_id profile) {
   return browser_core::DeleteProfile(profile);
 }
 
+size_t bc_profile_download_folder(bc_id profile_id, char* path, size_t capacity) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  return CopyString(
+      profile ? DownloadPrefs::FromBrowserContext(profile)->DownloadPath().AsUTF8Unsafe() : "",
+      path, capacity);
+}
+
+bool bc_profile_set_download_folder(bc_id profile_id, const char* path) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  const base::FilePath folder = base::FilePath::FromUTF8Unsafe(path ? path : "");
+  if (!profile || !folder.IsAbsolute()) {
+    return false;
+  }
+  DownloadPrefs* prefs = DownloadPrefs::FromBrowserContext(profile);
+  if (prefs->IsDownloadPathManaged()) {
+    return false;
+  }
+  // As Chrome's Location setting, which sets where Save Page As starts too.
+  prefs->SetDownloadPath(folder);
+  return true;
+}
+
+// The pref of a BC_SAVE_ value, or null.
+static const char* OfferPref(int what) {
+  switch (what) {
+    case BC_SAVE_PASSWORDS:
+      return password_manager::prefs::kCredentialsEnableService;
+    case BC_SAVE_ADDRESSES:
+      return autofill::prefs::kAutofillProfileEnabled;
+    case BC_SAVE_CARDS:
+      return autofill::prefs::kAutofillCreditCardEnabled;
+  }
+  return nullptr;
+}
+
+bool bc_profile_offers_to_save(bc_id profile_id, int what, bool* offers) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  const char* pref = OfferPref(what);
+  if (!profile || !pref || !offers) {
+    return false;
+  }
+  *offers = profile->GetPrefs()->GetBoolean(pref);
+  return true;
+}
+
+bool bc_profile_set_offers_to_save(bc_id profile_id, int what, bool offer) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  PrefService* prefs = profile ? profile->GetPrefs() : nullptr;
+  const char* pref = OfferPref(what);
+  if (!prefs || !pref || !prefs->IsUserModifiablePreference(pref)) {
+    return false;
+  }
+  prefs->SetBoolean(pref, offer);
+  return true;
+}
+
+size_t bc_profile_search_engines(bc_id profile, char* engines, size_t capacity) {
+  return CopyString(browser_core::DefaultEngineChoices(browser_core::ProfileOrLoad(profile)),
+                    engines, capacity);
+}
+
+size_t bc_profile_search_engine(bc_id profile, char* keyword, size_t capacity) {
+  return CopyString(
+      base::UTF16ToUTF8(browser_core::DefaultEngine(browser_core::ProfileOrLoad(profile))),
+      keyword, capacity);
+}
+
+bool bc_profile_set_search_engine(bc_id profile, const char* keyword) {
+  return keyword && browser_core::SetDefaultEngine(browser_core::ProfileOrLoad(profile),
+                                                   base::UTF8ToUTF16(keyword));
+}
+
+double bc_profile_archive_after(bc_id profile_id) {
+  Profile* profile = browser_core::ProfileOrLoad(profile_id);
+  return profile ? browser_core::ProfileArchiveAfter(profile).InSecondsF() : 0;
+}
+
+bool bc_profile_set_archive_after(bc_id profile, double seconds) {
+  return seconds > 0 && browser_core::SetProfileArchiveAfter(browser_core::ProfileOrLoad(profile),
+                                                              base::Seconds(seconds));
+}
+
+size_t bc_profile_notes_service(bc_id profile_id, char* service, size_t capacity) {
+  Profile* profile = LoadedProfile(profile_id);
+  return CopyString(profile ? browser_core::notes::Service(profile) : std::string(), service,
+                    capacity);
+}
+
+void bc_profile_set_notes_service(bc_id profile_id, const char* service) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && service) {
+    browser_core::notes::SetService(profile, service);
+  }
+}
+
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
   return (pages || !count) &&
          browser_core::AddImportedHistory(LoadedProfile(profile), profile, pages, count);
@@ -702,6 +853,77 @@ void bc_folder_rename(bc_id folder, const char* name) {
   if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
     space->RenameFolder(folder, name ? name : "");
   }
+}
+
+bool bc_space_pinned_open(bc_id id) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return !space || space->pinned_open();
+}
+
+void bc_space_set_pinned_open(bc_id id, bool open) {
+  if (browser_core::Space* space = browser_core::Space::FromId(id)) {
+    space->SetPinnedOpen(open);
+  }
+}
+
+size_t bc_folder_icon(bc_id folder, char* icon, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::HoldingFolder(folder);
+  return space ? CopyString(space->FolderIcon(folder), icon, capacity) : 0;
+}
+
+void bc_folder_set_icon(bc_id folder, const char* icon) {
+  if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
+    space->SetFolderIcon(folder, icon ? icon : "");
+  }
+}
+
+bc_id bc_folder_duplicate(bc_id folder) {
+  browser_core::Space* space = browser_core::Space::HoldingFolder(folder);
+  if (!space) {
+    return 0;
+  }
+  // A copy of the rows, which the copies go in among.
+  const std::vector<bc_id> rows = space->pinned_rows();
+  const auto at = std::ranges::find(rows, folder);
+  const bc_id holder = space->FolderOf(folder);
+  // Where |folder| is in its holder, counted as bc_folder_create counts.
+  const size_t index = std::ranges::count_if(
+      rows.begin(), at, [&](bc_id row) { return space->FolderOf(row) == holder; });
+  // Each folder copied, to its copy, and how many rows each copy holds so far.
+  std::map<bc_id, bc_id> copies;
+  std::map<bc_id, size_t> held;
+  const auto copy_folder = [&](bc_id from, bc_id into, size_t to) {
+    const bc_id copy = space->AddFolder(space->FolderName(from), into, to);
+    space->SetFolderIcon(copy, space->FolderIcon(from));
+    space->SetOpen(copy, space->IsOpen(from));
+    copies[from] = copy;
+    return copy;
+  };
+  const bc_id copy = copy_folder(folder, holder, index + 1);
+  if (!copy) {
+    return 0;
+  }
+  // What's in |folder| follows it, each row after the folder holding it.
+  for (auto row = std::next(at); row != rows.end(); ++row) {
+    auto in = copies.find(space->FolderOf(*row));
+    if (in == copies.end()) {
+      break;
+    }
+    const bc_id into = in->second;
+    if (space->IsFolder(*row)) {
+      copy_folder(*row, into, held[into]++);
+      continue;
+    }
+    const browser_core::Tab* tab = browser_core::Tab::Get(*row);
+    // Unloaded, as a tab restored after a quit is, to load once shown.
+    const bc_id copied = tab && tab->profile()
+                             ? browser_core::Tab::Restore(tab->profile(), tab->Save())
+                             : 0;
+    if (copied) {
+      space->AddPinned(copied, into, held[into]++, space->PinnedUrl(*row));
+    }
+  }
+  return copy;
 }
 
 void bc_folder_set_open(bc_id folder, bool open) {
@@ -940,6 +1162,12 @@ bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   return window ? window->RestoreArchived(archived) : 0;
 }
 
+void bc_window_answer_downloads(bc_id window_id, bool cancel) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->AnswerDownloads(cancel);
+  }
+}
+
 void bc_extension_answer(bc_id question, bool accept) {
   browser_core::InstallQuestion::Answer(question, accept);
 }
@@ -957,6 +1185,17 @@ void bc_extension_set_pinned(bc_id profile_id, const char* id, bool pinned) {
 bool bc_extension_remove(bc_id profile_id, const char* id) {
   Profile* profile = LoadedProfile(profile_id);
   return profile && id && browser_core::RemoveExtension(profile, id);
+}
+
+void bc_extension_crash_told(bc_id profile_id, const char* id) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && id) {
+    browser_core::ExtensionCrashTold(profile, id);
+  }
+}
+
+bool bc_extension_turn_on(bc_id profile_id, const char* id) {
+  Profile* profile = LoadedProfile(profile_id);
+  return profile && id && browser_core::TurnOnExtension(profile, id);
 }
 
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
@@ -1003,6 +1242,15 @@ void bc_set_haptics(bool haptics) {
   browser_core::SessionChanged();
 }
 
+void bc_set_appearance(int appearance) {
+  // Chromium's own override of the system's scheme, which every page's color provider follows.
+  using Scheme = ui::NativeTheme::PreferredColorScheme;
+  ui::NativeTheme::SetPreferredColorSchemeOverride(
+      appearance == 1   ? std::optional(Scheme::kLight)
+      : appearance == 2 ? std::optional(Scheme::kDark)
+                        : std::nullopt);
+}
+
 bool bc_link_previews(void) {
   return browser_core::UserSettings().link_previews;
 }
@@ -1012,12 +1260,47 @@ void bc_set_link_previews(bool previews) {
   browser_core::SessionChanged();
 }
 
+bool bc_option_reveals_sidebar(void) {
+  return browser_core::UserSettings().option_reveals_sidebar;
+}
+
+void bc_set_option_reveals_sidebar(bool reveals) {
+  browser_core::UserSettings().option_reveals_sidebar = reveals;
+  browser_core::SessionChanged();
+}
+
+int bc_hover_kinds(void) {
+  return browser_core::UserSettings().hover_kinds;
+}
+
+void bc_set_hover_kinds(int kinds) {
+  browser_core::UserSettings().hover_kinds = kinds;
+  browser_core::SessionChanged();
+}
+
+bool bc_archive_note(void) {
+  return browser_core::ArchiveNoteShown();
+}
+
+void bc_dismiss_archive_note(void) {
+  browser_core::DismissArchiveNote();
+}
+
 bool bc_warn_before_quitting(void) {
   return browser_core::UserSettings().warn_before_quitting;
 }
 
 void bc_set_warn_before_quitting(bool warn) {
   browser_core::UserSettings().warn_before_quitting = warn;
+  browser_core::SessionChanged();
+}
+
+bool bc_restore_windows(void) {
+  return browser_core::UserSettings().restore_windows;
+}
+
+void bc_set_restore_windows(bool restore) {
+  browser_core::UserSettings().restore_windows = restore;
   browser_core::SessionChanged();
 }
 
@@ -1117,14 +1400,25 @@ bc_id bc_tab_open(bc_id window_id, const char* url, bool when_shown) {
   return tab;
 }
 
-size_t bc_typed_url(const char* text, char* url, size_t capacity) {
-  Profile* profile = browser_core::StartProfile();
+// The profile |window_id| shows, else the one the core started with.
+static Profile* SearchProfile(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  Profile* profile = window ? ProfileOf(*window) : nullptr;
+  return profile ? profile : browser_core::StartProfile();
+}
+
+size_t bc_typed_url(bc_id window, const char* text, char* url, size_t capacity) {
+  Profile* profile = SearchProfile(window);
   const GURL typed = profile && text ? browser_core::TypedUrl(profile, text) : GURL();
   return typed.is_valid() ? CopyString(typed.spec(), url, capacity) : 0;
 }
 
-size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity) {
-  Profile* profile = browser_core::StartProfile();
+size_t bc_search_url(bc_id window,
+                     const char* keyword,
+                     const char* text,
+                     char* url,
+                     size_t capacity) {
+  Profile* profile = SearchProfile(window);
   const std::u16string engine = keyword ? base::UTF8ToUTF16(keyword) : std::u16string();
   const GURL search = profile && text ? browser_core::SearchUrl(profile, engine, text) : GURL();
   return search.is_valid() ? CopyString(search.spec(), url, capacity) : 0;
@@ -1145,7 +1439,9 @@ void bc_tab_show_in(bc_id id, void* view, bc_rect frame, double corner_radius) {
   if (!contents || !view || browser_core::Window::Showing(id)) {
     return;
   }
-  browser_core::platform::ShowPageIn(contents->GetNativeView(), view, ToRect(frame),
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  browser_core::platform::ShowPageIn(window ? window->widget() : nullptr,
+                                     contents->GetNativeView(), view, ToRect(frame),
                                      corner_radius);
   contents->Focus();
 }
@@ -1207,6 +1503,23 @@ void bc_tab_go_forward(bc_id id) {
   if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
     browser_core::Tab::FromWebContents(contents)->GoForward();
   }
+}
+
+void bc_tab_history(bc_id id, bool forward) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ListHistory(forward);
+  }
+}
+
+void bc_tab_go_to_history(bc_id id, int offset) {
+  if (content::WebContents* contents = browser_core::Window::PageOf(id)) {
+    browser_core::Tab::FromWebContents(contents)->GoToOffset(offset);
+  }
+}
+
+bc_id bc_tab_open_history(bc_id id, int offset) {
+  browser_core::Window* window = browser_core::Window::Holding(id);
+  return window ? window->OpenHistory(id, offset) : 0;
 }
 
 void bc_tab_reload(bc_id id, bool bypass_cache) {
@@ -1413,6 +1726,12 @@ void bc_ad_blocking_turn_on_site(bc_id profile_id, const char* site) {
   }
 }
 
+void bc_tab_set_developer_mode(bc_id id, bool on) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    browser_core::developer_mode::Set(tab->profile(), tab->Url(), on);
+  }
+}
+
 void bc_tab_picture_in_picture(bc_id id) {
   browser_core::SiteControls::PictureInPicture(id);
 }
@@ -1439,6 +1758,14 @@ void bc_profile_read_logins(bc_id profile) {
 
 void bc_profile_remove_login(bc_id profile, const char* key, const char* username, bool never) {
   browser_core::Passwords::Remove(profile, key ? key : "", username ? username : "", never);
+}
+
+void bc_profile_read_autofill(bc_id profile) {
+  browser_core::autofill_data::Read(profile);
+}
+
+void bc_profile_remove_autofill(bc_id profile, const char* key) {
+  browser_core::autofill_data::Remove(profile, key ? key : "");
 }
 
 bool bc_profile_import_passwords(bc_id profile, const char* path) {
@@ -1743,7 +2070,7 @@ void bc_window_toggle_full_screen(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else {
     widget->SetFullscreen(true);
   }

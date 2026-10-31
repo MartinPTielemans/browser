@@ -16,7 +16,7 @@ use crate::site_controls;
 use super::{
     MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
     ShellHandle, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X,
-    URL_FIELD_TOP, UserKeys, user_keys,
+    URL_FIELD_TOP, UserKeys, user_keys, written_as,
 };
 
 use crate::tokens::shell::extensions::HOST_ROOM;
@@ -41,6 +41,18 @@ pub struct Extension {
     pub commands: Vec<ExtensionCommand>,
     /// The user may remove it, which the browser's own ad blocker they turn off in Settings instead.
     pub removable: bool,
+    /// The user allowed it in Incognito, so it runs in private windows too.
+    pub incognito: bool,
+    /// The browser turned it off as it crashed twice, and the user hasn't been told.
+    pub crashed: bool,
+}
+
+impl Extension {
+    /// Whether it runs in a window, `private` or not: Chrome runs only the extensions the user
+    /// allowed in Incognito in a private session.
+    pub fn runs(&self, private: bool) -> bool {
+        self.enabled && (self.incognito || !private)
+    }
 }
 
 /// One of an extension's keyboard commands that has a key.
@@ -147,6 +159,16 @@ impl Shell {
                 .collect();
             log!("browser: extension keys {} {}", extension.id, keys.join(", "));
         }
+        // One the user added from an import's list that the other browser pinned is pinned as it
+        // comes in, by whichever window hears of it first.
+        if let Some(had) = self.extensions.get(&profile) {
+            let had: Vec<&str> = had.iter().map(|extension| extension.id.as_ref()).collect();
+            let now = extensions.iter().map(|each| (each.id.as_ref(), each.pinned));
+            for id in crate::import::extensions::to_pin(&had, now) {
+                log!("browser: extension {id} pinned as it was in the browser imported from");
+                self.browser.set_extension_pinned(profile, &id, true, cx);
+            }
+        }
         self.extensions.insert(profile, extensions);
         self.update_menus(cx);
     }
@@ -241,7 +263,7 @@ impl Shell {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         let extensions = self.extensions.get(&profile).map_or(&[][..], Vec::as_slice);
         let keys = user_keys(cx);
-        let Some((id, name)) = (command_for(keystroke, extensions, keys))
+        let Some((id, name)) = (command_for(keystroke, extensions, self.private, keys))
             .map(|(extension, command)| (extension.id.clone(), command.name.clone()))
         else {
             return false;
@@ -518,29 +540,82 @@ impl Shell {
             cx,
         );
     }
+
+    /// Tells the user, in the browser's dialog, of an extension of `profile`'s that the browser
+    /// turned off as it crashed twice: Turn On Again turns it on, Keep Off leaves it off, and
+    /// Remove… asks to remove it. The core hears once it's been told, so it asks once, and it asks
+    /// at the next launch if the dialog was busy or the browser went first.
+    pub fn tell_crashed_extension(&mut self, profile: u64, cx: &mut Context<Self>) {
+        let extensions = self.extensions.get(&profile).map_or(&[][..], Vec::as_slice);
+        let Some(extension) = extensions.iter().find(|extension| extension.crashed).cloned() else {
+            return;
+        };
+        let Extension { id, name, removable, .. } = extension;
+        let shell = cx.weak_entity();
+        let also = removable.then(|| {
+            let (id, name) = (id.clone(), name.clone());
+            let remove: Box<dyn FnOnce(&mut App)> = Box::new(move |cx| {
+                shell.update(cx, |shell, cx| shell.remove_extension(profile, id, name, cx)).ok();
+            });
+            (SharedString::from("Remove…"), remove)
+        });
+        let question = crate::dialog::Question {
+            icon: None,
+            message: format!("“{name}” was turned off").into(),
+            detail: "It crashed twice, so the browser turned it off. It stays off until you turn \
+                     it on again."
+                .into(),
+            list: Vec::new(),
+            action: "Turn On Again".into(),
+            cancel: "Keep Off".into(),
+            tone: crate::dialog::Tone::Accent,
+            also,
+            fields: Vec::new(),
+            check: None,
+            return_cancels: false,
+        };
+        let browser = self.browser.clone();
+        let turn_on = id.clone();
+        let asked = self.browser.tell(
+            question,
+            Box::new(move |_, cx| {
+                let on = browser.turn_on_extension(profile, &turn_on, cx);
+                // check.sh waits for this line.
+                log!("browser: turn on extension {turn_on} {}", if on { "on" } else { "refused" });
+            }),
+            cx,
+        );
+        if asked {
+            self.browser.extension_crash_told(profile, &id, cx);
+            // check.sh waits for this line.
+            log!("browser: told extension {id} crashed");
+        }
+    }
 }
 
-/// The command `keystroke` runs among the turned-on `extensions`', as Chrome gives them keys: never
-/// one of the browser's reserved shortcuts, and one of its others only if the user set it, as a
-/// suggested key that's taken isn't given.
+/// The command `keystroke` runs among the `extensions`' that run in a window, `private` or not,
+/// as Chrome gives them keys: never one of the browser's reserved shortcuts, and one of its others
+/// only if the user set it, as a suggested key that's taken isn't given.
 fn command_for<'a>(
     keystroke: &str,
     extensions: &'a [Extension],
+    private: bool,
     keys: &UserKeys,
 ) -> Option<(&'a Extension, &'a ExtensionCommand)> {
     if keys.command_for(keystroke, true).is_some() {
         return None;
     }
     let ours = keys.command_for(keystroke, false).is_some();
-    extensions.iter().filter(|extension| extension.enabled).find_map(|extension| {
+    extensions.iter().filter(|extension| extension.runs(private)).find_map(|extension| {
         (extension.commands.iter())
             .find(|command| command.keystroke == keystroke && !(ours && command.suggested))
             .map(|command| (extension, command))
     })
 }
 
-/// `keystroke` as the browser's shortcuts write it, with the modifiers in their order.
-fn keystroke_text(keystroke: &Keystroke) -> String {
+/// `keystroke` as the browser's shortcuts write it, with the modifiers in their order, and off the
+/// Mac in the Mac's names, as the core lists the extensions' keys.
+pub(super) fn keystroke_text(keystroke: &Keystroke) -> String {
     let modifiers = &keystroke.modifiers;
     let mut text = String::new();
     for (held, name) in [
@@ -553,7 +628,8 @@ fn keystroke_text(keystroke: &Keystroke) -> String {
             text.push_str(name);
         }
     }
-    text + &keystroke.key
+    // Off the Mac the extensions' keys are written as the page's: cmd-y for ctrl-y.
+    written_as(&(text + &keystroke.key))
 }
 
 /// The Site Controls' grid, from the window's `pinned` and `unpinned` actions and the profile's
@@ -621,7 +697,44 @@ mod tests {
                 })
                 .collect(),
             removable: true,
+            incognito: false,
+            crashed: false,
         }
+    }
+
+    /// An extension the browser turned off as it crashed twice is told of once, in the browser's
+    /// dialog, whose Turn On Again turns it on; with the dialog busy, it waits to be told.
+    #[gpui::test]
+    fn a_crashed_extension_is_told_of_once_and_turns_on_again(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        let crashed = Extension { crashed: true, ..extension("wallet", false, &[]) };
+        host.dialog_busy.set(true);
+        shell.update(cx, |shell, cx| {
+            shell.set_extensions(3, vec![extension("notes", true, &[]), crashed.clone()], cx);
+            shell.tell_crashed_extension(3, cx);
+        });
+        assert!(host.told.borrow().is_empty());
+        assert!(!host.take().iter().any(|call| call.starts_with("crash told")));
+
+        host.dialog_busy.set(false);
+        shell.update(cx, |shell, cx| shell.tell_crashed_extension(3, cx));
+        assert_eq!(
+            *host.told.borrow(),
+            ["“wallet” was turned off: Turn On Again / Keep Off / Remove…"]
+        );
+        assert!(host.take().contains(&"crash told 3 wallet".to_string()));
+        let turn_on = host.told_action.borrow_mut().take().expect("its action");
+        cx.update(|cx| turn_on(Vec::new(), cx));
+        assert!(host.take().contains(&"turn on 3 wallet".to_string()));
+
+        // Told, the core reports it no longer crashed, and nothing asks again.
+        shell.update(cx, |shell, cx| {
+            let told = Extension { crashed: false, ..crashed };
+            shell.set_extensions(3, vec![told], cx);
+            shell.tell_crashed_extension(3, cx);
+        });
+        assert_eq!(host.told.borrow().len(), 1);
     }
 
     /// The browser's own ad blocker comes back at each launch, so its menu offers no Remove: the
@@ -655,7 +768,7 @@ mod tests {
             extension("b", true, &[("library", "shift-cmd-l", true), ("side", "cmd-s", false)]),
         ];
         let run = |keystroke| {
-            command_for(keystroke, &extensions, &UserKeys::default())
+            command_for(keystroke, &extensions, false, &UserKeys::default())
                 .map(|(extension, command)| format!("{} {}", extension.id, command.name))
         };
         assert_eq!(run("shift-cmd-y").as_deref(), Some("a hello"));
@@ -663,6 +776,32 @@ mod tests {
         assert_eq!(run("shift-cmd-l"), None);
         assert_eq!(run("cmd-s").as_deref(), Some("b side"));
         assert_eq!(run("alt-shift-p"), None);
+    }
+
+    /// A private window runs the keys of, and lists in its menu bar, only the extensions the user
+    /// allowed in Incognito, as Chrome runs only those in a private session.
+    #[gpui::test]
+    fn a_private_window_runs_only_extensions_allowed_in_incognito(cx: &mut TestAppContext) {
+        let allowed = extension("allowed", true, &[("go", "shift-cmd-y", true)]);
+        let allowed = Extension { incognito: true, ..allowed };
+        let other = extension("other", true, &[("side", "shift-cmd-u", true)]);
+        let extensions = vec![other, allowed];
+        let run = |keystroke, private| {
+            command_for(keystroke, &extensions, private, &UserKeys::default())
+                .map(|(extension, _)| extension.id.to_string())
+        };
+        assert_eq!(run("shift-cmd-u", false).as_deref(), Some("other"));
+        assert_eq!(run("shift-cmd-u", true), None);
+        assert_eq!(run("shift-cmd-y", true).as_deref(), Some("allowed"));
+
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::private_window(host.clone(), 1, "Private".into(), 7, cx));
+        let listed = shell.update(cx, |shell, cx| {
+            shell.set_extensions(7, extensions.clone(), cx);
+            let bar = shell.menu_bar(cx);
+            bar.extensions.iter().map(|extension| extension.id.to_string()).collect::<Vec<_>>()
+        });
+        assert_eq!(listed, ["allowed"]);
     }
 
     fn action(id: &str, pinned: bool) -> ExtensionAction {

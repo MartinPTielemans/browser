@@ -21,6 +21,7 @@
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/win/hwnd_subclass.h"
@@ -140,24 +141,39 @@ struct Slot {
   gfx::Rect page_in_devtools;
   // Only the bottom corners are round, for the side panel under the app's header.
   bool bottom_corners_only = false;
+  // Its corners' own, for a link preview's page, else the window's.
+  std::optional<double> corner_radius;
 };
 
 // The pages and DevTools a window shows once it changes, which move between its slots unhidden.
 using Staying = std::vector<aura::Window*>;
 
-class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
+gfx::Insets InsetsOf(const gfx::Rect& frame, const gfx::Size& window) {
+  return gfx::Insets::TLBR(frame.y(), frame.x(), window.height() - frame.bottom(),
+                           window.width() - frame.right());
+}
+
+class WindowViews : public views::WidgetObserver,
+                    public aura::WindowObserver,
+                    public ui::HWNDMessageFilter {
  public:
   WindowViews(views::Widget* widget, HWND ui) : widget_(widget), ui_(ui) {
     observation_.Observe(widget);
     ui::HWNDSubclass::AddFilterToTarget(window(), this);
   }
 
-  ~WindowViews() override { ui::HWNDSubclass::RemoveFilterFromAllTargets(this); }
+  ~WindowViews() override {
+    if (preview_.page) {
+      preview_.page->RemoveObserver(this);
+    }
+    ui::HWNDSubclass::RemoveFilterFromAllTargets(this);
+  }
 
   HWND window() const { return views::HWNDForWidget(widget_); }
   HWND ui() const { return ui_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
+  Slot& preview() { return preview_; }
   FocusRing& ring() { return ring_; }
   double corner_radius() const { return corner_radius_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
@@ -170,6 +186,9 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
                                        views::Widget::InitParams::TYPE_CONTROL);
       params.child = true;
       params.parent = widget_->GetNativeView();
+      // Aura focuses nothing in a widget that can't activate, as a control's can't by default: a
+      // click in the page, and the core's Focus of it, never gave it the keyboard (#872).
+      params.activatable = views::Widget::InitParams::Activatable::kYes;
       params.native_widget = new views::DesktopNativeWidgetAura(slot.widget.get());
       params.name = "BrowserCorePane";
       slot.widget->Init(std::move(params));
@@ -194,6 +213,9 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   }
 
   void Empty(Slot& slot, const Staying& staying = {}) {
+    if (&slot == &preview_ && slot.page) {
+      slot.page->RemoveObserver(this);
+    }
     aura::Window* holder = slot.widget ? slot.widget->GetNativeView() : nullptr;
     Detach(holder, slot.page, staying);
     Detach(holder, slot.devtools, staying);
@@ -227,6 +249,8 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
       LayOut(slot, size, scale);
     }
     LayOut(side_panel_, size, scale);
+    // Last, so it's over the panes.
+    LayOut(preview_, size, scale);
     ring_.Fit();
   }
 
@@ -251,7 +275,8 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
     }
     // shortcut: a window region's corners are aliased, unlike Core Animation's on the Mac; upgrade
     // to a DirectComposition clip if the edge shows.
-    const int diameter = base::ClampRound(2 * corner_radius_ * scale);
+    const int diameter =
+        base::ClampRound(2 * slot.corner_radius.value_or(corner_radius_) * scale);
     HRGN region = CreateRoundRectRgn(0, 0, pixels.width() + 1, pixels.height() + 1, diameter,
                                      diameter);
     if (slot.bottom_corners_only) {
@@ -263,6 +288,38 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
     SetWindowRgn(hwnd, region, TRUE);
   }
 
+  // Shows |page|, a link preview's, at |frame| over the pages shown, in place of the preview it
+  // shows. The app's overlay over the window has a hole where it shows, and its card round that.
+  void ShowPreview(aura::Window* page, const gfx::Rect& frame, double corner_radius) {
+    views::Widget* holder = WidgetFor(preview_);
+    aura::Window* parent = holder->GetNativeView();
+    if (preview_.page != page) {
+      Empty(preview_);
+      if (page->parent()) {
+        page->parent()->RemoveChild(page);
+      }
+      parent->AddChild(page);
+      page->AddObserver(this);
+      preview_.page = page;
+    }
+    page->Show();
+    preview_.corner_radius = corner_radius;
+    preview_.insets = InsetsOf(frame, ContentSize());
+    holder->ShowInactive();
+    LayOut();
+  }
+
+  // aura::WindowObserver: a link preview's page goes as its tab closes, and its slot with it.
+  void OnWindowDestroying(aura::Window* window) override {
+    window->RemoveObserver(this);
+    if (preview_.page == window) {
+      preview_.page = nullptr;
+      if (preview_.widget) {
+        preview_.widget->Hide();
+      }
+    }
+  }
+
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override { LayOut(); }
 
@@ -272,8 +329,10 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
       Empty(slot);
     }
     Empty(side_panel_);
+    Empty(preview_);
     panes_.clear();
     side_panel_ = Slot();
+    preview_ = Slot();
     observation_.Reset();
     ui::HWNDSubclass::RemoveFilterFromAllTargets(this);
   }
@@ -302,6 +361,8 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
   HWND ui_;
   std::vector<Slot> panes_;
   Slot side_panel_;
+  // A link preview's page, over the panes.
+  Slot preview_;
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
@@ -317,11 +378,6 @@ std::map<views::Widget*, std::unique_ptr<WindowViews>>& AllWindowViews() {
 WindowViews* ViewsOf(views::Widget* widget) {
   auto it = AllWindowViews().find(widget);
   return it == AllWindowViews().end() ? nullptr : it->second.get();
-}
-
-gfx::Insets InsetsOf(const gfx::Rect& frame, const gfx::Size& window) {
-  return gfx::Insets::TLBR(frame.y(), frame.x(), window.height() - frame.bottom(),
-                           window.width() - frame.right());
 }
 
 // Puts |view| in |parent| if it isn't there, and shows it unless |hidden|.
@@ -393,6 +449,12 @@ void ShowPages(views::Widget* widget,
     staying.push_back(side_panel->page);
   }
 
+  // A link preview's page kept as a tab shows in a pane now.
+  Slot& preview = views->preview();
+  if (preview.page && std::ranges::contains(staying, preview.page.get())) {
+    views->Empty(preview, staying);
+  }
+
   std::vector<Slot>& slots = views->panes();
   // Pages that stay in the same pane keep their slot, and with it the keyboard.
   for (size_t i = panes.size(); i < slots.size(); ++i) {
@@ -459,6 +521,10 @@ void ShowPages(views::Widget* widget,
 
 void HoldPagesForResize(views::Widget*) {}
 
+bool PagesHeldForResize(views::Widget*) {
+  return false;
+}
+
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   if (!views) {
@@ -474,8 +540,19 @@ void HidePages(views::Widget* widget) {
   }
 }
 
-// The app's host has no view for a link preview's page here yet, so nothing calls it with one.
-void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+// The app's view for a link preview is an overlay of its own over the window, which can't hold a
+// page, as on Linux, so the page shows in the window over its pages, where the overlay leaves a
+// hole, and the card the app draws round that.
+void ShowPageIn(views::Widget* widget,
+                gfx::NativeView page,
+                void*,
+                const gfx::Rect& frame,
+                double corner_radius) {
+  WindowViews* views = widget ? ViewsOf(widget) : nullptr;
+  if (views && page) {
+    views->ShowPreview(page, frame, corner_radius);
+  }
+}
 
 std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
@@ -490,6 +567,11 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
     }
   }
   return std::nullopt;
+}
+
+bool PageDialogsInOwnWindow() {
+  // Aura would draw it in the window's HWND, under the UI's and the pages' child HWNDs.
+  return true;
 }
 
 bool KeyboardForPage(views::Widget* widget) {
@@ -511,8 +593,8 @@ bool KeyboardForPage(views::Widget* widget) {
     aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
     return !slot.devtools || !focused || !slot.devtools->Contains(focused);
   }
-  // The side panel, or another window's.
-  return false;
+  // A link preview's, or else the side panel or another window's.
+  return views->preview().widget && focus == views::HWNDForWidget(views->preview().widget.get());
 }
 
 void ReleaseKeyboard(views::Widget* widget) {

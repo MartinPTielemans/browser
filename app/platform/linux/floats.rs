@@ -1,7 +1,15 @@
 //! The floats of platform/host.h on Linux: the zoom HUD, the split view's drop targets, the toast,
-//! the tooltip and the link target, which float over a browser window without the keyboard, as
-//! their windows do on the Mac. GPUI shows each as an overlay of that window (overlays.rs) that
-//! lets the pointer through to what's under it, but for the toast's plate while it has buttons.
+//! the tooltip, the link target and the hover card, which float over a browser window without the
+//! keyboard, as their windows do on the Mac. GPUI shows each as an overlay of that window
+//! (overlays.rs) that lets the pointer through to what's under it, but for the toast's plate while
+//! it has buttons and the hover card's, for its buttons.
+//!
+//! The hover card's motion is the UI's (src/hover_card.rs), from its window's first frame on
+//! screen, so the host shows and hides it at once. On X11 with no compositor, which draws an
+//! overlay's pixels opaque, its window is cut to its plate, without the shadow round it.
+//!
+//! shortcut: a scroll over the page doesn't end the hover card, as the Mac's does; one over the
+//! sidebar's rows does, in the UI.
 //!
 //! The tooltip and the link target fade in and out as the UI asks, as the Mac's do, drawn by GPUI
 //! (motion.rs).
@@ -25,6 +33,7 @@ enum Kind {
     Toast,
     Tooltip,
     LinkTarget,
+    Card,
 }
 
 struct Float {
@@ -65,6 +74,8 @@ thread_local! {
     static LINK_MARGIN: RefCell<f64> = const { RefCell::new(0.) };
     /// Where the link target tells the UI the pointer is, over the window it shows over.
     static LINK_POINTER: Cell<Option<extern "C" fn(f64, f64)>> = const { Cell::new(None) };
+    /// The hover card's margin round its plate, and what runs as the user leaves it.
+    static CARD: RefCell<(f64, Option<extern "C" fn()>)> = const { RefCell::new((0., None)) };
 }
 
 fn add(kind: Kind, view: *mut c_void) {
@@ -87,6 +98,14 @@ fn add(kind: Kind, view: *mut c_void) {
     });
 }
 
+/// The views of the floats that show, for the test driver (drive.rs). The X server finds the toast
+/// under the pointer only on its plate while it has buttons, and the others not at all.
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    FLOATS.with_borrow(|floats| {
+        (floats.iter()).filter(|float| !float.over.is_null()).map(|float| float.view).collect()
+    })
+}
+
 fn find<R>(kind: Kind, f: impl FnOnce(&mut Float) -> R) -> Option<R> {
     FLOATS.with_borrow_mut(|floats| floats.iter_mut().find(|float| float.kind == kind).map(f))
 }
@@ -100,7 +119,11 @@ fn bounds(kind: Kind, ui_view: *mut c_void) -> Option<Bounds<Pixels>> {
     let width = f64::from(content.width);
     let (x, y) = match kind {
         Kind::DropTargets => return Some(Bounds::new(point(px(0.), px(0.)), content)),
-        Kind::Toast => (width - f64::from(own.width), 0.),
+        // At the focused page's corner, which in a split view is its pane's.
+        Kind::Toast => {
+            let (page_right, page_top) = crate::panels::page_corner(ui_view);
+            (width - page_right - f64::from(own.width), page_top)
+        }
         Kind::Hud => {
             let (page_right, page_top) = crate::panels::page_corner(ui_view);
             let (right, top, margin) = HUD.with_borrow(|hud| (hud.right, hud.top, hud.margin));
@@ -114,6 +137,10 @@ fn bounds(kind: Kind, ui_view: *mut c_void) -> Option<Bounds<Pixels>> {
         }
         Kind::LinkTarget => {
             let margin = LINK_MARGIN.with_borrow(|margin| *margin);
+            (left - margin, top - margin)
+        }
+        Kind::Card => {
+            let margin = CARD.with_borrow(|(margin, _)| *margin);
             (left - margin, top - margin)
         }
     };
@@ -222,13 +249,19 @@ fn seconds(fade: f64) -> f32 {
 }
 
 /// The user left the float of `view`, by a press elsewhere or the keyboard going to another
-/// window: the tooltip goes, as it does on the Mac when the browser window stops being key.
+/// window: the tooltip and the hover card go, as they do on the Mac when the browser window stops
+/// being key.
 fn left(view: *mut c_void) {
-    let tooltip = find(Kind::Tooltip, |float| float.view == view && !float.over.is_null());
-    if tooltip == Some(true)
-        && let Some(away) = TOOLTIP.with_borrow(|(_, away)| *away)
-    {
-        away();
+    for (kind, away) in [
+        (Kind::Tooltip, TOOLTIP.with_borrow(|(_, away)| *away)),
+        (Kind::Card, CARD.with_borrow(|(_, away)| *away)),
+    ] {
+        let shown = find(kind, |float| float.view == view && !float.over.is_null());
+        if shown == Some(true)
+            && let Some(away) = away
+        {
+            away();
+        }
     }
 }
 
@@ -247,7 +280,9 @@ pub(crate) fn place(ui_view: *mut c_void) {
 
 /// `ui_view`'s window is closing: what floats over it goes.
 pub(crate) fn forget_window(ui_view: *mut c_void) {
-    for kind in [Kind::Hud, Kind::DropTargets, Kind::Toast, Kind::Tooltip, Kind::LinkTarget] {
+    for kind in
+        [Kind::Hud, Kind::DropTargets, Kind::Toast, Kind::Tooltip, Kind::LinkTarget, Kind::Card]
+    {
         if find(kind, |float| float.over == ui_view || float.fading == ui_view) == Some(true) {
             hide(kind);
         }
@@ -307,6 +342,14 @@ fn toast_pointer() {
     let Some(view) = find(Kind::Toast, |float| float.view) else { return };
     let plate = TOAST.with_borrow(|toast| toast.plate.filter(|_| toast.takes));
     gpui_linux::set_overlay_pointer(view, Some(plate.as_slice()));
+}
+
+/// The toast's view and its plate, the part of its window that takes the pointer, while it shows
+/// with buttons: the driver clicks there only where a pointer would land on it (drive.rs).
+pub(crate) fn toast_plate() -> Option<(*mut c_void, Bounds<Pixels>)> {
+    let (view, over) = find(Kind::Toast, |float| (float.view, float.over))?;
+    let plate = TOAST.with_borrow(|toast| toast.plate.filter(|_| toast.takes))?;
+    (!over.is_null()).then_some((view, plate))
 }
 
 #[unsafe(no_mangle)]
@@ -399,4 +442,47 @@ fn link_pointer(at: Point<Pixels>) {
 pub extern "C" fn host_hide_link_target(fade: f64) {
     gpui_linux::watch_pointer_over(std::ptr::null_mut(), None);
     fade_out(Kind::LinkTarget, fade);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_add_hover_card(card_view: *mut c_void, margin: f64, away: extern "C" fn()) {
+    CARD.set((margin, Some(away)));
+    add(Kind::Card, card_view);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_show_hover_card(
+    ui_view: *mut c_void,
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+) {
+    let Some(view) = find(Kind::Card, |float| {
+        (float.left, float.top) = (left, top);
+        float.view
+    }) else {
+        return;
+    };
+    // Only its plate takes the pointer, for its buttons; the margin round it lets it through.
+    let margin = CARD.with_borrow(|(margin, _)| *margin) as f32;
+    let (width, height) = (width as f32, height as f32);
+    let plate = Bounds::new(point(px(margin), px(margin)), size(px(width), px(height)));
+    gpui_linux::set_overlay_pointer(view, Some(&[plate]));
+    if !gpui_linux::overlays_blend() {
+        let radius = browser::tokens::hover_card::RADIUS;
+        let (right, bottom) = (margin + width, margin + height);
+        let corners = [(margin, margin), (right, margin), (right, bottom), (margin, bottom)];
+        gpui_linux::set_overlay_outline(view, &corners.map(|(x, y)| (x, y, radius)));
+    }
+    if show(Kind::Card, ui_view).is_some() {
+        // check.sh reads these: where it is, to compare with where the UI asked, and that it shows.
+        eprintln!("browser: hover card window at {left} {top}");
+        eprintln!("browser: hover card window shown");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_hide_hover_card() {
+    hide(Kind::Card);
 }

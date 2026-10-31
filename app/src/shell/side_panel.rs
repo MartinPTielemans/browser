@@ -183,7 +183,11 @@ impl Shell {
                 window.set_window_cursor_style(CursorStyle::ResizeLeftRight);
                 let moved = shell.clone();
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
-                    if phase == DispatchPhase::Capture {
+                    // Only the drag's moves: off the Mac GPUI says the pointer left a window with
+                    // a move to its far corner and no button held.
+                    if phase == DispatchPhase::Capture
+                        && event.pressed_button == Some(MouseButton::Left)
+                    {
                         let at = f32::from(event.position.x);
                         moved.update(cx, |shell, cx| shell.drag_side_panel(at, right, cx)).ok();
                     }
@@ -196,7 +200,7 @@ impl Shell {
             },
         );
         vec![
-            card(bounds).child(header).into_any_element(),
+            card(bounds, self.palette.page).child(header).into_any_element(),
             edge.into_any_element(),
             listener.absolute().size_0().into_any_element(),
         ]

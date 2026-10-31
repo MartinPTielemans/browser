@@ -81,7 +81,7 @@ fn intensity_washes_the_colours_out(cx: &mut TestAppContext) {
     shell.update(cx, |shell, _| {
         let alpha = |intensity| {
             let theme = Theme { intensity, ..theme };
-            shell.theme_color_at(&theme, Palette::of(Some(&theme)).layer_alpha, 0.5, 0.5).a
+            shell.theme_color_at(&theme, Palette::of(Some(&theme), Tone::Dark).layer_alpha, 0.5, 0.5).a
         };
         assert!(alpha(0.) < alpha(0.24) && alpha(0.24) < alpha(DEFAULT_INTENSITY));
         assert!(alpha(DEFAULT_INTENSITY) < alpha(1.));
@@ -130,31 +130,115 @@ fn remove_theme_color_takes_the_space_back_to_the_accent(cx: &mut TestAppContext
     assert!(!titles.iter().any(|(title, _)| title == "Remove Theme Color"));
 }
 
-/// ilo's menu is Paper in a Space whose theme is light and Ink in the others, its highlight the
-/// Space's accent, and the Space's menu keeps Delete Space apart, below a line.
+/// ilo's menu takes the window's look: light where the Space's theme makes it light, dark where
+/// it makes it dark, and the system's where it's automatic; its highlight the Space's accent in
+/// that look. The Space's menu keeps Delete Space apart, below a line.
 #[gpui::test]
-fn the_menu_takes_a_light_themes_look(cx: &mut TestAppContext) {
+fn the_menu_takes_the_windows_look(cx: &mut TestAppContext) {
     use crate::menu::Highlight;
+    use crate::theme::Appearance;
     let host = Rc::new(Recorder::default());
     let browser = host.clone();
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
-    let light = Theme { appearance: crate::theme::Appearance::Light, ..Theme::at(0.5, 0.) };
-    shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![entry(Some(light.main_color()), Some(light))], cx);
-        shell.set_space(1, cx);
-        shell.space_menu(1, point(px(100.), px(112.)), cx);
-        shell.set_spaces(vec![entry(Some(BLUE), Some(Theme::at(0.5, 0.)))], cx);
-        shell.space_menu(1, point(px(100.), px(112.)), cx);
-    });
+    let themed = |appearance| Theme { appearance, ..Theme::at(0.5, 0.) };
+    let shown = [
+        (Appearance::Light, None, Tone::Light),
+        (Appearance::Dark, None, Tone::Dark),
+        (Appearance::Automatic, Some(Tone::Dark), Tone::Dark),
+        (Appearance::Automatic, Some(Tone::Light), Tone::Light),
+    ];
+    for (appearance, system, _) in shown {
+        let theme = themed(appearance);
+        shell.update(cx, |shell, cx| {
+            shell.force_tone(system);
+            shell.set_spaces(vec![entry(Some(theme.main_color()), Some(theme))], cx);
+            shell.set_space(1, cx);
+        });
+        // The system's appearance is read as the window draws.
+        cx.run_until_parked();
+        shell.update(cx, |shell, cx| shell.space_menu(1, point(px(100.), px(112.)), cx));
+    }
     let looks = host.menu_looks.borrow();
-    assert_eq!(looks.iter().map(|look| look.light).collect::<Vec<_>>(), [true, false]);
-    let accents = [light, Theme::at(0.5, 0.)].map(|theme| Highlight::of(&Palette::of(Some(&theme))));
+    let tones = shown.map(|(_, _, tone)| tone);
+    assert_eq!(looks.iter().map(|look| look.light).collect::<Vec<_>>(), tones.map(|tone| tone == Tone::Light));
+    let accents = shown.map(|(appearance, _, tone)| Highlight::of(&Palette::of(Some(&themed(appearance)), tone)));
     assert_eq!(looks.iter().map(|look| look.highlight).collect::<Vec<_>>(), accents);
-    assert_ne!(accents[0].fill, Highlight::of(&Palette::default()).fill, "the theme's accent is ilo green");
+    assert_ne!(accents[0].fill, accents[1].fill, "the light look's accent is the dark one's");
+    assert_ne!(accents[1].fill, Highlight::of(&Palette::default()).fill, "the theme's accent is ilo green");
     let entries = host.entries.borrow();
     let [.., line, delete] = &entries[..] else { panic!("no menu") };
     assert_eq!((line.title.as_ref(), delete.title.as_ref()), ("", "Delete Space"));
     assert!(delete.destructive && line.parent.is_none());
+}
+
+/// Capture mode, started in the window's look, takes it again as the system's appearance or the
+/// Space's theme changes it (#861).
+#[gpui::test]
+fn capture_mode_follows_the_windows_look(cx: &mut TestAppContext) {
+    use crate::theme::Appearance;
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    let light = || host.capture_look.get().map(|(_, light)| light);
+    for (system, theme, shown) in [
+        (Tone::Dark, None, false),
+        (Tone::Light, None, true),
+        (Tone::Light, Some(Theme { appearance: Appearance::Dark, ..Theme::at(0.5, 0.) }), false),
+        (Tone::Light, None, true),
+    ] {
+        shell.update(cx, |shell, cx| {
+            shell.force_tone(Some(system));
+            shell.set_spaces(vec![entry(theme.map(|theme| theme.main_color()), theme)], cx);
+            shell.set_space(1, cx);
+        });
+        // The system's appearance is read as the window draws.
+        cx.run_until_parked();
+        assert_eq!(light(), Some(shown), "with the system {system:?} and the theme {theme:?}");
+    }
+}
+
+/// View › Appearance stands in for the system's: light or dark turns a Space with no theme, or an
+/// automatic one, that way, a theme that forces its own keeps it, and automatic gives back the
+/// system's. The host keeps the choice, the menu bar checks it, and the command bar offers the
+/// other two.
+#[gpui::test]
+fn the_apps_appearance_stands_in_for_the_systems(cx: &mut TestAppContext) {
+    use crate::shell::commands::{Command, ShellHandle, bar_commands};
+    use crate::theme::Appearance;
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(None, None)], cx);
+        shell.set_space(1, cx);
+    });
+    cx.update(|_, cx| cx.set_global(ShellHandle(shell.downgrade())));
+    let tone = |cx: &mut VisualTestContext| {
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| shell.palette.tone)
+    };
+    let system = tone(cx);
+    for (appearance, shown) in
+        [(Appearance::Dark, Tone::Dark), (Appearance::Light, Tone::Light), (Appearance::Automatic, system)]
+    {
+        shell.update(cx, |shell, cx| shell.run(Command::Appearance(appearance), "ui", cx));
+        assert_eq!(tone(cx), shown, "{appearance:?} drew the window {:?}", tone(cx));
+        assert_eq!(host.appearance.get(), Some(appearance));
+        assert_eq!(host.menu_bar.borrow().appearance, appearance);
+        let offered = cx.update(|_, cx| bar_commands("appearance", cx));
+        let offered: Vec<Command> = offered.iter().map(|row| row.command).collect();
+        let others: Vec<Command> = (Appearance::ALL.into_iter())
+            .filter(|&each| each != appearance)
+            .map(Command::Appearance)
+            .collect();
+        assert_eq!(offered, others);
+    }
+    let light = Theme { appearance: Appearance::Light, ..Theme::at(0.5, 0.) };
+    shell.update(cx, |shell, cx| {
+        shell.run(Command::Appearance(Appearance::Dark), "ui", cx);
+        shell.set_spaces(vec![entry(Some(light.main_color()), Some(light))], cx);
+    });
+    assert_eq!(tone(cx), Tone::Light, "a theme's own appearance gave way to the app's");
 }
 
 /// The shell with Space 1 as `entry` has it, on a host that records what it asks of the core.

@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
-use browser::import::Passwords;
+use browser::import::{Exported, Passwords};
 use browser::import::found::{Page, Tab};
 use browser::import::plan::{Existing, ExistingSpace, Row};
 use browser::import::sources::{Os, Roots};
@@ -188,7 +188,7 @@ impl browser::import::Host for CoreImport {
     }
 
     fn create_space(&self, name: &str, icon: &str, theme: Option<&Theme>) -> u64 {
-        let space = crate::create_space(name);
+        let space = crate::create_space(name, 0);
         let icon = CString::new(icon).unwrap_or_default();
         unsafe { bc::bc_space_set_icon(space, icon.as_ptr()) };
         if let Some(theme) = theme {
@@ -278,13 +278,18 @@ impl browser::import::Host for CoreImport {
         ACTIVE.with_borrow_mut(|waiting| waiting.push(then));
     }
 
-    fn choose_passwords_file(
+    fn choose_file(
         &self,
+        exported: Exported,
         then: Box<dyn FnOnce(Option<PathBuf>, &mut App)>,
         cx: &mut App,
     ) {
         // A check run names its made-up file, as it can't drive the system's panel.
-        if let Some(file) = std::env::var_os("BROWSER_IMPORT_PASSWORDS") {
+        let named = match exported {
+            Exported::Passwords => "BROWSER_IMPORT_PASSWORDS",
+            Exported::Bookmarks => "BROWSER_IMPORT_BOOKMARKS",
+        };
+        if let Some(file) = std::env::var_os(named) {
             return cx.defer(move |cx| then(Some(file.into()), cx));
         }
         let chosen = cx.prompt_for_paths(PathPromptOptions {
@@ -316,5 +321,9 @@ impl browser::import::Host for CoreImport {
     fn passwords_profile(&self) -> Option<String> {
         let profiles = ids(bc::bc_profiles);
         (profiles.len() > 1).then(|| name(bc::bc_profile_name, passwords_profile()).to_string())
+    }
+
+    fn open_store_page(&self, url: &str) {
+        open_tab_behind(front().0, url, false);
     }
 }

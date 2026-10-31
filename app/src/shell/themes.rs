@@ -5,8 +5,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    ColorSpace, Context, Hsla, Point, Rgba, canvas, div, linear_color_stop, linear_gradient, point,
-    prelude::*, px, rgb, size,
+    App, ColorSpace, Context, Global, Hsla, Point, Rgba, canvas, div, linear_color_stop,
+    linear_gradient, point, prelude::*, px, rgb, size,
 };
 
 use super::{
@@ -14,10 +14,22 @@ use super::{
     undo::{Prop, Value},
 };
 use crate::{
-    palette::{self, Palette, SECOND_AT},
-    theme::{self, GRAIN_STRENGTH, GRAIN_TILE, Theme},
+    palette::{self, Palette, SECOND_AT, Tone},
+    theme::{self, Appearance, GRAIN_TILE, INACTIVE_TEXTURE, Texture, Theme},
     theme_picker::{self, Changed},
 };
+
+/// The appearance View › Appearance chose for every window, which stands in for the system's
+/// where it isn't automatic. The user's preference: agents have no call to change it.
+#[derive(Clone, Copy, Default)]
+pub struct AppAppearance(pub Appearance);
+
+impl Global for AppAppearance {}
+
+/// The appearance View › Appearance has chosen.
+pub fn app_appearance(cx: &App) -> Appearance {
+    cx.try_global::<AppAppearance>().map_or(Appearance::Automatic, |chosen| chosen.0)
+}
 
 /// How many themes' palettes a window keeps, the least recently drawn going first: more than
 /// the Spaces whose swatches a frame draws, and the one the picker is making.
@@ -32,32 +44,87 @@ impl Shell {
         }
     }
 
-    /// The theme `space`'s window shows: its own, or a theme of its colour alone for a Space whose
-    /// colour came before themes did; none in a private window.
+    /// The theme `space`'s window shows: its own, in the look its tone draws, or a theme of its
+    /// colour alone for a Space whose colour came before themes did; none in a private window.
     pub(super) fn space_theme(&self, space: u64) -> Option<Theme> {
         if self.private {
             return None;
         }
-        self.theme_of(space).or_else(|| {
+        let dark = self.tone_of(space) == Tone::Dark;
+        self.theme_of(space).map(|theme| theme.shown(dark)).or_else(|| {
             let entry = self.spaces.iter().find(|each| each.id == space)?;
             entry.color.map(Theme::of_color)
         })
     }
 
-    /// `space`'s palette, worked out once for each theme it shows rather than while drawing.
+    /// Whether `space`'s window is dark or light: as its theme's appearance forces it, else as
+    /// the system's is, as Arc's follows it. A private window is dark, as Arc's is.
+    pub(super) fn tone_of(&self, space: u64) -> Tone {
+        if self.private {
+            return Tone::Dark;
+        }
+        match self.theme_of(space).map(|theme| theme.appearance) {
+            Some(Appearance::Light) => Tone::Light,
+            Some(Appearance::Dark) => Tone::Dark,
+            Some(Appearance::Automatic) | None => self.system_tone,
+        }
+    }
+
+    /// Reads the system's appearance and whether the window is active as the window draws, and
+    /// draws the window again once either changes, which GPUI doesn't by itself.
+    pub(super) fn watch_appearance(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        let system = match window.appearance() {
+            gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight => Tone::Light,
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => Tone::Dark,
+        };
+        self.app_appearance = app_appearance(cx);
+        let chosen = match self.app_appearance {
+            Appearance::Light => Some(Tone::Light),
+            Appearance::Dark => Some(Tone::Dark),
+            Appearance::Automatic => None,
+        };
+        self.system_tone = self.forced_tone.or(chosen).unwrap_or(system);
+        self.window_active = window.is_window_active();
+        if self.window_watches.is_empty() {
+            self.window_watches = vec![
+                cx.observe_window_appearance(window, |_, _, cx| cx.notify()),
+                cx.observe_window_activation(window, |_, _, cx| cx.notify()),
+            ];
+        }
+    }
+
+    /// Gives every window `appearance` in place of the system's, and keeps it for the next launch.
+    pub(super) fn set_app_appearance(&mut self, appearance: Appearance, cx: &mut Context<Self>) {
+        // check.sh waits for this line.
+        log!("browser: appearance {}", appearance.name());
+        cx.set_global(AppAppearance(appearance));
+        self.app_appearance = appearance;
+        self.browser.set_appearance(appearance, cx);
+        self.update_menus(cx);
+        cx.refresh_windows();
+    }
+
+    /// Draws the window as if the system's appearance were `tone`, as the preview does to show
+    /// either without changing the system's.
+    pub fn force_tone(&mut self, tone: Option<Tone>) {
+        self.forced_tone = tone;
+    }
+
+    /// `space`'s palette, worked out once for each theme and tone it shows rather than while
+    /// drawing.
     pub(super) fn palette_of(&self, space: u64) -> Palette {
-        let theme = self.space_theme(space);
+        let key = (self.space_theme(space), self.tone_of(space));
         let mut palettes = self.palettes.borrow_mut();
-        if let Some(at) = palettes.iter().position(|(each, _)| *each == theme) {
+        if let Some(at) = palettes.iter().position(|(each, _)| *each == key) {
             let kept = palettes.remove(at);
             palettes.push(kept);
             return kept.1;
         }
-        let palette = Palette::of(theme.as_ref());
+        let palette = Palette::of(key.0.as_ref(), key.1);
         if palettes.len() == PALETTES {
             palettes.remove(0);
         }
-        palettes.push((theme, palette));
+        palettes.push((key, palette));
         palette
     }
 
@@ -71,6 +138,17 @@ impl Shell {
             palette = palette.toward(&self.palette_of(beside), t);
         }
         self.palette = palette;
+        let light = palette.tone == Tone::Light;
+        if self.window_light != Some(light) {
+            self.window_light = Some(light);
+            self.browser.set_window_light(light, cx);
+            log!("browser: window light {light}");
+        }
+        let look = self.menu_look();
+        if self.capture_look != Some(look) {
+            self.capture_look = Some(look);
+            self.browser.capture_look(self.selected, look, cx);
+        }
         if cx.try_global::<super::commands::ShellHandle>().is_some_and(|key| key.0 == cx.weak_entity()) {
             palette::set_current(palette, cx);
         }
@@ -87,7 +165,9 @@ impl Shell {
         let Some(entry) = self.spaces.iter().find(|each| each.id == space) else {
             return;
         };
-        let theme = entry.theme.or_else(|| entry.color.map(Theme::of_color));
+        // A theme of two looks opens as the one shown, and what the picker makes is one look.
+        let dark = self.tone_of(space) == Tone::Dark;
+        let theme = entry.theme.map(|theme| theme.shown(dark)).or_else(|| entry.color.map(Theme::of_color));
         let shell = cx.weak_entity();
         let changed: Changed = Rc::new(move |theme, done, cx| {
             shell.update(cx, |shell, cx| shell.theme_changed(space, theme, done, cx)).ok();
@@ -153,7 +233,7 @@ impl Shell {
 
     /// The window's colour behind everything: the gradient down it, or with a Space of more than
     /// one colour shown, its colours across it, one Space's over the other's as the sidebar pages
-    /// between them; and the grain over them.
+    /// between them; and each one's texture over them, fainter while the window isn't active.
     pub(super) fn window_background(&self) -> gpui::Div {
         let (space, beside) = self.colored_pages();
         // Each Space shown, and how much of the window's colour is its.
@@ -177,11 +257,11 @@ impl Shell {
         } else {
             background.bg(self.gradient(None))
         };
-        let grain: f32 = themes
-            .iter()
-            .map(|(_, theme, weight)| theme.map_or(0., |theme| theme.grain) * weight)
-            .sum();
-        background.when(grain > 0., |background| background.child(grain_layer(grain)))
+        let dimmed = if self.window_active { 1. } else { INACTIVE_TEXTURE };
+        background.children(themes.iter().filter_map(|&(_, theme, weight)| {
+            let theme = theme.filter(|theme| theme.grain > 0.)?;
+            Some(texture_layer(theme.texture, theme.grain_opacity() * weight * dimmed))
+        }))
     }
 
     /// `space`'s colours over the whole window, with `theme`.
@@ -230,14 +310,13 @@ fn diagonal_stops(width: f32, height: f32) -> (f32, f32, f32) {
     (side, start, end)
 }
 
-/// Noise over the whole window, `grain` strong (0 to 1), in tiles of the grain image at one device
-/// pixel to a pixel.
-fn grain_layer(grain: f32) -> impl IntoElement {
-    div().absolute().size_full().opacity(grain * GRAIN_STRENGTH).child(
+/// `texture` over the whole window at `opacity`, in tiles at one device pixel to a pixel.
+fn texture_layer(texture: Texture, opacity: f32) -> impl IntoElement {
+    div().absolute().size_full().opacity(opacity).child(
         canvas(
             |_, _, _| {},
-            |bounds, _, window, _| {
-                let image = theme::grain_image();
+            move |bounds, _, window, _| {
+                let image = texture.image();
                 let tile = GRAIN_TILE as f32 / window.scale_factor();
                 let (width, height) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let (columns, rows) = ((width / tile).ceil() as i32, (height / tile).ceil() as i32);

@@ -211,6 +211,7 @@ mod tests {
         let folders = Folders {
             folders: [(9, ("Work".into(), false))].into(),
             parents: [(10, 9)].into(),
+            ..Default::default()
         };
         shell.update(cx, |shell, cx| {
             let space = (1, "Home".into(), None, 1, "".into(), "".into(), "".into());
@@ -346,7 +347,7 @@ mod tests {
         assert!(back.is_disabled());
         let (_, sidebar) = tree.named(Role::Button, "Hide Sidebar");
         assert!(!sidebar.is_disabled() && sidebar.supports_action(Action::Click));
-        let (_, plus) = tree.named(Role::Button, "New Space or Folder");
+        let (_, plus) = tree.named(Role::Button, "New Space, Folder or Note");
         assert!(plus.supports_action(Action::Click));
         tree.named(Role::Button, "View Library");
         tree.named(Role::Button, "New Tab");

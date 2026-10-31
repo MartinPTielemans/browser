@@ -32,6 +32,9 @@ std::string DirOf(content::WebContents* contents);
 void LoadProfiles(const std::set<std::string>& dirs, base::OnceClosure done);
 // Keeps |profile| loaded while the core runs, with its search engine and downloads seen to. Once.
 void UseProfile(Profile* profile);
+// |profile|'s Profile if it's loaded. Else null, and loads it, once, then spaces_changed, so
+// Settings can show what a profile no Space is in keeps.
+Profile* ProfileOrLoad(bc_id profile);
 // Lets the profiles go, at quit.
 void ReleaseProfiles();
 // Blocks automatic Picture in Picture by default in every profile loaded while the user has it off

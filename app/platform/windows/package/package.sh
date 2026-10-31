@@ -1,7 +1,9 @@
 #!/bin/bash
 # Packs the Windows app for a release (#454), in Git Bash on Windows, from Browser.dll, which
-# `cargo build --release --features prod` in app/windows makes, and the engine setup.sh puts in
-# .deps/engine, whose chrome.exe runs it:
+# `cargo build --release --features prod` in app/windows makes, the agents' bridge, which
+# `cargo build --release --features prod --manifest-path ../Cargo.toml --bin mcp-bridge
+# --target-dir target` there makes, and the engine setup.sh puts in .deps/engine, whose chrome.exe
+# runs it:
 #   <out>/ilo-<version>-x64.msix, for the Microsoft Store, unsigned, as the Store signs it, with
 #     the identity in branding/windows-store.ini and without WinSparkle, as the Store updates it;
 #   <out>/ilo-<version>-x64-setup.exe, the per-user installer (ilo.iss) for winget and direct
@@ -34,6 +36,8 @@ store() { git config -f "$app/branding/windows-store.ini" "store.$1"; }
 dll=$app/windows/target/release/Browser.dll
 engine=$app/.deps/engine
 [ -f "$dll" ] || fail "no $dll. Build it with cargo build --release --features prod in app/windows."
+bridge=$app/windows/target/release/mcp-bridge.exe
+[ -f "$bridge" ] || fail "no $bridge, the agents' bridge. Build it as this file's head says."
 
 alone=
 if [ ! -f "$engine/chrome.exe" ]; then
@@ -51,13 +55,20 @@ fi
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-# What both install: the engine but the import library the app links, and Browser.dll beside it.
+# What both install: the engine but the import library the app links, and Browser.dll, the bridge
+# an agent's MCP client runs, which Connect names beside chrome.exe, uBlock Origin and the licences
+# beside it.
 mkdir "$stage/app"
 if [ -z "$alone" ]; then
   cp -r "$engine/." "$stage/app/"
   rm -f "$stage/app/chrome.dll.lib" "$stage/app/.from"
 fi
-cp "$dll" "$here/Assets/ilo.ico" "$stage/app/"
+cp "$dll" "$bridge" "$here/Assets/ilo.ico" "$stage/app/"
+# uBlock Origin beside chrome.exe, where the core loads it, and the licences About opens, as
+# build.sh puts them beside the engine.
+cp -R "$("$app/fetch-ublock.sh")" "$stage/app/ublock"
+"$app/../tools/licences.sh" "$stage/app" "$app/windows/Cargo.toml" \
+  "$(rustc -vV | sed -n 's/^host: //p')" --features prod
 
 # The Store's: Windows reads the manifest and its logos from the package's top.
 cp -r "$stage/app" "$stage/msix"

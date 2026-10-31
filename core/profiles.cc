@@ -20,6 +20,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/downloads.h"
 #include "browser_core/extensions.h"
 #include "browser_core/favorites.h"
@@ -275,9 +276,25 @@ void UseProfile(Profile* profile) {
   // next new tab, so the core keeps the ones its Spaces use.
   kept = std::make_unique<ScopedProfileKeepAlive>(profile, ProfileKeepAliveOrigin::kAppWindow);
   SetUpSearch(profile);
+  GiveArchiveDefault(profile);
   ObserveDownloads(profile);
   ObserveExtensions(profile);
   ApplyAutoPictureInPicture(/*changed=*/false);
+}
+
+Profile* ProfileOrLoad(bc_id id) {
+  const std::string dir = ProfileDir(id);
+  // ProfileFor gives the first profile for one that isn't loaded.
+  Profile* profile = dir.empty() ? nullptr : ProfileFor(dir);
+  if (profile && DirOf(profile) == dir) {
+    return profile;
+  }
+  // Once: a profile Chrome can't load is asked about each time Settings draws.
+  static base::NoDestructor<std::set<std::string>> asked;
+  if (!dir.empty() && asked->insert(dir).second) {
+    LoadProfiles({dir}, base::BindOnce(&ReportChanged));
+  }
+  return nullptr;
 }
 
 void ReleaseProfiles() {
