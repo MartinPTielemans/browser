@@ -483,6 +483,8 @@ expect '^browser: settings shown General$' "Settings… didn't bring Settings ba
 send clickkey $unload_switch
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
+# Settings with its close button, for #1032's PR.
+../tools/window-screenshot.sh "$pid" "$out/settings-close.png" all || fail "no window to capture"
 settings_close
 post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
