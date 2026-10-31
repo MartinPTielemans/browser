@@ -235,15 +235,19 @@ painted(() => document.title = "fields");
 
   # A page's frames are part of it: the outline has what's in a frame of the page's site and in
   # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
-  # password field in a frame is as off limits as one in the page.
+  # password field in a frame is as off limits as one in the page. The page names itself once the
+  # other site's frame has painted: until then Chromium hasn't the frame's drawing to find what's
+  # under a click in, and gives the click to the page around it.
   printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
     > "$out/site/inner.html"
   printf '%s' '<p>Cross text</p>
 <button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
-<input type=password aria-label="Cross password">' > "$out/site/cross.html"
-  printf '%s' "<title>frames</title><p>Top text</p><iframe src=inner.html></iframe>
-<iframe src=http://127.0.0.1:$port/cross.html></iframe>" > "$out/site/frames.html"
+<input type=password aria-label="Cross password"><script src="painted.js"></script>
+<script>painted(() => parent.postMessage("painted", "*"));</script>' > "$out/site/cross.html"
+  printf '%s' "<title>loading</title><p>Top text</p><iframe src=inner.html></iframe>
+<iframe src=http://127.0.0.1:$port/cross.html></iframe>
+<script>onmessage = () => document.title = 'frames';</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
   printf '%s\n' "$outline" > "$out/mcp-frames.txt"
   case "$outline" in
@@ -251,6 +255,7 @@ painted(() => document.title = "fields");
     *) fail "the page with frames was outlined as: $outline" ;;
   esac
   frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  await_log "^browser: title $frames_tab frames\$" "the other site's frame didn't paint"
   inner=$(ref_of button "Inner button")
   cross=$(ref_of button "Cross button")
   [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
