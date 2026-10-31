@@ -1118,6 +1118,9 @@ pub struct Shell {
     /// While the window goes full screen with the page, or back: its content size before. The page
     /// stays where it is until the window's resize lays it out, once, at its new size.
     page_held: Option<Size<Pixels>>,
+    /// While the window has gone full screen and the shell waits a turn to hear whether a page took
+    /// it there: its content size before. The page stays where it is until then.
+    page_waits: Option<Size<Pixels>>,
     /// While a page's full screen resizes the window: the steps check.sh has yet to time.
     full_screen_timing: Option<FullScreenTiming>,
     /// Whether ⌘S has hidden the sidebar.
@@ -1454,6 +1457,7 @@ impl Shell {
             maximized: false,
             window_for_page: false,
             page_held: None,
+            page_waits: None,
             full_screen_timing: None,
             sidebar_hidden: false,
             window_buttons: true,
@@ -1777,7 +1781,7 @@ impl Shell {
     /// Where the page goes as the window's content takes `viewport`, unless it's held where it is
     /// while the window goes full screen with the page, or back.
     pub fn window_page_frame(&mut self, viewport: Size<Pixels>) -> Option<(Bounds<Pixels>, f32)> {
-        if self.page_held == Some(viewport) {
+        if self.page_waits.is_some() || self.page_held == Some(viewport) {
             return None;
         }
         self.page_held = None;
@@ -2458,11 +2462,15 @@ impl Shell {
             true => !full_screen,
             false => self.window_for_page && full_screen,
         };
-        self.window_for_page = fullscreen && window_resizes;
+        // Chrome on Windows takes the window full screen for the page before the core says the
+        // page asked, while the shell waits to hear, so the window went for the page.
+        let went_first = self.page_waits.filter(|_| fullscreen);
+        self.window_for_page = fullscreen && (window_resizes || went_first.is_some());
         self.page_held = window_resizes.then(|| window.viewport_size());
-        self.full_screen_timing = window_resizes.then(|| FullScreenTiming {
+        let before = went_first.or(window_resizes.then(|| window.viewport_size()));
+        self.full_screen_timing = before.map(|before| FullScreenTiming {
             entering: fullscreen,
-            before: window.viewport_size(),
+            before,
             laid: false,
             drawn: false,
         });
@@ -2511,10 +2519,30 @@ impl Shell {
         }
     }
 
+    /// A turn after the window went full screen, once the core has said whether a page took it
+    /// there: the note shows unless one did, and the page goes to its frame at the window's size.
+    fn full_screen_heard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.full_screen {
+            return;
+        }
+        self.set_full_screen(true, cx);
+        if self.page_waits.take().is_none() {
+            return;
+        }
+        let viewport = window.viewport_size();
+        if let Some(frame) = self.window_page_frame(viewport) {
+            self.browser.lay_out_page(frame.0, frame.1, cx);
+            let panel = self.side_panel_page(viewport).unwrap_or_default();
+            self.browser.lay_out_side_panel(panel, cx);
+            self.full_screen_step("laid", viewport);
+        }
+        cx.notify();
+    }
+
     /// The window's bounds changed, as they do when it's maximized or restored: the third button
     /// shows which it would do next. They change as it goes full screen or comes back too, which
     /// on Linux nothing else says.
-    pub fn bounds_changed(&mut self, cx: &mut Context<Self>) {
+    pub fn bounds_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let maximized = self.browser.window_maximized();
         if maximized != std::mem::replace(&mut self.maximized, maximized) {
             // The check waits for this line.
@@ -2542,21 +2570,22 @@ impl Shell {
             }
             match full_screen {
                 // Chrome on Windows takes the window full screen for a page before the core says the
-                // page asked, so whether a page took it there is known a turn later, as is the note.
+                // page asked, so whether a page took it there is known a turn later: the note, and
+                // where the page goes, wait for it, so the page is laid out once.
                 true => {
                     self.full_screen = true;
-                    cx.spawn(async move |shell, cx| {
-                        shell
-                            .update(cx, |shell, cx| {
-                                if shell.full_screen {
-                                    shell.set_full_screen(true, cx);
-                                }
-                            })
-                            .ok();
+                    if !self.page_fullscreen {
+                        self.page_waits = Some(self.viewport);
+                    }
+                    cx.spawn_in(window, async move |shell, cx| {
+                        shell.update_in(cx, Self::full_screen_heard).ok();
                     })
                     .detach();
                 }
-                false => self.set_full_screen(false, cx),
+                false => {
+                    self.page_waits = None;
+                    self.set_full_screen(false, cx);
+                }
             }
             cx.notify();
         }
