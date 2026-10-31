@@ -1209,7 +1209,8 @@ unsafe extern "C" fn tab_link_to_site(
         let shell = window.shell.upgrade()?;
         let shell = shell.read(cx);
         let page = shell.page_laid().filter(|_| shell.shows(tab) && shell.previews_links_of(tab));
-        Some((window.id, window.private, page?))
+        let private = matches!(window.own, Some(Own::Private(_)));
+        Some((window.id, private, page?))
     });
     let Some((window, private, page)) = over else {
         return false;
@@ -3725,7 +3726,7 @@ fn open_in_profile(profile: bc::bc_id, url: &str) {
 /// the regular window in front, showing a Space of the profile first if it shows another's. Returns
 /// whether it did: not for a profile none of the user's Spaces is in, as its tabs would have none.
 pub fn clear_browsing_data(profile: u64) -> bool {
-    let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned())
+    let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.regular()).cloned())
     else {
         return false;
     };
@@ -3772,7 +3773,7 @@ fn open_link_in(front: bc::bc_id, url: &str, routed: bc::bc_id) -> (bc::bc_id, u
     let showing = (routed != 0).then(|| {
         WINDOWS.with_borrow(|windows| {
             let shows = |w: &&BrowserWindow| unsafe { bc::bc_window_space(w.id) } == routed;
-            windows.iter().filter(|w| !w.private).find(shows).map(|w| w.id)
+            windows.iter().filter(|w| w.regular()).find(shows).map(|w| w.id)
         })
     });
     let window = showing.flatten().unwrap_or(front);
