@@ -111,7 +111,8 @@ send key , cmd
 expect '^browser: settings shown ' "⌘, in the second window didn't show Settings"
 # The driver's done for a click that closes its window can be lost with the window, as in
 # favorites.sh, so Settings going is waited for.
-post clickkey 16 16
+settings_close
+post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 # The app is still there to answer, which fails with "the app exited" if the close aborted it.
 send front

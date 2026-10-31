@@ -483,7 +483,8 @@ expect '^browser: settings shown General$' "Settings… didn't bring Settings ba
 send clickkey $unload_switch
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
-post clickkey 16 16
+settings_close
+post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 # A key sent while the keyboard leaves the closing Settings window for the browser's is lost, so
 # ⌘W waits for the click to finish and the browser window to have the keyboard. On the Mac the
@@ -493,6 +494,18 @@ expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send state
 [ "$key" = BrowserCoreNSWindow ] ||
   fail "the browser window didn't get the keyboard back from Settings: it's in $key"
+# On Windows Alt+F4, ⌃F4 to the driver, hides Settings too. It asks Windows to close the window, as
+# the taskbar's Close window does, which Settings takes as hiding.
+if windows; then
+  send menu Settings…
+  expect '^browser: settings shown General$' "Settings… didn't show General after its close button"
+  post key f4 ctrl
+  expect '^browser: settings hidden$' "Alt+F4 didn't hide Settings"
+  await "^browser: drive $step done" || fail "the driver didn't finish Alt+F4 in Settings"
+  send state
+  [ "$key" = BrowserCoreNSWindow ] ||
+    fail "the browser window didn't get the keyboard back from Settings after Alt+F4: it's in $key"
+fi
 # Back to the page's tab alone, as the run had them.
 send key w cmd
 expect "^browser: tab $n closed\$" "⌘W didn't close the right pane"
