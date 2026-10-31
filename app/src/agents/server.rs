@@ -163,8 +163,9 @@ impl Drop for Server {
         // Closed here, on the UI thread, which its task's wake then is, not on the last server
         // thread to let go of it.
         self.shared.events.close_channel();
-        // `accept` returns for a connection, which then finds the server stopped.
-        _ = connect(&self.shared.path);
+        // `accept` returns for a connection, which then finds the server stopped. Held until the
+        // accept thread is gone, since a pipe client that left before ConnectNamedPipe is lost.
+        let _wake = connect(&self.shared.path);
         #[cfg(windows)]
         if let Some(accepting) = self.accepting.take() {
             _ = accepting.join();
