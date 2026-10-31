@@ -1288,23 +1288,32 @@ void Tab::ReportLinkTarget(const GURL& url) {
                          target.domain_end);
 }
 
-void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) {
-  // Once each way: a page leaving full screen itself is reported as Chrome ends its full screen
-  // and again as the page's request returns.
-  if (entered_fullscreen == fullscreen_) {
+void Tab::EnteredFullScreen() {
+  if (fullscreen_) {
     return;
   }
-  fullscreen_ = entered_fullscreen;
-  LogFullScreenAsked(entered_fullscreen);
+  fullscreen_ = true;
+  LogFullScreenAsked(true);
   // At once, as only the page's request takes it full screen: Chrome has asked the window to go
   // with it, in a task it posted, and the app lays the page out at the window's new size only if
   // it hears first.
+  if (Host().tab_fullscreen_changed) {
+    Host().tab_fullscreen_changed(Host().context, id_, true);
+  }
+}
+
+void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) {
+  // Once each way: a page leaving full screen itself is reported as Chrome ends its full screen
+  // and again as the page's request returns.
   if (entered_fullscreen) {
-    if (Host().tab_fullscreen_changed) {
-      Host().tab_fullscreen_changed(Host().context, id_, true);
-    }
+    EnteredFullScreen();
     return;
   }
+  if (!fullscreen_) {
+    return;
+  }
+  fullscreen_ = false;
+  LogFullScreenAsked(false);
   // Posted, as the state is: Chrome ends a page's full screen within the app's call that switches
   // or closes its tab. By id, so the app hears it once the tab has gone too. Still before the
   // window leaves full screen, which Chrome posts after.
