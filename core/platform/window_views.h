@@ -106,6 +106,12 @@ bool KeyboardForPage(views::Widget* widget);
 // the page's.
 void ReleaseKeyboard(views::Widget* widget);
 
+// On Linux and Windows: the app's UI takes the keyboard in |widget|'s window, to keep
+// (bc_window_ui_takes_keyboard) or until a page shows (bc_window_ui_holds_keyboard), which
+// KeyboardForPage counts as the page's meanwhile. The Mac's window holds the keys for the next page
+// itself.
+void UITakesKeyboard(views::Widget* widget, bool until_page);
+
 // Runs |change|, which may move the keyboard in |widget|'s window, then gives the keyboard back to
 // what had it, if that's still in the window.
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change);
