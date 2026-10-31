@@ -17,9 +17,9 @@
 # menus of two pop-up buttons set how long Today tabs wait for the archive and who shares the
 # favorites (Each Space, kept across the quit and its favorite with it, then Each Profile's Spaces
 # again), and all of them stay after the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
-# Settings… opens Chromium's settings in a tab. A Space keeps more than the 12 favorites it shows
-# at most from a list saved before there was a most, and with 12 a row dragged over the tiles stays
-# a row and a pinned tab's menu dims Add to Favorites.
+# Settings… opens Chromium's settings in a tab. A Space has no most favorites, where Arc stops at
+# 12: 13 saved come back, and with 12 a pinned tab's menu offers Add to Favorites and its row
+# dragged over the tiles becomes the 13th.
 
 # Favorites, from the served page with example.org above it.
 serve
@@ -555,10 +555,10 @@ await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: dialog shown Quit' "$log" && fail "⌘Q asked first with the warning off"
 
-# A list longer than the 12 a Space shows at most, as one saved before there was a most, comes back
-# whole. With one taken out, the 12 left refuse a 13th: a pinned tab's menu dims Add to Favorites,
-# and its row dragged over the tiles stays a row. Each copy is a favorite of its own, at a pinned
-# URL of its own.
+# A Space has no most favorites, where Arc's profile stops at 12, as the tiles scroll (owner): 13
+# saved come back whole, and with one taken out, the 12 left take a 13th, a pinned tab's menu
+# offering Add to Favorites and its row dragged over the tiles becoming one. Each copy is a
+# favorite of its own, at a pinned URL of its own.
 python3 -I -c '
 import json, sys
 with open(sys.argv[1]) as f:
@@ -600,7 +600,6 @@ expect '^browser: favorites\( [0-9][0-9]*\)\{12\}$' "Remove from Favorites didn'
 expect "^browser: today $r\( \|\$\)" "Remove from Favorites didn't put the tab at the top of Today: \"$(today)\""
 expect '^browser: tiles settled$' "the 12 tiles didn't settle"
 expect '^browser: rows settled$' "the rows didn't settle under the 12 tiles"
-twelve=$(favorites)
 # Three rows of tiles take the Space's rows 141 down.
 send click 100 $(($(row 0 | cut -d' ' -f2) + 141))
 expect "^browser: selected $r\( in .*\)\{0,1\}\$" "a click on Today's top row didn't show the tab taken out"
@@ -609,21 +608,19 @@ expect "^browser: pinned $r\$" "⌘D didn't pin the tab taken out of the favorit
 expect '^browser: rows settled$' "the rows didn't settle after ⌘D"
 pinned_full="100 $(($(pinned_row 0 | cut -d' ' -f2) + 141))"
 post rightclick $pinned_full
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites (disabled), ')" \
-  "with 12 favorites, a pinned tab's menu didn't dim Add to Favorites"
-../tools/window-screenshot.sh "$pid" "$out/favorites-full-menu.png" || fail "no window to capture"
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, ')" \
+  "with 12 favorites, a pinned tab's menu didn't offer Add to Favorites"
+../tools/window-screenshot.sh "$pid" "$out/favorites-past-12-menu.png" || fail "no window to capture"
 send dismiss
 send press $pinned_full
 send dragto 100 200
 send dragto 114 112
-none_since '^browser: drag shape tile$' || fail "with 12 favorites, a row dragged over the tiles turned into a tile"
+expect '^browser: drag shape tile$' "with 12 favorites, a row dragged over the tiles didn't turn into a tile"
 send release 114 112
-# Over the tiles it's still over its own place, so it goes back there, which moves nothing in the
-# browser and logs only the put-back.
-expect "^browser: \(dragged $r to \(pinned\|today\) \|drag put back\$\)" \
-  "the row dragged over the 12 tiles didn't drop back in the list"
-none_since "^browser: dragged $r to favorites" || fail "with 12 favorites, a row dropped on the tiles became the 13th"
-[ "$(favorites)" = "$twelve" ] || fail "with 12 favorites, the drag changed them: \"$(favorites)\""
+expect "^browser: dragged $r to favorites [0-9][0-9]*\$" \
+  "with 12 favorites, a row dropped on the tiles didn't become a favorite"
+expect '^browser: favorites\( [0-9][0-9]*\)\{13\}$' \
+  "with 12 favorites, the row dropped on the tiles didn't make 13: \"$(favorites)\""
 exec 3>&-
 quit
-echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom, and marks the row of the tab shown scrolled out of it at that edge, a click on the mark scrolling back to it. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Change Icon… on the tile hangs the icon picker under it, its pick is the tile's icon and Remove Icon takes it out. 13 favorites saved come back whole, and with 12 a pinned tab's menu dims Add to Favorites and its row dragged over the tiles stays a row. Windows: $out/favorite-icon-picker.png, $out/favorite-icon.png, $out/favorites-most.png, $out/favorites-full-menu.png, $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/shown-marker.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: a Today tab's menu is Arc's, and its row dragged onto the Space's name makes the tab a tile above the Space's rows, which shows its hover card beside the rows, with its page's picture once another tab is shown, which other apps don't take for the window in front, while the Library and sidebar buttons name themselves and their keys in a tooltip, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom, and marks the row of the tab shown scrolled out of it at that edge, a click on the mark scrolling back to it. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each show their card beside the rows at their own top, along them and back, placed where the UI asked, and inside a narrow window. Remove from Favorites offers Undo, and ⌘Z puts the tile back with the tab out of Today, and ⇧⌘Z removes it again. Change Icon… on the tile hangs the icon picker under it, its pick is the tile's icon and Remove Icon takes it out. A Space has no most favorites: 13 saved come back whole, and with 12 a pinned tab's menu offers Add to Favorites and its row dragged over the tiles becomes the 13th. Windows: $out/favorite-icon-picker.png, $out/favorite-icon.png, $out/favorites-most.png, $out/favorites-past-12-menu.png, $out/favorite-card.png, $out/favorite-cards.png, $out/favorite-card-narrow.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/shown-marker.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"

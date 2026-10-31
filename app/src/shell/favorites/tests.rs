@@ -172,41 +172,32 @@ fn a_click_on_a_tile_gives_its_page_the_keyboard(cx: &mut TestAppContext) {
     assert!(calls.ends_with(&["select 11".into(), "focus page".into()]), "{calls:?}");
 }
 
-/// At MOST_FAVORITES no tab becomes another: Add to Favorites is dimmed and leaves them, the hover
-/// card has no Add to Favorites, and a row dragged over the tiles stays a row. One short of it, the
-/// drag makes it a tile.
+/// A Space has no most favorites (the owner's call, as the tiles scroll): with 12, Arc's most, a
+/// row dragged over the tiles still turns into one, the hover card offers Add to Favorites, and
+/// Add to Favorites makes a 13th.
 #[gpui::test]
-fn the_favorites_take_no_more_than_the_most(cx: &mut TestAppContext) {
+fn twelve_favorites_take_a_thirteenth(cx: &mut TestAppContext) {
     use crate::{
         hover_card::Action,
         shell::{
             Place,
             drag::detents::{X, drag_to, press, shell_with},
-            favorites::MOST_FAVORITES,
         },
     };
 
     let (shell, host) = shell_with(cx, &[1], &[2], Folders::default());
-    let favorites = |count: u64| (100..100 + count).map(|tab| (tab, 0)).collect::<Vec<_>>();
-    let over_tiles = |cx: &mut TestAppContext| {
-        press(&shell, cx, 2);
-        let top = shell.read_with(cx, |shell, _| shell.tiles_top());
-        drag_to(&shell, cx, X, top + TILE_HEIGHT / 2.);
-        let to = shell.read_with(cx, |shell, _| shell.drag.as_ref().map(|drag| drag.to));
-        shell.update(cx, |shell, cx| shell.cancel_drag(cx));
-        to
-    };
-    shell.update(cx, |shell, cx| shell.set_favorites(favorites(MOST_FAVORITES as u64 - 1), cx));
-    assert!(matches!(over_tiles(cx), Some(Place::Favorite(_))));
-
-    shell.update(cx, |shell, cx| shell.set_favorites(favorites(MOST_FAVORITES as u64), cx));
-    assert!(matches!(over_tiles(cx), Some(Place::List(..))));
+    let twelve = (100..112).map(|tab| (tab, 0)).collect::<Vec<_>>();
+    shell.update(cx, |shell, cx| shell.set_favorites(twelve, cx));
+    press(&shell, cx, 2);
+    let top = shell.read_with(cx, |shell, _| shell.tiles_top());
+    drag_to(&shell, cx, X, top + TILE_HEIGHT / 2.);
+    let to = shell.read_with(cx, |shell, _| shell.drag.as_ref().map(|drag| drag.to));
+    shell.update(cx, |shell, cx| shell.cancel_drag(cx));
+    assert!(matches!(to, Some(Place::Favorite(_))), "{to:?}");
     let actions = shell.read_with(cx, |shell, _| shell.card_actions(1));
-    assert_eq!(actions, [Action::Unpin]);
+    assert_eq!(actions, [Action::Unpin, Action::Favorite]);
     host.take_edits();
     shell.update(cx, |shell, cx| shell.favorite_tab(1, usize::MAX, cx));
-    assert!(host.take_edits().is_empty(), "a thirteenth favorite");
-    // A favorite still moves among them.
-    shell.update(cx, |shell, cx| shell.favorite_tab(100, 3, cx));
-    assert_eq!(host.take_edits(), ["favorite 100 3"]);
+    let edits = host.take_edits();
+    assert!(edits.iter().any(|edit| edit.starts_with("favorite 1 ")), "{edits:?}");
 }

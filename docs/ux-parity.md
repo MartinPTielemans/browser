@@ -62,7 +62,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Favorite columns | MVP | as many as fit at ≥ 48, fewer share the row: 3 at 190, 4 at 228 *interim*; Arc's rule: measure | Dia P§2; rule ours |
 | [x] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
 | [x] | Favorite selection theming | MVP | colourful (≥ 0.055): blur 5 at 22 %, 3 pt ring; one colour: mean fill, white template, soft-light ring; near-white: black fill, white 0.30 ring; emoji icons not yet | Dia 1.50.1 bin |
-| [ ] | Favorites limit | MVP | 12 a Space shows, as Arc's profile; past it Add to Favorites is dimmed, the card and the command bar offer none, and a dragged row stays a row; a longer list is kept. Built, with `cargo test --lib`'s `the_favorites_take_no_more_than_the_most`. To tick: `./check.sh favorites`' last launch, whose 13 saved favorites come back (`favorites-most.png`), then with 12 a pinned tab's menu with Add to Favorites dimmed (`favorites-full-menu.png`) and its row dragged over the tiles staying a row | Arc release notes |
+| [ ] | Favorites limit | MVP | none, where Arc's profile stops at 12: the Tall favorites block scrolls them, so a cap would only take away (owner, 2026-10-31). To tick: `./check.sh favorites`' last launch, whose 13 saved favorites come back (`favorites-most.png`), and a row dragged over the tiles there becomes the 14th | Arc release notes; ours |
 | [x] | Favorites fixed while the list scrolls | MVP | yes | Dia |
 | [x] | Tall favorites block | MVP | scrolls with the list above 40 % of the sidebar | Ardia |
 | [x] | Favorite double-click | MVP | back to the favorite's URL | Dia P§2 |

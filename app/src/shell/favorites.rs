@@ -23,10 +23,6 @@ use super::{
     TileTheme, developer_outline, rows::capture_glyph, tile_theme::RING_WIDTH, title,
 };
 
-/// The most favorites a Space shows, as Arc's 12 a profile. Past it a tab doesn't become one,
-/// and a list longer already, from before or an import, is kept.
-pub(super) const MOST_FAVORITES: usize = 12;
-
 /// Who shares the favorites, as Settings lists the choices. Each is the core's BC_FAVORITES_ value
 /// of the same name, which the bin checks at compile time.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -562,12 +558,6 @@ impl Shell {
                 }
                 _ => self.tab_icon(tab),
             })
-    }
-
-    /// Whether `tab` can become a favorite of the Space shown, or is one already, below the most
-    /// it shows.
-    pub(super) fn has_room_for(&self, tab: u64) -> bool {
-        self.favorites.contains(&tab) || self.favorites.len() < MOST_FAVORITES
     }
 
     /// The favorites `space` shows: its own, or its profile's.

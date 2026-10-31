@@ -1503,10 +1503,7 @@ impl Shell {
                 space.folders.folders.keys().any(|&folder| !space.is_open(folder))
             }),
             Command::Clear => !self.today().is_empty(),
-            Command::FavoriteTab => {
-                let tab = self.selected;
-                tab != 0 && !self.favorites.contains(&tab) && self.has_room_for(tab)
-            }
+            Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),
             Command::Share => {
                 self.browser.has_share_sheet() && !clean_link(&self.url(self.selected)).is_empty()
             }

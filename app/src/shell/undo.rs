@@ -677,10 +677,6 @@ impl Shell {
 
     /// Makes `tab` a favorite at `index`, or moves it among them.
     pub(super) fn favorite_tab(&mut self, tab: u64, index: usize, cx: &mut Context<Self>) {
-        if !self.has_room_for(tab) {
-            log!("browser: favorites full");
-            return;
-        }
         let before = self.put_back(tab);
         let moving = self.favorites.contains(&tab);
         self.browser.move_to_favorites(tab, index, cx);

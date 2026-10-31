@@ -331,12 +331,10 @@ impl Shell {
         self.watch_edge(pointer.x, cx);
         // A favorite stays one in an agent's Space, which it can't move into.
         let kept = self.favorites.contains(&tab) && self.agents_space_shown();
-        // Past the most, a row stays one.
         let over_favorites = !incoming
             && !away
             && !folder
             && self.panes(tab).len() == 1
-            && self.has_room_for(tab)
             && (kept || pointer.y < self.list_top_with(favorites + 1) - self.tiles_scrolled());
         let mut depth = 0;
         let (place, span, line) = if over_favorites {
