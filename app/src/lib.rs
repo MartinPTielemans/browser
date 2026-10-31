@@ -100,6 +100,7 @@ pub mod folder_preview;
 pub mod hover_card;
 pub mod icon_picker;
 pub mod import;
+pub mod launch;
 pub mod link_preview;
 pub mod link_target;
 pub mod menu;
