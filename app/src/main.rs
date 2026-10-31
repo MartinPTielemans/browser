@@ -291,6 +291,8 @@ mod platform {
         pub fn host_video_close(video: *mut c_void);
         #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_paste(text: *mut c_char, capacity: usize) -> usize;
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
         pub fn host_share(
@@ -2916,6 +2918,21 @@ impl Browser for Engine {
             _ = cx;
             let text = CString::new(text.replace('\0', "")).unwrap_or_default();
             unsafe { platform::host_copy(text.as_ptr()) };
+        }
+    }
+
+    fn pasted(&self, cx: &App) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        return system::pasted(cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            // Asked for its length first, then for the text.
+            let length = unsafe { platform::host_paste(std::ptr::null_mut(), 0) };
+            let mut text = vec![0u8; length.checked_add(1)?];
+            unsafe { platform::host_paste(text.as_mut_ptr().cast(), text.len()) };
+            text.truncate(length);
+            Some(String::from_utf8_lossy(&text).into_owned()).filter(|text| !text.is_empty())
         }
     }
 
