@@ -55,20 +55,10 @@ frame.src = chrome.runtime.getURL("frame.html");
 document.body.append(frame);' > "$extension/content.js"
 printf '%s' '<p>Extension text</p><script src=frame.js></script>' > "$extension/frame.html"
 printf '%s' 'parent.postMessage("extension frame", "*");' > "$extension/frame.js"
-# Diagnostic for #997, out again with its fix: on Windows a launch with --load-extension takes
-# about 40 s to start, so this one logs verbosely and traces the startup, and waits for both.
-diagnose=
-windows && diagnose="--enable-logging=stderr --v=1 --trace-startup --enable-tracing-format=json --trace-startup-duration=60 --trace-startup-file=$PWD/$out/startup.json"
-# shellcheck disable=SC2086 # no switches, or several
 BROWSER_DRIVE=1 BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' \
-  "$browser" --load-extension="$extension" $diagnose < "$out/drive" > "$log" 2>&1 &
+  "$browser" --load-extension="$extension" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
-if [ -n "$diagnose" ]; then
-  for _ in $(seq 900); do grep -q '^browser: started at' "$log" && break; sleep 0.1; done
-  for _ in $(seq 900); do [ -s "$out/startup.json" ] && break; sleep 0.1; done
-  sleep 5
-fi
 await_load
 user_tab=$(today | cut -d' ' -f1)
 # A socket only the user can open, or on Windows a named pipe only they can.
