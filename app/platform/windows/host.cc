@@ -26,8 +26,10 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "../host.h"
@@ -536,6 +538,71 @@ double g_hud_right = 0, g_hud_top = 0;
 Floating g_drop_targets;
 Floating g_dialog;
 Floating g_site_controls;
+
+// The link preview (platform/host.h), as Linux's (link_preview_window.rs): its window, the dim and
+// the card, covers the browser window's content and never takes the keyboard. No window of the
+// app's can hold a page here either, so the core shows the page in the browser window, over its
+// pages (window_views.cc's ShowPageIn), and the overlay's region has a hole there, which the page
+// shows and takes clicks through. Its keys are the page's, and the core hands the preview the ones
+// it acts on.
+//
+// shortcut: the page doesn't scale with the card's motion, as the Mac's does, and the preview stays
+// when the user goes to another window, where the Mac's closes, both as on Linux.
+struct LinkPreview {
+  Floating floating;
+  // The browser window it covers, while it shows.
+  HWND root = nullptr;
+  // Where the page shows, device pixels from the content's top left, and its corners' diameter.
+  struct Hole {
+    RECT rect;
+    int diameter;
+    bool operator==(const Hole& other) const {
+      return EqualRect(&rect, &other.rect) && diameter == other.diameter;
+    }
+  };
+  std::optional<Hole> hole;
+  // What had the keyboard as it showed, to give back as it leaves.
+  HWND had_keyboard = nullptr;
+};
+LinkPreview g_link_preview;
+UINT_PTR const kLinkPreviewOwner = 2;
+
+// Puts the preview over all of its browser window's content, with its hole where the page shows.
+void PlaceLinkPreview() {
+  HWND hwnd = g_link_preview.floating.hwnd;
+  HWND root = g_link_preview.root;
+  if (!hwnd || !root) {
+    return;
+  }
+  RECT client{};
+  GetClientRect(root, &client);
+  POINT origin{0, 0};
+  ClientToScreen(root, &origin);
+  SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
+  HRGN region = CreateRectRgn(0, 0, client.right, client.bottom);
+  if (const auto& hole = g_link_preview.hole) {
+    HRGN page = CreateRoundRectRgn(hole->rect.left, hole->rect.top, hole->rect.right + 1,
+                                   hole->rect.bottom + 1, hole->diameter, hole->diameter);
+    CombineRgn(region, region, page, RGN_DIFF);
+    DeleteObject(page);
+  }
+  // The window owns the region from here.
+  SetWindowRgn(hwnd, region, IsWindowVisible(hwnd));
+  SetWindowPos(hwnd, HWND_TOP, origin.x, origin.y, client.right, client.bottom,
+               SWP_SHOWWINDOW | SWP_NOACTIVATE);
+}
+
+// The browser window under the preview moved or resized, which it follows, or is going.
+LRESULT CALLBACK LinkPreviewOwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
+                                      UINT_PTR, DWORD_PTR) {
+  if (message == WM_WINDOWPOSCHANGED && hwnd == g_link_preview.root) {
+    PlaceLinkPreview();
+  } else if (message == WM_DESTROY && hwnd == g_link_preview.root) {
+    host_hide_link_preview();
+  }
+  return DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
 Floating g_capture;
 Floating g_toast;
 Floating g_tooltip;
@@ -1082,6 +1149,198 @@ void ShowShareSheet(HWND root, std::function<void(const wdt::DataPackage&)> fill
 
 }  // namespace
 
+namespace {
+
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002
+#endif
+
+// What the first window looks like until its UI has drawn, put on screen before the browser
+// starts: the window's frame, the sidebar's picture and the sidebar's colour past it.
+struct LaunchWindow {
+  HWND hwnd = nullptr;
+  HBITMAP picture = nullptr;
+  SIZE picture_size{};
+  HBRUSH background = nullptr;
+};
+LaunchWindow g_launch;
+
+// The picture of a |width| by |height| window's sidebar, named for the size, in host_window_frame's
+// terms, as a window opens at another size than the one it quit at.
+std::wstring LaunchPicturePath(const char* profile_dir, double width, double height) {
+  wchar_t name[64];
+  swprintf(name, 64, L"\\launch-picture-%.0fx%.0f.png", width, height);
+  return Wide(profile_dir) + name;
+}
+
+// Whether apps are light in the user's Settings, which a window follows until its Space's look is
+// known. Light when the setting isn't there, as Windows is.
+bool SystemIsLight() {
+  DWORD light = 1;
+  DWORD size = sizeof light;
+  RegGetValueW(HKEY_CURRENT_USER,
+               L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+               L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &size);
+  return light != 0;
+}
+
+// The picture at |path| as a top-down bitmap, if it's |height| pixels high: one taken on a screen
+// of another scale is left out. Fills |edge| with the colour of its right edge halfway down, the
+// sidebar's colour with nothing on it.
+HBITMAP LoadLaunchPicture(const std::wstring& path, LONG height, SIZE* size, COLORREF* edge) {
+  const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  HBITMAP bitmap = nullptr;
+  {
+    ComPtr<IWICImagingFactory> wic;
+    ComPtr<IWICBitmapDecoder> decoder;
+    ComPtr<IWICBitmapFrameDecode> frame;
+    ComPtr<IWICFormatConverter> converter;
+    UINT width = 0, high = 0;
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_PPV_ARGS(&wic))) &&
+        SUCCEEDED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+                                                 WICDecodeMetadataCacheOnDemand, &decoder)) &&
+        SUCCEEDED(decoder->GetFrame(0, &frame)) && SUCCEEDED(frame->GetSize(&width, &high)) &&
+        width > 0 && static_cast<LONG>(high) == height &&
+        SUCCEEDED(wic->CreateFormatConverter(&converter)) &&
+        SUCCEEDED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGR,
+                                        WICBitmapDitherTypeNone, nullptr, 0,
+                                        WICBitmapPaletteTypeCustom))) {
+      BITMAPINFO info{};
+      info.bmiHeader.biSize = sizeof info.bmiHeader;
+      info.bmiHeader.biWidth = static_cast<LONG>(width);
+      info.bmiHeader.biHeight = -static_cast<LONG>(high);
+      info.bmiHeader.biPlanes = 1;
+      info.bmiHeader.biBitCount = 32;
+      info.bmiHeader.biCompression = BI_RGB;
+      uint8_t* bits = nullptr;
+      bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, reinterpret_cast<void**>(&bits),
+                                nullptr, 0);
+      if (bitmap && SUCCEEDED(converter->CopyPixels(nullptr, width * 4, width * 4 * high, bits))) {
+        const uint8_t* pixel = bits + ((high / 2) * width + width - 1) * 4;
+        *edge = RGB(pixel[2], pixel[1], pixel[0]);
+        *size = {static_cast<LONG>(width), static_cast<LONG>(high)};
+      } else if (bitmap) {
+        DeleteObject(bitmap);
+        bitmap = nullptr;
+      }
+    }
+  }
+  if (SUCCEEDED(com)) {
+    CoUninitialize();
+  }
+  return bitmap;
+}
+
+LRESULT CALLBACK LaunchProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  switch (message) {
+    case WM_NCACTIVATE:
+      // Its frame stands for the browser window's, which has the keyboard once it's under it.
+      return DefWindowProcW(hwnd, message, TRUE, lparam);
+    case WM_ERASEBKGND:
+      return 1;
+    case WM_PAINT: {
+      PAINTSTRUCT paint;
+      HDC dc = BeginPaint(hwnd, &paint);
+      RECT client;
+      GetClientRect(hwnd, &client);
+      FillRect(dc, &client, g_launch.background);
+      if (g_launch.picture) {
+        HDC source = CreateCompatibleDC(dc);
+        HGDIOBJ old = SelectObject(source, g_launch.picture);
+        BitBlt(dc, 0, 0, g_launch.picture_size.cx, g_launch.picture_size.cy, source, 0, 0,
+               SRCCOPY);
+        SelectObject(source, old);
+        DeleteDC(source);
+      }
+      EndPaint(hwnd, &paint);
+      return 0;
+    }
+  }
+  return DefWindowProcW(hwnd, message, wparam, lparam);
+}
+
+// The left |width| pixels of |window|'s content, top-down BGRX, filling |high|.
+bool Sidebar(HWND window, LONG width, std::vector<uint8_t>* pixels, LONG* high) {
+  RECT client{};
+  GetClientRect(window, &client);
+  width = width < client.right ? width : client.right;
+  *high = client.bottom;
+  if (width < 1 || *high < 1) {
+    return false;
+  }
+  BITMAPINFO info{};
+  info.bmiHeader.biSize = sizeof info.bmiHeader;
+  info.bmiHeader.biWidth = client.right;
+  info.bmiHeader.biHeight = -*high;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  uint8_t* bits = nullptr;
+  HDC screen = GetDC(nullptr);
+  HDC dc = CreateCompatibleDC(screen);
+  ReleaseDC(nullptr, screen);
+  HBITMAP bitmap =
+      CreateDIBSection(dc, &info, DIB_RGB_COLORS, reinterpret_cast<void**>(&bits), nullptr, 0);
+  bool ok = false;
+  if (bitmap) {
+    HGDIOBJ old = SelectObject(dc, bitmap);
+    // The full content, as GPUI draws through DirectComposition, which a plain copy of the
+    // window's DC misses.
+    ok = PrintWindow(window, dc, PW_CLIENTONLY | PW_RENDERFULLCONTENT);
+    GdiFlush();
+    if (ok) {
+      pixels->resize(static_cast<size_t>(width) * *high * 4);
+      for (LONG y = 0; y < *high; ++y) {
+        memcpy(pixels->data() + static_cast<size_t>(y) * width * 4,
+               bits + static_cast<size_t>(y) * client.right * 4, static_cast<size_t>(width) * 4);
+      }
+    }
+    SelectObject(dc, old);
+    DeleteObject(bitmap);
+  }
+  DeleteDC(dc);
+  return ok;
+}
+
+// Writes |pixels|, |width| by |height| top-down BGRX, to |path| as a PNG. The caller has
+// CoInitialized this thread.
+void WritePng(const std::wstring& path, const std::vector<uint8_t>& pixels, UINT width,
+              UINT height) {
+  bool written = false;
+  {
+    ComPtr<IWICImagingFactory> wic;
+    ComPtr<IWICBitmap> source;
+    ComPtr<IWICStream> stream;
+    ComPtr<IWICBitmapEncoder> encoder;
+    ComPtr<IWICBitmapFrameEncode> frame;
+    ComPtr<IPropertyBag2> options;
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGR;
+    written =
+        SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_PPV_ARGS(&wic))) &&
+        SUCCEEDED(wic->CreateBitmapFromMemory(width, height, GUID_WICPixelFormat32bppBGR,
+                                              width * 4, static_cast<UINT>(pixels.size()),
+                                              const_cast<BYTE*>(pixels.data()), &source)) &&
+        SUCCEEDED(wic->CreateStream(&stream)) &&
+        SUCCEEDED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
+        SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
+        SUCCEEDED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) &&
+        SUCCEEDED(encoder->CreateNewFrame(&frame, &options)) &&
+        SUCCEEDED(frame->Initialize(options.Get())) && SUCCEEDED(frame->SetSize(width, height)) &&
+        SUCCEEDED(frame->SetPixelFormat(&format)) &&
+        SUCCEEDED(frame->WriteSource(source.Get(), nullptr)) && SUCCEEDED(frame->Commit()) &&
+        SUCCEEDED(encoder->Commit());
+  }
+  if (!written) {
+    // Half a picture is worse than none: the next launch shows the colour alone. The stream that
+    // held the file open is gone by now.
+    DeleteFileW(path.c_str());
+  }
+}
+
+}  // namespace
+
 // For updates.cc, whose WinSparkle calls back on threads of its own.
 void HostLater(void (*task)(void)) {
   Later(task);
@@ -1098,12 +1357,104 @@ void host_centered(double width, double height, double* x, double* y) {
   *y = (work.top + work.bottom) / 2.0 / scale - height / 2;
 }
 
-// shortcut: no launch window on Windows yet: the browser window shows once the UI has drawn. Port
-// the Mac's picture of the last sidebar when launch is measured on Windows.
-void host_show_launch_window(const char*, double, double, double, double) {}
-void host_close_launch_window(void) {}
-bool host_save_launch_picture(void*, const char*, double) {
-  return false;
+void host_show_launch_window(const char* profile_dir, double x, double y, double width,
+                             double height) {
+  static const wchar_t* launch_class = [] {
+    WNDCLASSW window_class{};
+    window_class.lpfnWndProc = LaunchProc;
+    window_class.hInstance = GetModuleHandleW(nullptr);
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    // chrome.exe's own, IDR_MAINFRAME, which the browser window's frame shows too.
+    window_class.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+    window_class.lpszClassName = L"BrowserLaunch";
+    RegisterClassW(&window_class);
+    return window_class.lpszClassName;
+  }();
+  const double scale = GetDpiForSystem() / 96.0;
+  // The browser window's frame, as Windows draws it. Clicks go through it, as they do through the
+  // Mac's, and Chromium's occlusion tracker passes over a window they go through, so it can stay
+  // over the browser window, whose pages still paint, until the UI has drawn under it.
+  HWND window = CreateWindowExW(
+      WS_EX_LAYERED | WS_EX_TRANSPARENT, launch_class, L"", WS_OVERLAPPEDWINDOW,
+      static_cast<int>(std::lround(x * scale)), static_cast<int>(std::lround(y * scale)),
+      static_cast<int>(std::lround(width * scale)), static_cast<int>(std::lround(height * scale)),
+      nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+  if (!window) {
+    return;
+  }
+  SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA);
+  const bool light = SystemIsLight();
+  const BOOL dark = !light;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark);
+  RECT client{};
+  GetClientRect(window, &client);
+  // As the Mac's: Dia's light composite over grey 20, and the dark near its dark one.
+  COLORREF color = light ? RGB(232, 232, 232) : RGB(38, 38, 38);
+  g_launch.picture = LoadLaunchPicture(LaunchPicturePath(profile_dir, width, height), client.bottom,
+                                       &g_launch.picture_size, &color);
+  g_launch.background = CreateSolidBrush(color);
+  g_launch.hwnd = window;
+  if (g_launch.picture) {
+    // check.sh reads this line.
+    fprintf(stderr, "browser: launch picture shown\n");
+  }
+  // shortcut: it has a taskbar button of its own for that moment, without the app ID the core
+  // gives the browser window.
+  ShowWindow(window, SW_SHOW);
+  // On screen now, as Chromium's startup holds the main thread for a while before its loop.
+  UpdateWindow(window);
+}
+
+void host_close_launch_window(void) {
+  if (g_launch.hwnd) {
+    DestroyWindow(g_launch.hwnd);
+  }
+  if (g_launch.picture) {
+    DeleteObject(g_launch.picture);
+  }
+  if (g_launch.background) {
+    DeleteObject(g_launch.background);
+  }
+  g_launch = {};
+}
+
+bool host_save_launch_picture(void* ui_view, const char* profile_dir, double width) {
+  HWND root = Root(ui_view);
+  double x = 0, y = 0, frame_width = 0, frame_height = 0;
+  // In the frame's terms, which the next launch's window opens at, and named for its size.
+  const bool framed = root && host_window_frame(ui_view, &x, &y, &frame_width, &frame_height);
+  const std::wstring dir = Wide(profile_dir);
+  WIN32_FIND_DATAW found;
+  HANDLE find = FindFirstFileW((dir + L"\\launch-picture-*").c_str(), &found);
+  if (find != INVALID_HANDLE_VALUE) {
+    do {
+      DeleteFileW((dir + L"\\" + found.cFileName).c_str());
+    } while (FindNextFileW(find, &found));
+    FindClose(find);
+  }
+  // Chromium's full screen takes the window's caption away.
+  const bool full_screen = root && !(GetWindowLongPtrW(root, GWL_STYLE) & WS_CAPTION);
+  if (!framed || !IsWindowVisible(root) || full_screen || width < 1) {
+    return false;
+  }
+  // Only the sidebar: the page could be anything, and shouldn't be kept on disk.
+  std::vector<uint8_t> pixels;
+  LONG high = 0;
+  const LONG wide = static_cast<LONG>(std::lround(width * Scale(root)));
+  if (!Sidebar(root, wide, &pixels, &high)) {
+    return false;
+  }
+  const UINT columns = static_cast<UINT>(pixels.size() / 4 / high);
+  // Encoded off the main thread, which the user is about to use elsewhere or quit.
+  std::thread([path = LaunchPicturePath(profile_dir, frame_width, frame_height),
+               pixels = std::move(pixels), columns, high] {
+    const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    WritePng(path, pixels, columns, static_cast<UINT>(high));
+    if (SUCCEEDED(com)) {
+      CoUninitialize();
+    }
+  }).detach();
+  return true;
 }
 
 // shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
@@ -1181,6 +1532,10 @@ void host_show_window(void* ui_view) {
   HWND root = Root(ui_view);
   ShowWindow(root, SW_SHOW);
   SetForegroundWindow(root);
+  // The launch window stays over it until the UI has drawn (host_close_launch_window).
+  if (g_launch.hwnd) {
+    SetWindowPos(g_launch.hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  }
 }
 
 // Shows the window right behind |above_ui_view|'s, neither key nor activating the app, as the
@@ -1511,19 +1866,91 @@ void host_hide_site_controls(void) {
   g_site_controls.mouse_through = false;
 }
 
-// No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
-// the tab.
-void* host_add_link_preview(void*, void (*)(void)) {
-  return nullptr;
+void* host_add_link_preview(void* view, void (*)(void)) {
+  // It never has the keyboard, which stays with the page.
+  Adopt(g_link_preview.floating, view, false, nullptr);
+  SetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE,
+                    GetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE) |
+                        WS_EX_NOACTIVATE);
+  // The core shows the page in the browser window, under this one, and only needs to know there's
+  // a view it goes with.
+  return view;
 }
 
-void host_show_link_preview(void*) {}
+void host_show_link_preview(void* ui_view) {
+  HWND root = Root(ui_view);
+  if (!g_link_preview.floating.hwnd || !root) {
+    return;
+  }
+  if (g_link_preview.root && g_link_preview.root != root) {
+    host_hide_link_preview();
+  }
+  if (g_link_preview.root != root) {
+    SetWindowSubclass(root, LinkPreviewOwnerProc, kLinkPreviewOwner, 0);
+  }
+  g_link_preview.root = root;
+  g_link_preview.had_keyboard = GetFocus();
+  // All of it until its first frame says where the page is.
+  g_link_preview.hole.reset();
+  g_link_preview.floating.mouse_through = false;
+  PlaceLinkPreview();
+  // check.sh reads this line.
+  fprintf(stderr, "browser: link preview shown\n");
+}
 
-void host_link_preview_drew(double, double, double, double, double, double) {}
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double radius,
+                            double) {
+  if (!g_link_preview.root) {
+    return;
+  }
+  std::optional<LinkPreview::Hole> hole;
+  if (width >= 1 && height >= 1) {
+    const double scale = Scale(g_link_preview.root);
+    radius = (std::min)({radius, width / 2, height / 2});
+    hole = LinkPreview::Hole{
+        RECT{static_cast<LONG>(std::lround(left * scale)),
+             static_cast<LONG>(std::lround(top * scale)),
+             static_cast<LONG>(std::lround((left + width) * scale)),
+             static_cast<LONG>(std::lround((top + height) * scale))},
+        static_cast<int>(std::lround(2 * radius * scale))};
+  }
+  if (!(hole == g_link_preview.hole)) {
+    g_link_preview.hole = hole;
+    PlaceLinkPreview();
+  }
+}
 
-void host_release_link_preview(void) {}
+void host_release_link_preview(void) {
+  if (!g_link_preview.root || g_link_preview.floating.mouse_through) {
+    return;
+  }
+  g_link_preview.floating.mouse_through = true;
+  // The window's page has the keyboard back from the preview's.
+  HWND had = std::exchange(g_link_preview.had_keyboard, nullptr);
+  if (had && IsWindow(had) && IsChild(g_link_preview.root, had)) {
+    SetFocus(had);
+  }
+  // check.sh reads this line.
+  fprintf(stderr, "browser: link preview released\n");
+}
 
-void host_hide_link_preview(void) {}
+void host_hide_link_preview(void) {
+  host_release_link_preview();
+  if (!g_link_preview.root) {
+    return;
+  }
+  RemoveWindowSubclass(g_link_preview.root, LinkPreviewOwnerProc, kLinkPreviewOwner);
+  g_link_preview.root = nullptr;
+  g_link_preview.hole.reset();
+  Hide(g_link_preview.floating);
+  g_link_preview.floating.mouse_through = false;
+  // check.sh reads this line.
+  fprintf(stderr, "browser: link preview hidden\n");
+}
 
 void host_add_capture(void* view, void (*dismissed)(void)) {
   Adopt(g_capture, view, false, dismissed);
