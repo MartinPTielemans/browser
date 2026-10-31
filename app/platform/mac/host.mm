@@ -8,6 +8,8 @@
 #import <objc/runtime.h>
 
 #include <dlfcn.h>
+#include <execinfo.h>
+#include <pthread.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -1246,6 +1248,24 @@ OSErr LogQuitEvent(const AppleEvent* event, AppleEvent* reply, SRefCon) {
   return g_quit_handler(event, reply, g_quit_refcon);
 }
 
+// Twice the browser went through exit() off the main thread, past every line its quits log
+// (#937), so this names the thread and what called it. The main thread's is main()'s return.
+void LogExit() {
+  if (pthread_main_np()) {
+    fprintf(stderr, "browser: exit on the main thread\n");
+    return;
+  }
+  uint64_t thread = 0;
+  pthread_threadid_np(nullptr, &thread);
+  char name[64] = "";
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  // check.sh reads this line.
+  fprintf(stderr, "browser: exit on thread %llx %s, queue %s\n", thread, name,
+          dispatch_queue_get_label(DISPATCH_CURRENT_QUEUE_LABEL));
+  void* calls[64];
+  backtrace_symbols_fd(calls, backtrace(calls, 64), STDERR_FILENO);
+}
+
 void host_watch_finished_launching(void (*finished)(void)) {
   // AppKit posts it once.
   [NSNotificationCenter.defaultCenter
@@ -1260,6 +1280,8 @@ void host_watch_finished_launching(void (*finished)(void)) {
                   AEInstallEventHandler(kCoreEventClass, kAEQuitApplication, LogQuitEvent, nullptr,
                                         false);
                 }
+                // After the frameworks' handlers, so exit() runs it before theirs.
+                atexit(LogExit);
                 // A plain launch (Dock, Finder, `open -a`) carried no links to wait for.
                 NSAppleEventDescriptor* launch =
                     NSAppleEventManager.sharedAppleEventManager.currentAppleEvent;
