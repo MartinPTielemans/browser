@@ -426,8 +426,9 @@ expect '^browser: icon picker hidden$' "escape didn't close the card's icon pick
 none_since '^browser: library hidden$' || fail "escape in the card's icon picker closed the Library"
 send key escape
 expect '^browser: library hidden$' "escape didn't close the Library once the picker had gone"
-send key 1 ctrl
-expect "^browser: space $first in " "⌃1 didn't show the first Space after the card's theme"
+# The cards' pickers left the Space shown as it was.
+shown=$(grep '^browser: space [0-9]* in ' "$log" | tail -1 | cut -d' ' -f3)
+[ "$shown" = "$first" ] || fail "the cards' pickers showed Space $shown, not the first"
 send key l cmd shift
 expect '^browser: library shown$' "⇧⌘L didn't open the Library again"
 library_to "wheel $swipe_point -1" wheel hidden
