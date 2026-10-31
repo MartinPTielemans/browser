@@ -199,7 +199,7 @@ empty_lines=
 empty_media narrow 800 520
 empty_media wide 1240 760
 send resize $frame
-expect "^browser: drawn at ${frame/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${frame% *}x${frame#* }\$" "the window didn't draw back at its size"
 send menu 'View Media…'
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 # ⌘W closes the capture's tab, back to the long page, which a click gives the keyboard.
