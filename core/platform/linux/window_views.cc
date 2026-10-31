@@ -1178,6 +1178,26 @@ bool KeyboardInChild(views::Widget* widget) {
   return focused && focused != widget->GetNativeView() && !views->InSlot(focused);
 }
 
+std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || views->ui_has_keyboard()) {
+    return std::nullopt;
+  }
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+  if (!focused) {
+    return std::nullopt;
+  }
+  // A pane's page, not the DevTools docked in it.
+  for (Slot& slot : views->panes()) {
+    if (slot.holder && slot.holder->Contains(focused) &&
+        !(slot.devtools && slot.devtools->Contains(focused))) {
+      return slot.holder->bounds();
+    }
+  }
+  return std::nullopt;
+}
+
 std::u16string ChildTitle(views::Widget* widget) {
   if (!KeyboardInChild(widget)) {
     return {};

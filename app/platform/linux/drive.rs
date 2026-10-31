@@ -1799,6 +1799,19 @@ fn run_command(line: &str) -> Option<()> {
                     y - top
                 );
             }
+            // The page with the keyboard, by its pane's frame from the content's bottom-left
+            // corner, as the pages are, which tells a split view's pages apart.
+            let mut page = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+            match unsafe { bc::bc_window_keyboard_page(browser.id, &mut page) } {
+                true => log!(
+                    "browser: layout keyboard {:.0},{:.0} {:.0}x{:.0}",
+                    page.x,
+                    height - (page.y + page.height),
+                    page.width,
+                    page.height
+                ),
+                false => log!("browser: layout keyboard none"),
+            }
             log!(
                 "browser: layout full screen {}",
                 full_screen(browser.window)? as u8

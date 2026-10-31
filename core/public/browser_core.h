@@ -894,6 +894,11 @@ BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 // the Mac's sees it as a child window with the keyboard.
 BC_EXPORT bool bc_window_keyboard_in_child(bc_id window);
 
+// On Linux, whether one of |window|'s pages has the keys, and if so its pane's frame in |frame|,
+// from the top-left of the window's content. For the test driver, as the Mac's finds the page of
+// the view with the keyboard.
+BC_EXPORT bool bc_window_keyboard_page(bc_id window, bc_rect* frame);
+
 // On Linux and Windows, where the core draws a split view's ring around the focused page: whether
 // it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
 // For the test driver, which sees the Mac's ring as a view.
