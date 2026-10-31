@@ -263,13 +263,19 @@ print("adblock probe " + sys.argv[3] + ": launch to first page %d ms, launch to 
   # Diag (#744): the first stays until uBlock Origin has written its selfie, 53 s after its lists.
   if [ "$i" = 1 ]; then
     for _ in 1 2 3 4 5 6; do await 'Filtering engine selfie created' && break; done
+    # And until it has saved the registry that names the selfie, 3 s later.
+    for _ in $(seq 100); do
+      sed -n '/Filtering engine selfie created/,$p' "$log" | grep -q 'cacheStorage.set: assetCacheRegistry' && break
+      sleep 0.1
+    done
   fi
   python3 -I -c 'import re, sys
 t = float(sys.argv[1]) * 1000
 for line in open(sys.argv[2], errors="replace"):
     m = re.search(r"\[uBO\] (\d+) (.*?)\", source", line)
     if m:
-        print("  ublock %d %6d ms: %s" % (int(sys.argv[3]), int(m.group(1)) - t, m.group(2)[:150]))' \
+        text = re.sub(r"\b1\d{12}\b", lambda n: "at %d ms" % (int(n.group(0)) - t), m.group(2))
+        print("  ublock %d %6d ms: %s" % (int(sys.argv[3]), int(m.group(1)) - t, text[:150]))' \
     "$launched" "$log" "$((i + 1))"
   grep -c 'CONSOLE' "$log" | sed "s/^/  console lines in launch $((i + 1)): /"
   quit
