@@ -100,7 +100,13 @@ pub fn start() {
                 if !run(&line) {
                     log!("browser: drive {n}: can't do that");
                 }
-                settle(n);
+                match ACTIVATING.take() {
+                    Some(window) => {
+                        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                        await_focus(n, window, until)
+                    }
+                    None => settle(n),
+                }
             }));
         }
     });
@@ -208,6 +214,9 @@ thread_local! {
     static MADE: RefCell<Vec<(bc::bc_id, xproto::Window)>> = const { RefCell::new(Vec::new()) };
     /// The window command's, from 0.
     static DRIVEN: Cell<usize> = const { Cell::new(0) };
+    /// The window the window command asked the window manager to give the keyboard, which it's
+    /// done once it has.
+    static ACTIVATING: Cell<Option<xproto::Window>> = const { Cell::new(None) };
     /// The window a press went to, which gets the drag's events until the release, as the X
     /// server's grab of the pointer does.
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
@@ -1145,6 +1154,20 @@ fn await_key_title(n: u64, text: String, tries: u32) {
     settle(n);
 }
 
+/// Reports command `n` done once `window` has the keyboard, which the window manager gives it a
+/// moment after it's asked, or at `until`. A deadline, as a busy main loop runs the timer late.
+fn await_focus(n: u64, window: xproto::Window, until: std::time::Instant) {
+    let has = server().is_some_and(|x| input_focus().is_some_and(|f| within(&x.0, f, window)));
+    if !has && std::time::Instant::now() < until {
+        after(100, Box::new(move || await_focus(n, window, until)));
+        return;
+    }
+    if !has {
+        log!("browser: drive {n}: the window manager didn't give the window the keyboard");
+    }
+    settle(n);
+}
+
 /// The title of the window with the input focus, or of the first window it's in that has one.
 fn focus_title() -> Option<String> {
     let x = server()?;
@@ -1583,17 +1606,22 @@ fn run_command(line: &str) -> Option<()> {
             log!("browser: drive window {number}");
             // To the front with the keyboard, as a click on it does.
             let x = server()?;
-            let (connection, _) = &*x;
+            let (connection, root) = &*x;
             let above = ConfigureWindowAux::new().stack_mode(StackMode::ABOVE);
             connection.configure_window(browser.window, &above).ok()?;
             // A window that has it keeps it where it is, as a window manager leaves it: taken up
             // from GPUI's window to the browser window's own, the keys go to neither.
             let focus = connection.get_input_focus().ok()?.reply().ok()?.focus;
             if !within(connection, focus, browser.window) {
-                let focus = xproto::InputFocus::PARENT;
-                connection
-                    .set_input_focus(focus, browser.window, x11rb::CURRENT_TIME)
-                    .ok()?;
+                // Asked of the window manager, as a taskbar asks, so it knows which window has the
+                // keyboard: one that thought another still had it would take that window's own
+                // request to be activated, as Chrome's DevTools window makes, for done (#1039).
+                let data = [2, x11rb::CURRENT_TIME, 0, 0, 0];
+                let active = atom("_NET_ACTIVE_WINDOW")?;
+                let message = xproto::ClientMessageEvent::new(32, browser.window, active, data);
+                let mask = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
+                connection.send_event(false, *root, mask, message).ok()?;
+                ACTIVATING.set(Some(browser.window));
             }
             connection.flush().ok()
         }
