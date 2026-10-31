@@ -142,6 +142,12 @@ fn main() {
         println!("cargo:rustc-env={variable}={}", url.trim());
         println!("cargo:rerun-if-changed={}", path.display());
     }
+    // The sync server the build signs in to unless the user names another (main.rs): ilo's, in
+    // branding/sync-server, which a fork changes or deletes. With no file the build has none. The
+    // folder is watched, as a file that isn't there would have this run on every build.
+    let sync_server = std::fs::read_to_string(root.join("branding/sync-server"));
+    println!("cargo:rustc-env=SYNC_SERVER={}", sync_server.unwrap_or_default().trim());
+    println!("cargo:rerun-if-changed={}", root.join("branding").display());
     println!("cargo:rerun-if-changed=platform");
     println!("cargo:rerun-if-changed={}", header.display());
 

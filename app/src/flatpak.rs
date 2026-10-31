@@ -334,7 +334,7 @@ fn notice(message: &str, detail: String) -> Question {
         also: None,
         fields: Vec::new(),
         check: None,
-        return_cancels: false,
+        on_return: crate::dialog::Return::Action,
     }
 }
 
