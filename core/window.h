@@ -112,6 +112,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The hook for Chrome's tabs (hooks.h): |contents|, which asked to be shown, as Picture in
   // Picture's way back to its tab does, shows in the window holding it, in its Space.
   static void ActivateContents(content::WebContents* contents);
+  // The hook for a notification the user clicked (hooks.h): the tab of |origin|'s in |profile| the
+  // user saw last shows in the window holding it, in its Space, and the window comes to the front,
+  // as Arc's does. Returns whether there was one.
+  static bool ShowNotificationTab(Profile* profile, const GURL& origin);
   // |tab|'s page committed in a new view: each window showing it gives that view the keyboard, if
   // the page had it.
   static void PageCommittedInNewView(bc_id tab);

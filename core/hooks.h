@@ -223,4 +223,10 @@ extern bool (*g_browser_core_mini_player_event)(VideoOverlayWindowViews* window,
 // it its Browser's active tab, before it activates the window.
 extern void (*g_browser_core_activate_contents)(content::WebContents* contents);
 
+// chrome/browser/notifications/notification_display_service_impl.cc: the user clicked a
+// notification from |origin|'s pages in |profile|, before the page hears it; and, from
+// non_persistent_notification_handler.cc, again once the page that posted it is found gone, where
+// Chrome would open a new tab at |origin|. Returns whether the core showed a tab of the site's.
+extern bool (*g_browser_core_show_notification_tab)(Profile* profile, const GURL& origin);
+
 #endif  // BROWSER_CORE_HOOKS_H_

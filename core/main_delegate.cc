@@ -369,6 +369,7 @@ void Install(const bc_host& host) {
   g_browser_core_offline_game = &Tab::GameRunning;
   g_browser_core_split_together = &Window::SplitTogether;
   g_browser_core_activate_contents = &Window::ActivateContents;
+  g_browser_core_show_notification_tab = &Window::ShowNotificationTab;
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;

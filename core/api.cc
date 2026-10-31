@@ -62,6 +62,7 @@
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -1353,6 +1354,21 @@ void bc_set_unload_idle_tabs(bool unload) {
 
 void bc_age_tabs_for_testing(double seconds) {
   browser_core::AgeTabsForTesting(base::Seconds(seconds));
+}
+
+void bc_click_notification_for_testing(const char* origin) {
+  Profile* profile = browser_core::StartProfile();
+  NotificationDisplayServiceImpl* notifications =
+      profile ? NotificationDisplayServiceImpl::GetForProfile(profile) : nullptr;
+  if (!notifications || !origin) {
+    return;
+  }
+  // An id no page listens for, as a notification's is once its page has gone.
+  const GURL site(origin);
+  notifications->ProcessNotificationOperation(
+      NotificationOperation::kClick, NotificationHandler::Type::WEB_NON_PERSISTENT, site,
+      "browser-core-check#" + site.spec(), std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      base::DoNothing());
 }
 
 bool bc_ad_blocking(void) {

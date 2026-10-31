@@ -873,6 +873,10 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 - **Beside the question and the note.** A page's question and the protected-video note hang under the URL field, outside the dim, so they stay as they are while a dialog covers the card, and each is answered on its own. A tab showing its page in Safari's engine holds back the dialog its Chromium page asked until the tab is back in Chromium. A page in Safari's engine has no dialogs of its own yet: WebKit drops its alert, confirm and prompt (*interim*).
 - **Agents.** Agents get nothing: no tool sees or answers a page's dialog, which goes to the user in the Agent Space as anywhere, as `prototypes/arcish` had it. A sign-in in an agent's tab is the user's to give, so it's a handoff by its nature: the agent's page waits until the user signs in or cancels. A page in an agent's Space opens no other app, whoever clicked, and asks nothing, even where the user ticked "Always allow": agents act inside the browser alone. Nothing typed in a dialog is logged.
 
+### Site notifications
+
+- **A click shows the tab that sent it** (Arc's help centre, #685). A site the user lets notify posts to macOS's notification centre through Chromium's notification service. A click on one shows the site's tab in its Space and window, the one showing or else the one seen last, and brings the window to the front from another app, before the page hears the click. A page whose handler focuses its own tab still wins. If the page that posted it has gone, unloaded or navigated away, the tab is still the site's, so no tab opens; Chrome would open a new one at the site. A site with no tab left gets Chrome's new tab.
+
 ### Downloads
 
 - **The Library's Downloads** (Arc 1.170.0 menus and cap). Downloads is a section of the Library, above Archived Tabs. ⇧⌘J and Window › View Downloads open the Library on it, and close it from there. The list is laid out as the archive's: search, then day headings, newest first.

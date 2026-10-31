@@ -15,7 +15,7 @@
 //! rightdragto, rightrelease, dragover, dragdrop, dragleave, move, scroll, wheel, pageswipe, key,
 //! keydown, keyup, flags, type, resize, place, order, layout, state, title, pasteboard, front, menu,
 //! menubar, choose, dismiss, window, agentspace, agentmayact,
-//! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
+//! agentrelease, agentdisconnect, takeback, age, notify and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
 //! them, cmd with Ctrl and alt with Alt. flags presses and lets
 //! go of those keys, the last key's among them, and the keys after it go with what it holds. insert
@@ -2109,6 +2109,11 @@ fn run_command(line: &str) -> Option<()> {
         "age" => {
             let seconds: f64 = words.next()?.parse().ok()?;
             unsafe { bc::bc_age_tabs_for_testing(seconds) };
+            Some(())
+        }
+        "notify" => {
+            let origin = CString::new(words.next()?).ok()?;
+            unsafe { bc::bc_click_notification_for_testing(origin.as_ptr()) };
             Some(())
         }
         "pip" => mini_player_command(words),

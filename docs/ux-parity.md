@@ -382,6 +382,12 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. `check/passkeys.sh` registers and signs in on a local page with a virtual security key (DevTools' WebAuthn domain, in the check only), and checks the dialog that waits for the key is a child window centred across the page, which escape closes, with a capture (passkeys-dialog). Security keys need no entitlement; iCloud Keychain's passkeys need Apple's `com.apple.developer.web-browser.public-key-credential` | Chrome |
 | [x] | No agent path | MVP | agents never read or fill these. Holds: no core call an agent makes returns them, Chrome fills and offers nothing in an agent's tab (chromium-core-agent-no-autofill.patch), and the MCP server's tools are a fixed list, each asking the core only for an action its allowlist has (agent_session.cc's RefusedAction). `cargo test`'s `agents_get_only_the_allowlisted_tools` calls each tool and fails on a new one or one asking for another action | decision 8 |
 
+## Site notifications
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [ ] | A click shows the tab that sent it | MVP | its Space and window, in front of other apps; no new tab when its page has gone. Built: spaces checks it through Chromium's click handling; to tick, a real banner clicked on the Mac | Arc help centre |
+
 ## Downloads
 
 | Done | Item | Phase | Target | Source |

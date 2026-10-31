@@ -26,7 +26,9 @@
 # can't be deleted. The Spaces menu lists the Spaces, and its names show them. A page out of sight,
 # behind another tab, in a Space not shown, in a minimized window or a hidden app, is hidden and
 # runs no animation frames, and it's visible once it's back.
-# A Space made from the first of two goes right after it, as Arc's does.
+# A Space made from the first of two goes right after it, as Arc's does. A click on a site's
+# notification shows the site's tab, in its Space, and on a check machine brings ilo in front of
+# the app that was.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last. The page puts
 # "hidden" in its title as it hides, and "visible <n>" as it shows again, with the n animation
@@ -183,6 +185,40 @@ show_space "key left alt cmd" previous-space ui "$first" "$a"
 show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 ../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
+
+# A click on a site's notification shows the site's tab in its Space, as Arc's does, and opens no
+# tab of its own (#685): example.com's, in the second Space, from the first, the page that posted it
+# gone, where Chrome would open a new tab. On the Mac's CI runners and check VMs, never on a desk,
+# Finder is in front first, and the click brings ilo in front of it.
+from_app=
+if [ "$(uname)" = Darwin ] &&
+  { [ "${GITHUB_ACTIONS:-}" = true ] || [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; }; then
+  osascript -e 'tell application "Finder" to activate' || fail "Finder didn't come in front"
+  for _ in $(seq 30); do
+    send state
+    grep -q "^browser: drive $step done, .*, active 0," "$log" && { from_app=Finder; break; }
+    sleep 0.1
+  done
+  [ -n "$from_app" ] || fail "Finder didn't take the front from ilo"
+fi
+send notify https://example.com
+expect "^browser: notification from https://example.com showed tab $b in window " \
+  "a click on example.com's notification didn't show its tab: $(grep '^browser: notification ' "$log" | tail -1)"
+expect "^browser: space $second in " "a click on example.com's notification didn't show its Space"
+expect_tabs "$b" "$b" "after a click on example.com's notification"
+none_since '^browser: tab [0-9]* opened by ' || fail "a click on example.com's notification opened a tab"
+if [ -n "$from_app" ]; then
+  active=
+  for _ in $(seq 30); do
+    send state
+    grep -q "^browser: drive $step done, .*, active 1," "$log" && { active=1; break; }
+    sleep 0.1
+  done
+  [ -n "$active" ] || fail "a click on example.com's notification didn't bring ilo in front of $from_app"
+fi
+../tools/window-screenshot.sh "$pid" "$out/notification-tab.png" || fail "no window to capture"
+send click $page_point
+show_space "key 1 ctrl" select-space page "$first" "$a"
 
 # A page out of sight is hidden, as in Chrome, and runs no animation frames: a tab behind the one
 # shown, and the tab a Space not shown shows. Back in sight, it's visible.

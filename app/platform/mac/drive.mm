@@ -158,6 +158,10 @@
 //                                         later, for the next tab shown to unload those
 //                                         bc_unload_idle_tabs lets go. From then each check logs
 //                                         "browser: idle tabs checked" once it's done
+//   notify <origin>                       clicks a notification from <origin> whose page has gone,
+//                                         as the system's notification center would, logging
+//                                         "browser: notification from <origin> showed tab <tab>
+//                                         in window <window>" or "… has no tab"
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
@@ -1596,6 +1600,15 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     bc_age_tabs_for_testing(seconds);
+    done();
+    return true;
+  }
+  if (action == "notify") {
+    std::string origin;
+    if (!(words >> origin)) {
+      return false;
+    }
+    bc_click_notification_for_testing(origin.c_str());
     done();
     return true;
   }

@@ -1,0 +1,65 @@
+Lets the core show the tab a site's notification came from when the user clicks it, as Arc does,
+before the page hears the click (//browser_core/hooks.h). Chrome shows nothing unless the page's
+handler focuses its window, and opens a new tab at the site when the page that posted it is gone;
+the core shows the site's tab instead, which it has whether or not that page is still loaded.
+
+--- a/chrome/browser/notifications/notification_display_service_impl.cc
++++ b/chrome/browser/notifications/notification_display_service_impl.cc
+@@ -57,6 +57,11 @@
+ #include "chrome/browser/safe_browsing/tailored_security/notification_handler_desktop.h"
+ #endif
+ 
++// browser_core: a site's notification the user clicked shows the tab it came from
++// (//browser_core/hooks.h).
++bool (*g_browser_core_show_notification_tab)(Profile* profile,
++                                             const GURL& origin) = nullptr;
++
+ // static
+ NotificationDisplayServiceImpl* NotificationDisplayServiceImpl::GetForProfile(
+     Profile* profile) {
+@@ -172,6 +177,11 @@
+ 
+   switch (operation) {
+     case NotificationOperation::kClick:
++      if (g_browser_core_show_notification_tab &&
++          (notification_type == NotificationHandler::Type::WEB_PERSISTENT ||
++           notification_type == NotificationHandler::Type::WEB_NON_PERSISTENT)) {
++        g_browser_core_show_notification_tab(profile_, origin);
++      }
+       handler->OnClick(profile_, origin, notification_id, action_index, reply,
+                        std::move(on_completed_cb));
+       break;
+--- a/chrome/browser/notifications/non_persistent_notification_handler.cc
++++ b/chrome/browser/notifications/non_persistent_notification_handler.cc
+@@ -30,6 +30,10 @@
+ #include "ui/base/page_transition_types.h"
+ #endif  // !BUILDFLAG(IS_ANDROID)
+ 
++// browser_core: defined in notification_display_service_impl.cc.
++extern bool (*g_browser_core_show_notification_tab)(Profile* profile,
++                                                    const GURL& origin);
++
+ NonPersistentNotificationHandler::NonPersistentNotificationHandler() = default;
+ NonPersistentNotificationHandler::~NonPersistentNotificationHandler() = default;
+ 
+@@ -102,11 +106,15 @@
+   // notification's |origin| instead, and close the activated notification. Not
+   // applicable to Android as non-persistent notifications are not available.
+   if (!success) {
+-    NavigateParams params(profile, origin, ui::PAGE_TRANSITION_LINK);
+-
+-    params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+-    params.window_action = NavigateParams::WindowAction::kShowWindow;
+-    Navigate(&params);
++    // browser_core: the core shows the site's tab instead, if it has one.
++    if (!g_browser_core_show_notification_tab ||
++        !g_browser_core_show_notification_tab(profile, origin)) {
++      NavigateParams params(profile, origin, ui::PAGE_TRANSITION_LINK);
++
++      params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
++      params.window_action = NavigateParams::WindowAction::kShowWindow;
++      Navigate(&params);
++    }
+ 
+     // Close the |notification_id| as the user has explicitly acknowledged it.
+     // Close it asynchronously to prevent use-after-free errors, since the

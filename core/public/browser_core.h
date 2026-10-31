@@ -1701,6 +1701,11 @@ BC_EXPORT void bc_set_unload_idle_tabs(bool unload);
 // The next tab shown checks which to unload, as it would then, and from now each check logs
 // "browser: idle tabs checked" once it's done.
 BC_EXPORT void bc_age_tabs_for_testing(double seconds);
+// For check.sh: clicks a notification from |origin| whose page has gone, as the system's
+// notification center hands Chromium the user's click, so the check needn't let the site notify or
+// click the system's banner. The core shows the site's tab, logging "browser: notification from
+// <origin> showed tab <tab> in window <window>", or "… has no tab" and Chrome opens one.
+BC_EXPORT void bc_click_notification_for_testing(const char* origin);
 // Whether the browser blocks ads and trackers, in every profile and its private windows, with the
 // uBlock Origin it comes with: on unless the user turned it off. Off turns uBlock Origin off in
 // each profile, as its switch in Chrome's extensions page does. The core keeps it with the Spaces.

@@ -89,6 +89,7 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/client_view.h"
+#include "url/origin.h"
 
 #if BUILDFLAG(IS_LINUX)
 #include "browser_core/platform/linux/wayland.h"
@@ -554,6 +555,41 @@ void Window::ActivateContents(content::WebContents* contents) {
   if (Window* window = tab ? Holding(tab) : nullptr) {
     window->Select(tab);
   }
+}
+
+// static
+bool Window::ShowNotificationTab(Profile* profile, const GURL& origin) {
+  // A site's notifications come from its page, so the tab with it that's showing, or else seen
+  // last. The page that posted it can be gone, unloaded or navigated, and the tab is still its.
+  const url::Origin site = url::Origin::Create(origin);
+  Tab* tab = nullptr;
+  bool shown = false;
+  for (Tab* each : Tab::All()) {
+    if (each->profile() != profile || !url::Origin::Create(each->Url()).IsSameOriginWith(site)) {
+      continue;
+    }
+    const bool each_shown = std::ranges::any_of(
+        All(), [&](const Window* window) { return window->selected_ == each->id(); });
+    if (!tab || (each_shown && !shown) ||
+        (each_shown == shown && each->last_seen() > tab->last_seen())) {
+      tab = each;
+      shown = each_shown;
+    }
+  }
+  Window* window = tab ? Holding(tab->id()) : nullptr;
+  if (!window || !window->widget_) {
+    LOG(ERROR) << "browser: notification from " << site.Serialize() << " has no tab";
+    return false;
+  }
+  window->Select(tab->id());
+  if (window->widget_->IsMinimized()) {
+    window->widget_->Restore();
+  }
+  // The same activation as a page asking to be shown, which a notification's click usually does.
+  window->widget_->Activate();
+  LOG(ERROR) << "browser: notification from " << site.Serialize() << " showed tab " << tab->id()
+             << " in window " << window->id_;
+  return true;
 }
 
 // static
