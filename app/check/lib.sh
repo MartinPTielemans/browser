@@ -392,6 +392,34 @@ with open(sys.argv[1], "w") as f:
 ' "$prefs" || fail "the profile's sites for Safari's engine couldn't be reset"
 }
 
+# Starts the app on the page $1 with the profile $2, and check/cdp.py attached to the page whose
+# address ends in $3, logging to $log and $cdp_log, with the driver on fd 3 and cdp.py's commands
+# on fd 5, through fifos in $scratch. Sets $pid and $helper.
+start_with_cdp() {
+  mkfifo "$scratch/cdp"
+  # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+  # DevTools pipe, then cdp.py's input.
+  if windows; then
+    # Chromium on Windows takes its DevTools pipe as handles, not fds 3 and 4, and Git Bash's fifos
+    # are files native Python can't open, so there it listens on a port it names in the profile.
+    rm -f "$2/DevToolsActivePort"
+    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
+      "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+    pid=$!
+    python3 -I -u check/cdp.py --profile "$2" "$3" < "$scratch/cdp" > "$cdp_log" 2>&1 &
+  else
+    mkfifo "$scratch/to-browser" "$scratch/from-browser"
+    BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
+      "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+      4> "$scratch/from-browser" > "$log" 2>&1 &
+    pid=$!
+    python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" "$3" \
+      < "$scratch/cdp" > "$cdp_log" 2>&1 &
+  fi
+  helper=$!
+  exec 3> "$out/drive"
+  exec 5> "$scratch/cdp"
+}
 # Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh

@@ -52,18 +52,7 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
   step=0
   scratch=$(mktemp -d)
   mkdir "$scratch/profile"
-  mkfifo "$scratch/to-browser" "$scratch/from-browser" "$scratch/cdp"
-  # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
-  # DevTools pipe, then cdp.py's input.
-  BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
-    "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
-    4> "$scratch/from-browser" > "$log" 2>&1 &
-  pid=$!
-  python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /passkey.html \
-    < "$scratch/cdp" > "$cdp_log" 2>&1 &
-  helper=$!
-  exec 3> "$out/drive"
-  exec 5> "$scratch/cdp"
+  start_with_cdp "$page" "$scratch/profile" /passkey.html
   echo authenticator >&5
   await_load
   tab=$(today | cut -d' ' -f1)

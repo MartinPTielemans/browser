@@ -1,6 +1,8 @@
 """The passkeys and passwords runs' DevTools client (check/passkeys.sh, check/passwords.sh), over
 the pipe --remote-debugging-pipe gives the browser: the browser reads from IN and writes to OUT,
-each message JSON ending in NUL.
+each message JSON ending in NUL. On Windows, where Git Bash can give a native program neither the
+pipe nor a fifo, it's over the WebSocket --remote-debugging-port=0 opens instead, at the port and
+path Chromium writes to DevToolsActivePort in the profile PROFILE.
 
 It attaches to the page whose address ends in PAGE, logging "cdp: attached", then takes a command
 a line on its standard input:
@@ -20,14 +22,107 @@ a line on its standard input:
 The domains are for the checks alone. Agents never get DevTools: it runs any script in any page.
 
 Usage: cdp.py IN OUT PAGE
+       cdp.py --profile PROFILE PAGE
 """
 
+import base64
 import json
+import os
+import socket
 import sys
 import threading
+import time
 
-to_browser = open(sys.argv[1], "wb")
-from_browser = open(sys.argv[2], "rb")
+
+def pipe(to_path, from_path):
+    """Sends and receives over the browser's DevTools pipe."""
+    to_browser = open(to_path, "wb")
+    from_browser = open(from_path, "rb")
+
+    def send(raw):
+        to_browser.write(raw + b"\0")
+        to_browser.flush()
+
+    def receive():
+        buffer = b""
+        while True:
+            chunk = from_browser.read1(65536)
+            if not chunk:
+                return
+            buffer += chunk
+            while b"\0" in buffer:
+                raw, buffer = buffer.split(b"\0", 1)
+                yield raw
+
+    return send, receive
+
+
+def websocket(profile):
+    """Sends and receives over the browser's DevTools WebSocket, once the browser has opened it."""
+    for _ in range(600):
+        try:
+            with open(os.path.join(profile, "DevToolsActivePort")) as f:
+                port, path = f.read().split()[:2]
+            connection = socket.create_connection(("127.0.0.1", int(port)))
+            break
+        except (OSError, ValueError):
+            time.sleep(0.1)
+    else:
+        raise SystemExit("cdp: the browser opened no DevTools port in " + profile)
+    connection.sendall(
+        (
+            "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nUpgrade: websocket\r\n"
+            "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n"
+            % (path, port, base64.b64encode(os.urandom(16)).decode())
+        ).encode()
+    )
+    stream = connection.makefile("rb")
+    status = stream.readline()
+    if b" 101 " not in status:
+        raise SystemExit("cdp: DevTools refused the WebSocket: %r" % status)
+    while stream.readline() not in (b"\r\n", b""):
+        pass
+
+    def send(raw):
+        # A client masks its frames (RFC 6455 5.3).
+        size = len(raw)
+        if size < 126:
+            head = bytes([0x81, 0x80 | size])
+        elif size < 1 << 16:
+            head = bytes([0x81, 0x80 | 126]) + size.to_bytes(2, "big")
+        else:
+            head = bytes([0x81, 0x80 | 127]) + size.to_bytes(8, "big")
+        mask = os.urandom(4)
+        connection.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(raw)))
+
+    def receive():
+        message = b""
+        while True:
+            head = stream.read(2)
+            if len(head) < 2:
+                return
+            size = head[1] & 0x7F
+            if size == 126:
+                size = int.from_bytes(stream.read(2), "big")
+            elif size == 127:
+                size = int.from_bytes(stream.read(8), "big")
+            payload = stream.read(size)
+            opcode = head[0] & 0x0F
+            if opcode == 8:
+                return
+            if opcode in (0, 1, 2):
+                message += payload
+                if head[0] & 0x80:
+                    yield message
+                    message = b""
+
+    return send, receive
+
+
+if sys.argv[1] == "--profile":
+    send, receive = websocket(sys.argv[2])
+else:
+    send, receive = pipe(sys.argv[1], sys.argv[2])
 page = sys.argv[3]
 lock = threading.Lock()
 replies = {}
@@ -48,8 +143,7 @@ def call(method, params=None, session=None):
     message = {"id": number, "method": method, "params": params or {}}
     if session:
         message["sessionId"] = session
-    to_browser.write(json.dumps(message).encode() + b"\0")
-    to_browser.flush()
+    send(json.dumps(message).encode())
     with answered:
         answered.wait_for(lambda: number in replies)
         reply = replies.pop(number)
@@ -59,28 +153,21 @@ def call(method, params=None, session=None):
 
 
 def read():
-    buffer = b""
-    while True:
-        chunk = from_browser.read1(65536)
-        if not chunk:
-            with answered:
-                events.append(None)
-                answered.notify_all()
-            return
-        buffer += chunk
-        while b"\0" in buffer:
-            raw, buffer = buffer.split(b"\0", 1)
-            message = json.loads(raw)
-            with answered:
-                if "id" in message:
-                    replies[message["id"]] = message
-                else:
-                    events.append(message)
-                    if message["method"] == "WebAuthn.credentialAdded":
-                        log("credential added")
-                    elif message["method"] == "WebAuthn.credentialAsserted":
-                        log("credential asserted")
-                answered.notify_all()
+    for raw in receive():
+        message = json.loads(raw)
+        with answered:
+            if "id" in message:
+                replies[message["id"]] = message
+            else:
+                events.append(message)
+                if message["method"] == "WebAuthn.credentialAdded":
+                    log("credential added")
+                elif message["method"] == "WebAuthn.credentialAsserted":
+                    log("credential asserted")
+            answered.notify_all()
+    with answered:
+        events.append(None)
+        answered.notify_all()
 
 
 threading.Thread(target=read, daemon=True).start()
