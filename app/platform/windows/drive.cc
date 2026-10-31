@@ -330,6 +330,12 @@ void Press(const Target& target, UINT button, int modifiers, bool second) {
   }
   Enter(target);
   HWND root = GetAncestor(target.hwnd, GA_ROOT);
+  // Which window a press went to, as an overlay over the browser window can take it.
+  RECT frame{};
+  GetWindowRect(root, &frame);
+  fprintf(stderr, "browser: drive press to %ls in %ls %ld,%ld %ldx%ld\n",
+          ClassOf(target.hwnd).c_str(), ClassOf(root).c_str(), frame.left, frame.top,
+          frame.right - frame.left, frame.bottom - frame.top);
   const LRESULT activate = SendMessageW(target.hwnd, WM_MOUSEACTIVATE,
                                         reinterpret_cast<WPARAM>(root), MAKELPARAM(HTCLIENT, down));
   if ((activate == MA_ACTIVATE || activate == MA_ACTIVATEANDEAT) && GetActiveWindow() != root) {
