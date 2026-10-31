@@ -1564,6 +1564,12 @@ impl command_bar::Host for Bar {
         };
         let site = site.as_ref().map_or(std::ptr::null(), |site| site.as_ptr());
         if let Ok(text) = CString::new(text) {
+            // Diagnostic for #1124.
+            log!(
+                "browser: suggestions asked for window {} {text:?} at {:.1} ms",
+                front().0,
+                browser::uptime_ms()
+            );
             unsafe { bc::bc_window_suggest(front().0, site, text.as_ptr(), complete) };
         }
     }
@@ -6056,6 +6062,13 @@ unsafe extern "C" fn window_suggestions(
     suggestions: *const bc::bc_suggestion,
     count: usize,
 ) {
+    // Diagnostic for #1124: every answer, before the front window's filter.
+    log!(
+        "browser: suggestions answered for window {window} \"{}\" ({count}), front {}, at {:.1} ms",
+        unsafe { CStr::from_ptr(text) }.to_string_lossy(),
+        front().0,
+        browser::uptime_ms()
+    );
     // The command bar shows over the window last key.
     if window != front().0 {
         return;

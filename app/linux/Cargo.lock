@@ -653,6 +653,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
+ "windows-sys 0.61.2",
  "x11rb",
  "xkbcommon",
  "zbus",
