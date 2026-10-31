@@ -1,13 +1,22 @@
 # With the lists uBlock Origin ships and nothing given for the check, a page's script from Google's
 # ad network doesn't load, and an ad server's own page doesn't open: uBlock Origin shows its page
-# saying it blocked it instead. It needs the network and those servers, so it runs only when named:
-# ./check.sh adblock-live.
+# saying it blocked it instead. uBlock Origin fails the script's request, or answers it with a
+# stand-in of its own that loads, so the page's ads find nothing missing (its lists' filter for it
+# says redirect=googlesyndication_adsbygoogle.js). It needs the network and those servers, so it
+# runs only when named: ./check.sh adblock-live.
 
-# The served page's title says whether Google's ad script loaded, as the network told it.
+# The served page's title says whether Google's ad script loaded, was blocked, or was blocked by
+# uBlock Origin's stand-in, whose adsbygoogle.push does nothing, where Google's queues an ad.
 serve
 printf '%s' '<title>loading</title>
-<script src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"
-  onload="document.title = &quot;ad script loaded&quot;"
+<script>
+function loaded() {
+  const push = String(self.adsbygoogle && self.adsbygoogle.push);
+  document.title = /^function *\(\) *\{\s*;\s*\}$/.test(push) ?
+    "ad script blocked by a stand-in" : "ad script loaded";
+}
+</script>
+<script src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js" onload="loaded()"
   onerror="document.title = &quot;ad script blocked&quot;"></script>' > "$out/site/live.html"
 ublock=oghkpboejbohceocapipmnjifoklonij
 profile_dir="$PWD/$out/adblock-live/profile"
@@ -39,7 +48,7 @@ fi
 # reload that let the script through and the one that didn't.
 before=0
 since=0
-while ! grep -q "^browser: title $tab ad script blocked\$" "$log"; do
+while ! grep -q "^browser: title $tab ad script blocked" "$log"; do
   before=$since
   since=$(($(date +%s) - loaded))
   [ "$since" -lt 120 ] ||
@@ -47,12 +56,13 @@ while ! grep -q "^browser: title $tab ad script blocked\$" "$log"; do
   send key r cmd
   expect "^browser: title $tab ad script " "the page didn't report after ⌘R"
   for _ in $(seq 20); do
-    none_since "^browser: title $tab ad script blocked\$" || break
+    none_since "^browser: title $tab ad script blocked" || break
     sleep 0.1
   done
 done
 loads=$(grep -c "^browser: title $tab ad script " "$log")
-echo "adblock-live: blocking began $before to $since s after uBlock Origin loaded, on load $loads"
+how=$(grep -m 1 "^browser: title $tab ad script blocked" "$log" | sed 's/.* ad script //')
+echo "adblock-live: $how $before to $since s after uBlock Origin loaded, on load $loads"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-live-script.png" || fail "no window to capture"
 go_from_bar doubleclick.net
 expect "^browser: loaded $tab chrome-extension://$ublock/document-blocked\.html" \
