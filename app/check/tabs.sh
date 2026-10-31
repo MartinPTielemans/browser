@@ -318,10 +318,11 @@ if [ "$1" -ge "$from_x" ]; then edge=$1 to_x=$(($1 - 6)); else edge=$(($1 + $3))
 to_y=$((from_y + (to_x - from_x) * ($2 + $4 - from_y) / (edge - from_x) - 2))
 [ "$to_y" -ge $((below + 2)) ] ||
   fail "Move to's submenu at $* leaves no room in its triangle for the row under Move to"
+# Read as the move is handled: the rest ends the triangle 300 ms on (menu.rs's SAFE_TIMEOUT).
 send move $to_x $to_y
-none_since '^browser: menu highlights ' ||
+none_while '^browser: menu highlights ' ||
   fail "the pointer on its way to the submenu took the highlight of the row it crossed"
-none_since '^browser: menu submenu Move to hidden$' ||
+none_while '^browser: menu submenu Move to hidden$' ||
   fail "the pointer on its way to the submenu closed it"
 expect '^browser: menu submenu Move to hidden$' "resting under Move to didn't close its submenu"
 send key escape
@@ -464,7 +465,10 @@ expect "^$c_page\$" "c's tab came back without its history: $(grep "^browser: pa
 # reached it.
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show General"
-send clickkey 592 209
+# Where Settings drew the switch, which differs by OS: it logs that once a place.
+await '^browser: settings switch unload idle tabs at ' || fail "Settings didn't draw Unload tabs' switch"
+unload_switch=$(sed -n 's/^browser: settings switch unload idle tabs at //p' "$log" | tail -1)
+send clickkey $unload_switch
 expect '^browser: unload idle tabs off$' "a click on Unload tabs' switch didn't turn it off"
 send window 1
 switch "2 cmd" "$b"
@@ -476,7 +480,7 @@ expect 'browser: idle tabs checked$' "showing a tab didn't check for tabs unseen
 since $aged | grep -q "browser: tab $c without its page\$" && fail "a tab let go of its page with the switch off"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't bring Settings back to the front"
-send clickkey 592 209
+send clickkey $unload_switch
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
 post clickkey 16 16
