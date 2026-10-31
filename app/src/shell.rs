@@ -2988,7 +2988,10 @@ impl Render for Shell {
             window.focus(&field, cx);
             // check.sh waits for these lines, which say the field has the keyboard.
             match renaming.naming {
-                Naming::Folder(folder) => log!("browser: rename folder {folder}"),
+                Naming::Folder(folder) => {
+                    log!("browser: rename folder {folder}");
+                    log!("browser: folder name field {}", renaming.name.read(cx).text());
+                }
                 Naming::Profile(profile) => log!("browser: rename profile {profile}"),
                 _ => {}
             }
