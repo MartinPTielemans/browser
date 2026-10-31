@@ -588,8 +588,10 @@ void LogLayout(HWND root) {
     if (!Ours(top) || GetWindow(top, GW_OWNER) != root || !IsWindowVisible(top)) {
       continue;
     }
+    // Its client area, which is what GPUI draws, inside Windows' invisible borders.
     RECT rect;
-    GetWindowRect(top, &rect);
+    GetClientRect(top, &rect);
+    MapWindowPoints(top, HWND_DESKTOP, reinterpret_cast<POINT*>(&rect), 2);
     snprintf(part, sizeof part, "\nbrowser: layout child %.0f,%.0f %.0fx%.0f",
              (rect.left - origin.x) / scale, (rect.top - origin.y) / scale,
              (rect.right - rect.left) / scale, (rect.bottom - rect.top) / scale);

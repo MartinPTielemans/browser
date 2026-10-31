@@ -84,13 +84,35 @@ void ContentSize(HWND root, double* width, double* height) {
   *height = client.bottom / scale;
 }
 
-// A window's size in points.
+// A window's size in points: its client area's, which is what GPUI draws.
 void WindowSize(HWND hwnd, double* width, double* height) {
   RECT rect{};
-  GetWindowRect(hwnd, &rect);
+  GetClientRect(hwnd, &rect);
   const double scale = Scale(hwnd);
-  *width = (rect.right - rect.left) / scale;
-  *height = (rect.bottom - rect.top) / scale;
+  *width = rect.right / scale;
+  *height = rect.bottom / scale;
+}
+
+// How far |hwnd|'s client area is in from its window's edges, in pixels. GPUI's windows without a
+// title bar keep Windows' invisible resize borders at their sides and bottom, so a window placed by
+// its outer edges would show its content off by them, as the Mac's borderless windows never do.
+RECT Borders(HWND hwnd) {
+  RECT window{}, client{};
+  GetWindowRect(hwnd, &window);
+  GetClientRect(hwnd, &client);
+  POINT corner{0, 0};
+  ClientToScreen(hwnd, &corner);
+  const LONG left = corner.x - window.left, top = corner.y - window.top;
+  return {left, top, window.right - window.left - client.right - left,
+          window.bottom - window.top - client.bottom - top};
+}
+
+// Puts |hwnd|'s client area at |client|, in screen pixels, as SetWindowPos would its window.
+void PlaceClient(HWND hwnd, HWND after, const RECT& client, UINT flags) {
+  const RECT borders = Borders(hwnd);
+  SetWindowPos(hwnd, after, client.left - borders.left, client.top - borders.top,
+               client.right - client.left + borders.left + borders.right,
+               client.bottom - client.top + borders.top + borders.bottom, flags);
 }
 
 // Runs |task| on the main thread after the event being handled, as AppKit's "after the event" does.
@@ -231,9 +253,10 @@ void Show(Floating& floating, void* ui_view, double left, double top, double wid
   POINT origin{static_cast<LONG>(left * scale), static_cast<LONG>(top * scale)};
   ClientToScreen(root, &origin);
   SetWindowLongPtrW(floating.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
-  SetWindowPos(floating.hwnd, HWND_TOP, origin.x, origin.y, static_cast<int>(width * scale),
-               static_cast<int>(height * scale),
-               SWP_SHOWWINDOW | (keyboard ? 0 : SWP_NOACTIVATE));
+  PlaceClient(floating.hwnd, HWND_TOP,
+              {origin.x, origin.y, origin.x + static_cast<LONG>(width * scale),
+               origin.y + static_cast<LONG>(height * scale)},
+              SWP_SHOWWINDOW | (keyboard ? 0 : SWP_NOACTIVATE));
   if (keyboard) {
     SetForegroundWindow(floating.hwnd);
     SetFocus(floating.hwnd);
@@ -260,10 +283,10 @@ void Resize(Floating& floating, double height) {
     return;
   }
   RECT rect{};
-  GetWindowRect(floating.hwnd, &rect);
-  SetWindowPos(floating.hwnd, nullptr, 0, 0, rect.right - rect.left,
-               static_cast<int>(height * Scale(floating.hwnd)),
-               SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+  GetClientRect(floating.hwnd, &rect);
+  MapWindowPoints(floating.hwnd, HWND_DESKTOP, reinterpret_cast<POINT*>(&rect), 2);
+  rect.bottom = rect.top + static_cast<LONG>(height * Scale(floating.hwnd));
+  PlaceClient(floating.hwnd, nullptr, rect, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 // The UI views host_ui_view made, in order, for the watchers to find a browser window's.
@@ -586,10 +609,14 @@ void PlaceLinkPreview() {
     CombineRgn(region, region, page, RGN_DIFF);
     DeleteObject(page);
   }
+  // A window's region is from its window's corner, not its client area's.
+  const RECT borders = Borders(hwnd);
+  OffsetRgn(region, borders.left, borders.top);
   // The window owns the region from here.
   SetWindowRgn(hwnd, region, IsWindowVisible(hwnd));
-  SetWindowPos(hwnd, HWND_TOP, origin.x, origin.y, client.right, client.bottom,
-               SWP_SHOWWINDOW | SWP_NOACTIVATE);
+  PlaceClient(hwnd, HWND_TOP,
+              {origin.x, origin.y, origin.x + client.right, origin.y + client.bottom},
+              SWP_SHOWWINDOW | SWP_NOACTIVATE);
 }
 
 // The browser window under the preview moved or resized, which it follows, or is going.
@@ -2196,8 +2223,7 @@ void host_show_menu_window(void* ui_view,
       return;
     }
     SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
-    SetWindowPos(g_menu.hwnd, HWND_TOP, frame.left, frame.top, frame.right - frame.left,
-                 frame.bottom - frame.top, SWP_SHOWWINDOW);
+    PlaceClient(g_menu.hwnd, HWND_TOP, frame, SWP_SHOWWINDOW);
     SetForegroundWindow(g_menu.hwnd);
     SetFocus(g_menu.hwnd);
     InstallMenuHooks();
