@@ -364,8 +364,13 @@ music=$p
 send click $page_point
 send key m
 expect "^browser: title $music playing\$" "m in the private page didn't play its silence"
+played=$step
+# Its player comes as ⌘T's new tab hides the page, before the next page is shown.
 private_page Hidden
-expect "^browser: media players $music\$" "the private window's music out of sight had no player"
+players=$(sed -n "/^browser: drive $played: /,\$p" "$log" | grep '^browser: media players' |
+  tail -1)
+[ "$players" = "browser: media players $music" ] ||
+  fail "the private window's music out of sight had no player alone: ${players:-none}"
 send window 1
 switch "$key_a cmd" "$a"
 send click $page_point
