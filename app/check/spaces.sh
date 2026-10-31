@@ -543,6 +543,18 @@ expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $pr
 Export as Markdown…, Delete Space")\$" \
   "a right-click on the Space's name didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
+send dismiss
+expect '^browser: menu closed$' "the Space's menu didn't close"
+# So does a click on the … at the end of the name's row, which stays open once the button comes up
+# (#1090).
+edit_point="196 112"
+send move $edit_point
+send click $edit_point
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
+  "a click on the … at the end of the Space's name didn't show its menu"
+../tools/window-screenshot.sh "$pid" "$out/space-edit-menu.png" || fail "no window to capture"
+none_since '^browser: menu closed$' || fail "the Space's menu from the … closed as the click ended"
 send choose Rename Space
 expect "^browser: rename space $first\$" "Rename Space didn't open the name's field"
 send state
