@@ -1318,7 +1318,10 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px};
+    use gpui::{
+        Entity, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, TestAppContext,
+        VisualTestContext, point, px,
+    };
 
     use super::{
         super::{
@@ -1445,6 +1448,41 @@ mod tests {
             assert_eq!(first.as_deref(), Some("Rename Space"), "pinned {pinned:?}, a11y {a11y}");
             assert_eq!(host.menu_at.get(), Some(at), "pinned {pinned:?}, a11y {a11y}");
         }
+    }
+
+    /// The click that makes the window active, which GPUI on the Mac takes as its first mouse,
+    /// shows the Space's menu from the … as it selects a tab from its row (#1090).
+    #[gpui::test]
+    fn the_click_that_activates_the_window_reaches_the_edit_button_as_a_row(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, cx, host) = window(cx, vec![2, 3], vec![4], 4);
+        let first_click = |cx: &mut VisualTestContext, position| {
+            cx.simulate_mouse_move(position, None, Modifiers::none());
+            cx.deactivate_window();
+            let (button, modifiers) = (MouseButton::Left, Modifiers::none());
+            cx.simulate_event(MouseDownEvent {
+                position,
+                button,
+                modifiers,
+                click_count: 1,
+                first_mouse: true,
+            });
+            cx.simulate_event(MouseUpEvent { position, button, modifiers, click_count: 1 });
+            cx.run_until_parked();
+        };
+        let (x, y) = close_button(&shell, cx, 2);
+        host.take();
+        first_click(cx, point(px(x - 100.), px(y)));
+        assert!(host.take().contains(&"select 2".into()), "the first click on a row");
+
+        let row = shell.read_with(cx, |shell, _| shell.name_row_drawn.get()).expect("a name row");
+        let at = point(row.right() - px(FAVICON_X + URL_BUTTON_SIZE / 2.), row.center().y);
+        host.menus.take();
+        first_click(cx, at);
+        let menus = host.menus.take();
+        let first = menus.last().and_then(|menu| menu.first()).map(|(title, _)| title.clone());
+        assert_eq!(first.as_deref(), Some("Rename Space"), "the first click on the …");
     }
 
     /// Change Icon… on a tab asks for the icon picker under that tab's row, which draws where the
