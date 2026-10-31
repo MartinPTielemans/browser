@@ -1,6 +1,7 @@
 # ⇧⌘2 from the page opens capture mode over it, with the keyboard, and the pointer over an element
 # lights the box the core hit tests. A click takes it, and the menu's Copy copies a picture of just
-# that box to a pasteboard of the run's own and shows the toast with Save and Share. Save to
+# that box to a pasteboard of the run's own and shows the toast with Save and Share. ⇧⌘-drag on
+# the page takes the rectangle dragged at once. Save to
 # Library, the menu's first row, saves it into the profile's Media and says so, and the Library's
 # Media shows it first, opens it in a tab and deletes it from its menu, and then says it is empty
 # in a line that wraps in its list, narrow and wide, light and dark. Escape and a second ⇧⌘2
@@ -85,6 +86,23 @@ expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
 expect '^browser: capture hidden$' "capture mode's window didn't hide after Copy"
 send state
 in_browser RenderWidgetHostViewCocoa "after Copy"
+
+# ⇧⌘-drag on the page, as Arc's, starts capture mode dragging and takes the rectangle dragged at
+# once, with the menu at its corner. The page's window keeps the pointer, so the core hands capture
+# mode the drag. The app's lines may come at any of the drag's steps.
+from=$((step + 1))
+send press $(in_page 320 210) cmd shift
+send dragto $(in_page 330 220) cmd shift
+send dragto $(in_page 480 290) cmd shift
+send release $(in_page 480 290) cmd shift
+expect '^browser: capture started$' "⇧⌘-drag on the page didn't start capture mode" "$from"
+expect '^browser: capture chose 320 210 160 80$' \
+  "⇧⌘-drag didn't take the rectangle: $(grep '^browser: capture chose' "$log" | tail -1)" "$from"
+expect '^browser: capture shown at ' "capture mode's window didn't show for ⇧⌘-drag" "$from"
+../tools/window-screenshot.sh "$pid" "$out/capture-dragged.png" || fail "no window to capture"
+send key escape
+expect '^browser: capture left (escape)$' "escape didn't leave capture mode after ⇧⌘-drag"
+expect '^browser: capture hidden$' "capture mode's window didn't hide after ⇧⌘-drag"
 
 # Save to Library, 37 to 61 down, saves the box's picture without a question and says so.
 capture_mode page

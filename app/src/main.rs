@@ -3084,6 +3084,7 @@ impl Browser for Engine {
         frame: Bounds<Pixels>,
         radius: f32,
         full_page: bool,
+        press: Option<Point<Pixels>>,
         library: bool,
         look: menu::Look,
         cx: &mut App,
@@ -3091,7 +3092,7 @@ impl Browser for Engine {
         with_overlays(
             move |cx| match full_page {
                 true => capture::full_page(tab, cx),
-                false => capture::start(tab, frame, radius, library, look, cx),
+                false => capture::start(tab, frame, radius, library, look, press, cx),
             },
             cx,
         );
@@ -3329,6 +3330,72 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
         gpui_linux::hold_keys(Some(&held_keystroke(key)));
     }
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
+}
+
+/// A ⇧⌘ press the core held from a page (`tab_press_before_page`): a drag from it captures the
+/// rectangle dragged, as Arc's ⇧⌘-drag does, and let go before it's a drag it's the page's click.
+#[derive(Clone, Copy)]
+struct PagePress {
+    tab: bc::bc_id,
+    at: Point<Pixels>,
+    dragging: bool,
+}
+
+thread_local! {
+    static PAGE_PRESS: Cell<Option<PagePress>> = const { Cell::new(None) };
+}
+
+fn page_point(x: f64, y: f64) -> Point<Pixels> {
+    point(px(x as f32), px(y as f32))
+}
+
+unsafe extern "C" fn tab_press_before_page(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    modifiers: u32,
+    x: f64,
+    y: f64,
+) -> bool {
+    // ⌘ is Ctrl off the Mac, as in the shortcuts.
+    let command = match shell::OFF_THE_MAC {
+        true => bc::BC_MODIFIER_CONTROL,
+        false => bc::BC_MODIFIER_META,
+    };
+    if modifiers != bc::BC_MODIFIER_SHIFT | command {
+        return false;
+    }
+    let at = page_point(x, y);
+    PAGE_PRESS.set(Some(PagePress { tab, at, dragging: false }));
+    true
+}
+
+unsafe extern "C" fn tab_press_moved(_: *mut c_void, tab: bc::bc_id, x: f64, y: f64) {
+    let Some(press) = PAGE_PRESS.get().filter(|press| press.tab == tab) else {
+        return;
+    };
+    let at = page_point(x, y);
+    if !press.dragging {
+        if (at - press.at).magnitude() < f64::from(capture::DRAG) {
+            return;
+        }
+        PAGE_PRESS.set(Some(PagePress { dragging: true, ..press }));
+        let from = Some(press.at);
+        update_tab_window(tab, |shell, cx| shell.capture_pane(tab, false, from, cx));
+    }
+    update_app(|cx| capture::page_dragged(tab, at, cx));
+}
+
+unsafe extern "C" fn tab_press_released(_: *mut c_void, tab: bc::bc_id, x: f64, y: f64) -> bool {
+    let Some(press) = PAGE_PRESS.take().filter(|press| press.tab == tab) else {
+        return false;
+    };
+    if press.dragging {
+        update_app(|cx| {
+            capture::page_dragged(tab, page_point(x, y), cx);
+            capture::page_released(tab, cx);
+        });
+    }
+    press.dragging
 }
 
 unsafe extern "C" fn tab_key_before_page(
@@ -6260,6 +6327,9 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
+        tab_press_before_page: Some(tab_press_before_page),
+        tab_press_moved: Some(tab_press_moved),
+        tab_press_released: Some(tab_press_released),
         held_keys_unclaimed: Some(held_keys_unclaimed),
         tab_media_unsupported: Some(tab_media_unsupported),
         widevine_changed: Some(widevine_changed),
