@@ -180,6 +180,8 @@ mod platform {
         pub fn host_set_app_appearance(appearance: c_int);
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
+        #[cfg(target_os = "windows")]
+        pub fn host_watch_window_close(close: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
         pub fn host_watch_option_taps(tapped: extern "C" fn(*mut c_void));
@@ -563,6 +565,15 @@ pub(crate) fn shell_with_view(ui_view: *mut c_void) -> WeakEntity<Shell> {
 /// A browser window became key: it goes first, so the shared overlays and the menu bar follow it.
 /// AppKit makes one key as another window orders out or closes, from inside the update that did
 /// it, such as Settings' close (#819), so the shell hears it once that update is over.
+/// Windows' close of a browser window, which the core closes as the Mac's close button does.
+#[cfg(target_os = "windows")]
+extern "C" fn window_close_asked(ui_view: *mut c_void) {
+    let id = window_with_view(ui_view);
+    if id != 0 {
+        unsafe { bc::bc_window_close(id) };
+    }
+}
+
 extern "C" fn key_window_changed(ui_view: *mut c_void) {
     let moved = WINDOWS.with_borrow_mut(|windows| {
         let index = windows.iter().position(|window| window.ui_view == ui_view)?;
@@ -4034,6 +4045,8 @@ fn finish_opening(
     unsafe {
         platform::host_take_drops(dragged);
         platform::host_watch_key_window(key_window_changed);
+        #[cfg(target_os = "windows")]
+        platform::host_watch_window_close(window_close_asked);
         platform::host_watch_full_screen(full_screen_changed);
         platform::host_watch_swipes(swiped);
         platform::host_watch_option_taps(option_tapped);
