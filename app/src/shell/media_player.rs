@@ -66,6 +66,10 @@ impl Shell {
             log!("browser: media players {}", list.join(" "));
             *self.media_logged.borrow_mut() = tabs.clone();
         }
+        // So a player back where the last one was is logged as drawn again.
+        if tabs.is_empty() {
+            self.media_drawn.set(None);
+        }
         (tabs.iter().enumerate())
             .map(|(index, &tab)| self.media_player(tab, index, cx))
             .collect()
