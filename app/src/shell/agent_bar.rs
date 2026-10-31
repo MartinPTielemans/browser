@@ -1,18 +1,20 @@
 //! The bar in an agent's Space (#365): while the agent is at work there, what it did last, with
 //! Take Over, which makes the tab the user's, and Stop; on a tab the user holds, Hand Back, which
 //! gives it back. ⌘↩ is Take Over or Hand Back, and ⌘. Stop while the bar has it, with focus in
-//! the page too. It's a card at the sidebar's foot, which GPUI draws, as the window's question
-//! cards are.
+//! the page too, and each button's tooltip shows its key. It's a card at the sidebar's foot, which
+//! GPUI draws, as the window's question cards are.
 
 use gpui::{App, Context, FontWeight, SharedString, div, prelude::*, px, rgba};
 
 use super::{
-    FOOTER_HEIGHT, Shell, TITLE,
-    commands::ShellHandle,
+    Command, FOOTER_HEIGHT, Shell, TITLE,
+    commands::{ShellHandle, keystroke_keys},
     extensions::keystroke_text,
+    keys::user_keys,
     permission::{BUTTONS_TOP, card_button, card_listener},
 };
 use crate::agents::Status;
+use crate::tooltip::{Anchor, Tip};
 use crate::tokens::shell::permission::{BUTTON_GAP, DETAIL, GAP};
 
 /// What the bar shows.
@@ -28,6 +30,10 @@ pub(super) enum Bar {
 /// Stop. Escape, Stop Loading's other key, stays the page's, as an agent stopped by a stray escape
 /// would lose its work.
 const STOP_KEY: &str = "cmd-.";
+
+/// The bar's buttons, by the ids their frames are kept under.
+const STOP: &str = "agent-stop";
+const PRIMARY: &str = "agent-primary";
 
 /// ⌘. for Stop while the UI has the keyboard, before it's Stop Loading. The page hands it over
 /// before it sees it (`run_agent_key`).
@@ -100,6 +106,23 @@ impl Shell {
         }
     }
 
+    /// The pointer has come onto or left the bar's button `key`, whose tooltip shows its key:
+    /// ⌘. for Stop, and Back to Pinned URL's, ⌘↩ unless the user moved it, for the other.
+    fn hover_agent_button(&self, key: &'static str, hovered: bool, cx: &mut Context<Self>) {
+        let busy = self.dragging().is_some() || self.menu_row.is_some();
+        let frame = self.button_frames.borrow().get(key).copied();
+        let tip = (self.agent_bar().zip(frame).filter(|_| hovered && !busy)).map(|(bar, frame)| {
+            let (text, keys) = match (key, bar) {
+                (STOP, _) => ("Stop", keystroke_keys(STOP_KEY)),
+                (_, Bar::Working { .. }) => ("Take Over", user_keys(cx).chips(Command::BackToPinnedUrl)),
+                (_, Bar::Held { .. }) => ("Hand Back", user_keys(cx).chips(Command::BackToPinnedUrl)),
+            };
+            let keys = keys.into_iter().map(Into::into).collect();
+            (Tip { text: text.into(), keys }, Anchor::under(frame, self.viewport))
+        });
+        self.hover_tip(tip, cx);
+    }
+
     pub(super) fn agent_bar_card(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let Some(bar) = self.agent_bar() else {
             // Drawn again, it's logged again.
@@ -121,12 +144,18 @@ impl Shell {
             Bar::Working { .. } => card_button(&self.palette, "agent-take-over", "Take Over"),
             Bar::Held { .. } => card_button(&self.palette, "agent-hand-back", "Hand Back"),
         };
-        let primary = primary.on_click(cx.listener(|shell, _, _, cx| shell.agent_bar_primary(cx)));
+        let primary = (primary.relative().child(self.button_frame(PRIMARY)))
+            .on_hover(cx.listener(|shell, hovered: &bool, _, cx| {
+                shell.hover_agent_button(PRIMARY, *hovered, cx)
+            }))
+            .on_click(cx.listener(|shell, _, _, cx| shell.agent_bar_primary(cx)));
         let stop = match &bar {
             Bar::Working { agent, .. } => {
                 let agent = agent.clone();
-                let stop = card_button(&self.palette, "agent-stop", "Stop");
-                Some(stop.on_click(cx.listener(move |shell, _, _, cx| {
+                let stop = card_button(&self.palette, STOP, "Stop").relative();
+                Some(stop.child(self.button_frame(STOP)).on_hover(cx.listener(
+                    |shell, hovered: &bool, _, cx| shell.hover_agent_button(STOP, *hovered, cx),
+                )).on_click(cx.listener(move |shell, _, _, cx| {
                     shell.browser.stop_agent(agent.clone(), cx)
                 })))
             }
@@ -161,9 +190,10 @@ impl Shell {
 mod tests {
     use std::rc::Rc;
 
-    use gpui::{AppContext, Entity, SharedString, TestAppContext, point, px};
+    use gpui::{AppContext, Entity, Modifiers, SharedString, TestAppContext, point, px};
 
-    use super::Bar;
+    use super::{Bar, PRIMARY, STOP};
+    use crate::shell::commands::keystroke_keys;
     use crate::agents::Status;
     use crate::shell::{Command, Folders, Shell, recorder::Recorder};
 
@@ -248,6 +278,45 @@ mod tests {
         cx.simulate_keystrokes("cmd-.");
         assert!(!host.take().contains(&"stop agent claude-code".to_string()));
         assert!(!shell.update(cx, |shell, cx| shell.run_agent_key("cmd-.", cx)));
+    }
+
+    /// Each button's tooltip shows its key, ⌘. for Stop and ⌘↩ for Take Over and Hand Back, so
+    /// the keys are found where the buttons are.
+    #[gpui::test]
+    fn the_bars_tooltips_show_its_keys(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(
+                vec![(2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into())],
+                cx,
+            );
+            shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+            shell.set_agent_status(status(Vec::new()), cx);
+            shell.agent_acted("claude-code".into(), 20, cx);
+        });
+        cx.run_until_parked();
+        let tip = |cx: &mut gpui::VisualTestContext, key: &'static str| {
+            let at = shell.read_with(cx, |shell, _| shell.button_frames.borrow()[key].center());
+            cx.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::none());
+            cx.run_until_parked();
+            host.take();
+            cx.simulate_mouse_move(at, None, Modifiers::none());
+            cx.run_until_parked();
+            host.take().into_iter().find(|line| line.starts_with("tooltip"))
+        };
+        let back = keystroke_keys("cmd-enter").concat();
+        let stop = format!("tooltip Stop {}", keystroke_keys("cmd-.").concat());
+        assert_eq!(tip(cx, STOP), Some(stop));
+        assert_eq!(tip(cx, PRIMARY), Some(format!("tooltip Take Over {back}")));
+
+        let held = vec![(21, "Sign in to example.com".into())];
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(held), cx));
+        cx.run_until_parked();
+        assert_eq!(tip(cx, PRIMARY), Some(format!("tooltip Hand Back {back}")));
     }
 
     /// On a tab the user holds the bar says so, the row's mark is a hollow ring, and Hand Back, or
