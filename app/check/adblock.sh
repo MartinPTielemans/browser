@@ -254,6 +254,30 @@ for i in 1 2 3 4; do
     < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
+  # Diag (#744): what the main thread does in the 2.6 s the warm launches go quiet.
+  if [ "$i" != 1 ]; then
+    (
+      for _ in $(seq 40); do
+        for task in /proc/$pid/task/*; do
+          stat=$(cat "$task/stat" 2>/dev/null) || continue
+          set -- ${stat##*) }
+          echo "$(date +%s.%N) $(basename "$task") $(tr " " _ < "$task/comm" 2>/dev/null) state $1 utime ${12} stime ${13} wchan $(cat "$task/wchan" 2>/dev/null) syscall $(cut -d' ' -f1 "$task/syscall" 2>/dev/null)"
+        done
+        sleep 0.1
+      done > "$out/adblock-sample-$i.log"
+    ) &
+    if [ "$i" = 4 ]; then
+      (
+        command -v gdb > /dev/null || sudo -n apt-get install -yq gdb > /dev/null 2>&1
+        for at in 1.2 1.9 2.6; do
+          sleep_until=$(python3 -I -c 'import sys; print(float(sys.argv[1]) + float(sys.argv[2]))' "$launched" "$at")
+          python3 -I -c 'import sys, time; time.sleep(max(0, float(sys.argv[1]) - time.time()))' "$sleep_until"
+          echo "== at $at s"
+          sudo -n gdb -batch -p "$pid" -ex 'thread 1' -ex 'bt 80' 2>&1 | grep -E '^#|^Thread|^\[' | head -90
+        done > "$out/adblock-gdb-$i.log" 2>&1
+      ) &
+    fi
+  fi
   await "^browser: title [0-9]* probe $i blocked " || fail "probe $i: never blocked"
   line=$(grep "^browser: title [0-9]* probe $i blocked " "$log" | head -1 | sed "s/ probe $i / probe /")
   python3 -I -c 'import sys
@@ -278,6 +302,26 @@ for line in open(sys.argv[2], errors="replace"):
         print("  ublock %d %6d ms: %s" % (int(sys.argv[3]), int(m.group(1)) - t, text[:150]))' \
     "$launched" "$log" "$((i + 1))"
   grep -c 'CONSOLE' "$log" | sed "s/^/  console lines in launch $((i + 1)): /"
+  if [ "$i" != 1 ]; then
+    python3 -I -c 'import sys, collections
+t = float(sys.argv[1])
+rows = collections.defaultdict(list)
+for line in open(sys.argv[2]):
+    w = line.split()
+    if len(w) < 9: continue
+    rows[w[1]].append((float(w[0]) - t, w))
+main = sys.argv[3]
+for at, w in rows.get(main, []):
+    print("  main %5d ms: %s" % (at * 1000, " ".join(w[2:])))
+# The threads that used the most CPU over the samples.
+use = []
+for tid, r in rows.items():
+    a, b = r[0][1], r[-1][1]
+    use.append((int(b[6]) + int(b[8]) - int(a[6]) - int(a[8]), tid, b[2]))
+for ticks, tid, comm in sorted(use, reverse=True)[:8]:
+    print("  cpu %4d ticks: %s %s" % (ticks, tid, comm))' "$launched" "$out/adblock-sample-$i.log" "$pid"
+    [ -f "$out/adblock-gdb-$i.log" ] && sed 's/^/  gdb /' "$out/adblock-gdb-$i.log" | cut -c1-220
+  fi
   quit
 done
 
