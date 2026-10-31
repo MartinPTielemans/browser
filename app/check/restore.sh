@@ -458,7 +458,7 @@ if [ "$(uname)" = Darwin ]; then
   expect '^browser: media video playing clip.mp4$' "the video's tile didn't play it"
   ../tools/window-screenshot.sh "$pid" "$out/media-video.png" || fail "no window to capture"
 fi
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 if [ "$(uname)" = Darwin ]; then
   expect '^browser: media video stopped clip.mp4$' "the video played on with the Library closed"
