@@ -1652,14 +1652,29 @@ fn run_command(line: &str) -> Option<()> {
             let (x, y) = point(&mut words)?;
             motion(target_at(x, y)?, none)
         }
-        // A notch of the wheel for each event, down for content moving up.
+        // Each event moves the content up by <dy> points, as drive.mm's trackpad events do.
         "scroll" => {
             let (x, y) = point(&mut words)?;
             let dy: f64 = words.next()?.parse().ok()?;
             let count: usize = words.next()?.parse().ok()?;
             let at = target_at(x, y)?;
+            // A page, Chromium's, scrolls a notch of the wheel an event, the notches alone: with a
+            // move before them, the window run's page stopped short of its 3000 points under Xvfb.
+            if at.window == driven()?.window {
+                for _ in 0..count.max(1) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
+                return Some(());
+            }
+            // GPUI's windows scroll by the points asked, as the Mac's trackpad events do, where a
+            // wheel's notch moves three lines.
+            motion(at, none)?;
+            let logical = |each: i16| px((f64::from(each) / scale()) as f32);
+            let position = gpui::point(logical(at.x), logical(at.y));
             for _ in 0..count.max(1) {
-                click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                if !gpui_linux::drive_scroll(at.window, position, px(dy as f32)) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
             }
             Some(())
         }
@@ -1818,6 +1833,19 @@ fn run_command(line: &str) -> Option<()> {
                     x - left,
                     y - top
                 );
+            }
+            // The page with the keyboard, by its pane's frame from the content's bottom-left
+            // corner, as the pages are, which tells a split view's pages apart.
+            let mut page = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+            match unsafe { bc::bc_window_keyboard_page(browser.id, &mut page) } {
+                true => log!(
+                    "browser: layout keyboard {:.0},{:.0} {:.0}x{:.0}",
+                    page.x,
+                    height - (page.y + page.height),
+                    page.width,
+                    page.height
+                ),
+                false => log!("browser: layout keyboard none"),
             }
             log!(
                 "browser: layout full screen {}",

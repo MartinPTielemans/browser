@@ -525,6 +525,20 @@ void WatchForeground() {
 }
 
 Floating g_overlays[4];
+// What check.sh calls each overlay, as the Mac's and Linux's hosts do.
+const char* const kOverlayNames[std::size(g_overlays)] = {"command bar", "icon picker",
+                                                         "theme picker", "folder preview"};
+// Hides overlay |index| if it's shown, saying so, and whether it was.
+bool HideOverlay(int index) {
+  Floating& floating = g_overlays[index];
+  if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    return false;
+  }
+  Hide(floating);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: %s hidden\n", kOverlayNames[index]);
+  return true;
+}
 struct Corner {
   Floating floating;
   double right = 0;
@@ -1590,8 +1604,18 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   WatchForeground();
 }
 
-// shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
+// The window is Chromium's, which goes full screen through the core (bc_window_toggle_full_screen),
+// and the app hears of it as the window's bounds change, as on Linux.
 void host_watch_full_screen(void (*)(void*, bool)) {}
+
+static std::map<void*, uint64_t>& WindowIds() {
+  static std::map<void*, uint64_t> ids;
+  return ids;
+}
+
+void host_window_opened(void* ui_view, uint64_t window) {
+  WindowIds()[ui_view] = window;
+}
 
 // Windows delivers a touchpad's swipes to the page as scrolls, which it takes, so there's nothing
 // here for the host to watch.
@@ -1694,8 +1718,7 @@ void host_show_overlay(int overlay,
                        double width) {
   for (int each = 0; each < int(std::size(g_overlays)); ++each) {
     Floating& other = g_overlays[each];
-    if (each != overlay && other.hwnd && IsWindowVisible(other.hwnd)) {
-      Hide(other);
+    if (each != overlay && HideOverlay(each)) {
       if (other.dismissed) {
         void (*dismissed)(void) = other.dismissed;
         Later([dismissed] { dismissed(); });
@@ -1710,13 +1733,38 @@ void host_show_overlay(int overlay,
   } else if (left + width > content_width - 8) {
     left = content_width - 8 - width;
   }
-  Show(g_overlays[overlay], ui_view, left, top, width, -1, true);
+  Floating& floating = g_overlays[overlay];
+  const bool was_shown = floating.hwnd && IsWindowVisible(floating.hwnd);
+  Show(floating, ui_view, left, top, width, -1, true);
   // The bar now has the keyboard, so the keys held since the shortcut go to it.
-  ReleaseKeys(g_overlays[overlay].hwnd);
+  ReleaseKeys(floating.hwnd);
+  if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    return;
+  }
+  double own_width, own_height;
+  WindowSize(floating.hwnd, &own_width, &own_height);
+  // check.sh reads these lines.
+  fprintf(stderr, "browser: %s at %g %g %g %g\n", kOverlayNames[overlay], left, top, width,
+          own_height);
+  if (!was_shown) {
+    fprintf(stderr, "browser: %s shown\n", kOverlayNames[overlay]);
+  }
 }
 
 void host_set_overlay_height(int overlay, double height) {
-  Resize(g_overlays[overlay], height);
+  Floating& floating = g_overlays[overlay];
+  if (!floating.hwnd) {
+    return;
+  }
+  // In pixels, as Resize sets it.
+  RECT rect{};
+  GetWindowRect(floating.hwnd, &rect);
+  if (rect.bottom - rect.top == static_cast<int>(height * Scale(floating.hwnd))) {
+    return;
+  }
+  Resize(floating, height);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: %s height %g\n", kOverlayNames[overlay], height);
 }
 
 // shortcut: Segoe UI Emoji is taken to draw every emoji; check with DirectWrite's glyphs when an
@@ -1726,14 +1774,15 @@ bool host_can_draw_emoji(const char*) {
 }
 
 void host_hide_overlay(int overlay) {
-  Hide(g_overlays[overlay]);
+  HideOverlay(overlay);
 }
 
 void host_dismiss_overlay(int overlay) {
-  Floating& floating = g_overlays[overlay];
-  Hide(floating);
-  if (floating.dismissed) {
-    floating.dismissed();
+  // Posted: the UI may be handling the event that closed the overlay, as Esc's action is, and
+  // would borrow the app again.
+  if (HideOverlay(overlay) && g_overlays[overlay].dismissed) {
+    void (*dismissed)(void) = g_overlays[overlay].dismissed;
+    Later([dismissed] { dismissed(); });
   }
 }
 
@@ -2638,6 +2687,16 @@ void* host_browser_window(size_t index) {
   }
   HWND root = Root(MadeUiViews()[index]);
   return root != MadeUiViews()[index] && IsWindowVisible(root) ? root : nullptr;
+}
+
+// The core's id for that browser window, for the driver's commands that act on it through the core,
+// or 0.
+uint64_t host_browser_window_id(size_t index) {
+  if (index >= MadeUiViews().size()) {
+    return 0;
+  }
+  auto it = WindowIds().find(MadeUiViews()[index]);
+  return it == WindowIds().end() ? 0 : it->second;
 }
 
 // For the driver (drive.cc), whose input is posted to the app's windows, which the thread hooks

@@ -66,6 +66,14 @@ cleanup() {
     sleep 1
   done
   cp "$profile_dir"/Crashpad/*/*.dmp "$out/" 2>/dev/null || true
+  kill -0 "$pid" 2>/dev/null || return 0
+  if windows; then
+    # Git Bash's kill ends a Windows program by starting ExitProcess in it and in each process it
+    # started, and chrome.dll faults as that thread unloads it, so each helper would leave a crash
+    # report and the run would read as a crash after its failure (#1017). taskkill /F ends them.
+    taskkill //F //T //PID "$(cat "/proc/$pid/winpid")" > /dev/null 2>&1 || true
+    return 0
+  fi
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -130,6 +138,9 @@ exited() {
       why="the app quit late, within $(((late + 1) / 2)) s after the ${1:-10} s it had"
     else
       why="the app didn't quit in ${1:-10} s, nor in the 10 s after"
+      # Windows has no sample, but the windows the app has left say what's keeping it.
+      ! windows || python3 -I check/app-windows.py list "$(cat "/proc/$pid/winpid")" \
+        > "$out/hang.txt" 2>&1 || true
     fi
     if [ -s "$out/hang.txt" ]; then
       fail "$why. Where it was: $out/hang.txt"
@@ -155,12 +166,13 @@ exited() {
   return 0
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
-# user logs out. On Windows taskkill without /F closes the app's windows, as the user would, and
-# Chromium quits with its last one. On Linux SIGINT is that way: Chromium quits as from its menu,
-# where SIGTERM ends the session at once, without the startup trace tabs.sh reads.
+# user logs out. On Windows each browser window is asked to close, as its close button does, and
+# Chromium quits with its last one: taskkill without /F closed one of two (#1017). On Linux SIGINT
+# is that way: Chromium quits as from its menu, where SIGTERM ends the session at once, without the
+# startup trace tabs.sh reads.
 quit_app() {
   if windows; then
-    taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null
+    python3 -I check/app-windows.py close "$(cat "/proc/$pid/winpid")"
   elif [ "$(uname)" = Linux ]; then
     kill -INT "$pid"
   else

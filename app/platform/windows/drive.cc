@@ -19,8 +19,9 @@
 // data object carrying what Explorer or a browser would, straight to the drop target Windows would
 // pick, the UI's; one over a page or an overlay, whose targets are Chromium's and GPUI's, logs as
 // unsupported. ime on types as drive.mm's scripted input method does, in the UI's fields alone, as
-// Linux's driver does. The others, pageswipe, full screen, displays, hide, backdrop and openmenu,
-// Windows has nothing the driver can stand in for yet: each logs "browser: drive: unsupported
+// Linux's driver does. fullscreen puts the window full screen or takes it out through the core, as
+// Linux's driver does. The others, pageswipe, displays, hide, backdrop and openmenu, Windows has
+// nothing the driver can stand in for yet: each logs "browser: drive: unsupported
 // <command>" before drive.mm's "can't do that", so a run fails at once.
 //
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
@@ -56,6 +57,7 @@ bool host_menu_window_choose(const char* title);
 bool host_menu_window_dismiss(void);
 bool host_drive_pointer(unsigned message, long x, long y);
 bool host_drive_key(unsigned vk, long lparam);
+uint64_t host_browser_window_id(size_t index);
 // The app's (src/main.rs), on GPUI's window |hwnd|, for the scripted input method.
 bool browser_drive_compose(void* hwnd, const char* text, size_t start, size_t end, bool selected);
 bool browser_drive_commit(void* hwnd, const char* text);
@@ -912,9 +914,18 @@ bool Run(const std::string& line) {
       break;
     }
   }
-  if (action == "pageswipe" || action == "fullscreen" || action == "display" || action == "hide" ||
-      action == "backdrop" || action == "openmenu") {
+  if (action == "pageswipe" || action == "display" || action == "hide" || action == "backdrop" ||
+      action == "openmenu") {
     return Unsupported(action);
+  }
+  // As the Mac's driver presses the green button: the window says it went once it has resized.
+  if (action == "fullscreen") {
+    const bc_id window = host_browser_window_id(g_driven);
+    if (!window) {
+      return false;
+    }
+    bc_window_toggle_full_screen(window);
+    return true;
   }
   // At once, as the Mac's driver hands its drags to AppKit's views, since nothing is posted.
   if (action == "dragover" || action == "dragdrop") {

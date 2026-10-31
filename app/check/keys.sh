@@ -462,11 +462,17 @@ page_shortcut t new-tab
 expect '^browser: command bar shown$' "⌘T in the page the bar opened didn't open the command bar"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
-# The bar draws itself before it goes on screen, so it never shows the last query: empty for a
-# new tab, and on ⌘L with the page's URL.
-awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
-  /^browser: command bar drew/ { drew = $0 }
-  /^browser: command bar shown$/ && (command == "new-tab") != (drew == "browser: command bar drew \"\"") { exit 1 }' "$log" ||
+# The bar never shows the last query: empty for a new tab, and on ⌘L with the page's URL. On the
+# Mac, whose window keeps what it drew while hidden, the host draws it before it goes on screen.
+# X keeps nothing of an unmapped window, which shows nothing until GPUI presents into it once it's
+# mapped, so on Linux the first draw after it shows is the one to be right (#1013).
+after_shown=
+[ "$(uname)" != Linux ] || after_shown=1
+awk -v after_shown="$after_shown" '
+  function wrong() { return (command == "new-tab") != (drew == "browser: command bar drew \"\"") }
+  /^browser: command (new-tab|edit-url) via/ { command = $3 }
+  /^browser: command bar drew/ { drew = $0; if (shown && wrong()) exit 1; shown = 0 }
+  /^browser: command bar shown$/ { if (after_shown) shown = 1; else if (wrong()) exit 1 }' "$log" ||
   fail "the command bar went on screen still showing what it drew last"
 # A page whose renderer goes away leaves the browser running, and ⌘R loads it again. Killed, as
 # macOS kills one under memory pressure, it takes Chrome's sad tab path a crash takes; a SIGSEGV
