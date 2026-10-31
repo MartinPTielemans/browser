@@ -103,12 +103,14 @@ typedef struct bc_tab_state {
   bool share_instead;
   // The page's media, as Chrome's media controls show it: whether it has a session the browser
   // can play, pause and skip (bc_tab_media), whether that's playing, its title and artist, each
-  // empty without one, and whether it has a next track.
+  // empty without one, whether it has a next track, and whether it can float in Picture in Picture
+  // while nothing of the page floats.
   bool media;
   bool media_playing;
   const char* media_title;
   const char* media_artist;
   bool media_next;
+  bool media_picture_in_picture;
   // The tab shows its page in Developer Mode (bc_tab_set_developer_mode): the user turned it on for
   // the page's site, or it's localhost, as Chrome counts it, and they didn't turn it off there.
   bool developer_mode;
@@ -2217,9 +2219,11 @@ BC_EXPORT void bc_tab_share_instead(bc_id tab);
 #define BC_MEDIA_PLAY 0
 #define BC_MEDIA_PAUSE 1
 #define BC_MEDIA_NEXT 2
+#define BC_MEDIA_PICTURE_IN_PICTURE 3
 
-// Plays, pauses or skips the page's media, one of BC_MEDIA_, while its state has media. Then
-// tab_state_changed. The user's: agents act in the page instead.
+// Plays, pauses, skips or floats the page's media in Picture in Picture, one of BC_MEDIA_, while
+// its state has media, and media_picture_in_picture for the last. Then tab_state_changed. The
+// user's: agents act in the page instead.
 BC_EXPORT void bc_tab_media(bc_id tab, int action);
 
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one

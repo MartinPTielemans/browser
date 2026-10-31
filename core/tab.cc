@@ -1088,6 +1088,13 @@ void Tab::ReportState() {
       .media_next = controllable &&
                     std::ranges::contains(session->GetMediaSessionActionsSync(),
                                           media_session::mojom::MediaSessionAction::kNextTrack),
+      // Chrome offers the action while the page floats too, where the player has nothing to do.
+      .media_picture_in_picture =
+          controllable &&
+          media->picture_in_picture_state !=
+              media_session::mojom::MediaPictureInPictureState::kInPictureInPicture &&
+          std::ranges::contains(session->GetMediaSessionActionsSync(),
+                                media_session::mojom::MediaSessionAction::kEnterPictureInPicture),
       .developer_mode = developer_mode::On(profile(), GURL(url)),
   };
   Host().tab_state_changed(Host().context, id_, &state);
@@ -1496,6 +1503,10 @@ void Tab::Media(int action) {
       break;
     case BC_MEDIA_NEXT:
       session->NextTrack();
+      break;
+    case BC_MEDIA_PICTURE_IN_PICTURE:
+      // The page's own handler if it has one, else its one video, as Chrome's media controls do.
+      session->EnterPictureInPicture();
       break;
   }
 }
