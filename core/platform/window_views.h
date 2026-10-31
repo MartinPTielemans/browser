@@ -90,6 +90,10 @@ void ShowPageIn(views::Widget* widget,
                 const gfx::Rect& frame,
                 double corner_radius);
 
+// Whether a page's dialog, such as Chrome's passkey dialog, needs a native window of its own to
+// show over the pages, rather than being drawn in the window's own.
+bool PageDialogsInOwnWindow();
+
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools or the side
 // panel.

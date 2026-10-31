@@ -2214,6 +2214,11 @@ gfx::Size Window::GetMaximumDialogSize() {
   return focused_frame_.size();
 }
 
+bool Window::ShouldConstrainDialogBoundsByHost() {
+  // Unconstrained, Chrome gives the dialog a window of its own (constrained_window_views.cc).
+  return !platform::PageDialogsInOwnWindow();
+}
+
 void Window::AddObserver(web_modal::ModalDialogHostObserver* observer) {
   dialog_observers_.AddObserver(observer);
 }
