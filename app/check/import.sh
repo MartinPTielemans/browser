@@ -152,6 +152,13 @@ fi
 passwords_row=$((bookmarks_row + 62))
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+# Done, where the import logged it drawn since the last command: each step logs it anew, so a
+# summary that wraps, as Chrome's does in the Mac's font, or a longer one can't move the click.
+click_done() {
+  expect '^browser: settings import-done at ' "the import's end didn't draw Done"
+  send clickkey $(sed -n "/^browser: drive $step: /,\$p" "$log" |
+    sed -n 's/^browser: settings import-done at //p' | tail -1)
+}
 send clickkey 342 60
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
 expect "^browser: import found $found\$" \
@@ -182,7 +189,7 @@ if [ -n "$arc" ]; then
     fail "Arc's Work Space isn't in the Work profile"
   # Done goes back to the list, and the same import again plans nothing.
   expect '^browser: import drawn done$' "the import's end didn't draw"
-  send clickkey 590 145
+  click_done
   expect '^browser: import drawn list$' "Done didn't go back to the list"
   send clickkey 575 134
   expect '^browser: import pick Arc$' "Import… didn't show Arc's choices again"
@@ -193,7 +200,7 @@ if [ -n "$arc" ]; then
   expect '^browser: import done: Everything from Arc is here already\.$' "the second import said it added something"
   ../tools/window-screenshot.sh "$pid" "$out/import-again.png" || fail "no window to capture"
   expect '^browser: import drawn done$' "the import's end didn't draw"
-  send clickkey 590 145
+  click_done
   expect '^browser: import drawn list$' "Done didn't go back to the list"
 fi
 # Chrome, the row after Arc's, brings its bookmarks, open tab, history and address, which the
@@ -212,8 +219,7 @@ expect '^browser: import done: 1 Space, 3 pinned tabs, 1 open tab, 2 pages of hi
   "the import didn't say what came from Chrome"
 ../tools/window-screenshot.sh "$pid" "$out/import-chrome.png" || fail "no window to capture"
 expect '^browser: import drawn done$' "the import's end didn't draw"
-# Chrome's summary takes two lines in the Mac's font and one in Linux's, and Done sits under it.
-if [ "$(uname)" = Darwin ]; then send clickkey 590 166; else send clickkey 590 145; fi
+click_done
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 $chrome_row
 expect '^browser: import pick Chrome$' "Import… didn't show Chrome's choices again"
@@ -225,7 +231,7 @@ expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
 # Firefox, Chrome's next row, brings its toolbar's bookmark, its menu's in a folder, and its history.
 expect '^browser: import drawn done$' "the import's end didn't draw"
-send clickkey 590 145
+click_done
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 $firefox_row
 expect '^browser: import pick Firefox$' "Import… on Firefox's row didn't show what comes from it"
@@ -238,7 +244,7 @@ expect '^browser: import done: 1 Space, 2 pinned tabs and 2 pages of history cam
   "the import didn't say what came from Firefox"
 ../tools/window-screenshot.sh "$pid" "$out/import-firefox.png" || fail "no window to capture"
 expect '^browser: import drawn done$' "the import's end didn't draw"
-send clickkey 590 145
+click_done
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 $firefox_row
 expect '^browser: import pick Firefox$' "Import… didn't show Firefox's choices again"
@@ -251,7 +257,7 @@ expect '^browser: import done: Everything from Firefox is here already\.$' \
 # file comes in as a Space named Bookmarks, its bar's tab loose and its folder as one, and a
 # second time adds nothing.
 expect '^browser: import drawn done$' "the import's end didn't draw"
-send clickkey 590 145
+click_done
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $bookmarks_row
 expect '^browser: import bookmarks file bookmarks\.html$' "Choose File… didn't import the bookmarks file"
@@ -259,7 +265,7 @@ await '^browser: import done: 1 Space and 2 pinned tabs came in from bookmarks\.
   fail "the bookmarks file didn't come in: $(grep '^browser: import done' "$log" | tail -1)"
 expect '^browser: import drawn done$' "the bookmarks file's end didn't draw"
 ../tools/window-screenshot.sh "$pid" "$out/import-bookmarks.png" || fail "no window to capture"
-send clickkey 590 145
+click_done
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $bookmarks_row
 await '^browser: import done: Everything from bookmarks\.html is here already\.$' ||
@@ -267,7 +273,7 @@ await '^browser: import done: Everything from bookmarks\.html is here already\.$
 expect '^browser: import drawn done$' "the second bookmarks file's end didn't draw"
 rm -f "$bookmarks"
 # Then the passwords file. Done's line offers to delete it, with Delete File before Done.
-send clickkey 590 145
+click_done
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $passwords_row
 expect '^browser: import passwords$' "Choose File… didn't import the passwords file"
@@ -285,7 +291,7 @@ expect '^browser: import drawn done$' "the import's end didn't draw again withou
 printf '%s\n' 'url,username,password' \
   'https://login.example.test/,check@example.test,made-up-changed' \
   'https://new.example.test/,new@example.test,made-up-three' > "$passwords"
-send clickkey 590 145
+click_done
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $passwords_row
 expect '^browser: import passwords$' "Choose File… didn't import the second passwords file"

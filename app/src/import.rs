@@ -30,6 +30,7 @@ pub mod suggested;
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Instant, SystemTime};
 
@@ -37,7 +38,7 @@ use gpui::{App, Context, EventEmitter, SharedString, div, prelude::*, px, rgb, s
 
 use crate::palette::NO_THEME_ACCENT;
 pub use crate::settings_rows::Look;
-use crate::settings_rows::{SLIDE, button, checked_row, group, row, switch};
+use crate::settings_rows::{SLIDE, button, checked_row, drawn, group, row, switch};
 use crate::theme::Theme;
 use crate::tokens::settings::{
     BOX_GAP, BUTTONS_TOP, CHECK_TICK, DISCLOSURE_GAP, DISCLOSURE_GLYPH, PADDING,
@@ -395,6 +396,9 @@ pub struct ImportView {
     /// The step last drawn. A click before a step draws lands on the one before it, so check.sh
     /// waits for the line each one logs.
     drawn: Option<&'static str>,
+    /// Where Done was logged as drawn, emptied with each step so each logs it anew: check.sh clicks
+    /// it there, as a summary that wraps moves it.
+    done_at: Rc<RefCell<Vec<String>>>,
     /// The system it runs on, for where the browsers it names export their passwords.
     os: Os,
     /// The bookmark folders of the browser picked, to choose from.
@@ -432,6 +436,7 @@ impl ImportView {
             switched: None,
             passwords_file: None,
             drawn: None,
+            done_at: Rc::default(),
             os: roots.os,
             folders: Folders::default(),
             suggested: None,
@@ -1372,6 +1377,7 @@ impl Render for ImportView {
         };
         if self.drawn != Some(step) {
             self.drawn = Some(step);
+            self.done_at.borrow_mut().clear();
             log!("browser: import drawn {step}");
         }
         let look = self.look;
@@ -1410,7 +1416,10 @@ impl Render for ImportView {
                             .justify_end()
                             .gap(px(PADDING))
                             .children(delete)
-                            .child(done),
+                            .child(div().relative().child(done).child(drawn(
+                                "import-done".into(),
+                                self.done_at.clone(),
+                            ))),
                     )
                     .into_any_element()
             }
