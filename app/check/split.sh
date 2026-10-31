@@ -660,10 +660,13 @@ case " $(today) " in
   *" $f "* | *" $dragged "*) fail "the favorite split's pages are still in Today: $(today)" ;;
 esac
 # The press that dragged the split's row showed it, so another tab is shown first, or the click on
-# the tile would show what's already shown and log nothing.
-other=$(today | cut -d' ' -f1)
-send click $(row "$(row_of "$other")")
-expect '^browser: selected [0-9]' "a click on $other's row didn't show it"
+# the tile would show what's already shown and log nothing: the first Today tab not in a split,
+# which has a row of its own, under the tile.
+for other in $(today); do
+  case "+$(splits | tr ' /' '++')+" in *"+$other+"*) ;; *) break ;; esac
+done
+send click $(tiled_row "$(row_of "$other")")
+expect "^browser: selected $other\( in .*\)\{0,1\}\$" "a click on $other's row didn't show it"
 send click $tile
 expect "^browser: panes $f $dragged\$" "a click on the split's tile didn't show both its pages"
 ../tools/window-screenshot.sh "$pid" "$out/split-favorite.png" || fail "no window to capture"

@@ -285,6 +285,10 @@ switch() {
 row() {
   echo "100 $((90 + 44 + 15 + 41 * ($1 + 1) + 20))"
 }
+# Row $1 under one row of favorites' tiles, which takes the Space's rows 47 down.
+tiled_row() {
+  echo "100 $(($(row "$1" | cut -d' ' -f2) + 47))"
+}
 # Switch times in milliseconds, one a line, as "median <m> ms, max <x> ms, <n> switches".
 summary() {
   sort -n | awk '{ v[NR] = $1 } END { if (NR) printf "median %.1f ms, max %.1f ms, %d switches", v[int((NR + 1) / 2)], v[NR], NR }'

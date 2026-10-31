@@ -45,11 +45,8 @@ favorites() {
   grep '^browser: favorites' "$log" | tail -1 | sed 's/^browser: favorites *//'
 }
 # One favorite is one tile across the sidebar, 41 tall and 90 below the window's top, under the URL
-# field, and its row of tiles takes the Space's rows 47 down.
+# field, and its row of tiles takes the Space's rows 47 down (tiled_row).
 tile="114 110"
-tiled_row() {
-  echo "100 $(($(row "$1" | cut -d' ' -f2) + 47))"
-}
 open_from_bar example.org
 b=$tab
 expect_tabs "$b $a" "$b" "after opening a tab"
