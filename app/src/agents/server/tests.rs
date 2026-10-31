@@ -1,8 +1,9 @@
-//! The server as an MCP client's bridge reaches it, over a real socket.
+//! The server as an MCP client's bridge reaches it, over a real socket, or on Windows a real named
+//! pipe.
 
 use std::io::{BufReader, Cursor, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicUsize;
 use std::thread;
 
@@ -13,13 +14,13 @@ use super::*;
 
 const TOKEN: &str = "s3cret";
 
-/// A socket path of the test's own, in a folder of its own, so tests run beside each other.
+/// A socket or pipe of the test's own, for a folder of its own, so tests run beside each other.
 pub fn socket() -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let number = NEXT.fetch_add(1, Ordering::SeqCst);
     let folder = std::env::temp_dir().join(format!("agents-{}-{number}", std::process::id()));
     std::fs::create_dir_all(&folder).unwrap();
-    folder.join("Agents.sock")
+    address(&folder)
 }
 
 /// A server with Claude Code's token.
@@ -39,13 +40,13 @@ fn server() -> (Server, Tokens, UnboundedReceiver<Event>) {
 
 /// A client's connection, as its bridge makes it.
 struct Client {
-    writer: UnixStream,
-    reader: BufReader<UnixStream>,
+    writer: Stream,
+    reader: BufReader<Stream>,
 }
 
 impl Client {
     fn open(server: &Server) -> Client {
-        let stream = UnixStream::connect(server.path()).unwrap();
+        let stream = connect(server.path()).unwrap();
         Client {
             writer: stream.try_clone().unwrap(),
             reader: BufReader::new(stream),
@@ -96,6 +97,7 @@ fn next(handed: &mut UnboundedReceiver<Event>) -> Option<Event> {
 }
 
 /// The socket is the user's alone, a socket where the server said, and gone once the server is.
+#[cfg(unix)]
 #[test]
 fn the_socket_is_the_users_alone() {
     let (server, _, _handed) = server();
@@ -109,6 +111,7 @@ fn the_socket_is_the_users_alone() {
 }
 
 /// A socket a browser that didn't stop left behind gives way to the new server's.
+#[cfg(unix)]
 #[test]
 fn a_socket_left_behind_gives_way() {
     let path = socket();
@@ -121,6 +124,23 @@ fn a_socket_left_behind_gives_way() {
             .file_type()
             .is_socket()
     );
+}
+
+/// The pipe is the browser's own: a second server can't make it while the first has it, a client
+/// reaches it no more once the server has stopped, and the next server makes it again.
+#[cfg(windows)]
+#[test]
+fn the_pipe_is_the_servers_alone() {
+    let (server, _, _handed) = server();
+    let path = server.path().to_path_buf();
+    assert!(path.to_str().unwrap().starts_with(r"\\.\pipe\"));
+    let (events, _second) = futures::channel::mpsc::unbounded();
+    assert!(Server::start(&path, Tokens::default(), events).is_err());
+    drop(server);
+    assert!(connect(&path).is_err(), "the pipe stayed once the server stopped");
+    let (events, _again) = futures::channel::mpsc::unbounded();
+    let again = Server::start(&path, Tokens::default(), events).unwrap();
+    assert!(connect(again.path()).is_ok());
 }
 
 /// A connection without a token the browser gave, or one that starts with a message instead,
@@ -308,7 +328,7 @@ fn a_client_closing_while_a_call_waits_ends_its_session() {
     let Some(Event::Call(waiting)) = next(&mut handed) else {
         panic!("the call didn't reach the UI thread");
     };
-    client.writer.shutdown(std::net::Shutdown::Write).unwrap();
+    close_write(&mut client.writer).unwrap();
     match next(&mut handed) {
         Some(Event::Bye { agent }) => assert_eq!(agent, "claude-code"),
         _ => panic!("the UI didn't hear the agent go while its call waited"),

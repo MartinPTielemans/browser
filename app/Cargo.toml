@@ -51,6 +51,16 @@ gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
 # Windows' GPUI platform, for the window the browser embeds GPUI in.
 [target.'cfg(target_os = "windows")'.dependencies]
 gpui_windows = { path = ".deps/zed/crates/gpui_windows" }
+# The agents' MCP server's named pipe (src/agents/pipe.rs), in the version GPUI's already brings.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 
 # Zed's workspace takes GPUI's Linux platform without its window systems, so it runs headless
 # unless they're asked for here.
