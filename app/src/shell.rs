@@ -2121,6 +2121,9 @@ impl Shell {
             let tiles = self.drawn();
             if self.end_drag(false) {
                 self.move_tiles(tiles, Curve::Slide);
+            } else if let Some(position) = self.drag_position() {
+                // A row carried over the new lists finds its place in them where the pointer is.
+                self.drag_to(position, cx);
             }
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
@@ -2446,15 +2449,17 @@ impl Shell {
             log!("browser: page {tab} share instead {}", flag(page.share_instead));
         }
         let media = |page: &Page| {
-            (page.media, page.media_playing, page.media_next, page.media_title.clone())
+            let pip = page.media_picture_in_picture;
+            (page.media, page.media_playing, page.media_next, pip, page.media_title.clone())
         };
         if media(&page) != media(&entry.page) {
             // check.sh waits for this line.
             log!(
-                "browser: page {tab} media {} playing {} next {} {}",
+                "browser: page {tab} media {} playing {} next {} pip {} {}",
                 flag(page.media),
                 flag(page.media_playing),
                 flag(page.media_next),
+                flag(page.media_picture_in_picture),
                 page.media_title
             );
         }

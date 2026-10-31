@@ -703,8 +703,12 @@ impl Browser for Fake {
                 MediaAction::Play => true,
                 MediaAction::Pause => false,
                 MediaAction::Next => shell.page(tab).media_playing,
+                MediaAction::PictureInPicture => shell.page(tab).media_playing,
             };
-            let page = Page { media_playing, ..shell.page(tab) };
+            // A made-up page floats nothing, but its player's button goes as a real one's would.
+            let media_picture_in_picture = (shell.page(tab).media_picture_in_picture)
+                && action != MediaAction::PictureInPicture;
+            let page = Page { media_playing, media_picture_in_picture, ..shell.page(tab) };
             shell.set_page(tab, page, cx);
         });
     }
