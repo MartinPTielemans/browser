@@ -556,7 +556,7 @@ impl Shell {
     /// Shows `tab` for a press on its row, or its segment of a split view's, at once, as Arc's
     /// does, even if the press becomes a drag. Its page takes the keyboard, as a tab clicked in
     /// Chrome's tab strip does, so the keys that follow, ⌘D or Space, are the page's.
-    fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
+    pub(super) fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
         log!("browser: command select via sidebar");
         self.select(tab, cx);
         self.browser.focus_page(cx)
@@ -623,7 +623,9 @@ impl Shell {
                 self.rename_folder(tab, cx)
             }
             MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
-            MouseButton::Left if event.modifiers.alt && self.alt_press_row(tab, cx) => {}
+            MouseButton::Left if event.modifiers.alt && !self.is_folder(tab) => {
+                self.alt_press_list_row(tab, event.position, cx)
+            }
             MouseButton::Left if !self.is_folder(tab) && self.choose_by_press(tab, event, cx) => {}
             MouseButton::Left => {
                 self.end_hovers(cx);
@@ -933,9 +935,10 @@ impl Shell {
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
                     }
-                    if (event.modifiers.alt && shell.alt_press_row(tab, cx))
-                        || shell.choose_by_press(tab, event, cx)
-                    {
+                    if event.modifiers.alt {
+                        return shell.alt_press_list_row(tab, event.position, cx);
+                    }
+                    if shell.choose_by_press(tab, event, cx) {
                         return;
                     }
                     // On the way back to the pinned URL, the favicon's click shows the tab.
