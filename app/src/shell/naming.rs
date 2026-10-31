@@ -305,6 +305,8 @@ impl Shell {
             }
         };
         let iconless = !has_icon(&icon);
+        // A card showing would stay under the picker, as rows' cards wait while it shows.
+        self.browser.hover_card(crate::hover_card::Hover::Close, cx);
         icon_picker::show(subject, icon, anchor, picked, cx);
         if let Subject::Space(space) = subject
             && iconless

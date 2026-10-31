@@ -23,17 +23,18 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git a/crates/gpui_linux/src/gpui_linux.rs b/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..60bcdc318e 100644
+index a5390e77f8..eea63d4493 100644
 --- a/crates/gpui_linux/src/gpui_linux.rs
 +++ b/crates/gpui_linux/src/gpui_linux.rs
-@@ -1,4 +1,20 @@
+@@ -1,4 +1,21 @@
  #![cfg(any(target_os = "linux", target_os = "freebsd"))]
  mod linux;
  
 -pub use linux::{current_platform, linux_platform};
 +#[cfg(feature = "x11")]
 +pub use linux::{
-+    drive_commit, drive_compose, drive_pointer, drive_scroll, marked_range, open_next_window_in,
++    answer_clipboard_reads_with, drive_commit, drive_compose, drive_pointer, drive_scroll,
++    marked_range, open_next_window_in,
 +};
 +pub use linux::{
 +    Corner, EmbeddedKeyboard, EmbedderDrag, EmbedderDropped, current_platform, dispatch_embedded,
@@ -49,7 +50,7 @@ index a5390e77f8..60bcdc318e 100644
 +#[cfg(feature = "wayland")]
 +pub use linux::{commit_embedded, compose_embedded, open_next_window_in_surface, resize_embedded};
 diff --git a/crates/gpui_linux/src/linux.rs b/crates/gpui_linux/src/linux.rs
-index e4da54b52b..d03810f6ab 100644
+index e4da54b52b..538efa7e73 100644
 --- a/crates/gpui_linux/src/linux.rs
 +++ b/crates/gpui_linux/src/linux.rs
 @@ -1,7 +1,9 @@
@@ -62,7 +63,7 @@ index e4da54b52b..d03810f6ab 100644
  mod platform;
  mod system_notifications;
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -16,13 +18,34 @@ mod xdg_desktop_portal;
+@@ -16,13 +18,35 @@ mod xdg_desktop_portal;
  
  pub use dispatcher::*;
  pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
@@ -92,7 +93,8 @@ index e4da54b52b..d03810f6ab 100644
 +pub use wayland::{commit_embedded, compose_embedded, open_next_window_in_surface, resize_embedded};
 +#[cfg(feature = "x11")]
 +pub use x11::{
-+    drive_commit, drive_compose, drive_pointer, drive_scroll, marked_range, open_next_window_in,
++    answer_clipboard_reads_with, drive_commit, drive_compose, drive_pointer, drive_scroll,
++    marked_range, open_next_window_in,
 +};
  #[cfg(feature = "x11")]
  pub(crate) use x11::*;
@@ -3651,10 +3653,10 @@ index 8d92234ef1..e2a70f83bc 100644
          if !state.active {
              return;
 diff --git a/crates/gpui_linux/src/linux/x11.rs b/crates/gpui_linux/src/linux/x11.rs
-index f9b9727330..3dc9ec4b07 100644
+index f9b9727330..6d0cfcaabb 100644
 --- a/crates/gpui_linux/src/linux/x11.rs
 +++ b/crates/gpui_linux/src/linux/x11.rs
-@@ -1,6 +1,7 @@
+@@ -1,13 +1,19 @@
  mod client;
  mod clipboard;
  mod display;
@@ -3662,8 +3664,9 @@ index f9b9727330..3dc9ec4b07 100644
  mod event;
  mod window;
  mod xim_handler;
-@@ -8,6 +9,10 @@ mod xim_handler;
+ 
  pub(crate) use client::*;
++pub use clipboard::answer_clipboard_reads_with;
  pub(crate) use clipboard::wait_for_clipboard_handovers;
  pub(crate) use display::*;
 +pub(crate) use drag::FileDrag;
@@ -5326,6 +5329,37 @@ index e21f019c64..4e204c34d1 100644
 +    }
 +    points
 +}
+diff --git a/crates/gpui_linux/src/linux/x11/clipboard.rs b/crates/gpui_linux/src/linux/x11/clipboard.rs
+index 9835786efe..29b3bab1f2 100644
+--- a/crates/gpui_linux/src/linux/x11/clipboard.rs
++++ b/crates/gpui_linux/src/linux/x11/clipboard.rs
+@@ -104,6 +104,16 @@ thread_local! {
+ const LONG_TIMEOUT_DUR: Duration = Duration::from_millis(4000);
+ const SHORT_TIMEOUT_DUR: Duration = Duration::from_millis(10);
+ 
++/// What answers for an embedder that can own the selection on this thread, which can't answer
++/// while a read here waits for it: Chromium's clipboard is on the UI thread.
++static OWNER_ON_THIS_THREAD: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
++
++/// Has `answer` run while a read of the clipboard waits for the selection's owner, for an embedder
++/// that answers its own requests on this thread.
++pub fn answer_clipboard_reads_with(answer: fn()) {
++    OWNER_ON_THIS_THREAD.set(answer).ok();
++}
++
+ #[derive(Debug, PartialEq, Eq)]
+ enum ManagerHandoverState {
+     Idle,
+@@ -411,6 +421,9 @@ impl Inner {
+             let event = match event {
+                 Some(e) => e,
+                 None => {
++                    if let Some(answer) = OWNER_ON_THIS_THREAD.get() {
++                        answer();
++                    }
+                     std::thread::sleep(Duration::from_millis(1));
+                     continue;
+                 }
 diff --git a/crates/gpui_linux/src/linux/x11/drag.rs b/crates/gpui_linux/src/linux/x11/drag.rs
 new file mode 100644
 index 0000000000..84f66f7604

@@ -626,7 +626,16 @@ impl Shell {
             let left = Duration::from_secs_f32((end - elapsed).max(0.));
             onboarding.hold = Some(cx.spawn(async move |shell, cx| {
                 cx.background_executor().timer(left).await;
-                shell.update(cx, |_, cx| cx.notify()).ok();
+                // A timer can end a little before the flow's clock does, as Windows' do (#1026),
+                // so the frame it wakes waits again for what's left.
+                shell
+                    .update(cx, |shell, cx| {
+                        if let Some(onboarding) = shell.onboarding.as_mut() {
+                            onboarding.hold = None;
+                        }
+                        cx.notify()
+                    })
+                    .ok();
             }));
         }
         let light = onboarding.light.unwrap_or_else(|| {
