@@ -350,6 +350,8 @@ enum Popup {
     ProfileArchiveAfter(u64),
     /// A profile's New Documents.
     Notes(u64),
+    /// Who gets a shortcut's keys first, a page or ilo, in the Shortcuts tab.
+    First(Command),
 }
 
 pub struct Settings {
@@ -2261,14 +2263,56 @@ impl Settings {
             .on_click(cx.listener(move |settings, _, window, cx| {
                 settings.start_recording(command, window, cx)
             }));
+        let first = user.shared(command).then(|| {
+            let label = match user.before_page(command) {
+                true => concat!("Prefer ", env!("APP_NAME")),
+                false => "Prefer Websites",
+            };
+            self.popup(
+                Popup::First(command),
+                MenuEntry::label(label),
+                POPUP_WIDTH,
+                cx.listener(move |settings, _, window, cx| {
+                    settings.choose_first(command, window, cx)
+                }),
+            )
+            .child(self.drawn(format!("prefer {}", command.key_name())))
+        });
         div()
             .flex()
             .items_center()
             .gap(px(CHIP_GAP))
             .children(refused)
+            .children(first)
             .children(restore)
             .child(chip)
             .into_any_element()
+    }
+
+    /// Opens a shared shortcut's pop-up menu, Arc's Prefer Websites or Prefer ilo: whether the
+    /// page or ilo gets its keys first. Websites' leaves ilo the page's second press.
+    fn choose_first(&mut self, command: Command, window: &Window, cx: &mut Context<Self>) {
+        let first = shell::user_keys(cx).before_page(command);
+        let titles = ["Prefer Websites", concat!("Prefer ", env!("APP_NAME"))];
+        let items: Vec<MenuEntry> = (titles.iter().enumerate())
+            .map(|(index, &title)| {
+                let on = (index == 1) == first;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(title, true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some(index) = picked {
+                let ilo = index == 1;
+                shell::change_keys(cx, |user| user.set_ilo_first(command, ilo));
+                // check.sh waits for this line.
+                let who = if ilo { "ilo" } else { "websites" };
+                log!("browser: shortcut {} prefers {who}", command.key_name());
+                save_shortcuts(cx);
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::First(command), items, picked, window, cx);
     }
 
     /// Takes the next keys pressed for `command`, or stops if it's taking them already.

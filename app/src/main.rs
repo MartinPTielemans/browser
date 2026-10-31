@@ -459,6 +459,8 @@ struct BrowserWindow {
 thread_local! {
     // The core calls back into the UI from Chromium's event handling, outside any GPUI update.
     static CX: RefCell<Option<AsyncApp>> = const { RefCell::new(None) };
+    // The last shortcut a page got first, which a second press makes ilo's.
+    static SECOND_PRESS: RefCell<shell::SecondPress> = RefCell::default();
     // GPUI starts inside Chromium's run loop, from a callback, and lives as long as the process.
     static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
     // The most recently key first, as the core keeps its windows.
@@ -3316,23 +3318,28 @@ fn keystroke(key: &bc::bc_key) -> String {
     shell::page_keystroke(&text(key.key), &text(key.latin_key), key.modifiers)
 }
 
-/// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't,
-/// on the keys the user has now, in the window showing `tab`'s page, which had the key.
-fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> bool {
-    let key = unsafe { &*key };
+/// The command `key`, typed in a page, runs: one that reaches ilo before the page with `before`,
+/// else one the page gets first.
+fn page_command(key: &bc::bc_key, before: bool) -> Option<Command> {
     let keystroke = keystroke(key);
     // Read without an update, as every key the page gets comes here.
     let cx = CX.with_borrow(Clone::clone);
     let command = cx.and_then(|cx| {
-        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, reserved))
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, before))
     });
-    let Some(command) = command.flatten() else {
+    // ⌘Z and ⇧⌘Z in a text field are the page's, which the Edit menu gives it.
+    command.flatten().filter(|command| {
+        !(matches!(command, Command::Undo | Command::Redo) && key.editing)
+    })
+}
+
+/// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't,
+/// on the keys the user has now, in the window showing `tab`'s page, which had the key.
+fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> bool {
+    let key = unsafe { &*key };
+    let Some(command) = page_command(key, reserved) else {
         return false;
     };
-    // ⌘Z and ⇧⌘Z in a text field are the page's, which the Edit menu gives it.
-    if matches!(command, Command::Undo | Command::Redo) && key.editing {
-        return false;
-    }
     // Its field opens before GPUI has read the keys typed after it, which it holds for the field
     // under Wayland, as for a shortcut the page gets first (gpui_linux::hold_keys).
     #[cfg(target_os = "linux")]
@@ -3370,6 +3377,21 @@ unsafe extern "C" fn tab_key_before_page(
     if update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
         .unwrap_or(false)
     {
+        return true;
+    }
+    // A shortcut the page gets first and kept is ilo's when it's pressed again, as in Arc. Undo
+    // and Redo fall back to the page's own, so they stay its.
+    let shared = page_command(unsafe { &*key }, false)
+        .filter(|command| !matches!(command, Command::Undo | Command::Redo));
+    let shortcut = shared.is_some().then_some(keystroke.as_str());
+    let now = std::time::Instant::now();
+    let again = SECOND_PRESS.with_borrow_mut(|press| press.pressed(tab, shortcut, now));
+    if let Some(command) = shared.filter(|_| again) {
+        #[cfg(target_os = "linux")]
+        if command.opens_field() {
+            gpui_linux::hold_keys(Some(&held_keystroke(unsafe { &*key })));
+        }
+        update_tab_window(tab, |shell, cx| shell.run(command, "second press", cx));
         return true;
     }
     // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
@@ -3459,6 +3481,8 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    let keystroke = keystroke(unsafe { &*key });
+    SECOND_PRESS.with_borrow_mut(|press| press.unhandled(tab, &keystroke));
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 

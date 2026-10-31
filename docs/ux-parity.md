@@ -487,6 +487,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Reserved commands before the page | MVP | Chrome's reserved set | Chrome, AGENTS.md |
 | [x] | Other browser keys only if the page doesn't keep them | MVP | yes | Chrome, AGENTS.md |
+| [ ] | Who gets a shared key | MVP | a key the page got first and kept is ilo's pressed again in the same tab within 1 s, *interim*; per command, Settings › Shortcuts' Prefer Websites or Prefer ilo, the reserved commands without one. Built (#682), with `cargo test --lib`'s `a_shared_key_given_ilo_first_comes_before_the_page` and `a_shortcut_pressed_again_after_the_page_kept_it_is_ilos`. To tick: `./check.sh keys` on the Mac, its `command find via second press` line for ⌘F pressed twice in the page, `shortcut find prefers ilo` and `command find via page` with no `page saw cmd-f` after it, `shortcut find prefers websites`, and `shortcuts-prefer.png` | Arc 1.170.0 Settings › Shortcuts (#682) |
 | [x] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar | Arc (Ardia) |
 | [x] | Every command rebindable | MVP | Settings › Shortcuts | Dia P§22 |
 | [x] | Full table in the spec | MVP | ux-spec.md › Keyboard: every key marked built or with its feature | Dia, Chrome |
