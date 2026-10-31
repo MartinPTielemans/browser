@@ -46,6 +46,12 @@ serve
 # run before would leave the note closed here, and the runs after would open their pages there. It
 # forgets them before its first launch and after its last.
 forget_engine_sites
+# uBlock Origin reloads itself as it first starts in a profile, a few seconds in, and the core loads
+# it again (core/ad_block.cc). A request a page makes as it comes back can be lost, as the cookie
+# page's script once was (#948). Its storage is in the profile once it has started there.
+ublock=oghkpboejbohceocapipmnjifoklonij
+ublock_new=0
+[ -d "$profile_dir/Default/Local Extension Settings/$ublock" ] || ublock_new=1
 
 log="$out/clear.log"
 step=0
@@ -78,7 +84,20 @@ send move $page_point
 expect '^browser: link target none$' "the pointer leaving the link didn't report it"
 expect '^browser: link target hidden$' "the plate stayed after the pointer left the link"
 # Clear Cache and Refresh, from the View menu, and Clear Cookies and Refresh, from the command bar,
-# delete the page's site's cache and cookies and load the page again.
+# delete the page's site's cache and cookies and load the page again. The cookie page counts the
+# requests for its script, so where uBlock Origin is new it waits for it to leave the Extensions
+# menu as it reloads itself and to be back.
+ublock_back() {
+  awk -v id="$ublock" '/^browser: extensions menu/ { if (index($0, id)) { if (gone) back = 1 }
+    else gone = 1 } END { exit !back }' "$log"
+}
+if [ "$ublock_new" = 1 ]; then
+  for _ in $(seq 300); do
+    ublock_back && break
+    sleep 0.1
+  done
+  ublock_back || fail "uBlock Origin didn't come back to the Extensions menu after reloading itself"
+fi
 send key k
 expect "^browser: title $a cookie [^ ]* cache 1\$" "k in the served page didn't open the cookie page"
 send key c
