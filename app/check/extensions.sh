@@ -57,10 +57,12 @@ cat > "$clicked_dir/clicked.js" << 'EOF'
 EOF
 echo '<title>made</title>' > "$clicked_dir/made.html"
 echo '<title>command</title>' > "$clicked_dir/command.html"
+# Off the Mac Chrome keeps Alt+Shift+P (New Tab Group) and Ctrl+J (Downloads) for itself and gives
+# no extension a key of its own, so there they suggest others.
 cat > "$extensions/popup/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Popup", "version": "1",
  "action": {"default_popup": "popup.html"},
- "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+P"}}}}
+ "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+O", "mac": "Alt+Shift+P"}}}}
 EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the popup<script src="popup.js"></script></body>' > "$extensions/popup/popup.html"
@@ -68,7 +70,7 @@ echo 'chrome.action.setBadgeText({text: "1"});' > "$extensions/popup/popup.js"
 cat > "$extensions/third/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Third", "version": "1",
  "action": {"default_popup": "popup.html"}, "options_ui": {"page": "options.html"},
- "commands": {"jump": {"suggested_key": {"default": "Ctrl+J"}, "description": "Jump"}}}
+ "commands": {"jump": {"suggested_key": {"default": "Alt+Shift+J", "mac": "Ctrl+J"}, "description": "Jump"}}}
 EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the third popup</body>' > "$extensions/third/popup.html"
@@ -162,19 +164,38 @@ expect "^browser: run extension $popup ran\$" "a click on Check Popup's action d
 expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show"
 expect "^browser: extension actions $popup:1 $clicked:7\$" \
   "the badge Check Popup's popup gave it didn't show at once"
-send state
-[ "$key" != BrowserCoreNSWindow ] || fail "the extension's popup didn't take the keyboard"
 ../tools/window-screenshot.sh "$pid" "$out/extension-popup.png" || fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
-send state
-[ "$key" = BrowserCoreNSWindow ] ||
-  fail "the browser window didn't get the keyboard back from the popup: it's in $key"
+# Closes the popup: escape, where it has the keyboard. On Linux the core gives the keyboard to a
+# page alone, not to a popup (#708), so a click on its action again closes it, as in Chrome, or
+# on the page, $1, where it has none.
+close_popup() {
+  if [ "$(uname)" = Linux ] && [ -n "${1:-}" ]; then
+    send click $1
+    how="a click on the page"
+  elif [ "$(uname)" = Linux ]; then
+    send click $first_place
+    how="a click on its action"
+  else
+    send key escape
+    how=escape
+  fi
+  expect '^browser: extension popup none$' "$how didn't close the extension's popup"
+}
+if [ "$(uname)" = Linux ]; then
+  echo "skip: the extension's popup taking the keyboard and escape closing it: on Linux the core gives the keyboard to a page alone (#708)."
+  close_popup
+else
+  send state
+  [ "$key" != BrowserCoreNSWindow ] || fail "the extension's popup didn't take the keyboard"
+  close_popup
+  send state
+  [ "$key" = BrowserCoreNSWindow ] ||
+    fail "the browser window didn't get the keyboard back from the popup: it's in $key"
+fi
 # The Extensions menu runs a pinned one too, its popup hanging from its action.
 send menu "Check Popup"
 expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show from the menu"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+close_popup
 # A right-click on an action shows its menu: Manage Extension opens its details, and Unpin
 # unpins it. Check Clicked has no options.
 post rightclick $second_place
@@ -197,8 +218,8 @@ expect "^browser: run extension $third ran\$" "Check Third didn't run from the o
 expect "^browser: extension popup $third\$" "Check Third's popup didn't show"
 ../tools/window-screenshot.sh "$pid" "$out/extension-overflow-popup.png" ||
   fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close Check Third's popup"
+# Its action is behind the overflow button, so on Linux a click on the page closes it.
+close_popup "$page_point"
 # Check Clicked unpinned, Check Third has a place of its own, where a right-click unpins it.
 send menu "Pin to URL Field › Check Clicked"
 expect "^browser: unpin extension $clicked\$" "Pin to URL Field › Check Clicked didn't unpin it"
@@ -220,10 +241,16 @@ expect "^browser: extension actions $popup:1\$" "Unpin didn't take Check Third's
 send menu "Pin to URL Field › Check Popup"
 expect "^browser: unpin extension $popup\$" "Pin to URL Field › Check Popup didn't unpin it"
 expect '^browser: extension actions $' "unpinning the last action left it in the URL field"
-# Their keys, as Chrome gave them: those the extensions suggested, as no one set any.
+# Their keys, as Chrome gave them: those the extensions suggested, as no one set any. Off the Mac
+# Alt is ⌃ in the Mac's names (docs/ux-spec.md › Keyboard).
+if [ "$(uname)" = Darwin ]; then
+  popup_key="p alt shift" popup_named=alt-shift-p popup_said=⌥⇧P third_named=cmd-j
+else
+  popup_key="o alt shift" popup_named=ctrl-shift-o popup_said=Alt+Shift+O third_named=ctrl-shift-j
+fi
 grep -q "^browser: extension keys $clicked hello=shift-cmd-y suggested\$" "$log" &&
-  grep -q "^browser: extension keys $popup _execute_action=alt-shift-p suggested\$" "$log" &&
-  grep -q "^browser: extension keys $third jump=cmd-j suggested\$" "$log" ||
+  grep -q "^browser: extension keys $popup _execute_action=$popup_named suggested\$" "$log" &&
+  grep -q "^browser: extension keys $third jump=$third_named suggested\$" "$log" ||
   fail "the extensions' keys weren't the ones they suggested: $(grep 'extension keys' "$log")"
 # Keyboard commands, on the first tab's page.
 index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
@@ -245,21 +272,19 @@ expect "^browser: extension command $clicked hello ran via ui\$" \
 expect "^browser: loaded [0-9]* chrome-extension://$clicked/command.html\$" \
   "Check Clicked didn't hear its command from the UI"
 # An action's key runs it as a click on its button does, its popup with the keyboard.
-send key p alt shift
+send key $popup_key
 expect "^browser: extension command $popup _execute_action ran via ui\$" \
-  "⌥⇧P with the UI focused didn't run Check Popup's action"
-expect "^browser: extension popup $popup\$" "⌥⇧P with the UI focused didn't show the popup"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+  "$popup_said with the UI focused didn't run Check Popup's action"
+expect "^browser: extension popup $popup\$" "$popup_said with the UI focused didn't show the popup"
+close_popup "$page_point"
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after a click on the command page"
-send key p alt shift
+send key $popup_key
 expect "^browser: extension command $popup _execute_action ran via page\$" \
-  "⌥⇧P with the page focused didn't run Check Popup's action"
-expect "^browser: extension popup $popup\$" "⌥⇧P with the page focused didn't show the popup"
+  "$popup_said with the page focused didn't run Check Popup's action"
+expect "^browser: extension popup $popup\$" "$popup_said with the page focused didn't show the popup"
 ../tools/window-screenshot.sh "$pid" "$out/extension-key-popup.png" || fail "no window to capture"
-send key escape
-expect '^browser: extension popup none$' "escape didn't close the extension's popup"
+close_popup "$page_point"
 send menu "Manage Extensions…"
 expect '^browser: command manage-extensions via ui$' "Manage Extensions… didn't reach the UI"
 expect '^browser: loaded [0-9]* chrome://extensions/$' \
@@ -450,7 +475,10 @@ echo "ok: the Extensions menu lists the profile's extensions by name, and choosi
 # the real home.) A click on the extension's action asks the host, whose answer opens a page.
 home="$PWD/$out/native-home"
 rm -rf "$home"
-host_dir="$home/browsers/Google/Chrome Beta/NativeMessagingHosts"
+# Chrome Beta's folder is google-chrome-beta in ~/.config off the Mac.
+beta="Google/Chrome Beta"
+[ "$(uname)" = Darwin ] || beta=google-chrome-beta
+host_dir="$home/browsers/$beta/NativeMessagingHosts"
 mkdir -p "$host_dir" "$home/extension" "$home/profile"
 cat > "$home/host.sh" << 'EOF'
 #!/bin/sh

@@ -16,7 +16,7 @@ use crate::site_controls;
 use super::{
     MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
     ShellHandle, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X,
-    URL_FIELD_TOP, UserKeys, user_keys,
+    URL_FIELD_TOP, UserKeys, user_keys, written_as,
 };
 
 use crate::tokens::shell::extensions::HOST_ROOM;
@@ -578,7 +578,7 @@ impl Shell {
         let turn_on = id.clone();
         let asked = self.browser.tell(
             question,
-            Box::new(move |cx| {
+            Box::new(move |_, cx| {
                 let on = browser.turn_on_extension(profile, &turn_on, cx);
                 // check.sh waits for this line.
                 log!("browser: turn on extension {turn_on} {}", if on { "on" } else { "refused" });
@@ -613,7 +613,8 @@ fn command_for<'a>(
     })
 }
 
-/// `keystroke` as the browser's shortcuts write it, with the modifiers in their order.
+/// `keystroke` as the browser's shortcuts write it, with the modifiers in their order, and off the
+/// Mac in the Mac's names, as the core lists the extensions' keys.
 fn keystroke_text(keystroke: &Keystroke) -> String {
     let modifiers = &keystroke.modifiers;
     let mut text = String::new();
@@ -627,7 +628,8 @@ fn keystroke_text(keystroke: &Keystroke) -> String {
             text.push_str(name);
         }
     }
-    text + &keystroke.key
+    // Off the Mac the extensions' keys are written as the page's: cmd-y for ctrl-y.
+    written_as(&(text + &keystroke.key))
 }
 
 /// The Site Controls' grid, from the window's `pinned` and `unpinned` actions and the profile's
@@ -723,7 +725,7 @@ mod tests {
         );
         assert!(host.take().contains(&"crash told 3 wallet".to_string()));
         let turn_on = host.told_action.borrow_mut().take().expect("its action");
-        cx.update(turn_on);
+        cx.update(|cx| turn_on(Vec::new(), cx));
         assert!(host.take().contains(&"turn on 3 wallet".to_string()));
 
         // Told, the core reports it no longer crashed, and nothing asks again.
@@ -796,7 +798,7 @@ mod tests {
         let shell = cx.new(|cx| Shell::private_window(host.clone(), 1, "Private".into(), 7, cx));
         let listed = shell.update(cx, |shell, cx| {
             shell.set_extensions(7, extensions.clone(), cx);
-            let bar = shell.menu_bar();
+            let bar = shell.menu_bar(cx);
             bar.extensions.iter().map(|extension| extension.id.to_string()).collect::<Vec<_>>()
         });
         assert_eq!(listed, ["allowed"]);

@@ -21,6 +21,8 @@
 # bring a note, until View Archive answers it, which opens the Library there, and never again. A
 # tab put back unshown has no page until it's first shown, when its page loads scrolled where it
 # was. A quit with a page full screen saves its window windowed.
+# With Restore windows from last session off, a launch opens one window with no page, the Spaces
+# and pinned tabs back and the Today tabs in the archive.
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
 # tab's history, the tab each showed and the Space the window showed. Back and Forward on a tab put
@@ -211,8 +213,9 @@ expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitti
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 post key return
 expect "$downloads_question" "⌘Q didn't ask again"
-# The app's dialog takes a yes once it has been on screen a moment.
-[ "$(uname)" = Darwin ] || expect '^browser: dialog settled$' "the dialog asking about the download didn't settle"
+# The app's dialog takes a yes to Chrome's question once it has been on screen a moment.
+[ "$(uname)" = Darwin ] ||
+  expect '^browser: dialog takes input$' "the dialog asking about the download never took input"
 # Quit is the driver's last command: the app doesn't report it done.
 post choose Quit
 exec 3>&-
@@ -367,6 +370,10 @@ expect "^browser: menu shown $(cased 'Images (checked), Videos (checked), Other 
   "the Library button's menu didn't untick Other Files"
 send choose "$(cased 'Other Files')"
 expect '^browser: hover kinds images, videos, other files, captures$' "Other Files didn't turn on"
+# A finished download's menu, with Chrome's word off the Mac for the file manager there.
+file_manager=Finder
+[ "$(uname)" = Darwin ] || file_manager=Folder
+finished_menu=$(cased "Open, Show in $file_manager, Move to Trash, Remove from List, Clear List")
 # Remove from List in the cancelled download's menu takes it off the list, and Clear List in the
 # finished one's takes off every download that isn't running and keeps their files.
 send key j cmd shift
@@ -380,7 +387,7 @@ send choose "$(cased 'Remove from List')"
 expect "^browser: download $s Remove via download menu\$" "Remove from List didn't reach it"
 expect "^browser: downloads $((listed - 1))\$" "Remove from List didn't take the download off"
 post rightclick 300 111
-expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
+expect "^browser: menu shown $finished_menu\$" \
   "a right-click on the finished download's row didn't show its menu"
 send choose "$(cased 'Clear List')"
 expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
@@ -404,6 +411,10 @@ press=$((step + 1))
 send press 300 111
 send dragto 300 140
 expect "^browser: download $t drag\$" "dragging the download's row didn't start the system's drag"
+# Off the Mac a user holds the drag until the Library has gone, as the release waits for it there.
+# On the Mac the release lands as the Library closes, where nothing takes the file, not on the page.
+[ "$(uname)" = Darwin ] ||
+  expect '^browser: library hidden$' "the Library didn't close for the download's drag"
 send release 300 140
 # No real button holds the system's drag, so it may end before the release reaches it.
 dragged() {
@@ -427,7 +438,7 @@ send move 24 $((height - 25))
 expect '^browser: recent downloads shown 1$' \
   "resting on the Library button didn't show the second download"
 post rightclick 120 $((height - 78))
-expect "^browser: menu shown $(cased 'Open, Show in Finder, Move to Trash, Remove from List, Clear List')\$" \
+expect "^browser: menu shown $finished_menu\$" \
   "a right-click on the recent download's row didn't show its menu"
 send choose "$(cased 'Move to Trash')"
 expect "^browser: download $t Trash via download menu\$" "Move to Trash didn't reach the download"
@@ -634,6 +645,46 @@ exec 3>&-
 quit
 grep -q '"fullscreen": *true' "$saved" &&
   fail "the window was saved full screen for the page that was full screen at the quit"
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so, unless a page took it there. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and its right-click menu picks the kinds it lists, and Media plays a video downloaded in its tile while the Library shows it, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays; the first ones bring a note, until View Archive answers it, opening Archived Tabs, and none after that ($out/archive-note.png). A tab put back unshown has no page until it's shown, when it loads scrolled where it was."
+# With Restore windows from last session turned off in Settings › Advanced, a launch opens one
+# window showing no page, as ⌘N's does: the Space comes back with its pinned tab, and its Today tab
+# goes in the archive. The second window doesn't come back (#684).
+log="$out/fresh-a.log"
+step=0
+rm -f "$saved" "$launch_frame"
+BROWSER_DRIVE=1 BROWSER_URL="${site}?pinned" "$browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+p=$(today)
+send key d cmd
+expect "^browser: pinned $p\$" "⌘D didn't pin the tab"
+open_from_bar example.com
+send key n cmd
+expect '^browser: window opened [0-9]*$' "⌘N didn't open a second window"
+send menu Settings…
+expect '^browser: settings shown ' "Settings… didn't show Settings"
+send clickkey 491 60
+expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+send clickkey 592 209
+expect '^browser: restore windows off$' \
+  "a click on Restore windows from last session didn't turn it off"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+exec 3>&-
+quit
+grep -q '"restore_windows": *false' "$saved" || fail "Restore windows off wasn't saved"
+log="$out/fresh-b.log"
+BROWSER_DRIVE=1 "$browser" < /dev/null > "$log" 2>&1 &
+pid=$!
+await '^browser: restored in ' || fail "a launch with Restore windows off didn't bring the Spaces back"
+await "^browser: pinned $p\$" || fail "the pinned tab didn't come back with Restore windows off"
+await '^browser: archive 1 tabs$' || fail "the Today tab didn't go in the archive with Restore windows off"
+../tools/window-screenshot.sh "$pid" "$out/fresh-window.png" || fail "no window to capture"
+[ -z "$(today)" ] || fail "Today is \"$(today)\" with Restore windows off, not empty"
+grep -q '^browser: loaded ' "$log" && fail "a page loaded at a launch with Restore windows off"
+[ "$(grep -c '^browser: window opened ' "$log")" = 1 ] ||
+  fail "the second window came back with Restore windows off"
+quit
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so, unless a page took it there. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and its right-click menu picks the kinds it lists, and Media plays a video downloaded in its tile while the Library shows it, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays; the first ones bring a note, until View Archive answers it, opening Archived Tabs, and none after that ($out/archive-note.png). A tab put back unshown has no page until it's shown, when it loads scrolled where it was. With Restore windows from last session off, a launch opens one window with no page, the pinned tab back and the Today tab in the archive. Window: $out/fresh-window.png"
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png, $out/unloaded-scrolled.png,"
 echo "  $out/recent-downloads.png, $out/library-button-menu.png, $out/media-video.png"

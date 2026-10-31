@@ -38,7 +38,7 @@ log="$out/preview.log"
 step=0
 rm -f "$saved"
 # Meet's host goes to the run's server, which speaks no TLS, so a call's link never reaches Google.
-BROWSER_DRIVE=1 BROWSER_URL="${site}preview.html" "$app/Contents/MacOS/Browser" \
+BROWSER_DRIVE=1 BROWSER_URL="${site}preview.html" "$browser" \
   --host-resolver-rules="MAP meet.google.com 127.0.0.1:$port" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -113,9 +113,12 @@ in_order "after Esc" '^browser: link preview closing (escape)$' '^browser: link 
   '^browser: link preview hidden$' "^browser: tab $p closed\$"
 still_home "after Esc"
 
-# ⌘↩ keeps it as the top Today tab, shown, as it is: its page doesn't load again.
+# ⇧⌘C copies the preview's address, not the pinned tab's under it, as Arc's Peek does, and the
+# preview stays. ⌘↩ keeps it as the top Today tab, shown, as it is: its page doesn't load again.
 open_preview "for ⌘↩"
 kept=$p
+send key c cmd shift
+expect "^browser: copied $target\$" "⇧⌘C in the preview didn't copy its page's address"
 send key return cmd
 in_order "after ⌘↩" '^browser: link preview keeping (cmd-enter)$' "^browser: link preview kept $p\$"
 expect "^browser: today $p\$" "⌘↩ didn't put the preview's tab at the top of Today: Today is \"$(today)\""
@@ -232,5 +235,5 @@ none_since '^browser: link preview ' || fail "with previews off, the link opened
 
 exec 3>&-
 quit
-echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. A Google Meet link opens as a tab of the Space shown instead. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png, $out/preview-meeting.png"
+echo "ok: a link to another site in a pinned tab or a favorite opens in a preview over the window, which Esc, a click on the dim and ⌘W close, with its page, leaving the tab and the page behind as they were, ⇧⌘C copies the address of, and ⌘↩ keeps as the top Today tab, shown, without loading it again. ⌘Z reopens a closed one over its tab, and so does ⇧⌘T. A Google Meet link opens as a tab of the Space shown instead. With the Settings switch off, the link goes in the pinned tab. Windows: $out/preview-open.png, $out/preview-kept.png, $out/preview-reopened.png, $out/preview-meeting.png"
 echo "  The first preview's first frame came $first_frame after the click reached the UI."

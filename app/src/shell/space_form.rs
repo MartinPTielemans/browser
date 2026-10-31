@@ -5,8 +5,8 @@ use crate::tokens::text;
 use std::time::Instant;
 
 use gpui::{
-    Context, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window, div, point, prelude::*,
-    px, svg,
+    AnyElement, Context, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window, div, point,
+    prelude::*, px, svg,
 };
 
 use super::{
@@ -15,7 +15,8 @@ use super::{
     FORM_LABEL_X, FORM_LEAVE, FORM_LEAVE_FIELD, FORM_LEAVE_ROWS, FORM_LEAVE_TITLE, FORM_PILL,
     FORM_PILL_HEIGHT, FORM_PILL_LEFT, FORM_PILL_RIGHT, FORM_PILL_X, FORM_PLACEHOLDER, FORM_PLATE,
     FORM_PLATE_HEIGHT, FORM_PROFILE_TOP, FORM_RADIUS, FORM_SINK, FORM_TEXT, FORM_TEXT_X,
-    FORM_THEME_TOP, FORM_TITLE_HEIGHT, FORM_TITLE_TOP, HOVERED, SECONDARY, Shell, SpaceForm,
+    FORM_THEME_TOP, FORM_TITLE_HEIGHT, FORM_TITLE_TOP, HOVERED, Naming, SECONDARY, Shell,
+    SpaceForm,
 };
 use crate::{text_input::TextInput, theme_picker};
 
@@ -39,9 +40,12 @@ impl Shell {
             None => {
                 // Arc's name for a Space the user doesn't name.
                 let name = format!("Space {}", self.spaces.len() + 1);
-                // In the profile of the Space it's made from (Arc).
-                let profile = self.shown_space().map_or(0, |space| space.profile);
-                let space = self.browser.create_space(&name, profile, cx);
+                // In the profile of the Space it's made from, and right after it (Arc), but
+                // after the others from an agent's.
+                let shown = self.shown_space();
+                let profile = shown.map_or(0, |space| space.profile);
+                let after = shown.filter(|space| space.agent.is_empty()).map_or(0, |space| space.id);
+                let space = self.browser.create_space(&name, profile, after, cx);
                 let name = cx.new(|cx| {
                     TextInput::new("Space name", cx).placeholder_color(self.palette.text(FORM_PLACEHOLDER))
                 });
@@ -88,7 +92,7 @@ impl Shell {
         let (space, tab) = (form.space, form.tab);
         self.browser.rename_space(space, &name, cx);
         if let Some(tab) = tab {
-            self.move_to_space(tab, space, cx);
+            self.move_to_space(tab, space, false, cx);
         }
         self.leaving_form = self.form.take().map(|form| (form, Instant::now()));
         window.focus(&self.focus_handle, cx);
@@ -196,7 +200,7 @@ impl Shell {
             .text_color(self.palette.text(FORM_TEXT))
             .child(form.name.clone());
         // A row with a glyph and a label, whose menu a press shows while the form is up.
-        let row = |id: &'static str, top: f32, glyph: &'static str, label: &'static str| {
+        let row = |id: &'static str, top: f32, glyph: &'static str, label: AnyElement| {
             plate(id)
                 .top(px(top + rows_sink))
                 .opacity(rows_opacity)
@@ -206,7 +210,16 @@ impl Shell {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(self.palette.text(FORM_TEXT))
                 .child(svg().path(glyph).size(px(FORM_GLYPH)).text_color(self.palette.glyph(FORM_GLYPH_COLOR)))
-                .child(div().ml(px(FORM_LABEL_X - FORM_GLYPH_X - FORM_GLYPH / 2.)).child(label))
+                .child(
+                    div()
+                        .ml(px(FORM_LABEL_X - FORM_GLYPH_X - FORM_GLYPH / 2.))
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .child(label),
+                )
         };
         let profile = (self.spaces.iter().find(|each| each.id == form.space))
             .and_then(|space| self.profiles.iter().find(|(id, _)| *id == space.profile))
@@ -232,17 +245,28 @@ impl Shell {
                     .size(px(FORM_CHEVRON))
                     .text_color(self.palette.text(FORM_TEXT)),
             );
+        // A new profile's name, which the row holds in a field until it's kept.
+        let naming = (self.renaming.as_ref())
+            .filter(|renaming| matches!(renaming.naming, Naming::Profile(_)) && left.is_none())
+            .map(|renaming| self.naming_field(renaming, cx).into_any_element());
         let menu = |show: fn(&mut Self, Point<Pixels>, &mut Context<Self>)| {
             cx.listener(move |shell, event: &MouseDownEvent, _, cx| show(shell, event.position, cx))
         };
         // Under the pointer a row takes the list's hover fill, while a press still shows its menu.
-        let profile_row = row("space-profile", FORM_PROFILE_TOP, "icons/user.svg", "Profile")
-            .child(pill)
-            .when(left.is_none(), |row| {
-                row.hover(|style| style.bg(self.palette.plate(HOVERED)))
-                    .on_mouse_down(MouseButton::Left, menu(Self::form_profile_menu))
-            });
-        let theme_row = row("space-theme", FORM_THEME_TOP, "icons/paintbrush.svg", "Choose a Theme")
+        let profile_row = match naming {
+            Some(field) => row("space-profile", FORM_PROFILE_TOP, "icons/user.svg", field),
+            None => {
+                let label = "Profile".into_any_element();
+                row("space-profile", FORM_PROFILE_TOP, "icons/user.svg", label)
+                    .child(pill)
+                    .when(left.is_none(), |row| {
+                        row.hover(|style| style.bg(self.palette.plate(HOVERED)))
+                            .on_mouse_down(MouseButton::Left, menu(Self::form_profile_menu))
+                    })
+            }
+        };
+        let theme_label = "Choose a Theme".into_any_element();
+        let theme_row = row("space-theme", FORM_THEME_TOP, "icons/paintbrush.svg", theme_label)
             .when(left.is_none(), |row| {
                 row.hover(|style| style.bg(self.palette.plate(HOVERED)))
                     .on_mouse_down(MouseButton::Left, menu(Self::form_theme_picker))
@@ -324,5 +348,142 @@ impl Shell {
             let anchor = point(right, FORM_THEME_TOP + FORM_PLATE_HEIGHT / 2.);
             self.show_theme_picker(space, anchor, cx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{Entity, TestAppContext, VisualTestContext};
+
+    use crate::shell::{Command, Shell, SpaceEntry, recorder::Recorder};
+
+    fn space(id: u64, name: &str) -> SpaceEntry {
+        (id, name.to_string().into(), None, 1, "".into(), "".into(), "".into())
+    }
+
+    /// A window showing the New Space form for Space 7, in the profile Default, with its name
+    /// typed and the edits so far taken.
+    fn form(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+        cx.update(|cx| {
+            crate::shell::commands::bind_keys(cx);
+            crate::text_input::bind_keys(cx);
+        });
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        cx.update(|window, _| window.activate_window());
+        shell.update(cx, |shell, cx| {
+            shell.set_profiles(vec![(1, "Default".into())], cx);
+            shell.set_spaces(vec![space(1, "Home")], cx);
+            shell.set_space(1, cx);
+            shell.run(Command::NewSpace, "menu", cx);
+            // As the core reports the Space made and shown.
+            shell.set_spaces(vec![space(1, "Home"), space(7, "Space 2")], cx);
+            shell.set_space(7, cx);
+        });
+        cx.run_until_parked();
+        cx.simulate_input("Trips");
+        host.take_edits();
+        (shell, cx, host)
+    }
+
+    /// New Profile in the form, as its Profile row's menu and Spaces › Change Profile give it.
+    fn new_profile(shell: &Entity<Shell>, cx: &mut VisualTestContext) {
+        shell.update(cx, |shell, cx| shell.run(Command::ChangeProfile(None), "menu", cx));
+        cx.run_until_parked();
+    }
+
+    fn naming(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> bool {
+        shell.read_with(cx, |shell, _| shell.renaming.is_some())
+    }
+
+    /// The form's name has the keyboard: what's typed goes on its name.
+    fn typing_the_space_name(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> bool {
+        cx.simulate_input("!");
+        shell.read_with(cx, |shell, cx| {
+            shell.form.as_ref().is_some_and(|form| form.name.read(cx).text() == "Trips!")
+        })
+    }
+
+    /// New Profile makes the profile numbered and puts the Space in it, with the Profile row a
+    /// field holding the name, all selected: typing replaces it, and ↩ keeps what's typed and gives
+    /// the Space's name the keyboard back, without making the Space.
+    #[gpui::test]
+    fn a_new_profile_is_named_in_the_profile_row(cx: &mut TestAppContext) {
+        let (shell, cx, host) = form(cx);
+        new_profile(&shell, cx);
+        assert_eq!(host.take_edits(), ["create profile Profile 2", "space 7 profile 9"]);
+        assert!(naming(&shell, cx), "the Profile row isn't a field");
+        cx.simulate_input("Work");
+        cx.simulate_keystrokes("enter");
+        assert!(!naming(&shell, cx), "↩ didn't close the field");
+        assert_eq!(host.take_edits(), ["rename profile 9 Work"]);
+        cx.run_until_parked();
+        assert!(typing_the_space_name(&shell, cx), "the Space's name didn't get the keyboard back");
+        assert!(shell.read_with(cx, |shell, _| shell.form.is_some()), "↩ made the Space");
+    }
+
+    /// Escape keeps the numbered name, and so does a field left empty.
+    #[gpui::test]
+    fn escape_or_an_empty_field_keeps_the_numbered_name(cx: &mut TestAppContext) {
+        let (shell, cx, host) = form(cx);
+        new_profile(&shell, cx);
+        host.take_edits();
+        cx.simulate_input("Work");
+        cx.simulate_keystrokes("escape");
+        assert!(!naming(&shell, cx), "escape didn't close the field");
+        assert!(shell.read_with(cx, |shell, _| shell.form.is_some()), "escape closed the form");
+        cx.run_until_parked();
+        assert!(typing_the_space_name(&shell, cx), "the Space's name didn't get the keyboard back");
+
+        new_profile(&shell, cx);
+        host.take_edits();
+        cx.simulate_keystrokes("backspace enter");
+        assert!(!naming(&shell, cx), "↩ didn't close the field");
+        assert!(host.take_edits().is_empty(), "an empty field renamed the profile");
+    }
+
+    /// A click elsewhere keeps what's typed, and leaves the keyboard where the click put it.
+    #[gpui::test]
+    fn leaving_the_field_keeps_the_name(cx: &mut TestAppContext) {
+        let (shell, cx, host) = form(cx);
+        new_profile(&shell, cx);
+        host.take_edits();
+        cx.simulate_input("Work");
+        shell.update_in(cx, |shell, window, cx| window.focus(&shell.focus_handle, cx));
+        cx.run_until_parked();
+        assert!(!naming(&shell, cx), "the field stayed");
+        assert_eq!(host.take_edits(), ["rename profile 9 Work"]);
+        assert!(
+            shell.read_with(cx, |shell, _| !shell.focus_form),
+            "the Space's name took the keyboard from where the click put it"
+        );
+    }
+
+    /// Outside the form, New Profile asks for the name in the dialog first, the numbered one in its
+    /// field: Create makes the profile with what's typed, or the numbered name if it's empty, and
+    /// puts the Space in it. Cancel makes none.
+    #[gpui::test]
+    fn elsewhere_the_dialog_asks_for_the_name(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_profiles(vec![(1, "Default".into())], cx);
+            shell.set_spaces(vec![space(1, "Home")], cx);
+            shell.set_space(1, cx);
+        });
+        new_profile(&shell, cx);
+        assert_eq!(*host.told.borrow(), ["New Profile: Create / Cancel / "]);
+        assert!(host.take_edits().is_empty(), "a profile was made before the name");
+        let create = host.told_action.borrow_mut().take().expect("its action");
+        cx.update(|_, cx| create(vec![" Work ".into()], cx));
+        assert_eq!(host.take_edits(), ["create profile Work", "space 1 profile 9"]);
+        new_profile(&shell, cx);
+        let create = host.told_action.borrow_mut().take().expect("its action");
+        cx.update(|_, cx| create(vec![String::new()], cx));
+        assert_eq!(host.take_edits(), ["create profile Profile 2", "space 1 profile 9"]);
     }
 }

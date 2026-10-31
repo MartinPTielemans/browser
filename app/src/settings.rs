@@ -6,6 +6,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -23,7 +24,7 @@ use browser::text_input::{self, TextInput};
 use browser::widevine::{self, Widevine, WidevineRow};
 use gpui::{
     AnyElement, App, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
-    Global, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
+    Global, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, PathPromptOptions, Rgba, SharedString, Subscription,
     TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -53,7 +54,6 @@ use browser::tokens::settings::FIRST;
 use browser::tokens::settings::BOX_GAP;
 use browser::tokens::settings::PADDING;
 use browser::tokens::settings::RADIUS;
-use browser::tokens::settings::SWITCH_HEIGHT;
 use browser::tokens::settings::CONTROL_HEIGHT;
 use browser::tokens::settings::CONTROL_PADDING;
 use browser::tokens::settings::CONTROL_RADIUS;
@@ -83,6 +83,8 @@ use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::OPTION_REVEAL_TILE;
+use browser::tokens::settings::RESTORE_WINDOWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::AGENTS_TILE;
@@ -224,9 +226,11 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Reset all tabs in this Space", Keys::Of(Command::ResetSpaceTabs)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
+            ("Paste URL as New Tab", Keys::Of(Command::PasteUrlAsTab)),
             ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
             ("New Folder", Keys::Of(Command::NewFolder)),
             ("Collapse All Folders", Keys::Of(Command::CollapseFolders)),
+            ("Expand All Folders", Keys::Of(Command::ExpandFolders)),
         ],
     ),
     (
@@ -256,7 +260,15 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
-            ("Spaces 1 to 9", Keys::Span("ctrl-1", "ctrl-9")),
+            ("Go to Space 1", Keys::Of(Command::SelectSpace(0))),
+            ("Go to Space 2", Keys::Of(Command::SelectSpace(1))),
+            ("Go to Space 3", Keys::Of(Command::SelectSpace(2))),
+            ("Go to Space 4", Keys::Of(Command::SelectSpace(3))),
+            ("Go to Space 5", Keys::Of(Command::SelectSpace(4))),
+            ("Go to Space 6", Keys::Of(Command::SelectSpace(5))),
+            ("Go to Space 7", Keys::Of(Command::SelectSpace(6))),
+            ("Go to Space 8", Keys::Of(Command::SelectSpace(7))),
+            ("Go to Space 9", Keys::Of(Command::SelectSpace(8))),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
@@ -268,6 +280,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
             ("View Downloads", Keys::Of(Command::ViewDownloads)),
             ("View History", Keys::Of(Command::ViewHistory)),
+            ("Clear Browsing Data", Keys::Of(Command::ClearBrowsingData)),
         ],
     ),
     (
@@ -293,7 +306,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Developer Tools", Keys::Of(Command::DevTools)),
             ("Inspect Elements", Keys::Of(Command::InspectElements)),
             ("JavaScript Console", Keys::Of(Command::JavaScriptConsole)),
+            ("Toggle Developer Mode", Keys::Of(Command::ToggleDeveloperMode)),
             ("Open Task Manager", Keys::Of(Command::TaskManager)),
+            ("Record a Trace", Keys::Of(Command::RecordTrace)),
             ("Manage Extensions", Keys::Of(Command::ManageExtensions)),
             ("Add Extension", Keys::Of(Command::AddExtension)),
         ],
@@ -312,12 +327,15 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     ),
 ];
 
-/// The pop-up buttons in General, top to bottom after the switch.
+/// The pop-up buttons.
 #[derive(Clone, Copy, PartialEq)]
 enum Popup {
     ArchiveAfter,
     Favorites,
     PasswordsProfile,
+    /// A profile's, in the Profiles tab.
+    SearchEngine(u64),
+    ProfileArchiveAfter(u64),
 }
 
 pub struct Settings {
@@ -342,12 +360,17 @@ pub struct Settings {
     default_browser: Entity<DefaultBrowser>,
     /// The sites with ad blocking off, as General last logged them for check.sh.
     off_sites_logged: Option<String>,
-    /// Where each Turn On has been logged, so it logs only where it moves to.
-    turn_on_logged: Rc<RefCell<Vec<String>>>,
+    /// Where each control check.sh clicks has been logged, so it logs only where it moves to.
+    drawn_logged: Rc<RefCell<Vec<String>>>,
+    /// Where each pop-up button's text starts, as last drawn, for its menu to put the chosen
+    /// item's over.
+    popup_texts: Rc<RefCell<Vec<(Popup, gpui::Point<gpui::Pixels>)>>>,
     /// The profile whose logins the Passwords tab lists, once the user has picked one.
     passwords_profile: Option<u64>,
     /// Each profile's logins, as the core last told them.
     logins: HashMap<u64, Vec<Login>>,
+    /// Each profile's saved addresses and cards, as the core last told them.
+    autofill: HashMap<u64, Vec<Saved>>,
     /// The profiles whose logins were asked for since the Passwords tab showed.
     asked: HashSet<u64>,
     /// Made when the tab first shows, so the other browsers' files are read only once the user
@@ -425,6 +448,21 @@ struct Profile {
     spaces: usize,
     /// As the core has it: not the one it started with, nor one a Space or a favorite is in.
     deletable: bool,
+    /// Whether one of the user's Spaces is in it, for Clear Browsing Data's tab.
+    users_space: bool,
+}
+
+/// An address or a card a profile keeps, as the Passwords tab lists it. A card's number stays in
+/// the core.
+#[derive(Clone)]
+pub struct Saved {
+    /// An address's name, or its email; a card's nickname, or the name on it.
+    pub title: SharedString,
+    /// An address's first line and city; a card's network and expiry.
+    pub detail: SharedString,
+    pub card: bool,
+    /// The core's name for it.
+    pub key: SharedString,
 }
 
 /// A site the user turned ad blocking off on, as General lists it.
@@ -459,6 +497,10 @@ fn off_sites() -> Vec<OffSite> {
 fn profiles() -> Vec<Profile> {
     let in_space = |space| unsafe { bc::bc_space_profile(space) };
     let spaces: Vec<u64> = crate::ids(bc::bc_spaces).into_iter().map(in_space).collect();
+    let users = crate::ids(bc::bc_spaces).into_iter().filter(|&space| {
+        crate::name(bc::bc_space_agent, space).is_empty()
+    });
+    let users: Vec<u64> = users.map(in_space).collect();
     let of_tab = |tab| unsafe { bc::bc_tab_profile(tab) };
     let favorites: Vec<u64> = crate::ids(bc::bc_favorites).into_iter().map(of_tab).collect();
     (crate::ids(bc::bc_profiles).into_iter().enumerate())
@@ -469,9 +511,46 @@ fn profiles() -> Vec<Profile> {
                 name: crate::name(bc::bc_profile_name, id),
                 spaces: count,
                 deletable: index > 0 && count == 0 && !favorites.contains(&id),
+                users_space: users.contains(&id),
             }
         })
         .collect()
+}
+
+/// The archive pop-up's text for `seconds`, and which of ARCHIVE_AFTER it is.
+fn archive_after(seconds: f64) -> (SharedString, Option<usize>) {
+    let chosen = ARCHIVE_AFTER.iter().position(|&(_, each)| each == seconds);
+    let label = match chosen {
+        Some(index) => ARCHIVE_AFTER[index].0.into(),
+        None => format!("{:.0} hours", seconds / 3600.).into(),
+    };
+    (label, chosen)
+}
+
+/// The search engines `profile`'s default is picked from, each its keyword and name, and the
+/// keyword of the default, or None while it loads or a policy or an extension picks it.
+fn search_engines(profile: u64) -> Option<(Vec<(SharedString, SharedString)>, SharedString)> {
+    let engines = crate::name(bc::bc_profile_search_engines, profile);
+    let engines: Vec<(SharedString, SharedString)> = (engines.lines())
+        .filter_map(|line| line.split_once('\t'))
+        .map(|(keyword, name)| (keyword.to_string().into(), name.to_string().into()))
+        .collect();
+    (!engines.is_empty()).then(|| (engines, crate::name(bc::bc_profile_search_engine, profile)))
+}
+
+/// Where `profile`'s downloads go, with ~ for the home folder, or None while it loads.
+fn download_folder(profile: u64) -> Option<SharedString> {
+    let folder = crate::name(bc::bc_profile_download_folder, profile);
+    if folder.is_empty() {
+        return None;
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    Some(match folder.strip_prefix(home.as_str()) {
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            format!("~{rest}").into()
+        }
+        _ => folder,
+    })
 }
 
 struct SettingsWindow(WindowHandle<Settings>);
@@ -532,6 +611,20 @@ pub fn logins_changed(profile: u64, logins: Vec<Login>, cx: &mut App) {
     if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
         let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
             settings.logins.insert(profile, logins);
+            cx.notify();
+        };
+        window.update(cx, changed).ok();
+    }
+}
+
+/// The profile's saved addresses and cards, which the Passwords tab asked the core for.
+pub fn autofill_changed(profile: u64, saved: Vec<Saved>, cx: &mut App) {
+    // check.sh waits for this line, which names nothing saved.
+    let cards = saved.iter().filter(|each| each.card).count();
+    log!("browser: autofill {profile}: {} addresses, {cards} cards", saved.len() - cards);
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.autofill.insert(profile, saved);
             cx.notify();
         };
         window.update(cx, changed).ok();
@@ -690,9 +783,11 @@ fn open(cx: &mut App) {
                 refused: None,
                 search,
                 off_sites_logged: None,
-                turn_on_logged: Rc::default(),
+                drawn_logged: Rc::default(),
+                popup_texts: Rc::default(),
                 passwords_profile: None,
                 logins: HashMap::new(),
+                autofill: HashMap::new(),
                 asked: HashSet::new(),
                 import: None,
             }
@@ -837,18 +932,13 @@ impl Settings {
     }
 
     fn general(&self, off_sites: &[OffSite], accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
-        let after = unsafe { bc::bc_archive_after() };
-        let chosen = ARCHIVE_AFTER.iter().position(|&(_, seconds)| seconds == after);
-        let label: SharedString = match chosen {
-            Some(index) => ARCHIVE_AFTER[index].0.into(),
-            None => format!("{:.0} hours", after / 3600.).into(),
-        };
+        let (label, chosen) = archive_after(unsafe { bc::bc_archive_after() });
         let archive = self.popup(
             Popup::ArchiveAfter,
             label,
             POPUP_WIDTH,
             cx.listener(move |settings, _, window, cx| {
-                settings.choose_archive_after(chosen, window, cx)
+                settings.choose_archive_after(None, chosen, window, cx)
             }),
         );
         let scope = favorites_scope();
@@ -873,10 +963,11 @@ impl Settings {
             // Unload under the archive's time, as both are about tabs left unseen.
             .child(group(&RowLook::settings(), [
                 row(None, "Warn before quitting", warn),
-                row(None, "Archive tabs after", archive.into_any_element()),
+                // Each profile then keeps its own, in Profiles.
+                row(None, "New profiles archive tabs after", archive.into_any_element()),
                 row(None, "Unload tabs you haven't used in a while", unload),
                 row(None, "Favorites", favorites.into_any_element()),
-                // Last, so popup_text finds the pop-ups where they were.
+                // Last, so the checks find the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
             ]))
             .children(self.off_sites(off_sites, cx))
@@ -892,21 +983,7 @@ impl Settings {
         }
         let rows = sites.iter().enumerate().map(|(index, off)| {
             let (profile, site) = (off.profile, off.site.clone());
-            let (logged, named) = (self.turn_on_logged.clone(), off.site.clone());
-            // check.sh clicks Turn On where this line says it is.
-            let at = canvas(
-                |_, _, _| {},
-                move |bounds, _, _, _| {
-                    let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
-                    let line = format!("browser: settings turn on {named} at {x:.0} {y:.0}");
-                    if !logged.borrow().contains(&line) {
-                        log!("{line}");
-                        logged.borrow_mut().push(line);
-                    }
-                },
-            )
-            .absolute()
-            .inset_0();
+            let at = self.drawn(format!("turn on {}", off.site));
             let turn_on = button(&RowLook::settings(), ("ad-blocking-on", index as u64), "Turn On").relative().child(at);
             let turn_on = turn_on.on_click(cx.listener(move |_, _, _, cx| {
                 let Ok(text) = CString::new(site.to_string()) else {
@@ -969,6 +1046,29 @@ impl Settings {
 
     /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
     /// pressed while its menu is open.
+    /// Logs where the element it fills is drawn, its centre in the window, as "browser: settings
+    /// `what` at x y", each time it moves, for check.sh to click it there. Put it in a relative one.
+    fn drawn(&self, what: String) -> gpui::Canvas<()> {
+        let logged = self.drawn_logged.clone();
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, _, _| {
+                let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
+                let line = format!("browser: settings {what} at {x:.0} {y:.0}");
+                let mut logged = logged.borrow_mut();
+                // Once a place: forget where it was drawn before.
+                let at = format!("browser: settings {what} at ");
+                if !logged.contains(&line) {
+                    log!("{line}");
+                    logged.retain(|each| !each.starts_with(&at));
+                    logged.push(line);
+                }
+            },
+        )
+        .absolute()
+        .inset_0()
+    }
+
     fn popup(
         &self,
         which: Popup,
@@ -976,7 +1076,20 @@ impl Settings {
         width: f32,
         press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
     ) -> gpui::Div {
+        let texts = self.popup_texts.clone();
+        let at = canvas(
+            |_, _, _| {},
+            move |bounds, _, _, _| {
+                let text = point(bounds.origin.x + px(CONTROL_PADDING), bounds.origin.y);
+                let mut texts = texts.borrow_mut();
+                texts.retain(|&(each, _)| each != which);
+                texts.push((which, text));
+            },
+        )
+        .absolute()
+        .inset_0();
         div()
+            .relative()
             .flex_none()
             .w(px(width))
             .mr(px(POPUP_END))
@@ -989,6 +1102,7 @@ impl Settings {
             .rounded(px(CONTROL_RADIUS))
             .bg(rgb(if self.choosing == Some(which) { CONTROL_PRESSED } else { CONTROL }))
             .on_mouse_down(MouseButton::Left, press)
+            .child(at)
             .child(label)
             .child(
                 svg().path("icons/chevrons-up-down.svg").size(px(CHEVRONS)).text_color(rgb(TEXT)),
@@ -1019,14 +1133,18 @@ impl Settings {
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
             }))
+            .relative()
             .child(switch(&RowLook::settings(), on, slid, accent))
+            .child(self.drawn(format!("switch {name}")))
             .into_any_element()
     }
 
     /// Opens the archive's pop-up menu over its button, with the time chosen now, `chosen`, over
-    /// the button's text, as a pop-up button does, and sets the time picked.
+    /// the button's text, as a pop-up button does, and sets the time picked: `profile`'s, or with
+    /// None, the one new profiles start with.
     fn choose_archive_after(
         &mut self,
+        profile: Option<u64>,
         chosen: Option<usize>,
         window: &Window,
         cx: &mut Context<Self>,
@@ -1039,14 +1157,52 @@ impl Settings {
             .collect();
         let settings = cx.weak_entity();
         let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
-            if let Some((title, seconds)) = picked.map(|index| ARCHIVE_AFTER[index]) {
-                // check.sh waits for this line.
-                log!("browser: archive tabs after {title}");
-                unsafe { bc::bc_set_archive_after(seconds) };
+            match (picked.map(|index| ARCHIVE_AFTER[index]), profile) {
+                (Some((title, seconds)), Some(profile)) => {
+                    // check.sh waits for this line.
+                    log!("browser: profile {profile} archive tabs after {title}");
+                    unsafe { bc::bc_profile_set_archive_after(profile, seconds) };
+                }
+                (Some((title, seconds)), None) => {
+                    // check.sh waits for this line.
+                    log!("browser: archive tabs after {title}");
+                    unsafe { bc::bc_set_archive_after(seconds) };
+                }
+                (None, _) => {}
             }
             settings.update(cx, |settings, cx| settings.chose(cx)).ok();
         });
-        self.pop_up(Popup::ArchiveAfter, items, picked, window, cx);
+        let which = profile.map_or(Popup::ArchiveAfter, Popup::ProfileArchiveAfter);
+        self.pop_up(which, items, picked, window, cx);
+    }
+
+    /// Opens a profile's search engine pop-up menu over its button, as the archive's, and makes
+    /// the engine picked its default.
+    fn choose_search_engine(
+        &mut self,
+        profile: u64,
+        engines: Vec<(SharedString, SharedString)>,
+        chosen: Option<usize>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (engines.iter().enumerate())
+            .map(|(index, (_, name))| {
+                let on = Some(index) == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::named(name.clone(), true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some((keyword, name)) = picked.and_then(|index| engines.get(index)) {
+                // check.sh waits for this line.
+                log!("browser: profile {profile} searches with {name}");
+                let keyword = CString::new(keyword.as_str()).unwrap_or_default();
+                unsafe { bc::bc_profile_set_search_engine(profile, keyword.as_ptr()) };
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::SearchEngine(profile), items, picked, window, cx);
     }
 
     /// Opens the favorites' pop-up menu over its button, as the archive's, and sets the scope
@@ -1086,9 +1242,14 @@ impl Settings {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        let texts = self.popup_texts.borrow();
+        let Some(at) = texts.iter().find(|&&(each, _)| each == which).map(|&(_, at)| at) else {
+            return;
+        };
+        drop(texts);
         self.choosing = Some(which);
         cx.notify();
-        show_menu(ns_view(window), items, popup_text(which), false, Look::dark(), picked, cx);
+        show_menu(ns_view(window), items, at, false, Look::dark(), picked, cx);
     }
 
     /// The pop-up's menu closed.
@@ -1115,9 +1276,11 @@ impl Settings {
                     }))
                     .child(renaming.name.clone()),
                 _ => div()
+                    .relative()
                     .flex_1()
                     .min_w_0()
                     .truncate()
+                    .child(self.drawn(format!("profile {id}")))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |settings, event: &MouseDownEvent, _, cx| {
@@ -1135,13 +1298,15 @@ impl Settings {
             };
             let name = profile.name.clone();
             let delete = profile.deletable.then(|| {
-                button(&RowLook::settings(), ("delete-profile", id), "Delete").on_click(
+                let button = button(&RowLook::settings(), ("delete-profile", id), "Delete");
+                let button = button.relative().child(self.drawn(format!("delete profile {id}")));
+                button.on_click(
                     cx.listener(move |settings, _, window, cx| {
                         settings.delete(id, name.clone(), window, cx)
                     }),
                 )
             });
-            div()
+            let head = div()
                 .h(px(PROFILE_ROW))
                 .px(px(PADDING))
                 .flex()
@@ -1149,13 +1314,68 @@ impl Settings {
                 .child(tile("icons/user.svg", PROFILE_TILE))
                 .child(label)
                 .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(spaces))
-                .children(delete.map(|delete| delete.ml(px(PADDING))))
+                .children(delete.map(|delete| delete.ml(px(PADDING))));
+            // Its own settings under it, as Arc's Settings › Profiles keeps them: none to show
+            // until the core has loaded it.
+            let search = search_engines(id).map(|(engines, keyword)| {
+                let chosen = engines.iter().position(|(each, _)| *each == keyword);
+                let label = chosen.map_or(keyword, |index| engines[index].1.clone());
+                let popup = self.popup(
+                    Popup::SearchEngine(id),
+                    label,
+                    POPUP_WIDTH,
+                    cx.listener(move |settings, _, window, cx| {
+                        settings.choose_search_engine(id, engines.clone(), chosen, window, cx)
+                    }),
+                );
+                let popup = popup.child(self.drawn(format!("search engine {id}")));
+                row(None, "Search engine", popup.into_any_element())
+            });
+            let after = unsafe { bc::bc_profile_archive_after(id) };
+            let archive = (after > 0.).then(|| {
+                let (label, chosen) = archive_after(after);
+                let popup = self.popup(
+                    Popup::ProfileArchiveAfter(id),
+                    label,
+                    POPUP_WIDTH,
+                    cx.listener(move |settings, _, window, cx| {
+                        settings.choose_archive_after(Some(id), chosen, window, cx)
+                    }),
+                );
+                let popup = popup.child(self.drawn(format!("archive {id}")));
+                row(None, "Archive tabs after", popup.into_any_element())
+            });
+            let folder = download_folder(id).map(|folder| {
+                let change = button(&RowLook::settings(), ("download-folder", id), "Change…")
+                    .relative()
+                    .child(self.drawn(format!("download folder {id}")))
+                    .on_click(cx.listener(move |_, _, _, cx| choose_download_folder(id, cx)));
+                detailed_row("Download folder", folder, Some(change.into_any_element()))
+            });
+            let clear = profile.users_space.then(|| {
+                let clear = button(&RowLook::settings(), ("clear-browsing-data", id), "Clear…")
+                    .relative()
+                    .child(self.drawn(format!("clear {id}")))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        if crate::clear_browsing_data(id) {
+                            hide(cx);
+                        }
+                    }));
+                row(None, "Browsing data", clear.into_any_element())
+            });
+            let rows = [Some(head), search, archive, folder, clear];
+            group(&RowLook::settings(), rows.into_iter().flatten())
         });
         let new = button(&RowLook::settings(), "new-profile", "New Profile")
+            .relative()
+            .child(self.drawn("new profile".into()))
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
         div()
-            .child(group(&RowLook::settings(), rows))
-            .child(div().mt(px(BUTTONS_TOP)).flex().child(new))
+            .flex()
+            .flex_col()
+            .gap(px(BOX_GAP))
+            .children(rows)
+            .child(div().mt(px(BUTTONS_TOP - BOX_GAP)).flex().child(new))
             .into_any_element()
     }
 
@@ -1270,13 +1490,26 @@ impl Settings {
 
     /// The profile's logins: the saved ones in a box, each with its username under its site, and
     /// the sites set to Never in another, each removable. A pop-up picks the profile, if there are
-    /// more than one, as each keeps its own. Manage Passwords… under them opens Chrome's page.
-    fn passwords(&mut self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+    /// more than one, as each keeps its own, over the switch for whether it offers to save them.
+    /// Manage Passwords… under the logins opens Chrome's page.
+    fn passwords(
+        &mut self,
+        profiles: &[Profile],
+        accent: Rgba,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(profile) = self.passwords_profile(profiles) else {
             return div().into_any_element();
         };
-        if self.asked.insert(profile) {
+        // None until the core has loaded the profile, which has no logins to read before then.
+        let offers = |what| {
+            let mut offers = false;
+            unsafe { bc::bc_profile_offers_to_save(profile, what, &mut offers) }.then_some(offers)
+        };
+        let passwords = offers(bc::BC_SAVE_PASSWORDS as i32);
+        if passwords.is_some() && self.asked.insert(profile) {
             unsafe { bc::bc_profile_read_logins(profile) };
+            unsafe { bc::bc_profile_read_autofill(profile) };
         }
         let logins = self.logins.get(&profile).cloned().unwrap_or_default();
         // As the Shortcuts tab's headers, the first at the top unless the pop-up is over it.
@@ -1292,6 +1525,7 @@ impl Settings {
             let (site, username) = passwords::lines(login);
             let login = login.clone();
             let remove = button(&RowLook::settings(), ("remove-login", index), "Remove");
+            let remove = remove.relative().child(self.drawn(format!("remove login {index}")));
             let remove = remove.on_click(cx.listener(move |settings, _, window, cx| {
                 settings.remove(profile, login.clone(), window, cx)
             }));
@@ -1318,6 +1552,50 @@ impl Settings {
                 )
                 .child(remove.ml(px(PADDING)))
         };
+        // An address or a card as a login's row: its title over its detail, and Remove.
+        let autofill = self.autofill.get(&profile).cloned().unwrap_or_default();
+        let saved_row = |index: usize, saved: &Saved, cx: &mut Context<Self>| {
+            let icon = if saved.card { "icons/credit-card.svg" } else { "icons/map-pin.svg" };
+            let saved = saved.clone();
+            let remove = button(&RowLook::settings(), ("remove-autofill", index), "Remove");
+            let remove = remove.relative().child(self.drawn(format!("remove autofill {index}")));
+            let remove = remove.on_click(cx.listener({
+                let saved = saved.clone();
+                move |settings, _, window, cx| {
+                    settings.remove_autofill(profile, saved.clone(), window, cx)
+                }
+            }));
+            div()
+                .h(px(PROFILE_ROW))
+                .px(px(PADDING))
+                .flex()
+                .items_center()
+                .child(tile(icon, PASSWORD_TILE))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().child(saved.title.clone()))
+                        .when(!saved.detail.is_empty(), |text| {
+                            text.child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(USERNAME_SIZE))
+                                    .text_color(rgb(DETAIL))
+                                    .child(saved.detail.clone()),
+                            )
+                        }),
+                )
+                .child(remove.ml(px(PADDING)))
+        };
+        let (cards, addresses): (Vec<_>, Vec<_>) =
+            autofill.iter().enumerate().partition(|(_, saved)| saved.card);
+        let addresses: Vec<gpui::Div> =
+            addresses.into_iter().map(|(index, saved)| saved_row(index, saved, cx)).collect();
+        let cards: Vec<gpui::Div> =
+            cards.into_iter().map(|(index, saved)| saved_row(index, saved, cx)).collect();
         let (saved, never): (Vec<_>, Vec<_>) =
             logins.iter().enumerate().partition(|(_, login)| !login.never);
         let saved: Vec<gpui::Div> =
@@ -1350,19 +1628,43 @@ impl Settings {
                 view.update(cx, choose).ok();
             });
             let icon = Some(("icons/user.svg", PROFILE_TILE));
-            group(&RowLook::settings(), [row(icon, "Profile", popup.into_any_element())])
+            row(icon, "Profile", popup.into_any_element())
         });
-        let first = chooser.is_none();
+        // Chrome's words for each, as its settings pages have them.
+        let switches = [
+            (bc::BC_SAVE_PASSWORDS, "offer to save passwords", "Offer to save passwords"),
+            (bc::BC_SAVE_ADDRESSES, "save and fill addresses", "Save and fill addresses"),
+            (bc::BC_SAVE_CARDS, "save and fill payment methods", "Save and fill payment methods"),
+        ];
+        let switches = switches.map(|(what, name, title)| {
+            offers(what as i32).map(|on| {
+                let set = move |offer, _: &mut App| unsafe {
+                    bc::bc_profile_set_offers_to_save(profile, what as i32, offer);
+                };
+                row(None, title, self.toggle(name, on, set, accent, cx))
+            })
+        });
+        let settings = [chooser].into_iter().chain(switches).flatten().collect::<Vec<_>>();
+        let first = settings.is_empty();
         let manage = button(&RowLook::settings(), "manage-passwords", "Manage Passwords…")
+            .relative()
+            .child(self.drawn("manage passwords".into()))
             .on_click(move |_, _, cx| manage_passwords(profile, cx));
         div()
-            .children(chooser)
+            .when(!first, |tab| tab.child(group(&RowLook::settings(), settings)))
             .child(header("Saved", first))
             .child(group(&RowLook::settings(), saved))
             .when(!never.is_empty(), |tab| {
                 tab.child(header("Never Saved", false)).child(group(&RowLook::settings(), never))
             })
             .child(div().mt(px(BUTTONS_TOP)).flex().child(manage))
+            // Each only while it has one, as Chrome offers to save them as forms are filled.
+            .when(!addresses.is_empty(), |tab| {
+                tab.child(header("Addresses", false)).child(group(&RowLook::settings(), addresses))
+            })
+            .when(!cards.is_empty(), |tab| {
+                tab.child(header("Payment Methods", false)).child(group(&RowLook::settings(), cards))
+            })
             .into_any_element()
     }
 
@@ -1423,6 +1725,48 @@ impl Settings {
             cx.spawn(async move |_, _| {
                 if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
                     crate::remove_login(profile, &login);
+                }
+            })
+            .detach();
+        }
+    }
+
+    /// Removes a saved address or card once the user confirms, as a login, as nothing brings it
+    /// back.
+    fn remove_autofill(
+        &mut self,
+        profile: u64,
+        saved: Saved,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let message = match saved.card {
+            true => format!("Remove the card “{}”?", saved.title),
+            false => format!("Remove the address for “{}”?", saved.title),
+        };
+        let detail = format!("{} won't fill it in again.", env!("APP_NAME"));
+        let remove = move || {
+            // check.sh waits for this line, which names nothing saved.
+            log!("browser: remove {} {profile}", if saved.card { "card" } else { "address" });
+            let key = CString::new(saved.key.as_str()).unwrap_or_default();
+            unsafe { bc::bc_profile_remove_autofill(profile, key.as_ptr()) };
+        };
+        #[cfg(target_os = "linux")]
+        dialog::ask_in(
+            &self.dialog,
+            message,
+            detail,
+            "Remove",
+            Box::new(move |_| remove()),
+            window,
+            cx,
+        );
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = window;
+            cx.spawn(async move |_, _| {
+                if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                    remove();
                 }
             })
             .detach();
@@ -1611,6 +1955,18 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let option = unsafe { bc::bc_option_reveals_sidebar() };
+        let option = self.toggle("option reveals sidebar", option, set_option_reveals, accent, cx);
+        // The Mac's alone so far (host_watch_option_taps).
+        let option = cfg!(target_os = "macos").then(|| {
+            row(
+                Some(("icons/panel-left.svg", OPTION_REVEAL_TILE)),
+                "Show the hidden sidebar when ⌥ is pressed alone",
+                option,
+            )
+        });
+        let restore = unsafe { bc::bc_restore_windows() };
+        let restore = self.toggle("restore windows", restore, set_restore_windows, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
         let widevine = self.widevine.read(cx).shown().then(|| {
@@ -1633,18 +1989,28 @@ impl Settings {
             )
             .child(div().flex_none().ml(px(PADDING)).child(export));
         div()
-            .child(group(&RowLook::settings(), [
-                row(
-                    Some(("icons/vibrate.svg", HAPTICS_TILE)),
-                    "Haptic feedback when swiping between Spaces",
-                    haptics,
-                ),
-                row(
-                    Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
-                    "Preview links to other sites from pinned tabs and favorites",
-                    previews,
-                ),
-            ]))
+            .child(group(
+                &RowLook::settings(),
+                [
+                    row(
+                        Some(("icons/vibrate.svg", HAPTICS_TILE)),
+                        "Haptic feedback when swiping between Spaces",
+                        haptics,
+                    ),
+                    row(
+                        Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
+                        "Preview links to other sites from pinned tabs and favorites",
+                        previews,
+                    ),
+                    row(
+                        Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
+                        "Restore windows from last session",
+                        restore,
+                    ),
+                ]
+                .into_iter()
+                .chain(option),
+            ))
             .child(group(&RowLook::settings(), [export]).mt(px(BOX_GAP)))
             .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
@@ -1779,7 +2145,7 @@ impl Settings {
             .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
         let restore = user.is_set(command).then(|| {
             div()
-                .id(SharedString::from(format!("restore-{}", command.name())))
+                .id(SharedString::from(format!("restore-{}", command.key_name())))
                 .size(px(CHIP_HEIGHT))
                 .flex()
                 .items_center()
@@ -1791,7 +2157,7 @@ impl Settings {
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
         });
         let chip = chip(keys, color)
-            .id(command.name())
+            .id(SharedString::from(command.key_name()))
             .when(recording, |chip| chip.border_1().border_color(accent))
             .hover(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_HOVERED))))
             .active(|chip| chip.bg(Palette::on_dark(state_alpha(CHIP_ALPHA, STATE_PRESSED))))
@@ -1815,7 +2181,7 @@ impl Settings {
             true => None,
             false => {
                 // check.sh waits for this line.
-                log!("browser: shortcut recording {}", command.name());
+                log!("browser: shortcut recording {}", command.key_name());
                 Some(command)
             }
         };
@@ -1872,24 +2238,6 @@ impl Settings {
     }
 }
 
-/// Where `which`'s pop-up button's text starts in the window: General's in the first box under the
-/// switch's row, one row each, and the Passwords tab's in its first row.
-fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
-    let switch_row = PADDING + SWITCH_HEIGHT + PADDING + 1.;
-    let popup_row = PADDING + CONTROL_HEIGHT + PADDING + 1.;
-    let (width, above) = match which {
-        Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
-        // Under Unload's switch.
-        Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
-        // The Passwords tab's first row.
-        Popup::PasswordsProfile => (POPUP_WIDTH, 0.),
-    };
-    point(
-        px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),
-        px(TITLE_BAR + TOOLBAR + FIRST + 1. + above + PADDING),
-    )
-}
-
 /// What the core has for who shares the favorites.
 fn favorites_scope() -> shell::FavoritesScope {
     shell::FavoritesScope::from_core(unsafe { bc::bc_favorites_scope() })
@@ -1912,6 +2260,11 @@ fn set_unload_idle_tabs(unload: bool, _: &mut App) {
 /// In every profile; a site's own stays as the user set it in the Site Controls.
 fn set_ad_blocking(on: bool, _: &mut App) {
     unsafe { bc::bc_set_ad_blocking(on) };
+}
+
+/// Off, the next launch opens one window with no Today tabs, theirs going in the archive.
+fn set_restore_windows(restore: bool, _: &mut App) {
+    unsafe { bc::bc_set_restore_windows(restore) };
 }
 
 fn set_haptics(haptics: bool, _: &mut App) {
@@ -1946,6 +2299,14 @@ fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
 }
 
+fn set_option_reveals(reveals: bool, _: &mut App) {
+    unsafe { bc::bc_set_option_reveals_sidebar(reveals) };
+}
+
+thread_local! {
+    static ABOUT_LOGGED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
 /// The app's version and its engine's, the licence it's under, and the notices of what it's built
 /// from, each of which opens in a tab.
 fn about() -> AnyElement {
@@ -1955,7 +2316,22 @@ fn about() -> AnyElement {
     }
     let open = |id: &'static str, url: Option<String>| {
         url.map(|url| {
-            let open = button(&RowLook::settings(), id, "Open");
+            // check.sh clicks Open where this line says it is.
+            let at = canvas(
+                |_, _, _| {},
+                move |bounds, _, _, _| {
+                    let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
+                    let line = format!("browser: settings open {id} at {x:.0} {y:.0}");
+                    ABOUT_LOGGED.with_borrow_mut(|logged| {
+                        if logged.insert(line.clone()) {
+                            log!("{line}");
+                        }
+                    });
+                },
+            )
+            .absolute()
+            .inset_0();
+            let open = button(&RowLook::settings(), id, "Open").relative().child(at);
             open.on_click(move |_, _, cx| open_notice(&url, cx)).into_any_element()
         })
     };
@@ -2007,6 +2383,39 @@ fn carried(name: &str) -> Option<String> {
 fn open_notice(url: &str, cx: &mut App) {
     crate::open_tab(crate::front().0, url);
     hide(cx);
+}
+
+/// Asks for the folder `profile`'s downloads go to, in the system's panel, and sends them there.
+fn choose_download_folder(profile: u64, cx: &mut App) {
+    let chosen = move |folder: Option<PathBuf>, cx: &mut App| {
+        let Some(folder) = folder else {
+            return;
+        };
+        let Ok(path) = CString::new(folder.to_string_lossy().as_bytes()) else {
+            return;
+        };
+        let set = unsafe { bc::bc_profile_set_download_folder(profile, path.as_ptr()) };
+        let done = if set { "set" } else { "refused" };
+        // check.sh waits for this line.
+        log!("browser: download folder of profile {profile} {} {done}", folder.display());
+        refresh(cx);
+    };
+    // A check run names its made-up folder, as it can't drive the system's panel.
+    if let Some(folder) = std::env::var_os("BROWSER_DOWNLOAD_FOLDER") {
+        return chosen(Some(folder.into()), cx);
+    }
+    let asked = cx.prompt_for_paths(PathPromptOptions {
+        files: false,
+        directories: true,
+        multiple: false,
+        prompt: Some("Choose".into()),
+    });
+    cx.spawn(async move |cx| {
+        let folder = asked.await.ok().and_then(Result::ok).flatten();
+        let folder = folder.and_then(|folders| folders.into_iter().next());
+        cx.update(|cx| chosen(folder, cx));
+    })
+    .detach();
 }
 
 /// Opens Chromium's settings in a new tab, for what this window doesn't offer yet, and goes to it.
@@ -2114,7 +2523,6 @@ fn command_name(command: Command) -> &'static str {
     });
     named.chain(match command {
         Command::SelectTab(_) => Some("Tabs 1 to 8"),
-        Command::SelectSpace(_) => Some("Spaces 1 to 9"),
         Command::RecentTabBack => Some("Last Used Tab"),
         Command::Undo => Some("Undo"),
         Command::Redo => Some("Redo"),
@@ -2213,7 +2621,7 @@ impl Render for Settings {
                 self.focus_field(&profiles, window, cx);
                 self.profiles(&profiles, cx)
             }
-            Tab::Passwords => self.passwords(&profiles(), cx),
+            Tab::Passwords => self.passwords(&profiles(), accent, cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
             Tab::Privacy => self.privacy(accent, cx),
             Tab::Import => match &self.import {

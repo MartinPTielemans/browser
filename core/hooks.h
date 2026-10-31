@@ -22,6 +22,10 @@
 // read it too.
 extern bool g_browser_core_supplies_windows;
 
+namespace base {
+class CommandLine;
+}
+
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
 class RenderViewContextMenuBase;
@@ -111,6 +115,13 @@ extern void (*g_browser_core_password_prompt)(content::WebContents* contents, bo
 // Mail or an .html file from Finder, in place of Chrome's tabs for them. Those that launched the
 // browser come once it has finished launching, before the app has started.
 extern void (*g_browser_core_open_links)(const std::vector<GURL>& urls);
+// chrome/browser/ui/startup/startup_browser_creator.cc: opens the links in a launch's command line,
+// such as `xdg-open https://…` or a second `chrome <url>` on Linux, in place of Chrome's tabs for
+// them. A second launch's comes through the process singleton; the first launch's before the app
+// has started. |profile| is the launch's, or null.
+extern void (*g_browser_core_open_command_line)(const base::CommandLine& command_line,
+                                                const base::FilePath& cur_dir,
+                                                Profile* profile);
 // chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc: the page of
 // |source|, a tab of |browser|, has the pointer on the link |url|, or on none and |url| is empty.
 // Chrome draws it in a status bubble, which the core's windows don't have.

@@ -53,7 +53,8 @@ struct Shown {
 }
 
 thread_local! {
-    static OVERLAYS: RefCell<[Option<Overlay>; 3]> = const { RefCell::new([None, None, None]) };
+    static OVERLAYS: RefCell<[Option<Overlay>; 4]> =
+        const { RefCell::new([None, None, None, None]) };
     /// The app's overlays that have each browser window's keyboard, by their views.
     static LENT: RefCell<Vec<(bc::bc_id, usize)>> = const { RefCell::new(Vec::new()) };
 }
@@ -88,7 +89,7 @@ pub(crate) fn keyboard_lent_to_another(window: bc::bc_id, view: *mut c_void) -> 
 }
 
 /// The overlays by index, as check.sh reads them in the log.
-const NAMES: [&str; 3] = ["command bar", "icon picker", "theme picker"];
+const NAMES: [&str; 4] = ["command bar", "icon picker", "theme picker", "folder preview"];
 
 fn with_overlay<R>(overlay: c_int, f: impl FnOnce(&mut Overlay) -> R) -> Option<R> {
     OVERLAYS.with_borrow_mut(|overlays| overlays.get_mut(overlay as usize)?.as_mut().map(f))
@@ -260,8 +261,8 @@ pub(crate) fn shown() -> Vec<*mut c_void> {
     views
 }
 
-/// The browser window the overlay, dialog or panel of `view` shows over, by its UI's view, and
-/// where in its content, if it shows: ilo's menu shows over it there (menu_window.rs), as a
+/// The browser window the overlay, dialog, panel or popover of `view` shows over, by its UI's view,
+/// and where in its content, if it shows: ilo's menu shows over it there (menu_window.rs), as a
 /// field's in it does.
 pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
     let overlay = OVERLAYS.with_borrow(|overlays| {
@@ -281,7 +282,7 @@ pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)>
     if let Some((ui_view, insets)) = dialog {
         return dialog_bounds(ui_view, insets).map(|(bounds, _)| (ui_view, bounds));
     }
-    crate::panels::placed(view)
+    crate::panels::placed(view).or_else(|| crate::popovers::placed(view))
 }
 
 /// Hides `overlay` if it shows, and says whether it did. The window has its keyboard back once

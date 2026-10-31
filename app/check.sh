@@ -5,12 +5,16 @@
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites cards extensions adblock adblock-lists windows private capture passwords
 #   links preview access trouble dialogs crash import quit onboarding passkeys mcp appearance
-# The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
-# uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
-# Updates runs only when named too, until it passes on the Mac.
+#   about
+# The store run installs from Google's Web Store, adblock-live blocks Google's ad servers with
+# uBlock Origin's own lists and widevine, Linux's alone, downloads Google's Widevine module, so they
+# need the network and run only when named: ./check.sh store.
+# Updates runs only when named too, until it passes on the Mac. So does keychain, which uses the
+# real Keychain, on the prod build and only in a check VM.
 # Every run but load and crash needs Browser to be the active app, and window, find and updates
-# take it full screen for a moment. Updates and passkeys are the Mac's alone so far: updates makes
-# build/Updates.app, a copy with Sparkle and a feed of its own (build.sh updates).
+# take it full screen for a moment. Passkeys is the Mac's alone so far. Updates makes
+# build/Updates.app on the Mac, a copy with Sparkle and a feed of its own (build.sh updates), and
+# ilo's Flatpak on Linux, which a repository of the run's own updates (check/updates.sh).
 # In a check VM the check turns the Mac's appearance dark for the runs, which read the window's
 # dark look, and puts back the one it had after.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
@@ -20,7 +24,7 @@
 # each run, since one an earlier run left can lack what a run expects, such as its search engines.
 # On Windows it runs under Git Bash, with python3 on the PATH, on the app the engine's chrome.exe
 # runs from build/Browser. The runs need what the Windows driver (platform/windows/drive.cc) does
-# so far: load, tabs and dialogs.
+# so far: load, tabs, dialogs and crash.
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
 # windows and input then never reach the owner's session. Of the runs, load and history pass
@@ -48,6 +52,10 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
         sleep 0.1
       done
       rm -f "$ready"
+      # The real pointer starts mid-screen, over the app, where the X server tells GPUI it left as
+      # the page views of Chromium change under it, mid-drag too. The driver sends a pointer of its
+      # own, so the real one waits in the corner the window leaves.
+      xdotool mousemove 1279 799
       exec env BROWSER_HEADLESS=xvfb ./check.sh "$@"' sh "$@"
   fi
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
@@ -55,8 +63,8 @@ fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
 runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
-runs="$runs appearance"
-named="store adblock-live updates"
+runs="$runs appearance about"
+named="store adblock-live widevine updates keychain"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
@@ -109,7 +117,8 @@ rm -f "$(dirname "$saved")/Agents"
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
 # extensions pinned. The profile keeps the clear run's answers to its sites' questions, and how
-# often it dismissed them, for sites whose ports a later run may get.
+# often it dismissed them, for sites whose ports a later run may get, and a failed clear run may
+# have left localhost out of Developer Mode.
 prefs="$profile_dir/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
@@ -119,11 +128,12 @@ if os.path.exists(sys.argv[1]):
     with open(sys.argv[1]) as f:
         prefs = json.load(f)
 prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = "\"right\""
-prefs.setdefault("download", {}).update(default_directory=sys.argv[2], prompt_for_download=False)
+prefs.setdefault("download", {})["default_directory"] = sys.argv[2]
 prefs.setdefault("extensions", {})["pinned_extensions"] = []
 exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
 for kind in ("window_placement", "permission_autoblocking_data"):
     exceptions.pop(kind, None)
+prefs.get("browser_core", {}).pop("developer_mode", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"

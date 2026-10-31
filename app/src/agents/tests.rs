@@ -174,6 +174,21 @@ impl Browser for Made {
     fn close_tab(&self, tab: u64, _: &mut App) {
         self.tabs.borrow_mut().retain(|each| each.0 != tab);
     }
+
+    // As the core does: only a tab of the user's, into an agent's Space.
+    fn give(&self, tab: u64, space: u64, _: &mut App) -> bool {
+        let agents = self.agent_spaces.borrow();
+        let mut tabs = self.tabs.borrow_mut();
+        let Some(each) = tabs.iter_mut().find(|each| each.0 == tab) else {
+            return false;
+        };
+        if agents.values().any(|&agent| agent == each.1) || !agents.values().any(|&s| s == space) {
+            return false;
+        }
+        each.1 = space;
+        self.held.borrow_mut().remove(&tab);
+        true
+    }
 }
 
 /// The clients' configs as Connect and Disconnect left them.
@@ -1050,6 +1065,32 @@ fn a_tab_the_user_took_back_stays_theirs_until_they_hand_it_back(cx: &mut TestAp
     assert!(back.recv().unwrap().text.starts_with("The user handed tab 20 back."));
     assert!(browser.held.borrow().is_empty());
     let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+}
+
+/// The user gives the agent a tab of theirs, which it may then read, with an entry in its log.
+/// Nothing else moves into its Space: a tab of its own, or one into a Space that isn't an agent's.
+#[gpui::test]
+fn the_user_gives_an_agent_a_tab_of_theirs(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let read = |agents: &Entity<Agents>, cx: &mut TestAppContext| {
+        call(agents, "claude-code", "snapshot", json!({ "tab": 10 }), cx)
+    };
+    assert!(read(&agents, cx).recv().unwrap().error, "the user's tab was the agent's already");
+    agents.update(cx, |agents, cx| {
+        agents.give(20, 2, cx);
+        agents.give(10, 1, cx);
+    });
+    assert!(log(&agents, "claude-code", cx).iter().all(|entry| entry.0 != "given"));
+
+    agents.update(cx, |agents, cx| agents.give(10, 2, cx));
+    assert_eq!(
+        log(&agents, "claude-code", cx)
+            .into_iter()
+            .find(|entry| entry.0 == "given"),
+        Some(("given".into(), "en.wikipedia.org".into(), String::new()))
+    );
+    let answer = read(&agents, cx);
     assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
 }
 

@@ -5,6 +5,7 @@
 #define BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
 
 #include <optional>
+#include <string>
 
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -47,6 +48,14 @@ void StartMove(views::Widget* widget);
 void UITakesKeyboard(views::Widget* widget);
 bool KeyboardIsUI(views::Widget* widget);
 
+// Whether a window of Chromium's own in |widget|'s window has the keyboard, such as an extension's
+// popup or a tab's dialog (bc_window_keyboard_in_child). In window_views.cc.
+bool KeyboardInChild(views::Widget* widget);
+
+// The title of the window of Chromium's own in |widget|'s with the keys (KeyboardInChild), such as
+// a tab's dialog, or an empty one. In window_views.cc.
+std::u16string ChildTitle(views::Widget* widget);
+
 // Lends the keyboard in |widget|'s window to an overlay of the app's, or takes it back
 // (bc_window_overlay_takes_keyboard).
 void OverlayTakesKeyboard(views::Widget* widget, bool takes);
@@ -54,6 +63,10 @@ void OverlayTakesKeyboard(views::Widget* widget, bool takes);
 // A text field of the app's UI in |widget|'s window, or of an overlay over it, is focused with its
 // caret at |caret|, in DIPs from the window's top left, or none is (bc_window_ui_text_input).
 void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret);
+
+// The frame of a tab's dialog, such as print preview, shown in |widget|'s window, from its content's
+// top-left, if one shows (bc_window_dialog). In window_views.cc.
+std::optional<gfx::Rect> DialogFrame(views::Widget* widget);
 
 }  // namespace browser_core::platform
 

@@ -2,8 +2,8 @@
 
 use gpui::TestAppContext;
 
-use super::detents::{X, drag_to, press, row_y, shell_with};
-use crate::shell::{Folders, NAME_HEIGHT, ROW_HEIGHT, ROW_PITCH, Shell, Slot};
+use super::detents::{X, at, drag_to, press, row_y, shell_with};
+use crate::shell::{Folders, NAME_HEIGHT, Place, ROW_HEIGHT, ROW_PITCH, Shell, Slot};
 
 /// Where the drop line is, down the list, or None.
 fn line(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext) -> Option<f32> {
@@ -54,4 +54,32 @@ fn the_line_marks_the_ends_of_the_lists(cx: &mut TestAppContext) {
     let y = shell.read_with(cx, |shell, _| row_y(shell, 3));
     drag_to(&shell, cx, X, y);
     assert_eq!(line(&shell, cx), Some(under(layout[&Slot::NewTab])));
+}
+
+/// A link or text dragged in from the page or another app goes to the gap nearest the pointer,
+/// where its line shows and `drop_in` opens it: under a row once the pointer is past the row's
+/// middle, as Arc's does.
+#[gpui::test]
+fn what_is_dragged_in_goes_to_the_gap_nearest_the_pointer(cx: &mut TestAppContext) {
+    let browser = std::rc::Rc::new(crate::shell::recorder::Recorder::default());
+    // Drawn, so the list has the bounds a drag in is taken over.
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        let space = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+        shell.set_spaces(vec![space], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
+    });
+    cx.run_until_parked();
+    let layout = shell.read_with(cx, |shell, _| shell.layout());
+    let (one, two) = shell.read_with(cx, |shell, _| (row_y(shell, 1), row_y(shell, 2)));
+    let mut place = |y: f32| {
+        shell.update(cx, |shell, cx| assert!(shell.drag_in(at(X, y), cx), "not taken at {y}"));
+        shell.read_with(cx, |shell, _| shell.drag.as_ref().map(|drag| (drag.to, drag.line)))
+    };
+    let today = |index, above: Slot| Some((Place::List(false, index), Some(under(layout[&above]))));
+    assert_eq!(place(one - 4.), today(0, Slot::NewTab));
+    assert_eq!(place(one + 4.), today(1, Slot::Tab(1)));
+    // Past the last row's middle, by as much as pinned.sh lets go of its text, under it.
+    assert_eq!(place(two + 12.), today(2, Slot::Tab(2)));
 }

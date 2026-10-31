@@ -114,6 +114,10 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 // from the top left, in points; one it takes, by returning true, goes no further.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back));
 
+// Calls |tapped| with the view of the browser window with the keyboard each time ⌥ is pressed and
+// let go with no other key, modifier, press or scroll between, the page's keyboard or the UI's.
+void host_watch_option_taps(void (*tapped)(void* ui_view));
+
 // Whether a menu is open, the menu bar's or a context menu, and if so calls |apply| once none is,
 // instead of any function an earlier call left waiting. AppKit can crash when the main menu is
 // replaced while it tracks one, and the core's callbacks still come in while it does.
@@ -141,12 +145,14 @@ double host_since_launch(void);
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
 
-// The overlays: the command bar, and the Space's icon and theme pickers. One shows at a time.
+// The overlays: the command bar, the Space's icon and theme pickers, and a closed folder's preview.
+// One shows at a time.
 #define HOST_COMMAND_BAR 0
 #define HOST_ICON_PICKER 1
 #define HOST_THEME_PICKER 2
+#define HOST_FOLDER_PREVIEW 3
 // The Site Controls take the same elevation call, though they aren't one of the overlays.
-#define HOST_SITE_CONTROLS 3
+#define HOST_SITE_CONTROLS 4
 
 // Gives the |overlay| (or the Site Controls) the shadow its elevation level draws, in Core
 // Animation's terms: a black line round its shape and a black drop shadow, each with an opacity
@@ -237,9 +243,9 @@ void host_show_offer(void* ui_view);
 // Hides |ui_view|'s offer. If it had the keyboard, its browser window gets it back.
 void host_hide_offer(void* ui_view);
 
-// Moves |ui_view|'s find bar, its offer and the HUD over it |right| points further in from the
-// window's right edge and |top| points further down, to the focused page's top right corner when a
-// split view's focused page isn't the top right one.
+// Moves |ui_view|'s find bar, its offer, and the HUD and the toast over it |right| points further
+// in from the window's right edge and |top| points further down, to the focused page's top right
+// corner when a split view's focused page isn't the top right one.
 void host_set_pane_corner(void* ui_view, double right, double top);
 
 // Makes the window of |hud_view| float over a browser window when shown, |right| and |top| points
@@ -316,8 +322,14 @@ void* host_add_link_preview(void* view, void (*dismissed)(void));
 void host_show_link_preview(void* ui_view);
 
 // The UI drew a frame of the link preview's motion, with its page at |left|, |top|, |width| by
-// |height| from the window's top left and at |opacity|, which the page's view follows.
-void host_link_preview_drew(double left, double top, double width, double height, double opacity);
+// |height| from the window's top left, with corners of |radius|, and at |opacity|, which the page's
+// view follows. Where the page shows under the preview's window, it's the hole the window has.
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double radius,
+                            double opacity);
 
 // The link preview takes no more clicks or keys as it leaves: the mouse goes through it, and the
 // browser window gets the keyboard back, with the focus where it was, if it had it.
@@ -375,7 +387,8 @@ void host_toast_takes_clicks(bool takes);
 // Where the toast's plate is in its window, from the window's top left corner, in points.
 void host_set_toast_plate(double x, double y, double width, double height);
 
-// Shows the toast's window over |ui_view|'s window, as the UI draws it now.
+// Shows the toast's window over |ui_view|'s window, at its focused page's corner
+// (host_set_pane_corner), as the UI draws it now.
 void host_show_toast(void* ui_view);
 
 // Hides the toast's window.
@@ -583,11 +596,13 @@ void host_day_starts(double starts[4]);
 // Updates: Sparkle on the Mac (platform/mac/updates.mm), WinSparkle on Windows
 // (platform/windows/updates.cc).
 
-// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe Storage" in
-// the Keychain, when the app's signature is new, as after a move to another signing identity.
-// Where macOS asks and the user doesn't allow it, an alert offers Try Again until it can, or Quit,
-// when this returns false and the app quits before Chromium starts. Without the key, Chromium
-// can't read the profile's cookies and passwords.
+// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe
+// Storage" in the Keychain, when the app's signature is new, as after a move to another signing
+// identity, and makes the item again so it's granted to the new signature (tools/requirement.sh
+// says why that carries over from Apple Development to Developer ID). Where macOS asks and the
+// user doesn't allow it, an alert offers Try Again until it can, or Quit, when this returns false
+// and the app quits before Chromium starts. Without the key, Chromium can't read the profile's
+// cookies and passwords.
 bool host_keep_keychain_key(void);
 
 // Whether this build updates itself: a release build that carries the updater, its feed and its

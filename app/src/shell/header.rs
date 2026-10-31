@@ -273,9 +273,9 @@ impl Shell {
             .collect()
     }
 
-    /// A mouse's back and forward buttons anywhere over the UI go back and forward in the front
-    /// tab, as over Chrome's toolbar; over a page, the page takes them itself. The window hears
-    /// them, as the sidebar keeps its presses from what's under it.
+    /// A mouse's back and forward buttons anywhere over the UI show the previous and next Space,
+    /// as Arc's do (the owner's call); over a page, the page takes them itself and goes back and
+    /// forward. The window hears them, as the sidebar keeps its presses from what's under it.
     pub(super) fn navigate_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
@@ -287,8 +287,8 @@ impl Shell {
                         return;
                     }
                     let command = match direction {
-                        NavigationDirection::Back => Command::Back,
-                        NavigationDirection::Forward => Command::Forward,
+                        NavigationDirection::Back => Command::PreviousSpace,
+                        NavigationDirection::Forward => Command::NextSpace,
                     };
                     shell
                         .update(cx, |shell, cx| {
@@ -369,21 +369,31 @@ impl Shell {
         self.url_words(self.selected, url, self.empty_opacity(Instant::now()))
     }
 
-    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, or with no
-    /// tab, the command bar's placeholder, `shown` of the way in.
+    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, its whole
+    /// URL in Developer Mode, as Chrome's Always Show Full URLs has it, or with no tab, the command
+    /// bar's placeholder, `shown` of the way in.
     pub(super) fn url_words(&self, tab: u64, url: &str, shown: f32) -> (SharedString, Hsla) {
         if tab == 0 {
             let mut color = self.palette.text(URL_PLACEHOLDER);
             color.a *= shown;
             return (PLACEHOLDER_TEXT.into(), color);
         }
-        let words = self.extension_name(url).unwrap_or_else(|| host(url).to_string().into());
+        let words = match self.extension_name(url) {
+            Some(name) => name,
+            None if self.page(tab).developer_mode => url.to_string().into(),
+            None => host(url).to_string().into(),
+        };
         (words, self.palette.text(SECONDARY).into())
     }
 
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
         let (words, color) = self.url_field_words(&url);
+        if *self.url_field_drawn.borrow() != words {
+            // check.sh reads this line.
+            log!("browser: url field {words}");
+            self.url_field_drawn.replace(words.clone());
+        }
         // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
         // before them, where the host stops short of them.
         let actions = self.action_buttons(cx);
@@ -435,6 +445,27 @@ impl Shell {
                         .text_color(self.palette.glyph(NAV)),
                 )
         });
+        // In Developer Mode, DevTools before them, as ⌥⌘I opens them (ours, as Arc's buttons
+        // aren't recorded). Agents get no DevTools, so it's the user's alone.
+        let devtools = (tools && self.page(self.selected).developer_mode).then(|| {
+            let button = self.field_tool("devtools", end + 2. * TOOL_PITCH);
+            let button = button.when(self.a11y, |button| button.button_named("Developer Tools"));
+            self.with_tooltip(button, Command::DevTools, TipSide::Under, cx)
+                .when(live, |button| {
+                    button
+                        .block_mouse_except_scroll()
+                        .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+                        .on_click(cx.listener(|shell, _, _, cx| {
+                            shell.run(Command::DevTools, "sidebar", cx)
+                        }))
+                })
+                .child(
+                    svg()
+                        .path(DEVTOOLS_GLYPH)
+                        .size(px(URL_BUTTON_GLYPH))
+                        .text_color(self.palette.glyph(NAV)),
+                )
+        });
         let engine = self.engine_mark(self.selected);
         // The password manager's key, after the host (ours, for Chrome's key icon): a click brings
         // back the offer showing another tab closed, or opens the Site Controls, which list the
@@ -459,6 +490,7 @@ impl Shell {
                 .child(div().absolute().inset_0().child(key_frame(self.button_frames.clone())))
         });
         let text_end = match tools {
+            true if devtools.is_some() => end + 2. * TOOL_PITCH + URL_BUTTON_SIZE,
             true => end + TOOL_PITCH + URL_BUTTON_SIZE,
             false if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
             false => URL_BUTTON_INSET + buttons_width,
@@ -496,13 +528,15 @@ impl Shell {
             .child(div().min_w(px(0.)).truncate().text_color(color).child(words))
             .children(engine)
             .children(key)
+            .children(devtools)
             .children(copy)
             .children(site_controls)
             .children(actions)
     }
 
-    /// What of the URL field rests `x` in from its left, as `url_field` lays it out: its Copy URL
-    /// or Site Controls button while they take clicks, a pinned extension's action, or the field.
+    /// What of the URL field rests `x` in from its left, as `url_field` lays it out: its Copy URL,
+    /// Site Controls or DevTools button while they take clicks, a pinned extension's action, or
+    /// the field.
     pub(super) fn field_part_at(&self, x: f32) -> AtRest {
         let width = self.width() - 2. * PLATE_INSET;
         let (shown, overflow) = self.shown_actions();
@@ -512,9 +546,13 @@ impl Shell {
         }
         let tools = self.tools_shown() && self.tools_live() && !self.url(self.selected).is_empty();
         let button = |end: f32| (width - end - URL_BUTTON_SIZE..width - end).contains(&x);
+        let developer = self.page(self.selected).developer_mode;
         match tools {
             true if button(self.site_controls_end()) => AtRest::SiteControls,
             true if button(self.site_controls_end() + TOOL_PITCH) => AtRest::CopyUrl,
+            true if developer && button(self.site_controls_end() + 2. * TOOL_PITCH) => {
+                AtRest::DevTools
+            }
             _ => AtRest::Field,
         }
     }
@@ -581,7 +619,9 @@ impl Shell {
                         .text_color(self.palette.glyph(NAV)),
                 )
         };
+        let devtools = tools && self.page(tab).developer_mode;
         let text_end = match tools {
+            true if devtools => SITE_CONTROLS_END + 2. * TOOL_PITCH + URL_BUTTON_SIZE,
             true => SITE_CONTROLS_END + TOOL_PITCH + URL_BUTTON_SIZE,
             false => URL_FIELD_TEXT_X - PLATE_INSET,
         };
@@ -608,6 +648,9 @@ impl Shell {
                 field
                     .child(tool(SITE_CONTROLS_END + TOOL_PITCH, LINK))
                     .child(tool(SITE_CONTROLS_END, "icons/sliders-horizontal.svg"))
+            })
+            .when(devtools, |field| {
+                field.child(tool(SITE_CONTROLS_END + 2. * TOOL_PITCH, DEVTOOLS_GLYPH))
             });
         #[cfg(test)]
         let field = field.child(self.beside_framed(0, 0.));
@@ -679,6 +722,10 @@ fn key_frame(frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>) -> impl
     )
     .size_full()
 }
+
+/// The URL field's DevTools button's glyph in Developer Mode: Lucide's code, the command bar's
+/// View Source glyph, beside Developer Mode's own square-code.
+const DEVTOOLS_GLYPH: &str = "icons/code.svg";
 
 /// The header's reload, which is stop while the page loads.
 pub(super) fn reload_glyph(loading: bool) -> &'static str {

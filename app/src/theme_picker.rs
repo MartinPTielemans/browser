@@ -114,6 +114,8 @@ pub trait Host {
     fn show(&self, left: f32, top: f32, corners: &[(f32, f32, f32)]);
     /// Hides it, and the browser window gets the keyboard back.
     fn hide(&self);
+    /// A detent on the trackpad, as a drag reaches a stop, if the user has haptics on.
+    fn detent(&self);
 }
 
 /// The theme as the user makes it, and whether they're done: false while they drag, true once
@@ -377,6 +379,16 @@ fn intensity_at(x: f32) -> f32 {
     ((x - KNOB_LEFT) / (KNOB_RIGHT - KNOB_LEFT)).clamp(0., 1.)
 }
 
+/// Whether what `drag` moves is at a stop it can't go past in `theme`: a handle on the field's
+/// rim, the intensity knob at either end, or the dial at the top, from either side.
+fn at_stop(drag: Drag, theme: &Theme) -> bool {
+    match drag {
+        Drag::Handle(..) => theme.x.hypot(theme.y) >= 1. - 1e-4,
+        Drag::Intensity => theme.intensity <= 0. || theme.intensity >= 1.,
+        Drag::Grain => theme.grain <= 0. || theme.grain >= 1.,
+    }
+}
+
 /// The grain for the pointer at `x`, `y` in the card: how far round the dial from its top,
 /// clockwise. A turn past the top stops there rather than going round, from `before`.
 fn grain_at(x: f32, y: f32, before: f32) -> f32 {
@@ -506,6 +518,10 @@ impl ThemePicker {
             Drag::Grain => Theme { grain: grain_at(x, y, theme.grain), ..theme },
         };
         if moved != theme {
+            // A bump as it gets to a stop, not while it's held there (the owner's call).
+            if !at_stop(drag, &theme) && at_stop(drag, &moved) {
+                self.host.detent();
+            }
             editing.theme = Some(moved);
             self.changed(false, cx);
         }

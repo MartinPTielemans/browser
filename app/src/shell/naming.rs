@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{Context, SharedString, Window, div, point, prelude::*, px};
+use gpui::{Context, Focusable, SharedString, Window, div, point, prelude::*, px};
 
 use super::{
     undo::{Prop, Value},
@@ -149,10 +149,20 @@ impl Shell {
     /// Shows the icon picker under the tab's favicon, once its row has stopped moving, with the
     /// sidebar docked.
     pub(super) fn change_icon(&mut self, tab: u64, cx: &mut Context<Self>) {
+        self.pick_icon_from_row(Subject::Tab(tab), cx);
+    }
+
+    /// Shows the icon picker under the folder's folder, once its row has stopped moving, with the
+    /// sidebar docked: Arc's folder › Change Icon….
+    pub(super) fn change_folder_icon(&mut self, folder: u64, cx: &mut Context<Self>) {
+        self.pick_icon_from_row(Subject::Folder(folder), cx);
+    }
+
+    fn pick_icon_from_row(&mut self, subject: Subject, cx: &mut Context<Self>) {
         if !self.dock(cx) && self.sidebar_hidden {
             self.toggle_sidebar(cx);
         }
-        self.picker_pending = Some((Pending::Icon(Subject::Tab(tab)), Instant::now()));
+        self.picker_pending = Some((Pending::Icon(subject), Instant::now()));
         self.tab_row_drawn.set(None);
         self.name_row_before = None;
         cx.notify();
@@ -202,7 +212,9 @@ impl Shell {
             Pending::Icon(Subject::Space(space)) | Pending::Theme(space) => {
                 (self.name_row_drawn.get(), space == self.space)
             }
-            Pending::Icon(Subject::Tab(_)) => (self.tab_row_drawn.get(), true),
+            Pending::Icon(Subject::Tab(_) | Subject::Folder(_)) => {
+                (self.tab_row_drawn.get(), true)
+            }
         };
         // Not before the Library has gone and the sidebar has come in, as a frame of either can
         // leave the row where it was.
@@ -274,6 +286,23 @@ impl Shell {
                 });
                 (self.page(tab).icon, anchor, picked)
             }
+            Subject::Folder(folder) => {
+                // The folder's middle, in from the row by the folders it's in.
+                let x = f32::from(row.left())
+                    + FAVICON_X
+                    + self.depth(folder) as f32 * FOLDER_INDENT
+                    + FAVICON_SIZE / 2.;
+                let anchor = point(x, f32::from(row.center().y));
+                let picked: Picked = Rc::new(move |icon, cx| {
+                    shell
+                        .update(cx, |shell, cx| {
+                            let icon = Value::Text(icon.to_string());
+                            shell.change(Prop::FolderIcon(folder), icon, cx)
+                        })
+                        .ok();
+                });
+                (self.folder_icon(folder), anchor, picked)
+            }
         };
         let iconless = !has_icon(&icon);
         icon_picker::show(subject, icon, anchor, picked, cx);
@@ -315,7 +344,7 @@ impl Shell {
         self.name_folder(folder, name, cx);
     }
 
-    fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
+    pub(super) fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
         let name = cx.new(|cx| {
             TextInput::new("Folder name", cx)
                 .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
@@ -344,16 +373,46 @@ impl Shell {
         }
     }
 
+    /// Puts the new profile's name in the New Space form's Profile row, all selected, to type
+    /// another over, as Finder's New Folder does.
+    pub(super) fn name_profile(
+        &mut self,
+        profile: u64,
+        name: SharedString,
+        cx: &mut Context<Self>,
+    ) {
+        let name = cx.new(|cx| {
+            TextInput::new(name.clone(), cx)
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
+                .with_text(name)
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::Profile(profile),
+            name,
+            in_library: false,
+            _blur: None,
+        });
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
     /// The folder's name in the Space shown.
+    /// The emoji the user gave `folder`, else empty.
+    pub(super) fn folder_icon(&self, folder: u64) -> SharedString {
+        let space = self.spaces.iter().find(|space| space.is_folder(folder));
+        space.and_then(|space| space.folders.icons.get(&folder).cloned()).unwrap_or_default()
+    }
+
     pub(super) fn folder_name(&self, folder: u64) -> SharedString {
         let space = self.shown_space();
         let folder = space.and_then(|space| space.folders.folders.get(&folder));
         folder.map(|(name, _)| name.clone()).unwrap_or_default()
     }
 
-    /// Renames the Space, the tab or the folder to what the field holds, and closes the field. A
-    /// Space or a folder keeps its name rather than none, and a tab named nothing shows its page's
-    /// title again.
+    /// Renames the Space, the tab, the folder or the profile to what the field holds, and closes
+    /// the field. A Space, a folder or a profile keeps its name rather than none, and a tab named
+    /// nothing shows its page's title again.
     pub(super) fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(renaming) = self.renaming.take() else {
             return;
@@ -377,17 +436,36 @@ impl Shell {
                 self.change(Prop::FolderName(folder), Value::Text(name), cx)
             }
             Naming::Folder(_) => {}
+            Naming::Profile(profile) => {
+                let listed =
+                    self.profiles.iter().any(|(id, listed)| *id == profile && **listed == name);
+                if !name.is_empty() && !listed {
+                    // check.sh waits for this line.
+                    log!("browser: name profile {profile} {name}");
+                    self.browser.rename_profile(profile, &name, cx);
+                }
+            }
         }
-        window.focus(&self.focus_handle, cx);
-        cx.notify();
+        self.leave_name(&renaming, window, cx);
     }
 
     pub(super) fn cancel_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.renaming.take().is_some() {
+        if let Some(renaming) = self.renaming.take() {
             log!("browser: rename cancelled");
-            window.focus(&self.focus_handle, cx);
-            cx.notify();
+            self.leave_name(&renaming, window, cx);
         }
+    }
+
+    /// Gives the keyboard back from the closed field: to the New Space form's name from its
+    /// Profile row, unless a click put it elsewhere, else to the window.
+    fn leave_name(&mut self, renaming: &Renaming, window: &mut Window, cx: &mut Context<Self>) {
+        match renaming.naming {
+            Naming::Profile(_) => {
+                self.focus_form = renaming.name.focus_handle(cx).is_focused(window);
+            }
+            _ => window.focus(&self.focus_handle, cx),
+        }
+        cx.notify();
     }
 
     /// The field that renames a tab, in place of its title.

@@ -4,7 +4,9 @@
 name: UI on Linux
 
 on:
+  # Branches only: an engine release's tag, pushed with the owner's token, starts nothing here.
   push:
+    branches: ['**']
     paths: [app/**, core/public/**, tools/headless.sh, tools/parity.sh, .github/workflows/app-linux.yml, '!**/*.md']
   pull_request:
     paths: [app/**, core/public/**, tools/headless.sh, tools/parity.sh, .github/workflows/app-linux.yml, '!**/*.md']

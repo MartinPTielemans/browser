@@ -1,14 +1,15 @@
 # Add Split View, from the menu, ⌃+ from the page, ⌥-click on "+ New Tab" and the tab menu, narrows
 # the page at once for a pane on its right, with the command bar over it, which takes typing and
-# escape takes back. ⌥⇧- and
-# ⌥⌘-click on a link, and the link menu's Open Link in Split View, open it in a pane on the right.
+# escape takes back. ⌥- and ⌥⌘-click on a link, and the link menu's Open Link in Split View, open it
+# in a pane on the right.
 # The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in a
 # window as ⌘N's and in a private one as ⇧⌘N's. A link dragged onto the page's right target opens in
 # a pane there. A URL typed in the command bar opens in the pane, focused. The panes share the card
-# 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The
-# split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a
-# click on a segment focuses its pane. The gap between the panes drags their widths, or stacked
-# their heights, down to Chrome's least and snapping to even, and a double-click on it evens them.
+# 10 apart, the focused one ringed, a click focuses a pane and gives its page the keyboard, ⌘L edits
+# that pane's URL, and a toast shows at its corner. The split is one row in the sidebar, which ⌘1–⌘9
+# count once and show with the pane focused last, and a click on a segment focuses its pane. The gap
+# between the panes drags their widths, or stacked their heights, down to Chrome's least and
+# snapping to even, and a double-click on it evens them.
 # Expand Current Split gives the focused pane the card and the other 220 wide through a resize, and
 # again does nothing. Change Orientation stacks the panes, with the find bar at the focused one's
 # corner. Launched again, the app brings the split back stacked with both pages at the heights they
@@ -19,9 +20,10 @@
 # brings them back together. A row dragged onto the page brings a target to each of the card's
 # sides, which go when it's back over the sidebar, and let go on the left one, the tab joins the
 # page shown on its left. The command bar's Flip Split View, Move Pane Right and Separate All Pages
-# reorder and end a split. A tab rested 0.4 s on another's row joins it, ⌥-click on a split's row
-# takes its tab out and on another tab's joins it to the page shown, and a split's menu has Mute
-# under each tab and a Duplicate that copies the whole split.
+# reorder and end a split. A tab rested 0.4 s on another's row joins it, which ⌘Z takes back to its
+# row and ⇧⌘Z joins again, ⌥-click on a split's row takes its tab out and on another tab's joins it
+# to the page shown, and a split's menu has Mute under each tab and a Duplicate that copies the
+# whole split.
 
 # Split view, from the served page with example.org beside it.
 serve
@@ -53,6 +55,19 @@ read_pages() {
   pages=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
     grep -o '\(WebContentsViewCocoa\|BrowserCoreFocusRing\) [0-9,]* [0-9x]*' | tr '\n' ' ' |
     sed 's/ $//')
+}
+# Sets $toast to the left edge of the toast's window, from the content's, and $keyboard to the frame
+# of the page that has the keyboard, as read_pages has them, or none.
+read_toast() {
+  send layout
+  toast=$(sed -n "/^browser: drive $step: /,\$p" "$log" |
+    grep -m1 '^browser: layout child .* 420x114$' |
+    sed 's/^browser: layout child \([0-9-]*\),.*/\1/')
+}
+read_keyboard() {
+  send layout
+  keyboard=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout keyboard' |
+    sed 's/^browser: layout keyboard //')
 }
 # Two panes share the page's frame, 10 apart, as Arc's do.
 read_pages
@@ -124,16 +139,20 @@ expect '^browser: command bar hidden$' "escape didn't close the tab menu's comma
 read_pages
 [ "$pages" = "$whole" ] || fail "escape after the tab menu's Add Split View left the page at $pages"
 send click $page_point
-# ⌥⇧-click on a link opens it in a pane on the right, focused, as Dia's does, and so does ⌥⌘-click,
-# as Chrome's does.
-for modifiers in "alt shift" "alt cmd"; do
+# ⌥-click on a link opens it in a pane on the right, focused, as Arc's does, not Chrome's download,
+# and so does ⌥⌘-click, as Chrome's does.
+for modifiers in alt "alt cmd"; do
   send click $((x + 20)) $((y + 20)) $modifiers
   expect "^browser: splits $a+[0-9][0-9]*\$" \
     "a click on a link with $modifiers didn't open it beside the page: \"$(splits)\""
   n=$(splits | cut -d+ -f2)
   expect "^browser: selected $n\( in .*\)\{0,1\}\$" "the link's pane isn't focused"
   expect "^browser: panes $a $n\$" "the window doesn't show the link beside the page"
+  # Before read_keyboard's layout, which expect would read past: the page loads within it.
   expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in its pane"
+  read_keyboard
+  [ "$keyboard" = "$right" ] ||
+    fail "the link's pane didn't get the keyboard at once: ${keyboard:-none} has it"
   send key w cmd
   expect "^browser: tab $n closed\$" "⌘W didn't close the link's pane"
   expect "^browser: panes $a\$" "⌘W on the link's pane didn't leave the page alone"
@@ -146,7 +165,9 @@ done
 right_target="$((x + w - 100)) $((y + h / 2))"
 send dragover $((x + 40)) $((y + 30)) url "${site}notes.txt"
 send dragover $((x + 60)) $((y + 40))
-expect "^browser: drop targets for $a\$" "a link dragged over the page didn't bring the targets"
+# The first update brings them: AppKit's comes with the second dragover, after the one that
+# enters, and Aura's with the first, as XDND's first position enters and updates at once.
+await "^browser: drop targets for $a\$" || fail "a link dragged over the page didn't bring the targets"
 send dragover $right_target
 expect '^browser: drop target right$' "the right target isn't under the dragged link"
 expect '^browser: drag over [A-Za-z]* taken$' "the page's view didn't take the link on the target"
@@ -213,7 +234,7 @@ expect "^browser: window closed $link_window\$" "⇧⌘W didn't close the privat
 expect '^browser: private session ended [0-9]*$' "closing the private window didn't end its session"
 send window 1
 send click $page_point
-# Open Link in Split View opens it beside the page, as ⌥⇧-click does.
+# Open Link in Split View opens it beside the page, as ⌥-click does.
 link_menu
 send choose $in_split
 expect "^browser: splits $a+[0-9][0-9]*\$" \
@@ -235,6 +256,9 @@ b=$(splits | cut -d+ -f2)
 expect "^browser: selected $b\$" "the new pane isn't focused"
 expect "^browser: panes $a $b\$" "the window doesn't show both panes"
 expect "^browser: loaded $b https://example.org/\$" "example.org didn't load in the new pane"
+read_keyboard
+[ "$keyboard" = "$right" ] ||
+  fail "the new pane's page doesn't have the keyboard: ${keyboard:-none} has it"
 two="WebContentsViewCocoa $left WebContentsViewCocoa $right"
 read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $right" ] ||
@@ -245,10 +269,50 @@ send click $((x + 100)) 400
 expect "^browser: selected $a\$" "a click in the left pane didn't focus it"
 expect "^browser: panes $a $b\$" "focusing a pane changed the panes shown"
 [ "$focus" = RenderWidgetHostViewCocoa ] || fail "the left pane's page doesn't have the keyboard"
+read_keyboard
+[ "$keyboard" = "$left" ] ||
+  fail "the click gave ${keyboard:-nothing} the keyboard, not the left pane"
 read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $left" ] ||
   fail "the ring didn't go to the left pane: $pages"
 ../tools/window-screenshot.sh "$pid" "$out/split-left.png" || fail "no window to capture"
+# ⌘L edits the focused pane's URL, as Arc's address bar is the panel's, and the other pane keeps its
+# page. Back puts the left pane's page back for the steps after.
+send key l cmd
+expect '^browser: command edit-url via page$' "⌘L with the left pane focused didn't reach the UI"
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type "${site}notes.txt"
+send key return
+expect "^browser: loaded $a ${site}notes.txt\$" "the URL typed after ⌘L didn't load in the focused pane"
+# The panes are logged when they change, so the last line still names both.
+[ "$(grep '^browser: panes ' "$log" | tail -1)" = "browser: panes $a $b" ] ||
+  fail "the URL typed after ⌘L changed the panes shown: $(grep '^browser: panes ' "$log" | tail -1)"
+grep -q "^browser: loaded $b ${site}notes.txt\$" "$log" && fail "⌘L's URL loaded in the other pane"
+send key left cmd
+# A page Back restores from the back/forward cache logs no load, only its state.
+expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "Back didn't take the left pane back to its page"
+# A toast shows over its pane, the focused one, as Arc's does: ⇧⌘C's toast sits at the right pane's
+# corner while it's focused, and the next, once a click focuses the left one, at that one's, as far
+# left as its right edge is.
+send click $((x + half + 100)) 400
+expect "^browser: selected $b\$" "a click in the right pane didn't focus it"
+send key c cmd shift
+expect '^browser: toast shown Copied Current URL$' "⇧⌘C in the right pane showed no toast"
+expect '^browser: toast window shown$' "⇧⌘C's toast didn't come on screen"
+read_toast
+over_right=$toast
+expect '^browser: toast hidden$' "⇧⌘C's toast stayed"
+send click $((x + 100)) 400
+expect "^browser: selected $a\$" "a click in the left pane didn't focus it again"
+send key c cmd shift
+expect '^browser: toast shown Copied Current URL$' "⇧⌘C in the left pane showed no toast"
+expect '^browser: toast window shown$' "⇧⌘C's toast over the left pane didn't come on screen"
+read_toast
+over_left=$toast
+[ -n "$over_right" ] && [ -n "$over_left" ] &&
+  [ "$((over_right - over_left))" = "$((w - half + 10))" ] ||
+  fail "the toast went from ${over_right:-nowhere} to ${over_left:-nowhere}, not to the left pane's corner"
+../tools/window-screenshot.sh "$pid" "$out/split-toast.png" || fail "no window to capture"
 # In the sidebar the split is one row, which ⌘2 shows under a tab opened above it, with the pane
 # focused last, and a click on its right segment shows that pane focused.
 open_from_bar example.net
@@ -261,6 +325,9 @@ expect "^browser: panes $a $b\$" "⌘2 didn't show both panes"
 send click 170 $(row 1 | cut -d' ' -f2)
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" \
   "a click on the split's right segment didn't focus it"
+read_keyboard
+[ "$keyboard" = "$right" ] ||
+  fail "the right segment's pane didn't get the keyboard: ${keyboard:-none} has it"
 # The gap between the panes drags their widths, as Chrome's does, each kept a tenth of the card
 # wide, at least 50 and at most 200, and the gap snaps to even within 15. A double-click on it
 # evens them.
@@ -318,7 +385,7 @@ set -- $pages
 [ "${3%x*}" = 220 ] && [ "${5%%,*}" = "$((x + 230))" ] && [ "${6%x*}" -lt "$((w - 230))" ] ||
   fail "resized, the left pane isn't 220 wide, with the right one beside it: $pages"
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${size% *}x${size#* }\$" "the window didn't draw back at its size"
 read_pages
 [ "$pages" = "$expanded" ] || fail "back at its size the panes aren't as they were: $pages"
 send doubleclick $((x + 225)) 400
@@ -539,6 +606,7 @@ open_from_bar example.net
 f=$tab
 onto=$(today | cut -d' ' -f2)
 dragged=$(today | cut -d' ' -f3)
+rows=$(today)
 send press $(row 2)
 send dragto 110 $(row 2 | cut -d' ' -f2)
 send dragto $(row 1)
@@ -546,6 +614,14 @@ expect "^browser: drop onto $onto\$" "a tab rested on another's row didn't take 
 send release $(row 1)
 expect "^browser: dragged $dragged onto $onto\$" "the tab let go on another's row didn't join it"
 expect "^browser: splits $onto+$dragged\$" "the rested tab isn't on the right of a split: \"$(splits)\""
+# ⌘Z takes the tab back out to its row, the page shown still shown, and ⇧⌘Z joins it again.
+send key z cmd
+expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo the split"
+expect '^browser: splits $' "⌘Z didn't take the rested tab out of the split: \"$(splits)\""
+expect "^browser: today $rows\$" "⌘Z didn't put the rested tab back in its row: \"$(today)\""
+send key z cmd shift
+expect '^browser: command redo via \(ui\|page\)$' "⇧⌘Z didn't redo the split"
+expect "^browser: splits $onto+$dragged\$" "⇧⌘Z didn't join the tab again: \"$(splits)\""
 # ⌥-click on a split's row takes the tab under it out, and on another tab's row joins that tab to
 # the page shown, on its right, as Arc's does.
 send click $(row "$(row_of "$onto")") alt
@@ -567,4 +643,4 @@ expect '^browser: splits [0-9][0-9]*+[0-9][0-9]* [0-9][0-9]*+[0-9][0-9]*$' \
   "Duplicate on a split's menu didn't copy the whole split: \"$(splits)\""
 exec 3>&-
 quit
-echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page, ⌥-click on \"+ New Tab\" and the tab menu's, its bar taking typing, do it too. ⌥⇧- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in a window and a private window. A link dragged onto the page's right target opens in a pane there. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The gap between the panes drags their widths, or stacked their heights, down to Chrome's least and snapping to even, and a double-click evens them. Expand Current Split gives the focused pane the card and the other 220 wide, also as the window is resized, and again changes nothing. Change Orientation stacks the panes, with the find bar at the focused one's corner, and the split comes back stacked after a quit with both pages at the heights they were dragged to, until Change Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. A page alone has a target at the card's top too, where the tab joins it in a stacked split. A tab rested on another's row joins it in a split, ⌥-click on a split's row takes its tab out and on another tab's row joins it to the page shown, each pane's split controls change the split's orientation, and a split's menu mutes each of its tabs and duplicates the whole split. ⌘Z after Separate Page from Split View puts the page back in its split, and ⇧⌘Z takes it out again. Windows: $out/split-tab-menu.png, $out/split.png, $out/split-left.png, $out/split-resized.png, $out/split-expanded.png, $out/split-stacked.png, $out/split-targets.png, $out/split-separated.png, $out/split-targets-top.png, $out/split-link-targets.png"
+echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page, ⌥-click on \"+ New Tab\" and the tab menu's, its bar taking typing, do it too. ⌥- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in a window and a private window. A link dragged onto the page's right target opens in a pane there. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, a click focuses a pane and gives its page the keyboard, ⌘L edits that pane's URL, and a toast shows at that pane's corner. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The gap between the panes drags their widths, or stacked their heights, down to Chrome's least and snapping to even, and a double-click evens them. Expand Current Split gives the focused pane the card and the other 220 wide, also as the window is resized, and again changes nothing. Change Orientation stacks the panes, with the find bar at the focused one's corner, and the split comes back stacked after a quit with both pages at the heights they were dragged to, until Change Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. A page alone has a target at the card's top too, where the tab joins it in a stacked split. A tab rested on another's row joins it in a split, which ⌘Z takes back to its row and ⇧⌘Z joins again, ⌥-click on a split's row takes its tab out and on another tab's row joins it to the page shown, each pane's split controls change the split's orientation, and a split's menu mutes each of its tabs and duplicates the whole split. ⌘Z after Separate Page from Split View puts the page back in its split, and ⇧⌘Z takes it out again. Windows: $out/split-tab-menu.png, $out/split.png, $out/split-left.png, $out/split-toast.png, $out/split-resized.png, $out/split-expanded.png, $out/split-stacked.png, $out/split-targets.png, $out/split-separated.png, $out/split-targets-top.png, $out/split-link-targets.png"

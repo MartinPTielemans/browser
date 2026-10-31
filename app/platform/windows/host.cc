@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <ctime>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <string>
 #include <thread>
@@ -521,7 +522,7 @@ void WatchForeground() {
   (void)hook;
 }
 
-Floating g_overlays[3];
+Floating g_overlays[4];
 struct Corner {
   Floating floating;
   double right = 0;
@@ -1239,6 +1240,7 @@ void host_watch_full_screen(void (*)(void*, bool)) {}
 // Windows delivers a touchpad's swipes to the page as scrolls, which it takes, so there's nothing
 // here for the host to watch.
 void host_watch_swipes(bool (*)(void*, double, double, bool)) {}
+void host_watch_option_taps(void (*)(void*)) {}
 
 // A window's menu bar isn't replaced while it's open on Windows: it's modal and runs no tasks.
 bool host_after_menus(void (*)(void)) { return false; }
@@ -1334,7 +1336,7 @@ void host_show_overlay(int overlay,
                        double left,
                        double top,
                        double width) {
-  for (int each = 0; each < 3; ++each) {
+  for (int each = 0; each < int(std::size(g_overlays)); ++each) {
     Floating& other = g_overlays[each];
     if (each != overlay && other.hwnd && IsWindowVisible(other.hwnd)) {
       Hide(other);
@@ -1517,7 +1519,7 @@ void* host_add_link_preview(void*, void (*)(void)) {
 
 void host_show_link_preview(void*) {}
 
-void host_link_preview_drew(double, double, double, double, double) {}
+void host_link_preview_drew(double, double, double, double, double, double) {}
 
 void host_release_link_preview(void) {}
 
@@ -1645,7 +1647,9 @@ void host_show_toast(void* ui_view) {
   double content_width, content_height, width, height;
   ContentSize(Root(ui_view), &content_width, &content_height);
   WindowSize(g_toast.hwnd, &width, &height);
-  Show(g_toast, ui_view, content_width - width, 0, -1, -1, false);
+  // At the focused page's corner, which in a split view is its pane's.
+  auto [extra_right, extra_top] = g_pane_corners[ui_view];
+  Show(g_toast, ui_view, content_width - extra_right - width, extra_top, -1, -1, false);
 }
 
 void host_hide_toast(void) {
