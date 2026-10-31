@@ -137,6 +137,11 @@ fn settle(n: u64) {
         after(10, Box::new(move || settle(n)));
         return;
     }
+    // Until the key window has the title asked for, which a window takes from the loop.
+    if title_waits() {
+        after(100, Box::new(move || settle(n)));
+        return;
+    }
     gpui_linux::sync_display();
     idle(Box::new(move || {
         sync();
@@ -1118,6 +1123,55 @@ fn chromium_focus() -> Option<xproto::Window> {
     }
 }
 
+/// The title of the window with the keyboard, as `title` logs it.
+fn key_title() -> Option<String> {
+    Some(match keyboard_window() {
+        Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
+            text_property(window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A dialog of Chromium's in it is an aura window, which the X server has no title for, so
+        // the core gives it.
+        Some(Keyboard::Browser(browser, _))
+            if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
+        {
+            let length = unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
+            let mut title = vec![0u8; length + 1];
+            let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
+            unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
+            title.truncate(length);
+            String::from_utf8_lossy(&title).into_owned()
+        }
+        Some(Keyboard::Browser(browser, _)) => {
+            text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A window of Chromium's own, such as the Task Manager.
+        None => focus_title()?,
+    })
+}
+
+thread_local! {
+    /// The text `title <text>` waits for the key window's title to have, and since when.
+    static TITLE_AWAITED: RefCell<Option<(String, std::time::Instant)>> =
+        const { RefCell::new(None) };
+}
+
+/// Whether `title <text>` still waits, as the Mac's driver does for up to 10 s: a window Chrome
+/// opens, such as undocked DevTools, takes the keyboard a moment after the command that opens it,
+/// and its page's title after that. Logs the title once it has the text, or after 10 s without.
+fn title_waits() -> bool {
+    let Some((text, since)) = TITLE_AWAITED.with_borrow(Clone::clone) else { return false };
+    let title = key_title().unwrap_or_default();
+    if title.contains(&text) {
+        log!("browser: key window titled {title}");
+    } else if since.elapsed() >= std::time::Duration::from_secs(10) {
+        log!("browser: no key window titled {text}, windows {title} (key)");
+    } else {
+        return true;
+    }
+    TITLE_AWAITED.set(None);
+    false
+}
+
 /// The title of the window with the input focus, or of the first window it's in that has one.
 fn focus_title() -> Option<String> {
     let x = server()?;
@@ -1847,30 +1901,12 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let title = match keyboard_window() {
-                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
-                    text_property(window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A dialog of Chromium's in it is an aura window, which the X server has no title
-                // for, so the core gives it.
-                Some(Keyboard::Browser(browser, _))
-                    if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
-                {
-                    let length =
-                        unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
-                    let mut title = vec![0u8; length + 1];
-                    let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
-                    unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
-                    title.truncate(length);
-                    String::from_utf8_lossy(&title).into_owned()
-                }
-                Some(Keyboard::Browser(browser, _)) => {
-                    text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A window of Chromium's own, such as the Task Manager.
-                None => focus_title()?,
-            };
-            log!("browser: key window titled {title}");
+            let title = key_title()?;
+            if rest.is_empty() || title.contains(rest) {
+                log!("browser: key window titled {title}");
+            } else {
+                TITLE_AWAITED.set(Some((rest.to_owned(), std::time::Instant::now())));
+            }
             Some(())
         }
         // The headless session's clipboard is the run's own, as drive.mm's pasteboard is.
