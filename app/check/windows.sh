@@ -141,29 +141,41 @@ send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar in full screen"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
+# The driven window is the first on screen once its Space has slid in.
+in_front() {
+  for _ in $(seq 50); do
+    send front
+    grep '^browser: front ' "$log" | tail -1 | grep -q '^browser: front driven,' && return 0
+    sleep 0.1
+  done
+  return 1
+}
 send window 2
-# The desktop's Space slides back from here on.
-forward=$step
-# The second window is on screen once its Space has slid in.
-for _ in $(seq 30); do
-  send front
-  grep '^browser: front ' "$log" | tail -1 | grep -q '^browser: front driven,' && break
-  sleep 0.1
-done
+in_front || true
 expect '^browser: front driven, main driven, key driven, ax focused driven, ax main driven$' \
   "with the first window in full screen, other apps take the wrong window: $(grep '^browser: front ' "$log" | tail -1)"
+# Bringing the first window forward slides to its Space, and leaving full screen from anywhere else
+# slides there and back after AppKit says it has left, so a click comes in the middle (#889). Left
+# from its own Space, it slides back once, and until then the first window still covers the second
+# and clicks go nowhere. Elsewhere full screen is no Space of its own.
 send window 1
+back=$step
+if [ "$(uname)" = Darwin ]; then
+  in_front ||
+    fail "the first window's full-screen Space didn't come forward: $(grep '^browser: front ' "$log" | tail -1)"
+  expect '^browser: desktop space changed$' "the first window's full-screen Space didn't come forward" \
+    "$back"
+fi
 send fullscreen
+left=$step
 expect '^browser: window left full screen$' "the first window didn't leave full screen"
-# AppKit says so before the desktop's Space has slid back, and until it has, the first window still
-# covers the second and clicks go nowhere. It slides back as the second window comes forward, which
-# can end before the first leaves full screen, when leaving changes no Space, or after (#889).
-# Elsewhere full screen is no Space of its own.
 if [ "$(uname)" = Darwin ]; then
   expect '^browser: desktop space changed$' \
-    "the desktop's Space didn't come back after full screen" "$forward"
+    "the desktop's Space didn't come back after full screen" "$left"
 fi
 send window 2
+in_front ||
+  fail "after full screen, the second window didn't come forward: $(grep '^browser: front ' "$log" | tail -1)"
 
 # A click on the page's row in the new window moves the page there, live.
 send click $(row 0)
