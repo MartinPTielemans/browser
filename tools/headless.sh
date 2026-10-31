@@ -96,8 +96,12 @@ done
 gpu=(WLR_RENDER_DRM_DEVICE="$render")
 [ -n "$render" ] || gpu=(WLR_RENDERER=pixman)
 [ -n "$run" ] || mkdir -p "$(dirname "$out")"
+# Each message sway sends and reads, for a client it drops with no error of its own, as libwayland
+# 1.22's server does one whose events fill its socket (#1035).
+debug=()
+[ -z "$run" ] || debug=(WAYLAND_DEBUG=server)
 env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK \
-  WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 "${gpu[@]}" \
+  WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 "${gpu[@]}" ${debug[@]+"${debug[@]}"} \
   sway -c "$dir/config" >"$dir/sway.log" 2>&1 &
 sway_pid=$!
 for _ in $(seq 100); do
@@ -124,7 +128,7 @@ if [ -n "$run" ]; then
   # with the session's folder.
   if [ "$status" != 0 ]; then
     kill -0 "$sway_pid" 2>/dev/null || echo "headless: sway had exited." >&2
-    tail -n 100 "$dir/sway.log" | sed 's/^/sway: /' >&2
+    tail -n 400 "$dir/sway.log" | sed 's/^/sway: /' >&2
   fi
   exit $status
 fi
