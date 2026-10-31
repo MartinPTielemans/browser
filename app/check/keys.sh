@@ -10,15 +10,15 @@
 # words. A .new address typed, docs.new, gets its row, which opens it in a new tab. A page it opens
 # in a new tab has the keyboard: its autofocused field gets what's typed, and ⌘T opens the bar
 # again. While ⌘T's is open, "New Tab" has the selected plate. Keys typed right after ⌘T, ⌘L or ⌘F,
-# from the page or the UI, wait for the bar it opens and land in its field, a composition too, and a
-# page that keeps ⌘F gets them after it. Japanese input composes and commits in the page and in the
-# command bar, where return and escape go to the input method while it composes. The Edit menu's
-# Undo, Redo and Select All reach the focused page. ⌘Y opens the history page from the page and the
-# UI. A page whose renderer crashes leaves the browser running, and ⌘R loads it again. Settings ›
-# Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches the UI from both sides, while ⌘T no
-# longer runs it, and its ↺ gives ⌘T back. About ilo shows Settings' About tab, with Settings key
-# and with About already showing. ⌘T as the window comes on screen, before the overlays' windows are
-# made, makes them and opens the bar.
+# from the page or the UI, wait for the bar it opens, however late the page answers ⌘L, and land in
+# its field, a composition too, and a page that keeps ⌘F gets them after it. Japanese input composes
+# and commits in the page and in the command bar, where return and escape go to the input method
+# while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
+# history page from the page and the UI. A page whose renderer crashes leaves the browser running,
+# and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
+# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
+# Settings' About tab, with Settings key and with About already showing. ⌘T as the window comes on
+# screen, before the overlays' windows are made, makes them and opens the bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -27,11 +27,13 @@ page='data:text/html,<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
-// Like Google Docs, the page keeps ⌘F.
+// Like Google Docs, the page keeps ⌘F. It answers ⌘L late, as a busy page can, past the 0.4 s
+// the keys typed after it were once held for. No number sign: it would end this data URL.
 addEventListener("keydown", e => {
   if (!e.'"$cmd_key"') return;
   document.title = "page saw cmd-" + e.key;
   if (e.key == "f") e.preventDefault();
+  for (const until = performance.now() + (e.key == "l" ? 700 : 0); performance.now() < until;);
 }, true);
 addEventListener("keydown", e => {
   if (e.key == "Escape") document.title = "page saw escape " + (e.repeat ? "repeat" : "press");
