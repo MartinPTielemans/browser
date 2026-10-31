@@ -3888,7 +3888,7 @@ fn open_window_as(
                 let viewport = window.viewport_size();
                 // First, as a page's full screen can end with the window's.
                 #[cfg(any(target_os = "linux", target_os = "windows"))]
-                shell.bounds_changed(window, cx);
+                shell.bounds_changed(cx);
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
                     shell.full_screen_step("laid", viewport);

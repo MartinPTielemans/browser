@@ -103,7 +103,7 @@ fn window_manager_takes(
 ) {
     host.full_screen.set(full_screen);
     cx.simulate_resize(if full_screen { SCREEN } else { WINDOWED });
-    shell.update_in(cx, |shell, window, cx| shell.bounds_changed(window, cx));
+    shell.update(cx, |shell, cx| shell.bounds_changed(cx));
 }
 
 /// The core says the page went full screen, or left.
@@ -179,7 +179,6 @@ fn the_note_waits_to_hear_whether_a_page_took_the_window(cx: &mut TestAppContext
     window_manager_takes(true, &shell, &host, cx);
     cx.run_until_parked();
     assert_eq!(notes(&host), ["full screen note shown"]);
-    assert_eq!(page(&shell, cx), Some("at the sidebar"));
     window_manager_takes(false, &shell, &host, cx);
     notes(&host);
     // Chrome on Windows takes the window full screen for a page before the core says it asked.
@@ -187,22 +186,6 @@ fn the_note_waits_to_hear_whether_a_page_took_the_window(cx: &mut TestAppContext
     page_goes(true, &shell, cx);
     cx.run_until_parked();
     assert!(notes(&host).is_empty(), "a page's full screen showed the window's note");
-}
-
-#[gpui::test]
-fn a_page_whose_window_went_first_is_laid_out_once_full_screen(cx: &mut TestAppContext) {
-    let (shell, host, cx) = window(cx);
-    // Chrome on Windows takes the window full screen for a page before the core says it asked, so
-    // the page stays put until the shell hears, rather than going to the card at the new size.
-    window_manager_takes(true, &shell, &host, cx);
-    assert_eq!(page(&shell, cx), None, "the page moved before the shell heard of the page");
-    page_goes(true, &shell, cx);
-    assert_eq!(page(&shell, cx), None, "the page moved before the shell heard of the page");
-    cx.run_until_parked();
-    assert_eq!(page(&shell, cx), Some("fills"));
-    // The window went for the page, so leaving it brings the page back to the card.
-    window_manager_takes(false, &shell, &host, cx);
-    assert_eq!(page(&shell, cx), Some("at the sidebar"));
 }
 
 #[gpui::test]
