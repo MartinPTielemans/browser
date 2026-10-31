@@ -1317,6 +1317,8 @@ pub struct Shell {
     window_watches: Vec<Subscription>,
     /// Whether the host was last asked to draw the material light.
     window_light: Option<bool>,
+    /// The menus' look capture mode was last given, which it takes again when it changes (#861).
+    capture_look: Option<crate::menu::Look>,
     /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
     /// picker, or a Space's theme picker; and when it was asked for.
     picker_pending: Option<(Pending, Instant)>,
@@ -1551,6 +1553,7 @@ impl Shell {
             window_active: true,
             window_watches: Vec::new(),
             window_light: None,
+            capture_look: None,
             private: false,
         }
     }

@@ -93,6 +93,8 @@ pub(super) struct Recorder {
     pub(super) window_title: RefCell<String>,
     /// Whether it was last asked to draw the window's material light.
     pub(super) window_light: Cell<Option<bool>>,
+    /// The tab and the look capture mode over it was last given, and whether it was light.
+    pub(super) capture_look: Cell<Option<(u64, bool)>>,
     /// The appearance View › Appearance last chose.
     pub(super) appearance: Cell<Option<Appearance>>,
     /// The share services it lists for any page.
@@ -875,6 +877,10 @@ impl Browser for Recorder {
 
     fn set_window_light(&self, light: bool, _: &mut App) {
         self.window_light.set(Some(light));
+    }
+
+    fn capture_look(&self, tab: u64, look: crate::menu::Look, _: &mut App) {
+        self.capture_look.set(Some((tab, look.light)));
     }
 
     fn set_appearance(&self, appearance: Appearance, _: &mut App) {
