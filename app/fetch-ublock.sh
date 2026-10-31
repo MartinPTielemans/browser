@@ -20,9 +20,10 @@ changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake 
 edit() {
   local file=$dir.part/uBlock0.chromium/$1
   [ "$(grep -cxF -- "$2" "$file")" = 1 ] || fail "$1 no longer has the line: $2"
-  awk -v old="$2" -v new="$3" -v changed="$changed" '
-    NR == 1 && $0 != changed { print changed }
-    $0 == old { if (new != "") print new; next }
+  # Through the environment, as macOS's awk takes no newline in a -v value.
+  old="$2" new="$3" changed="$changed" awk '
+    NR == 1 && $0 != ENVIRON["changed"] { print ENVIRON["changed"] }
+    $0 == ENVIRON["old"] { if (ENVIRON["new"] != "") print ENVIRON["new"]; next }
     { print }' "$file" > "$file.new"
   mv "$file.new" "$file"
 }
@@ -67,7 +68,7 @@ if [ ! -f "$dir/manifest.json" ] || ! grep -qF "\"key\": \"$key\"" "$dir/manifes
   edit js/tab.js '    pageStoreJanitorTimer.on(pageStoreJanitorPeriod);' \
     '    µb.pageStoreJanitorSoon = ( ) => { pageStoreJanitorTimer.on(pageStoreJanitorPeriod); };'
   edit js/tab.js '        super.onClosed(tabId);' \
-    '        super.onClosed(tabId);\n        µb.pageStoreJanitorSoon();'
+    $'        super.onClosed(tabId);\n        µb.pageStoreJanitorSoon();'
   # On Chromium it reloaded itself as it first started in a profile, for Chrome's managed storage,
   # which can be empty then (uBlock-issues#1547). The core gives it its managed settings before it
   # loads, and the reload unloaded it under the first pages, as Chromium then resets every frame's
