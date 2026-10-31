@@ -1,7 +1,7 @@
 #!/bin/bash
 # Downloads the uBlock Origin ublock.ini names, checked against its hash, into .deps/ublock, adds
 # our key to its manifest so its id doesn't depend on where the app is, takes out the timers that
-# wake an idle browser (below), and prints its folder.
+# wake an idle browser and the reload as it first starts (below), and prints its folder.
 # Nothing in the download runs here: it's unzipped into a folder of its own and only read.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -12,7 +12,7 @@ fail() {
 }
 
 # What starts each file this changes, as GPL 3 asks of a changed file.
-changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser."
+changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser, and it doesn't reload as it first starts."
 
 # Puts $3, which may be several lines or none, in place of the line $2 of uBlock Origin's file $1,
 # and fails unless that line is there once, so a new release is read again before it ships.
@@ -36,7 +36,8 @@ key=$(git config -f ublock.ini ublock.key)
 
 dir=$PWD/.deps/ublock/$sha256
 if [ ! -f "$dir/manifest.json" ] || ! grep -qF "\"key\": \"$key\"" "$dir/manifest.json" ||
-  [ "$(head -n 1 "$dir/js/tab.js")" != "$changed" ]; then
+  [ "$(head -n 1 "$dir/js/tab.js")" != "$changed" ] ||
+  [ "$(head -n 1 "$dir/js/start.js")" != "$changed" ]; then
   mkdir -p .deps/ublock
   rm -rf "$dir" "$dir.part" "$dir.zip"
   echo "fetch-ublock: downloading uBlock Origin $version" >&2
@@ -66,6 +67,12 @@ if [ ! -f "$dir/manifest.json" ] || ! grep -qF "\"key\": \"$key\"" "$dir/manifes
     '    µb.pageStoreJanitorSoon = ( ) => { pageStoreJanitorTimer.on(pageStoreJanitorPeriod); };'
   edit js/tab.js '        super.onClosed(tabId);' \
     '        super.onClosed(tabId);\n        µb.pageStoreJanitorSoon();'
+  # On Chromium it reloaded itself as it first started in a profile, for Chrome's managed storage,
+  # which can be empty then (uBlock-issues#1547). The core gives it its managed settings before it
+  # loads, and the reload unloaded it under the first pages, as Chromium then resets every frame's
+  # URL loader factories, dropping a subresource they were asking for (#954).
+  edit js/start.js "    if ( lastVersionInt === 0 && vAPI.webextFlavor.soup.has('chromium') ) {" \
+    '    if ( false ) {'
   mv "$dir.part/uBlock0.chromium" "$dir"
   rm -rf "$dir.part"
   # Earlier versions go.
