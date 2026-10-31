@@ -25,7 +25,7 @@ use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
     capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
-    icon_picker, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    icon_picker, launch, link_preview, link_target, log, menu, offer, passwords, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -6110,10 +6110,8 @@ fn profile_dir() -> String {
 /// What the app gives the core to start with: Chromium's switches, from the arguments the process
 /// was `given`, and the callbacks.
 fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
-    let mut given = given.into_iter();
-    let mut args: Vec<String> = given.next().into_iter().collect();
     let profile = profile_dir();
-    args.extend([
+    let mut args: Vec<String> = vec![
         format!("--user-data-dir={profile}"),
         // Chrome would copy the app bundle to check its signature against, which an
         // ad-hoc-signed build doesn't need.
@@ -6123,7 +6121,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         // back.
         "--disable-stack-profiler".into(),
         "--enable-features=PartitionAllocAdaptiveMemoryReclaimInterval".into(),
-    ]);
+    ];
     // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed dev build asking
     // for it gets a password prompt after every build, and every request that uses cookies waits.
     // The prod build is signed alike every time (tools/install.sh), so macOS asks once.
@@ -6153,11 +6151,12 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
-    // Switches given to the app come after, so they override these: Chromium keeps a repeated
-    // switch's last value.
-    args.extend(given.filter(|arg| {
+    let given = given.into_iter().filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
-    }));
+    });
+    // On Windows and Linux Chromium has started already, with what it was given.
+    let chromium_started = cfg!(any(target_os = "windows", target_os = "linux"));
+    let args = launch::chromium_args(given.collect(), args, chromium_started);
     let args: Vec<CString> = args
         .into_iter()
         .filter_map(|arg| CString::new(arg).ok())
