@@ -33,6 +33,9 @@ import sys
 import threading
 import time
 
+# Windows' Python would end lines in \r\n, which the runs' greps for whole lines don't match.
+sys.stdout.reconfigure(newline="\n")
+
 
 def pipe(to_path, from_path):
     """Sends and receives over the browser's DevTools pipe."""
