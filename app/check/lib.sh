@@ -60,6 +60,12 @@ cleanup() {
   [ -z "${scratch:-}" ] || rm -rf "$scratch"
   # A check VM that a run turned light or dark goes back to the appearance it had.
   [ -z "${dark_mode:-}" ] || appearance "$dark_mode" || true
+  # A crash's minidump goes with the run's captures, once Crashpad's handler has written it.
+  for _ in $(seq 60); do
+    ls "$profile_dir"/Crashpad/new/*.dmp > /dev/null 2>&1 || break
+    sleep 1
+  done
+  cp "$profile_dir"/Crashpad/*/*.dmp "$out/" 2>/dev/null || true
   kill -0 "$pid" 2>/dev/null || return 0
   # Git Bash's kill ends a native process's tree from outside, helpers first, and a failed run's
   # log then ended with their crashes, which read as the failure's cause (#958). taskkill without
@@ -81,11 +87,16 @@ fail() {
   grep -v '^$' "$log" | tail -5 >&2
   exit 1
 }
+# The app ended by itself.
+gone() {
+  wait "$pid" 2>/dev/null && ended=0 || ended=$?
+  fail "the app exited with status $ended"
+}
 # Waits up to 30 s for a line matching $1 in the log of the current run.
 await() {
   for _ in $(seq 300); do
     grep -q "$1" "$log" && return 0
-    kill -0 "$pid" 2>/dev/null || fail "the app exited"
+    kill -0 "$pid" 2>/dev/null || gone
     sleep 0.1
   done
   return 1

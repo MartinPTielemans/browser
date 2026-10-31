@@ -11,10 +11,10 @@
 //! shortcut: a core call that hands Chromium's windows the events would drive Wayland too.
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, middleclick,
-//! clickkey, doubleclickkey, rightclickkey, drag, press, dragto, release, rightpress, rightdragto,
-//! rightrelease, dragover, dragdrop, dragleave, move, scroll, wheel, pageswipe, key, keydown, keyup,
-//! flags, type, resize, place, order, layout, state, title, pasteboard, front, menu, menubar, choose,
-//! dismiss, window, agentspace, agentmayact,
+//! clickkey, doubleclickkey, rightclickkey, drag, dragkey, press, dragto, release, rightpress,
+//! rightdragto, rightrelease, dragover, dragdrop, dragleave, move, scroll, wheel, pageswipe, key,
+//! keydown, keyup, flags, type, resize, place, order, layout, state, title, pasteboard, front, menu,
+//! menubar, choose, dismiss, window, agentspace, agentmayact,
 //! agentrelease, agentdisconnect, takeback, age and insert. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
 //! cmd with Ctrl, ctrl and alt with Alt, and ⌃Tab as Ctrl+Tab; a click's as Chrome reads
 //! them, cmd with Ctrl and alt with Alt. flags presses and lets
@@ -1577,6 +1577,18 @@ fn run_command(line: &str) -> Option<()> {
         "dragleave" => {
             drag_leave();
             Some(())
+        }
+        "dragkey" => {
+            let (x, y) = point(&mut words)?;
+            let (x2, y2) = point(&mut words)?;
+            let at = target_in_key(x, y)?;
+            let to = target_in_key(x2, y2)?;
+            first_press(at, 1, false);
+            button(at, 1, true, none)?;
+            // Halfway first, so the view sees the drag start before it ends.
+            motion(target_in_key((x + x2) / 2., (y + y2) / 2.)?, button_mask(1))?;
+            motion(to, button_mask(1))?;
+            button(to, 1, false, button_mask(1))
         }
         "drag" => {
             let (x, y) = point(&mut words)?;

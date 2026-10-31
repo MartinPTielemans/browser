@@ -1348,6 +1348,7 @@ fn a_word_of_the_name_puts_the_best_first_and_the_rest_after(cx: &mut TestAppCon
         "Separate Page from Split View".into(),
         "Expand Current Split".into(),
         "Flip Split View".into(),
+        "New Note Split".into(),
     ];
     assert_eq!(bar.listed(), expected);
     bar.keys("cmd-a");
@@ -1372,6 +1373,7 @@ fn tab_in_an_empty_field_lists_only_the_commands(cx: &mut TestAppContext) {
         "Separate Page from Split View",
         "Expand Current Split",
         "Flip Split View",
+        "New Note Split",
     ];
     assert_eq!(bar.listed(), only);
     // What's typed doesn't go to a page or a search.
@@ -1703,4 +1705,29 @@ fn shift_f10_opens_the_fields_menu_on_its_first_item(cx: &mut TestAppContext) {
     bar.cx.run_until_parked();
     let text = bar.window.update(&mut bar.cx.cx, |bar, _, cx| bar.input.read(cx).text().to_owned());
     assert_eq!(text.unwrap(), "docs.test");
+}
+
+/// A .new address typed to its dot gets its row first, named by what it makes, in place of the
+/// core's row for the same page (#698). ↩ opens it in a new tab, even from a tab's URL, which it
+/// leaves. The word alone stays a search.
+#[gpui::test]
+fn a_typed_new_address_opens_its_new_document_in_a_new_tab(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("meet");
+    bar.suggest("meet", vec![searching("meet")]);
+    assert_eq!(bar.listed(), [search("meet")]);
+    bar.type_text(".");
+    bar.suggest("meet.", vec![page("https://meet./"), searching("meet.")]);
+    assert_eq!(bar.listed(), ["https://meet.new/", "https://meet./", &search("meet.")]);
+    let named = bar.window.read_with(&bar.cx.cx, |bar, _| bar.rows[0].text.clone()).unwrap();
+    assert_eq!(named, "New Google Meet");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://meet.new/", "hide"]);
+
+    bar.edit("https://example.com/", None);
+    bar.type_text("docs.new");
+    bar.suggest("docs.new", vec![page("https://docs.new/"), searching("docs.new")]);
+    assert_eq!(bar.listed(), ["https://docs.new/", &search("docs.new")]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://docs.new/", "hide"]);
 }

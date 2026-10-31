@@ -7,17 +7,18 @@
 # The command bar opens over the page with the keyboard, never showing the last query, gives the
 # keyboard back when it closes, a held escape that closes it doesn't repeat into the page, and it
 # loads what's typed in it, over https for a host typed without one, or searches DuckDuckGo for
-# words. A page it opens in a new tab has the keyboard: its autofocused field gets what's typed, and
-# ⌘T opens the bar again. While ⌘T's is open, "New Tab" has the selected plate. Keys
-# typed right after ⌘T, ⌘L or ⌘F, from the page or the UI, wait for the bar it opens and land in its
-# field, a composition too, and a page that keeps ⌘F gets them after it. Japanese input composes
-# and commits in the page and in the command bar, where return and escape go to the input method
-# while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
-# history page from the page and the UI. A page whose renderer crashes leaves the browser running,
-# and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
-# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
-# Settings' About tab, with Settings key and with About already showing. ⌘T as the window comes on
-# screen, before the overlays' windows are made, makes them and opens the bar.
+# words. A .new address typed, docs.new, gets its row, which opens it in a new tab. A page it opens
+# in a new tab has the keyboard: its autofocused field gets what's typed, and ⌘T opens the bar
+# again. While ⌘T's is open, "New Tab" has the selected plate. Keys typed right after ⌘T, ⌘L or ⌘F,
+# from the page or the UI, wait for the bar it opens and land in its field, a composition too, and a
+# page that keeps ⌘F gets them after it. Japanese input composes and commits in the page and in the
+# command bar, where return and escape go to the input method while it composes. The Edit menu's
+# Undo, Redo and Select All reach the focused page. ⌘Y opens the history page from the page and the
+# UI. A page whose renderer crashes leaves the browser running, and ⌘R loads it again. Settings ›
+# Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches the UI from both sides, while ⌘T no
+# longer runs it, and its ↺ gives ⌘T back. About ilo shows Settings' About tab, with Settings key
+# and with About already showing. ⌘T as the window comes on screen, before the overlays' windows are
+# made, makes them and opens the bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -208,22 +209,19 @@ send type y
 expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 
 # Keys typed right after ⌘T, ⌘L or ⌘F land in the field it opens, in order and a composition
-# whole, never in the page (Ardia P§7). They go with no wait after the shortcut, so they're queued
-# before the bar has the keyboard, and the app says it held them for it.
+# whole, never in the page (Ardia P§7). They go with no wait after the shortcut, and where they
+# land, which every caller checks, is the proof. The app holds those that come before the bar has
+# the keyboard and says so, but the driver sends them a command after the shortcut, and the bar
+# can have the keyboard by then, so there may be none to hold (#905).
 typed_after() {
   post key "$1" cmd
   send type "$2"
-  # Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
-  # it has the input focus, so there where they land, which every caller checks, is the proof.
-  [ "$(uname)" = Linux ] && return
-  expect '^browser: held [0-9]* key events for GPUIPanel$' \
-    "keys typed right after ⌘$(echo "$1" | tr a-z A-Z) $3 didn't wait for its bar"
 }
 drew() {
   grep "^browser: $1 drew" "$log" | tail -1
 }
 for shortcut in t l; do
-  typed_after $shortcut abc "with the page focused"
+  typed_after $shortcut abc
   expect '^browser: command bar drew "abc"$' \
     "keys typed right after ⌘$shortcut with the page focused went elsewhere: $(drew 'command bar')"
   send key escape
@@ -234,7 +232,7 @@ if [ "$(uname)" = Linux ]; then
   echo "skip: composing right after ⌘L: the Linux driver types plain keys in a page."
 else
   send ime on
-  typed_after l nihongo "with the page focused, composing,"
+  typed_after l nihongo
   expect '^browser: command bar drew "nihongo"$' \
     "a composition typed right after ⌘L didn't go to the command bar: $(drew 'command bar')"
   send state
@@ -248,7 +246,7 @@ fi
 send click $sidebar_point
 in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
 for shortcut in t l; do
-  typed_after $shortcut abc "with the UI focused"
+  typed_after $shortcut abc
   expect '^browser: command bar drew "abc"$' \
     "keys typed right after ⌘$shortcut with the UI focused went elsewhere: $(drew 'command bar')"
   send key escape
@@ -260,7 +258,7 @@ send key escape
 expect '^browser: find bar hidden$' "escape didn't close the find bar"
 send click $sidebar_point
 in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
-typed_after f abc "with the UI focused"
+typed_after f abc
 expect '^browser: find bar drew "abc" ' \
   "keys typed right after ⌘F with the UI focused went elsewhere: $(drew 'find bar')"
 send key escape
@@ -305,7 +303,7 @@ in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 # records the next keys pressed.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 373 60
+send clickkey 401 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 300 120
 send type new tab
@@ -426,6 +424,22 @@ send key return
 expect '^browser: command bar go https://duckduckgo.com/?q=arc+browser$' "words in the command bar didn't search: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect '^browser: loaded [0-9]* https://duckduckgo.com/?q=arc+browser' "the search didn't load"
 ../tools/window-screenshot.sh "$pid" "$out/search.png" || fail "no window to capture"
+# A .new address typed names what it makes, first, and ↩ opens it in a new tab though ⌘L's bar
+# edits the tab shown (#698). docs.new sends a browser that isn't signed in to Google's sign-in.
+before=$(today)
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type docs.new
+expect '^browser: command bar new document docs.new: New Google Doc$' \
+  "docs.new typed in the command bar didn't get its row"
+../tools/window-screenshot.sh "$pid" "$out/new-document.png" || fail "no window to capture"
+send key return
+expect '^browser: command bar new tab https://docs.new/$' "the docs.new row didn't open a new tab"
+expect "^browser: today [0-9][0-9]*${before:+ $before}\$" "the docs.new row's tab isn't in Today"
+tab=$(today | cut -d' ' -f1)
+expect "^browser: loaded $tab https://[a-z]*\.google\.com/" "docs.new didn't go to Google Docs"
+send key w cmd
+expect "^browser: today $before\$" "⌘W didn't close the docs.new tab"
 # A page the bar opens in a new tab has the keyboard, so its field autofocused gets what's typed
 # and the browser's shortcuts reach the UI, with no click in it first (#428, where X11 lost them).
 serve
@@ -488,5 +502,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts.png, $out/about.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, names docs.new typed and opens it in a new tab, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/new-document.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts.png, $out/about.png"
 echo "$launch_bar"

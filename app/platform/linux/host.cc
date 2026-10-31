@@ -378,8 +378,7 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 // (gpui_linux::watch_embedder_swipes, in main.rs), which the compositor sends unless it keeps them
 // for its own, such as for workspaces. X11 sends them to the page's window alone, Chromium's.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
-// The Mac's alone so far: Chromium's window has the keys while the page has the keyboard.
-void host_watch_option_taps(void (*tapped)(void* ui_view)) {}
+// host_watch_option_taps is system.rs's.
 bool host_after_menus(void (*apply)(void)) { return false; }
 
 void host_watch_resigning_active(void (*resigning)(void)) {
@@ -444,12 +443,7 @@ void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
 // No system share menu on Linux: capture copies instead, and says so (capture.rs).
 void host_share_png(const uint8_t* png, size_t size, void* view, double x, double y, double width, double height, bool messages) {}
 
-// shortcut: no hover card on Linux yet; its window is never shown, so the card is off.
-void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {}
-
-void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {}
-
-void host_hide_hover_card(void) {}
+// The hover card is one of the floats (floats.rs).
 
 void host_watch_memory_pressure(void (*pressed)(void)) {}
 
