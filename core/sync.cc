@@ -1276,7 +1276,9 @@ class Account : public syncer::SyncServiceObserver,
 
   // syncer::ProtocolEventObserver:
   void OnProtocolEvent(const syncer::ProtocolEvent& event) override {
-    LOG(ERROR) << "browser: sync engine " << event.GetType();
+    // Its type alone, such as "Commit Request": ProtocolEvent keeps GetType private.
+    const std::string* type = event.ToValue(/*include_specifics=*/false).FindString("type");
+    LOG(ERROR) << "browser: sync engine " << (type ? *type : "event");
   }
 
   // syncer::SyncServiceObserver:
