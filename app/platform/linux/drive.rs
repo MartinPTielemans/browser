@@ -1677,12 +1677,14 @@ fn run_command(line: &str) -> Option<()> {
                 Some(step) => (3, step),
                 None => (1, action),
             };
-            let held = button_mask(which);
+            // With modifiers after the point, as a click's, held through the press's every step.
+            let flags = click_modifiers(words);
+            let held = button_mask(which) | flags;
             if step == "press" {
                 let at = target_at(x, y)?;
                 PRESSED.set(Some(at));
                 first_press(at, which, false);
-                return button(at, which, true, none);
+                return button(at, which, true, none | flags);
             }
             let to = target_in(driven()?.window, x, y)?;
             let to = match PRESSED.get() {
