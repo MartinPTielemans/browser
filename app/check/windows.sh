@@ -18,9 +18,12 @@
 # move takes.
 
 # The page counts in its title from its first frame, so a page that reloaded would count from 1
-# again. "o" in it opens a tab under it, as a link to a new tab does.
+# again. "o" in it opens a tab under it, as a link to a new tab does. Its beforeunload handler,
+# which never asks, has Chrome run the pages' handlers as the last window closes, which once
+# archived the page's tab and left the window open (#870).
 page='data:text/html,<title>loading</title>
 <script>
+onbeforeunload = () => {};
 let count = 0;
 requestAnimationFrame(() => setTimeout(() =>
   setInterval(() => document.title = "count " + ++count, 200)));
