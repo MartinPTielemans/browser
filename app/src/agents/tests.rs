@@ -3,8 +3,6 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixStream;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -230,7 +228,7 @@ fn agents(
     let number = NEXT.fetch_add(1, Ordering::SeqCst);
     let folder = std::env::temp_dir().join(format!("agents-ui-{}-{number}", std::process::id()));
     std::fs::create_dir_all(&folder).unwrap();
-    let (socket, bridge) = (folder.join("Agents.sock"), PathBuf::from("/app/mcp-bridge"));
+    let (socket, bridge) = (address(&folder), PathBuf::from("/app/mcp-bridge"));
     cx.new(|_| Agents::new(browser, configs, path, socket, bridge))
 }
 
@@ -280,8 +278,8 @@ fn log(
     })
 }
 
-/// The switch is off at first, and the server runs only while it's on: on, its socket is in place
-/// for the user alone and takes a connection; off, the socket is gone.
+/// The switch is off at first, and the server runs only while it's on: on, its socket or pipe is
+/// in place for the user alone and takes a connection; off, it's gone.
 #[gpui::test]
 fn agents_are_off_until_the_user_turns_them_on(cx: &mut TestAppContext) {
     let (browser, configs) = (Made::with_agent_space(), Arc::new(Configs::default()));
@@ -289,18 +287,23 @@ fn agents_are_off_until_the_user_turns_them_on(cx: &mut TestAppContext) {
     assert!(!agents.read_with(cx, |agents, _| agents.is_on()));
     assert!(agents.read_with(cx, |agents, _| agents.server.is_none()));
     let socket = agents.read_with(cx, |agents, _| agents.socket.clone());
-    assert!(!socket.exists());
+    assert!(server::connect(&socket).is_err());
 
     agents.update(cx, |agents, cx| agents.set_on(true, cx));
-    let mode = std::fs::metadata(&socket).unwrap().permissions().mode();
-    assert_eq!(mode & 0o777, 0o600);
-    assert!(UnixStream::connect(&socket).is_ok());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&socket).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    assert!(server::connect(&socket).is_ok());
 
     agents.update(cx, |agents, cx| agents.set_on(false, cx));
     assert!(agents.read_with(cx, |agents, _| agents.server.is_none()));
+    #[cfg(unix)]
     assert!(!socket.exists());
     assert!(
-        UnixStream::connect(&socket).is_err(),
+        server::connect(&socket).is_err(),
         "the server still takes connections once off"
     );
 }

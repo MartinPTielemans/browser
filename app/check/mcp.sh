@@ -61,9 +61,15 @@ pid=$!
 exec 3> "$out/drive"
 await_load
 user_tab=$(today | cut -d' ' -f1)
-await '^browser: agents server on /.*/Agents\.sock$' || fail "the saved switch didn't start the server"
+# A socket only the user can open, or on Windows a named pipe only they can.
+case "$(uname -s)" in
+  MINGW* | MSYS*) on='^browser: agents server on \\\\\.\\pipe\\.*-agents-[0-9a-f]*$' ;;
+  *) on='^browser: agents server on /.*/Agents\.sock$' ;;
+esac
+await "$on" || fail "the saved switch didn't start the server"
 socket=$(grep '^browser: agents server on' "$log" | tail -1 | sed 's/^browser: agents server on //')
-bridge="$(dirname "$browser")/mcp-bridge"
+# Beside the executable, which on Windows is chrome.exe in the app's folder, run by a function.
+if windows; then bridge="$app/mcp-bridge.exe"; else bridge="$(dirname "$browser")/mcp-bridge"; fi
 await_log() { await "$1" || fail "$2"; }
 # Waits for more lines matching $1 than the $2 there were.
 await_more() {
@@ -75,22 +81,38 @@ await_more() {
   return 1
 }
 
-[ -S "$socket" ] || fail "there's no socket at $socket"
-# GNU stat on Linux, BSD stat on the Mac.
-mode=$(stat -c %a "$socket" 2>/dev/null || stat -f %Lp "$socket")
-[ "$mode" = 600 ] || fail "the socket is $mode, not the user's alone"
+case "$socket" in
+  '\\.\pipe\'*) ;;
+  *)
+    [ -S "$socket" ] || fail "there's no socket at $socket"
+    # GNU stat on Linux, BSD stat on the Mac.
+    mode=$(stat -c %a "$socket" 2>/dev/null || stat -f %Lp "$socket")
+    [ "$mode" = 600 ] || fail "the socket is $mode, not the user's alone"
+    ;;
+esac
 [ -x "$bridge" ] || fail "the app has no bridge beside its executable"
 if BROWSER_AGENT_TOKEN=0 "$bridge" "$socket" < /dev/null > /dev/null 2> "$out/mcp-refused"; then
   fail "the bridge got in without the agent's token"
 fi
 grep -q 'Settings › Agents' "$out/mcp-refused" || fail "a refused bridge said: $(cat "$out/mcp-refused")"
 
-# The client: the bridge on two pipes, which stay open until the session ends.
-rm -f "$out/mcp-in" "$out/mcp-out"
-mkfifo "$out/mcp-in" "$out/mcp-out"
-BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" 2> "$out/mcp-bridge.log" &
-bridge_pid=$!
-exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+# The client: the bridge on two pipes, which stay open until the session ends, its stderr added to
+# mcp-bridge.log.
+bridge_on() {
+  rm -f "$out/mcp-in" "$out/mcp-out"
+  mkfifo "$out/mcp-in" "$out/mcp-out"
+  if windows; then
+    BROWSER_AGENT_TOKEN=$token windows_bridge "$bridge" "$socket" "$out/mcp-in" "$out/mcp-out" \
+      2>> "$out/mcp-bridge.log" &
+  else
+    BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" \
+      2>> "$out/mcp-bridge.log" &
+  fi
+  bridge_pid=$!
+  exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+}
+rm -f "$out/mcp-bridge.log"
+bridge_on
 # Prints the bridge's next line within 30 s. sh has no read -t on Linux, where it's dash, and the
 # Mac has no timeout, so perl's alarm, which outlives its exec, bounds a shell that reads the line:
 # a shell reads a fifo a byte at a time, so it takes that line alone.
@@ -554,12 +576,7 @@ if [ "$driven" = 1 ]; then
   await_log "^browser: agent question $pending gone\$" "a gone agent's question stayed open"
 
   # Off in Settings › Agents takes the socket away and drops a client connected.
-  rm -f "$out/mcp-in" "$out/mcp-out"
-  mkfifo "$out/mcp-in" "$out/mcp-out"
-  BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" \
-    2>> "$out/mcp-bridge.log" &
-  bridge_pid=$!
-  exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+  bridge_on
   hello='^browser: agent mcp-client hello from check$'
   hellos=$(grep -c "$hello" "$log" || true)
   mcp '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' \
