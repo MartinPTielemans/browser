@@ -557,11 +557,13 @@ awk -v after_shown="$after_shown" '
 # macOS kills one under memory pressure, it takes Chrome's sad tab path a crash takes; a SIGSEGV
 # sent from here only prints a stack, and the command bar completes chrome://crash to another page.
 # The core's line comes through Chromium's log, after its prefix.
-pkill -KILL -f "$procs.*--type=renderer" || fail "no renderer to kill"
+kill_pages || fail "no renderer to kill"
 expect 'browser: tab [0-9]* page gone' "a killed renderer didn't report its page gone"
 send click $sidebar_point
 send key r cmd
 expect '^browser: loaded [0-9]* ' "⌘R didn't load the crashed page again"
+# The bundled extension's process lives on, so it stays in the Extensions menu (#1091).
+none_since '^browser: extensions menu $' || fail "the pages' renderers took the extension with them"
 send click $page_point
 
 # ⌘Q asks first, in the dialog over the window. Escape keeps the browser running, and Quit, and
