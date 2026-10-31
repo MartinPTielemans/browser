@@ -1,5 +1,6 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
+#import <CoreServices/CoreServices.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -1222,6 +1223,29 @@ void host_close_launch_window(void) {
   [CATransaction flush];
 }
 
+// AppKit's handler for the quit Apple Event, which LogQuitEvent hands each one on to.
+AEEventHandlerUPP g_quit_handler;
+SRefCon g_quit_refcon;
+
+// A quit from outside the app, from the Dock, a logout or a script, comes as an Apple Event, and
+// says nothing in the log by itself. It names its sender and reason, then quits as AppKit would.
+OSErr LogQuitEvent(const AppleEvent* event, AppleEvent* reply, SRefCon) {
+  pid_t sender = 0;
+  OSType reason = 0;
+  DescType type;
+  Size size;
+  AEGetAttributePtr(event, keySenderPIDAttr, typeSInt32, &type, &sender, sizeof(sender), &size);
+  AEGetParamPtr(event, kAEQuitReason, typeType, &type, &reason, sizeof(reason), &size);
+  NSString* name =
+      sender ? [NSRunningApplication runningApplicationWithProcessIdentifier:sender].localizedName
+             : nil;
+  const char why[5] = {char(reason >> 24), char(reason >> 16), char(reason >> 8), char(reason), 0};
+  // check.sh reads this line.
+  fprintf(stderr, "browser: quit Apple Event from %d %s, reason %s\n", sender,
+          name ? name.UTF8String : "unknown", reason ? why : "none");
+  return g_quit_handler(event, reply, g_quit_refcon);
+}
+
 void host_watch_finished_launching(void (*finished)(void)) {
   // AppKit posts it once.
   [NSNotificationCenter.defaultCenter
@@ -1229,6 +1253,13 @@ void host_watch_finished_launching(void (*finished)(void)) {
                   object:nil
                    queue:nil
               usingBlock:^(NSNotification*) {
+                // AppKit has its handler by now. Without one there's nothing to hand on to.
+                if (AEGetEventHandler(kCoreEventClass, kAEQuitApplication, &g_quit_handler,
+                                      &g_quit_refcon, false) == noErr &&
+                    g_quit_handler) {
+                  AEInstallEventHandler(kCoreEventClass, kAEQuitApplication, LogQuitEvent, nullptr,
+                                        false);
+                }
                 // A plain launch (Dock, Finder, `open -a`) carried no links to wait for.
                 NSAppleEventDescriptor* launch =
                     NSAppleEventManager.sharedAppleEventManager.currentAppleEvent;
