@@ -448,11 +448,13 @@ fn first_press(x: f64, y: f64, which: u32, again: bool) {
     LAST_CLICK.set(Some((Instant::now(), x, y, which)));
 }
 
-/// A click of `which` at (`x`, `y`) in sway's layout with the modifiers `state`.
+/// A click of `which` at (`x`, `y`) in sway's layout with the modifiers `state`. Control held after
+/// a key for the ⌃Tab walk isn't one: drive.rs's X events leave it out, but Wayland gives a click
+/// the keyboard's modifiers, so it goes up for the click, ending the walk as the click would.
 fn click(x: f64, y: f64, which: u32, state: u16, again: bool) -> Option<()> {
     first_press(x, y, which, again);
     motion(x, y)?;
-    hold(state | held())?;
+    hold(state | FLAGS.get())?;
     button(which, true)?;
     button(which, false)?;
     hold(held())
