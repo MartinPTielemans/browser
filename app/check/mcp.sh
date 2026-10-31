@@ -39,7 +39,7 @@ printf '{"on":true,"agents":[{"client":"mcp-client","token":"%s"}]}' "$token" > 
 chmod 600 "$agents_file"
 # An extension of the check's own, whose content script puts a frame of its page in the frames
 # page, as a password manager puts its own in pages. The frame tells the page it's there.
-extension="$out/frame-extension"
+extension="$PWD/$out/frame-extension"
 mkdir -p "$extension"
 cat > "$extension/manifest.json" << 'EOF'
 {
@@ -56,7 +56,7 @@ document.body.append(frame);' > "$extension/content.js"
 printf '%s' '<p>Extension text</p><script src=frame.js></script>' > "$extension/frame.html"
 printf '%s' 'parent.postMessage("extension frame", "*");' > "$extension/frame.js"
 BROWSER_DRIVE=1 BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' \
-  "$browser" --load-extension="$extension" < "$out/drive" > "$log" 2>&1 &
+  "$browser" --load-extension="$(app_path "$extension")" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
