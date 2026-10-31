@@ -1731,3 +1731,27 @@ fn a_typed_new_address_opens_its_new_document_in_a_new_tab(cx: &mut TestAppConte
     bar.keys("enter");
     assert_eq!(bar.calls(), ["open https://docs.new/", "hide"]);
 }
+
+/// ⌘⌫ and ⌥⌫ edit the bar's field as in any other, and the bar asks again for what's left. At
+/// the start of a site search they leave it, as ⌫ does (#1076).
+#[gpui::test]
+fn cmd_and_option_backspace_ask_again_and_leave_a_site_search(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("cats and dogs");
+    bar.host.asked.take();
+    bar.keys("alt-backspace");
+    assert_eq!(bar.input(), ("cats and ".into(), 9..9));
+    assert_eq!(bar.host.asked.take().last().map(|(text, _)| text.as_str()), Some("cats and "));
+    bar.keys("left left left left cmd-backspace");
+    assert_eq!(bar.input(), ("and ".into(), 0..0));
+    assert_eq!(bar.host.asked.take().last().map(|(text, _)| text.as_str()), Some("and "));
+
+    for key in ["cmd-backspace", "alt-backspace"] {
+        let mut bar = Bar::new(cx);
+        bar.type_text("duck.test");
+        bar.suggest("duck.test", vec![hinting("duck.test")]);
+        bar.keys("tab");
+        bar.keys(key);
+        assert_eq!(bar.input(), ("duck.test".into(), 9..9), "{key}");
+    }
+}

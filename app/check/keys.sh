@@ -257,6 +257,25 @@ for shortcut in t l; do
   send key escape
   expect '^browser: command bar hidden$' "escape didn't close the command bar"
 done
+# ⌥⌫ deletes the word before the caret in the bar's field, and ⌘⌫ all before it, as in any Mac
+# field. Off the Mac the word's is Ctrl+Backspace, and on Linux all's is Ctrl+Shift+Backspace, as
+# in Chrome's fields there (#1076).
+word=alt start=cmd
+[ "$(uname)" = Darwin ] || word=cmd start="cmd shift"
+typed_after t "abc def"
+expect '^browser: command bar drew "abc def"$' "the command bar didn't take \"abc def\""
+send key backspace $word
+expect '^browser: command bar drew "abc "$' \
+  "⌥⌫ in the command bar didn't delete the word before the caret: $(drew 'command bar')"
+if windows; then
+  echo "skip: ⌘⌫ in the command bar: Windows' fields have no key for it."
+else
+  send key backspace $start
+  expect '^browser: command bar drew ""$' \
+    "⌘⌫ in the command bar didn't delete what was before the caret: $(drew 'command bar')"
+fi
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # Closed first: the find bar opened from the UI before stays open, and ⌘F would make it key at once.
 send key f cmd
 send key escape
