@@ -244,6 +244,9 @@ const probe = () => {
 };
 probe();
 </script>' > "$out/site/probe.html"
+# Diag (#744): stacks of the main thread while it's busy.
+sudo -n apt-get install -yq elfutils gdb > /dev/null 2>&1 || echo "diag: elfutils didn't install"
+command -v eu-stack || echo "diag: no eu-stack"
 for i in 1 2 3 4; do
   log="$out/adblock-probe-$i.log"
   step=0
@@ -268,12 +271,11 @@ for i in 1 2 3 4; do
     ) &
     if [ "$i" = 4 ]; then
       (
-        command -v gdb > /dev/null || sudo -n apt-get install -yq gdb > /dev/null 2>&1
-        for at in 1.2 1.9 2.6; do
+        for at in 0.5 0.8 1.1 1.4 1.7 2.0 2.3; do
           sleep_until=$(python3 -I -c 'import sys; print(float(sys.argv[1]) + float(sys.argv[2]))' "$launched" "$at")
           python3 -I -c 'import sys, time; time.sleep(max(0, float(sys.argv[1]) - time.time()))' "$sleep_until"
           echo "== at $at s"
-          sudo -n gdb -batch -p "$pid" -ex 'thread 1' -ex 'bt 80' 2>&1 | grep -E '^#|^Thread|^\[' | head -90
+          sudo -n eu-stack -1 -n 45 -p "$pid" 2>&1 | head -50
         done > "$out/adblock-gdb-$i.log" 2>&1
       ) &
     fi
