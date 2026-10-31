@@ -5,7 +5,8 @@
 # Media shows it first, opens it in a tab and deletes it from its menu, and then says it is empty
 # in a line that wraps in its list, narrow and wide, light and dark. Escape and a second ⇧⌘2
 # leave capture mode and give the page the keyboard back. File › Capture Full Page copies a
-# picture of the whole long page, past its view.
+# picture of the whole long page, past its view. On the Mac, File › Share… and the command bar's
+# Share… share the page shown.
 
 # The line saying the PNG was copied to the run's own pasteboard, and the toast's buttons after it.
 # On Linux check.sh runs in a display of its own, whose clipboard is the run's, and there's no share
@@ -272,9 +273,25 @@ expect "$copied" \
 expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
   "Capture Full Page didn't show its toast"
 
+# File › Share… and the command bar's Share… share the page shown through the system's share menu,
+# which a driven run logs instead of showing, as the menu would wait on a choice. Linux has no share
+# menu.
+if [ "$(uname)" = Darwin ]; then
+  open_from_bar example.org
+  send menu Share…
+  expect '^browser: command share via ui$' "File › Share… didn't run Share"
+  expect '^browser: share https://example.org/$' "File › Share… didn't share the page shown"
+  bar_command share "Share…" share
+  expect '^browser: share https://example.org/$' \
+    "the command bar's Share… didn't share the page shown"
+else
+  echo "skip: File › Share… and the command bar's Share…, as Linux has no share menu."
+fi
+
 exec 3>&-
 quit
-echo "ok: capture. The box's picture is $size, the full page's $full. Media's empty line, in" \
+echo "ok: capture. File › Share… and the command bar's Share… share the page on the Mac." \
+  "The box's picture is $size, the full page's $full. Media's empty line, in" \
   "lines: ${empty_lines%, }." \
   "Windows: $out/capture-element.png, $out/capture-chosen.png, $out/capture-library.png," \
   "$out/library-media.png, $out/media-menu.png, $out/media-empty-narrow-light.png," \
