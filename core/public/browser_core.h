@@ -1917,8 +1917,9 @@ BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_re
 // bc_tab_capture.
 BC_EXPORT void bc_tab_picture(bc_id tab, uint64_t request, int width, int height);
 
-// Reads the text of the tab's page as its accessibility tree has it, across its frames, a line for
-// each block: what a screen reader reads, but no field's value, typed or autofilled, a password's
+// Reads the text of the tab's page as its accessibility tree has it, across its frames from
+// http(s) origins, a line for each block: what a screen reader reads, but no extension's frame and
+// no field's value, typed or autofilled, a password's
 // above all, nor the text of an editable region. Chromium builds the tree for this one read,
 // without running the page's JavaScript or turning accessibility on for the tab. A page that's
 // loading is read once it stops, or after 15 s. A tab without its page loaded has nothing to read.
