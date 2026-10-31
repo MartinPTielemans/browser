@@ -245,7 +245,7 @@ expect "^browser: list scrolled to [1-9][0-9.]* for $b\$" \
   "a click on the marker didn't scroll the list to the shown tab's row"
 expect '^browser: shown tab marker hidden$' "the marker stayed with the shown tab's row back in view"
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${size% *}x${size#* }\$" "the window didn't draw back at its size"
 # ⌘, from the page opens Settings on General. Its switch turns the warning before quitting off, the
 # menu of its pop-up button sets how long Today tabs wait for the archive, the switch on its
 # Advanced tab turns the haptics off, and ⌘W hides it.
@@ -266,7 +266,7 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces (
   "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
 send choose "$(cased 'In Each Space')"
 expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
-send clickkey 491 60
+send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics off$' "a click on the haptics switch didn't turn them off"
@@ -502,7 +502,7 @@ else
   echo "note: the window didn't narrow to 320, so the card in a narrow window wasn't checked."
 fi
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${size% *}x${size#* }\$" "the window didn't draw back at its size"
 # Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,
 # its close button hides it, and More Settings… opens Chromium's settings in a tab.
 send click $sidebar_point
@@ -519,7 +519,7 @@ expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces, 
   "Settings didn't keep Each Space across the quit"
 send choose "$(cased "In Each Profile's Spaces")"
 expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
-send clickkey 491 60
+send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"

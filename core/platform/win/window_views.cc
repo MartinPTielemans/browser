@@ -170,6 +170,9 @@ class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
                                        views::Widget::InitParams::TYPE_CONTROL);
       params.child = true;
       params.parent = widget_->GetNativeView();
+      // Aura focuses nothing in a widget that can't activate, as a control's can't by default: a
+      // click in the page, and the core's Focus of it, never gave it the keyboard (#872).
+      params.activatable = views::Widget::InitParams::Activatable::kYes;
       params.native_widget = new views::DesktopNativeWidgetAura(slot.widget.get());
       params.name = "BrowserCorePane";
       slot.widget->Init(std::move(params));

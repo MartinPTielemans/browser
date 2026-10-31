@@ -485,12 +485,18 @@ class WindowViews : public views::WidgetObserver,
   // the window has it. Taken from another window, as by a window whose page moved out, that
   // window's handling of its focus event, which comes after it has the focus back, would take it
   // back too, and the two would go on without end (#531).
-  void UITakesKeyboard() {
+  void UITakesKeyboard(bool asked = false) {
     // With no page shown, the keys only reach the window's shortcuts through the UI, which holds
-    // them for the next page shown, as the Mac's window does. Taken again while it holds them, as
-    // the window manager focusing the window as it maps has it, it still holds them.
-    ui_holds_for_page_ = (ui_has_keyboard_ && ui_holds_for_page_) ||
-                         std::ranges::none_of(panes_, [](const Slot& slot) { return slot.page; });
+    // them for the next page shown, as the Mac's window does. Taken again while it has them, as the
+    // window manager focusing the window as it maps has it, it still holds them or keeps them.
+    // Asked by the app, as for the New Space form's field, it keeps them, as the Mac's UI view
+    // does once it's the first responder.
+    if (asked) {
+      ui_holds_for_page_ = false;
+    } else if (!ui_has_keyboard_) {
+      ui_holds_for_page_ =
+          std::ranges::none_of(panes_, [](const Slot& slot) { return slot.page; });
+    }
     ui_has_keyboard_ = true;
     ui_lent_ = false;
     page_lent_.RemoveAll();
@@ -1153,7 +1159,7 @@ void StartMove(views::Widget* widget) {
 
 void UITakesKeyboard(views::Widget* widget) {
   if (WindowViews* views = ViewsOf(widget)) {
-    views->UITakesKeyboard();
+    views->UITakesKeyboard(/*asked=*/true);
   }
 }
 

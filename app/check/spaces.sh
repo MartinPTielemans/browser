@@ -263,7 +263,8 @@ send swipe $swipe_point 1 -10 10
 expect '^browser: swipe along$' "two fingers along the list didn't read as scrolling"
 none_since '^browser: space [0-9]' || fail "two fingers along the list showed another Space"
 else
-  show_space "key 2 ctrl" select-space ui "$second" "$b"
+  # The page has the keyboard from the ⌘W above.
+  show_space "key 2 ctrl" select-space page "$second" "$b"
   expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 fi
 send wheel $swipe_point 1
