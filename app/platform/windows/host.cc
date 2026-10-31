@@ -237,6 +237,9 @@ void Adopt(Floating& floating, void* view, bool mouse_through, void (*dismissed)
   DwmSetWindowAttribute(floating.hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof corners);
 }
 
+// Makes the overlays over browser window |root| follow it as it moves and resizes (defined below).
+void Follow(HWND root);
+
 // Shows |floating| over |ui_view|'s browser window at |left|, |top| points in its content, |width|
 // by |height| points, or its own size where one is negative, with the keyboard if |keyboard|.
 void Show(Floating& floating, void* ui_view, double left, double top, double width, double height,
@@ -253,6 +256,7 @@ void Show(Floating& floating, void* ui_view, double left, double top, double wid
   POINT origin{static_cast<LONG>(left * scale), static_cast<LONG>(top * scale)};
   ClientToScreen(root, &origin);
   SetWindowLongPtrW(floating.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
+  Follow(root);
   PlaceClient(floating.hwnd, HWND_TOP,
               {origin.x, origin.y, origin.x + static_cast<LONG>(width * scale),
                origin.y + static_cast<LONG>(height * scale)},
@@ -703,6 +707,61 @@ void ShowCorner(Corner& corner, void* ui_view, bool keyboard) {
   auto [extra_right, extra_top] = g_pane_corners[ui_view];
   Show(corner.floating, ui_view, content_width - corner.right - extra_right - width,
        corner.top + extra_top, -1, -1, keyboard);
+}
+
+// Where each browser window with overlays over it had its content's top left corner, in screen
+// pixels, so they move with it as AppKit moves a window's child windows.
+std::map<HWND, POINT>& ContentCorners() {
+  static std::map<HWND, POINT> corners;
+  return corners;
+}
+UINT_PTR const kFollow = 3;
+
+LRESULT CALLBACK FollowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
+                            DWORD_PTR) {
+  if (message == WM_WINDOWPOSCHANGED && !IsIconic(hwnd)) {
+    POINT corner{0, 0};
+    ClientToScreen(hwnd, &corner);
+    POINT& last = ContentCorners()[hwnd];
+    const POINT by{corner.x - last.x, corner.y - last.y};
+    last = corner;
+    if (by.x || by.y) {
+      for (const auto& [overlay, floating] : FloatingByHwnd()) {
+        // The link preview covers the content, and places itself (LinkPreviewOwnerProc).
+        if (overlay == g_link_preview.floating.hwnd || !IsWindowVisible(overlay) ||
+            GetWindow(overlay, GW_OWNER) != hwnd) {
+          continue;
+        }
+        RECT rect{};
+        GetWindowRect(overlay, &rect);
+        SetWindowPos(overlay, nullptr, rect.left + by.x, rect.top + by.y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+      }
+    }
+    // A window resizes from its left and top edges as often as its right and bottom, and what's
+    // in its top right corner stays there, as the Mac's host places them again.
+    for (auto* corners : {&g_find_bars, &g_offers}) {
+      for (auto& [ui_view, corner] : *corners) {
+        if (Root(ui_view) == hwnd && IsWindowVisible(corner.floating.hwnd)) {
+          ShowCorner(corner, ui_view, false);
+        }
+      }
+    }
+  } else if (message == WM_NCDESTROY) {
+    ContentCorners().erase(hwnd);
+    RemoveWindowSubclass(hwnd, FollowProc, kFollow);
+  }
+  return DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
+void Follow(HWND root) {
+  if (ContentCorners().contains(root)) {
+    return;
+  }
+  POINT corner{0, 0};
+  ClientToScreen(root, &corner);
+  ContentCorners()[root] = corner;
+  SetWindowSubclass(root, FollowProc, kFollow, 0);
 }
 
 // Control's release, for host_watch_control.
