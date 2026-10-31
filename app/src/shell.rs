@@ -1241,6 +1241,8 @@ pub struct Shell {
     window_title: SharedString,
     /// What the URL field said when it last drew, for its log line.
     url_field_drawn: RefCell<SharedString>,
+    /// Whether the header last drew reload or stop, for its log line.
+    reload_drawn: Cell<Option<Command>>,
     /// The tab whose Developer Mode outline last drew, and where, for its log lines.
     developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
@@ -1513,6 +1515,7 @@ impl Shell {
             menus: MenuBar::default(),
             window_title: SharedString::default(),
             url_field_drawn: RefCell::default(),
+            reload_drawn: Cell::default(),
             developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
