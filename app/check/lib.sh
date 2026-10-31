@@ -261,6 +261,19 @@ drawn() {
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
 }
+# Nothing logged while the driver handled the last command matches $1: what it did at once, not
+# what a timer of the app's did after, which on Windows send's own greps can outlast.
+none_while() {
+  ! sed -n "/^browser: drive $step: /,/^browser: drive $step done/p" "$log" | grep -q "$1"
+}
+# Where Settings' close button is, in $close: AppKit's on the Mac, else where Settings drew its own,
+# which on Windows is in the top right corner.
+settings_close() {
+  close="16 16"
+  [ "$(uname)" = Darwin ] && return
+  await '^browser: settings close at ' || fail "Settings didn't draw its close button"
+  close=$(sed -n 's/^browser: settings close at //p' "$log" | tail -1)
+}
 # How many detents the app has asked the trackpad for: one for each place a dragged row passes.
 detents() {
   grep -c '^browser: detent$' "$log" || true

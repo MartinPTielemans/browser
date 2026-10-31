@@ -1241,6 +1241,8 @@ pub struct Shell {
     window_title: SharedString,
     /// What the URL field said when it last drew, for its log line.
     url_field_drawn: RefCell<SharedString>,
+    /// Whether the header last drew reload or stop, for its log line.
+    reload_drawn: Cell<Option<Command>>,
     /// The tab whose Developer Mode outline last drew, and where, for its log lines.
     developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
@@ -1513,6 +1515,7 @@ impl Shell {
             menus: MenuBar::default(),
             window_title: SharedString::default(),
             url_field_drawn: RefCell::default(),
+            reload_drawn: Cell::default(),
             developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
@@ -2246,9 +2249,11 @@ impl Shell {
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
         // With no page, AppKit offers the window's ⌘ shortcuts to the UI's view. On Linux the keys
-        // go to the window, where nothing takes them, unless the UI has them.
-        if tab == 0 && cfg!(target_os = "linux") {
-            self.browser.focus_ui(cx);
+        // go to the window, where nothing takes them, and on Windows to the hidden page that had
+        // them, unless the UI has them, and the next page shown, as a window's first, has them back
+        // (#895).
+        if tab == 0 && cfg!(any(target_os = "linux", target_os = "windows")) {
+            self.browser.hold_keyboard_for_page(cx);
         }
         // The command bar open over the Space before lists this one's tabs and suggestions now, so
         // a pick never goes to the other or its profile (Arc).
@@ -2444,9 +2449,9 @@ impl Shell {
         if !fullscreen && !self.page_fullscreen {
             return;
         }
-        // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
-        // shell hears of Chromium's as it resizes.
-        let full_screen = match cfg!(target_os = "linux") {
+        // On Linux and Windows GPUI's window is the UI's, inside Chromium's, and never full screen
+        // itself; the shell hears of Chromium's as it resizes.
+        let full_screen = match cfg!(any(target_os = "linux", target_os = "windows")) {
             true => self.full_screen,
             false => window.is_fullscreen(),
         };
@@ -2536,7 +2541,24 @@ impl Shell {
                     drawn: false,
                 });
             }
-            self.set_full_screen(full_screen, cx);
+            match full_screen {
+                // Chrome on Windows takes the window full screen for a page before the core says the
+                // page asked, so whether a page took it there is known a turn later, as is the note.
+                true => {
+                    self.full_screen = true;
+                    cx.spawn(async move |shell, cx| {
+                        shell
+                            .update(cx, |shell, cx| {
+                                if shell.full_screen {
+                                    shell.set_full_screen(true, cx);
+                                }
+                            })
+                            .ok();
+                    })
+                    .detach();
+                }
+                false => self.set_full_screen(false, cx),
+            }
             cx.notify();
         }
     }

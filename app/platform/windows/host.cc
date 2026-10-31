@@ -216,6 +216,13 @@ void Adopt(Floating& floating, void* view, bool mouse_through, void (*dismissed)
 }
 
 void WatchOwner(HWND root);
+// Puts |hwnd| at |x|, |y|, |width| by |height| over the others and on screen. It's shown with
+// ShowWindow rather than SWP_SHOWWINDOW, which doesn't send WM_SHOWWINDOW, the message GPUI learns
+// its window is on screen from (window.is_visible()), where an overlay's motion starts.
+void PlaceAndShow(HWND hwnd, int x, int y, int width, int height, bool activate) {
+  SetWindowPos(hwnd, HWND_TOP, x, y, width, height, SWP_NOACTIVATE);
+  ShowWindow(hwnd, activate ? SW_SHOW : SW_SHOWNA);
+}
 
 // Shows |floating| over |ui_view|'s browser window at |left|, |top| points in its content, |width|
 // by |height| points, or its own size where one is negative, with the keyboard if |keyboard|.
@@ -234,9 +241,8 @@ void Show(Floating& floating, void* ui_view, double left, double top, double wid
   ClientToScreen(root, &origin);
   SetWindowLongPtrW(floating.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
   WatchOwner(root);
-  SetWindowPos(floating.hwnd, HWND_TOP, origin.x, origin.y, static_cast<int>(width * scale),
-               static_cast<int>(height * scale),
-               SWP_SHOWWINDOW | (keyboard ? 0 : SWP_NOACTIVATE));
+  PlaceAndShow(floating.hwnd, origin.x, origin.y, static_cast<int>(width * scale),
+               static_cast<int>(height * scale), keyboard);
   if (keyboard) {
     SetForegroundWindow(floating.hwnd);
     SetFocus(floating.hwnd);
@@ -606,8 +612,7 @@ void PlaceLinkPreview() {
   }
   // The window owns the region from here.
   SetWindowRgn(hwnd, region, IsWindowVisible(hwnd));
-  SetWindowPos(hwnd, HWND_TOP, origin.x, origin.y, client.right, client.bottom,
-               SWP_SHOWWINDOW | SWP_NOACTIVATE);
+  PlaceAndShow(hwnd, origin.x, origin.y, client.right, client.bottom, false);
 }
 
 // The browser window under the preview moved or resized, which it follows, or is going.
@@ -2289,8 +2294,8 @@ void host_show_menu_window(void* ui_view,
     }
     SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
     WatchOwner(root);
-    SetWindowPos(g_menu.hwnd, HWND_TOP, frame.left, frame.top, frame.right - frame.left,
-                 frame.bottom - frame.top, SWP_SHOWWINDOW);
+    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, frame.right - frame.left,
+                 frame.bottom - frame.top, true);
     SetForegroundWindow(g_menu.hwnd);
     SetFocus(g_menu.hwnd);
     InstallMenuHooks();
@@ -2480,6 +2485,11 @@ void host_show_settings(void) {
   }
   ShowWindow(g_settings.hwnd, SW_SHOW);
   SetForegroundWindow(g_settings.hwnd);
+  // check.sh waits for this line. The window's title is its tab's name, as on the Mac. Read without
+  // WM_GETTEXT, which would reach GPUI's window procedure while the app is borrowed.
+  wchar_t title[128] = L"";
+  InternalGetWindowText(g_settings.hwnd, title, static_cast<int>(std::size(title)));
+  fprintf(stderr, "browser: settings shown %s\n", Utf8(title).c_str());
 }
 
 void host_hide_settings(void) {

@@ -1869,14 +1869,25 @@ unsafe extern "C" fn tab_link_target(
     });
 }
 
-/// Gives the keyboard in `window` to the UI, whose GPUI view is `view`. On Linux the core says whose
-/// the keys are, and takes them from the page.
-fn focus_ui(window: bc::bc_id, view: *mut c_void) {
+/// Gives the keyboard in `window` to the UI, whose GPUI view is `view`, to keep or, with
+/// `until_page`, until a page shows. On Linux the core says whose the keys are, and takes them from
+/// the page. On Windows it hears first, while the focus still says whether the UI had them.
+fn focus_ui(window: bc::bc_id, view: *mut c_void, until_page: bool) {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let tell_core = || unsafe {
+        if until_page {
+            bc::bc_window_ui_holds_keyboard(window)
+        } else {
+            bc::bc_window_ui_takes_keyboard(window)
+        }
+    };
+    #[cfg(target_os = "windows")]
+    tell_core();
     unsafe { platform::host_focus(view) };
     #[cfg(target_os = "linux")]
-    unsafe {
-        bc::bc_window_ui_takes_keyboard(window)
-    };
+    tell_core();
+    #[cfg(target_os = "macos")]
+    let _ = (window, until_page);
 }
 
 /// A window's shell's requests, as calls to the core. The core reports back once each call has
@@ -2746,7 +2757,11 @@ impl Browser for Engine {
     }
 
     fn focus_ui(&self, _: &mut App) {
-        focus_ui(self.window, self.view);
+        focus_ui(self.window, self.view, false);
+    }
+
+    fn hold_keyboard_for_page(&self, _: &mut App) {
+        focus_ui(self.window, self.view, true);
     }
 
     fn focus_page(&self, _: &mut App) {
@@ -3759,6 +3774,12 @@ extern "C" fn file_preview(
         let png = Arc::new(Image::from_bytes(ImageFormat::Png, png));
         FilePreview { image: png, width: width as f32, height: height as f32, photo: image }
     });
+    let kind = match preview {
+        Some(_) if image => "picture",
+        Some(_) => "icon",
+        None => "none",
+    };
+    log!("browser: download {download} preview {kind} {width}x{height}");
     update_shells(|shell, cx| shell.set_download_preview(download, preview.clone(), cx));
 }
 
@@ -4152,7 +4173,7 @@ fn finish_opening(
     if seeded {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
         if ui_keyboard && let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
-            focus_ui(id, view);
+            focus_ui(id, view, false);
         }
         return;
     }
@@ -4342,7 +4363,14 @@ unsafe extern "C" fn started(_: *mut c_void) {
         match display.is_null() {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
-            true => gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32),
+            true => {
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                // The clipboard's owner can be Chromium, which answers on this thread, so the UI's
+                // read has it answer while it waits (#999).
+                gpui_linux::answer_clipboard_reads_with(|| unsafe {
+                    bc::bc_answer_clipboard_requests()
+                });
+            }
             false => {
                 gpui_linux::embed_wayland(display, keyboard);
                 gpui_linux::watch_embedder_swipes(system::swiped);
