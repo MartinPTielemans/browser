@@ -2,22 +2,28 @@
 
 #include <algorithm>
 #include <cmath>
+#include <dlfcn.h>
 #include <cstdint>
 #include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "base/debug/stack_trace.h"
+#include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/logging.h"
 #include "base/no_destructor.h"
 #include "base/scoped_multi_source_observation.h"
 #include "base/scoped_observation.h"
+#include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/focus_ring_aura.h"
@@ -52,6 +58,7 @@
 #include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/wm/wm_move_resize_handler.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
+#include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
@@ -950,13 +957,48 @@ void DetachOthers(aura::Window* holder,
   }
 }
 
+// Diagnostic for #1050: who asks the window manager to activate a browser window, as frames of
+// the binary they're in, for a symbolizer outside.
+class ActivationLoggingHost : public views::DesktopWindowTreeHostLinux {
+ public:
+  using DesktopWindowTreeHostLinux::DesktopWindowTreeHostLinux;
+
+  void Activate() override {
+    std::string frames;
+    for (const void* address : base::debug::StackTrace(32).addresses()) {
+      Dl_info info;
+      if (dladdr(address, &info) && info.dli_fname) {
+        frames += base::StringPrintf(
+            " %s+0x%zx", base::FilePath(info.dli_fname).BaseName().value().c_str(),
+            reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(info.dli_fbase));
+      }
+    }
+    LOG(ERROR) << "browser: core activates the window, active " << IsActive() << ":" << frames;
+    DesktopWindowTreeHostLinux::Activate();
+  }
+};
+
+class ActivationLoggingWidget : public views::DesktopNativeWidgetAura {
+ public:
+  explicit ActivationLoggingWidget(views::Widget* widget)
+      : DesktopNativeWidgetAura(widget), widget_(widget) {}
+
+  void InitNativeWidget(views::Widget::InitParams params) override {
+    params.desktop_window_tree_host = new ActivationLoggingHost(widget_, this);
+    DesktopNativeWidgetAura::InitNativeWidget(std::move(params));
+  }
+
+ private:
+  raw_ptr<views::Widget> widget_;
+};
+
 }  // namespace
 
 views::NativeWidget* NewNativeWidget(views::Widget* widget, base::RepeatingClosure) {
   // shortcut: keeps the window manager's title bar, where the Mac's UI fills it; draw the app's
   // own once the header row is ported. The window manager reports a state it has already left
   // full screen for, as a show state change, so the page leaves with it and nothing runs early.
-  return new views::DesktopNativeWidgetAura(widget);
+  return new ActivationLoggingWidget(widget);
 }
 
 void AddWindowViews(views::Widget* widget, void* ui_view) {
