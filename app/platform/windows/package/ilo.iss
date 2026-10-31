@@ -51,26 +51,43 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\chrome.exe"; IconFilename: "
 ; So ilo can be the default browser. Per user (PrivilegesRequired=lowest), named IloHTML to match
 ; the ProgId host.cc's host_is_default_browser reads from the user's http/https UserChoice. Windows
 ; itself lets only the user set that choice, in Settings, which host_make_default_browser opens.
+; --single-argument, as Chromium's installer has it, so a link Windows hands over can't carry a
+; switch. Application names ilo where Settings lists what opens a type, which was the engine's
+; "Chromium" without it.
 Root: HKCU; Subkey: "Software\Classes\IloHTML"; ValueType: string; ValueData: "ilo HTML Document"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\IloHTML\DefaultIcon"; ValueType: string; ValueData: "{app}\ilo.ico,0"
-Root: HKCU; Subkey: "Software\Classes\IloHTML\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\IloHTML\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"" --single-argument %1"
+Root: HKCU; Subkey: "Software\Classes\IloHTML\Application"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"
+Root: HKCU; Subkey: "Software\Classes\IloHTML\Application"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\ilo.ico,0"
+Root: HKCU; Subkey: "Software\Classes\IloHTML\Application"; ValueType: string; ValueName: "AppUserModelId"; ValueData: "{code:BrowserModelId}"
 ; And PDFs, under the engine's PDF ProgId (chromium-windows-app-names.patch). Only offered: .pdf's
 ; own key isn't touched, so ilo opens PDFs only once the user picks it for them.
 Root: HKCU; Subkey: "Software\Classes\IloPDF"; ValueType: string; ValueData: "ilo PDF Document"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\IloPDF\DefaultIcon"; ValueType: string; ValueData: "{app}\ilo.ico,0"
-Root: HKCU; Subkey: "Software\Classes\IloPDF\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\IloPDF\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"" --single-argument %1"
+Root: HKCU; Subkey: "Software\Classes\IloPDF\Application"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"
+Root: HKCU; Subkey: "Software\Classes\IloPDF\Application"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\ilo.ico,0"
+Root: HKCU; Subkey: "Software\Classes\IloPDF\Application"; ValueType: string; ValueName: "AppUserModelId"; ValueData: "{code:BrowserModelId}"
+; ilo as a browser, under StartMenuInternet as Chromium's installer registers one: Settings' "Make
+; ilo your default browser" takes only an app registered there. 0.1.0's capabilities under
+; Software\ilo go, as that key is the engine's own.
+Root: HKCU; Subkey: "Software\ilo\Capabilities"; Flags: deletekey
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}"; ValueType: string; ValueData: "{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\DefaultIcon"; ValueType: string; ValueData: "{app}\ilo.ico,0"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"""
 ; The capabilities Windows lists in Settings' Default apps, so http, https, HTML files and PDFs can
 ; be ilo's.
-Root: HKCU; Subkey: "Software\ilo"; Flags: uninsdeletekeyifempty
-Root: HKCU; Subkey: "Software\ilo\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\ilo\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "{#AppName}, an Arc-style browser"
-Root: HKCU; Subkey: "Software\ilo\Capabilities\URLAssociations"; ValueType: string; ValueName: "http"; ValueData: "IloHTML"
-Root: HKCU; Subkey: "Software\ilo\Capabilities\URLAssociations"; ValueType: string; ValueName: "https"; ValueData: "IloHTML"
-Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".htm"; ValueData: "IloHTML"
-Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".html"; ValueData: "IloHTML"
-Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pdf"; ValueData: "IloPDF"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "{#AppName}, an Arc-style browser"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\ilo.ico,0"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities\StartMenu"; ValueType: string; ValueName: "StartMenuInternet"; ValueData: "{#AppName}"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities\URLAssociations"; ValueType: string; ValueName: "http"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities\URLAssociations"; ValueType: string; ValueName: "https"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities\FileAssociations"; ValueType: string; ValueName: ".htm"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities\FileAssociations"; ValueType: string; ValueName: ".html"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pdf"; ValueData: "IloPDF"
 ; Register those capabilities with Windows, so it shows ilo as a choice.
-Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppName}"; ValueData: "Software\ilo\Capabilities"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppName}"; ValueData: "Software\Clients\StartMenuInternet\{#AppName}\Capabilities"; Flags: uninsdeletevalue
 ; The engine's notification helper, which Windows starts for a click on a notification and which
 ; hands it to ilo, as Chromium's installer registers it.
 Root: HKCU; Subkey: "Software\Classes\CLSID\{{{#ToastActivator}}"; Flags: uninsdeletekey
