@@ -1086,6 +1086,11 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
   return std::nullopt;
 }
 
+bool PageDialogsInOwnWindow() {
+  // Chrome's default, which hasn't been looked at here.
+  return false;
+}
+
 bool KeyboardForPage(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   // The UI's, unless it only holds it while no page shows.
