@@ -10,8 +10,10 @@ class Profile;
 
 namespace browser_core {
 
-// Has |profile| search with DuckDuckGo until the user picks an engine. ungoogled-chromium puts an
-// engine that searches nowhere where Chrome's default was.
+// Registers the pref SetUpSearch keeps in each profile. Before the first profile is made.
+void RegisterSearchPrefs();
+// Loads |profile|'s engines, whose default is DuckDuckGo until the user, a policy or an extension
+// picks one (search_default.h).
 void SetUpSearch(Profile* profile);
 
 // The page Chrome's address bar goes to for |text| typed in it: the one it names, else a search for
