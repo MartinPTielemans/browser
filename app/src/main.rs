@@ -2093,6 +2093,7 @@ impl Browser for Engine {
             MediaAction::Play => bc::BC_MEDIA_PLAY,
             MediaAction::Pause => bc::BC_MEDIA_PAUSE,
             MediaAction::Next => bc::BC_MEDIA_NEXT,
+            MediaAction::PictureInPicture => bc::BC_MEDIA_PICTURE_IN_PICTURE,
         };
         unsafe { bc::bc_tab_media(tab, action as i32) };
     }
@@ -5357,6 +5358,7 @@ unsafe extern "C" fn tab_state_changed(
             .into_owned()
             .into(),
         media_next: state.media_next,
+        media_picture_in_picture: state.media_picture_in_picture,
         developer_mode: state.developer_mode,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {

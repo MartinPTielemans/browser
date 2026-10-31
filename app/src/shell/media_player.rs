@@ -1,7 +1,8 @@
 //! The players at the sidebar's foot (#700), as Arc's mini player and media tray: one for each tab
 //! whose page has media the browser can control while the window doesn't show it, playing or
-//! paused, with play or pause, the next track when the page has one, and × to put it away until
-//! the page plays again. A click elsewhere on it shows its tab. The title is cut with an ellipsis
+//! paused, with Picture in Picture while the page can float and nothing of it does, as Arc's Back
+//! to PiP, play or pause, the next track when the page has one, and × to put it away until the page
+//! plays again. A click elsewhere on it shows its tab. The title is cut with an ellipsis
 //! where Arc's scrolls, as a marquee would draw every frame.
 
 use gpui::{Context, Div, MouseButton, Stateful, div, prelude::*, px, svg};
@@ -82,6 +83,15 @@ impl Shell {
             true => ("icons/pause.svg", MediaAction::Pause),
             false => ("icons/play.svg", MediaAction::Play),
         };
+        let float = page.media_picture_in_picture.then(|| {
+            let glyph = "icons/picture-in-picture-2.svg";
+            self.media_button("media-pip", tab, glyph).on_click(cx.listener(
+                move |shell, _, _, cx| {
+                    log!("browser: command media-picture-in-picture via player");
+                    shell.browser.media(tab, MediaAction::PictureInPicture, cx);
+                },
+            ))
+        });
         let play = self.media_button("media-play", tab, glyph).on_click(cx.listener(
             move |shell, _, _, cx| {
                 log!("browser: command media-{} via player", label(action));
@@ -137,6 +147,7 @@ impl Shell {
                     )
                     .children(artist),
             )
+            .children(float)
             .child(play)
             .children(next)
             .child(close)
@@ -169,6 +180,7 @@ fn label(action: MediaAction) -> &'static str {
         MediaAction::Play => "play",
         MediaAction::Pause => "pause",
         MediaAction::Next => "next",
+        MediaAction::PictureInPicture => "picture-in-picture",
     }
 }
 
@@ -176,9 +188,10 @@ fn label(action: MediaAction) -> &'static str {
 mod tests {
     use std::rc::Rc;
 
-    use gpui::{AppContext, Entity, TestAppContext};
+    use gpui::{AppContext, Entity, Modifiers, TestAppContext, point, px};
 
     use crate::shell::{Folders, Page, Shell, recorder::Recorder};
+    use crate::tokens::shell::{MEDIA_BUTTON, MEDIA_GAP, MEDIA_HEIGHT};
 
     /// One Space with tabs 1, 2 and 3, tab 1 shown.
     fn shell(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
@@ -220,5 +233,44 @@ mod tests {
             shell.set_selected(2, cx);
             assert_eq!(shell.media_players(), [1]);
         });
+    }
+
+    /// A page that can float has Picture in Picture before play, as Arc's Back to PiP, which asks
+    /// the core to float it; once it floats the button goes, and a click there shows the tab.
+    #[gpui::test]
+    fn picture_in_picture_floats_the_page_until_it_floats(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        let floats = |shell: &mut Shell, can: bool, cx: &mut gpui::Context<Shell>| {
+            let page = Page { media: true, media_picture_in_picture: can, ..shell.page(2) };
+            shell.set_page(2, page, cx);
+        };
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Home".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
+            shell.set_selected(1, cx);
+            floats(shell, true, cx);
+        });
+        cx.run_until_parked();
+        // From the right, 8 in and 30 apart: ×, play, then Picture in Picture.
+        let plate = shell.read_with(cx, |shell, _| shell.media_drawn.get()).expect("no player");
+        let x = plate.right() - px((MEDIA_HEIGHT - MEDIA_BUTTON) / 2. + MEDIA_BUTTON / 2.)
+            - px(2. * (MEDIA_BUTTON + MEDIA_GAP));
+        let button = point(x, plate.center().y);
+        host.take();
+        cx.simulate_click(button, Modifiers::none());
+        cx.run_until_parked();
+        let calls = host.take();
+        assert!(calls.contains(&"media 2 PictureInPicture".to_owned()), "{calls:?}");
+        shell.update(cx, |shell, cx| floats(shell, false, cx));
+        cx.run_until_parked();
+        cx.simulate_click(button, Modifiers::none());
+        cx.run_until_parked();
+        let calls = host.take();
+        assert!(!calls.iter().any(|call| call.starts_with("media ")), "{calls:?}");
+        assert!(calls.contains(&"select 2".to_owned()), "{calls:?}");
     }
 }

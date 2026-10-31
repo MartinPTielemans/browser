@@ -2448,15 +2448,17 @@ impl Shell {
             log!("browser: page {tab} share instead {}", flag(page.share_instead));
         }
         let media = |page: &Page| {
-            (page.media, page.media_playing, page.media_next, page.media_title.clone())
+            let pip = page.media_picture_in_picture;
+            (page.media, page.media_playing, page.media_next, pip, page.media_title.clone())
         };
         if media(&page) != media(&entry.page) {
             // check.sh waits for this line.
             log!(
-                "browser: page {tab} media {} playing {} next {} {}",
+                "browser: page {tab} media {} playing {} next {} pip {} {}",
                 flag(page.media),
                 flag(page.media_playing),
                 flag(page.media_next),
+                flag(page.media_picture_in_picture),
                 page.media_title
             );
         }
