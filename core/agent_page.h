@@ -170,6 +170,11 @@ class AgentPage : public content::WebContentsObserver,
   WEB_CONTENTS_USER_DATA_KEY_DECL();
 };
 
+// Whether the frame holds a web page's content, from an http(s) origin, as do the about:blank and
+// sandboxed frames a page makes. An extension's or the browser's frame, as a password manager puts
+// in pages, is never an agent's.
+bool IsWebFrame(content::RenderFrameHost* frame);
+
 // What a page's accessibility tree, as DevTools' Accessibility.getFullAXTree gives it, may show
 // an agent: each node without its value, and without the nodes under a field, where Chromium puts
 // what was typed or filled into it, and with "password": true on the nodes in |passwords|.

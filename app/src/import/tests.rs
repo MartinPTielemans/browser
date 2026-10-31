@@ -18,7 +18,7 @@ use super::found::{Found, FromProfile, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
 use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
-use super::{Host, ImportEvent, ImportView, Look, Passwords};
+use super::{Exported, Host, ImportEvent, ImportView, Look, Passwords};
 use super::{firefox, safari};
 use crate::theme::{Appearance, Texture, Theme};
 
@@ -457,8 +457,10 @@ struct Browser {
     adding: RefCell<Vec<(usize, Box<dyn FnOnce(usize, &mut App)>)>>,
     /// What waits for the app to come back to the front.
     active: RefCell<Vec<Box<dyn FnOnce(&mut App)>>>,
-    /// The file the user picks in the open panel, or none to cancel it.
+    /// The file of passwords the user picks in the open panel, or none to cancel it.
     passwords_file: RefCell<Option<PathBuf>>,
+    /// The bookmarks file the user picks.
+    bookmarks_file: RefCell<Option<PathBuf>>,
     /// The passwords file the core is importing, and what waits to hear what came of it.
     importing: RefCell<Option<(PathBuf, Box<dyn FnOnce(Passwords, &mut App)>)>>,
 }
@@ -724,12 +726,16 @@ impl Host for Browser {
     }
 
     /// As the system's panel answers, after the click that opened it.
-    fn choose_passwords_file(
+    fn choose_file(
         &self,
+        exported: Exported,
         then: Box<dyn FnOnce(Option<PathBuf>, &mut App)>,
         cx: &mut App,
     ) {
-        let file = self.passwords_file.borrow().clone();
+        let file = match exported {
+            Exported::Passwords => self.passwords_file.borrow().clone(),
+            Exported::Bookmarks => self.bookmarks_file.borrow().clone(),
+        };
         cx.defer(move |cx| then(file, cx));
     }
 
@@ -2128,4 +2134,160 @@ fn an_import_offers_favorites_from_its_history(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     view.read_with(cx, |view, _| assert_eq!(view.suggested(), Some(&[][..])));
+}
+
+/// Chrome's export: its bar marked as the toolbar folder, then Other bookmarks. A page of the
+/// browser's own stays out, and the names and addresses read their character references.
+const CHROME_BOOKMARKS_HTML: &str = r#"<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3 ADD_DATE="1700000000" LAST_MODIFIED="1700000001" PERSONAL_TOOLBAR_FOLDER="true">Bookmarks bar</H3>
+    <DL><p>
+        <DT><A HREF="https://mail.example.com/" ADD_DATE="1700000000" ICON="data:image/png;base64,iVBORw0KGgo=">Mail</A>
+        <DT><A HREF="chrome://settings/">Settings</A>
+        <DT><H3 ADD_DATE="1700000000">Work</H3>
+        <DL><p>
+            <DT><A HREF="https://docs.example.com/?a=1&amp;b=2">Docs &amp; Sheets</A>
+        </DL><p>
+        <DT><H3>Empty</H3>
+        <DL><p>
+        </DL><p>
+    </DL><p>
+    <DT><H3>Other bookmarks</H3>
+    <DL><p>
+        <DT><A HREF="https://example.com/">Caf&#233; &#x2014; menu</A>
+    </DL><p>
+</DL><p>
+"#;
+
+/// Firefox's export: its menu's bookmarks outside any folder, under the file's heading, with a
+/// separator and descriptions, then its toolbar and Other Bookmarks.
+const FIREFOX_BOOKMARKS_HTML: &str = r#"<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; img-src data: *; object-src 'none'"></meta>
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks Menu</H1>
+
+<DL><p>
+    <DT><A HREF="https://news.example.org/" ADD_DATE="1700000000">News</A>
+    <DD>What's new
+    <HR>
+    <DT><A HREF="place:sort=8&maxResults=10">Most Visited</A>
+    <DT><H3 ADD_DATE="1700000000" PERSONAL_TOOLBAR_FOLDER="true">Bookmarks Toolbar</H3>
+    <DD>Add bookmarks to this folder to see them displayed on the Bookmarks Toolbar
+    <DL><p>
+        <DT><A HREF="https://wiki.example.org/" TAGS="ref">Wiki</A>
+    </DL><p>
+    <DT><H3 ADD_DATE="1700000000" UNFILED_BOOKMARKS_FOLDER="true">Other Bookmarks</H3>
+    <DL><p>
+        <DT><A HREF="https://shop.example.org/">Shop</A>
+    </DL><p>
+</DL>
+"#;
+
+#[test]
+fn a_bookmarks_file_comes_in_as_its_browser_kept_it() {
+    let chrome = super::html::bookmarks(CHROME_BOOKMARKS_HTML).unwrap();
+    assert_eq!(
+        node_shape(&chrome),
+        "Mail=https://mail.example.com/, \
+         Work[Docs & Sheets=https://docs.example.com/?a=1&b=2], \
+         Other bookmarks[Café — menu=https://example.com/]"
+    );
+    let firefox = super::html::bookmarks(FIREFOX_BOOKMARKS_HTML).unwrap();
+    assert_eq!(
+        node_shape(&firefox),
+        "Wiki=https://wiki.example.org/, Bookmarks Menu[News=https://news.example.org/], \
+         Other Bookmarks[Shop=https://shop.example.org/]"
+    );
+}
+
+/// Safari's export marks no bar: what's outside any folder is the bar, and every folder comes as
+/// one, its Reading List too. Tags in any case, unquoted values and a file cut short read alike.
+#[test]
+fn a_bookmarks_file_without_a_bar_keeps_its_folders() {
+    let safari = "\u{feff}<!doctype netscape-bookmark-file-1>\n<html><head><title>Bookmarks</title>\
+        </head><body><h1>Bookmarks</h1><dl><dt><h3 FOLDED>Favourites</h3><dl>\
+        <dt><a href=https://a.example/>A</a></dl><dt><a href='https://b.example/'>B</a>\
+        <dt><h3 FOLDED id=\"com.apple.ReadingList\">Reading List</h3><dl><dt>\
+        <a href=\"https://c.example/\">C\n   later</a>";
+    assert_eq!(
+        node_shape(&super::html::bookmarks(safari).unwrap()),
+        "B=https://b.example/, Favourites[A=https://a.example/], \
+         Reading List[C later=https://c.example/]"
+    );
+}
+
+/// A bar of more than read::BAR_ROWS comes in as a folder of its name.
+#[test]
+fn a_long_bar_in_a_bookmarks_file_comes_as_a_folder() {
+    let rows: String = (0..=read::BAR_ROWS)
+        .map(|n| format!("<DT><A HREF=\"https://{n}.example/\">{n}</A>\n"))
+        .collect();
+    let html = format!(
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL><p><DT><H3 PERSONAL_TOOLBAR_FOLDER=\"true\">\
+         Bar</H3><DL><p>{rows}</DL><p></DL><p>"
+    );
+    let pinned = super::html::bookmarks(&html).unwrap();
+    assert!(matches!(&pinned[..], [Node::Folder { name, children }]
+        if name == "Bar" && children.len() == read::BAR_ROWS + 1));
+}
+
+#[test]
+fn a_file_that_isnt_bookmarks_says_so() {
+    let error = super::html::bookmarks("url,username,password\n").unwrap_err();
+    assert_eq!(error, "it isn't a bookmarks file a browser exported");
+    assert_eq!(super::html::bookmarks("<!DOCTYPE NETSCAPE-Bookmark-file-1>").unwrap(), []);
+}
+
+/// Bookmarks from a file come in as a Space named Bookmarks, in the profile this browser started
+/// with, and a second time add nothing.
+#[gpui::test]
+fn a_bookmarks_file_comes_in_once(cx: &mut TestAppContext) {
+    let browser = Rc::new(Browser::new(None));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    let said = |cx: &mut TestAppContext| {
+        view.read_with(cx, |view, _| match &view.step {
+            super::Step::Done(said) => said.to_string(),
+            _ => panic!("still importing"),
+        })
+    };
+    // Cancelling the panel imports nothing.
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| assert!(matches!(view.step, super::Step::List)));
+
+    let file = write(home("bookmarks-file").join("bookmarks.html"), CHROME_BOOKMARKS_HTML);
+    *browser.bookmarks_file.borrow_mut() = Some(file.clone());
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    assert_eq!(said(cx), "1 Space and 3 pinned tabs came in from bookmarks.html.");
+    let space = browser.spaces().into_iter().find(|space| space.name == "Bookmarks").unwrap();
+    assert_eq!(space.profile, 1);
+    assert_eq!(
+        shape(&space.rows),
+        "Mail=https://mail.example.com/, Work[Docs & Sheets=https://docs.example.com/?a=1&b=2], \
+         Other bookmarks[Café — menu=https://example.com/]"
+    );
+    view.update(cx, |view, cx| view.refresh(cx));
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    assert_eq!(said(cx), "Everything from bookmarks.html is here already.");
+
+    let other = write(file.with_file_name("notes.html"), "<html>notes</html>");
+    *browser.bookmarks_file.borrow_mut() = Some(other);
+    view.update(cx, |view, cx| view.refresh(cx));
+    view.update(cx, |view, cx| view.choose_bookmarks(cx));
+    cx.run_until_parked();
+    assert_eq!(
+        said(cx),
+        "Couldn't import notes.html: it isn't a bookmarks file a browser exported."
+    );
+    fs::remove_dir_all(file.parent().unwrap()).unwrap();
 }

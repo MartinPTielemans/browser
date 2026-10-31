@@ -18,6 +18,7 @@ pub mod chromium;
 pub mod extensions;
 pub mod firefox;
 pub mod found;
+pub mod html;
 pub mod plan;
 pub mod read;
 pub mod safari;
@@ -83,10 +84,11 @@ pub trait Host {
     /// Calls `then` once, the next time this app becomes the active one, such as back from System
     /// Settings.
     fn when_active(&self, then: Box<dyn FnOnce(&mut App)>);
-    /// Asks the user for a file of exported passwords with the system's open panel; `then` gets it,
-    /// or none if they cancel.
-    fn choose_passwords_file(
+    /// Asks the user for a file of `exported` with the system's open panel; `then` gets it, or
+    /// none if they cancel.
+    fn choose_file(
         &self,
+        exported: Exported,
         then: Box<dyn FnOnce(Option<PathBuf>, &mut App)>,
         cx: &mut App,
     );
@@ -98,6 +100,14 @@ pub trait Host {
     /// Opens an extension's page in the Chrome Web Store in a new tab behind the one shown, where
     /// the user can add it.
     fn open_store_page(&self, url: &str);
+}
+
+/// What a file the user exported from another browser holds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Exported {
+    Passwords,
+    /// Bookmarks, as an HTML file in the format every browser exports (html.rs).
+    Bookmarks,
 }
 
 /// What came of importing a file of passwords, as bc_profile_import_passwords says it.
@@ -152,7 +162,8 @@ impl Host for Detached {
     fn when_spaces_change(&self, _: Box<dyn FnOnce(&mut App)>) {}
     fn open_full_disk_access(&self) {}
     fn when_active(&self, _: Box<dyn FnOnce(&mut App)>) {}
-    fn choose_passwords_file(&self, _: Box<dyn FnOnce(Option<PathBuf>, &mut App)>, _: &mut App) {}
+    fn choose_file(&self, _: Exported, _: Box<dyn FnOnce(Option<PathBuf>, &mut App)>, _: &mut App) {
+    }
     fn import_passwords(&self, _: &Path, _: Box<dyn FnOnce(Passwords, &mut App)>) -> bool {
         false
     }
@@ -294,7 +305,12 @@ enum Step {
     Pick { source: usize, picked: Vec<Kind> },
     /// Reading the browser's files, then waiting for new profiles to load and for the history to
     /// go in.
-    Running { source: usize, run: Run },
+    /// From the browser `source`, or from a file, with what it's from, by `name`.
+    Running {
+        source: Option<usize>,
+        name: String,
+        run: Run,
+    },
     /// The system keeps the browser's files from this app until the user gives it Full Disk
     /// Access. Each time the app comes back to the front, it tries again.
     NoAccess { source: usize, picked: Vec<Kind> },
@@ -409,9 +425,7 @@ impl ImportView {
     /// the view isn't.
     pub fn running(&self) -> Option<SharedString> {
         match &self.step {
-            Step::Running { source, .. } => {
-                Some(format!("Importing from {}…", self.sources[*source].name()).into())
-            }
+            Step::Running { name, .. } => Some(format!("Importing from {name}…").into()),
             Step::Passwords => Some("Importing passwords…".into()),
             _ => None,
         }
@@ -540,7 +554,8 @@ impl ImportView {
         let from = self.sources[source].clone();
         let left_out = self.folders.left_out.clone();
         self.step = Step::Running {
-            source,
+            source: Some(source),
+            name: from.name(),
             run: Run::default(),
         };
         self.suggested = None;
@@ -569,11 +584,15 @@ impl ImportView {
         found: Result<Found, ReadError>,
         cx: &mut Context<Self>,
     ) {
-        let Step::Running { source, .. } = &self.step else {
+        let Step::Running {
+            source: Some(source),
+            name,
+            ..
+        } = &self.step
+        else {
             return;
         };
-        let source = *source;
-        let name = self.sources[source].name();
+        let (source, name) = (*source, name.clone());
         let found = match found {
             Ok(found) => found,
             Err(ReadError::NoAccess) => {
@@ -602,8 +621,17 @@ impl ImportView {
         let names: Vec<(String, String)> = (from.profiles.iter())
             .map(|profile| (profile.dir.clone(), profile.name.clone()))
             .collect();
+        self.bring(&names, found, cx);
+    }
+
+    /// Plans what's read, from profiles by `names`, against what's here, and starts it.
+    fn bring(&mut self, names: &[(String, String)], found: Found, cx: &mut Context<Self>) {
+        let Step::Running { name, .. } = &self.step else {
+            return;
+        };
+        let name = name.clone();
         let existing = self.host.existing();
-        let plan = plan::plan(&found, &names, &existing);
+        let plan = plan::plan(&found, names, &existing);
         let counts = plan.counts();
         // The favorites to offer, from the history of the profile this browser started with, but
         // for its favorites; an import that brings its own offers none.
@@ -691,15 +719,14 @@ impl ImportView {
     }
 
     fn complete(&mut self, cx: &mut Context<Self>) {
-        let Step::Running { source, run } = &self.step else {
+        let Step::Running { name, run, .. } = &self.step else {
             return;
         };
-        let name = self.sources[*source].name();
         let counts = Counts {
             pages: run.pages,
             ..run.counts
         };
-        self.finish(summary(&name, counts, run.listed), cx);
+        self.finish(summary(name, counts, run.listed), cx);
     }
 
     fn finish(&mut self, said: impl Into<SharedString>, cx: &mut Context<Self>) {
@@ -725,7 +752,66 @@ impl ImportView {
                 view.update(cx, |view, cx| view.import_passwords(file, cx)).ok();
             }
         });
-        self.host.clone().choose_passwords_file(then, cx);
+        self.host.clone().choose_file(Exported::Passwords, then, cx);
+    }
+
+    /// Asks for a bookmarks file, and imports it.
+    fn choose_bookmarks(&mut self, cx: &mut Context<Self>) {
+        let view = cx.entity().downgrade();
+        let then = Box::new(move |file: Option<PathBuf>, cx: &mut App| {
+            if let Some(file) = file {
+                view.update(cx, |view, cx| view.import_bookmarks(file, cx)).ok();
+            }
+        });
+        self.host.clone().choose_file(Exported::Bookmarks, then, cx);
+    }
+
+    /// Reads the bookmarks in `file`, away from the UI, and brings them in as the pinned tabs and
+    /// folders of a Space named Bookmarks, in the profile this browser started with.
+    fn import_bookmarks(&mut self, file: PathBuf, cx: &mut Context<Self>) {
+        if !matches!(self.step, Step::List) {
+            return;
+        }
+        let name = file_name(&file);
+        // check.sh waits for this line.
+        log!("browser: import bookmarks file {name}");
+        self.step = Step::Running {
+            source: None,
+            name: name.clone(),
+            run: Run::default(),
+        };
+        self.suggested = None;
+        cx.emit(ImportEvent::Started);
+        cx.notify();
+        let read = cx.background_spawn(async move {
+            let bytes = std::fs::read(&file).map_err(|error| error.to_string())?;
+            html::bookmarks(&String::from_utf8_lossy(&bytes))
+        });
+        cx.spawn(async move |view, cx| {
+            let pinned = read.await;
+            view.update(cx, |view, cx| match pinned {
+                Ok(pinned) => {
+                    let space = found::Space {
+                        name: "Bookmarks".into(),
+                        profile: FromProfile::Default,
+                        icon: String::new(),
+                        theme: None,
+                        pinned,
+                    };
+                    let found = Found {
+                        spaces: vec![space],
+                        ..Found::default()
+                    };
+                    view.bring(&[], found, cx);
+                }
+                Err(error) => {
+                    log!("browser: import from {name} failed: {error}");
+                    view.finish(format!("Couldn't import {name}: {error}."), cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn import_passwords(&mut self, file: PathBuf, cx: &mut Context<Self>) {
@@ -827,7 +913,7 @@ impl ImportView {
             false => list.child(self.browsers(cx)),
         };
         let extensions = self.extensions_box(cx);
-        list.children(extensions).child(self.passwords(cx)).into_any_element()
+        list.children(extensions).child(self.files(cx)).into_any_element()
     }
 
     /// The extensions the last import listed, each with Add…, which opens its Web Store page, and
@@ -968,9 +1054,10 @@ impl ImportView {
         group(look, rows)
     }
 
-    /// The row for a file of passwords, after the browsers, as no browser's passwords come from its
-    /// files, with where each browser found keeps its export.
-    fn passwords(&self, cx: &mut Context<Self>) -> gpui::Div {
+    /// The rows for the files a browser exports, after the browsers: bookmarks, for one that isn't
+    /// on this computer, and passwords, which no browser's files give, with where each browser
+    /// found keeps their export.
+    fn files(&self, cx: &mut Context<Self>) -> gpui::Div {
         let look = &self.look;
         let from = match self.sources.first() {
             Some(source) => source.browser.name,
@@ -984,6 +1071,14 @@ impl ImportView {
             format!("Export them from {from} as a file, then choose it here.").into(),
             choose.into_any_element(),
         );
+        let choose = button(look, "import-bookmarks", "Choose File…")
+            .on_click(cx.listener(|view, _, _, cx| view.choose_bookmarks(cx)));
+        let bookmarks = detailed(
+            look,
+            "Bookmarks".into(),
+            "A bookmarks file, in HTML, which every browser exports.".into(),
+            choose.into_any_element(),
+        );
         let places = export_places(&self.sources, self.os).into_iter().map(|place| {
             line(place)
                 .text_size(px(text::SMALL))
@@ -992,7 +1087,7 @@ impl ImportView {
         div()
             .flex()
             .flex_col()
-            .child(group(look, [row]))
+            .child(group(look, [bookmarks, row]))
             .child(div().mt(px(BOX_GAP)).flex().flex_col().children(places))
     }
 

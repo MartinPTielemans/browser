@@ -513,6 +513,31 @@ void AddKey(UINT vk, int modifiers) {
   }});
 }
 
+// The radius in points of |hwnd|'s round corners, as its window region cuts them, or 0: the
+// diameter whose round rectangle, all four corners or the bottom two, is that region exactly, as
+// the core makes it (core/platform/win/window_views.cc).
+double CornerRadius(HWND hwnd, double scale) {
+  HRGN region = CreateRectRgn(0, 0, 0, 0);
+  RECT client;
+  GetClientRect(hwnd, &client);
+  double radius = 0;
+  if (GetWindowRgn(hwnd, region) != ERROR) {
+    for (int diameter = 2; diameter <= 128 && !radius; ++diameter) {
+      HRGN round =
+          CreateRoundRectRgn(0, 0, client.right + 1, client.bottom + 1, diameter, diameter);
+      HRGN bottom = CreateRectRgn(0, 0, client.right, client.bottom / 2);
+      CombineRgn(bottom, bottom, round, RGN_OR);
+      if (EqualRgn(region, round) || EqualRgn(region, bottom)) {
+        radius = diameter / (2 * scale);
+      }
+      DeleteObject(round);
+      DeleteObject(bottom);
+    }
+  }
+  DeleteObject(region);
+  return radius;
+}
+
 void LogLayout(HWND root) {
   RECT client;
   GetClientRect(root, &client);
@@ -542,6 +567,11 @@ void LogLayout(HWND root) {
              (client.bottom - rect.bottom) / scale, (rect.right - rect.left) / scale,
              (rect.bottom - rect.top) / scale);
     line += part;
+    // As the Mac's driver gives a page view's rounded layer.
+    if (const double radius = IsChromium(child) ? CornerRadius(child, scale) : 0; radius > 0) {
+      snprintf(part, sizeof part, " radius %.0f", radius);
+      line += part;
+    }
   }
   // Windows' own title bar has the window's buttons.
   line += "\nbrowser: layout buttons hidden hidden hidden";
