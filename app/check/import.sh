@@ -114,6 +114,11 @@ printf '%s\n' '<!DOCTYPE NETSCAPE-Bookmark-file-1>' '<TITLE>Bookmarks</TITLE>' \
   '<DL><p>' '<DT><A HREF="https://bar.example.test/">Bar &amp; Grill</A>' '</DL><p>' \
   '<DT><H3>Reading</H3>' '<DL><p>' '<DT><A HREF="https://read.example.test/">Read</A>' \
   '</DL><p>' '</DL><p>' > "$bookmarks"
+# The check's profile keeps the address an earlier run brought in, and the import adds an address
+# only once, so the run starts with none; the app isn't running, so Web Data is free.
+web_data="$profile_dir/Default/Web Data"
+[ ! -e "$web_data" ] || sqlite3 "$web_data" "DELETE FROM addresses; DELETE FROM address_type_tokens;" ||
+  fail "the check's profile kept its addresses"
 BROWSER_IMPORT_HOME="$home" BROWSER_IMPORT_PASSWORDS="$passwords" \
   BROWSER_IMPORT_BOOKMARKS="$bookmarks" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
   "$browser" < "$out/drive" > "$log" 2>&1 &
