@@ -230,6 +230,8 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
+            ("Reveal Tab in Sidebar", Keys::Of(Command::RevealTab)),
+            ("Focus Sidebar", Keys::Of(Command::FocusSidebar)),
             ("Clear Today", Keys::Of(Command::Clear)),
             ("Reset all tabs in this Space", Keys::Of(Command::ResetSpaceTabs)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
@@ -280,6 +282,8 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Collapse Pinned Tabs", Keys::Of(Command::CollapsePinned)),
+            ("Expand Pinned Tabs", Keys::Of(Command::ExpandPinned)),
             ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
             ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
             ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
@@ -663,11 +667,21 @@ fn show_now(cx: &mut App) {
         .update(cx, |settings, window, cx| {
             window.focus(&settings.focus, cx);
             settings.shown = true;
+            if settings.tab == Tab::Agents {
+                look_for_clients(cx);
+            }
             cx.notify();
         })
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+}
+
+/// Looks again for the agent clients on this computer, as the Agents tab shows.
+fn look_for_clients(cx: &mut App) {
+    if let Some(agents) = agents::global(cx) {
+        agents.update(cx, |agents, cx| agents.look_for_clients(cx));
+    }
 }
 
 /// Reads again where Google's Widevine module is, as the core says it changed, once Settings has
@@ -825,14 +839,17 @@ pub fn refresh(cx: &mut App) {
     }
 }
 
-/// The window's close button, where the browser window's is, for a window without a frame to draw
-/// it. Settings can't be minimized or zoomed, so it's alone.
-fn close_button() -> impl IntoElement {
+/// The window's close button, for a window without a frame to draw it: where the browser window's
+/// is on Linux, and in the top right corner on Windows, where Windows puts close. Settings can't be
+/// minimized or zoomed, so it's alone. `at` logs where it's drawn.
+fn close_button(at: gpui::Canvas<()>) -> impl IntoElement {
     let (x, colour) = shell::WINDOW_BUTTONS[0];
-    div()
-        .id("close")
-        .absolute()
-        .left(px(x - WINDOW_BUTTON_SIZE / 2.))
+    let button = div().id("close").absolute();
+    let button = match cfg!(target_os = "windows") {
+        true => button.right(px(x - WINDOW_BUTTON_SIZE / 2.)),
+        false => button.left(px(x - WINDOW_BUTTON_SIZE / 2.)),
+    };
+    button
         .top(px((TITLE_BAR - WINDOW_BUTTON_SIZE) / 2.))
         .size(px(WINDOW_BUTTON_SIZE))
         .rounded_full()
@@ -848,6 +865,7 @@ fn close_button() -> impl IntoElement {
                 .text_color(gpui::transparent_black())
                 .group_hover("close", |style| style.text_color(rgba(WINDOW_BUTTON_GLYPH))),
         )
+        .child(at)
 }
 
 fn hide(_: &mut App) {
@@ -871,6 +889,9 @@ impl Settings {
         self.tab = tab;
         if tab == Tab::Import {
             self.show_import(cx);
+        }
+        if tab == Tab::Agents {
+            look_for_clients(cx);
         }
         self.links = (tab == Tab::Links).then(|| {
             let host = Rc::new(crate::link_rules_host::CoreLinkRules);
@@ -935,7 +956,7 @@ impl Settings {
             .border_color(rgb(BAR_LINE))
             .relative()
             .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
-            .children(frameless.then(close_button))
+            .children(frameless.then(|| close_button(self.drawn("close".into()))))
             .child(
                 div()
                     .h(px(TITLE_BAR))
@@ -1851,7 +1872,9 @@ impl Settings {
                      passwords, cookies or autofill."
                 .into(),
         };
-        let clients = Client::ALL.map(|client| self.client(agents, client, cx));
+        let listed = agents.read(cx).listed();
+        let clients: Vec<gpui::Div> =
+            listed.iter().map(|client| self.client(agents, *client, &listed, cx)).collect();
         // A list for each agent, as each has its own Space (decision 8): what the user let it do
         // or never do on a site, to revoke, then what it did.
         let model = agents.read(cx);
@@ -1956,7 +1979,13 @@ impl Settings {
 
     /// A client's row: whether it's connected, and Connect, or Disconnect, with Copy Setup for a
     /// client the browser can't set up itself.
-    fn client(&self, agents: &Entity<Agents>, client: Client, cx: &mut Context<Self>) -> gpui::Div {
+    fn client(
+        &self,
+        agents: &Entity<Agents>,
+        client: Client,
+        listed: &[Client],
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let model = agents.read(cx);
         let connected = model.is_connected(client);
         let detail: SharedString = if let Some(why) = model.failure(client) {
@@ -1974,7 +2003,17 @@ impl Settings {
         } else if connected {
             format!("Connected in {}", client.config()).into()
         } else if client == Client::Other {
-            "Any MCP client".into()
+            // Says which it looked for, so one missing from the list isn't a mystery.
+            let missing: Vec<&str> = (Client::ALL.into_iter())
+                .filter(|client| !listed.contains(client))
+                .map(Client::name)
+                .collect();
+            match missing.as_slice() {
+                [] => "Any MCP client".into(),
+                [one] => format!("Any MCP client. {one} isn't on this computer.").into(),
+                _ => format!("Any MCP client. {} aren't on this computer.", missing.join(" and "))
+                    .into(),
+            }
         } else {
             format!("Not connected. Connect adds the browser to {}", client.config()).into()
         };
@@ -2672,8 +2711,10 @@ impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The app's window, not a Space's, so ilo green rather than a Space's accent (#319).
         let accent = rgb(browser::palette::NO_THEME_ACCENT);
-        // As Linux's client-side decorations leave it; AppKit's frame is always there.
-        let frameless = matches!(window.window_decorations(), gpui::Decorations::Client { .. });
+        // As Linux's client-side decorations leave it, and Windows', where GPUI hides the system's
+        // title bar and its buttons for a transparent one; AppKit's frame is always there.
+        let frameless = cfg!(target_os = "windows")
+            || matches!(window.window_decorations(), gpui::Decorations::Client { .. });
         if self.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE) {
             window.request_animation_frame();
         }

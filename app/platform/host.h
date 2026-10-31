@@ -57,8 +57,8 @@ void* host_ui_view(void);
 // runs inside it (gpui_linux::embed).
 void host_watch_fd(int fd, void (*ready)(void));
 
-// Linux only: |window| is the core's id for the browser window of |ui_view|. The window is
-// Chromium's, so the calls below that act on it go through the core.
+// Linux and Windows: |window| is the core's id for the browser window of |ui_view|. The window is
+// Chromium's, so the calls that act on it, such as the driver's, go through the core.
 void host_window_opened(void* ui_view, uint64_t window);
 
 // Linux only: the browser window of |ui_view| has closed, for the watches below.

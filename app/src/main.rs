@@ -141,7 +141,7 @@ mod platform {
         pub fn host_ui_view() -> *mut c_void;
         #[cfg(target_os = "linux")]
         pub fn host_watch_fd(fd: c_int, ready: extern "C" fn());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         pub fn host_window_opened(ui_view: *mut c_void, window: u64);
         #[cfg(target_os = "linux")]
         pub fn host_window_closed(ui_view: *mut c_void);
@@ -1869,14 +1869,25 @@ unsafe extern "C" fn tab_link_target(
     });
 }
 
-/// Gives the keyboard in `window` to the UI, whose GPUI view is `view`. On Linux the core says whose
-/// the keys are, and takes them from the page.
-fn focus_ui(window: bc::bc_id, view: *mut c_void) {
+/// Gives the keyboard in `window` to the UI, whose GPUI view is `view`, to keep or, with
+/// `until_page`, until a page shows. On Linux the core says whose the keys are, and takes them from
+/// the page. On Windows it hears first, while the focus still says whether the UI had them.
+fn focus_ui(window: bc::bc_id, view: *mut c_void, until_page: bool) {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let tell_core = || unsafe {
+        if until_page {
+            bc::bc_window_ui_holds_keyboard(window)
+        } else {
+            bc::bc_window_ui_takes_keyboard(window)
+        }
+    };
+    #[cfg(target_os = "windows")]
+    tell_core();
     unsafe { platform::host_focus(view) };
     #[cfg(target_os = "linux")]
-    unsafe {
-        bc::bc_window_ui_takes_keyboard(window)
-    };
+    tell_core();
+    #[cfg(target_os = "macos")]
+    let _ = (window, until_page);
 }
 
 /// A window's shell's requests, as calls to the core. The core reports back once each call has
@@ -2773,7 +2784,11 @@ impl Browser for Engine {
     }
 
     fn focus_ui(&self, _: &mut App) {
-        focus_ui(self.window, self.view);
+        focus_ui(self.window, self.view, false);
+    }
+
+    fn hold_keyboard_for_page(&self, _: &mut App) {
+        focus_ui(self.window, self.view, true);
     }
 
     fn focus_page(&self, _: &mut App) {
@@ -2821,6 +2836,15 @@ impl Browser for Engine {
     }
 
     fn press_window_button(&self, button: WindowButton, _: &mut App) {
+        // Windows' own zoom button maximizes, and its window has no full screen of its own, so the
+        // zoom Escape presses in full screen takes the window out through the core.
+        if cfg!(target_os = "windows")
+            && matches!(button, WindowButton::Zoom)
+            && self.window_full_screen()
+        {
+            unsafe { bc::bc_window_toggle_full_screen(self.window) };
+            return;
+        }
         let button = match button {
             WindowButton::Close => 0,
             WindowButton::Minimize => 1,
@@ -2838,7 +2862,8 @@ impl Browser for Engine {
     }
 
     fn window_full_screen(&self) -> bool {
-        cfg!(target_os = "linux") && unsafe { bc::bc_window_is_full_screen(self.window) }
+        cfg!(any(target_os = "linux", target_os = "windows"))
+            && unsafe { bc::bc_window_is_full_screen(self.window) }
     }
 
     fn show_reveal(&self, width: f32, _: &mut App) {
@@ -3871,7 +3896,7 @@ fn open_window_as(
             false => (surface, Some(size(px(width as f32), px(height as f32)))),
         }
     };
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     unsafe { platform::host_window_opened(ui_view, id) };
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
     // Its Space, which the core made with the window.
@@ -3904,7 +3929,7 @@ fn open_window_as(
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, cx| {
                 let viewport = window.viewport_size();
                 // First, as a page's full screen can end with the window's.
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
                 shell.bounds_changed(cx);
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
@@ -4169,7 +4194,7 @@ fn finish_opening(
     if seeded {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
         if ui_keyboard && let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
-            focus_ui(id, view);
+            focus_ui(id, view, false);
         }
         return;
     }
