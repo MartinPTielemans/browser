@@ -7,8 +7,8 @@
 //! display's pointer or keyboard. Keys go to the window with the X server's input focus, as real
 //! keys do, and the pointer's events to the window of the app's on top at that point.
 //!
-//! X11 only: under Wayland no client can hand another's surfaces input.
-//! shortcut: a core call that hands Chromium's windows the events would drive Wayland too.
+//! Under Wayland no client can hand another's surfaces input, so there the pointer and keys are
+//! sway's virtual devices, in tools/headless.sh's session alone (drive_wayland.rs).
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, middleclick,
 //! clickkey, doubleclickkey, rightclickkey, drag, dragkey, press, dragto, release, rightpress,
@@ -80,6 +80,7 @@ unsafe extern "C" {
 
 /// Starts reading commands from stdin.
 pub fn start() {
+    crate::drive_wayland::start();
     // Its events are the pointer the app has, as the X server's own, which it never moves, would
     // otherwise come and go under GPUI's pointer as windows change around it.
     gpui_linux::drive_pointer();
@@ -130,6 +131,7 @@ fn after(ms: u32, task: Box<dyn FnOnce()>) {
 /// windows have drawn what the events changed.
 fn settle(n: u64) {
     sync();
+    crate::drive_wayland::sync();
     // Until the drag's target has answered, which it does from the loop.
     if drag_waits() {
         after(10, Box::new(move || settle(n)));
@@ -138,6 +140,7 @@ fn settle(n: u64) {
     gpui_linux::sync_display();
     idle(Box::new(move || {
         sync();
+        crate::drive_wayland::sync();
         gpui_linux::sync_display();
         drawn(Box::new(move || {
             if let Some(browser) = driven() {
@@ -248,7 +251,7 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
 
 /// The views of the app's windows that show over a browser window: the overlays, the Site Controls
 /// and Capture, the find bar and the offer to save a password, then ilo's menu, and the toast.
-fn overlay_views() -> Vec<*mut c_void> {
+pub(super) fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(popovers::shown());
     views.extend(panels::shown());
@@ -318,6 +321,14 @@ fn browser(index: usize) -> Option<Browser> {
 
 fn driven() -> Option<Browser> {
     browser(DRIVEN.get())
+}
+
+/// The driven browser window's id, under Wayland too.
+fn driven_id() -> Option<bc::bc_id> {
+    match crate::drive_wayland::on() {
+        true => crate::drive_wayland::driven_id(),
+        false => driven().map(|browser| browser.id),
+    }
 }
 
 /// Whether `window` is mapped, with every window it's in: the server sends no key to one that isn't.
@@ -409,6 +420,9 @@ fn insert(text: &str) -> Option<()> {
 
 /// The done line's key window, focus and whether the app is active.
 fn keyboard() -> (&'static str, &'static str, bool) {
+    if crate::drive_wayland::on() {
+        return crate::drive_wayland::keyboard();
+    }
     match keyboard_window() {
         Some(Keyboard::Overlay(_)) => ("GPUIPanel", "GPUIView", true),
         Some(Keyboard::Settings(..)) => ("GPUIWindow", "GPUIView", true),
@@ -525,7 +539,7 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
 }
 
 /// How far the Mac's close button is in from its window's top-left corner, at most, in points.
-const CLOSE_CORNER: f64 = 26.;
+pub(super) const CLOSE_CORNER: f64 = 26.;
 
 /// Asks `window` to close, as the window manager does for its close button.
 fn close(window: xproto::Window) -> Option<()> {
@@ -695,7 +709,7 @@ fn first_press(at: Target, which: u8, again: bool) {
 /// The Mac's modifiers named in `words`, cmd, shift, alt and ctrl, as an X state holds them on
 /// the keys that press them off the Mac: ⌘ with Ctrl, and ⌃ and ⌥ with Alt (docs/ux-spec.md ›
 /// Keyboard), so ⌥⌘↓ is Ctrl+Alt+↓ and ⌥↩ is Alt+Enter.
-fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
+pub(super) fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     let (ctrl, alt) = (u16::from(KeyButMask::CONTROL), u16::from(KeyButMask::MOD1));
     words.fold(0, |state, word| {
         state
@@ -711,7 +725,7 @@ fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
 /// The Mac's modifiers named in `words` for a click, as Chrome reads a click's off the Mac: ⌘ with
 /// Ctrl and ⌥ with Alt. Its ⌥⌘-click is Ctrl+Alt there, and Ctrl+Alt+Shift, as keys press ⌥⇧, is
 /// a foreground tab's. ⌃-click, the Mac's right-click, has none.
-fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
+pub(super) fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     words.fold(0, |state, word| {
         state
             | match word {
@@ -724,7 +738,7 @@ fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
 }
 
 /// The keysym of drive.mm's key `key`: a printable ASCII character, or a named key.
-fn keysym(key: &str) -> Option<u32> {
+pub(super) fn keysym(key: &str) -> Option<u32> {
     Some(match key {
         "return" => 0xff0d,
         "escape" => 0xff1b,
@@ -923,7 +937,7 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
 }
 
 /// Two numbers from `words`.
-fn point<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<(f64, f64)> {
+pub(super) fn point<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<(f64, f64)> {
     Some((words.next()?.parse().ok()?, words.next()?.parse().ok()?))
 }
 
@@ -962,7 +976,7 @@ fn stacked() -> Option<Vec<Browser>> {
 /// shortcut: where the shell lays them out and the radius it gives their corners, which the core
 /// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
 /// are or how round.
-fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
+pub(super) fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
@@ -988,7 +1002,7 @@ fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
 
 /// The ring the core draws inside a split view's focused page, over the pages, as the Mac's driver
 /// lists its view: from the content's bottom-left corner, as the pages are.
-fn ring(id: bc::bc_id, height: f64) -> Option<String> {
+pub(super) fn ring(id: bc::bc_id, height: f64) -> Option<String> {
     let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
     unsafe { bc::bc_window_focus_ring(id, &mut frame) }.then_some(())?;
     let bc::bc_rect { x, y, width, height: high } = frame;
@@ -998,7 +1012,7 @@ fn ring(id: bc::bc_id, height: f64) -> Option<String> {
 
 /// A tab's dialog over `id`, such as print preview, from the content's top-left corner, and its
 /// size, as the Mac's driver lists a child window.
-fn dialog(id: bc::bc_id) -> Option<String> {
+pub(super) fn dialog(id: bc::bc_id) -> Option<String> {
     let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
     unsafe { bc::bc_window_dialog(id, &mut frame) }.then_some(())?;
     let bc::bc_rect { x, y, width, height } = frame;
@@ -1007,7 +1021,7 @@ fn dialog(id: bc::bc_id) -> Option<String> {
 
 /// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
 /// the Mac's driver gives AppKit's, or "hidden" for each.
-fn buttons(id: bc::bc_id) -> Option<String> {
+pub(super) fn buttons(id: bc::bc_id) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
@@ -1509,6 +1523,11 @@ fn run_command(line: &str) -> Option<()> {
     // What follows the command's name, for those that take text.
     let rest = line.get(action.len() + 1..).unwrap_or("");
     let none = 0;
+    if crate::drive_wayland::on()
+        && let Some(done) = crate::drive_wayland::run(action, line)
+    {
+        return done;
+    }
     match action {
         "window" => {
             let number: usize = words.next()?.parse().ok()?;
@@ -1720,7 +1739,7 @@ fn run_command(line: &str) -> Option<()> {
         // As the window manager's full-screen key, through the core, as the Mac's goes through the
         // green button.
         "fullscreen" => {
-            unsafe { bc::bc_window_toggle_full_screen(driven()?.id) };
+            unsafe { bc::bc_window_toggle_full_screen(driven_id()?) };
             Some(())
         }
         "resize" | "place" => {
@@ -1878,7 +1897,7 @@ fn run_command(line: &str) -> Option<()> {
                 return None;
             };
             let handle = WINDOWS.with_borrow(|windows| {
-                let id = driven()?.id;
+                let id = driven_id()?;
                 windows.iter().find(|w| w.id == id).map(|w| w.handle)
             })?;
             let cx = CX.with_borrow(Clone::clone)?;

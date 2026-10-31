@@ -55,6 +55,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/drive_wayland.rs"]
+mod drive_wayland;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/drops.rs"]
 mod drops;
 #[cfg(target_os = "linux")]

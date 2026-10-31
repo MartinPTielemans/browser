@@ -23,10 +23,10 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git a/crates/gpui_linux/src/gpui_linux.rs b/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..2865805b70 100644
+index a5390e77f8..db99b65bdb 100644
 --- a/crates/gpui_linux/src/gpui_linux.rs
 +++ b/crates/gpui_linux/src/gpui_linux.rs
-@@ -1,4 +1,17 @@
+@@ -1,4 +1,18 @@
  #![cfg(any(target_os = "linux", target_os = "freebsd"))]
  mod linux;
  
@@ -40,13 +40,14 @@ index a5390e77f8..2865805b70 100644
 +    linux_platform, move_overlay, new_host_window, overlay_size, overlays_blend,
 +    set_overlay_keyboard,
 +    set_overlay_menu, set_overlay_outline, set_overlay_panel, set_overlay_pointer, set_overlay_under,
-+    show_overlay, show_window, start_file_drag, sync_display, take_overlay_keyboard, watch_control,
++    show_overlay, show_window, shown_keyboard_overlay, start_file_drag, sync_display,
++    take_overlay_keyboard, watch_control,
 +    take_embedder_drops, watch_alt_taps, watch_embedder_swipes, watch_pointer_over,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{commit_embedded, compose_embedded, open_next_window_in_surface, resize_embedded};
 diff --git a/crates/gpui_linux/src/linux.rs b/crates/gpui_linux/src/linux.rs
-index e4da54b52b..c179b7fb79 100644
+index e4da54b52b..3df3f8f1d2 100644
 --- a/crates/gpui_linux/src/linux.rs
 +++ b/crates/gpui_linux/src/linux.rs
 @@ -1,7 +1,9 @@
@@ -59,7 +60,7 @@ index e4da54b52b..c179b7fb79 100644
  mod platform;
  mod system_notifications;
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -16,13 +18,31 @@ mod xdg_desktop_portal;
+@@ -16,13 +18,32 @@ mod xdg_desktop_portal;
  
  pub use dispatcher::*;
  pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
@@ -71,7 +72,8 @@ index e4da54b52b..c179b7fb79 100644
 +    Corner, embedder_size, give_held_keys, hide_overlay, hide_window, hold_keys, leave_overlay,
 +    move_overlay, overlay_size, overlays_blend,
 +    set_overlay_keyboard, set_overlay_menu, set_overlay_outline, set_overlay_panel,
-+    set_overlay_pointer, set_overlay_under, show_overlay, show_window, sync_display,
++    set_overlay_pointer, set_overlay_under, show_overlay, show_window, shown_keyboard_overlay,
++    sync_display,
 +    take_overlay_keyboard, watch_alt_taps, watch_control, watch_pointer_over,
 +};
  pub(crate) use platform::*;
@@ -144,10 +146,10 @@ index 0000000000..846d17431f
 +}
 diff --git a/crates/gpui_linux/src/linux/overlay.rs b/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..b7c1071f72
+index 0000000000..035d77e926
 --- /dev/null
 +++ b/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,963 @@
+@@ -0,0 +1,969 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -638,6 +640,12 @@ index 0000000000..b7c1071f72
 +            .find(|shown| shown.keyboard && shown.ready)
 +            .map(|shown| shown.view)
 +    })
++}
++
++/// The view of the overlay that shows with the keyboard, for a test driver: under Wayland the
++/// compositor gives the keys to the browser window, whose overlays it doesn't know of.
++pub fn shown_keyboard_overlay() -> Option<*mut c_void> {
++    keyboard_overlay().map(|view| view as *mut c_void)
 +}
 +
 +/// The overlay that has the keyboard, shown or about to be. On X11 GPUI gets no key that asked for
@@ -1512,7 +1520,7 @@ index cbc962bcff..4c439cadad 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git a/crates/gpui_linux/src/linux/wayland/client.rs b/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..cf4a99239c 100644
+index 2d40cf7fa9..41b0031f85 100644
 --- a/crates/gpui_linux/src/linux/wayland/client.rs
 +++ b/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -1893,7 +1901,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_device_v1::WpCursorShapeDeviceV1);
  delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_manager_v1::WpCursorShapeManagerV1);
  delegate_noop!(WaylandClientStatePtr: ignore wl_data_device_manager::WlDataDeviceManager);
-@@ -1738,6 +1901,52 @@ pub(crate) fn get_window(
+@@ -1738,6 +1901,82 @@ pub(crate) fn get_window(
      state.windows.get(surface_id).cloned()
  }
  
@@ -1933,6 +1941,36 @@ index 2d40cf7fa9..cf4a99239c 100644
 +    (!keys_are_embedders(&focused)).then_some(focused)
 +}
 +
++/// The menu that shows and the point in it, for a held button's motion or release at `at` in the
++/// window the press went to, which the compositor's grab gives the pointer until the release, as
++/// the press that opened the menu went there: as X11's `over_menu`, through the embedder's surface
++/// both are in.
++fn over_menu(
++    state: &WaylandClientState,
++    at: Point<Pixels>,
++) -> Option<(WaylandWindowStatePtr, Point<Pixels>)> {
++    let menu = crate::linux::overlay::shown_menu()?;
++    // A press and its release can come together, as from a touchpad's tap, before the menu the
++    // press opened is in place.
++    if crate::linux::overlay::placing(menu) {
++        return None;
++    }
++    let pressed = state.mouse_focused_window.as_ref()?;
++    let menu = window_with_surface(state, menu)?;
++    if menu.ptr_eq(pressed) {
++        return None;
++    }
++    let (parent, origin) = pressed.embedder_surface()?;
++    let (menu_parent, menu_origin) = menu.embedder_surface()?;
++    if parent != menu_parent {
++        return None;
++    }
++    let at = at + origin - menu_origin;
++    let size = menu.bounds_size();
++    let inside = at.x >= px(0.) && at.y >= px(0.) && at.x < size.width && at.y < size.height;
++    inside.then_some((menu, at))
++}
++
 +fn window_with_surface(
 +    state: &WaylandClientState,
 +    surface: usize,
@@ -1946,7 +1984,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  impl Dispatch<wl_surface::WlSurface, ()> for WaylandClientStatePtr {
      fn event(
          this: &mut Self,
-@@ -1993,10 +2202,10 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
+@@ -1993,10 +2232,10 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
                      state.composing = false;
                  }
  
@@ -1961,7 +1999,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                      .map(|text_input_manager| text_input_manager.get_text_input(seat, qh, ()));
  
                  if let Some(wl_keyboard) = &state.wl_keyboard {
-@@ -2023,6 +2232,14 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
+@@ -2023,6 +2262,14 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
                          gesture_manager.get_pinch_gesture(&pointer, qh, ())
                      },
                  );
@@ -1976,7 +2014,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  
                  if let Some(wl_pointer) = &state.wl_pointer {
                      wl_pointer.release();
-@@ -2086,16 +2303,21 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2086,16 +2333,21 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                  this.handle_keyboard_layout_change();
              }
              wl_keyboard::Event::Enter { surface, .. } => {
@@ -2000,7 +2038,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                  state.keyboard_focused_window = None;
                  state.enter_token.take();
                  // Prevent keyboard events from repeating after opening e.g. a file chooser and closing it quickly
-@@ -2110,7 +2332,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2110,7 +2362,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                      drop(state);
                      window.handle_ime(ImeInput::DeleteText);
                      window.set_focused(false);
@@ -2010,7 +2048,7 @@ index 2d40cf7fa9..cf4a99239c 100644
              }
              wl_keyboard::Event::Modifiers {
                  mods_depressed,
-@@ -2119,7 +2343,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2119,7 +2373,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                  group,
                  ..
              } => {
@@ -2019,7 +2057,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  
                  let keymap_state = state.keymap_state.as_mut().unwrap();
                  let old_layout =
-@@ -2138,6 +2362,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2138,6 +2392,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                  if let Some(focused_window) = focused_window {
                      focused_window.handle_input(input);
                  }
@@ -2028,7 +2066,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  
                  if group != old_layout {
                      this.handle_keyboard_layout_change();
-@@ -2152,8 +2378,22 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2152,8 +2408,30 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                  if key_state == wl_keyboard::KeyState::Pressed {
                      state.serial_tracker.update(SerialKind::KeyPress, serial);
                  }
@@ -2048,11 +2086,19 @@ index 2d40cf7fa9..cf4a99239c 100644
 +                if holds_key(&state, key, key_state) {
 +                    return;
 +                }
++                // A key's release ends its repeat wherever it goes: a key that closed an
++                // embedder's overlay comes up in the embedder, and repeated into the next overlay
++                // to open before the repeat's delay, as ↩ then ⌘T did into the command bar.
++                if key_state == wl_keyboard::KeyState::Released
++                    && state.repeat.current_keycode == Some(Keycode::from(key + MIN_KEYCODE))
++                {
++                    state.repeat.current_keycode = None;
++                }
 +                let focused_window = key_window(&state, state.keyboard_focused_window.clone());
                  let Some(focused_window) = focused_window else {
                      return;
                  };
-@@ -2218,16 +2458,17 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2218,16 +2496,17 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                          let rate = state.repeat.characters_per_second;
                          let repeat_interval = Duration::from_secs(1) / rate.max(1);
                          let id = state.repeat.current_id;
@@ -2074,7 +2120,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                                      let Some(client) = this.0.upgrade() else {
                                          return TimeoutAction::Drop;
                                      };
-@@ -2240,8 +2481,11 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2240,8 +2519,11 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                          return TimeoutAction::Drop;
                                      }
  
@@ -2088,7 +2134,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  
                                      drop(state);
                                      focused_window.handle_input(input.clone());
-@@ -2249,8 +2493,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+@@ -2249,8 +2531,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                      // If the new scheduled time is in the past the event will repeat as soon as possible
                                      TimeoutAction::ToInstant(event_timestamp + repeat_interval)
                                  }
@@ -2100,7 +2146,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  
                          drop(state);
                          focused_window.handle_input(input);
-@@ -2398,6 +2643,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2398,6 +2681,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  state.serial_tracker.update(SerialKind::MouseEnter, serial);
                  state.mouse_location = Some(position);
                  state.button_pressed = None;
@@ -2111,7 +2157,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  
                  if let Some(window) = get_window(&mut state, &surface.id()) {
                      state.mouse_focused_window = Some(window.clone());
-@@ -2432,9 +2681,24 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2432,9 +2719,24 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  }
              }
              wl_pointer::Event::Leave { .. } => {
@@ -2137,7 +2183,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                          pressed_button: state.button_pressed,
                          modifiers: state.modifiers,
                      });
-@@ -2444,6 +2708,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2444,6 +2746,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                      state.cursor_hidden_window = None;
  
                      drop(state);
@@ -2148,7 +2194,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                      focused_window.handle_input(input);
                      focused_window.set_hovered(false);
                  }
-@@ -2453,10 +2721,15 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2453,12 +2759,29 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  surface_y,
                  ..
              } => {
@@ -2164,8 +2210,22 @@ index 2d40cf7fa9..cf4a99239c 100644
 +                state.mouse_location = Some(at);
                  state.restore_cursor_after_hide();
  
++                if state.button_pressed.is_some()
++                    && let Some((menu, at)) = over_menu(&state, at)
++                {
++                    let input = PlatformInput::MouseMove(MouseMoveEvent {
++                        position: at,
++                        pressed_button: state.button_pressed,
++                        modifiers: state.modifiers,
++                    });
++                    drop(state);
++                    menu.handle_input(input);
++                    return;
++                }
                  if let Some(window) = state.mouse_focused_window.clone() {
-@@ -2514,11 +2787,34 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+                     if window.is_blocked() {
+                         let default_style = CursorStyle::Arrow;
+@@ -2514,11 +2837,34 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                  }
                  let button = linux_button_to_gpui(button);
                  let Some(button) = button else { return };
@@ -2200,7 +2260,25 @@ index 2d40cf7fa9..cf4a99239c 100644
                          if let Some(window) = state.keyboard_focused_window.clone() {
                              if state.composing && state.text_input.is_some() {
                                  drop(state);
-@@ -2595,11 +2891,20 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2574,10 +2920,15 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+                     wl_pointer::ButtonState::Released => {
+                         state.button_pressed = None;
+ 
+-                        if let Some(window) = state.mouse_focused_window.clone() {
++                        let at = state.mouse_location.unwrap();
++                        let (window, at) = match over_menu(&state, at) {
++                            Some((menu, at)) => (Some(menu), at),
++                            None => (state.mouse_focused_window.clone(), at),
++                        };
++                        if let Some(window) = window {
+                             let input = PlatformInput::MouseUp(MouseUpEvent {
+                                 button,
+-                                position: state.mouse_location.unwrap(),
++                                position: at,
+                                 modifiers: state.modifiers,
+                                 click_count: state.click.current_count,
+                             });
+@@ -2595,11 +2946,20 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
              } => {
                  state.axis_source = axis_source;
              }
@@ -2221,7 +2299,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                  if state.axis_source == AxisSource::Wheel {
                      return;
                  }
-@@ -2688,17 +2993,37 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
+@@ -2688,17 +3048,37 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                      state.scroll_event_received = false;
                      let continuous = state.continuous_scroll_delta.take();
                      let discrete = state.discrete_scroll_delta.take();
@@ -2268,7 +2346,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                          }
                      } else if let Some(discrete) = discrete
                          && let Some(window) = state.mouse_focused_window.clone()
-@@ -2733,6 +3058,68 @@ impl Dispatch<zwp_pointer_gestures_v1::ZwpPointerGesturesV1, ()> for WaylandClie
+@@ -2733,6 +3113,68 @@ impl Dispatch<zwp_pointer_gestures_v1::ZwpPointerGesturesV1, ()> for WaylandClie
      }
  }
  
@@ -2337,7 +2415,7 @@ index 2d40cf7fa9..cf4a99239c 100644
  impl Dispatch<zwp_pointer_gesture_pinch_v1::ZwpPointerGesturePinchV1, ()>
      for WaylandClientStatePtr
  {
-@@ -2895,6 +3282,24 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2895,6 +3337,24 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                      let Some(drag_window) = get_window(&mut state, &surface.id()) else {
                          return;
                      };
@@ -2362,7 +2440,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                      let uri_read_generation = state.drag.begin_uri_read();
  
                      const ACTIONS: DndAction = DndAction::Copy;
-@@ -2968,6 +3373,12 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2968,6 +3428,12 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                  }
              }
              wl_data_device::Event::Motion { x, y, .. } => {
@@ -2375,7 +2453,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                  let Some(drag_window) = state.drag.window.clone() else {
                      return;
                  };
-@@ -2979,6 +3390,15 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2979,6 +3445,15 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                  drag_window.handle_input(input);
              }
              wl_data_device::Event::Leave => {
@@ -2391,7 +2469,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                  let input = state.drag.handle_leave();
                  drop(state);
                  if let Some((drag_window, input)) = input {
-@@ -2986,6 +3406,22 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2986,6 +3461,22 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                  }
              }
              wl_data_device::Event::Drop => {
@@ -2414,7 +2492,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                  let input = state.drag.handle_drop();
                  drop(state);
                  if let Some((drag_window, input)) = input {
-@@ -3015,7 +3451,10 @@ impl Dispatch<wl_data_offer::WlDataOffer, ()> for WaylandClientStatePtr {
+@@ -3015,7 +3506,10 @@ impl Dispatch<wl_data_offer::WlDataOffer, ()> for WaylandClientStatePtr {
  
          if let wl_data_offer::Event::Offer { mime_type } = event {
              // Drag and drop
@@ -2426,7 +2504,7 @@ index 2d40cf7fa9..cf4a99239c 100644
                  let serial = state.serial_tracker.get(SerialKind::DataDevice);
                  let mime_type = mime_type.clone();
                  data_offer.accept(serial.as_raw(), Some(mime_type));
-@@ -3061,7 +3500,7 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
+@@ -3061,7 +3555,7 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
              }
              (
                  DataSourceKind::Drag,
@@ -2435,7 +2513,7 @@ index 2d40cf7fa9..cf4a99239c 100644
              ) => {
                  let Some(external_drag) = state.external_drag.take() else {
                      return;
-@@ -3071,6 +3510,9 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
+@@ -3071,6 +3565,9 @@ impl Dispatch<wl_data_source::WlDataSource, DataSourceKind> for WaylandClientSta
                  let input = PlatformInput::FileDrop(FileDropEvent::Ended);
                  drop(state);
                  external_drag.window.handle_input(input);
@@ -2445,7 +2523,7 @@ index 2d40cf7fa9..cf4a99239c 100644
              }
              _ => {}
          }
-@@ -3479,3 +3921,466 @@ mod tests {
+@@ -3479,3 +3976,466 @@ mod tests {
          );
      }
  }
@@ -2950,7 +3028,7 @@ index 86dc7da97b..c2805d8f83 100644
          if let Some(text) = self
              .primary_contents
 diff --git a/crates/gpui_linux/src/linux/wayland/window.rs b/crates/gpui_linux/src/linux/wayland/window.rs
-index 8d92234ef1..0236f2983b 100644
+index 8d92234ef1..88ee3cb6ff 100644
 --- a/crates/gpui_linux/src/linux/wayland/window.rs
 +++ b/crates/gpui_linux/src/linux/wayland/window.rs
 @@ -11,12 +11,13 @@ use calloop::ping::Ping;
@@ -3124,7 +3202,7 @@ index 8d92234ef1..0236f2983b 100644
              presentation: PresentationState::Unpresented,
              pending_frame_callback: None,
              in_progress_window_controls: None,
-@@ -896,6 +971,249 @@ impl WaylandWindowStatePtr {
+@@ -896,6 +971,259 @@ impl WaylandWindowStatePtr {
          self.state.borrow().surface.clone()
      }
  
@@ -3298,11 +3376,21 @@ index 8d92234ef1..0236f2983b 100644
 +    /// with `show: false`, such as its settings. The compositor places it, and configures it once
 +    /// the commit without a buffer has given it the role.
 +    pub fn show_toplevel(&self) -> anyhow::Result<()> {
++        // A compositor that keeps the focus from an app that asks for it, as sway's and Hyprland's
++        // do by default, still gives it to a toplevel as it maps, so one that shows behind another
++        // maps again, as on X11.
++        let behind = {
++            let state = self.state.borrow();
++            matches!(state.surface_state, WaylandSurfaceState::Xdg(_)) && !state.active
++        };
++        if behind {
++            self.hide_toplevel();
++        }
 +        {
 +            let mut state = self.state.borrow_mut();
 +            match state.surface_state {
 +                WaylandSurfaceState::Unshown => {}
-+                // It shows; the compositor decides whether it comes to the front.
++                // It shows in front with the keys.
 +                WaylandSurfaceState::Xdg(_) => return Ok(()),
 +                _ => anyhow::bail!("the window is no embedder's hidden window"),
 +            }
@@ -3374,7 +3462,7 @@ index 8d92234ef1..0236f2983b 100644
      pub fn toplevel(&self) -> Option<xdg_toplevel::XdgToplevel> {
          self.state.borrow().surface_state.toplevel().cloned()
      }
-@@ -936,6 +1254,21 @@ impl WaylandWindowStatePtr {
+@@ -936,6 +1264,21 @@ impl WaylandWindowStatePtr {
      }
  
      pub fn frame(&self, signal_at: Option<Instant>, signal_source: FrameRequestSource) {
@@ -3396,7 +3484,7 @@ index 8d92234ef1..0236f2983b 100644
          self.frame_loop.set(FrameLoop::Ticking);
          let mut state = self.state.borrow_mut();
          state.resize_throttle = false;
-@@ -1024,6 +1357,12 @@ impl WaylandWindowStatePtr {
+@@ -1024,6 +1367,12 @@ impl WaylandWindowStatePtr {
          }
      }
  
@@ -3409,7 +3497,7 @@ index 8d92234ef1..0236f2983b 100644
      pub fn retry_timer_fired(&self, signal_at: Instant) {
          if self.frame_loop.get() == FrameLoop::RetryScheduled {
              self.frame(
-@@ -1060,6 +1399,10 @@ impl WaylandWindowStatePtr {
+@@ -1060,6 +1409,10 @@ impl WaylandWindowStatePtr {
      }
  
      fn update_ime_enabled(&self) {
@@ -3420,7 +3508,7 @@ index 8d92234ef1..0236f2983b 100644
          let mut state = self.state.borrow_mut();
          if !state.active {
              return;
-@@ -1493,6 +1836,17 @@ impl WaylandWindowStatePtr {
+@@ -1493,6 +1846,17 @@ impl WaylandWindowStatePtr {
          }
      }
  
@@ -3438,7 +3526,7 @@ index 8d92234ef1..0236f2983b 100644
      pub fn get_ime_area(&self) -> Option<Bounds<Pixels>> {
          let mut state = self.state.borrow_mut();
          let mut bounds: Option<Bounds<Pixels>> = None;
-@@ -1598,6 +1952,23 @@ impl WaylandWindowStatePtr {
+@@ -1598,6 +1962,23 @@ impl WaylandWindowStatePtr {
          }
      }
  
@@ -3462,7 +3550,7 @@ index 8d92234ef1..0236f2983b 100644
      pub fn set_focused(&self, focus: bool) {
          self.state.borrow_mut().active = focus;
          let callback = self.callbacks.borrow_mut().active_status_change.take();
-@@ -1888,9 +2259,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -1888,9 +2269,11 @@ impl PlatformWindow for WaylandWindow {
      }
  
      fn set_title(&mut self, title: &str) {
@@ -3475,7 +3563,7 @@ index 8d92234ef1..0236f2983b 100644
      }
  
      fn set_app_id(&mut self, app_id: &str) {
-@@ -2046,6 +2419,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -2046,6 +2429,11 @@ impl PlatformWindow for WaylandWindow {
          if renderer.draw(scene) {
              state.presentation = PresentationState::Presented;
              self.0.frame_loop.set(FrameLoop::AwaitingCallback);
@@ -3487,7 +3575,7 @@ index 8d92234ef1..0236f2983b 100644
          } else {
              state.presentation = state.presentation.failed();
              self.0.frame_loop.set(FrameLoop::PresentationFailed);
-@@ -2208,6 +2586,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -2208,6 +2596,11 @@ impl PlatformWindow for WaylandWindow {
      }
  
      fn update_ime_position(&self, bounds: Bounds<Pixels>) {
