@@ -20,18 +20,17 @@ pub const NAME: &str = if cfg!(windows) {
     "mcp-bridge"
 };
 
-/// Connects to the server at `socket` as the agent with `token`, then carries `input` to it and
-/// its answers to `output` until either side closes. An error is why it couldn't, for the
-/// client's log.
-#[cfg(unix)]
+/// Connects to the server at `socket`, a Unix socket or a Windows named pipe, as the agent with
+/// `token`, then carries `input` to it and its answers to `output` until either side closes. An
+/// error is why it couldn't, for the client's log.
 pub fn run(
     socket: &Path,
     token: &str,
     input: impl Read + Send + 'static,
     mut output: impl Write,
 ) -> Result<(), String> {
-    use std::os::unix::net::UnixStream;
-    let stream = UnixStream::connect(socket).map_err(|_| {
+    use super::server;
+    let stream = server::connect(socket).map_err(|_| {
         format!(
             "{} isn't running with agents on. Turn them on in Settings › Agents.",
             env!("APP_NAME")
@@ -54,7 +53,7 @@ pub fn run(
         _ = io::copy(&mut BufReader::new(input), &mut writer);
         // For the client's log, which has the bridge's stderr: the session ends from here.
         eprintln!("{NAME}: the client closed its end");
-        _ = writer.shutdown(std::net::Shutdown::Write);
+        _ = server::close_write(&mut writer);
     });
     // The browser's answers, a line at a time, as the client reads them.
     let mut line = Vec::new();
@@ -71,7 +70,3 @@ pub fn run(
     }
 }
 
-#[cfg(not(unix))]
-pub fn run(_: &Path, _: &str, _: impl Read + Send + 'static, _: impl Write) -> Result<(), String> {
-    Err("Agents don't run on this system yet.".into())
-}

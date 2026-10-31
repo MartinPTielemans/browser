@@ -26,7 +26,9 @@ on:
 
 concurrency:
   group: check-linux-${{ github.ref }}
-  cancel-in-progress: true
+  # Main's run in progress finishes, and while it runs a newer merge's pending run replaces the
+  # older pending one; a branch's newer push cancels its older run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -43,7 +45,7 @@ jobs:
       LINUX_RUNS: >-
         tabs window find agents spaces crash profiles private quit mcp appearance access history
         load preview import adblock adblock-lists passkeys onboarding links relaunch split
-        extensions capture popup pinned about windows dialogs trouble
+        extensions capture popup pinned about windows dialogs trouble cards
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4

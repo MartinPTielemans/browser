@@ -281,6 +281,7 @@ mod platform {
         pub fn host_video_open(path: *const c_char, side: c_int) -> *mut c_void;
         pub fn host_video_frame(video: *mut c_void, pixels: *mut u8) -> bool;
         pub fn host_video_close(video: *mut c_void);
+        #[cfg(not(target_os = "linux"))]
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
         pub fn host_open_full_disk_access();
@@ -2767,6 +2768,10 @@ impl Browser for Engine {
         unsafe { platform::host_set_window_light(self.ui_view, light) };
     }
 
+    fn capture_look(&self, tab: u64, look: menu::Look, cx: &mut App) {
+        capture::set_look(tab, look, cx);
+    }
+
     fn set_appearance(&self, appearance: Appearance, _: &mut App) {
         settings::save_appearance(appearance);
         give_host_appearance(appearance);
@@ -2836,9 +2841,15 @@ impl Browser for Engine {
         unsafe { platform::host_watch_control(control_released) };
     }
 
-    fn copy(&self, text: &str, _: &mut App) {
-        let text = CString::new(text.replace('\0', "")).unwrap_or_default();
-        unsafe { platform::host_copy(text.as_ptr()) };
+    fn copy(&self, text: &str, cx: &mut App) {
+        #[cfg(target_os = "linux")]
+        system::copy(text, cx);
+        #[cfg(not(target_os = "linux"))]
+        {
+            _ = cx;
+            let text = CString::new(text.replace('\0', "")).unwrap_or_default();
+            unsafe { platform::host_copy(text.as_ptr()) };
+        }
     }
 
     fn can_open_in_safari(&self) -> bool {
@@ -3330,6 +3341,10 @@ unsafe extern "C" fn tab_key_before_page(
         return true;
     }
     let keystroke = keystroke(unsafe { &*key });
+    // ⌘. is the agent bar's Stop while it shows one, before the page could keep it.
+    if update_tab_window(tab, |shell, cx| shell.run_agent_key(&keystroke, cx)).unwrap_or(false) {
+        return true;
+    }
     if update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
         .unwrap_or(false)
     {
@@ -6246,6 +6261,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         archive_note_changed: Some(archive_note_changed),
         #[cfg(target_os = "linux")]
         window_activated: Some(window_activated),
+        #[cfg(target_os = "linux")]
+        window_option_tapped: Some(window_option_tapped),
         ..Default::default()
     };
     (args, host)
@@ -6276,6 +6293,8 @@ fn main() {
     let (args, host) = switches_and_host(std::env::args().collect());
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
+    // The quit's last stage the log can show: what's left is the process's exit (#959).
+    log!("browser: quit: chromium returned {code}");
     std::process::exit(code);
 }
 
@@ -6307,6 +6326,16 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
                 key_window_changed(ui_view);
             }
         };
+        cx.foreground_executor().spawn(later).detach();
+    }
+}
+
+/// ⌥ was pressed alone with the page in `window` focused, which GPUI doesn't hear under X11, as
+/// option_tapped is for the UI's. After, as window_activated.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_option_tapped(_: *mut c_void, window: bc::bc_id) {
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move { update_window(window, |shell, cx| shell.option_tapped(cx)) };
         cx.foreground_executor().spawn(later).detach();
     }
 }

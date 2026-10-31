@@ -323,6 +323,24 @@ void BrowserWindowStandIn::SetBrowser(BrowserWindowInterface* browser) {
   }
 }
 
+void BrowserWindowStandIn::LetGoOfPage() {
+  ExclusiveAccessManager* manager = browser_ ? ExclusiveAccessManager::From(browser_) : nullptr;
+  FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+  if (!controller || !controller->IsWindowFullscreenForTabOrPending()) {
+    return;
+  }
+  // Off the Mac the controller lets go of the page only once it hears the window is out, after the
+  // window has resized. A page its tab switch had hidden by then never heard it was out: it kept
+  // its full screen, and stopped drawing or taking input when shown again. Told the window is out
+  // now, the controller lets go first, as it does on the Mac (ExitFullscreenModeInternal).
+  base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
+  letting_go_ = true;
+  controller->WindowFullscreenStateChanged();
+  if (alive) {
+    letting_go_ = false;
+  }
+}
+
 void BrowserWindowStandIn::DeleteBrowserWindow() {
   delete this;
 }
@@ -344,7 +362,7 @@ bool BrowserWindowStandIn::IsMinimized() const {
 }
 
 bool BrowserWindowStandIn::IsFullscreen() const {
-  return widget() && widget()->IsFullscreen();
+  return !letting_go_ && widget() && widget()->IsFullscreen();
 }
 
 gfx::NativeWindow BrowserWindowStandIn::GetNativeWindow() const {
@@ -662,11 +680,17 @@ void BrowserWindowStandIn::PutFullscreen(bool fullscreen, int64_t display_id) {
   if (!widget) {
     return;
   }
-  // The app lays the page out once, at the window's new size, which it hears of after the window
-  // has resized.
-  platform::HoldPagesForResize(widget);
   base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
-  widget->SetFullscreen(fullscreen, display_id);
+  // Off the Mac the way out is the one every exit takes, which holds the pages and lets go of a
+  // page full screen (Window::LeaveFullScreen); on the Mac AppKit takes it as the window leaves.
+  if (!BUILDFLAG(IS_MAC) && !fullscreen && window_) {
+    window_->LeaveFullScreen();
+  } else {
+    // The app lays the page out once, at the window's new size, which it hears of after the
+    // window has resized.
+    platform::HoldPagesForResize(widget);
+    widget->SetFullscreen(fullscreen, display_id);
+  }
 #if !BUILDFLAG(IS_MAC)
   // Off the Mac the window is there as SetFullscreen returns, and no show state change follows
   // when the window manager agrees, so the controller hears it now, as from Chrome's own windows
@@ -709,6 +733,14 @@ bool BrowserWindowStandIn::GetAcceleratorForCommandId(int command_id,
 }
 
 void BrowserWindowStandIn::OnWidgetShowStateChanged(views::Widget* widget) {
+#if !BUILDFLAG(IS_MAC)
+  // Off the Mac a window the window manager took out of full screen, by its own key, says so here,
+  // on Wayland before its new size: it leaves the one way every exit takes, so a page full screen
+  // goes with it and is laid out once.
+  if (!IsFullscreen() && window_ && window_->FullScreenForPage()) {
+    window_->LeaveFullScreen();
+  }
+#endif
   // As Chrome's windows do once a fullscreen change is done, or has failed. The controller takes a
   // full-screen page back when the window has left full screen, as by its green button.
   ExclusiveAccessManager* manager = ExclusiveAccessManager::From(browser_);

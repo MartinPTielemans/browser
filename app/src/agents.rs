@@ -1,29 +1,33 @@
 //! Agents: Claude Code, Codex or any other MCP client works in the browser, each in a Space of its
 //! own, through the browser's MCP server (decision 8). Settings › Agents turns the server on, which
 //! it isn't at first, connects the clients and lists what each agent did. The server is a Unix
-//! socket in the profile directory, which a client reaches through the bridge it launches. Its
-//! threads sleep in the kernel between messages, so an idle browser wakes for none of it, and nothing here
-//! runs on tab switch, new tab or launch: the saved settings are read after the first window shows.
+//! socket in the profile directory, or a named pipe on Windows, which a client reaches through the
+//! bridge it launches. Its threads sleep in the kernel between messages, so an idle browser wakes
+//! for none of it, and nothing here runs on tab switch, new tab or launch: the saved settings are
+//! read after the first window shows.
 //!
 //! A client proves which agent it is with the token Connect wrote into its config, which its bridge
-//! hands the server first. Each tool call
-//! reaches the UI thread as an event, and the tools answer through the core, which checks each
-//! call on a tab with bc_agent_may_act. That check's answer is the call's activity-log entry.
-//! A payment, an order, a message sent or a bank's site asks the user first, in a card in each
-//! window: once, always or never on that site, for that agent. Settings › Agents and the agent's
-//! Space's menu list what the user answered for good, to revoke.
+//! hands the server first. Each tool call reaches the UI thread as an event, and the tools answer
+//! through the core, which checks each call on a tab with bc_agent_may_act. That check's answer is
+//! the call's activity-log entry. A payment, an order, a message sent or a bank's site asks the
+//! user first, in a card in each window: once, always or never on that site, for that agent.
+//! Settings › Agents and the agent's Space's menu list what the user answered for good, to revoke.
 
 pub mod bridge;
 pub mod clients;
 pub mod page;
+#[cfg(windows)]
+mod pipe;
 mod server;
 pub mod tools;
+
+pub use server::address;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, mpsc};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use futures::StreamExt;
 use gpui::{App, AppContext, Context, Entity, Global, SharedString, Task};
@@ -356,7 +360,27 @@ struct Run {
     /// The answer of the step under way.
     step: mpsc::Receiver<ToolResult>,
     reply: mpsc::Sender<ToolResult>,
+    /// The step under way, if it's a wait.
+    wait: Option<Wait>,
 }
+
+/// A run's wait step: it looks at the page until its text shows or its time is up, or without
+/// text, looks once its time is up.
+struct Wait {
+    id: u64,
+    /// What it waits to see in the page's outline, or empty.
+    text: String,
+    seconds: f64,
+    until: Instant,
+    /// The next look's answer, for the timer to give the core.
+    look: Option<mpsc::Sender<ToolResult>>,
+    /// The next look, which goes with the run, as a run stopped or gone looks no more.
+    timer: Option<Task<()>>,
+}
+
+/// How often a wait looks at the page for its text, in a run under way: no more than the page's
+/// own settling after an action takes.
+const LOOK_EVERY: Duration = Duration::from_millis(500);
 
 /// A tab the user holds from its agent: handed to them, or taken over.
 struct Held {
@@ -819,7 +843,7 @@ impl Agents {
                 self.note(&agent, "run_steps", &host, "");
                 let (_, step) = mpsc::channel();
                 let steps = steps.into();
-                let run = Run { agent, tab, steps, done: Vec::new(), step, reply };
+                let run = Run { agent, tab, steps, done: Vec::new(), step, reply, wait: None };
                 self.next_step(run, cx);
                 self.advance(cx);
             }
@@ -917,6 +941,9 @@ impl Agents {
         let tool = step.get("action").and_then(Value::as_str).unwrap_or_default().to_string();
         let (reply, answer) = mpsc::channel();
         run.step = answer;
+        if tool == "wait" {
+            return self.wait(run, &step, reply, cx);
+        }
         let asked = self.asking.len();
         self.stepping = Some(run.agent.clone());
         self.page_tool(&run.agent.clone(), &tool, run.tab, &step, reply, cx);
@@ -937,6 +964,100 @@ impl Agents {
         self.runs.push(run);
     }
 
+    /// Starts a wait step: checked as a snapshot, which each of its looks is, but logged as itself.
+    fn wait(
+        &mut self,
+        mut run: Run,
+        step: &Value,
+        reply: mpsc::Sender<ToolResult>,
+        cx: &mut Context<Self>,
+    ) {
+        let text = step.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        let seconds = match step.get("seconds").and_then(Value::as_f64) {
+            None if !text.is_empty() => Some(tools::WAIT),
+            seconds => seconds.filter(|seconds| *seconds > 0.0 && *seconds <= tools::MAX_WAIT),
+        };
+        let Some(seconds) = seconds else {
+            _ = reply.send(ToolResult::error(format!(
+                "wait needs text to wait for, or seconds, at most {}.",
+                tools::MAX_WAIT
+            )));
+            return self.runs.push(run);
+        };
+        self.stepping = Some(run.agent.clone());
+        let may = self.act_as(&run.agent, run.tab, "snapshot", "wait", &reply, cx);
+        self.stepping = None;
+        if may {
+            let id = self.next_request;
+            self.next_request += 1;
+            let time = Duration::from_secs_f64(seconds);
+            let until = cx.background_executor().now() + time;
+            let mut wait = Wait { id, text, seconds, until, look: None, timer: None };
+            match wait.text.is_empty() {
+                true => (wait.look, wait.timer) = (Some(reply), Some(self.look_after(id, time, cx))),
+                false => self.look(&run.agent, run.tab, reply),
+            }
+            run.wait = Some(wait);
+        }
+        self.runs.push(run);
+    }
+
+    /// The wait's answer, now that it has looked at the page, or None if it looks again.
+    fn waited(
+        &mut self,
+        run: &mut Run,
+        mut wait: Wait,
+        answer: ToolResult,
+        cx: &mut Context<Self>,
+    ) -> Option<ToolResult> {
+        let outline = answer.text;
+        let seconds = wait.seconds;
+        if wait.text.is_empty() {
+            return Some(ToolResult::text(format!("Waited {seconds} s.\n\n{outline}")));
+        }
+        let text = page::clip(&wait.text, 60);
+        if outline.to_lowercase().contains(&wait.text.to_lowercase()) {
+            return Some(ToolResult::text(format!("“{text}” showed.\n\n{outline}")));
+        }
+        let now = cx.background_executor().now();
+        if now >= wait.until {
+            let why = format!("“{text}” didn't show in {seconds} s.\n\n{outline}");
+            return Some(ToolResult::error(why));
+        }
+        let (look, answer) = mpsc::channel();
+        run.step = answer;
+        wait.look = Some(look);
+        wait.timer = Some(self.look_after(wait.id, LOOK_EVERY.min(wait.until - now), cx));
+        run.wait = Some(wait);
+        None
+    }
+
+    /// Looks at the page again for the wait `id` after `after`, if its run is still under way.
+    fn look_after(&self, id: u64, after: Duration, cx: &mut Context<Self>) -> Task<()> {
+        cx.spawn(async move |agents, cx| {
+            cx.background_executor().timer(after).await;
+            _ = agents.update(cx, |agents, _| {
+                let waiting = agents.runs.iter_mut().find_map(|run| {
+                    let wait = run.wait.as_mut().filter(|wait| wait.id == id)?;
+                    Some((run.agent.clone(), run.tab, wait.look.take()?))
+                });
+                if let Some((agent, tab, look)) = waiting {
+                    agents.look(&agent, tab, look);
+                }
+            });
+        })
+    }
+
+    /// Asks the core for the page's tree, for a wait, which checked and logged itself.
+    fn look(&mut self, agent: &str, tab: u64, reply: mpsc::Sender<ToolResult>) {
+        let request = self.next_request;
+        self.next_request += 1;
+        let note = String::new();
+        let acting = Acting { agent: agent.into(), tab, element: 0, note, reply };
+        self.acting.insert(request, acting);
+        self.browser.page(agent, tab, request, PageAction::Snapshot, 0, "");
+    }
+
     /// Takes each run's step that has answered: the next step, or the run's answer.
     fn advance(&mut self, cx: &mut Context<Self>) {
         let mut at = 0;
@@ -947,6 +1068,16 @@ impl Agents {
                 Err(mpsc::TryRecvError::Disconnected) => _ = self.runs.remove(at),
                 Ok(answer) => {
                     let mut run = self.runs.remove(at);
+                    let answer = match run.wait.take() {
+                        Some(wait) if !answer.error => match self.waited(&mut run, wait, answer, cx) {
+                            Some(answer) => answer,
+                            None => {
+                                self.runs.push(run);
+                                continue;
+                            }
+                        },
+                        _ => answer,
+                    };
                     let n = run.done.len() + 1;
                     if answer.error {
                         let so_far = run_so_far(&run.done);
@@ -1512,10 +1643,23 @@ impl Agents {
         reply: &mpsc::Sender<ToolResult>,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.act_as(agent, tab, action, action, reply, cx)
+    }
+
+    /// As `act`, for what the core checks as `action` and the log names `logged`.
+    fn act_as(
+        &mut self,
+        agent: &str,
+        tab: u64,
+        action: &str,
+        logged: &str,
+        reply: &mpsc::Sender<ToolResult>,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let checked = self.browser.may_act(agent, tab, action, cx);
         let site = site(&self.browser.tab(tab, cx).url);
         let refused = checked.as_ref().err().map_or("", String::as_str);
-        self.note(agent, action, &site, refused);
+        self.note(agent, logged, &site, refused);
         cx.notify();
         match checked {
             Ok(()) => {
@@ -1721,6 +1865,5 @@ pub fn ago(at: SystemTime, now: SystemTime) -> String {
     }
 }
 
-// The tests run the server, which is a Unix socket until Windows has its named pipe.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;

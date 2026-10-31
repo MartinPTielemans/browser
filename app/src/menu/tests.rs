@@ -11,7 +11,7 @@ use gpui::{
 
 use super::{
     CHECK, GAP, Key, Layout, Look, Outcome, PADDING, Pointer, ROW_X, Request, Swatch, Tracking,
-    as_held, described, key_of, lay_out, lay_out_over,
+    as_held, described, described_held, key_of, lay_out, lay_out_over,
 };
 use crate::elevation::Level as Elevation;
 use crate::shell::MenuEntry;
@@ -482,6 +482,7 @@ fn holding_option_shows_and_picks_an_items_alternate(cx: &mut TestAppContext) {
     let layout = lay_out(&entries, at(100., 100.), area(), &width_of);
     assert_eq!(layout.levels[0].items, [0, 2]);
     assert_eq!(described(&entries), "Copy Link, Rename…");
+    assert_eq!(described_held(&entries, true), "Copy Link as Markdown, Rename…");
     assert_eq!((as_held(&entries, 0, true), as_held(&entries, 0, false)), (1, 0));
     assert_eq!(as_held(&entries, 2, true), 2);
 
