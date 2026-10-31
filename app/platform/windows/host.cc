@@ -723,6 +723,14 @@ bool g_settings_placed = false;
 // While the link target or a reveal shows, the pointer's moves over the app's windows.
 HHOOK g_mouse_hook = nullptr;
 
+// In a driven run only the driver's pointer reaches the app, as drive.cc keeps the desktop's out of
+// its windows. The thread's mouse hooks hear the desktop's before that, and Windows moves it over a
+// window as one shows, so a menu opening where it rests would hover its row (#1125).
+bool DesktopPointerHeard() {
+  static const bool driven = GetEnvironmentVariableW(L"BROWSER_DRIVE", nullptr, 0) > 0;
+  return !driven;
+}
+
 // The pointer at |point| on screen, for the link target and the reveals.
 void PointerMoved(POINT point) {
   if (g_link_pointer && g_link_shown_over && IsWindowVisible(g_link_target.hwnd)) {
@@ -743,7 +751,7 @@ void PointerMoved(POINT point) {
 }
 
 LRESULT CALLBACK MouseMoved(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION && wparam == WM_MOUSEMOVE) {
+  if (code == HC_ACTION && wparam == WM_MOUSEMOVE && DesktopPointerHeard()) {
     PointerMoved(reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt);
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
@@ -989,7 +997,7 @@ bool MenuTakesPointer(WPARAM message, POINT pt) {
 }
 
 LRESULT CALLBACK MenuMouse(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION &&
+  if (code == HC_ACTION && DesktopPointerHeard() &&
       MenuTakesPointer(wparam, reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt)) {
     return 1;
   }
