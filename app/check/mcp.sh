@@ -61,9 +61,15 @@ pid=$!
 exec 3> "$out/drive"
 await_load
 user_tab=$(today | cut -d' ' -f1)
-await '^browser: agents server on /.*/Agents\.sock$' || fail "the saved switch didn't start the server"
+# A socket only the user can open, or on Windows a named pipe only they can.
+case "$(uname -s)" in
+  MINGW* | MSYS*) on='^browser: agents server on \\\\\.\\pipe\\.*-agents-[0-9a-f]*$' ;;
+  *) on='^browser: agents server on /.*/Agents\.sock$' ;;
+esac
+await "$on" || fail "the saved switch didn't start the server"
 socket=$(grep '^browser: agents server on' "$log" | tail -1 | sed 's/^browser: agents server on //')
-bridge="$(dirname "$browser")/mcp-bridge"
+# Beside the executable, which on Windows is chrome.exe in the app's folder, run by a function.
+if windows; then bridge="$app/mcp-bridge.exe"; else bridge="$(dirname "$browser")/mcp-bridge"; fi
 await_log() { await "$1" || fail "$2"; }
 # Waits for more lines matching $1 than the $2 there were.
 await_more() {
@@ -75,22 +81,38 @@ await_more() {
   return 1
 }
 
-[ -S "$socket" ] || fail "there's no socket at $socket"
-# GNU stat on Linux, BSD stat on the Mac.
-mode=$(stat -c %a "$socket" 2>/dev/null || stat -f %Lp "$socket")
-[ "$mode" = 600 ] || fail "the socket is $mode, not the user's alone"
+case "$socket" in
+  '\\.\pipe\'*) ;;
+  *)
+    [ -S "$socket" ] || fail "there's no socket at $socket"
+    # GNU stat on Linux, BSD stat on the Mac.
+    mode=$(stat -c %a "$socket" 2>/dev/null || stat -f %Lp "$socket")
+    [ "$mode" = 600 ] || fail "the socket is $mode, not the user's alone"
+    ;;
+esac
 [ -x "$bridge" ] || fail "the app has no bridge beside its executable"
 if BROWSER_AGENT_TOKEN=0 "$bridge" "$socket" < /dev/null > /dev/null 2> "$out/mcp-refused"; then
   fail "the bridge got in without the agent's token"
 fi
 grep -q 'Settings › Agents' "$out/mcp-refused" || fail "a refused bridge said: $(cat "$out/mcp-refused")"
 
-# The client: the bridge on two pipes, which stay open until the session ends.
-rm -f "$out/mcp-in" "$out/mcp-out"
-mkfifo "$out/mcp-in" "$out/mcp-out"
-BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" 2> "$out/mcp-bridge.log" &
-bridge_pid=$!
-exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+# The client: the bridge on two pipes, which stay open until the session ends, its stderr added to
+# mcp-bridge.log.
+bridge_on() {
+  rm -f "$out/mcp-in" "$out/mcp-out"
+  mkfifo "$out/mcp-in" "$out/mcp-out"
+  if windows; then
+    BROWSER_AGENT_TOKEN=$token windows_bridge "$bridge" "$socket" "$out/mcp-in" "$out/mcp-out" \
+      2>> "$out/mcp-bridge.log" &
+  else
+    BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" \
+      2>> "$out/mcp-bridge.log" &
+  fi
+  bridge_pid=$!
+  exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+}
+rm -f "$out/mcp-bridge.log"
+bridge_on
 # Prints the bridge's next line within 30 s. sh has no read -t on Linux, where it's dash, and the
 # Mac has no timeout, so perl's alarm, which outlives its exec, bounds a shell that reads the line:
 # a shell reads a fifo a byte at a time, so it takes that line alone.
@@ -179,8 +201,9 @@ if [ "$driven" = 1 ]; then
   # typed it, the page filled it in as autofill does, or it's a password.
   serve
   # The page names itself once its fields and their handlers are there, which its title in the
-  # head, read before them, wouldn't say.
-  printf '%s' '<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
+  # head, read before them, wouldn't say, and it has painted (painted.js, site.sh).
+  printf '%s' '<script src="painted.js"></script>
+<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
 <label>Name <input id=typed style="position:fixed;inset:0;width:100%;height:100%"></label>
 <label>Password <input id=password type=password></label>
 <label>Email <input id=email autocomplete=email></label>
@@ -193,7 +216,7 @@ password.value = "hunter2-by-ada";
 email.value = "ada@example.com";
 typed.oninput = () => document.title = "typed";
 note.oninput = () => document.title = "noted";
-document.title = "fields";
+painted(() => document.title = "fields");
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
@@ -253,16 +276,20 @@ document.title = "fields";
 
   # A page's frames are part of it: the outline has what's in a frame of the page's site and in
   # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
-  # password field in a frame is as off limits as one in the page.
+  # password field in a frame is as off limits as one in the page. The page names itself once the
+  # other site's frame has painted: until then Chromium hasn't the frame's drawing to find what's
+  # under a click in, and gives the click to the page around it.
   printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
     > "$out/site/inner.html"
   printf '%s' '<p>Cross text</p>
 <button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
-<input type=password aria-label="Cross password">' > "$out/site/cross.html"
-  printf '%s' "<title>frames</title><p>Top text</p><iframe src=inner.html></iframe>
+<input type=password aria-label="Cross password"><script src="painted.js"></script>
+<script>painted(() => parent.postMessage("painted", "*"));</script>' > "$out/site/cross.html"
+  printf '%s' "<title>loading</title><p>Top text</p><iframe src=inner.html></iframe>
 <iframe src=http://127.0.0.1:$port/cross.html></iframe>
 <script>addEventListener('message', (event) => {
+  if (event.data === 'painted') document.title = 'frames';
   if (event.data === 'extension frame') document.title = 'frames with extension';
 });</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
@@ -272,6 +299,7 @@ document.title = "fields";
     *) fail "the page with frames was outlined as: $outline" ;;
   esac
   frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  await_log "^browser: title $frames_tab frames\$" "the other site's frame didn't paint"
   inner=$(ref_of button "Inner button")
   cross=$(ref_of button "Cross button")
   [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
@@ -554,12 +582,7 @@ if [ "$driven" = 1 ]; then
   await_log "^browser: agent question $pending gone\$" "a gone agent's question stayed open"
 
   # Off in Settings › Agents takes the socket away and drops a client connected.
-  rm -f "$out/mcp-in" "$out/mcp-out"
-  mkfifo "$out/mcp-in" "$out/mcp-out"
-  BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" \
-    2>> "$out/mcp-bridge.log" &
-  bridge_pid=$!
-  exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+  bridge_on
   hello='^browser: agent mcp-client hello from check$'
   hellos=$(grep -c "$hello" "$log" || true)
   mcp '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' \

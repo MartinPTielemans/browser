@@ -71,7 +71,9 @@ cleanup() {
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
   done
-  kill -9 "$pid" 2>/dev/null
+  # Most often the app ended at the kill above, and this one fails, which would end the trap before
+  # the helpers go, and before what a run's own trap does after cleanup, such as mcp's forget_login.
+  kill -9 "$pid" 2>/dev/null || true
   pkill -9 -f "$procs" || true
 }
 fail() {
@@ -170,11 +172,12 @@ post() {
 # with none its one Share… for the share sheet, dimmed for a page with no link, or nothing on Linux,
 # which has neither. A check reads past them and never chooses one.
 share='\(, Share…\( (disabled)\)\?\|, Share › [^,]*\(, Share › [^,]*\)*\)\?'
-# Waits for a line matching $1 logged after the last command was sent.
+# Waits for a line matching $1 logged after the last command was sent, or after command $3, and
+# fails with $2.
 expect() {
   for _ in $(seq 100); do
-    logged "$1" && return 0
-    exited_without "$1" "$2"
+    logged "$1" "${3:-}" && return 0
+    exited_without "$1" "$2" "${3:-}"
     sleep 0.1
   done
   fail "$2"
@@ -188,14 +191,14 @@ expect_soon() {
   done
   fail "$2"
 }
-# A line matching $1 was logged after the last command was sent.
+# A line matching $1 was logged after the last command was sent, or after command $2.
 logged() {
-  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
+  sed -n "/^browser: drive ${2:-$step}: /,\$p" "$log" | grep -q "$1"
 }
 # The app that was to log $1 is gone without it, which says why the step $2 failed. It's looked
 # for again, as the app may have logged it as it went.
 exited_without() {
-  [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" || fail "the app exited: $2"
+  [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
 }
 # Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
 # draws one ("browser: settings $1 at x y").
@@ -417,6 +420,17 @@ with open(sys.argv[1], "w") as f:
 # Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
+}
+# Waits up to 3 s for the clipboard to hold the text $1, off the Mac, where a run's clipboard is its
+# headless session's, which wl-paste reads, Xwayland's too, as sway hands it over. The Mac's
+# pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.
+clipboard_holds() {
+  case "${BROWSER_HEADLESS:-xvfb}" in xvfb) return 0 ;; esac
+  for _ in $(seq 30); do
+    [ "$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n 2>/dev/null)" = "$1" ] && return 0
+    sleep 0.1
+  done
+  return 1
 }
 # Waits for the check's server to log a request matching $1, as site.sh writes them.
 served() {

@@ -16,6 +16,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <langinfo.h>
 #include <locale.h>
 #include <spawn.h>
@@ -62,6 +63,8 @@ extern "C" unsigned g_unix_fd_add_full(int priority,
                                        void* data,
                                        void (*notify)(void* data)) __attribute__((weak));
 constexpr unsigned kGlibIoIn = 1;
+constexpr unsigned kGlibIoPri = 2;
+constexpr unsigned kGlibIoErr = 8;
 // Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
 // checks only the sources as urgent as the most urgent ready one, and the display's check is where
 // Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
@@ -288,10 +291,8 @@ void host_watch_fd(int fd, void (*ready)(void)) {
 }
 
 // The core shows the browser window as it opens it, in front or for a saved window behind,
-// since the window is Chromium's.
+// since the window is Chromium's. host_show_window_behind is frames.rs's, which stacks it.
 void host_show_window(void* ui_view) {}
-
-void host_show_window_behind(void* ui_view, void* above_ui_view) {}
 
 void host_window_opened(void* ui_view, uint64_t window) {
   WindowIds()[ui_view] = window;
@@ -431,7 +432,10 @@ void host_hold_keys(void) {}
 
 void host_release_held_keys(void) {}
 
-// GPUI's clipboard and its file chooser portal copy and save a capture (platform/linux/system.rs).
+// GPUI's clipboard and its file chooser portal copy text and a capture and save a capture
+// (platform/linux/system.rs).
+void host_copy(const char* text) {}
+
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
@@ -441,7 +445,37 @@ void host_share_png(const uint8_t* png, size_t size, void* view, double x, doubl
 
 // The hover card is one of the floats (floats.rs).
 
-void host_watch_memory_pressure(void (*pressed)(void)) {}
+// The kernel's pressure stall information: a trigger on /proc/pressure/memory wakes Chromium's loop
+// once some task has stalled on memory for 150 ms within 2 s, the shortest window it gives a
+// process without privileges. A new trigger also fires in its first seconds, while the UI has
+// little to let go of. A kernel without it, or older than 6.5, which keeps triggers for root,
+// says nothing.
+void host_watch_memory_pressure(void (*pressed)(void)) {
+  static bool watching;
+  if (watching || !g_unix_fd_add_full) {
+    return;
+  }
+  const int fd = open("/proc/pressure/memory", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) {
+    return;
+  }
+  const char trigger[] = "some 150000 2000000";
+  if (write(fd, trigger, sizeof trigger) < 0) {
+    close(fd);
+    return;
+  }
+  watching = true;
+  g_unix_fd_add_full(
+      kGlibPriorityFdWatch, fd, kGlibIoPri | kGlibIoErr,
+      [](int, unsigned condition, void* pressed) {
+        if (condition & kGlibIoErr) {
+          return 0;
+        }
+        reinterpret_cast<void (*)(void)>(pressed)();
+        return 1;
+      },
+      reinterpret_cast<void*>(pressed), nullptr);
+}
 
 // Nothing for the host to do: the UI asks the core next (focus_ui in main.rs), which takes the
 // keyboard from the page and, on X11, puts the X server's focus on GPUI's window.
@@ -496,8 +530,6 @@ bool host_video_frame(void*, uint8_t*) {
 }
 
 void host_video_close(void*) {}
-
-void host_copy(const char* text) {}
 
 void host_open_in_safari(const char* url) {}
 

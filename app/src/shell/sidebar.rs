@@ -121,8 +121,8 @@ impl Shell {
         self.sidebar_hover(false, cx);
         self.recent_downloads_gone(cx);
         self.update_menus(cx);
-        // check.sh waits for this line.
-        log!("browser: sidebar hidden");
+        // check.sh waits for this line, then reads where the page is.
+        self.logged_once_laid.push("browser: sidebar hidden".into());
         cx.notify();
     }
 
@@ -143,8 +143,8 @@ impl Shell {
         }
         self.width_motion = (from != to).then(|| (from, Instant::now()));
         if self.width_motion.is_none() {
-            // check.sh waits for these lines.
-            log!("browser: sidebar width {to}");
+            // check.sh waits for these lines, then reads where the page is.
+            self.logged_once_laid.push(format!("browser: sidebar width {to}"));
         }
         cx.notify();
     }
