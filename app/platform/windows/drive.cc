@@ -44,6 +44,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "../host.h"
@@ -92,6 +93,10 @@ bool g_running = false;
 size_t g_driven = 0;
 // The modifiers flags holds from now on.
 int g_flags = 0;
+// Whether the last key's Ctrl is still down. It stays down until the next input, as the Mac's app
+// takes ⌃ to be until the flags change, so a ⌃Tab walk goes on to the next ⌃Tab, as Linux's driver
+// holds it (KEY_FLAGS).
+bool g_key_ctrl = false;
 // The window a press went to, which hears the drag until the release, as capture does.
 HWND g_pressed = nullptr;
 // The window the pointer is in, which hears it leave.
@@ -268,7 +273,7 @@ bool TargetInKey(double x, double y, Target* target) {
 void HoldKeys(int modifiers, UINT buttons = 0) {
   BYTE state[256];
   GetKeyboardState(state);
-  const int held = modifiers | g_flags;
+  const int held = modifiers | g_flags | (g_key_ctrl ? kCtrl : 0);
   const auto set = [&state](int key, bool down) { state[key] = down ? 0x80 : 0; };
   set(VK_CONTROL, held & kCtrl);
   set(VK_LCONTROL, held & kCtrl);
@@ -509,14 +514,25 @@ void PostModifiers(int from, int to) {
 // step's messages are handled with the keyboard state it leaves, so each change is a step.
 void AddKey(UINT vk, int modifiers) {
   g_steps.push_back({[=] {
-    PostModifiers(g_flags, g_flags | modifiers);
+    const int held = g_flags | (std::exchange(g_key_ctrl, false) ? kCtrl : 0);
+    PostModifiers(held, g_flags | modifiers);
     PostKey(vk, modifiers, true);
   }});
   g_steps.push_back({[=] { PostKey(vk, modifiers, false); }});
   g_steps.push_back({[=] {
-    PostModifiers(g_flags | modifiers, g_flags);
+    const int kept = modifiers & kCtrl & ~g_flags;
+    PostModifiers(g_flags | modifiers, g_flags | kept);
+    g_key_ctrl = kept != 0;
     HoldKeys(0);
   }});
+}
+
+// Lets go of the Ctrl the last key left down, as input that isn't a key comes.
+void LetGoKeyCtrl() {
+  if (std::exchange(g_key_ctrl, false)) {
+    PostModifiers(g_flags | kCtrl, g_flags);
+    HoldKeys(0);
+  }
 }
 
 // The radius in points of |hwnd|'s round corners, as its window region cuts them, or 0: the
@@ -881,6 +897,21 @@ bool Run(const std::string& line) {
   // What follows the command's name, for those that take text.
   const std::string rest =
       line.size() > action.size() ? line.substr(action.size() + 1) : std::string();
+  // The pointer's and text's input comes with no Ctrl the last key left down (LetGoKeyCtrl), so a
+  // click after ⌘T is no Ctrl-click. A key takes it from there, and flags lets it go itself.
+  static const char* const kInput[] = {
+      "click",         "rightclick",     "middleclick", "doubleclick", "clickkey",
+      "rightclickkey", "doubleclickkey", "drag",        "dragover",    "dragdrop",
+      "dragleave",     "press",          "dragto",      "release",     "rightpress",
+      "rightdragto",   "rightrelease",   "move",        "scroll",      "swipe",
+      "wheel",         "keydown",        "keyup",       "type",        "ime",
+      "insert",        "choose",         "dismiss"};
+  for (const char* input : kInput) {
+    if (action == input) {
+      g_steps.push_back({[] { LetGoKeyCtrl(); }});
+      break;
+    }
+  }
   if (action == "pageswipe" || action == "fullscreen" || action == "display" || action == "hide" ||
       action == "backdrop" || action == "openmenu") {
     return Unsupported(action);
@@ -1244,7 +1275,7 @@ bool Run(const std::string& line) {
                                                    : 0;
     }
     g_steps.push_back({[=] {
-      const int from = g_flags;
+      const int from = g_flags | (std::exchange(g_key_ctrl, false) ? kCtrl : 0);
       g_flags = 0;
       PostModifiers(from, modifiers);
       g_flags = modifiers;
