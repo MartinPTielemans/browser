@@ -313,7 +313,7 @@ manager=$(grep '^browser: loaded [0-9]* chrome://password-manager/passwords$' "$
   cut -d' ' -f3)
 [ "$manager" != "$tab" ] || fail "Manage Passwords… opened Chrome's page in the login's tab"
 go_from_bar 'chrome://password-manager/passwords?q=check@example.test'
-await "^browser: loaded $manager chrome://password-manager/passwords?q=check@example.test\$" ||
+await "^browser: loaded $manager chrome://password-manager/passwords?q=check\(@\|%40\)example.test\$" ||
   fail "Chrome's password manager page didn't search for the login"
 # Asks cdp.py, for up to 10 s, until the page has drawn its list.
 for _ in $(seq 100); do
