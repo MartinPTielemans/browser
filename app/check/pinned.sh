@@ -633,15 +633,17 @@ send key return
 expect "^browser: iconed folder $f 🌟\$" "the picker's pick didn't become the folder's icon"
 expect '^browser: icon picker hidden$' "picking an emoji didn't close the icon picker"
 ../tools/window-screenshot.sh "$pid" "$out/folder-icon.png" || fail "no window to capture"
-# Export… in Settings › Advanced, in the box under the three switch rows, writes the Space's pinned
+# Export… in Settings › Advanced, in the box under the four switch rows, writes the Space's pinned
 # tabs as Markdown links, the folder a list of what it holds.
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+# The run's first ⌘, opens the window, which takes no click until it has drawn (#1101).
+expect '^browser: settings drew General$' "Settings didn't draw General"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-# On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other three.
+# On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other four.
 case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
-send clickkey 575 $((260 + option_row))
+send clickkey 575 $((302 + option_row))
 expect '^browser: exported [0-9]* links to .*/spaces\.md$' "Export… didn't write the Spaces' links"
 grep -qx -- '- later' "$out/spaces.md" ||
   fail "the export didn't list the folder: $(cat "$out/spaces.md")"
