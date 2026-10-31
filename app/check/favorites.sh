@@ -391,13 +391,15 @@ expect '^browser: drag shape row$' "a tile dragged into the list didn't turn int
 expect '^browser: detent$' "a tile dragged into the list didn't click the trackpad"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-drag-out.png" || fail "no window to capture"
 send dragto 100 300
+# The put-back can end within the escape's step, before the release.
+escaped=$((step + 1))
 send key escape
 expect '^browser: command stop via ' "escape during a tile's drag didn't reach the UI"
 send release 100 300
 none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
 [ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
 # A press hits the frame drawn, so the next drag waits for the put-back's.
-expect '^browser: drag put back$' "Escape's put-back didn't finish"
+expect '^browser: drag put back$' "Escape's put-back didn't finish" "$escaped"
 # Three tiles in the sidebar at its narrowest take two rows, 94 points, more than 40 % of a window
 # 220 tall, so they scroll with the list, under the URL field (Ardia).
 send drag $(tiled_row 0) 200 112
@@ -530,7 +532,8 @@ send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"
 # The driver's done for a click that closes its window can be lost with the window, as it always
 # was in a VM, so the click isn't waited for; Settings going is.
-post clickkey 16 16
+settings_close
+post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
