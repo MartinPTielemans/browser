@@ -120,7 +120,8 @@
 //                                         menu bar <menu> disabled <title>: <action> to
 //                                         <target>" for each disabled item, and "browser: menu
 //                                         bar <menu> keyboard: key <window>, responder <class>,
-//                                         input context <client>, macOS <version>"
+//                                         input context <client>, macOS <version>, AutoFill
+//                                         heuristics <the default's value, or unset>"
 //   nativemenubar <menu>                  as menubar, logged as "native menu bar", with the
 //                                         keyboard in an AppKit text field in a window of the
 //                                         driver's over the browser window, which then gives
@@ -1185,11 +1186,17 @@ void LogMenuBar(NSMenu* menu, NSString* prefix, NSString* title) {
   NSWindow* key = NSApp.keyWindow;
   NSResponder* responder = key.firstResponder;
   id client = NSTextInputContext.currentInputContext.client;
-  fprintf(stderr, "browser: %s %s keyboard: key %s, responder %s, input context %s, macOS %s\n",
+  // AppKit's AutoFill heuristic controller, which the page's AutoFill goes through, reads it.
+  id heuristics = [NSUserDefaults.standardUserDefaults
+      objectForKey:@"NSAutoFillHeuristicControllerEnabled"];
+  fprintf(stderr,
+          "browser: %s %s keyboard: key %s, responder %s, input context %s, macOS %s, "
+          "AutoFill heuristics %s\n",
           prefix.UTF8String, name, key ? NSStringFromClass(key.class).UTF8String : "none",
           responder ? NSStringFromClass(responder.class).UTF8String : "none",
           client ? NSStringFromClass([client class]).UTF8String : "none",
-          NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String);
+          NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String,
+          heuristics ? [heuristics description].UTF8String : "unset");
 }
 
 // Calls |done| once the command's events are posted. Returns false, without calling it, for a
