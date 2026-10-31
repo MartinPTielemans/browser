@@ -65,10 +65,11 @@ const say = () => document.title = "scheme " + (dark.matches ? "dark" : "light")
 say();
 dark.onchange = say;
 </script>' > "$out/site/scheme.html"
-# Its title says "login" once it's drawn, "filled" each time Chrome fills a saved password in, and
-# "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
-# highlighted fills it too, but only a fill the user chose gives the page its value, with a change
-# event, and then the title says "chosen".
+# Its title says "login" once it has painted, since Chromium drops a key that comes before a page
+# it loaded first shows, for up to half a second (paint holding); "filled" each time Chrome fills a
+# saved password in, and "cleared" when the password filled in is edited. Chrome's preview of a
+# login its dropdown has highlighted fills it too, but only a fill the user chose gives the page its
+# value, with a change event, and then the title says "chosen".
 printf '%s' '<title>loading</title>
 <form method="post" action="login">
 <input id=user name=username autocomplete=username
@@ -78,7 +79,10 @@ printf '%s' '<title>loading</title>
 <button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
 </form>
 <script>
-requestAnimationFrame(() => setTimeout(() => document.title = "login"));
+new PerformanceObserver((entries, observer) => {
+  observer.disconnect();
+  if (document.title == "loading") document.title = "login";
+}).observe({type: "paint", buffered: true});
 let filled = false;
 pass.onchange = () => { if (pass.matches(":autofill") && pass.value) document.title = "chosen"; };
 setInterval(() => {
