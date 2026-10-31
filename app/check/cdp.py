@@ -1,8 +1,8 @@
 """The passkeys and passwords runs' DevTools client (check/passkeys.sh, check/passwords.sh), over
 the pipe --remote-debugging-pipe gives the browser: the browser reads from IN and writes to OUT,
-each message JSON ending in NUL. Or, with --port, over the WebSocket of --remote-debugging-port,
-whose port and path the browser writes in the file PORTS, DevToolsActivePort in its profile: on
-Windows the pipe is handles, which Git Bash can't give the browser.
+each message JSON ending in NUL. Or, with --socket, over the WebSocket at URL that
+--remote-debugging-port has the browser listen on: on Windows the pipe is handles, which Git Bash
+can't give the browser.
 
 It attaches to the page whose address ends in PAGE, logging "cdp: attached", then takes a command
 a line on its standard input:
@@ -21,7 +21,7 @@ a line on its standard input:
                   none for no such page, such as Chrome's password manager page, a WebUI page
 The domains are for the checks alone. Agents never get DevTools: it runs any script in any page.
 
-Usage: cdp.py IN OUT PAGE | cdp.py --port PORTS PAGE
+Usage: cdp.py IN OUT PAGE | cdp.py --socket URL PAGE
 """
 
 import base64
@@ -31,22 +31,13 @@ import socket
 import struct
 import sys
 import threading
-import time
 
 page = sys.argv[3]
-if sys.argv[1] == "--port":
-    for _ in range(300):
-        try:
-            with open(sys.argv[2]) as ports:
-                lines = ports.read().split()
-        except FileNotFoundError:
-            lines = []
-        if len(lines) == 2:
-            break
-        time.sleep(0.1)
-    else:
-        raise SystemExit("cdp: the browser wrote no DevToolsActivePort")
-    port, path = int(lines[0]), lines[1]
+if sys.argv[1] == "--socket":
+    # ws://127.0.0.1:PORT/devtools/browser/ID, as the browser says it listens.
+    address, _, path = sys.argv[2].removeprefix("ws://").partition("/")
+    path = "/" + path
+    port = int(address.rpartition(":")[2])
     connection = socket.create_connection(("127.0.0.1", port))
     from_socket = connection.makefile("rb")
     # A request with no Origin, which DevTools takes without --remote-allow-origins.
