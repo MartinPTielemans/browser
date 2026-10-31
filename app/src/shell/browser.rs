@@ -454,11 +454,12 @@ pub trait Browser {
     /// Whether this window is the browser window in front, over which the toast shows.
     fn in_front(&self) -> bool;
     /// Shows `text` in the toast with a button after it, its label and its name in the logs, which
-    /// runs `run`, for `time` and for as long as the pointer is over it.
+    /// runs `run`, for `time` and for as long as the pointer is over it. With no label, the toast
+    /// itself is the button.
     fn toast_button(
         &self,
         text: &str,
-        button: (&'static str, &'static str),
+        button: (Option<&'static str>, &'static str),
         run: Rc<dyn Fn(&mut App)>,
         time: Duration,
         cx: &mut App,
