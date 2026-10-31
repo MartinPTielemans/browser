@@ -151,6 +151,14 @@ exited() {
     fail "$why"
   fi
   wait "$pid" || fail "the app exited with status $?"
+  # A quit in time but slow says so, with its stages: Chromium is back within 2 s of stopping
+  # (#959). It doesn't fail the run, as the bar is new.
+  returned=$(sed -n 's/^browser: quit: chromium returned -*[0-9]* at \([0-9]*\) ms$/\1/p' "$log" |
+    tail -1)
+  if [ -n "$returned" ] && [ "$returned" -gt 2000 ]; then
+    echo "slow quit: Chromium returned $returned ms after stopping: $(grep '^browser: quit: ' "$log" |
+      cut -c16- | tr '\n' ';')"
+  fi
   for _ in $(seq 10); do
     pgrep -f "$procs" > /dev/null || break
     sleep 0.5
