@@ -3582,6 +3582,32 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     finished_launching();
 }
 
+/// Opens a tab loading `url` in the front window and shows it: in the Space the window shows if
+/// it's one of the user's in `profile`, else in the first of theirs that is, which the window then
+/// shows, as a profile's own page, such as Chrome's password manager, shows that profile's data.
+/// With none, in the Space shown, unless it's an agent's, which none of the user's tabs go in.
+fn open_in_profile(profile: bc::bc_id, url: &str) {
+    let window = front().0;
+    if window == 0 {
+        return;
+    }
+    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
+    let theirs =
+        |space: bc::bc_id| users(space) && unsafe { bc::bc_space_profile(space) } == profile;
+    let shown = unsafe { bc::bc_window_space(window) };
+    let space = match theirs(shown) {
+        true => Some(shown),
+        false => ids(bc::bc_spaces).into_iter().find(|&space| theirs(space)),
+    };
+    let Some(space) = space.or(users(shown).then_some(shown)) else {
+        return;
+    };
+    if space != shown {
+        unsafe { bc::bc_window_show_space(window, space) };
+    }
+    open_tab(window, url);
+}
+
 /// Opens Chrome's Clear browsing data dialog for `profile`, as Arc's Settings › Profiles does, in
 /// the regular window in front, showing a Space of the profile first if it shows another's. Returns
 /// whether it did: not for a profile none of the user's Spaces is in, as its tabs would have none.

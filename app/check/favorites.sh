@@ -245,7 +245,7 @@ expect "^browser: list scrolled to [1-9][0-9.]* for $b\$" \
   "a click on the marker didn't scroll the list to the shown tab's row"
 expect '^browser: shown tab marker hidden$' "the marker stayed with the shown tab's row back in view"
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${size% *}x${size#* }\$" "the window didn't draw back at its size"
 # ⌘, from the page opens Settings on General. Its switch turns the warning before quitting off, the
 # menu of its pop-up button sets how long Today tabs wait for the archive, the switch on its
 # Advanced tab turns the haptics off, and ⌘W hides it.
@@ -502,7 +502,7 @@ else
   echo "note: the window didn't narrow to 320, so the card in a narrow window wasn't checked."
 fi
 send resize $size
-expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+expect "^browser: drawn at ${size% *}x${size#* }\$" "the window didn't draw back at its size"
 # Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,
 # its close button hides it, and More Settings… opens Chromium's settings in a tab.
 send click $sidebar_point

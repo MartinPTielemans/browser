@@ -1489,6 +1489,7 @@ impl Settings {
     /// The profile's logins: the saved ones in a box, each with its username under its site, and
     /// the sites set to Never in another, each removable. A pop-up picks the profile, if there are
     /// more than one, as each keeps its own, over the switch for whether it offers to save them.
+    /// Manage Passwords… under the logins opens Chrome's page.
     fn passwords(
         &mut self,
         profiles: &[Profile],
@@ -1643,6 +1644,10 @@ impl Settings {
         });
         let settings = [chooser].into_iter().chain(switches).flatten().collect::<Vec<_>>();
         let first = settings.is_empty();
+        let manage = button(&RowLook::settings(), "manage-passwords", "Manage Passwords…")
+            .relative()
+            .child(self.drawn("manage passwords".into()))
+            .on_click(move |_, _, cx| manage_passwords(profile, cx));
         div()
             .when(!first, |tab| tab.child(group(&RowLook::settings(), settings)))
             .child(header("Saved", first))
@@ -1650,6 +1655,7 @@ impl Settings {
             .when(!never.is_empty(), |tab| {
                 tab.child(header("Never Saved", false)).child(group(&RowLook::settings(), never))
             })
+            .child(div().mt(px(BUTTONS_TOP)).flex().child(manage))
             // Each only while it has one, as Chrome offers to save them as forms are filled.
             .when(!addresses.is_empty(), |tab| {
                 tab.child(header("Addresses", false)).child(group(&RowLook::settings(), addresses))
@@ -2415,6 +2421,16 @@ fn more_settings(cx: &mut App) {
     // check.sh waits for this line.
     log!("browser: more settings");
     crate::open_tab(crate::front().0, "chrome://settings");
+    hide(cx);
+}
+
+/// Opens Chrome's password manager page in a new tab of one of `profile`'s Spaces and goes to it.
+/// It's the one place a password is shown, copied, edited or exported, after the device's check,
+/// which the page asks for itself and keeps for five minutes, as Chrome's does.
+fn manage_passwords(profile: u64, cx: &mut App) {
+    // check.sh waits for this line.
+    log!("browser: manage passwords {profile}");
+    crate::open_in_profile(profile, "chrome://password-manager/passwords");
     hide(cx);
 }
 
