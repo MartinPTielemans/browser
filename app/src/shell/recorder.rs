@@ -314,6 +314,10 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, _: &mut App) {
+        self.record(format!("open behind {} {pinned} {folder} {index}", urls.join(" ")));
+    }
+
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
         let made = self.make();
         self.edit(format!("folder {made} {space} {name} {folder} {index}"));

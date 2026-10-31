@@ -43,6 +43,9 @@ pub trait Browser {
     /// first and returns it, or 0 if none opened.
     fn open_at(&self, urls: &[String], pinned: bool, folder: u64, index: usize, cx: &mut App)
     -> u64;
+    /// Opens tabs for `urls` where `open_at` would, each loading once it's shown, and shows none,
+    /// as a folder from the desktop's files come in.
+    fn open_behind(&self, urls: &[String], pinned: bool, folder: u64, index: usize, cx: &mut App);
     /// Makes an open folder named `name` at `index` in `folder`, else in the pinned tabs of
     /// `space`, counted as `move_tab` counts, else at the bottom, and returns it.
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, cx: &mut App)

@@ -2155,7 +2155,7 @@ impl Shell {
 }
 
 /// A `file:` URL for `path`, escaping what a URL can't hold as it is.
-fn file_url(path: &str) -> String {
+pub(super) fn file_url(path: &str) -> String {
     let mut url = String::from("file://");
     for byte in path.bytes() {
         match byte {
