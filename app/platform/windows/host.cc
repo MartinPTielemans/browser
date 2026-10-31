@@ -2264,6 +2264,9 @@ void host_show_menu_window(void* ui_view,
     InstallMenuHooks();
     // check.sh reads this line.
     fprintf(stderr, "browser: menu window at %.0f,%.0f %.0fx%.0f\n", left, top, width, height);
+    // Proof for #1125 only: where the desktop pointer has to rest to be over the menu.
+    fprintf(stderr, "browser: menu frame on screen %ld,%ld %ldx%ld\n", frame.left, frame.top,
+            frame.right - frame.left, frame.bottom - frame.top);
   });
 }
 

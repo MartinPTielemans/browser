@@ -280,8 +280,8 @@ expect "^browser: menu shown $(cased 'Copy Link, .*, Mute (disabled), .*, Duplic
   "a right-click on the top Today row didn't show its tab's menu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 # Proof for #1125 only, on CI's Windows VM: the runner's real pointer comes to rest over the menu.
-grep '^browser: menu window at ' "$log" | tail -1 |
-  sed 's/.* at \([0-9-]*\),\([0-9-]*\) \([0-9]*\)x\([0-9]*\).*/\1 \2 \3 \4/' > "$out/menu-at"
+grep '^browser: menu frame on screen ' "$log" | tail -1 |
+  sed 's/.* screen \([0-9-]*\),\([0-9-]*\) \([0-9]*\)x\([0-9]*\).*/\1 \2 \3 \4/' > "$out/menu-at"
 read -r mx my mw mh < "$out/menu-at"
 powershell -NoProfile -Command "Add-Type -Name U -Namespace W -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x, int y);'; [W.U]::SetCursorPos($((mx + mw / 2)), $((my + mh / 2)))"
 echo "proof: the desktop's pointer parked at $((mx + mw / 2)) $((my + mh / 2))"
