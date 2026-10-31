@@ -73,11 +73,17 @@ fail() {
   grep -v '^$' "$log" | tail -5 >&2
   exit 1
 }
+# The app ended by itself. Crashpad's minidump of a crash goes with the run's captures.
+gone() {
+  wait "$pid" 2>/dev/null && ended=0 || ended=$?
+  cp "$profile_dir"/Crashpad/*/*.dmp "$out/" 2>/dev/null || true
+  fail "the app exited with status $ended"
+}
 # Waits up to 30 s for a line matching $1 in the log of the current run.
 await() {
   for _ in $(seq 300); do
     grep -q "$1" "$log" && return 0
-    kill -0 "$pid" 2>/dev/null || fail "the app exited"
+    kill -0 "$pid" 2>/dev/null || gone
     sleep 0.1
   done
   return 1
