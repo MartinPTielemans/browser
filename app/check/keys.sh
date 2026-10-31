@@ -20,7 +20,9 @@
 # the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
 # Settings' About tab, with Settings key and with About already showing. The Shortcuts tab lists
 # the sidebar's commands, and Focus Sidebar given ⌃⌘K there takes the keyboard from the page, as
-# its own F6 does once Restore Defaults gives it back.
+# its own F6 does once Restore Defaults gives it back. Go to Space 1 given ⌃⌘1 there shows the
+# first Space, and ⌃1 no longer does. Include Favorites in ⌘1–⌘8 turned off there has ⌘1 show the
+# first tab that isn't a favorite, until Restore Defaults.
 # ⌘T as the window comes on screen, before the overlays' windows are made, makes them and opens
 # the bar.
 
@@ -570,6 +572,104 @@ send key r cmd
 expect '^browser: loaded [0-9]* ' "⌘R didn't load the crashed page again"
 send click $page_point
 
+# Go to Space 1, given ⌃⌘1 in Settings › Shortcuts, shows the first Space, and ⌃1 no longer does,
+# as Arc's Space shortcuts can be rebound (#682). The Mac's driver types no digits, so the search
+# is for all nine, Go to Space 1 first.
+first=$(space)
+send menu New Space…
+expect '^browser: command new-space via ui$' "New Space in the menu didn't run new-space"
+expect "^browser: spaces $first [0-9]*\$" "New Space didn't make a second Space"
+second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: space $second in " "the window didn't show the new Space"
+send type two
+send key return
+expect "^browser: create space $second two\$" "return didn't name the new Space"
+expect '^browser: space form gone$' "the form didn't leave after Create"
+send menu Settings…
+expect '^browser: settings shown Shortcuts$' \
+  "Settings… didn't show the Shortcuts tab it showed last"
+send clickkey 300 120
+send key a cmd
+send type go to space
+expect '^browser: shortcuts search "go to space" finds Go to Space 1, Go to Space 2, ' \
+  "the search didn't find Go to Space 1 first"
+send clickkey 581 203
+expect '^browser: shortcut recording select-space-1$' \
+  "a click on Go to Space 1's keys didn't record them"
+send key 1 cmd ctrl
+# Off the Mac the driver presses ⌃ as Alt, which a recorded key is named by, but the default the
+# keymap gives back is named as the Mac's on each.
+space_key=ctrl-cmd-1
+first_key=ctrl-1
+if [ "$(uname)" = Linux ]; then
+  space_key=alt-cmd-1
+fi
+expect "^browser: shortcut select-space-1 $space_key\$" "⌃⌘1 didn't become Go to Space 1's key"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+in_browser AccessKitSubclassOfGPUIView "in the second Space, which has no page"
+send key 1 ctrl
+pressed=$step
+send state
+sed -n "/^browser: drive $pressed: /,\$p" "$log" | grep -q '^browser: command select-space' &&
+  fail "⌃1 still ran Go to Space 1 once it had ⌃⌘1"
+send key 1 cmd ctrl
+expect '^browser: command select-space via ui$' "⌃⌘1 didn't run Go to Space 1"
+expect "^browser: space $first in " "⌃⌘1 didn't show the first Space"
+
+# With Include Favorites in ⌘1–⌘8 off, ⌘1 shows the first tab that isn't a favorite, where with it
+# on, the default, it shows the favorite (#682). Favorite Tab in the command bar makes the tab
+# shown one, and the Today tab left first is the one ⌘1 goes to then.
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "after a click on the first Space's page"
+favorite=$(grep '^browser: selected' "$log" | tail -1 | cut -d' ' -f3)
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type favorite tab
+expect '^browser: command bar commands "favorite tab": Favorite Tab' \
+  "the command bar didn't find Favorite Tab"
+send key return
+expect '^browser: command add-to-favorites via command bar$' "Favorite Tab didn't run from the bar"
+expect "^browser: favorites $favorite\$" "Favorite Tab didn't make the tab shown a favorite"
+expect '^browser: today ' "Favorite Tab didn't take the tab out of Today"
+unfavored=$(today | cut -d' ' -f1)
+[ -n "$unfavored" ] || fail "no Today tab was left for ⌘1 to show"
+page_shortcut 2 select-tab
+expect "^browser: selected $unfavored\( in .*\)\{0,1\}\$" \
+  "⌘2 didn't show the first Today tab, after the favorite"
+send click $page_point
+page_shortcut 1 select-tab
+expect "^browser: selected $favorite\( in .*\)\{0,1\}\$" "⌘1 didn't show the favorite"
+send menu Settings…
+expect '^browser: settings shown Shortcuts$' \
+  "Settings… didn't show the Shortcuts tab it showed last"
+send clickkey 300 120
+send key a cmd
+send type include favorites
+expect '^browser: shortcuts search "include favorites" finds Include Favorites in ⌘1–⌘8$' \
+  "the search didn't find Include Favorites in ⌘1–⌘8"
+at=$(drawn "switch favorites numbered") || fail "Include Favorites has no switch"
+send clickkey $at
+expect '^browser: favorites numbered off$' "a click on Include Favorites didn't turn it off"
+../tools/window-screenshot.sh "$pid" "$out/shortcuts-favorites.png" || fail "no window to capture"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send click $page_point
+page_shortcut 1 select-tab
+expect "^browser: selected $unfavored\( in .*\)\{0,1\}\$" \
+  "⌘1 with the favorites left out didn't show the first tab that isn't one"
+# Restore Defaults, under the one row found, gives ⌃1 back and counts the favorites again.
+send menu Settings…
+expect '^browser: settings shown Shortcuts$' \
+  "Settings… didn't show the Shortcuts tab it showed last"
+send clickkey 126 246
+expect '^browser: shortcuts restored$' "a click on Restore Defaults didn't restore the keys"
+expect "^browser: shortcut select-space-1 $first_key\$" \
+  "Restore Defaults didn't give Go to Space 1 ⌃1"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send click $page_point
+
 # ⌘Q asks first, in the dialog over the window. Escape keeps the browser running, and Quit, and
 # Don't Ask Again quits. That button is at the card's bottom left, 29 in from its left and bottom
 # edges; the card is centred, 450 wide and, with no detail, 172 tall.
@@ -595,5 +695,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, names docs.new typed and opens it in a new tab, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and the rows of the commands it lacked, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, Shortcuts lists the sidebar's commands and Focus Sidebar given ⌃⌘K there gives the sidebar the keyboard from the page until escape, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/new-document.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts-rows.png, $out/shortcuts.png, $out/about.png, $out/shortcuts-sidebar.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, names docs.new typed and opens it in a new tab, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and the rows of the commands it lacked, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, Shortcuts lists the sidebar's commands and Focus Sidebar given ⌃⌘K there gives the sidebar the keyboard from the page until escape, Go to Space 1 given ⌃⌘1 there shows the first Space while ⌃1 runs nothing, Include Favorites in ⌘1–⌘8 off has ⌘1 show the first tab that isn't a favorite, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/new-document.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts-rows.png, $out/shortcuts.png, $out/about.png, $out/shortcuts-sidebar.png, $out/shortcuts-favorites.png"
 echo "$launch_bar"
