@@ -109,6 +109,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);
+  // |tab|'s page committed in a new view: each window showing it gives that view the keyboard, if
+  // the page had it.
+  static void PageCommittedInNewView(bc_id tab);
   // Chrome's navigator calls this before it picks the Browser for a navigation.
   static void AdjustNavigate(NavigateParams& params);
   // From Chrome's DevTools: whether |browser|'s window docks them, as the core's windows do, and
