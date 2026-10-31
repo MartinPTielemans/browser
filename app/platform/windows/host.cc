@@ -931,11 +931,35 @@ UINT_PTR const kOwner = 3;
 
 // A browser window the app's windows are over. Windows hides one before it destroys it and the
 // windows it owns, so they leave it as it hides.
+// |root| moved or was resized: the find bar and the offer showing over it keep to its page's top
+// right corner, as the Mac's child windows and Linux's panels do. Windows moves no owned window.
+void PlaceCorners(HWND root) {
+  for (auto* corners : {&g_find_bars, &g_offers}) {
+    for (auto& [ui_view, corner] : *corners) {
+      if (corner.floating.hwnd && IsWindowVisible(corner.floating.hwnd) && Root(ui_view) == root) {
+        double content_width, content_height, width, height;
+        ContentSize(root, &content_width, &content_height);
+        WindowSize(corner.floating.hwnd, &width, &height);
+        auto [extra_right, extra_top] = g_pane_corners[ui_view];
+        const double scale = Scale(root);
+        POINT origin{std::lround((content_width - corner.right - extra_right - width) * scale),
+                     std::lround((corner.top + extra_top) * scale)};
+        ClientToScreen(root, &origin);
+        SetWindowPos(corner.floating.hwnd, nullptr, origin.x, origin.y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+      }
+    }
+  }
+}
+
 LRESULT CALLBACK OwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
                            DWORD_PTR) {
   if (message == WM_WINDOWPOSCHANGED &&
       (reinterpret_cast<const WINDOWPOS*>(lparam)->flags & SWP_HIDEWINDOW)) {
     Disown(hwnd);
+  } else if (message == WM_WINDOWPOSCHANGED &&
+             (~reinterpret_cast<const WINDOWPOS*>(lparam)->flags & (SWP_NOMOVE | SWP_NOSIZE))) {
+    PlaceCorners(hwnd);
   } else if (message == WM_NCDESTROY) {
     RemoveWindowSubclass(hwnd, OwnerProc, kOwner);
   }
