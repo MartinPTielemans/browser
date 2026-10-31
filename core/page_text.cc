@@ -173,7 +173,8 @@ std::string TextOf(const ui::AXTreeUpdate& update,
       continue;
     }
     // A frame's document an agent may not read, an extension's above all, with all that's in it.
-    if ((node.role == ax::mojom::Role::kRootWebArea || node.role == ax::mojom::Role::kWebArea) &&
+    // Every document's root is a kRootWebArea, a frame's too.
+    if (node.role == ax::mojom::Role::kRootWebArea &&
         !IsReadable(node.GetStringAttribute(ax::mojom::StringAttribute::kUrl), readable)) {
       continue;
     }
