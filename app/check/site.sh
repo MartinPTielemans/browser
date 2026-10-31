@@ -163,8 +163,11 @@ onkeydown = e => {
 # Pages that ask for a key system as soon as they load, Widevine, which ilo can't play, and ClearKey,
 # which it can. Each puts "asked" in its title once the request is answered, either way. Widevine's
 # is asked from a promise, so the title comes in an engine with no request, as Safari's may have none
-# for this page. Widevine's first asks the server for /seen with the item the session page below
-# stored, as its script found it.
+# for this page. Safari's engine answers only once its GPU process does (RemoteCDMFactory's
+# supportsKeySystem is a synchronous message to it), which the first time a run asks may still be
+# starting, as it likely was past 10 s on a VM in #961, so the checks wait for it with expect_late.
+# Widevine's first asks the server for /seen with the item the session page below stored, as its
+# script found it.
 printf '%s' '<title>loading</title><script>
 fetch("seen?item=" + localStorage.item);
 Promise.resolve().then(() => navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{

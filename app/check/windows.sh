@@ -306,7 +306,8 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   send choose On
   expect "^browser: site controls set Safari's engine On\$" "On in the menu didn't run"
   expect "^browser: system engine $d on\$" "On didn't show the drm page in Safari's engine"
-  expect "^browser: title $d drm asked\$" "Safari's engine didn't load the drm page"
+  expect "^browser: loaded $d http://127.0.0.1:$port/drm.html\$" "Safari's engine didn't load the drm page"
+  expect_late "^browser: title $d drm asked\$" "Safari's engine didn't answer the drm page's request"
   # Safari's engine's page, taking the pane, may have closed them already.
   if none_since '^browser: site controls hidden$'; then
     send key escape

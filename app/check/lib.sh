@@ -178,6 +178,14 @@ expect() {
   done
   fail "$2"
 }
+# expect, for up to 30 s, for what waits on a process that may still be starting.
+expect_late() {
+  for _ in $(seq 300); do
+    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
+    sleep 0.1
+  done
+  fail "$2"
+}
 # expect, looking every 10 ms, for a press that has to land within the first frames of a motion.
 expect_soon() {
   for _ in $(seq 1000); do
