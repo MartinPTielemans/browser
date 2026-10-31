@@ -18,10 +18,12 @@ else
   copied='^browser: clipboard png [0-9]* bytes$'
   buttons=save
 fi
-# A page longer than any view, with a box at a known place in it.
+# A page longer than any view, with a box and a link at known places in it.
 page='data:text/html;charset=utf-8,<title>loading</title>
 <body style="margin:0;height:6000px">
 <div style="position:absolute;left:300px;top:200px;width:200px;height:100px;background:teal"></div>
+<a href="https://example.org/"
+  style="position:absolute;left:20px;top:20px;font:24px system-ui">a link</a>
 <script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/capture.log"
 step=0
@@ -289,6 +291,13 @@ expect "$copied" \
   "Capture Full Page didn't copy the PNG to the run's pasteboard"
 expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
   "Capture Full Page didn't show its toast"
+
+# ⇧⌘-click on a link, a press the core takes in case it's a drag, still reaches the page, which
+# opens the link in a tab in front as Chrome does.
+send click $(in_page 40 30) cmd shift
+expect '^browser: tab [0-9]* opened by [0-9]* in the foreground$' \
+  "⇧⌘-click on a link didn't open it in a tab in front"
+none_since '^browser: capture started$' || fail "⇧⌘-click on a link started capture mode"
 
 exec 3>&-
 quit
