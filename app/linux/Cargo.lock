@@ -674,6 +674,7 @@ dependencies = [
  "wayland-protocols-wlr",
  "x11rb",
  "xkbcommon",
+ "zbus",
 ]
 
 [[package]]
