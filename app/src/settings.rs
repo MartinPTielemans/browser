@@ -341,6 +341,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Check for Updates", Keys::Of(Command::CheckForUpdates)),
             ("Settings", Keys::Of(Command::Settings)),
             ("Import from Other Browsers", Keys::Of(Command::Import)),
+            ("Privacy Policy", Keys::Of(Command::PrivacyPolicy)),
             ("Passwords", Keys::Of(Command::Passwords)),
             ("Site Search Settings", Keys::Of(Command::SiteSearchSettings)),
             // main.rs binds these.

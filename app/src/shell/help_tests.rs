@@ -22,16 +22,19 @@ fn window(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
     (shell, host)
 }
 
-/// Help Center and What's New open the site's pages, from a window with no page too.
+/// Help Center, What's New and Privacy Policy open the site's pages, from a window with no page
+/// too.
 #[gpui::test]
-fn help_center_and_whats_new_open_the_sites_pages(cx: &mut TestAppContext) {
+fn help_center_whats_new_and_privacy_open_the_sites_pages(cx: &mut TestAppContext) {
     let (shell, host) = window(cx);
     shell.update(cx, |shell, cx| {
         shell.run(Command::HelpCenter, "menu", cx);
         shell.run(Command::WhatsNew, "command bar", cx);
+        shell.run(Command::PrivacyPolicy, "menu", cx);
     });
     let pages = host.opened_pages.take();
-    assert_eq!(pages, [build_info::HELP_CENTER, build_info::WHATS_NEW]);
+    let site = [build_info::HELP_CENTER, build_info::WHATS_NEW, build_info::PRIVACY_POLICY];
+    assert_eq!(pages, site);
     assert!(pages.iter().all(|page| page.starts_with("https://")));
 }
 

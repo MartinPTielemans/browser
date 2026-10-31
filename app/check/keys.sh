@@ -359,8 +359,8 @@ expect '^browser: shortcuts search "copy" finds ' "the search for copy didn't en
 # Every command the user can give keys has a row (#1062), these among them.
 for name in "Duplicate Current Tab" "Favorite Tab" "Rename Current Tab" Share "Capture Full Page" \
   "Site Controls" "Export Space as Markdown" "View Media" "About $app_name" "Check for Updates" \
-  "Import from Other Browsers" Passwords "Site Search Settings" "Welcome to $app_name" \
-  "Help Center" "What's New" "Report a Problem" "Copy Build Info"; do
+  "Import from Other Browsers" "Privacy Policy" Passwords "Site Search Settings" \
+  "Welcome to $app_name" "Help Center" "What's New" "Report a Problem" "Copy Build Info"; do
   # The Mac's driver types only lowercase letters, dots and spaces, and the search ignores case.
   query=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed "s/[^a-z. ].*//; s/ *\$//")
   send key a cmd
