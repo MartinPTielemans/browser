@@ -58,6 +58,13 @@ pub fn address(folder: &Path) -> PathBuf {
     PathBuf::from(format!(r"\\.\pipe\{}-agents-{hash:016x}", env!("APP_NAME")))
 }
 
+/// Waits for `thread` to end, without joining it: when the process exits, Windows has ended every
+/// other thread before the server drops, and join takes a thread that ended so for a panic.
+pub fn wait_for<T>(thread: &std::thread::JoinHandle<T>) {
+    use std::os::windows::io::AsRawHandle;
+    unsafe { WaitForSingleObject(thread.as_raw_handle(), INFINITE) };
+}
+
 /// A handle, closed when it's dropped.
 struct Handle(HANDLE);
 
