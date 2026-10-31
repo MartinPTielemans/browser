@@ -1973,26 +1973,52 @@ void host_set_site_controls_shape(const double*, size_t) {}
 
 void host_show_site_controls(void* ui_view, double left, double top, double width, double height) {
   Show(g_site_controls, ui_view, left, top, width, height, true);
+  if (!g_site_controls.hwnd || !IsWindowVisible(g_site_controls.hwnd)) {
+    return;
+  }
+  // check.sh reads these lines, as the Mac's host logs them.
+  fprintf(stderr, "browser: site controls at %g %g %g %g\n", left, top, width, height);
+  fprintf(stderr, "browser: site controls shown\n");
 }
 
 void host_set_site_controls_height(double height) {
+  if (!g_site_controls.hwnd || !IsWindowVisible(g_site_controls.hwnd)) {
+    return;
+  }
+  // Its client area's, in pixels, as Resize sets it.
+  RECT rect{};
+  GetClientRect(g_site_controls.hwnd, &rect);
+  if (rect.bottom == static_cast<LONG>(height * Scale(g_site_controls.hwnd))) {
+    return;
+  }
   Resize(g_site_controls, height);
+  fprintf(stderr, "browser: site controls height %g\n", height);
 }
 
 void host_site_controls_drew(double, double, double, double) {}
 
 void host_release_site_controls(void) {
+  if (!g_site_controls.hwnd || !IsWindowVisible(g_site_controls.hwnd) ||
+      g_site_controls.mouse_through) {
+    return;
+  }
   g_site_controls.mouse_through = true;
   if (GetForegroundWindow() == g_site_controls.hwnd) {
     g_site_controls.hiding = true;
     SetForegroundWindow(GetWindow(g_site_controls.hwnd, GW_OWNER));
     g_site_controls.hiding = false;
   }
+  fprintf(stderr, "browser: site controls released\n");
 }
 
 void host_hide_site_controls(void) {
+  if (!g_site_controls.hwnd || !IsWindowVisible(g_site_controls.hwnd)) {
+    return;
+  }
+  host_release_site_controls();
   Hide(g_site_controls);
   g_site_controls.mouse_through = false;
+  fprintf(stderr, "browser: site controls hidden\n");
 }
 
 void* host_add_link_preview(void* view, void (*)(void)) {
