@@ -18,14 +18,15 @@
 // alerts host_ask shows. dragover, dragdrop and dragleave hand a drag from another app, a shell
 // data object carrying what Explorer or a browser would, straight to the drop target Windows would
 // pick, the UI's; one over a page or an overlay, whose targets are Chromium's and GPUI's, logs as
-// unsupported. The others, pageswipe, full screen, displays, hide, backdrop, openmenu and ime,
+// unsupported. ime on types as drive.mm's scripted input method does, in the UI's fields alone, as
+// Linux's driver does. The others, pageswipe, full screen, displays, hide, backdrop and openmenu,
 // Windows has nothing the driver can stand in for yet: each logs "browser: drive: unsupported
 // <command>" before drive.mm's "can't do that", so a run fails at once.
 //
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
-// drive <n> done, key <window>, focus <view>, active <0|1>, marked none" once Chromium and GPUI
-// have handled its messages. The window and view are named as AppKit's classes are on the Mac, so
-// the runs read one vocabulary: key is BrowserCoreNSWindow for a browser window and GPUIPanel for
+// drive <n> done, key <window>, focus <view>, active <0|1>, marked <none|start,length>" once
+// Chromium and GPUI have handled its messages, with what the UI's field with the keys has marked.
+// The window and view are named as AppKit's classes are on the Mac, so the runs read one vocabulary: key is BrowserCoreNSWindow for a browser window and GPUIPanel for
 // an overlay, and focus RenderWidgetHostViewCocoa for a page, AccessKitSubclassOfGPUIView for the
 // UI and GPUIView for an overlay. Active is whether one of the app's windows is in front.
 
@@ -40,6 +41,7 @@
 #include <deque>
 #include <functional>
 #include <sstream>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -53,6 +55,10 @@ bool host_menu_window_choose(const char* title);
 bool host_menu_window_dismiss(void);
 bool host_drive_pointer(unsigned message, long x, long y);
 bool host_drive_key(unsigned vk, long lparam);
+// The app's (src/main.rs), on GPUI's window |hwnd|, for the scripted input method.
+bool browser_drive_compose(void* hwnd, const char* text, size_t start, size_t end, bool selected);
+bool browser_drive_commit(void* hwnd, const char* text);
+bool browser_drive_marked(void* hwnd, size_t* start, size_t* length);
 void* host_drop_target(void* hwnd);
 }
 
@@ -664,13 +670,64 @@ std::string FocusName(HWND focus, HWND key) {
   return Utf8(ClassOf(focus));
 }
 
+// What the UI's field with the keys has marked, as "start,length" in UTF-16, or "none".
+std::string Marked() {
+  HWND focus = GetFocus();
+  size_t start = 0, length = 0;
+  if (!focus || !IsGpui(focus) || !browser_drive_marked(focus, &start, &length)) {
+    return "none";
+  }
+  return std::to_string(start) + "," + std::to_string(length);
+}
+
 void ReportDone(long number) {
   HWND key = GetActiveWindow();
   DWORD process = 0;
   GetWindowThreadProcessId(GetForegroundWindow(), &process);
-  fprintf(stderr, "browser: drive %ld done, key %s, focus %s, active %d, marked none\n", number,
+  fprintf(stderr, "browser: drive %ld done, key %s, focus %s, active %d, marked %s\n", number,
           KeyName(key).c_str(), FocusName(GetFocus(), key).c_str(),
-          process == GetCurrentProcessId());
+          process == GetCurrentProcessId(), Marked().c_str());
+}
+
+// The scripted input method, while ime is on, and what it composes, if anything.
+bool g_ime_on = false;
+std::optional<std::string> g_composition;
+
+// Adds the step that handles |key| as drive.mm's scripted input method does, with the calls a
+// Japanese one makes in the UI's field with the keys: letters compose, space converts them all,
+// return commits and escape cancels. Windows' own input methods can't be scripted, and the runners
+// have no Japanese one, so it calls GPUI's input handler as Linux's driver does. Returns 1 for a key
+// it took, 0 for one it leaves to the window, as one with a shortcut's modifiers, and -1 for one it
+// would compose in a page, whose input method is Chromium's, which the driver can't type through:
+// as plain keys it would pass for a composition.
+int AddImeKey(const std::string& key, int modifiers) {
+  const bool letter = key.size() == 1 && key[0] >= 'a' && key[0] <= 'z';
+  if (!g_ime_on || ((modifiers | g_flags) & (kCtrl | kAlt)) || !(g_composition || letter)) {
+    return 0;
+  }
+  HWND focus = GetFocus();
+  if (!focus || !IsGpui(focus)) {
+    return -1;
+  }
+  const std::string composed = g_composition.value_or("");
+  if (key == "return") {
+    g_composition.reset();
+    g_steps.push_back({[=] { browser_drive_commit(focus, composed.c_str()); }});
+  } else if (key == "escape") {
+    g_composition.reset();
+    g_steps.push_back({[=] { browser_drive_compose(focus, "", 0, 0, false); }});
+  } else if (key == "space") {
+    // 日本語, selected whole, as a real one selects its conversion.
+    const std::string converted = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
+    g_composition = converted;
+    g_steps.push_back({[=] { browser_drive_compose(focus, converted.c_str(), 0, 3, true); }});
+  } else if (letter) {
+    const std::string text = composed + key;
+    g_composition = text;
+    g_steps.push_back(
+        {[=] { browser_drive_compose(focus, text.c_str(), text.size(), text.size(), true); }});
+  }
+  return 1;
 }
 
 bool Unsupported(const std::string& action) {
@@ -795,7 +852,7 @@ bool Run(const std::string& line) {
   const std::string rest =
       line.size() > action.size() ? line.substr(action.size() + 1) : std::string();
   if (action == "pageswipe" || action == "fullscreen" || action == "display" || action == "hide" ||
-      action == "backdrop" || action == "openmenu" || action == "ime") {
+      action == "backdrop" || action == "openmenu") {
     return Unsupported(action);
   }
   // At once, as the Mac's driver hands its drags to AppKit's views, since nothing is posted.
@@ -1135,6 +1192,9 @@ bool Run(const std::string& line) {
     std::string key;
     words >> key;
     int modifiers = Modifiers(words, key);
+    if (const int ime = AddImeKey(key, modifiers)) {
+      return ime > 0;
+    }
     const UINT vk = VirtualKey(key, &modifiers);
     if (!vk) {
       return false;
@@ -1165,12 +1225,32 @@ bool Run(const std::string& line) {
   if (action == "type") {
     for (char character : rest) {
       int modifiers = 0;
-      const UINT vk = VirtualKey(std::string(1, character), &modifiers);
+      const std::string key(1, character);
+      const int ime = AddImeKey(key, 0);
+      if (ime < 0) {
+        return false;
+      }
+      if (ime > 0) {
+        continue;
+      }
+      const UINT vk = VirtualKey(key, &modifiers);
       if (!vk) {
         return false;
       }
       AddKey(vk, modifiers);
     }
+    return true;
+  }
+  if (action == "ime") {
+    std::string state;
+    words >> state;
+    if (state != "on" && state != "off") {
+      return false;
+    }
+    // As the commands before it have run, which the keys after it are read with.
+    g_ime_on = state == "on";
+    g_composition.reset();
+    g_steps.push_back({[] {}});
     return true;
   }
   // Commits the text to the focused view as typed characters, as the emoji panel does.

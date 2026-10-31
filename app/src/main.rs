@@ -6252,6 +6252,47 @@ fn main() {
     std::process::exit(1);
 }
 
+/// The Windows driver's scripted input method (platform/windows/drive.cc), in GPUI's window `hwnd`:
+/// marks `text` in its field with the keys, with `start..end` of it selected if `selected`, or with
+/// `text` empty takes the composition out. Returns whether a field had the keys.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_compose(
+    hwnd: *mut c_void,
+    text: *const c_char,
+    start: usize,
+    end: usize,
+    selected: bool,
+) -> bool {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    gpui_windows::drive_compose(hwnd, &text, selected.then_some(start..end))
+}
+
+/// As browser_drive_compose: commits `text` in place of what was composed.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_commit(hwnd: *mut c_void, text: *const c_char) -> bool {
+    gpui_windows::drive_commit(hwnd, &unsafe { CStr::from_ptr(text) }.to_string_lossy())
+}
+
+/// What the field with the keys in GPUI's window `hwnd` has marked, in UTF-16, if anything.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_marked(
+    hwnd: *mut c_void,
+    start: *mut usize,
+    length: *mut usize,
+) -> bool {
+    let Some(marked) = gpui_windows::marked_range(hwnd) else {
+        return false;
+    };
+    unsafe {
+        *start = marked.start;
+        *length = marked.len();
+    }
+    true
+}
+
 /// On Windows and Linux the browser is this library, which the core in Chromium's own executable
 /// loads as Chromium starts, in place of a main that calls bc_main (core/public/browser_core.h).
 /// What it returns lasts as long as the process.
