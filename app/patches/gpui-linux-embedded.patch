@@ -3561,7 +3561,7 @@ index f9b9727330..3dc9ec4b07 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git a/crates/gpui_linux/src/linux/x11/client.rs b/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..972d3a3e29 100644
+index e21f019c64..4e204c34d1 100644
 --- a/crates/gpui_linux/src/linux/x11/client.rs
 +++ b/crates/gpui_linux/src/linux/x11/client.rs
 @@ -3,6 +3,7 @@ use ashpd::WindowIdentifier;
@@ -3749,6 +3749,15 @@ index e21f019c64..972d3a3e29 100644
  }
  
  #[derive(Clone)]
+@@ -416,7 +534,7 @@ impl X11Connection {
+             .context("Failed to get XCB atoms")?;
+ 
+         let root = xcb_connection.setup().roots[0].root;
+-        let compositor_present = check_compositor_present(&xcb_connection, root);
++        let compositor_present = check_compositor_present(&xcb_connection, x_root_index);
+         let gtk_frame_extents_supported =
+             check_gtk_frame_extents_supported(&xcb_connection, &atoms, root);
+         let client_side_decorations_supported = compositor_present && gtk_frame_extents_supported;
 @@ -525,6 +643,7 @@ impl X11Connection {
                  xcb_connection,
                  xkb_device_id,
@@ -4769,7 +4778,100 @@ index e21f019c64..972d3a3e29 100644
  fn detect_compositor_gpu(
      xcb_connection: &XCBConnection,
      screen: &xproto::Screen,
-@@ -2465,6 +3422,20 @@ fn current_pointer_device_states(
+@@ -2273,73 +3230,27 @@ fn detect_compositor_gpu(
+     crate::linux::compositor_gpu_hint_from_dev_t(metadata.rdev())
+ }
+ 
+-fn check_compositor_present(xcb_connection: &XCBConnection, root: xproto::Window) -> bool {
+-    // Method 1: Check for _NET_WM_CM_S{root}
+-    let atom_name = format!("_NET_WM_CM_S{}", root);
+-    let atom1 = get_reply(
++/// Whether a compositor runs on the screen `screen`: one owns its `_NET_WM_CM_S<screen>` selection,
++/// as EWMH has a compositing manager do. A window manager that only says it's one, such as openbox
++/// under Xvfb, sets `_NET_SUPPORTING_WM_CHECK` but composites nothing, and the X server then draws
++/// a window's transparent pixels opaque.
++fn check_compositor_present(xcb_connection: &XCBConnection, screen: usize) -> bool {
++    let atom_name = format!("_NET_WM_CM_S{screen}");
++    let owner = get_reply(
+         || format!("Failed to intern {atom_name}"),
+         xcb_connection.intern_atom(false, atom_name.as_bytes()),
+-    );
+-    let method1 = match atom1.log_with_level(Level::Debug) {
+-        Some(reply) if reply.atom != x11rb::NONE => {
+-            let atom = reply.atom;
+-            get_reply(
+-                || format!("Failed to get {atom_name} owner"),
+-                xcb_connection.get_selection_owner(atom),
+-            )
+-            .map(|reply| reply.owner != 0)
+-            .log_with_level(Level::Debug)
+-            .unwrap_or(false)
+-        }
+-        _ => false,
+-    };
+-
+-    // Method 2: Check for _NET_WM_CM_OWNER
+-    let atom_name = "_NET_WM_CM_OWNER";
+-    let atom2 = get_reply(
+-        || format!("Failed to intern {atom_name}"),
+-        xcb_connection.intern_atom(false, atom_name.as_bytes()),
+-    );
+-    let method2 = match atom2.log_with_level(Level::Debug) {
+-        Some(reply) if reply.atom != x11rb::NONE => {
+-            let atom = reply.atom;
+-            get_reply(
+-                || format!("Failed to get {atom_name}"),
+-                xcb_connection.get_property(false, root, atom, xproto::AtomEnum::WINDOW, 0, 1),
+-            )
+-            .map(|reply| reply.value_len > 0)
+-            .unwrap_or(false)
+-        }
+-        _ => return false,
+-    };
+-
+-    // Method 3: Check for _NET_SUPPORTING_WM_CHECK
+-    let atom_name = "_NET_SUPPORTING_WM_CHECK";
+-    let atom3 = get_reply(
+-        || format!("Failed to intern {atom_name}"),
+-        xcb_connection.intern_atom(false, atom_name.as_bytes()),
+-    );
+-    let method3 = match atom3.log_with_level(Level::Debug) {
+-        Some(reply) if reply.atom != x11rb::NONE => {
+-            let atom = reply.atom;
+-            get_reply(
+-                || format!("Failed to get {atom_name}"),
+-                xcb_connection.get_property(false, root, atom, xproto::AtomEnum::WINDOW, 0, 1),
+-            )
+-            .map(|reply| reply.value_len > 0)
+-            .unwrap_or(false)
+-        }
+-        _ => return false,
+-    };
+-
+-    log::debug!(
+-        "Compositor detection: _NET_WM_CM_S?={}, _NET_WM_CM_OWNER={}, _NET_SUPPORTING_WM_CHECK={}",
+-        method1,
+-        method2,
+-        method3
+-    );
+-
+-    method1 || method2 || method3
++    )
++    .log_with_level(Level::Debug)
++    .and_then(|reply| {
++        get_reply(
++            || format!("Failed to get {atom_name} owner"),
++            xcb_connection.get_selection_owner(reply.atom),
++        )
++        .log_with_level(Level::Debug)
++    })
++    .map_or(x11rb::NONE, |reply| reply.owner);
++    log::debug!("Compositor detection: {atom_name} owner {owner:#x}");
++    owner != x11rb::NONE
+ }
+ 
+ fn check_gtk_frame_extents_supported(
+@@ -2465,6 +3376,20 @@ fn current_pointer_device_states(
      )
      .log_err()?;
  
@@ -4790,7 +4892,7 @@ index e21f019c64..972d3a3e29 100644
      let mut pointer_device_states = BTreeMap::new();
      pointer_device_states.extend(
          devices_query_result
-@@ -2498,6 +3469,8 @@ fn current_pointer_device_states(
+@@ -2498,6 +3423,8 @@ fn current_pointer_device_states(
                          PointerDeviceState {
                              horizontal: horizontal.unwrap_or_else(Default::default),
                              vertical: vertical.unwrap_or_else(Default::default),
@@ -4799,7 +4901,7 @@ index e21f019c64..972d3a3e29 100644
                          },
                      ))
                  }
-@@ -2539,10 +3512,12 @@ fn reset_pointer_device_scroll_positions(pointer: &mut PointerDeviceState) {
+@@ -2539,10 +3466,12 @@ fn reset_pointer_device_scroll_positions(pointer: &mut PointerDeviceState) {
  }
  
  /// Returns the scroll delta for a smooth scrolling motion event, or `None` if no scroll data is present.
@@ -4813,7 +4915,7 @@ index e21f019c64..972d3a3e29 100644
      let delta_x = get_axis_scroll_delta_and_update_state(event, &mut pointer.horizontal);
      let delta_y = get_axis_scroll_delta_and_update_state(event, &mut pointer.vertical);
      if delta_x.is_some() || delta_y.is_some() {
-@@ -2555,13 +3530,13 @@ fn get_scroll_delta_and_update_state(
+@@ -2555,13 +3484,13 @@ fn get_scroll_delta_and_update_state(
  fn get_axis_scroll_delta_and_update_state(
      event: &xinput::MotionEvent,
      axis: &mut ScrollAxisState,
@@ -4830,7 +4932,7 @@ index e21f019c64..972d3a3e29 100644
          axis.scroll_value = Some(new_scroll);
          delta_scroll
      } else {
-@@ -2570,6 +3545,35 @@ fn get_axis_scroll_delta_and_update_state(
+@@ -2570,6 +3499,35 @@ fn get_axis_scroll_delta_and_update_state(
      }
  }
  
@@ -4866,7 +4968,7 @@ index e21f019c64..972d3a3e29 100644
  fn make_scroll_wheel_event(
      position: Point<Pixels>,
      scroll_delta: Point<f32>,
-@@ -2620,6 +3624,11 @@ fn get_scale_factor(
+@@ -2620,6 +3578,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -4878,7 +4980,7 @@ index e21f019c64..972d3a3e29 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3907,130 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3861,130 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -5009,7 +5111,7 @@ index e21f019c64..972d3a3e29 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +4346,101 @@ mod tests {
+@@ -3213,3 +4300,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }

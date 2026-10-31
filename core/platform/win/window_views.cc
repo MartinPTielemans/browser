@@ -521,6 +521,10 @@ void ShowPages(views::Widget* widget,
 
 void HoldPagesForResize(views::Widget*) {}
 
+bool PagesHeldForResize(views::Widget*) {
+  return false;
+}
+
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   if (!views) {
@@ -563,6 +567,11 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
     }
   }
   return std::nullopt;
+}
+
+bool PageDialogsInOwnWindow() {
+  // Aura would draw it in the window's HWND, under the UI's and the pages' child HWNDs.
+  return true;
 }
 
 bool KeyboardForPage(views::Widget* widget) {

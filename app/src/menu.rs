@@ -690,6 +690,11 @@ impl Tracking {
 /// The menu's items as the host's menus log them, for check.sh: lines left out, a submenu's items
 /// after their parent's title in place of it, and the dimmed and checked ones marked.
 pub(crate) fn described(entries: &[MenuEntry]) -> String {
+    described_held(entries, false)
+}
+
+/// The menu's items as `described` has them, with each item's ⌥ alternate in its place if `alt`.
+pub(crate) fn described_held(entries: &[MenuEntry], alt: bool) -> String {
     let mark = |entry: &MenuEntry, title: String| {
         let title = match (entry.page, entry.favicon.is_some()) {
             (false, _) => title,
@@ -710,7 +715,10 @@ pub(crate) fn described(entries: &[MenuEntry]) -> String {
         let children: Vec<&MenuEntry> =
             entries.iter().filter(|each| each.parent == Some(at) && !each.title.is_empty()).collect();
         match children.is_empty() {
-            true => titles.push(mark(entry, entry.title.to_string())),
+            true => {
+                let entry = &entries[as_held(entries, at, alt)];
+                titles.push(mark(entry, entry.title.to_string()))
+            }
             false => (children.into_iter())
                 .for_each(|child| titles.push(mark(child, format!("{} › {}", entry.title, child.title)))),
         }
@@ -756,8 +764,8 @@ struct Shown {
     logged_open: Vec<usize>,
     /// Whether ⌥ is held, which shows each item's alternate in its place.
     alt: bool,
-    /// Whether it has drawn on screen, which the log says once.
-    drawn: bool,
+    /// Whether it has drawn on screen, and with ⌥ held, which the log says as it changes.
+    drawn: Option<bool>,
 }
 
 /// The menu's window's view.
@@ -870,7 +878,7 @@ pub fn show(request: Request, cx: &mut App) {
             logged: None,
             logged_open: Vec::new(),
             alt,
-            drawn: false,
+            drawn: None,
         });
         window.focus(&menu.focus, cx);
         // After a hide that `close` asked for, so the new menu stays.
@@ -1304,14 +1312,21 @@ impl Render for ContextMenu {
         // GPUI draws the window only once the host has put it on screen, some frames after it's
         // asked to.
         if let Some(shown) = self.shown.as_mut()
-            && !shown.drawn
+            && shown.drawn != Some(shown.alt)
         {
             match window.is_visible() {
-                true => {
-                    shown.drawn = true;
-                    // check.sh waits for this line.
-                    log!("browser: menu drawn {}", described(&shown.tracking.entries));
-                }
+                // check.sh waits for these lines.
+                true => match shown.drawn.replace(shown.alt) {
+                    None => log!(
+                        "browser: menu drawn {}",
+                        described_held(&shown.tracking.entries, shown.alt)
+                    ),
+                    Some(_) => log!(
+                        "browser: menu drawn with ⌥ {} {}",
+                        if shown.alt { "held" } else { "up" },
+                        described_held(&shown.tracking.entries, shown.alt)
+                    ),
+                },
                 false => window.request_animation_frame(),
             }
         }
