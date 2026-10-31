@@ -48,7 +48,7 @@ label="ilo on Linux"
 [ "$(uname)" = Darwin ] && label="ilo on Mac"
 ! windows || label="ilo on Windows"
 
-BROWSER_DRIVE=1 BROWSER_URL='data:text/html,<title>sync</title>' "$browser" \
+BROWSER_DRIVE=1 BROWSER_URL='data:text/html,<title>account check</title>' "$browser" \
   --sync-url="$server_url" --log-net-log="$netlog" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -65,9 +65,31 @@ send clickkey $at
 expect '^browser: account SigningIn None$' "Sign In didn't start signing in"
 await 'browser: sync sign-in loaded /authorize$' ||
   fail "the sign-in window didn't load the server's page"
+# Keys for the sign-in window, a window of Chromium's own, which the driver's keys don't reach on
+# Linux, as they go to the browser windows, overlays and Settings alone: there they're the X
+# server's, from xdotool, to the sign-in window, which it gives the keyboard first. The Mac's go
+# through the driver (unrun there).
+sign_in_window=
+sign_in_keys() {
+  if [ "$(uname)" != Linux ]; then
+    send "$@"
+    return
+  fi
+  if [ -z "$sign_in_window" ]; then
+    sign_in_window=$(timeout 10 xdotool search --sync --onlyvisible --name '^localhost$' | head -1)
+    [ -n "$sign_in_window" ] || fail "the X server has no sign-in window"
+  fi
+  xdotool windowactivate --sync "$sign_in_window" 2>/dev/null ||
+    xdotool windowfocus --sync "$sign_in_window" ||
+    fail "the sign-in window couldn't have the keyboard"
+  case $1 in
+  type) xdotool type --delay 20 "$2" ;;
+  key) xdotool key "$(echo "$2" | sed 's/return/Return/; s/tab/Tab/')" ;;
+  esac
+}
 # The page focuses its field once it's there.
-send type "$email"
-send key return
+sign_in_keys type "$email"
+sign_in_keys key return
 await 'browser: sync sign-in loaded /authorize/email$' || fail "the server didn't take the address"
 code=
 for _ in $(seq 100); do
@@ -76,15 +98,23 @@ for _ in $(seq 100); do
   sleep 0.1
 done
 [ -n "$code" ] || fail "ilo-server logged no sign-in code"
-send type "$code"
-send key return
+sign_in_keys type "$code"
+sign_in_keys key return
 # A new account's first sign-in offers a passkey, with Add a Passkey focused: Not Now is next.
 await 'browser: sync sign-in loaded /authorize/code$' || fail "the server didn't take the code"
-send key tab
-send key return
+sign_in_keys key tab
+sign_in_keys key return
 await '^browser: account FirstDevice None$' ||
   fail "signing in didn't make this the account's first device"
 await '^browser: account On None$' || fail "the first device's recovery words didn't turn sync on"
+# The sign-in window has closed. On Linux, Settings has the keyboard again as the window manager
+# would give it, from xdotool, as Settings' window is titled by its tab; the Mac's AppKit gives it.
+if [ "$(uname)" = Linux ]; then
+  settings=$(timeout 10 xdotool search --onlyvisible --name '^Sync$' | head -1)
+  [ -n "$settings" ] || fail "the X server has no Settings window"
+  xdotool windowactivate --sync "$settings" 2>/dev/null || xdotool windowfocus --sync "$settings" ||
+    fail "Settings couldn't have the keyboard again"
+fi
 at=$(drawn "sync done") || fail "Settings › Sync didn't show the recovery words with Done"
 ../tools/window-screenshot.sh "$pid" "$out/sync-words.png" || fail "no window to capture"
 send clickkey $at
