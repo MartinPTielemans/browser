@@ -912,12 +912,18 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
             .filter(|&hovered| viewable(connection, hovered) && within(connection, hovered, focus))
             .unwrap_or(focus),
         // A window of Chromium's own, such as the Task Manager, else none of the app's has it.
-        None => chromium_focus().or_else(|| {
-            // Said, as a key a run meant for another window lands in a page this way (#1050).
-            let focus = input_focus().map_or_else(|| "unknown".into(), |f| format!("{f:#x}"));
-            log!("browser: drive key to the driven window, the focus {focus} none of the app's");
-            driven().map(|browser| browser.window)
-        })?,
+        // Both said, as a key a run meant for another window can land in a page (#1050).
+        None => match chromium_focus() {
+            Some(window) => {
+                log!("browser: drive key to Chromium's window {window:#x}");
+                window
+            }
+            None => {
+                let focus = input_focus().map_or_else(|| "unknown".into(), |f| format!("{f:#x}"));
+                log!("browser: drive key to the driven window, the focus {focus} not the app's");
+                driven()?.window
+            }
+        },
     };
     for &kind in kinds {
         let event = KeyPressEvent {
