@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -52,6 +54,7 @@
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -242,10 +245,32 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
   }
 
   void OnAppTerminating() {
+    // check.sh reads this line. It names the way a quit came, whatever started it: the app's
+    // own (bc_quit) logs its reason before this, and the system's Apple Event on the Mac too.
+    fprintf(stderr, "browser: terminating, %s\n",
+            ShutdownName(browser_shutdown::GetShutdownType()));
     keep_alive_.reset();
     // A remote-debugging switch, with the window Chrome doesn't open at startup, has Chrome hold
     // the browser up until a client closes it over the protocol, so the user's quit never ended.
     ChromeDevToolsManagerDelegate::AllowBrowserToClose();
+  }
+
+  static const char* ShutdownName(browser_shutdown::ShutdownType type) {
+    switch (type) {
+      case browser_shutdown::ShutdownType::kNotValid:
+        return "no shutdown type";
+      case browser_shutdown::ShutdownType::kWindowClose:
+        return "the last window closed";
+      case browser_shutdown::ShutdownType::kBrowserExit:
+        return "an exit asked for";
+      case browser_shutdown::ShutdownType::kEndSession:
+        return "the session ending";
+      case browser_shutdown::ShutdownType::kSilentExit:
+        return "a silent exit";
+      case browser_shutdown::ShutdownType::kOtherExit:
+        return "another exit";
+    }
+    return "an unknown shutdown type";
   }
 
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
@@ -354,7 +379,16 @@ int Run(int argc, const char** argv, const bc_host& host) {
   return 1;
 #else
   Install(host);
-  return ChromeMain(argc, argv);
+  // Only the browser's process logs its end: a helper's has a type.
+  const bool browser = std::none_of(argv, argv + argc, [](const char* arg) {
+    return std::string_view(arg).starts_with("--type=");
+  });
+  const int status = ChromeMain(argc, argv);
+  if (browser) {
+    // check.sh reads this line, the last the browser logs as it ends cleanly.
+    fprintf(stderr, "browser: exited with status %d\n", status);
+  }
+  return status;
 #endif
 }
 

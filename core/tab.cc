@@ -379,8 +379,13 @@ bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
       (event.GetModifiers() & command) ? platform::LatinKey(event) : std::string();
   const bc_key key = {name.c_str(), modifiers, editing, latin.c_str()};
   // A shortcut that opens a field of the app's holds the page's keys after it (bc_hold_keys).
-  auto asking = held_keys::AskingAbout(tab);
-  return callback(Host().context, tab, &key);
+  auto asking = held_keys::AskingAbout(tab, event);
+  const bool used = callback(Host().context, tab, &key);
+  // A key the page didn't keep opens a field the keys after it are held for, or nothing does.
+  if (callback == Host().tab_key_unhandled) {
+    held_keys::Answered(tab, event, used);
+  }
+  return used;
 }
 
 // static

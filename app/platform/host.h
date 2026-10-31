@@ -215,9 +215,13 @@ void host_hide_overlay(int overlay);
 void host_dismiss_overlay(int overlay);
 
 // Holds the keys typed from now until the command bar or the find bar takes the keyboard, and then
-// gives them to it, or for 400 ms at most: for a shortcut that opens one but reaches the page
-// first, which may keep it. Showing either bar with the keyboard holds them by itself.
+// gives them to it: for a shortcut that opens one but reaches the page first, which may keep it.
+// Showing either bar with the keyboard holds them by itself. The core says when the page has
+// answered the shortcut and no bar opens (host_release_held_keys).
 void host_hold_keys(void);
+
+// No bar opens for the shortcut host_hold_keys held the keys after, so they go to the page now.
+void host_release_held_keys(void);
 
 // Makes the window of |find_bar_view| the find bar of |ui_view|'s window, floating over it when
 // shown, |right| and |top| points from the top right corner of the window's content. It starts
