@@ -1904,8 +1904,10 @@ void host_show_offer(void* ui_view) {
 }
 
 void host_hide_offer(void* ui_view) {
-  if (auto it = g_offers.find(ui_view); it != g_offers.end()) {
+  if (auto it = g_offers.find(ui_view); it != g_offers.end() &&
+                                        IsWindowVisible(it->second.floating.hwnd)) {
     Hide(it->second.floating);
+    fprintf(stderr, "browser: offer hidden\n");
   }
 }
 
