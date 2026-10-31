@@ -234,7 +234,7 @@ last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
 # for the file.
 record() {
   # tools/window-record.sh records with the Mac's ScreenCaptureKit alone.
-  if [ "$(uname)" = Linux ]; then
+  if [ "$(uname)" != Darwin ]; then
     recording=""
     echo "skip: recording $1, as tools/window-record.sh records only the Mac's windows so far."
     return 0
