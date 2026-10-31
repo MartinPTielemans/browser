@@ -78,13 +78,15 @@ jobs:
 
       - run: ../engine/fetch.sh > /dev/null
 
-      # The runs call python3, which the runner names python.
+      # The runs call python3, which the runner names python. The access run reads UI Automation
+      # with comtypes (tools/uia-tree.sh).
       - run: |
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
           printf '#!/bin/sh\nexec python "$@"\n' > "$RUNNER_TEMP/bin/python3"
           chmod +x "$RUNNER_TEMP/bin/python3"
           cygpath -w "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          python -m pip install --disable-pip-version-check comtypes==1.4.17
 
       - uses: actions/cache@v4
         with:
@@ -149,7 +151,10 @@ jobs:
               if [ "$status" = 0 ]; then
                 result="passed in $((SECONDS - start)) s"
               else
-                result="failed ($status): $(grep -m1 '^FAIL' "$out/$run.log" | cut -c7- | tr '|' '/')"
+                # A run that ends without a FAIL line, such as one whose tool is missing, mustn't
+                # end the loop: the step's shell is bash -eo pipefail.
+                said=$(grep -m1 '^FAIL' "$out/$run.log" | cut -c7-) || said=$(tail -1 "$out/$run.log")
+                result="failed ($status): $(echo "$said" | tr '|' '/')"
                 failed=1
                 echo "::error::The $run run failed. Its log: $run.log in the artifact."
               fi
