@@ -17,7 +17,8 @@
 # emoji. Settings' Export… writes it and its tab as Markdown links, and Delete Folder in its menu
 # leaves its tab where it was. Links and files dragged onto the list from the page or another app open as
 # tabs where the pointer lets go, and dragged text that isn't a link opens a search for it there,
-# but a link that isn't a web link doesn't open. A split made with a pinned tab is pinned. Away from
+# but a link that isn't a web link doesn't open. A split made with a pinned tab is pinned, by ⌥-click
+# on its link or by dragging one pinned tab onto another. Away from
 # its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change its pinned URL,
 # which ⌘Z gives back, and ⌘-click on its favicon goes back keeping the page in a new tab. Export
 # Space as Markdown… saves the Space's folders, pinned tabs and Today tabs as a list of links. The
@@ -248,6 +249,22 @@ expect '^browser: outline ' "the pinned split's row wasn't drawn"
 bar_command separate-split "Separate All Pages" "separate all"
 expect '^browser: splits $' "Separate All Pages didn't end the pinned split"
 expect "^browser: panes $n\$" "Separate All Pages didn't leave the focused pane's tab shown alone"
+# A split made by dragging inside Pinned stays pinned too, as Arc's: the pane's tab, a pinned row
+# of its own now, rested on the pinned tab's row joins it there, and ⌘Z takes it back to its row.
+expect_lists "$c $n" "$a" "after Separate All Pages on the pinned split"
+send press $(pinned_row 1)
+send dragto 110 $(pinned_row 1 | cut -d' ' -f2)
+send dragto $(pinned_row 0)
+expect "^browser: drop onto $c\$" "a pinned tab rested on another pinned tab's row didn't take it as the drop"
+send release $(pinned_row 0)
+expect "^browser: dragged $n onto $c\$" "the pinned tab let go on another pinned tab's row didn't join it"
+expect "^browser: splits $c+$n\$" "the pinned tabs dragged together aren't a split: $(grep '^browser: splits' "$log" | tail -1)"
+expect_lists "$c $n" "$a" "after dragging a pinned tab onto another inside Pinned"
+../tools/window-screenshot.sh "$pid" "$out/pinned-drag-split.png" || fail "no window to capture"
+send key z cmd
+expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo the split made inside Pinned"
+expect '^browser: splits $' "⌘Z didn't take the dragged pinned tab out of the split: $(grep '^browser: splits' "$log" | tail -1)"
+expect_lists "$c $n" "$a" "after ⌘Z on the split made inside Pinned"
 send key d cmd
 expect_lists "$c" "$n $a" "after ⌘D on the pinned split's pane"
 send key w cmd
