@@ -1228,4 +1228,25 @@ void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Linux; the page shows its last frame unscaled until it redraws.
 }
 
+void AnswerClipboardRequests() {
+  if (OnWayland()) {
+    return;
+  }
+  x11::Connection* connection = x11::Connection::Get();
+  connection->ReadResponses();
+  // The rest wait their turn in the queue: dispatched inside the UI's read, they could call the UI.
+  // Taken out first, as answering one can read more into the queue.
+  std::vector<x11::Event> requests;
+  for (x11::Event& event : connection->events()) {
+    if (event.As<x11::SelectionRequestEvent>()) {
+      requests.push_back(std::move(event));
+      event = x11::Event();
+    }
+  }
+  for (const x11::Event& request : requests) {
+    connection->DispatchEvent(request);
+  }
+  connection->Flush();
+}
+
 }  // namespace browser_core::platform

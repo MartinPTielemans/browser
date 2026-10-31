@@ -4318,7 +4318,14 @@ unsafe extern "C" fn started(_: *mut c_void) {
         match display.is_null() {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
-            true => gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32),
+            true => {
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                // The clipboard's owner can be Chromium, which answers on this thread, so the UI's
+                // read has it answer while it waits (#999).
+                gpui_linux::answer_clipboard_reads_with(|| unsafe {
+                    bc::bc_answer_clipboard_requests()
+                });
+            }
             false => {
                 gpui_linux::embed_wayland(display, keyboard);
                 gpui_linux::watch_embedder_swipes(system::swiped);

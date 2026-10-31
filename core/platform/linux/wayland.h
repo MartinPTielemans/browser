@@ -68,6 +68,10 @@ void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret);
 // top-left, if one shows (bc_window_dialog). In window_views.cc.
 std::optional<gfx::Rect> DialogFrame(views::Widget* widget);
 
+// Answers on X11 the clipboard requests in Chromium's queue, and nothing else in it
+// (bc_answer_clipboard_requests). In window_views.cc.
+void AnswerClipboardRequests();
+
 }  // namespace browser_core::platform
 
 #endif  // BROWSER_CORE_PLATFORM_LINUX_WAYLAND_H_
