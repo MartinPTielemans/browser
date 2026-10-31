@@ -710,38 +710,43 @@ expect "^browser: menu bar View: .*, $developer on Developer Mode for this site$
   "View › Developer didn't name Turn on Developer Mode for this site once it was off"
 send menu Developer › Turn on Developer Mode for this site
 expect "^browser: page $r developer mode 1\$" "View › Developer didn't turn Developer Mode on"
-# So does ⌃D, which the page gets first: in its text field it deletes forward, as in any Mac field,
-# and so it does in the command bar's, and with the page's keyboard elsewhere, or the UI's, it
-# turns Developer Mode off and on.
-send click $field_point
-send key a cmd
-send type ab
-expect "^browser: title $r value ab\$" "typing didn't reach the localhost page's text field"
-send key left
-send key d ctrl
-expect "^browser: title $r value a\$" "⌃D in the page's text field didn't delete forward"
-none_since '^browser: command toggle-developer-mode ' ||
-  fail "⌃D in the page's text field toggled Developer Mode"
-send click $page_point
-send key d ctrl
-expect '^browser: command toggle-developer-mode via page$' "⌃D with the page focused didn't reach the UI"
-expect "^browser: page $r developer mode 0\$" "⌃D from the page didn't turn Developer Mode off"
-send key l cmd
-expect '^browser: command bar shown$' "⌘L didn't open the command bar"
-send type developer
-expect '^browser: command bar commands "developer": ' "the command bar didn't find developer"
-send key left
-send key d ctrl
-expect '^browser: command bar commands "develope": ' "⌃D in the command bar didn't delete forward"
-none_since '^browser: command toggle-developer-mode ' ||
-  fail "⌃D in the command bar's field toggled Developer Mode"
-send key escape
-expect '^browser: command bar hidden$' "escape didn't close the command bar"
-# The sidebar's empty space under its rows.
-send click 120 650
-send key d ctrl
-expect '^browser: command toggle-developer-mode via ui$' "⌃D with the UI focused didn't run"
-expect "^browser: page $r developer mode 1\$" "⌃D from the UI didn't turn Developer Mode on"
+# Off the Mac ⌃D is pressed as Alt+D, which keeps Chrome's meaning there, the address bar's, so
+# Developer Mode has no key, and no field deletes forward with it.
+if [ "$(uname)" = Darwin ]; then
+  # So does ⌃D, which the page gets first: in its text field it deletes forward, as in any Mac
+  # field, and so it does in the command bar's, and with the page's keyboard elsewhere, or the
+  # UI's, it turns Developer Mode off and on.
+  send click $field_point
+  send key a cmd
+  send type ab
+  expect "^browser: title $r value ab\$" "typing didn't reach the localhost page's text field"
+  send key left
+  send key d ctrl
+  expect "^browser: title $r value a\$" "⌃D in the page's text field didn't delete forward"
+  none_since '^browser: command toggle-developer-mode ' ||
+    fail "⌃D in the page's text field toggled Developer Mode"
+  send click $page_point
+  send key d ctrl
+  expect '^browser: command toggle-developer-mode via page$' \
+    "⌃D with the page focused didn't reach the UI"
+  expect "^browser: page $r developer mode 0\$" "⌃D from the page didn't turn Developer Mode off"
+  send key l cmd
+  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+  send type developer
+  expect '^browser: command bar commands "developer": ' "the command bar didn't find developer"
+  send key left
+  send key d ctrl
+  expect '^browser: command bar commands "develope": ' "⌃D in the command bar didn't delete forward"
+  none_since '^browser: command toggle-developer-mode ' ||
+    fail "⌃D in the command bar's field toggled Developer Mode"
+  send key escape
+  expect '^browser: command bar hidden$' "escape didn't close the command bar"
+  # The sidebar's empty space under its rows.
+  send click 120 650
+  send key d ctrl
+  expect '^browser: command toggle-developer-mode via ui$' "⌃D with the UI focused didn't run"
+  expect "^browser: page $r developer mode 1\$" "⌃D from the UI didn't turn Developer Mode on"
+fi
 # The page asks and is refused without a question.
 send click $page_point
 send key a
