@@ -137,8 +137,9 @@ fn settle(n: u64) {
         after(10, Box::new(move || settle(n)));
         return;
     }
-    // Until the key window has the title asked for, which a window takes from the loop.
-    if title_waits() {
+    // Until the key window has the title asked for, which a window takes from the loop, and the
+    // clipboard's owner has answered.
+    if title_waits() || paste_waits() {
         after(100, Box::new(move || settle(n)));
         return;
     }
@@ -276,6 +277,7 @@ fn sync() {
     while let Ok(Some(event)) = connection.poll_for_event() {
         match event {
             Event::SelectionRequest(request) => serve_drag(&request),
+            Event::SelectionNotify(notify) => pasted(&notify),
             Event::ClientMessage(message) if message.format == 32 => drag_answered(&message),
             _ => {}
         }
@@ -1332,13 +1334,87 @@ enum Waiting {
 
 thread_local! {
     static SOURCE: RefCell<Option<Source>> = const { RefCell::new(None) };
-    /// The driver's window that owns a drag's selection, made once.
-    static SOURCE_WINDOW: Cell<Option<xproto::Window>> = const { Cell::new(None) };
+    /// The driver's window, which owns a drag's selection and is handed the clipboard's text,
+    /// made once.
+    static DRIVER_WINDOW: Cell<Option<xproto::Window>> = const { Cell::new(None) };
+    /// Since when `pasteboard` waits for the clipboard's owner to hand its text to the driver.
+    static PASTE_ASKED: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
 }
 
 fn atom(name: &str) -> Option<xproto::Atom> {
     let x = server()?;
     Some(x.0.intern_atom(false, name.as_bytes()).ok()?.reply().ok()?.atom)
+}
+
+/// The driver's own window, on its connection, which nobody sees.
+fn driver_window() -> Option<xproto::Window> {
+    if let Some(window) = DRIVER_WINDOW.get() {
+        return Some(window);
+    }
+    let x = server()?;
+    let (connection, root) = &*x;
+    let window = connection.generate_id().ok()?;
+    (connection.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        window,
+        *root,
+        -1,
+        -1,
+        1,
+        1,
+        0,
+        xproto::WindowClass::INPUT_ONLY,
+        x11rb::COPY_FROM_PARENT,
+        &xproto::CreateWindowAux::new(),
+    ))
+    .ok()?;
+    DRIVER_WINDOW.set(Some(window));
+    Some(window)
+}
+
+/// Asks the clipboard's owner for its text, on the driver's connection, which `sync` reads the
+/// answer from: the owner may be Chromium, such as DevTools after ⌘C, which answers on the main
+/// thread that GPUI's own read would block.
+fn ask_clipboard() -> Option<()> {
+    let x = server()?;
+    let (connection, _) = &*x;
+    let window = driver_window()?;
+    let names = ["CLIPBOARD", "UTF8_STRING", "BROWSER_DRIVE_PASTEBOARD"];
+    let [clipboard, utf8, into] = names.map(atom);
+    (connection.convert_selection(window, clipboard?, utf8?, into?, x11rb::CURRENT_TIME)).ok()?;
+    connection.flush().ok()?;
+    PASTE_ASKED.set(Some(std::time::Instant::now()));
+    Some(())
+}
+
+/// Logs the clipboard's text the owner handed over, or none if it had none.
+fn pasted(notify: &xproto::SelectionNotifyEvent) {
+    if PASTE_ASKED.get().is_none() || Some(notify.requestor) != DRIVER_WINDOW.get() {
+        return;
+    }
+    PASTE_ASKED.set(None);
+    let read = || {
+        let x = server()?;
+        let (connection, _) = &*x;
+        let any = xproto::AtomEnum::ANY;
+        let (window, property) = (notify.requestor, notify.property);
+        let reply = connection.get_property(true, window, property, any, 0, 1 << 20);
+        Some(String::from_utf8_lossy(&reply.ok()?.reply().ok()?.value).into_owned())
+    };
+    let text = (notify.property != x11rb::NONE).then(read).flatten();
+    log!("browser: pasteboard text {}", text.unwrap_or_default());
+}
+
+/// Whether `pasteboard` still waits for the clipboard's owner, which gets 4 s, as GPUI's own read
+/// gives it, before the driver logs no text.
+fn paste_waits() -> bool {
+    let Some(since) = PASTE_ASKED.get() else { return false };
+    if since.elapsed() < std::time::Duration::from_secs(4) {
+        return true;
+    }
+    PASTE_ASKED.set(None);
+    log!("browser: pasteboard text ");
+    false
 }
 
 /// `path` as a file: URL's path, its bytes outside the unreserved ones escaped.
@@ -1359,7 +1435,7 @@ fn file_url(path: &str) -> String {
 /// as a URI list, a URL as text too, and text as text.
 fn start_drag(kind: &str, value: &str) -> Option<Source> {
     let x = server()?;
-    let (connection, root) = &*x;
+    let (connection, _) = &*x;
     let [uris, utf8, plain] = ["text/uri-list", "UTF8_STRING", "text/plain;charset=utf-8"].map(atom);
     let data = match kind {
         "url" => vec![(uris?, format!("{value}\r\n").into_bytes()), (utf8?, value.into())],
@@ -1367,28 +1443,7 @@ fn start_drag(kind: &str, value: &str) -> Option<Source> {
         "text" => vec![(utf8?, value.into()), (plain?, value.into())],
         _ => return None,
     };
-    let window = match SOURCE_WINDOW.get() {
-        Some(window) => window,
-        None => {
-            let window = connection.generate_id().ok()?;
-            (connection.create_window(
-                x11rb::COPY_DEPTH_FROM_PARENT,
-                window,
-                *root,
-                -1,
-                -1,
-                1,
-                1,
-                0,
-                xproto::WindowClass::INPUT_ONLY,
-                x11rb::COPY_FROM_PARENT,
-                &xproto::CreateWindowAux::new(),
-            ))
-            .ok()?;
-            SOURCE_WINDOW.set(Some(window));
-            window
-        }
-    };
+    let window = driver_window()?;
     let types: Vec<u32> = data.iter().map(|(kind, _)| *kind).collect();
     (connection.change_property(
         xproto::PropMode::REPLACE,
@@ -1909,8 +1964,12 @@ fn run_command(line: &str) -> Option<()> {
             }
             Some(())
         }
-        // The headless session's clipboard is the run's own, as drive.mm's pasteboard is.
+        // The headless session's clipboard is the run's own, as drive.mm's pasteboard is. Under X
+        // the driver asks for it on its own connection, and settle logs it.
         "pasteboard" => {
+            if ask_clipboard().is_some() {
+                return Some(());
+            }
             let cx = CX.with_borrow(Clone::clone)?;
             let text = cx.update(|cx| cx.read_from_clipboard().and_then(|item| item.text()));
             log!("browser: pasteboard text {}", text.unwrap_or_default());
