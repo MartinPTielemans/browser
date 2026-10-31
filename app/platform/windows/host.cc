@@ -244,8 +244,13 @@ void Adopt(Floating& floating, void* view, bool mouse_through, void (*dismissed)
                       GetWindowLongPtrW(floating.hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
   }
   SetWindowSubclass(floating.hwnd, FloatingProc, 1, reinterpret_cast<DWORD_PTR>(&floating));
-  SetWindowPos(floating.hwnd, nullptr, 0, 0, 0, 0,
-               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  // GPUI made the window its size with a border round it, which FloatingProc gives the UI: the
+  // window shrinks to that size, or the offer, which keeps the size it opened at, would be 16 by 8
+  // points bigger than the UI's.
+  RECT client{};
+  GetClientRect(floating.hwnd, &client);
+  SetWindowPos(floating.hwnd, nullptr, 0, 0, client.right, client.bottom,
+               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
   FloatingByHwnd()[floating.hwnd] = &floating;
   OwnShadow(floating.hwnd);
 }
