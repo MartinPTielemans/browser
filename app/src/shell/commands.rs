@@ -101,6 +101,8 @@ pub enum Command {
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
+    /// Opens the selected tab's Cast dialog, or closes it.
+    Cast,
     /// Starts capture mode over the selected tab's page, or leaves it.
     CapturePortion,
     /// Captures all of the selected tab's page, beyond its view, and copies it.
@@ -391,6 +393,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
     ("Find…", Command::Find, &[]),
     ("Site Controls", Command::SiteControls, &["permissions"]),
+    ("Cast…", Command::Cast, &["chromecast", "tv", "mirror"]),
     ("Go Back", Command::Back, &[]),
     ("Go Forward", Command::Forward, &[]),
     ("Refresh the Page", Command::Reload, &["reload"]),
@@ -778,6 +781,7 @@ impl Command {
             Command::Share => "share",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
+            Command::Cast => "cast",
             Command::CapturePortion => "capture",
             Command::CaptureFullPage => "capture-full-page",
             Command::FindNext => "find-next",
@@ -1072,6 +1076,9 @@ impl Shell {
             Command::ClearCookiesAndRefresh => {
                 return self.browser.clear_site(self.selected, true, cx);
             }
+            // Escape closes the Library, after a picker over it, which has the keyboard, has
+            // closed (the owner, #1074; Arc's doesn't).
+            Command::Stop if self.library_open => return self.set_library(false, cx),
             // In window full screen ⎋ stops a load, and otherwise a second press or a held key
             // leaves, as Arc's does, or the first unless the user left ⎋ to both. The page's
             // presses were counted before it had them, except with Prefer Websites, where one the
@@ -1213,6 +1220,7 @@ impl Shell {
             }
             Command::Find => return self.browser.find(self.selected, cx),
             Command::SiteControls => return self.site_controls(cx),
+            Command::Cast => return self.cast(cx),
             Command::CapturePortion => return self.capture(false, cx),
             Command::CaptureFullPage => return self.capture(true, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),

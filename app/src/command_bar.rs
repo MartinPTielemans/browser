@@ -183,6 +183,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::Find => "icons/text-search.svg",
         Command::SearchTabs => "icons/search.svg",
         Command::SiteControls => "icons/sliders-horizontal.svg",
+        Command::Cast => "icons/cast.svg",
         Command::Back => "icons/arrow-left.svg",
         Command::Forward => "icons/arrow-right.svg",
         Command::Reload | Command::ForceReload => "icons/rotate-cw.svg",
@@ -574,6 +575,8 @@ fn reset(
             };
             bar.input.update(cx, |input, cx| input.set_placeholder(placeholder.into(), cx));
             bar.asked = text.to_string();
+            // Its answer, for nothing typed, is timed from here, not from the last ask (#1072).
+            bar.asked_at = Instant::now();
             bar.complete = false;
             bar.completion.clear();
             bar.before = (text.len(), 0);

@@ -159,7 +159,7 @@ impl Shell {
     }
 
     /// The menu a right-click on the sidebar's empty space in `space`'s page shows: New Tab, as
-    /// ⌘T, then the Space's own menu (ours: Arc's isn't recorded, #433).
+    /// ⌘T, New Folder…, then the Space's own menu (ours: Arc's isn't recorded, #433, #1088).
     pub(super) fn empty_space_menu(
         &mut self,
         space: u64,
@@ -175,8 +175,17 @@ impl Shell {
                 shell.run(Command::NewTab, "sidebar", cx)
             }),
         )];
-        // A private window's Space has nothing to change.
+        // A private window's Space has no folders, and nothing to change.
         if !self.private {
+            let new_folder =
+                MenuEntry::new("New Folder…", true).shortcut(Command::NewFolder, user_keys(cx));
+            items.push((
+                new_folder,
+                Box::new(move |shell, cx| {
+                    shell.show_space(space, cx);
+                    shell.run(Command::NewFolder, "sidebar", cx)
+                }),
+            ));
             items.push((MenuEntry::line(), Box::new(|_, _| {})));
             // Its Profile submenu's items name their parent by where it is, now further down.
             let after = items.len();
@@ -686,12 +695,8 @@ impl Shell {
                 "toggle-pin",
                 Box::new(|shell, cx| shell.pin_chosen(cx)),
             ),
-            (
-                MenuEntry::new("New Folder with Tabs", true),
-                "new-folder",
-                Box::new(|shell, cx| shell.folder_chosen(cx)),
-            ),
         ];
+        self.push_add_to_folder(self.chosen_in_order(), &mut items);
         // The other Spaces of the profile, where every tab keeps its place to undo.
         let profile = self.shown_space().map(|space| space.profile);
         let others: Vec<_> = (self.spaces_to_move_to(false).into_iter())
@@ -879,6 +884,7 @@ impl Shell {
         if self.panes(tab).len() > 1 {
             items.push(separate(tab));
         }
+        self.push_add_to_folder(vec![tab], &mut items);
         // Each other Space, in the switcher's order, then the agents' it can be given to.
         let others = self.spaces_to_move_to(false);
         let agents = self.agents_to_give(tab);
@@ -1004,6 +1010,14 @@ impl Shell {
             }
             items.push((entry, "toggle-mute", Box::new(move |shell, cx| shell.toggle_mute(pane, cx))));
         }
+        // While a page shares another tab, as Chrome's infobar offers it on the rest.
+        if page.share_instead {
+            items.push((
+                MenuEntry::new("Share This Tab Instead", true),
+                "share-instead",
+                Box::new(move |shell, cx| shell.browser.share_instead(tab, cx)),
+            ));
+        }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Add Split View", panes.len() < MAX_PANES),
@@ -1019,8 +1033,12 @@ impl Shell {
             Box::new(move |shell, cx| shell.duplicate_row(tab, cx)),
         ));
         // A private window's tabs stay in it. The others: every one of the user's Spaces, the
-        // tab's checked, then a new one, but for a Blank Window's, which makes none.
+        // tab's checked, then a new one, but for a Blank Window's, which makes none. Folders are a
+        // Space's, so a regular window's tab alone goes into one.
         if !self.private || self.blank {
+            if !self.private {
+                self.push_add_to_folder(vec![tab], &mut items);
+            }
             let move_to = items.len();
             items.push((MenuEntry::new("Move to", true), "", Box::new(|_, _| {})));
             for (space, name, shown) in self.spaces_to_move_to(true) {
@@ -1097,19 +1115,36 @@ impl Shell {
         if profile_of(from) != Some(to.profile) {
             return Vec::new();
         }
-        let name = |folder: u64| to.folders.folders.get(&folder).map(|(name, _)| name.clone());
-        let path = |folder: u64| {
-            let mut path = vec![name(folder).unwrap_or_default()];
-            let mut parent = to.folder_of(folder);
-            while parent != 0 {
-                path.push(name(parent).unwrap_or_default());
-                parent = to.folder_of(parent);
-            }
-            path.reverse();
-            path.join(" / ")
-        };
-        let folders = to.pinned.iter().filter(|&&row| to.is_folder(row));
-        folders.map(|&folder| (folder, path(folder))).collect()
+        folder_paths(to)
+    }
+
+    /// Add to Folder ›, as Chrome's Add Tab to Group (#1088): New Folder, then the shown Space's
+    /// folders, nested ones after their parent, each named by its path. Each moves `rows` in.
+    fn push_add_to_folder(
+        &self,
+        rows: Vec<u64>,
+        items: &mut Vec<(MenuEntry, &'static str, MenuAction)>,
+    ) {
+        let parent = items.len();
+        items.push((MenuEntry::new("Add to Folder", true), "", Box::new(|_, _| {})));
+        let new = rows.clone();
+        items.push((
+            MenuEntry::new("New Folder", true).under(parent),
+            "new-folder",
+            Box::new(move |shell, cx| shell.add_to_new_folder(new, cx)),
+        ));
+        let folders = self.shown_space().map(folder_paths).unwrap_or_default();
+        if !folders.is_empty() {
+            items.push((MenuEntry::line().under(parent), "", Box::new(|_, _| {})));
+        }
+        for (folder, path) in folders {
+            let rows = rows.clone();
+            items.push((
+                MenuEntry::named(path, true).under(parent),
+                "add-to-folder",
+                Box::new(move |shell, cx| shell.add_to_folder(rows, folder, cx)),
+            ));
+        }
     }
 
     /// Move to › a folder: the tab goes to the folder's top, from its Space's Today tabs or
@@ -1211,6 +1246,19 @@ impl Shell {
 
 /// The top of a Space's menu, above its profiles: Rename Space, Change Icon…, Remove Icon once it
 /// has one, Edit Theme Color…, and Remove Theme Color once it has a colour.
+/// `space`'s folders, in the sidebar's order, each named by its path, "Docs / Old".
+fn folder_paths(space: &super::Space) -> Vec<(u64, String)> {
+    let name = |folder: u64| space.folders.folders.get(&folder).map(|(name, _)| name.clone());
+    let path = |folder: u64| {
+        let mut path = vec![name(folder).unwrap_or_default()];
+        path.extend(space.holders(folder).map(|parent| name(parent).unwrap_or_default()));
+        path.reverse();
+        path.join(" / ")
+    };
+    let folders = space.pinned.iter().filter(|&&row| space.is_folder(row));
+    folders.map(|&folder| (folder, path(folder))).collect()
+}
+
 fn space_menu_head(space: u64, has_icon: bool, has_theme: bool) -> Vec<(MenuEntry, MenuAction)> {
     let mut items: Vec<(MenuEntry, MenuAction)> = vec![
         (
@@ -1411,6 +1459,7 @@ mod tests {
                 "Mute (disabled)",
                 "Add Split View",
                 "Duplicate",
+                "Add to Folder › New Folder",
                 "Move to › Work (checked)",
                 "Move to › New Space…",
                 "Archive Tab",
@@ -1672,7 +1721,7 @@ mod tests {
             ]
         );
         host.take_edits();
-        cx.update(|cx| host.choose("Docs", cx));
+        cx.update(|cx| host.choose_last("Docs", cx));
         assert_eq!(host.take_edits(), ["move 10 true 20 0"]);
         tab_menu(&shell, &host, cx, 10);
         cx.update(|cx| host.choose("Old / Older", cx));
@@ -1713,7 +1762,13 @@ mod tests {
         host.take();
         assert_eq!(
             tab_menu(&shell, &host, cx, 5),
-            ["Pin Tabs", "New Folder with Tabs", "Move to Space › Home", "Copy URLs", "Close Tabs"]
+            [
+                "Pin Tabs",
+                "Add to Folder › New Folder",
+                "Move to Space › Home",
+                "Copy URLs",
+                "Close Tabs"
+            ]
         );
         host.take_edits();
         cx.update(|cx| host.choose("Pin Tabs", cx));
@@ -1732,7 +1787,7 @@ mod tests {
         host.take();
         tab_menu(&shell, &host, cx, 3);
         host.take_edits();
-        cx.update(|cx| host.choose("New Folder with Tabs", cx));
+        cx.update(|cx| host.choose("New Folder", cx));
         let edits = host.take_edits();
         let folder: u64 = edits[0].split(' ').nth(1).unwrap().parse().unwrap();
         let into = |tab, index| format!("move {tab} true {folder} {index}");
@@ -1830,10 +1885,55 @@ mod tests {
                 "Rename Tab",
                 "Change Icon…",
                 "Duplicate Tab",
+                "Add to Folder › New Folder",
                 "Move to Space (disabled)",
                 "Close Tab",
             ]
         );
+    }
+
+    /// A tab's Add to Folder › lists New Folder, then the Space's folders. A folder takes the tab
+    /// at its bottom, and New Folder makes one in the tab's place, named for its site, each one
+    /// step for ⌘Z (#1088).
+    #[gpui::test]
+    fn add_to_folder_moves_a_tab_into_a_folder_or_a_new_one_in_its_place(cx: &mut TestAppContext) {
+        let docs = Folders {
+            folders: [(20, ("Docs".into(), true))].into(),
+            parents: [(2, 20)].into(),
+            ..Default::default()
+        };
+        let (shell, host) = shell_with(cx, &[1, 20, 2, 3], &[10], docs);
+        let menu = tab_menu(&shell, &host, cx, 1);
+        let folders: Vec<&String> =
+            menu.iter().filter(|item| item.starts_with("Add to Folder")).collect();
+        assert_eq!(folders, ["Add to Folder › New Folder", "Add to Folder › Docs"]);
+        host.take_edits();
+        cx.update(|cx| host.choose("Docs", cx));
+        assert_eq!(host.take_edits(), ["move 1 true 20 1"]);
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        assert_eq!(host.take_edits(), ["move 1 true 0 0"]);
+
+        let site = page("https://www.example.com/a", false, false);
+        shell.update(cx, |shell, cx| shell.set_page(3, site, cx));
+        tab_menu(&shell, &host, cx, 3);
+        cx.update(|cx| host.choose("New Folder", cx));
+        let edits = host.take_edits();
+        let folder: u64 = edits[0].split(' ').nth(1).unwrap().parse().unwrap();
+        let named = format!("folder {folder} 1 example.com 0 2");
+        assert_eq!(edits, [named, format!("move 3 true {folder} 0")]);
+        shell.read_with(cx, |shell, _| assert!(shell.renaming.is_some(), "no name field"));
+        // The core reports the folder made once the calls return.
+        let made = Folders {
+            folders: [(20, ("Docs".into(), true)), (folder, ("example.com".into(), true))].into(),
+            parents: [(2, 20), (3, folder)].into(),
+            ..Default::default()
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, vec![1, 20, 2, folder, 3], vec![10], Vec::new(), made, cx)
+        });
+        shell.update(cx, |shell, cx| shell.undo(cx));
+        let back = ["move 3 true 0 2".to_string(), format!("delete folder {folder}")];
+        assert_eq!(host.take_edits(), back);
     }
 
     /// Away from its pinned URL, a pinned tab's Replace Pinned URL with Current makes the page it's
