@@ -27,6 +27,7 @@
 #include "browser_core/install_question.h"
 #include "browser_core/leave_dialog.h"
 #include "browser_core/link_preview.h"
+#include "browser_core/notes.h"
 #include "browser_core/open_app_dialog.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
@@ -34,6 +35,7 @@
 #include "browser_core/platform/keychain.h"
 #include "browser_core/platform/native_hosts.h"
 #include "browser_core/profiles.h"
+#include "browser_core/search.h"
 #include "browser_core/session.h"
 #include "browser_core/sign_in_dialog.h"
 #include "browser_core/system_engine.h"
@@ -143,9 +145,11 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   // Before Chrome stops taking factories, as the first profile is made.
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
+    RegisterSearchPrefs();
     RegisterArchivePrefs();
     RegisterDownloadPrefs();
     developer_mode::RegisterProfilePrefs();
+    notes::RegisterProfilePrefs();
     widevine::Start();
   }
 

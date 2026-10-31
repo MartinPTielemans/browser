@@ -13,6 +13,10 @@ a line on its standard input:
   reveal ID       logs "cdp: reveal shown|hidden|none": whether the eye Blink draws in the
                   password field with the id ID shows, from the field's user-agent shadow tree,
                   which the page's script can't see
+  shows PREFIX TEXT
+                  logs "cdp: shows yes|no|none": whether the first page at an address starting
+                  with PREFIX has TEXT in a text node or an attribute, shadow trees included, or
+                  none for no such page, such as Chrome's password manager page, a WebUI page
 The domains are for the checks alone. Agents never get DevTools: it runs any script in any page.
 
 Usage: cdp.py IN OUT PAGE
@@ -84,13 +88,13 @@ threading.Thread(target=read, daemon=True).start()
 call("Target.setDiscoverTargets", {"discover": True})
 
 
-def page_target():
+def page_target(wanted=lambda url: url.endswith(page)):
     for event in events:
         if event is None:
             raise SystemExit("cdp: the browser closed the pipe")
         if event["method"] in ("Target.targetCreated", "Target.targetInfoChanged"):
             info = event["params"]["targetInfo"]
-            if info["type"] == "page" and info["url"].endswith(page):
+            if info["type"] == "page" and wanted(info["url"]):
                 return info["targetId"]
     return None
 
@@ -101,6 +105,8 @@ with answered:
 session = call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
 log("attached")
 authenticator = None
+# Sessions on the other pages shows looked in, by their targets.
+sessions = {}
 
 
 def attributes(node):
@@ -133,6 +139,20 @@ def reveal(field_id):
     return "hidden" if "display: none" in attributes(eye).get("style", "") else "shown"
 
 
+def shows(prefix, text):
+    with answered:
+        target = page_target(lambda url: url.startswith(prefix))
+    if not target:
+        return "none"
+    if target not in sessions:
+        attached = call("Target.attachToTarget", {"targetId": target, "flatten": True})
+        sessions[target] = attached["sessionId"]
+    root = call("DOM.getDocument", {"depth": -1, "pierce": True}, sessions[target])["root"]
+    found = find(root, lambda node: text in node.get("nodeValue", "")
+                 or any(text in value for value in attributes(node).values()))
+    return "yes" if found else "no"
+
+
 for line in sys.stdin:
     words = line.split()
     if words == ["authenticator"] and not authenticator:
@@ -152,3 +172,5 @@ for line in sys.stdin:
         log("presence " + words[1])
     elif words[:1] == ["reveal"] and len(words) == 2:
         log("reveal " + reveal(words[1]))
+    elif words[:1] == ["shows"] and len(words) == 3:
+        log("shows " + shows(words[1], words[2]))

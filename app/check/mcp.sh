@@ -6,7 +6,8 @@
 # page with fields gives its prose and none of their values: typed, filled in or a password, in its
 # text and in its outline, and the agent can't type into the password field. It types into another.
 # A page's frames, of its own site and of another, are in its outline, where the agent clicks and
-# types, and not into a frame's password field. Where it acts in the page shown, its pointer and a
+# types, and not into a frame's password field. Its text leaves out a frame an extension puts in
+# the page, which isn't the page's. Where it acts in the page shown, its pointer and a
 # ring with the element's ref show it. It opens a page, clicks its link, scrolls, takes a screenshot
 # and closes a tab, and a bank's site asks first, in a card whose Allow Once opens it. Always Allow
 # opens it from then on, until Revoke Permission in the Space's menu takes that back. A login the
@@ -36,8 +37,26 @@ agents_file="$(dirname "$saved")/Agents"
 token=$(python3 -I -c 'import secrets; print(secrets.token_hex(32))')
 printf '{"on":true,"agents":[{"client":"mcp-client","token":"%s"}]}' "$token" > "$agents_file"
 chmod 600 "$agents_file"
+# An extension of the check's own, whose content script puts a frame of its page in the frames
+# page, as a password manager puts its own in pages. The frame tells the page it's there.
+extension="$out/frame-extension"
+mkdir -p "$extension"
+cat > "$extension/manifest.json" << 'EOF'
+{
+  "manifest_version": 3,
+  "name": "Frame check",
+  "version": "1",
+  "content_scripts": [{"matches": ["http://localhost/frames.html*"], "js": ["content.js"]}],
+  "web_accessible_resources": [{"resources": ["frame.html"], "matches": ["http://localhost/*"]}]
+}
+EOF
+printf '%s' 'const frame = document.createElement("iframe");
+frame.src = chrome.runtime.getURL("frame.html");
+document.body.append(frame);' > "$extension/content.js"
+printf '%s' '<p>Extension text</p><script src=frame.js></script>' > "$extension/frame.html"
+printf '%s' 'parent.postMessage("extension frame", "*");' > "$extension/frame.js"
 BROWSER_DRIVE=1 BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' \
-  "$browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" --load-extension="$extension" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -242,7 +261,10 @@ document.title = "fields";
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
 <input type=password aria-label="Cross password">' > "$out/site/cross.html"
   printf '%s' "<title>frames</title><p>Top text</p><iframe src=inner.html></iframe>
-<iframe src=http://127.0.0.1:$port/cross.html></iframe>" > "$out/site/frames.html"
+<iframe src=http://127.0.0.1:$port/cross.html></iframe>
+<script>addEventListener('message', (event) => {
+  if (event.data === 'extension frame') document.title = 'frames with extension';
+});</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
   printf '%s\n' "$outline" > "$out/mcp-frames.txt"
   case "$outline" in
@@ -272,6 +294,17 @@ document.title = "fields";
   case "$refused" in
     "error: Password fields are off limits"*) ;;
     *) fail "typing into the frame's password field answered: $refused" ;;
+  esac
+  # The extension's frame is the extension's, not the page's: the page's text has its frames'
+  # and not that one's.
+  await_log "^browser: title $frames_tab frames with extension\$" \
+    "the check's extension didn't put its frame in the frames page"
+  read=$(call read_page "{\"tab\":$frames_tab}")
+  printf '%s\n' "$read" > "$out/mcp-frames-text.txt"
+  case "$read" in
+    *"Extension text"*) fail "reading the frames page gave the extension's frame's text: $read" ;;
+    *"Top text"*"Inner text"*"Cross text"*) ;;
+    *) fail "reading the frames page answered: $read" ;;
   esac
 
   # It opens a page in its Space, clicks its link, scrolls and takes a screenshot.
@@ -534,8 +567,8 @@ if [ "$driven" = 1 ]; then
   await_more "$hello" "$hellos" || fail "the app didn't hear the second client's hello"
   send menu Settings…
   expect '^browser: settings shown ' "Settings… didn't show Settings"
-  # The sixth tab, and the switch at the end of the first row.
-  send clickkey 433 60
+  # The seventh tab, and the switch at the end of the first row.
+  send clickkey 461 60
   expect '^browser: settings tab Agents$' "a click on Agents didn't show its tab"
   ../tools/window-screenshot.sh "$pid" "$out/settings-agents.png" || fail "no window to capture"
   send clickkey 592 134
