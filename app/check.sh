@@ -58,6 +58,8 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
       xdotool mousemove 1279 799
       exec env BROWSER_HEADLESS=xvfb ./check.sh "$@"' sh "$@"
   fi
+  # Focus steps can fail here, as wlroots' Xwayland window manager hands the X focus back to the
+  # browser window (#851), so Xvfb on CI is the reference for focus.
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
