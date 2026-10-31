@@ -318,10 +318,11 @@ if [ "$1" -ge "$from_x" ]; then edge=$1 to_x=$(($1 - 6)); else edge=$(($1 + $3))
 to_y=$((from_y + (to_x - from_x) * ($2 + $4 - from_y) / (edge - from_x) - 2))
 [ "$to_y" -ge $((below + 2)) ] ||
   fail "Move to's submenu at $* leaves no room in its triangle for the row under Move to"
+# Read as the move is handled: the rest ends the triangle 300 ms on (menu.rs's SAFE_TIMEOUT).
 send move $to_x $to_y
-none_since '^browser: menu highlights ' ||
+none_while '^browser: menu highlights ' ||
   fail "the pointer on its way to the submenu took the highlight of the row it crossed"
-none_since '^browser: menu submenu Move to hidden$' ||
+none_while '^browser: menu submenu Move to hidden$' ||
   fail "the pointer on its way to the submenu closed it"
 expect '^browser: menu submenu Move to hidden$' "resting under Move to didn't close its submenu"
 send key escape
