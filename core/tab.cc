@@ -1127,6 +1127,10 @@ void Tab::RenderViewReady() {
   // went with the renderer, and with no view focused no key reaches the host's tab_key_before_page.
   if (std::exchange(focus_when_ready_, false)) {
     Window::PageViewChanged(id_);
+  } else {
+    // Aura doesn't focus a new renderer's view either, as for a tab unloaded or killed that loads
+    // again once it's shown: the keyboard stays in the view that holds it, for no page.
+    Window::PageCommittedInNewView(id_);
   }
 }
 
