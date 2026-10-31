@@ -957,10 +957,11 @@ fn stacked() -> Option<Vec<Browser>> {
 }
 
 /// The pages of browser window `id`, as drive.mm lists their views: from the bottom-left corner of
-/// content `width` by `height`, with the radius of their corners if they're round.
-/// shortcut: where the shell lays them out and the radius it gives their corners, which the core
-/// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
-/// are or how round.
+/// content `width` by `height`, with the radius of their corners if they're round, and a pane's
+/// docked DevTools before its page, as the core reports them.
+/// shortcut: the pages are where the shell lays them out, with the radius it gives their corners,
+/// which the core follows. They're Aura's windows in Chromium's one X window, and no core call
+/// says where they are or how round.
 fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
@@ -972,10 +973,19 @@ fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
         let shell = shell.read(cx);
         Some((shell.shown_pages(), shell.page_frame(viewport)))
     })?;
-    let views = pages.into_iter().map(|(_, page)| {
-        let [x, bottom, width, high] =
-            [page.left(), page.bottom(), page.size.width, page.size.height].map(f32::from);
-        let y = height - f64::from(bottom);
+    let docked = devtools(id);
+    let frames = pages.into_iter().flat_map(|(_, page)| {
+        let page = [page.left(), page.top(), page.size.width, page.size.height].map(f64::from);
+        // DevTools fill the pane they're docked in.
+        match docked {
+            Some((devtools, beside)) if (0..4).all(|i| (devtools[i] - page[i]).abs() <= 1.) => {
+                vec![devtools, beside]
+            }
+            _ => vec![page],
+        }
+    });
+    let views = frames.map(|[x, top, width, high]| {
+        let y = height - (top + high);
         let round = match radius > 0. {
             true => format!(" radius {radius:.0}"),
             false => String::new(),
@@ -983,6 +993,16 @@ fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
         format!(", WebContentsViewCocoa {x:.0},{y:.0} {width:.0}x{high:.0}{round}")
     });
     Some(views.collect())
+}
+
+/// Where DevTools docked in a page of `id` show, and the page beside them, from the content's
+/// top-left corner, which the core reports, as the X server can't see them.
+fn devtools(id: bc::bc_id) -> Option<([f64; 4], [f64; 4])> {
+    let mut devtools = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+    let mut page = devtools;
+    unsafe { bc::bc_window_devtools(id, &mut devtools, &mut page) }.then_some(())?;
+    let frame = |r: bc::bc_rect| [r.x, r.y, r.width, r.height];
+    Some((frame(devtools), frame(page)))
 }
 
 /// The ring the core draws inside a split view's focused page, over the pages, as the Mac's driver
@@ -1763,8 +1783,8 @@ fn run_command(line: &str) -> Option<()> {
         // The window's content and the views the X server has in it: GPUI's, and the overlays
         // and floats over it, with a tab's dialog, which the core reports, as the Mac's lists its
         // child windows. The floats, such as the zoom HUD, take no input, so they're left out of
-        // overlay_views. shortcut: the pages are aura windows in Chromium's window, which the X
-        // server doesn't see, so they aren't listed.
+        // overlay_views. The pages are aura windows in Chromium's window, which the X server
+        // doesn't see, so the shell and the core say where they are.
         "layout" => {
             let browser = driven()?;
             let [_, _, width, height] = frame(browser.window)?;
