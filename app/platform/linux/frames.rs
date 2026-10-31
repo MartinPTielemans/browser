@@ -1,7 +1,8 @@
-//! Where the browser windows are, so a relaunch brings them back where they were (host.h's
-//! host_window_frame, host_screens and host_cascaded). On X11 the X server says, as the driver
-//! reads it. Wayland shows no client a window's place or the screens', so there the windows come
-//! back at their sizes, wherever the compositor puts them.
+//! Where the browser windows are, so a relaunch brings them back where they were and in their order
+//! (host.h's host_window_frame, host_screens, host_cascaded and host_show_window_behind). On X11
+//! the X server says, as the driver reads it. Wayland shows no client a window's place or the
+//! screens', nor lets one stack its windows, so there the windows come back at their sizes,
+//! wherever the compositor puts them.
 
 use std::{
     cell::{Cell, RefCell},
@@ -162,4 +163,31 @@ pub extern "C" fn host_cascaded(
         return;
     };
     unsafe { (*x, *y, *width, *height) = (left + CASCADE, top + CASCADE, wide, high) };
+}
+
+/// A saved window comes back behind the one in front of it. The core shows it without the keyboard,
+/// which on X11 still maps it on top, so it's put under that window by the window manager, which
+/// keeps the stacking (EWMH's _NET_RESTACK_WINDOW). Chromium flushes the map before the core
+/// returns, so the window manager has the window by the time this reaches it.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_show_window_behind(ui_view: *mut c_void, above_ui_view: *mut c_void) {
+    put_under(ui_view, above_ui_view);
+}
+
+fn put_under(ui_view: *mut c_void, above_ui_view: *mut c_void) -> Option<()> {
+    (on_x11() == Some(true)).then_some(())?;
+    let x = server()?;
+    let (connection, root) = &*x;
+    // GPUI's window is in Chromium's, the browser window.
+    let window = |view: *mut c_void| {
+        Some(connection.query_tree(view as usize as u32).ok()?.reply().ok()?.parent)
+    };
+    let (window, above) = (window(ui_view)?, window(above_ui_view)?);
+    let restack = connection.intern_atom(false, b"_NET_RESTACK_WINDOW").ok()?.reply().ok()?.atom;
+    // From a pager, source 2, which is the one Openbox takes it from.
+    let below = u32::from(xproto::StackMode::BELOW);
+    let message = xproto::ClientMessageEvent::new(32, window, restack, [2, above, below, 0, 0]);
+    let mask = xproto::EventMask::SUBSTRUCTURE_REDIRECT | xproto::EventMask::SUBSTRUCTURE_NOTIFY;
+    connection.send_event(false, *root, mask, message).ok()?;
+    connection.flush().ok()
 }
