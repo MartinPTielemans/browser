@@ -6291,6 +6291,8 @@ fn main() {
     let (args, host) = switches_and_host(std::env::args().collect());
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
+    // The quit's last stage the log can show: what's left is the process's exit (#959).
+    log!("browser: quit: chromium returned {code}");
     std::process::exit(code);
 }
 
