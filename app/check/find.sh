@@ -321,10 +321,10 @@ expect '^browser: command javascript-console via ui$' \
 await_views 2 "after JavaScript Console"
 # In DevTools' console, ⌘A, ⌘C and ⌘V are the console's: ⌘C copies its text to the run's own
 # pasteboard, and ⌘V pastes it, which a second copy reads. The console's prompt takes the keyboard
-# once DevTools have loaded, so the copy is tried until it has. On a new profile Chromium's guard
-# against pasted scams refuses the first paste until "allow pasting" is typed; where it's off
-# already, ↩ runs those words as a script that fails, and the paste reads the same. $1 says where
-# DevTools are, docked or undocked.
+# once DevTools have loaded, so the first copy is tried until it has. On a new profile Chromium's
+# guard against pasted scams refuses the first paste until "allow pasting" is typed; where it's
+# off already, ↩ runs those words as a script that fails, and the paste reads the same. $1 says
+# where DevTools are, docked or undocked.
 console_keys() {
   local word=$1-copy
   for _ in $(seq 50); do
@@ -343,10 +343,19 @@ console_keys() {
   send key return
   send type pasted-
   send key v cmd
-  send key a cmd
-  send key c cmd
-  send pasteboard
-  expect "^browser: pasteboard text pasted-$word\$" "⌘V in $1 DevTools didn't paste in the console"
+  # The console copies once its renderer has the keys, after the driver's done with them, so a
+  # read straight after ⌘C can come before the copy: the second copy is tried until it holds the
+  # paste too.
+  for _ in $(seq 50); do
+    send key a cmd
+    send key c cmd
+    send pasteboard
+    logged "^browser: pasteboard text pasted-$word\$" && break
+  done
+  logged "^browser: pasteboard text pasted-$word\$" || {
+    ../tools/window-screenshot.sh "$pid" "$out/devtools-$1-paste.png" all || true
+    fail "⌘V in $1 DevTools didn't paste in the console, see $out/devtools-$1-paste.png"
+  }
 }
 keys=$((step + 1))
 console_keys docked
