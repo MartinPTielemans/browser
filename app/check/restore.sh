@@ -13,9 +13,10 @@
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files.
 # A new download's row dragged hands its file to the system's drag, the Library closing until it's
-# let go. Resting on the Library button shows the newest finished downloads, and the menu of one's
-# row there has Move to Trash, which puts its file in the Trash. A SIGTERM, which macOS sends at
-# logout and restart, keeps a tab opened just before it. Reports how long putting them back takes.
+# let go. Resting on the Library button shows the newest finished downloads, each with its picture
+# or its type's icon, and the menu of one's row there has Move to Trash, which puts its file in the
+# Trash. A SIGTERM, which macOS sends at logout and restart, keeps a tab opened just before it.
+# Reports how long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
 # the archive, counting the time across a quit, and the tab shown stays. The first tabs it takes
 # bring a note, until View Archive answers it, which opens the Library there, and never again. A
@@ -345,6 +346,8 @@ grep -q '^browser: download flying ' "$log" && fail "a download the relaunch rea
 send move 24 $((height - 25))
 expect '^browser: recent downloads shown 1$' \
   "resting on the Library button didn't show the recent download"
+# notes.txt's row shows the system's icon for its type, as Finder's or the file manager's.
+expect '^browser: download [0-9]* preview icon 52x52$' "notes.txt's row didn't show its type's icon"
 send move 24 $((height - 45))
 send move 120 $((height - 78))
 none_since '^browser: recent downloads hidden$' ||

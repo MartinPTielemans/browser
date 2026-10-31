@@ -149,7 +149,7 @@ impl Shell {
     /// tab shown alone, the one shown before it (Dia). None where the page has no targets for it:
     /// a favorite, a folder, a split view's row, a tab of the split shown, or a split shown full.
     pub(super) fn split_partner(&self, tab: u64) -> Option<u64> {
-        if self.sidebar_hidden || self.is_folder(tab) || self.panes(tab).len() > 1 {
+        if self.is_folder(tab) || self.panes(tab).len() > 1 {
             return None;
         }
         let shown = self.panes(self.selected);
@@ -177,9 +177,11 @@ impl Shell {
             return false;
         };
         let card = self.page_frame(self.viewport).0;
+        // The sidebar shown while hidden lies over the page, so a row dragged in it is over the
+        // page from the start and would show the targets at once.
         let with = match drag.from {
-            Place::List(..) => self.split_partner(drag.tab),
-            Place::Favorite(_) => None,
+            Place::List(..) if !self.sidebar_hidden => self.split_partner(drag.tab),
+            Place::List(..) | Place::Favorite(_) => None,
         };
         let Some(with) = with.filter(|_| position.x > card.left() + px(TARGET_TRIGGER)) else {
             if let Some(drag) = self.drag.as_mut().filter(|drag| drag.over_page.is_some()) {
