@@ -100,12 +100,11 @@ pub fn start() {
                 if !run(&line) {
                     log!("browser: drive {n}: can't do that");
                 }
-                match ACTIVATING.take() {
-                    Some(window) => {
-                        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-                        await_focus(n, window, until)
-                    }
-                    None => settle(n),
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                match (ACTIVATING.take(), RESIZING.take()) {
+                    (Some(window), _) => await_focus(n, window, until),
+                    (_, Some((gpui, width, height))) => await_size(n, gpui, (width, height), until),
+                    (None, None) => settle(n),
                 }
             }));
         }
@@ -217,6 +216,9 @@ thread_local! {
     /// The window the window command asked the window manager to give the keyboard, which it's
     /// done once it has.
     static ACTIVATING: Cell<Option<xproto::Window>> = const { Cell::new(None) };
+    /// The UI's window of the browser window the resize command asked a size of, in points, which
+    /// it's done once the UI has.
+    static RESIZING: Cell<Option<(xproto::Window, f64, f64)>> = const { Cell::new(None) };
     /// The window a press went to, which gets the drag's events until the release, as the X
     /// server's grab of the pointer does.
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
@@ -1168,6 +1170,37 @@ fn await_focus(n: u64, window: xproto::Window, until: std::time::Instant) {
     settle(n);
 }
 
+/// Reports command `n` done once the UI's window `gpui` is `size` in points, as the UI has then
+/// laid out at that size and placed what floats over it, or at `until`.
+fn await_size(n: u64, gpui: xproto::Window, size: (f64, f64), until: std::time::Instant) {
+    let has = ui_size(gpui).is_some_and(|(width, height)| {
+        (f64::from(width) - size.0).abs() < 1. && (f64::from(height) - size.1).abs() < 1.
+    });
+    if !has && std::time::Instant::now() < until {
+        after(10, Box::new(move || await_size(n, gpui, size, until)));
+        return;
+    }
+    if !has {
+        log!("browser: drive {n}: the UI isn't {}x{} yet", size.0, size.1);
+    }
+    settle(n);
+}
+
+/// The size GPUI has for its window `gpui`, in points.
+fn ui_size(gpui: xproto::Window) -> Option<(f32, f32)> {
+    let cx = CX.with_borrow(Clone::clone)?;
+    cx.update(|cx| {
+        cx.windows().into_iter().find_map(|handle| {
+            let size = handle.update(cx, |_, window, _| {
+                let ours = crate::ns_view(window) as usize as u32 == gpui;
+                ours.then(|| window.viewport_size())
+            });
+            size.ok().flatten()
+        })
+    })
+    .map(|size| (f32::from(size.width), f32::from(size.height)))
+}
+
 /// The title of the window with the input focus, or of the first window it's in that has one.
 fn focus_title() -> Option<String> {
     let x = server()?;
@@ -1849,6 +1882,9 @@ fn run_command(line: &str) -> Option<()> {
                 .height((height * scale) as u32);
             let x = server()?;
             x.0.configure_window(browser.window, &aux).ok()?;
+            // The window manager gives the window its size a moment later, and the UI follows,
+            // where the Mac's resize is done at once (#1065).
+            RESIZING.set(Some((browser.gpui, width, height)));
             x.0.flush().ok()
         }
         "order" => {
