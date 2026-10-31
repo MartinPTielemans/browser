@@ -120,6 +120,12 @@ if [ -n "$run" ]; then
     env -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u GDK_SCALE WAYLAND_DISPLAY="$wayland" \
       SWAYSOCK="$swaysock" BROWSER_HEADLESS="$wayland" "$@" || status=$?
   fi
+  # A client the compositor dropped, or a compositor gone, shows only in sway's log, which goes
+  # with the session's folder.
+  if [ "$status" != 0 ]; then
+    kill -0 "$sway_pid" 2>/dev/null || echo "headless: sway had exited." >&2
+    tail -n 100 "$dir/sway.log" | sed 's/^/sway: /' >&2
+  fi
   exit $status
 fi
 
