@@ -558,9 +558,15 @@ impl Shell {
     fn tile_icon(&self, tab: u64, theme: Option<&TileTheme>) -> gpui::Div {
         let panes = self.panes(tab);
         if panes.len() > 1 {
-            let icons = panes.into_iter().map(|pane| self.tile_icon(pane, None));
+            let icons = panes.into_iter().map(|pane| self.page_icon(pane, None));
             return div().flex().items_center().gap(px(TILE_SPLIT_GAP)).children(icons);
         }
+        self.page_icon(tab, theme)
+    }
+
+    /// One page's favicon on a tile, never its split view's: each of a split's pages is in it, so
+    /// drawing a page as its split would draw the split again, without end.
+    fn page_icon(&self, tab: u64, theme: Option<&TileTheme>) -> gpui::Div {
         div()
             .size(px(FAVICON_SIZE))
             .flex()

@@ -351,3 +351,49 @@ fn a_favorite_split_view_takes_one_place_of_the_most(cx: &mut TestAppContext) {
         assert!(!shell.has_room_for(1));
     });
 }
+
+/// A split view's row dragged onto the tiles draws as a tile of its pages' favicons, and once it's
+/// a favorite its tile draws the same, each page's favicon once: a page's split view is the page's
+/// own, so the tile can't draw a page by drawing the split again.
+#[gpui::test]
+fn a_split_views_tile_draws_while_dragged_and_as_a_favorite(cx: &mut TestAppContext) {
+    use crate::shell::{
+        Place, Split,
+        drag::detents::{X, drag_to, press},
+    };
+
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into(), "".into())], cx);
+        shell.set_space(1, cx);
+        let split = Split { tabs: vec![2, 3], ..Split::default() };
+        shell.set_tabs(1, Vec::new(), vec![1, 2, 3], vec![split], Folders::default(), cx);
+        shell.set_favorites(vec![(10, 1), (13, 1)], cx);
+    });
+    cx.run_until_parked();
+    press(&shell, cx, 2);
+    let (x, y) = shell.read_with(cx, |shell, _| {
+        let [left, top, width] = shell.tile_places(3)[2];
+        (left + width / 2., shell.tiles_top() + top + TILE_HEIGHT / 2.)
+    });
+    drag_to(&shell, cx, X, y + 60.);
+    drag_to(&shell, cx, x, y);
+    shell.update(cx, |shell, cx| {
+        let drag = shell.drag.as_mut().expect("the row is dragged");
+        assert!(matches!(drag.to, Place::Favorite(2)));
+        // Turned into a tile, as "drag shape tile" says on screen.
+        drag.shape.start = None;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    shell.update(cx, |shell, cx| {
+        shell.drag = None;
+        let split = Split { tabs: vec![2, 3], ..Split::default() };
+        shell.set_tabs(1, Vec::new(), vec![1], Vec::new(), Folders::default(), cx);
+        shell.set_favorites_split(vec![(10, 1), (13, 1), (2, 1), (3, 1)], vec![split], cx);
+        assert_eq!(shell.tile_leads(), [10, 13, 2]);
+    });
+    cx.run_until_parked();
+}
