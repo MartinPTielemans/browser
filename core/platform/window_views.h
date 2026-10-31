@@ -72,7 +72,7 @@ void ShowPages(views::Widget* widget,
 // Keeps the pages shown in |widget|'s window where they are as it resizes, until ShowPages lays
 // them out again: for a page going full screen, or back, which the app lays out once, at the
 // window's new size. On the Mac, where the app hears of a resize before the pages are laid out at
-// it, and on Windows so far, it does nothing.
+// it, it does nothing.
 void HoldPagesForResize(views::Widget* widget);
 
 // Whether |widget|'s pages are held for a resize (HoldPagesForResize) that ShowPages hasn't ended.
