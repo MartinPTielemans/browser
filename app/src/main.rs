@@ -6271,6 +6271,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         archive_note_changed: Some(archive_note_changed),
         #[cfg(target_os = "linux")]
         window_activated: Some(window_activated),
+        #[cfg(target_os = "linux")]
+        window_option_tapped: Some(window_option_tapped),
         ..Default::default()
     };
     (args, host)
@@ -6334,6 +6336,16 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
                 key_window_changed(ui_view);
             }
         };
+        cx.foreground_executor().spawn(later).detach();
+    }
+}
+
+/// ⌥ was pressed alone with the page in `window` focused, which GPUI doesn't hear under X11, as
+/// option_tapped is for the UI's. After, as window_activated.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_option_tapped(_: *mut c_void, window: bc::bc_id) {
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move { update_window(window, |shell, cx| shell.option_tapped(cx)) };
         cx.foreground_executor().spawn(later).detach();
     }
 }

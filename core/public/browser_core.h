@@ -827,6 +827,9 @@ typedef struct bc_host {
   // On Linux: |window| became the active one. Under X11 the UI's window in it hears nothing of that
   // when the keyboard goes to the page, as a click on another window's page gives it.
   void (*window_activated)(void* context, bc_id window);
+  // On Linux under X11: ⌥ was pressed and let go alone, with no other key or click while it was
+  // down, as the page in |window| had the keyboard. GPUI hears only the UI's keys there.
+  void (*window_option_tapped)(void* context, bc_id window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

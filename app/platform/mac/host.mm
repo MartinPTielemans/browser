@@ -1608,6 +1608,10 @@ void host_watch_option_taps(void (*tapped)(void* ui_view)) {
   // makes it part of something else: a shortcut, a typed character, an ⌥-click or a zoom.
   static bool alone = false;
   static NSEventModifierFlags held = 0;
+  // When the newest change of modifiers seen came. Chromium sends a key the page didn't use, ⌥
+  // among them, through the app again, as pressed and maybe after the next (redispatchKeyEvent:):
+  // taken as a second press, it would make ⌥ alone look held with something else.
+  static NSTimeInterval seen = -1;
   constexpr NSEventMask kBetween = NSEventMaskKeyDown | NSEventMaskLeftMouseDown |
                                    NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown |
                                    NSEventMaskScrollWheel | NSEventMaskMagnify;
@@ -1618,6 +1622,10 @@ void host_watch_option_taps(void (*tapped)(void* ui_view)) {
                                        alone = false;
                                        return event;
                                      }
+                                     if (event.timestamp <= seen) {
+                                       return event;
+                                     }
+                                     seen = event.timestamp;
                                      constexpr NSEventModifierFlags kModifiers =
                                          NSEventModifierFlagCommand | NSEventModifierFlagShift |
                                          NSEventModifierFlagOption | NSEventModifierFlagControl;
