@@ -11,6 +11,8 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
+#include "base/process/kill.h"
+#include "base/scoped_multi_source_observation.h"
 #include "base/scoped_observation.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -29,17 +31,25 @@
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "chrome/common/webui_url_constants.h"
 #include "components/sessions/content/session_tab_helper.h"
+#include "content/public/browser/child_process_termination_info.h"
+#include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_process_host_creation_observer.h"
+#include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/web_contents.h"
+#include "extensions/browser/disable_reason.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_action.h"
 #include "extensions/browser/extension_action_icon_factory.h"
 #include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_host_observer.h"
+#include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registrar.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/browser/permissions/active_tab_permission_granter.h"
+#include "extensions/browser/process_map.h"
 #include "extensions/browser/ui_util.h"
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/api/commands/commands_handler.h"
@@ -60,6 +70,128 @@ namespace browser_core {
 namespace {
 
 constexpr char kOnCommand[] = "commands.onCommand";
+
+// In an extension's entry of the profile's extension prefs: how many times its process has crashed
+// since it was last turned on, and that the browser turned it off for that and the user hasn't been
+// told.
+constexpr char kCrashesPref[] = "browser_core_crashes";
+constexpr char kCrashedOffPref[] = "browser_core_crashed_off";
+
+// The crashes that turn an extension off, as Arc turned off one that crashed it.
+constexpr int kCrashesToTurnOff = 2;
+
+// Whether the browser turned extension |id| off in |profile| as it crashed, and the user hasn't
+// been told.
+bool CrashedOff(Profile* profile, const std::string& id) {
+  bool crashed = false;
+  extensions::ExtensionPrefs::Get(profile)->ReadPrefAsBoolean(id, kCrashedOffPref, &crashed);
+  return crashed;
+}
+
+// Counts the crashes of each extension's own process, its background page or service worker, its
+// popup and its pages in tabs, and turns it off after the second, across launches. Chromium can't
+// tell which extension, if any, crashed the browser itself: its crash reports name no extension,
+// and an extension's own code never runs in the browser's process. So a crash of its own process
+// is the closest honest sign, as it's the extension's code that crashed there.
+class CrashWatch : public content::RenderProcessHostCreationObserver,
+                   public content::RenderProcessHostObserver {
+ public:
+  CrashWatch() {
+    for (auto hosts = content::RenderProcessHost::AllHostsIterator(); !hosts.IsAtEnd();
+         hosts.Advance()) {
+      OnRenderProcessHostCreated(hosts.GetCurrentValue());
+    }
+  }
+
+ private:
+  // content::RenderProcessHostCreationObserver, which hears a host again for each new process:
+  void OnRenderProcessHostCreated(content::RenderProcessHost* host) override {
+    if (!observations_.IsObservingSource(host)) {
+      observations_.AddObservation(host);
+    }
+  }
+
+  // content::RenderProcessHostObserver:
+  void RenderProcessReady(content::RenderProcessHost* host) override {
+    // Kept, as the process map may forget the process before its exit is heard.
+    if (std::optional<extensions::ExtensionId> id = ExtensionIn(host)) {
+      extensions_[host] = *id;
+    }
+  }
+  void RenderProcessExited(content::RenderProcessHost* host,
+                           const content::ChildProcessTerminationInfo& info) override {
+    std::optional<extensions::ExtensionId> id = ExtensionIn(host);
+    if (auto kept = extensions_.find(host); kept != extensions_.end()) {
+      id = id.value_or(kept->second);
+      extensions_.erase(kept);
+    }
+    // A process the browser or the system ended isn't the extension's crash.
+    if (id && (info.status == base::TERMINATION_STATUS_PROCESS_CRASHED ||
+               info.status == base::TERMINATION_STATUS_OOM)) {
+      // Posted: turning it off tears down its hosts, which the process's observers may be.
+      Profile* profile = Profile::FromBrowserContext(host->GetBrowserContext());
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE, base::BindOnce(&CrashWatch::Crashed,
+                                    profile->GetOriginalProfile()->GetWeakPtr(), *id));
+    }
+  }
+  void RenderProcessHostDestroyed(content::RenderProcessHost* host) override {
+    extensions_.erase(host);
+    observations_.RemoveObservation(host);
+  }
+
+  static std::optional<extensions::ExtensionId> ExtensionIn(content::RenderProcessHost* host) {
+    return extensions::ProcessMap::Get(host->GetBrowserContext())
+        ->GetExtensionIdForProcess(host->GetID());
+  }
+
+  static void Crashed(base::WeakPtr<Profile> profile, const extensions::ExtensionId& id) {
+    if (!profile) {
+      return;
+    }
+    const extensions::Extension* extension =
+        extensions::ExtensionRegistry::Get(profile.get())->enabled_extensions().GetByID(id);
+    // The ad blocker the browser comes with is the browser's, and Settings turns it off.
+    if (!extension || !extensions::ui_util::ShouldDisplayInExtensionSettings(*extension) ||
+        IsAdBlocker(id)) {
+      return;
+    }
+    extensions::ExtensionPrefs* prefs = extensions::ExtensionPrefs::Get(profile.get());
+    int crashes = 0;
+    prefs->ReadPrefAsInteger(id, kCrashesPref, &crashes);
+    ++crashes;
+    LOG(ERROR) << "browser: extension " << id << " crashed, " << crashes << " times";
+    if (crashes < kCrashesToTurnOff) {
+      prefs->UpdateExtensionPref(id, kCrashesPref, base::Value(crashes));
+      return;
+    }
+    prefs->UpdateExtensionPref(id, kCrashesPref, std::nullopt);
+    extensions::ExtensionRegistrar::Get(profile.get())->DisableExtension(
+        id, {extensions::disable_reason::DISABLE_USER_ACTION});
+    // Policy may keep it on.
+    if (!extensions::ExtensionRegistry::Get(profile.get())->enabled_extensions().Contains(id)) {
+      LOG(ERROR) << "browser: extension " << id << " turned off for crashing";
+      prefs->UpdateExtensionPref(id, kCrashedOffPref, base::Value(true));
+    }
+  }
+
+  std::map<content::RenderProcessHost*, extensions::ExtensionId> extensions_;
+  base::ScopedMultiSourceObservation<content::RenderProcessHost, content::RenderProcessHostObserver>
+      observations_{this};
+};
+
+// Extension |id| if it's turned on in |profile| and runs there: in a private window's profile only
+// if the user allowed it in Incognito, as in Chrome, whose off-the-record registry is the
+// original's and lists every extension.
+const extensions::Extension* RunsIn(Profile* profile, const std::string& id) {
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
+  if (extension && profile->IsOffTheRecord() &&
+      !extensions::util::IsIncognitoEnabled(extension, profile)) {
+    return nullptr;
+  }
+  return extension;
+}
 
 // The key a command's |code| is, as bc_key names one, or "" for a media key, which no window's
 // keys are.
@@ -152,6 +284,43 @@ std::vector<KeyedCommand> KeyedCommands(Profile* profile, const extensions::Exte
   return keyed;
 }
 
+// Chrome gives an extension the key it suggests only if Chrome's own table of shortcuts doesn't
+// hold it, but here the app's keys are the browser's, and the app keeps them over an extension's.
+// So a key that table alone refused, such as Linux's Alt+Shift+P for Chrome's tab groups, is the
+// extension's, as on the Mac. One the user changed or took away stays as they left it, and one
+// another extension holds stays its.
+void AssignKeysChromeRefused(Profile* profile, const extensions::Extension& extension) {
+  extensions::CommandService* service = extensions::CommandService::Get(profile);
+  extensions::ExtensionPrefs* prefs = extensions::ExtensionPrefs::Get(profile);
+  auto assign = [&](const ui::Command& command) {
+    // Read again for each, as assigning one rewrites them.
+    const base::DictValue* suggested = prefs->ReadPrefAsDict(extension.id(), "commands");
+    const base::DictValue* pref = suggested ? suggested->FindDict(command.command_name()) : nullptr;
+    if (command.global() || command.accelerator().key_code() == ui::VKEY_UNKNOWN ||
+        (pref && pref->FindBool("was_assigned").value_or(false)) ||
+        service->FindCommandByName(extension.id(), command.command_name())
+                .accelerator()
+                .key_code() != ui::VKEY_UNKNOWN) {
+      return;
+    }
+    service->AddKeybindingPref(command.accelerator(), extension.id(), command.command_name(),
+                               /*allow_overrides=*/false, /*global=*/false);
+  };
+  if (const ui::CommandMap* named = extensions::CommandsInfo::GetNamedCommands(&extension)) {
+    for (const auto& [name, command] : *named) {
+      assign(command);
+    }
+  }
+  using extensions::CommandsInfo;
+  for (const extensions::Command* action : {CommandsInfo::GetActionCommand(&extension),
+                                            CommandsInfo::GetBrowserActionCommand(&extension),
+                                            CommandsInfo::GetPageActionCommand(&extension)}) {
+    if (action) {
+      assign(*action);
+    }
+  }
+}
+
 // The page Chrome's Options item opens for |extension|: its own, or Chrome's extensions page
 // showing it, as Chrome embeds one that doesn't ask for a tab. "" if it has none.
 std::string OptionsPage(const extensions::Extension& extension) {
@@ -189,6 +358,12 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
   // extensions::ExtensionRegistryObserver:
   void OnExtensionLoaded(content::BrowserContext* context,
                          const extensions::Extension* extension) override {
+    AssignKeysChromeRefused(profile_, *extension);
+    // Turned on again, as on Chrome's extensions page, it needs no telling.
+    if (CrashedOff(profile_, extension->id())) {
+      extensions::ExtensionPrefs::Get(profile_)->UpdateExtensionPref(
+          extension->id(), kCrashedOffPref, std::nullopt);
+    }
     Changed();
   }
   void OnExtensionUnloaded(content::BrowserContext* context,
@@ -254,6 +429,7 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
     std::vector<bc_extension> extensions;
     extensions.reserve(listed.size());
     for (const scoped_refptr<const extensions::Extension>& extension : listed) {
+      const bool enabled = registry->enabled_extensions().Contains(extension->id());
       std::vector<bc_extension_command>& told = commands.emplace_back();
       for (const KeyedCommand& command : keyed.emplace_back(KeyedCommands(profile_, *extension))) {
         told.push_back({command.name.c_str(), command.description.c_str(), command.key.c_str(),
@@ -261,12 +437,15 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
       }
       extensions.push_back({.id = extension->id().c_str(),
                             .name = extension->name().c_str(),
-                            .enabled = registry->enabled_extensions().Contains(extension->id()),
+                            .enabled = enabled,
                             .pinned = model && model->IsActionPinned(extension->id()),
                             .options = options.emplace_back(OptionsPage(*extension)).c_str(),
                             .commands = told.data(),
                             .command_count = told.size(),
-                            .removable = !IsAdBlocker(extension->id())});
+                            .removable = !IsAdBlocker(extension->id()),
+                            .incognito = extensions::util::IsIncognitoEnabled(extension->id(),
+                                                                              profile_),
+                            .crashed = !enabled && CrashedOff(profile_, extension->id())});
     }
     Host().extensions_changed(Host().context, ProfileId(DirOf(profile_)), extensions.data(),
                               extensions.size());
@@ -495,6 +674,7 @@ void WindowActions::Report() {
 }
 
 void ObserveExtensions(Profile* profile) {
+  static base::NoDestructor<CrashWatch> crashes;
   std::unique_ptr<ProfileExtensions>& observed = Observed()[DirOf(profile)];
   observed = std::make_unique<ProfileExtensions>(profile);
 }
@@ -510,6 +690,23 @@ void SetExtensionPinned(Profile* profile, const std::string& id, bool pinned) {
   if (model && model->HasAction(id) && model->IsActionPinned(id) != pinned) {
     model->SetActionVisibility(id, pinned);
   }
+}
+
+void ExtensionCrashTold(Profile* profile, const std::string& id) {
+  if (CrashedOff(profile, id)) {
+    extensions::ExtensionPrefs::Get(profile)->UpdateExtensionPref(id, kCrashedOffPref,
+                                                                  std::nullopt);
+    ReportExtensions();
+  }
+}
+
+bool TurnOnExtension(Profile* profile, const std::string& id) {
+  extensions::ExtensionRegistry* registry = extensions::ExtensionRegistry::Get(profile);
+  if (!registry->disabled_extensions().Contains(id)) {
+    return registry->enabled_extensions().Contains(id);
+  }
+  extensions::ExtensionRegistrar::Get(profile)->EnableExtension(id);
+  return registry->enabled_extensions().Contains(id);
 }
 
 bool RemoveExtension(Profile* profile, const std::string& id) {
@@ -529,8 +726,7 @@ bool RunExtension(bc_id window,
                   const std::string& id,
                   views::View* anchor) {
   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
-  const extensions::Extension* extension =
-      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
+  const extensions::Extension* extension = RunsIn(profile, id);
   extensions::ExtensionActionRunner* runner =
       extensions::ExtensionActionRunner::GetForWebContents(contents);
   if (!extension || !runner) {
@@ -564,8 +760,7 @@ bool RunExtensionCommand(content::WebContents* contents,
                          const std::string& id,
                          const std::string& name) {
   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
-  const extensions::Extension* extension =
-      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
+  const extensions::Extension* extension = RunsIn(profile, id);
   extensions::EventRouter* router = extensions::EventRouter::Get(profile);
   if (!extension || !router->ExtensionHasEventListener(id, kOnCommand)) {
     return false;

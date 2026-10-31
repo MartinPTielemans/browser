@@ -2,7 +2,10 @@
 //! favorites, to another Space, and over the page for a split view. And links and files
 //! dragged onto the list from the page or another app, which open there.
 
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     Context, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
@@ -18,6 +21,14 @@ use super::{
 /// The tab that links or files dragged in stand for until they're dropped: none, as the core
 /// counts.
 const INCOMING: u64 = 0;
+/// A tab held this close to the sidebar's left or right edge for EDGE_WAIT pages to the Space on
+/// that side, and on again after as long (ours: Arc's isn't measured).
+const EDGE: f32 = 24.;
+pub(super) const EDGE_WAIT: Duration = Duration::from_millis(500);
+/// How long the pointer rests on the middle half of another tab's row before the dragged tab
+/// would join it in a split view, so passing rows still reorders (ours, interim: Arc's isn't
+/// measured).
+const SPLIT_REST: Duration = Duration::from_millis(400);
 
 impl Shell {
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
@@ -251,10 +262,14 @@ impl Shell {
             from_depth: self.depth(tab),
             depth: self.depth(tab),
             line: None,
+            resting: None,
+            onto: None,
             dropped: false,
             over_page: None,
             shape: Shape::new(matches!(from, Place::Favorite(_))),
             held: false,
+            space: self.space,
+            edge: None,
         });
     }
 
@@ -294,10 +309,13 @@ impl Shell {
         let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
         let favorites = self.favorites.iter().filter(|&&other| other != tab).count();
         let folder = self.is_folder(tab);
+        let away = drag.space != self.space;
+        self.watch_edge(pointer.x, cx);
         // A favorite stays one in an agent's Space, which it can't move into.
         let kept = self.favorites.contains(&tab) && self.agents_space_shown();
         // Past the most, a row stays one.
         let over_favorites = !incoming
+            && !away
             && !folder
             && self.panes(tab).len() == 1
             && self.has_room_for(tab)
@@ -317,9 +335,13 @@ impl Shell {
             depth = kept_depth;
             (Place::Favorite(index.unwrap_or(0)), span, None)
         } else {
-            let fits = |&gap: &usize| self.gap_depths(&pinned, gap, tab).is_some();
+            // In another Space it goes where Move to puts it: under its pinned tabs, or at the top
+            // of its Today.
+            let fits = |&gap: &usize| {
+                (!away || gap == pinned.len()) && self.gap_depths(&pinned, gap, tab).is_some()
+            };
             let places = (0..=pinned.len()).filter(fits).map(|index| (true, index));
-            let today_places = (0..=today.len()).filter(|_| !folder);
+            let today_places = (0..=today.len()).filter(|&index| !folder && (!away || index == 0));
             let places = places.chain(today_places.map(|index| (false, index)));
             let layouts: Vec<_> = places
                 .map(|(in_pinned, index)| {
@@ -332,7 +354,14 @@ impl Shell {
                 .collect();
             let (first, last) = (layouts[0].1, layouts[layouts.len() - 1].1);
             let span = (first.min(last), first.max(last));
-            let at = (self.list_y(pointer.y) - grab.0).clamp(span.0, span.1);
+            // A row goes where its top comes nearest a slot's. What's dragged in has no row in the
+            // list, so it goes to the gap nearest the pointer, where its line shows, as Arc's: a
+            // slot's top is half the rows' gap under its line.
+            let held = match incoming {
+                true => -(ROW_PITCH - ROW_HEIGHT) / 2.,
+                false => grab.0,
+            };
+            let at = (self.list_y(pointer.y) - held).clamp(span.0, span.1);
             let Some(((in_pinned, index), _, _)) =
                 layouts.into_iter().min_by(|a, b| (a.1 - at).abs().total_cmp(&(b.1 - at).abs()))
             else {
@@ -343,20 +372,44 @@ impl Shell {
             }
             let place = Place::List(in_pinned, index);
             let line = self.line_at(&pinned, &today, place);
-            let stays = place == from && depth == from_depth;
+            let stays = place == from && depth == from_depth && !away;
             (place, span, line.filter(|_| !stays))
         };
+        // Rested on another tab's row, it would join it, so the gap it would go to stays where it
+        // was. Off the row's middle, it no longer would, and reordering carries on.
+        let middle = (!incoming && !over_favorites).then(|| self.split_onto(tab, pointer.y)).flatten();
+        let resting = self.drag.as_ref().and_then(|drag| drag.resting.as_ref().map(|rest| rest.0));
+        if middle != resting {
+            let rest = middle.map(|row| {
+                let wait = cx.spawn(async move |shell, cx| {
+                    cx.background_executor().timer(SPLIT_REST).await;
+                    shell.update(cx, |shell, cx| shell.rested_onto(row, cx)).ok();
+                });
+                (row, wait)
+            });
+            if let Some(drag) = &mut self.drag {
+                drag.resting = rest;
+            }
+        }
+        let was_onto = self.drag.as_ref().and_then(|drag| drag.onto);
+        let onto = was_onto.filter(|&row| middle == Some(row));
+        let (place, line) = if onto.is_some() { (to, None) } else { (place, line) };
         if let Some(drag) = &mut self.drag {
             drag.moving = true;
             drag.pointer = pointer;
             drag.span = span;
             drag.depth = depth;
             drag.line = line;
+            drag.onto = onto;
             drag.shape.turn(over_favorites, Instant::now());
+        }
+        if onto != was_onto {
+            // check.sh waits for this line.
+            log!("browser: drop onto none");
         }
         // Links dragged in have no place before their first, which they didn't pass a row to get.
         let entered = incoming && to == Place::List(false, usize::MAX);
-        if (place != to || depth != kept_depth) && !entered {
+        if (place != to || depth != kept_depth || onto != was_onto) && !entered {
             self.drag_detent(cx);
         }
         if place != to {
@@ -379,6 +432,104 @@ impl Shell {
             self.move_tiles(tiles, Curve::Room);
         }
         cx.notify();
+    }
+
+    /// Whether a dragged tab at `x` across the sidebar is held at its left or right edge, where it
+    /// pages to the user's Space on that side once it has waited there, as Arc's does. Only a tab
+    /// Move to takes: not a favorite, a folder, a split view or links dragged in.
+    fn watch_edge(&mut self, x: f32, cx: &mut Context<Self>) {
+        let width = self.width();
+        let side = (x < EDGE).then_some(false).or((x > width - EDGE).then_some(true));
+        let Some(drag) = &self.drag else {
+            return;
+        };
+        let tab = drag.tab;
+        let movable = !drag.incoming
+            && !self.favorites.contains(&tab)
+            && !self.is_folder(tab)
+            && self.panes(tab).len() == 1
+            && !self.private;
+        let side = side.filter(|_| movable && self.edge_space(side == Some(true)).is_some());
+        if drag.edge.map(|(right, _)| right) == side {
+            return;
+        }
+        let edge = side.map(|right| (right, Instant::now()));
+        if let Some(drag) = &mut self.drag {
+            drag.edge = edge;
+        }
+        if let Some((_, since)) = edge {
+            self.page_drag_after(since, cx);
+        }
+    }
+
+    /// The user's Space beside the one shown, right or left.
+    fn edge_space(&self, right: bool) -> Option<u64> {
+        let index = self.spaces.iter().position(|space| space.id == self.space)?;
+        let index = if right { index + 1 } else { index.checked_sub(1)? };
+        self.spaces.get(index).filter(|space| space.agent.is_empty()).map(|space| space.id)
+    }
+
+    /// Pages to the Space on the edge's side once the tab has been held there since `since`, and
+    /// waits again for the next.
+    fn page_drag_after(&self, since: Instant, cx: &mut Context<Self>) {
+        cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(EDGE_WAIT).await;
+            shell
+                .update(cx, |shell, cx| {
+                    let held = shell.drag.as_ref().filter(|drag| drag.moving);
+                    let edge = held.and_then(|drag| drag.edge);
+                    let Some((right, _)) = edge.filter(|&(_, at)| at == since) else {
+                        return;
+                    };
+                    let Some(space) = shell.edge_space(right) else {
+                        return;
+                    };
+                    let now = Instant::now();
+                    if let Some(drag) = &mut shell.drag {
+                        drag.edge = Some((right, now));
+                    }
+                    // check.sh waits for this line.
+                    log!("browser: drag paged to space {space}");
+                    shell.drag_detent(cx);
+                    shell.show_space(space, cx);
+                    shell.page_drag_after(now, cx);
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// The pointer has rested on `row`'s middle for SPLIT_REST with a tab dragged: let go, the tab
+    /// joins it in a split view.
+    fn rested_onto(&mut self, row: u64, cx: &mut Context<Self>) {
+        let resting = |drag: &&mut Drag| drag.resting.as_ref().is_some_and(|rest| rest.0 == row);
+        let Some(drag) = self.drag.as_mut().filter(|drag| !drag.dropped).filter(resting) else {
+            return;
+        };
+        drag.onto = Some(row);
+        drag.line = None;
+        // check.sh waits for this line.
+        log!("browser: drop onto {row}");
+        self.drag_detent(cx);
+        cx.notify();
+    }
+
+    /// The tab whose row's middle half is at `y` down the sidebar, which a dragged `tab` would join
+    /// in a split view, as Arc's does: a tab alone onto a tab's row, or a split's with room, and
+    /// not a folder's.
+    fn split_onto(&self, tab: u64, y: f32) -> Option<u64> {
+        if self.is_folder(tab) || self.panes(tab).len() > 1 {
+            return None;
+        }
+        let y = self.list_y(y);
+        self.layout().into_iter().find_map(|(slot, top)| {
+            let Slot::Tab(row) = slot else {
+                return None;
+            };
+            let middle = top + ROW_HEIGHT / 4. <= y && y <= top + ROW_HEIGHT * 3. / 4.;
+            let room = !self.is_folder(row) && self.panes(row).len() < super::MAX_PANES;
+            (row != tab && middle && room).then_some(row)
+        })
     }
 
     /// Where the drop line for `place` in the list goes, down from the list's top: halfway
@@ -429,6 +580,27 @@ impl Shell {
             return;
         }
         let (tab, to, drag_depth) = (drag.tab, drag.to, drag.depth);
+        if drag.space != self.space {
+            let space = self.space;
+            self.drag = None;
+            self.retip = true;
+            if let Place::List(pin, _) = to {
+                // check.sh waits for this line.
+                let list = if pin { "pinned" } else { "today" };
+                log!("browser: dragged {tab} to space {space} {list}");
+                self.move_to_space(tab, space, pin, cx);
+            }
+            cx.notify();
+            return;
+        }
+        if let Some(with) = drag.onto {
+            // check.sh waits for this line.
+            log!("browser: dragged {tab} onto {with}");
+            self.settle_drag();
+            self.join_split(tab, with, false, false, cx);
+            cx.notify();
+            return;
+        }
         let favorite = matches!(to, Place::Favorite(_));
         if drag.to == drag.from && (favorite || drag.depth == drag.from_depth) {
             self.settle_drag();
@@ -626,6 +798,10 @@ impl Shell {
         let Some(drag) = &self.drag else {
             return false;
         };
+        // One paged to another Space is held over lists it isn't in.
+        if !drag.dropped && drag.space != self.space {
+            return false;
+        }
         let tab = drag.tab;
         let in_favorites = self.favorites.contains(&tab);
         let in_space = self
@@ -688,17 +864,37 @@ impl Shell {
     }
 }
 
-/// The URLs of what a drag from the page or another app carries that open as tabs: files', and web
-/// links. A dragged link or text never opens a `javascript:` or `data:` URL, which could run script
-/// or pass for a site, or a `file:` one, which could open a file the user didn't drag (Ardia).
-pub fn dropped_urls<'a>(items: impl IntoIterator<Item = (&'a str, bool)>) -> Vec<String> {
-    let web = |url: &str| {
-        let scheme = url.split_once(':').map_or("", |(scheme, _)| scheme);
-        let web = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
-        web && url.len() > scheme.len() + 3 && !url.contains(char::is_whitespace)
-    };
-    let items = items.into_iter().filter(|&(url, file)| file || web(url));
-    items.map(|(url, _)| url.to_owned()).collect()
+/// The URLs of what a drag from the page or another app carries that open as tabs: files', web
+/// links, and for text that isn't a link, `search`'s URL for it with the default engine (Arc). A
+/// dragged link never opens a `javascript:` or `data:` URL, which could run script or pass for a
+/// site, or a `file:` one, which could open a file the user didn't drag (Ardia), nor is any link
+/// but a web one searched for, as it isn't words.
+pub fn dropped_urls<'a>(
+    items: impl IntoIterator<Item = (&'a str, bool)>,
+    search: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    /// The scheme `url` starts with, if it starts with one.
+    fn scheme(url: &str) -> Option<&str> {
+        let (scheme, _) = url.split_once(':')?;
+        let mut letters = scheme.chars();
+        let named = letters.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && letters.all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
+        named.then_some(scheme)
+    }
+    let is = |scheme: &str, names: &[&str]| names.iter().any(|n| scheme.eq_ignore_ascii_case(n));
+    let spaced = |url: &str| url.contains(char::is_whitespace);
+    let items = items.into_iter().filter_map(|(url, file)| match scheme(url) {
+        _ if file => Some(url.to_owned()),
+        Some(s) if is(s, &["http", "https"]) && !spaced(url) && url.len() > s.len() + 3 => {
+            Some(url.to_owned())
+        }
+        Some(s) if is(s, &["javascript", "data", "file"]) || !spaced(url) => None,
+        _ => {
+            let words = url.split_whitespace().collect::<Vec<_>>().join(" ");
+            (!words.is_empty()).then(|| search(&words)).flatten()
+        }
+    });
+    items.collect()
 }
 
 /// Where `position` in a window is from the corner, `origin`, of the sidebar it draws.
@@ -708,16 +904,20 @@ pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Poin
 }
 
 impl HeldRow {
-    /// How far the plate has shrunk at `now`, 0 to 1: in while it's held, then back out from as
-    /// far as it got, at the same pace.
     fn depth(&self, now: Instant) -> f32 {
-        let way = |from: Instant, to: Instant| {
-            (to.saturating_duration_since(from).as_secs_f32() / PRESS_TIME).min(1.)
-        };
-        match self.let_go {
-            None => way(self.pressed, now),
-            Some(let_go) => (way(self.pressed, let_go) - way(let_go, now)).max(0.),
-        }
+        held_depth(self.pressed, self.let_go, now)
+    }
+}
+
+/// How far a plate pressed at `pressed` has shrunk at `now`, 0 to 1: in over PRESS_TIME while it's
+/// held, then back out from as far as it got, at the same pace, once it's `let_go`.
+pub(super) fn held_depth(pressed: Instant, let_go: Option<Instant>, now: Instant) -> f32 {
+    let way = |from: Instant, to: Instant| {
+        (to.saturating_duration_since(from).as_secs_f32() / PRESS_TIME).min(1.)
+    };
+    match let_go {
+        None => way(pressed, now),
+        Some(let_go) => (way(pressed, let_go) - way(let_go, now)).max(0.),
     }
 }
 
@@ -728,12 +928,15 @@ pub(in crate::shell) mod detents;
 mod drop_line;
 
 #[cfg(test)]
+mod to_space;
+
+#[cfg(test)]
 mod tests {
     use super::dropped_urls;
 
-    /// Files and web links open; text and links that aren't web links don't.
+    /// Files and web links open, links that aren't web links don't, and other text is searched.
     #[test]
-    fn only_files_and_web_links_open() {
+    fn files_and_web_links_open_and_text_is_searched() {
         let dragged = [
             ("https://example.com/a?b#c", false),
             ("HTTP://EXAMPLE.COM", false),
@@ -742,13 +945,21 @@ mod tests {
             ("JavaScript:alert(1)", false),
             ("data:text/html,<h1>Sign in</h1>", false),
             ("file:///etc/hosts", false),
-            ("https://example.com and some words", false),
+            ("mailto:someone@example.com", false),
             ("https://", false),
+            ("https://example.com and  some\nwords", false),
             ("example.com", false),
             ("", false),
+            (" \n ", false),
         ];
-        let opened = ["https://example.com/a?b#c", "HTTP://EXAMPLE.COM"];
-        let file = "file:///Users/someone/Report%20final.pdf";
-        assert_eq!(dropped_urls(dragged), [opened[0], opened[1], file]);
+        let search = |text: &str| Some(format!("search:{text}"));
+        let opened = [
+            "https://example.com/a?b#c",
+            "HTTP://EXAMPLE.COM",
+            "file:///Users/someone/Report%20final.pdf",
+            "search:https://example.com and some words",
+            "search:example.com",
+        ];
+        assert_eq!(dropped_urls(dragged, search), opened);
     }
 }

@@ -14,6 +14,8 @@
 #include "browser_core/agent_page.h"
 #include "browser_core/host.h"
 #include "browser_core/space.h"
+#include "browser_core/tab.h"
+#include "content/public/browser/web_contents.h"
 
 namespace browser_core {
 
@@ -30,6 +32,15 @@ std::map<bc_id, std::string>& Sessions() {
 std::set<bc_id>& Held() {
   static base::NoDestructor<std::set<bc_id>> held;
   return *held;
+}
+
+// |tab| becomes an agent's to act in: its page's focused field loses focus, as Blink hides the eye
+// in a password field then and masks what the user typed, so the agent's screenshot doesn't show
+// it.
+void Blur(bc_id tab) {
+  if (content::WebContents* contents = Tab::FromId(tab)) {
+    contents->ClearFocusedElement();
+  }
 }
 
 bool End(bc_id tab, std::optional<std::string_view> agent, int why) {
@@ -60,7 +71,9 @@ void AgentActed(const std::string& agent, bc_id tab) {
     AgentPage::SessionEnded(session.first);
     return true;
   });
-  Sessions()[tab] = agent;
+  if (Sessions().insert_or_assign(tab, agent).second) {
+    Blur(tab);
+  }
 }
 
 bool EndAgentSession(const std::string& agent, bc_id tab, int why) {
@@ -99,6 +112,8 @@ std::string RefusedAction(std::string_view action) {
       {"ad_blocking", "Agents can't change ad blocking. It's the user's, in Site Controls."},
       {"devtools", "Agents get no DevTools or debugging port."},
       {"passwords", "Agents never read passwords, cookies or autofill data."},
+      {"profile_settings",
+       "Agents can't change a profile's settings. They're the user's, in Settings › Profiles."},
   });
   if (kAllowed.contains(action)) {
     return std::string();
@@ -116,7 +131,11 @@ void Hold(bc_id tab) {
 }
 
 bool HandBack(bc_id tab) {
-  return Held().erase(tab) > 0;
+  if (!Held().erase(tab)) {
+    return false;
+  }
+  Blur(tab);
+  return true;
 }
 
 bool IsHeld(bc_id tab) {

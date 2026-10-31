@@ -24,11 +24,15 @@ impl Frame {
 
 /// Where a window saved at `saved` opens on `screens`, their visible frames with the main one
 /// first: on the screen it overlaps most, else, its display gone, on the main one, made no bigger
-/// than that screen and moved inside it. None for a frame saved empty, or with no screens, for the
-/// app's own placing.
+/// than that screen and moved inside it. None for a frame saved empty, for the app's own placing.
+/// With no screens, as under Wayland, which shows a client none, the frame as saved, of which the
+/// compositor keeps the size.
 pub fn place(saved: Frame, screens: &[Frame]) -> Option<Frame> {
     if saved.is_empty() {
         return None;
+    }
+    if screens.is_empty() {
+        return Some(saved);
     }
     let screen = screens
         .iter()
@@ -103,8 +107,14 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_saved_empty_or_with_no_screen_is_the_apps_to_place() {
+    fn a_frame_saved_empty_is_the_apps_to_place() {
         assert_eq!(place(frame(0., 0., 0., 0.), &[LAPTOP]), None);
-        assert_eq!(place(frame(10., 10., 800., 600.), &[]), None);
+        assert_eq!(place(frame(0., 0., 0., 0.), &[]), None);
+    }
+
+    #[test]
+    fn with_no_screens_a_frame_stays_as_saved() {
+        let saved = frame(10., 10., 800., 600.);
+        assert_eq!(place(saved, &[]), Some(saved));
     }
 }

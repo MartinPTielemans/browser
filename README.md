@@ -8,13 +8,13 @@ ilo is also built to be the browser AI agents work in. Claude Code, Codex or any
 
 ## Install
 
-0.1.0 is the first public beta. Its builds come from [Releases](https://github.com/MartinPTielemans/browser/releases).
+0.1.0 is the first public beta. Its builds come from [Releases](https://github.com/MartinPTielemans/browser/releases), under the same names in every release.
 
 | OS | How | State |
 |---|---|---|
-| macOS, Apple silicon | A signed, notarized DMG: open it and drag ilo into Applications. It updates itself. | 0.1.0 |
-| Windows | winget and the Microsoft Store | coming |
-| Linux | A Flatpak: `flatpak install --user ilo.flatpak`, then start ilo from your apps. | 0.1.0 |
+| macOS 15 (Sequoia) or later, Apple silicon | `ilo-mac-arm64.dmg`, signed and notarized: open it and drag ilo into Applications. It updates itself. | 0.1.0 |
+| Windows 10 (1809) or later, x64 | From winget, which runs the installer `ilo-windows-x64-setup.exe`, or from the Microsoft Store, which installs `ilo-windows-x64.msix`. The installer's ilo updates itself, and the Store's through the Store. | coming |
+| Linux, x86-64 | A Flatpak: `flatpak install --user https://github.com/MartinPTielemans/browser/releases/latest/download/ilo.flatpakref`, then start ilo from your apps. It updates with your other Flatpaks. `ilo-linux-x86_64.flatpak` is the same build as one file. | 0.1.0 |
 
 ## Status
 
@@ -44,7 +44,9 @@ Each OS builds the app on a prebuilt engine, which `app/setup.sh` downloads, so 
 
 ## Releases
 
-`.github/workflows/release.yml` makes a release from an annotated tag, `git tag -a v<version>` on a commit whose `app/Cargo.toml` has that version, with the release notes as the tag's message. Each OS builds on its prebuilt engine for that commit, and the run stops if there isn't one. It makes a draft release whose files keep their names, so `releases/latest/download/<name>` always links the newest: `ilo-mac-arm64.dmg`, `ilo-windows-x64.msix`, `ilo-windows-x64-setup.exe`, `ilo-linux-x86_64.flatpak`, `ilo.flatpakref`, `SHA256SUMS` and `appcast.xml`. Once the draft is published, its `appcast.xml` goes to the updates feed: `gh release download v<version> -p appcast.xml && gh release upload updates appcast.xml --clobber`.
+`.github/workflows/release.yml` makes a release from an annotated tag, `git tag -a v<version>` on a commit whose `app/Cargo.toml` has that version, with the release notes as the tag's message. Each OS builds on its prebuilt engine for that commit, and the run stops if there isn't one. The Windows engine builds nightly, so before pushing the tag, run Engine on Windows (cross-compiled) on its commit, `gh workflow run engine-windows-cross.yml --ref main` with main at that commit, and wait for its release `engine-windows-<commit>`. It makes a draft release whose files keep their names, so `releases/latest/download/<name>` always links the newest: `ilo-mac-arm64.dmg`, `ilo-windows-x64.msix`, `ilo-windows-x64-setup.exe`, `ilo-linux-x86_64.flatpak`, `ilo.flatpakref`, `SHA256SUMS` and `appcast.xml`. Once the draft is published, its `appcast.xml` goes to the updates feed: `gh release download v<version> -p appcast.xml && gh release upload updates appcast.xml --clobber`. The run's `winget` artifact holds winget's manifests for the release's installer, for a pull request to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).
+
+The draft also holds `ilo-demo.tar.gz`, the site's live demo built from the same commit (`.github/workflows/demo.yml`), when the commit has one. Once the draft is published, [ilo-site](https://github.com/MartinPTielemans/ilo-site)'s release workflow puts that demo on [ilobrowser.com](https://ilobrowser.com), links its source to the tag and deploys the site, whose download buttons link the newest release. It checks every half hour, or at once with the secret `SITE_DISPATCH_TOKEN`, a fine-grained token with Contents read and write on `MartinPTielemans/ilo-site` alone. Every other release here, such as the engines', is made with `--latest=false`, or the site's buttons would link it.
 
 The Mac's DMG is built only with these repository secrets:
 
@@ -58,7 +60,7 @@ The Mac's DMG is built only with these repository secrets:
 
 The Mac and Windows builds carry its public half from `app/branding/update-key`, or from an `UPDATE_PUBLIC_KEY` secret, which overrides the file when it's set.
 
-Crash reports' symbols go to the collector `app/branding/crash-reports` names only with the secret `SENTRY_AUTH_TOKEN`, an auth token that may upload debug files, and the variables `SENTRY_URL`, `SENTRY_ORG` and `SENTRY_PROJECT`, the collector's address, organization and project. Each OS's job uploads its own (`tools/symbols.sh`). With none of them the packages are still built, and no symbols are uploaded.
+Crash reports' symbols go to the collector `app/branding/crash-reports` names only with the secret `SENTRY_AUTH_TOKEN`, an organization auth token that may upload debug files, and the variables `SENTRY_URL`, `SENTRY_ORG` and `SENTRY_PROJECT`, the collector's address, organization and project: for ilo's, `https://de.sentry.io` (Sentry's EU region), `ilo-rg` and `ilo`. Each OS's job uploads its own (`tools/symbols.sh`), and `app/build.sh prod` uploads the Mac's, the owner's daily copy too, with the same four in its environment. Without the token the packages are still built, and say no symbols were uploaded.
 
 The Windows packages are unsigned: the Store signs the MSIX, and winget takes the installer.
 
@@ -102,6 +104,6 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the other projects ilo uses and carries. The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name, the icon and the crash collector's URL, and recompile the icon with `app/icon.sh`. On Windows the engine has the name too, for its folders and the names it registers with Windows (`engine/patches/ours/chromium-windows-product-folder.patch`, `chromium-windows-app-names.patch`), so a fork builds its own Windows engine with its name there.
+GPL-3.0-or-later. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the other projects ilo uses and carries. In the app, Settings › About opens both, the Rust libraries built into it and their licenses, and Chromium's credits. The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name, the icon and the crash collector's URL, and recompile the icon with `app/icon.sh`. On Windows the engine has the name too, for its folders and the names it registers with Windows (`engine/patches/ours/chromium-windows-product-folder.patch`, `chromium-windows-app-names.patch`), so a fork builds its own Windows engine with its name there.
 
 Contributions use the [Developer Certificate of Origin](CONTRIBUTING.md#sign-off), not a CLA.

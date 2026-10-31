@@ -12,6 +12,8 @@ use gpui::{App, AppContext, TestAppContext};
 
 use super::arc;
 use super::chromium;
+use super::extensions::{self, Extension};
+use super::suggested;
 use super::found::{Found, FromProfile, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
 use super::read::{self, Kind, ReadError};
@@ -475,6 +477,8 @@ struct State {
     history: Vec<(u64, String, i64)>,
     /// How many times the import showed System Settings' Full Disk Access.
     asked_access: usize,
+    /// The Web Store pages the import opened, for the user to add an extension.
+    store_pages: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -742,6 +746,10 @@ impl Host for Browser {
         let profiles = &self.state.borrow().profiles;
         (profiles.len() > 1).then(|| profiles[0].1.clone())
     }
+
+    fn open_store_page(&self, url: &str) {
+        self.state.borrow_mut().store_pages.push(url.into());
+    }
 }
 
 /// Rows as text: a tab's URL, after its name if it has one, and a folder's name with its rows.
@@ -940,6 +948,7 @@ fn the_view_imports_what_the_user_picks(cx: &mut TestAppContext) {
         *events.borrow(),
         [
             ImportEvent::Started,
+            ImportEvent::Suggested,
             ImportEvent::Finished(said.into()),
             ImportEvent::Done
         ]
@@ -1155,7 +1164,7 @@ fn each_profile_of_a_browser_gets_a_space_named_after_it() {
         now,
     );
     let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
-    assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History]);
+    assert_eq!(read::kinds(source), [Kind::Bookmarks, Kind::History, Kind::Extensions]);
     let found = read::read(source, &[Kind::Bookmarks], now).unwrap();
     let spaces: Vec<_> = (found.spaces.iter())
         .map(|space| (space.name.as_str(), &space.profile))
@@ -1908,4 +1917,215 @@ fn the_passwords_summary_names_the_profile_and_what_it_skipped() {
     };
     let said = super::passwords_summary(Path::new("export.csv"), none, None);
     assert_eq!(said.as_ref(), "No passwords came in from export.csv.");
+}
+
+/// An extension in a made-up profile's `Extensions` folder: its id, the manifest of its version,
+/// and its messages in English, if any.
+fn extension(profile: &Path, id: &str, manifest: &str, messages: Option<&str>) {
+    let version = profile.join("Extensions").join(id).join("1.0_0");
+    write(version.join("manifest.json"), manifest);
+    if let Some(messages) = messages {
+        write(version.join("_locales/en/messages.json"), messages);
+    }
+}
+
+const STORE: &str = r#""update_url": "https://clients2.google.com/service/update2/crx""#;
+const UBLOCK: &str = "cjpalhdlnbpafiamejdnhcphjbkeiagm";
+
+/// Gives Chrome's default profile under `home` a pinned extension named by its messages, one not
+/// pinned, uBlock Origin, a theme and one from outside the Web Store.
+fn chrome_extensions(home: &Path) -> PathBuf {
+    let profile = home.join(".config/google-chrome/Default");
+    let pinned = r#"{"extensions": {"pinned_extensions": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}}"#;
+    write(profile.join("Preferences"), pinned);
+    let named = format!(r#"{{"name": "__MSG_appName__", "default_locale": "en", {STORE}}}"#);
+    let messages = r#"{"APPNAME": {"message": "Dark Reader"}}"#;
+    extension(&profile, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &named, Some(messages));
+    let plain = format!(r#"{{"name": "Bitwarden", {STORE}}}"#);
+    extension(&profile, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", &plain, None);
+    let blocker = format!(r#"{{"name": "uBlock Origin", {STORE}}}"#);
+    extension(&profile, UBLOCK, &blocker, None);
+    let theme = format!(r#"{{"name": "Ocean", "theme": {{}}, {STORE}}}"#);
+    extension(&profile, "cccccccccccccccccccccccccccccccc", &theme, None);
+    let own = r#"{"name": "Mine"}"#;
+    extension(&profile, "dddddddddddddddddddddddddddddddd", own, None);
+    profile
+}
+
+/// A profile's Web Store extensions come by their names, from their messages when the manifest
+/// leaves it to them, with the pins of its `Preferences`; themes and extensions from elsewhere
+/// don't, and an ad blocker is known as one.
+#[test]
+fn a_profiles_extensions_come_with_their_pins() {
+    let home = home("extensions");
+    let profile = chrome_extensions(&home);
+    let read = extensions::read(&profile);
+    let listed: Vec<_> = read.iter().map(|e| (e.name.as_str(), e.pinned, e.blocks_ads())).collect();
+    assert_eq!(
+        listed,
+        [("Bitwarden", false, false), ("Dark Reader", true, false), ("uBlock Origin", false, true)]
+    );
+    assert_eq!(
+        read[1].store_page(),
+        "https://chromewebstore.google.com/detail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let named = |name: &str| Extension { id: "x".into(), name: name.into(), pinned: false };
+    assert!(named("AdGuard AdBlocker").blocks_ads() && named("Total Adblock").blocks_ads());
+    assert!(!named("Grammarly").blocks_ads());
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// Chrome's extensions are listed after the import, uBlock Origin left off the list, as the
+/// browser blocks ads itself; Add… takes one off and opens its Web Store page, and Add Anyway does
+/// the same for the ad blocker. One that was pinned in Chrome is pinned once it comes in, once.
+#[gpui::test]
+fn chromes_extensions_are_listed_to_add_and_keep_their_pins(cx: &mut TestAppContext) {
+    let home = chrome("chrome-extensions", &[("Default", "Me")], SystemTime::now());
+    chrome_extensions(&home);
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        view.pick(0, cx);
+        view.import(cx);
+    });
+    cx.run_until_parked();
+    cx.update(|cx| browser.added(cx));
+    view.read_with(cx, |view, _| {
+        let super::Step::Done(said) = &view.step else {
+            panic!("still importing")
+        };
+        assert_eq!(
+            said.as_ref(),
+            "1 Space, 3 pinned tabs and 2 pages of history came in from Chrome, with 2 \
+             extensions to add from the Chrome Web Store."
+        );
+    });
+    let ids = || -> Vec<String> {
+        extensions::listed().extensions.iter().map(|each| each.id.clone()).collect()
+    };
+    assert_eq!(extensions::listed().from, "Chrome");
+    assert_eq!(ids().len(), 3, "the ad blocker is kept to add anyway");
+    let dark_reader = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    view.update(cx, |view, cx| view.add_extension(dark_reader, cx));
+    view.update(cx, |view, cx| view.add_extension(UBLOCK, cx));
+    assert_eq!(ids(), ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]);
+    let pages = browser.state.borrow().store_pages.clone();
+    assert_eq!(
+        pages,
+        [
+            format!("https://chromewebstore.google.com/detail/{dark_reader}"),
+            format!("https://chromewebstore.google.com/detail/{UBLOCK}"),
+        ]
+    );
+    // Dark Reader comes in, unpinned here: it's pinned, and only the once.
+    let now = [(dark_reader, false), (UBLOCK, false)];
+    assert_eq!(extensions::to_pin(&[], now), [dark_reader]);
+    assert!(extensions::to_pin(&[], now).is_empty());
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// Choose folders lists the bar's own bookmarks by the bar's name and each top folder, and a
+/// folder unticked stays out of the import.
+#[gpui::test]
+fn a_bookmark_folder_unticked_stays_out(cx: &mut TestAppContext) {
+    let now = SystemTime::now();
+    let home = chrome("chrome-folders", &[("Default", "Me")], now);
+    let source = &super::importable(&Roots::under(&home, Os::Linux))[0];
+    assert_eq!(read::folders(source, now).unwrap(), ["Bookmarks Bar", "Other bookmarks"]);
+    let mut found = read::read(source, &[Kind::Bookmarks], now).unwrap();
+    read::leave_out(&mut found, &["Bookmarks Bar".into()], source.browser.family);
+    let nodes = node_shape(&found.spaces[0].pinned);
+    assert_eq!(nodes, "Other bookmarks[Docs=https://docs.example.com/]");
+    let mut found = read::read(source, &[Kind::Bookmarks], now).unwrap();
+    let both = ["Bookmarks Bar".into(), "Other bookmarks".into()];
+    read::leave_out(&mut found, &both, source.browser.family);
+    assert!(found.spaces.is_empty(), "a Space with nothing left doesn't come");
+
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        view.pick(0, cx);
+        view.choose_folders(cx);
+    });
+    cx.run_until_parked();
+    view.update(cx, |view, cx| {
+        let names = view.folders.names.clone();
+        assert_eq!(names.as_deref(), Some(&["Bookmarks Bar".into(), "Other bookmarks".into()][..]));
+        view.toggle_folder("Other bookmarks", cx);
+        view.import(cx);
+    });
+    cx.run_until_parked();
+    cx.update(|cx| browser.added(cx));
+    assert_eq!(
+        shape(&browser.spaces()[1].rows),
+        "Mail=https://mail.example.com/, https://example.com/"
+    );
+    fs::remove_dir_all(home).unwrap();
+}
+
+/// The favorites offered are the sites visited most, once a site however its pages and `www.`
+/// differ, at its root: not one visited once or twice, a favorite already, or the user's own
+/// machine or network.
+#[test]
+fn the_sites_visited_most_are_offered_as_favorites() {
+    let page = |url: &str, visits| Page {
+        url: url.into(),
+        title: String::new(),
+        last_visit: 0,
+        visits,
+        typed: 0,
+    };
+    let history = [
+        page("https://www.example.com/a", 2),
+        page("https://news.example.org/today", 3),
+        page("https://example.com/b?x=1", 2),
+        page("http://localhost:3000/", 40),
+        page("http://192.168.1.1/admin", 40),
+        page("https://printer.local/", 40),
+        page("https://mail.example.net/inbox", 9),
+        page("https://rare.example.com/", 2),
+        page("file:///Users/me/notes.html", 40),
+    ];
+    let skip = ["https://mail.example.net/".to_string()];
+    let urls: Vec<String> =
+        suggested::favorites(&history, &skip).into_iter().map(|tab| tab.url).collect();
+    assert_eq!(urls, ["https://www.example.com/", "https://news.example.org/"]);
+    assert_eq!(suggested::site_name("https://www.example.com/"), "example.com");
+    let many: Vec<Page> = (0..12).map(|n| page(&format!("https://site{n}.example/"), 3)).collect();
+    assert_eq!(suggested::favorites(&many, &[]).len(), suggested::MOST);
+}
+
+/// An import offers the sites its history visited most once it's read them, and none when it
+/// brought favorites of its own, as Arc's does.
+#[gpui::test]
+fn an_import_offers_favorites_from_its_history(cx: &mut TestAppContext) {
+    let home = chrome("chrome-suggested", &[("Default", "Me")], SystemTime::now());
+    let browser = Rc::new(Browser::new(Some(Roots::under(&home, Os::Linux))));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        assert_eq!(view.suggested(), None);
+        view.pick(0, cx);
+        view.import(cx);
+        assert!(view.suggesting());
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| {
+        let urls: Vec<&str> = view.suggested().unwrap().iter().map(|t| t.url.as_str()).collect();
+        assert_eq!(urls, ["https://example.com/"]);
+        assert!(!view.suggesting());
+    });
+    fs::remove_dir_all(home).unwrap();
+
+    let arc = Rc::new(Browser::new(None));
+    let host: Rc<dyn Host> = arc.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    view.update(cx, |view, cx| {
+        view.pick(0, cx);
+        view.import(cx);
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| assert_eq!(view.suggested(), Some(&[][..])));
 }

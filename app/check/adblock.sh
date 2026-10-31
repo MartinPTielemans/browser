@@ -8,8 +8,9 @@
 # reloading the page, which then shows the ad, and on again. Off for the site, Settings lists it,
 # and its Turn On turns it on there again. Settings' Block ads and trackers turns it off in every
 # profile, which takes it out of the Extensions menu and the Site Controls, and on again. A private
-# window blocks too. The app ships the version ublock.ini pins, and launched again on the same
-# profile, it blocks there too, the run reporting whether it did on that launch's first page.
+# window blocks too. The app ships the version ublock.ini pins, trusting no site, YouTube neither,
+# and launched again on the same profile, it blocks there too, the run reporting whether it did on
+# that launch's first page.
 
 # The served ad page: its title says whether its script ran and whether its ad shows. uBlock Origin
 # hides the ad from a stylesheet of its own, which the page can't hear arrive, so it looks again
@@ -95,7 +96,7 @@ expect "^browser: extension actions $ublock\(:[0-9]*\)\{0,1\}\$" \
   "the pinned uBlock Origin didn't show in the URL field"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-pinned.png" || fail "no window to capture"
 post rightclick 202 64
-expect '^browser: menu shown Unpin, Options, Manage Extension$' \
+expect "^browser: menu shown $(cased 'Unpin, Options, Manage Extension')\$" \
   "a right-click on uBlock Origin's action didn't show its menu without Remove"
 send choose Unpin
 expect "^browser: unpin extension $ublock\$" "Unpin didn't unpin uBlock Origin"
@@ -226,6 +227,11 @@ pinned_version=$(git config -f ublock.ini ublock.version)
 shipped_version=$(sed -n 's/^ *"version": "\([^"]*\)",*$/\1/p' "$ublock_js/../manifest.json")
 [ "$shipped_version" = "$pinned_version" ] ||
   fail "the app ships uBlock Origin $shipped_version, not ublock.ini's $pinned_version"
+# It trusts no site to show its ads, YouTube neither, as Arc's did: by default it trusts only
+# extension pages, and the core's managed settings add none.
+trusted=$(sed -n '/^ *netWhitelistDefault: \[$/,/^ *\],$/p' "$ublock_js/background.js")
+[ -n "$trusted" ] || fail "the run found no trusted sites in uBlock Origin's background.js"
+echo "$trusted" | grep -qi youtube && fail "uBlock Origin trusts YouTube by default: $trusted"
 
 # An existing profile blocks too: launched again on it, uBlock Origin reads the lists it kept. The
 # run reports whether that launch's first page was blocked before any reload.
@@ -247,4 +253,4 @@ send click $page_point
 reload_until "$blocked" "launched again on its profile, the page didn't block its ad"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-existing.png" || fail "no window to capture"
 quit
-echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page, and Settings lists the site while it's off, with a Turn On that lets it block there again; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too, and uBlock Origin ships at ublock.ini's $pinned_version without the timers that woke an idle browser. It pins at the URL field with no Remove in its menu, and launched again, the existing profile blocks (its first page: $first_page). The first launch blocked within $first_block s. Windows: $out/adblock-blocked.png, $out/adblock-pinned.png, $out/adblock-off-for-site.png, $out/adblock-off-sites.png, $out/adblock-settings.png, $out/adblock-private.png, $out/adblock-existing.png"
+echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page, and Settings lists the site while it's off, with a Turn On that lets it block there again; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too, and uBlock Origin ships at ublock.ini's $pinned_version without the timers that woke an idle browser, trusting no site, YouTube neither. It pins at the URL field with no Remove in its menu, and launched again, the existing profile blocks (its first page: $first_page). The first launch blocked within $first_block s. Windows: $out/adblock-blocked.png, $out/adblock-pinned.png, $out/adblock-off-for-site.png, $out/adblock-off-sites.png, $out/adblock-settings.png, $out/adblock-private.png, $out/adblock-existing.png"

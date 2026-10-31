@@ -1,12 +1,15 @@
-# Links from other apps, as `open` sends them, the way a link clicked in Mail does. With the app
+# Links from other apps, as `open` sends them on the Mac, the way a link clicked in Mail does, and
+# off it as a second launch with the link does, which `xdg-open` makes on Linux. With the app
 # running, one opens as a new tab in the Space the window in front shows, and loads there. With an
 # agent's Space shown, it goes in the user's Space the window showed before, which comes back; with
 # a private window in front, in the regular window, which comes to the front. Settings › General
-# says the browser isn't the default, as a dev build never is: it declares no links (build.sh), and
-# making it the default asks in a system dialog the driver can't answer. A link that launches the
-# browser opens over the Spaces it brings back, before the UI comes out from under the launch
-# picture. ⌘Q keeps the sidebar's picture, which both the launch without a link and the one with it
-# show. Reports the launch times from the process's start, without a link and with one.
+# says the browser isn't the default, as a dev build never is: on the Mac it declares no links
+# (build.sh), and making it the default asks in a system dialog the driver can't answer; on Linux
+# the desktop's defaults name no dev build. A link that launches the browser opens over the Spaces
+# it brings back, before the UI comes out from under the launch picture. On the Mac ⌘Q keeps the
+# sidebar's picture, which both the launch without a link and the one with it show; Linux has no
+# launch picture (host_show_launch_window). Reports the launch times from the process's start,
+# without a link and with one.
 
 serve
 log="$out/links.log"
@@ -22,9 +25,18 @@ window=$(grep -m1 '^browser: window opened ' "$log" | cut -d' ' -f4)
 link_line() {
   echo "^browser: link from another app ${site}$1: tab [1-9][0-9]* in space $2 of window $3\$"
 }
+# Sends $1 to the browser as another app does: off the Mac a second launch on the run's profile,
+# which hands it to the running browser and exits.
+send_link() {
+  if [ "$(uname)" = Darwin ]; then
+    open -a "$app" "$1"
+  else
+    "$browser" "$1" >> "$out/links-sent.log" 2>&1 || fail "the second launch with $1 failed"
+  fi
+}
 # Sends https://…/$1 as another app does, and waits for its tab in Space $2 of window $3 to load it.
 open_link() {
-  open -a "$app" "${site}$1"
+  send_link "${site}$1"
   await "$(link_line "$1" "$2" "$3")" ||
     fail "the link ${site}$1 didn't open in Space $2 of window $3: $(grep '^browser: link' "$log" | tail -1)"
   tab=$(grep "$(link_line "$1" "$2" "$3")" "$log" | tail -1 | sed 's/.*: tab \([0-9]*\) .*/\1/')
@@ -61,23 +73,31 @@ if [ "$driven" = 1 ]; then
 fi
 # The sidebar's picture, which the launches below show until their UI has drawn.
 quit_by_key
-grep -q '^browser: launch picture taken$' "$log" || fail "⌘Q didn't keep the sidebar's picture for the next launch"
+mac=
+[ "$(uname)" = Darwin ] && mac=1
+[ -z "$mac" ] || grep -q '^browser: launch picture taken$' "$log" ||
+  fail "⌘Q didn't keep the sidebar's picture for the next launch"
 exited
-ls "$(dirname "$saved")"/launch-picture-*.png > /dev/null 2>&1 ||
+[ -z "$mac" ] || ls "$(dirname "$saved")"/launch-picture-*.png > /dev/null 2>&1 ||
   fail "the sidebar's picture ⌘Q took wasn't on disk once the app quit"
 
-# Launched by `open`, as macOS launches the default browser, the app logs to $1 and is $pid once
-# it runs. Then $2, if given, is the link that launched it.
+# Launched as the system launches the default browser, by `open` on the Mac, the app logs to $1 and
+# is $pid once it runs. Then $2, if given, is the link that launched it.
 launch() {
   log=$1
   rm -f "$log"
-  open -a "$app" --env BROWSER_DISPLAY="$BROWSER_DISPLAY" --stdout "$log" --stderr "$log" ${2:+"$2"}
-  pid=
-  for _ in $(seq 100); do
-    pid=$(pgrep -nf "$browser" || true)
-    [ -n "$pid" ] && break
-    sleep 0.1
-  done
+  if [ -n "$mac" ]; then
+    open -a "$app" --env BROWSER_DISPLAY="$BROWSER_DISPLAY" --stdout "$log" --stderr "$log" ${2:+"$2"}
+    pid=
+    for _ in $(seq 100); do
+      pid=$(pgrep -nf "$browser" || true)
+      [ -n "$pid" ] && break
+      sleep 0.1
+    done
+  else
+    "$browser" ${2:+"$2"} > "$log" 2>&1 &
+    pid=$!
+  fi
   [ -n "$pid" ] || fail "open didn't launch the app"
   await '^browser: first frame at ' || fail "the window didn't draw"
 }
@@ -103,7 +123,8 @@ at() {
 
 launch "$out/links-plain.log"
 await '^browser: restored in ' || fail "the Spaces didn't come back"
-grep -q '^browser: launch picture shown$' "$log" || fail "the launch without a link didn't show the sidebar's picture"
+[ -z "$mac" ] || grep -q '^browser: launch picture shown$' "$log" ||
+  fail "the launch without a link didn't show the sidebar's picture"
 plain="launch window $(at 'launch window') ms, started $(at 'started') ms, first frame $(at 'first frame') ms, UI shown $(at 'UI shown') ms"
 quit_launched
 
@@ -112,7 +133,8 @@ quit_launched
 # frame can come before the link, under the picture.
 launch "$out/links-cold.log" "${site}?cold"
 await '^browser: restored in ' || fail "the Spaces didn't come back under the link"
-grep -q '^browser: launch picture shown$' "$log" || fail "the launch by a link didn't show the sidebar's picture"
+[ -z "$mac" ] || grep -q '^browser: launch picture shown$' "$log" ||
+  fail "the launch by a link didn't show the sidebar's picture"
 await "$(link_line "?cold" "[0-9]*" "[0-9]*")" || fail "the link that launched the browser didn't open"
 tab=$(grep "$(link_line "?cold" "[0-9]*" "[0-9]*")" "$log" | sed 's/.*: tab \([0-9]*\) .*/\1/')
 await "^browser: loaded $tab ${site}?cold\$" || fail "the link that launched the browser didn't load"

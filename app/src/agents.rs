@@ -164,6 +164,9 @@ pub trait Browser {
     fn hand_back(&self, tab: u64) -> bool;
     /// Closes `tab` as the user would (bc_tab_close): a Today tab goes to the archive.
     fn close_tab(&self, tab: u64, cx: &mut App);
+    /// The user gives the agent whose Space is `space` their `tab`, which moves there
+    /// (bc_tab_give_to_agent). Whether it did.
+    fn give(&self, tab: u64, space: u64, cx: &mut App) -> bool;
 }
 
 /// What the server's threads hand the UI thread.
@@ -259,6 +262,8 @@ struct Act {
 struct Acting {
     agent: String,
     tab: u64,
+    /// The element it acts on, or 0.
+    element: i64,
     note: String,
     reply: mpsc::Sender<ToolResult>,
 }
@@ -1001,6 +1006,28 @@ impl Agents {
         cx.notify();
     }
 
+    /// The user gives the agent whose Space is `space` their `tab`, which it may act in from then
+    /// on, as in any tab of its own. Moving the tab to a Space of the user's takes it back.
+    pub fn give(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+        let agent = (Client::ALL.into_iter().map(Client::id))
+            .find(|agent| self.browser.agent_space(agent) == space);
+        let Some(agent) = agent else {
+            return;
+        };
+        if !self.browser.give(tab, space, cx) {
+            return;
+        }
+        // A hold from before is over, as the core's is.
+        if let Some(reply) = self.held.remove(&tab).and_then(|held| held.reply) {
+            _ = reply.send(ToolResult::text(format!("The user gave you tab {tab}.")));
+        }
+        // check.sh reads this line.
+        log!("browser: gave {tab} to agent {agent}");
+        let site = site(&self.browser.tab(tab, cx).url);
+        self.note(agent, "given", &site, "");
+        cx.notify();
+    }
+
     /// The tabs of the agent's Space the user doesn't hold.
     pub fn tabs_to_take(&self, agent: &str, cx: &App) -> Vec<u64> {
         let space = self.browser.agent_space(agent);
@@ -1439,8 +1466,16 @@ impl Agents {
         }
         let request = self.next_request;
         self.next_request += 1;
-        self.acting.insert(request, Acting { agent: agent.clone(), tab, note, reply });
+        let acting = Acting { agent: agent.clone(), tab, element, note, reply };
+        self.acting.insert(request, acting);
         self.browser.page(&agent, tab, request, page, element, &text);
+    }
+
+    /// The ref of the element the action `request` acts on, such as "e12", as the agent named it.
+    pub fn ref_of(&self, request: u64) -> Option<String> {
+        let acting = self.acting.get(&request)?;
+        let number = self.refs.get(&acting.tab)?.number(acting.element)?;
+        Some(format!("e{number}"))
     }
 
     /// The core's answer to the action `request`: with `error`, why it couldn't; else a

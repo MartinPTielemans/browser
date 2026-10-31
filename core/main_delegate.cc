@@ -17,7 +17,10 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/crash_reports.h"
+#include "browser_core/downloads.h"
+#include "browser_core/developer_mode.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
@@ -44,12 +47,16 @@
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/termination_notification.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/startup/startup_tab.h"
+#include "chrome/browser/ui/startup/startup_tab_provider.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_view_delegate.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
@@ -74,9 +81,8 @@ namespace {
 
 bc_host g_host;
 
-#if BUILDFLAG(IS_MAC)
-// The links another app sent, to the app. Only pages and files: AppController strips Chrome's
-// own direct-launch scheme first, and any other scheme an app sends is no page to show.
+// The links another app sent, to the app. Only pages and files: Chrome strips its own
+// direct-launch scheme first, and any other scheme an app sends is no page to show.
 void OpenLinks(const std::vector<GURL>& urls) {
   std::vector<std::string> specs;
   for (const GURL& url : urls) {
@@ -92,6 +98,26 @@ void OpenLinks(const std::vector<GURL>& urls) {
     links.push_back(spec.c_str());
   }
   g_host.open_links(g_host.context, links.data(), links.size());
+}
+
+#if !BUILDFLAG(IS_MAC)
+// The links in a launch's command line, read as Chrome reads them: paths relative to |cur_dir|,
+// and "? words" searched with the profile's engine, which needs a profile.
+void OpenCommandLine(const base::CommandLine& command_line,
+                     const base::FilePath& cur_dir,
+                     Profile* profile) {
+  if (!profile) {
+    profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  }
+  if (!profile) {
+    return;
+  }
+  std::vector<GURL> urls;
+  for (const StartupTab& tab :
+       StartupTabProviderImpl().GetCommandLineTabs(command_line, cur_dir, profile)) {
+    urls.push_back(tab.url);
+  }
+  OpenLinks(urls);
 }
 #endif
 
@@ -111,9 +137,15 @@ base::FilePath FindNativeHost(const std::string& name) {
 // tells the app when it can call in and when it has to stop.
 class ExtraParts : public ChromeBrowserMainExtraParts {
  public:
+  // Chrome has just set its crash keys again, with the switches about:flags added.
+  void PreCreateThreads() override { crash_reports::LeaveOutFolders(); }
+
   // Before Chrome stops taking factories, as the first profile is made.
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
+    RegisterArchivePrefs();
+    RegisterDownloadPrefs();
+    developer_mode::RegisterProfilePrefs();
     widevine::Start();
   }
 
@@ -238,12 +270,15 @@ void Install(const bc_host& host) {
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   g_browser_core_show_page_menu = &PageMenu::Show;
   g_browser_core_update_target_url = &Tab::LinkTargetChanged;
+  content::SetPageLinkDragHandler(&Tab::LinkDragged);
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_populate_frame_binders = &PopulateFrameBinders;
   g_browser_core_password_prompt = &PasswordOffer::Prompt;
 #if BUILDFLAG(IS_MAC)
   g_browser_core_open_links = &OpenLinks;
+#else
+  g_browser_core_open_command_line = &OpenCommandLine;
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
@@ -341,6 +376,16 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     features += features.empty() ? "" : ",";
     command_line->AppendSwitchASCII(switches::kEnableFeatures,
                                     features + features::kWebContentsDiscard.name);
+    // Blink's eye in a password field, Chrome's on Windows: it shows only once the user types into
+    // the empty field, and goes, masking it again, as the field loses focus or is filled in or set
+    // by the page, so a saved password is never shown. The core blurs a tab's page each time the
+    // tab becomes an agent's to act in, so no agent sees one the user showed (agent_session.cc).
+    std::string blink = command_line->GetSwitchValueASCII(switches::kEnableBlinkFeatures);
+    blink += blink.empty() ? "" : ",";
+    // And ⌥-click on a link opens it in a split view, as Arc's does, not Chrome's download
+    // (chromium-core-alt-click-split.patch).
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    blink + "PasswordReveal,AltClickSplitView");
 #if BUILDFLAG(IS_MAC)
     platform::NameKeychainItem();
 #endif
@@ -355,6 +400,7 @@ void MainDelegate::PreSandboxStartup() {
   }
   ChromeMainDelegate::PreSandboxStartup();
   crash_reports::LeaveOutPages();
+  crash_reports::LeaveOutFolders();
 }
 
 #if BUILDFLAG(IS_LINUX)
@@ -362,6 +408,7 @@ void MainDelegate::ZygoteForked() {
   // Chrome's starts Crashpad in a page's process as the zygote forks it.
   ChromeMainDelegate::ZygoteForked();
   crash_reports::LeaveOutPages();
+  crash_reports::LeaveOutFolders();
 }
 #endif
 

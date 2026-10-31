@@ -19,7 +19,7 @@ cased() {
       sub(/,$/, "", noun)
       sub(/…$/, "", noun)
       if (word ~ /^“/) quoted = 1
-      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library"
+      keep = first || quoted || noun ~ /^[A-Z][A-Z]+$/ || noun == "Space" || noun == "Spaces" || noun == "Library" || noun == "Markdown"
       printf "%s%s", (i > 1 ? " " : ""), (keep ? word : tolower(word))
       if (word ~ /”/) quoted = 0
       first = word ~ /,$/ || word == "›"
@@ -54,6 +54,8 @@ cleanup() {
   [ -z "${collector:-}" ] || kill "$collector" 2>/dev/null || true
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
   [ -z "${helper:-}" ] || kill "$helper" 2>/dev/null || true
+  # The access run's session and AT-SPI buses.
+  [ -z "${buses:-}" ] || kill $buses 2>/dev/null || true
   # A run's temp dir, such as the updates run's with its key.
   [ -z "${scratch:-}" ] || rm -rf "$scratch"
   # A check VM that a run turned light or dark goes back to the appearance it had.
@@ -100,7 +102,12 @@ exited() {
     pgrep -f "$procs" > /dev/null || break
     sleep 0.5
   done
-  # It exits once no process is left to send it a crash.
+  # It exits once no process is left to send it a crash, which can take it a moment after the
+  # last one; a handler still there after the wait is stuck, as #761's fork child was.
+  for _ in $(seq 10); do
+    pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null || break
+    sleep 0.5
+  done
   pgrep -f "$app/.*chrome_crashpad_handler" > /dev/null &&
     fail "Crashpad's handler outlived the app"
   pgrep -f "$procs" > /dev/null && fail "Chromium helper processes were left running"
@@ -168,6 +175,15 @@ expect_soon() {
   done
   fail "$2"
 }
+# Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
+# draws one ("browser: settings $1 at x y").
+drawn() {
+  for _ in $(seq 100); do
+    sed -n "s/^browser: settings $1 at //p" "$log" | tail -1 | grep . && return 0
+    sleep 0.1
+  done
+  return 1
+}
 # Nothing logged since the last command was sent matches $1.
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
@@ -203,6 +219,12 @@ last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
 # returns once frames are being written, so the motion driven next is in it, and recorded waits
 # for the file.
 record() {
+  # tools/window-record.sh records with the Mac's ScreenCaptureKit alone.
+  if [ "$(uname)" = Linux ]; then
+    recording=""
+    echo "skip: recording $1, as tools/window-record.sh records only the Mac's windows so far."
+    return 0
+  fi
   recording="$out/$1.mp4"
   ../tools/window-record.sh "$pid" "$2" "$recording" > "$out/$1-record.log" 2>&1 &
   recorder=$!
@@ -215,6 +237,7 @@ record() {
   fail "the window's recording didn't start in 30 s"
 }
 recorded() {
+  [ -n "$recording" ] || return 0
   wait "$recorder" || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
 }
 # The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
@@ -330,8 +353,8 @@ space() {
 
 # The pinned tabs the app last showed, top to bottom.
 pinned() {
-  grep '^browser: pinned' "$log" | grep -v '^browser: pinned extensions ' | tail -1 |
-    sed 's/^browser: pinned *//'
+  # Only the list's lines, not "pinned extensions" or the chevron's "pinned caret".
+  grep -E '^browser: pinned( [0-9]+)* ?$' "$log" | tail -1 | sed 's/^browser: pinned *//'
 }
 # Waits for the app to show the pinned tabs $1 over Today $2. $3 says what went wrong if it doesn't.
 expect_lists() {

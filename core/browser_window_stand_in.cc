@@ -11,6 +11,7 @@
 
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/held_keys.h"
 #include "build/build_config.h"
 #include "browser_core/autofill_offer.h"
 #include "browser_core/host.h"
@@ -36,9 +37,11 @@
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
+#include "ui/content_accelerators/accelerator_util.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/range/range.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/focus/focus_manager.h"
 #include "ui/views/widget/widget.h"
 
 namespace browser_core {
@@ -530,26 +533,48 @@ void BrowserWindowStandIn::ConfirmBrowserCloseWithPendingDownloads(
     int download_count,
     DownloadCloseType dialog_type,
     base::OnceCallback<void(bool)> callback) {
-  // Closes, cancelling the downloads, until the app can ask the user.
+#if !BUILDFLAG(IS_MAC)
+  // The app asks, in its dialog. On the Mac, Chrome's own alert has asked as the app quits.
+  if (window_) {
+    window_->AskAboutDownloads(download_count, dialog_type != DownloadCloseType::kBrowserShutdown,
+                               std::move(callback));
+    return;
+  }
+#endif
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 content::KeyboardEventProcessingResult BrowserWindowStandIn::PreHandleKeyboardEvent(
     const input::NativeWebKeyboardEvent& event) {
+  content::WebContents* contents =
+      browser_ ? browser_->GetTabStripModel()->GetActiveWebContents() : nullptr;
+  // Typed after a shortcut that opens a field of the app's, for the field.
+  if (contents && held_keys::Holds(Tab::IdOf(contents), event)) {
+    return content::KeyboardEventProcessingResult::HANDLED;
+  }
   return AskApp(Host().tab_key_before_page, browser_, event)
              ? content::KeyboardEventProcessingResult::HANDLED
              : content::KeyboardEventProcessingResult::NOT_HANDLED;
 }
 
 bool BrowserWindowStandIn::HandleKeyboardEvent(const input::NativeWebKeyboardEvent& event) {
+  views::Widget* widget = this->widget();
+  views::FocusManager* focus_manager = widget ? widget->GetFocusManager() : nullptr;
+  // A tab's dialog, such as print preview off the Mac, hands on the keys its page doesn't use, and
+  // its own keys come first, as in Chrome, where they're the window's: escape closes it rather
+  // than stopping the tab's page.
+  if (focus_manager &&
+      focus_manager->IsAcceleratorRegistered(ui::GetAcceleratorFromNativeWebKeyboardEvent(event)) &&
+      unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, focus_manager)) {
+    return true;
+  }
   if (AskApp(Host().tab_key_unhandled, browser_, event)) {
     return true;
   }
   // As BrowserView does: what neither the page nor the app used goes to the window's menus.
-  views::Widget* widget = this->widget();
-  return widget && widget->GetFocusManager() &&
-         unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, widget->GetFocusManager());
+  return focus_manager &&
+         unhandled_keyboard_event_handler_.HandleKeyboardEvent(event, focus_manager);
 }
 
 std::unique_ptr<FindBar> BrowserWindowStandIn::CreateFindBar() {

@@ -213,6 +213,9 @@ expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 typed_after() {
   post key "$1" cmd
   send type "$2"
+  # Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
+  # it has the input focus, so there where they land, which every caller checks, is the proof.
+  [ "$(uname)" = Linux ] && return
   expect '^browser: held [0-9]* key events for GPUIPanel$' \
     "keys typed right after ⌘$(echo "$1" | tr a-z A-Z) $3 didn't wait for its bar"
 }
@@ -227,17 +230,21 @@ for shortcut in t l; do
   expect '^browser: command bar hidden$' "escape didn't close the command bar"
   in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 done
-send ime on
-typed_after l nihongo "with the page focused, composing,"
-expect '^browser: command bar drew "nihongo"$' \
-  "a composition typed right after ⌘L didn't go to the command bar: $(drew 'command bar')"
-send state
-[ "$marked" = 0,7 ] || fail "the command bar didn't take all of the composition: marked $marked"
-send key escape
-send key escape
-expect '^browser: command bar hidden$' "escape didn't close the command bar"
-send ime off
-in_browser RenderWidgetHostViewCocoa "after the command bar closed"
+if [ "$(uname)" = Linux ]; then
+  echo "skip: composing right after ⌘L: the Linux driver types plain keys in a page."
+else
+  send ime on
+  typed_after l nihongo "with the page focused, composing,"
+  expect '^browser: command bar drew "nihongo"$' \
+    "a composition typed right after ⌘L didn't go to the command bar: $(drew 'command bar')"
+  send state
+  [ "$marked" = 0,7 ] || fail "the command bar didn't take all of the composition: marked $marked"
+  send key escape
+  send key escape
+  expect '^browser: command bar hidden$' "escape didn't close the command bar"
+  send ime off
+  in_browser RenderWidgetHostViewCocoa "after the command bar closed"
+fi
 send click $sidebar_point
 in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
 for shortcut in t l; do
@@ -302,7 +309,9 @@ send clickkey 373 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 300 120
 send type new tab
-expect '^browser: shortcuts search "new tab" finds New Tab$' "the search didn't find New Tab by name"
+# Paste URL as New Tab has the words too, under it.
+expect '^browser: shortcuts search "new tab" finds New Tab, Paste URL as New Tab$' \
+  "the search didn't find New Tab by name"
 send key a cmd
 send type cmd t
 expect '^browser: shortcuts search "cmd t" finds New Tab, Restore Last Closed Tab$' \
@@ -314,7 +323,12 @@ expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
 send clickkey 581 203
 expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"
 send key t cmd ctrl
-expect '^browser: shortcut new-tab ctrl-cmd-t$' "⌃⌘T didn't become New Tab's key"
+# Off the Mac ⌃ presses Alt, as ⌥ does (docs/ux-spec.md › Keyboard).
+new_tab_key=ctrl-cmd-t
+if [ "$(uname)" = Linux ]; then
+  new_tab_key=alt-cmd-t
+fi
+expect "^browser: shortcut new-tab $new_tab_key\$" "⌃⌘T didn't become New Tab's key"
 ../tools/window-screenshot.sh "$pid" "$out/shortcuts.png" || fail "no window to capture"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
