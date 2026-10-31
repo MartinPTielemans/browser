@@ -80,10 +80,11 @@ bool PagePresses::OnMouse(content::RenderWidgetHost* widget, const blink::WebMou
   const Type type = event.GetType();
   if (pressed_) {
     const bool held = event.GetModifiers() & blink::WebInputEvent::kLeftButtonDown;
-    if (type == Type::kMouseDown || (type == Type::kMouseMove && !held)) {
+    if (type == Type::kMouseDown) {
       // The release went elsewhere, such as to a window that opened over the page.
       End(last_);
-    } else if (widget != pressed_) {
+    } else if (widget != pressed_ || (type == Type::kMouseMove && !held)) {
+      // Aura makes up moves with the buttons the pointer has, which may not be the press's.
       return false;
     } else if (type == Type::kMouseMove) {
       last_ = InPage(widget, event);
