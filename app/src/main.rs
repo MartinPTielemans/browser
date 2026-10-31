@@ -3341,6 +3341,10 @@ unsafe extern "C" fn tab_key_before_page(
         return true;
     }
     let keystroke = keystroke(unsafe { &*key });
+    // ⌘. is the agent bar's Stop while it shows one, before the page could keep it.
+    if update_tab_window(tab, |shell, cx| shell.run_agent_key(&keystroke, cx)).unwrap_or(false) {
+        return true;
+    }
     if update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
         .unwrap_or(false)
     {

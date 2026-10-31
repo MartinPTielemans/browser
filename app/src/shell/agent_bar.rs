@@ -1,12 +1,15 @@
 //! The bar in an agent's Space (#365): while the agent is at work there, what it did last, with
 //! Take Over, which makes the tab the user's, and Stop; on a tab the user holds, Hand Back, which
-//! gives it back. ⌘↩ is Take Over or Hand Back, with focus in the page too. It's a card at the
-//! sidebar's foot, which GPUI draws, as the window's question cards are.
+//! gives it back. ⌘↩ is Take Over or Hand Back, and ⌘. Stop while the bar has it, with focus in
+//! the page too. It's a card at the sidebar's foot, which GPUI draws, as the window's question
+//! cards are.
 
-use gpui::{Context, FontWeight, SharedString, div, prelude::*, px, rgba};
+use gpui::{App, Context, FontWeight, SharedString, div, prelude::*, px, rgba};
 
 use super::{
     FOOTER_HEIGHT, Shell, TITLE,
+    commands::ShellHandle,
+    extensions::keystroke_text,
     permission::{BUTTONS_TOP, card_button, card_listener},
 };
 use crate::agents::Status;
@@ -21,7 +24,41 @@ pub(super) enum Bar {
     Held { name: SharedString, why: SharedString, tab: u64 },
 }
 
+/// The bar's Stop, which is Stop Loading's key elsewhere, so the bar takes it only while it shows
+/// Stop. Escape, Stop Loading's other key, stays the page's, as an agent stopped by a stray escape
+/// would lose its work.
+const STOP_KEY: &str = "cmd-.";
+
+/// ⌘. for Stop while the UI has the keyboard, before it's Stop Loading. The page hands it over
+/// before it sees it (`run_agent_key`).
+pub(super) fn bind(cx: &mut App) {
+    cx.intercept_keystrokes(|event, _, cx| {
+        if crate::dialog::asking(cx) {
+            return;
+        }
+        let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) else {
+            return;
+        };
+        let keystroke = keystroke_text(&event.keystroke);
+        if shell.update(cx, |shell, cx| shell.run_agent_key(&keystroke, cx)).unwrap_or(false) {
+            cx.stop_propagation();
+        }
+    })
+    .detach();
+}
+
 impl Shell {
+    /// Stops the agent at work in the Space shown if `keystroke` is the bar's Stop, and says
+    /// whether it did.
+    pub fn run_agent_key(&mut self, keystroke: &str, cx: &mut Context<Self>) -> bool {
+        let Some(Bar::Working { agent, .. }) = self.agent_bar().filter(|_| keystroke == STOP_KEY)
+        else {
+            return false;
+        };
+        self.browser.stop_agent(agent, cx);
+        true
+    }
+
     /// What the agents do and what the user holds from them, as the Agents tell every window.
     pub fn set_agent_status(&mut self, status: Vec<Status>, cx: &mut Context<Self>) {
         if self.agent_status != status {
@@ -176,6 +213,41 @@ mod tests {
         assert_eq!(host.take(), ["take over claude-code 20", "select 20"]);
         shell.update(cx, |shell, cx| shell.set_space(1, cx));
         assert_eq!(shell.read_with(cx, |shell, _| shell.agent_bar()), None, "the user's Space");
+    }
+
+    /// ⌘. is the bar's Stop while it shows one, and the page hands it over too. Escape, and ⌘. on a
+    /// tab the user holds, where the bar has no Stop, stay Stop Loading's.
+    #[gpui::test]
+    fn command_period_stops_the_agent_at_work(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(crate::shell::bind_keys);
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(
+                vec![(2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into())],
+                cx,
+            );
+            shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+            shell.set_space(2, cx);
+            shell.set_selected(21, cx);
+            shell.set_agent_status(status(Vec::new()), cx);
+            shell.agent_acted("claude-code".into(), 20, cx);
+        });
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        host.take();
+        cx.simulate_keystrokes("escape");
+        assert!(!host.take().contains(&"stop agent claude-code".to_string()));
+        cx.simulate_keystrokes("cmd-.");
+        assert_eq!(host.take(), ["stop agent claude-code"]);
+        assert!(shell.update(cx, |shell, cx| shell.run_agent_key("cmd-.", cx)), "from the page");
+        assert_eq!(host.take(), ["stop agent claude-code"]);
+
+        let held = vec![(21, "Sign in to example.com".into())];
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(held), cx));
+        cx.simulate_keystrokes("cmd-.");
+        assert!(!host.take().contains(&"stop agent claude-code".to_string()));
+        assert!(!shell.update(cx, |shell, cx| shell.run_agent_key("cmd-.", cx)));
     }
 
     /// On a tab the user holds the bar says so, the row's mark is a hollow ring, and Hand Back, or
