@@ -10,15 +10,15 @@
 # words. A .new address typed, docs.new, gets its row, which opens it in a new tab. A page it opens
 # in a new tab has the keyboard: its autofocused field gets what's typed, and ⌘T opens the bar
 # again. While ⌘T's is open, "New Tab" has the selected plate. Keys typed right after ⌘T, ⌘L or ⌘F,
-# from the page or the UI, wait for the bar it opens and land in its field, a composition too, and a
-# page that keeps ⌘F gets them after it. Japanese input composes and commits in the page and in the
-# command bar, where return and escape go to the input method while it composes. The Edit menu's
-# Undo, Redo and Select All reach the focused page. ⌘Y opens the history page from the page and the
-# UI. A page whose renderer crashes leaves the browser running, and ⌘R loads it again. Settings ›
-# Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches the UI from both sides, while ⌘T no
-# longer runs it, and its ↺ gives ⌘T back. About ilo shows Settings' About tab, with Settings key
-# and with About already showing. ⌘T as the window comes on screen, before the overlays' windows are
-# made, makes them and opens the bar.
+# from the page or the UI, wait for the bar it opens, however late the page answers ⌘L, and land in
+# its field, a composition too, and a page that keeps ⌘F gets them after it. Japanese input composes
+# and commits in the page and in the command bar, where return and escape go to the input method
+# while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
+# history page from the page and the UI. A page whose renderer crashes leaves the browser running,
+# and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
+# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
+# Settings' About tab, with Settings key and with About already showing. ⌘T as the window comes on
+# screen, before the overlays' windows are made, makes them and opens the bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -27,11 +27,13 @@ page='data:text/html,<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
-// Like Google Docs, the page keeps ⌘F.
+// Like Google Docs, the page keeps ⌘F. It answers ⌘L late, as a busy page can, past the 0.4 s
+// the keys typed after it were once held for. No number sign: it would end this data URL.
 addEventListener("keydown", e => {
   if (!e.'"$cmd_key"') return;
   document.title = "page saw cmd-" + e.key;
   if (e.key == "f") e.preventDefault();
+  for (const until = performance.now() + (e.key == "l" ? 700 : 0); performance.now() < until;);
 }, true);
 addEventListener("keydown", e => {
   if (e.key == "Escape") document.title = "page saw escape " + (e.repeat ? "repeat" : "press");
@@ -460,11 +462,17 @@ page_shortcut t new-tab
 expect '^browser: command bar shown$' "⌘T in the page the bar opened didn't open the command bar"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
-# The bar draws itself before it goes on screen, so it never shows the last query: empty for a
-# new tab, and on ⌘L with the page's URL.
-awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
-  /^browser: command bar drew/ { drew = $0 }
-  /^browser: command bar shown$/ && (command == "new-tab") != (drew == "browser: command bar drew \"\"") { exit 1 }' "$log" ||
+# The bar never shows the last query: empty for a new tab, and on ⌘L with the page's URL. On the
+# Mac, whose window keeps what it drew while hidden, the host draws it before it goes on screen.
+# X keeps nothing of an unmapped window, which shows nothing until GPUI presents into it once it's
+# mapped, so on Linux the first draw after it shows is the one to be right (#1013).
+after_shown=
+[ "$(uname)" != Linux ] || after_shown=1
+awk -v after_shown="$after_shown" '
+  function wrong() { return (command == "new-tab") != (drew == "browser: command bar drew \"\"") }
+  /^browser: command (new-tab|edit-url) via/ { command = $3 }
+  /^browser: command bar drew/ { drew = $0; if (shown && wrong()) exit 1; shown = 0 }
+  /^browser: command bar shown$/ { if (after_shown) shown = 1; else if (wrong()) exit 1 }' "$log" ||
   fail "the command bar went on screen still showing what it drew last"
 # A page whose renderer goes away leaves the browser running, and ⌘R loads it again. Killed, as
 # macOS kills one under memory pressure, it takes Chrome's sad tab path a crash takes; a SIGSEGV

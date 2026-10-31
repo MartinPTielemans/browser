@@ -662,11 +662,21 @@ fn show_now(cx: &mut App) {
         .update(cx, |settings, window, cx| {
             window.focus(&settings.focus, cx);
             settings.shown = true;
+            if settings.tab == Tab::Agents {
+                look_for_clients(cx);
+            }
             cx.notify();
         })
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+}
+
+/// Looks again for the agent clients on this computer, as the Agents tab shows.
+fn look_for_clients(cx: &mut App) {
+    if let Some(agents) = agents::global(cx) {
+        agents.update(cx, |agents, cx| agents.look_for_clients(cx));
+    }
 }
 
 /// Reads again where Google's Widevine module is, as the core says it changed, once Settings has
@@ -870,6 +880,9 @@ impl Settings {
         self.tab = tab;
         if tab == Tab::Import {
             self.show_import(cx);
+        }
+        if tab == Tab::Agents {
+            look_for_clients(cx);
         }
         self.links = (tab == Tab::Links).then(|| {
             let host = Rc::new(crate::link_rules_host::CoreLinkRules);
@@ -1850,7 +1863,9 @@ impl Settings {
                      passwords, cookies or autofill."
                 .into(),
         };
-        let clients = Client::ALL.map(|client| self.client(agents, client, cx));
+        let listed = agents.read(cx).listed();
+        let clients: Vec<gpui::Div> =
+            listed.iter().map(|client| self.client(agents, *client, &listed, cx)).collect();
         // A list for each agent, as each has its own Space (decision 8): what the user let it do
         // or never do on a site, to revoke, then what it did.
         let model = agents.read(cx);
@@ -1955,7 +1970,13 @@ impl Settings {
 
     /// A client's row: whether it's connected, and Connect, or Disconnect, with Copy Setup for a
     /// client the browser can't set up itself.
-    fn client(&self, agents: &Entity<Agents>, client: Client, cx: &mut Context<Self>) -> gpui::Div {
+    fn client(
+        &self,
+        agents: &Entity<Agents>,
+        client: Client,
+        listed: &[Client],
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let model = agents.read(cx);
         let connected = model.is_connected(client);
         let detail: SharedString = if let Some(why) = model.failure(client) {
@@ -1973,7 +1994,17 @@ impl Settings {
         } else if connected {
             format!("Connected in {}", client.config()).into()
         } else if client == Client::Other {
-            "Any MCP client".into()
+            // Says which it looked for, so one missing from the list isn't a mystery.
+            let missing: Vec<&str> = (Client::ALL.into_iter())
+                .filter(|client| !listed.contains(client))
+                .map(Client::name)
+                .collect();
+            match missing.as_slice() {
+                [] => "Any MCP client".into(),
+                [one] => format!("Any MCP client. {one} isn't on this computer.").into(),
+                _ => format!("Any MCP client. {} aren't on this computer.", missing.join(" and "))
+                    .into(),
+            }
         } else {
             format!("Not connected. Connect adds the browser to {}", client.config()).into()
         };

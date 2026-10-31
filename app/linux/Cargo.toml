@@ -32,6 +32,13 @@ raw-window-handle = "0.6"
 # The test driver's X connection (platform/linux/drive.rs), the held Escape's
 # (platform/linux/held_escape.rs) and the windows' frames' (platform/linux/frames.rs).
 x11rb = { version = "0.13", features = ["xkb", "randr"] }
+# The driver's pointer and keyboard in the headless sway session, and sway's answers
+# (platform/linux/drive_wayland.rs), as ../Cargo.toml has them.
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+xkbcommon = "0.8"
+serde_json = "1"
 
 # Its own, apart from the browser crate's, which has no workspace: Zed's crates in ../.deps would join one.
 # Seeded from ../Cargo.lock, so the two build the same versions.

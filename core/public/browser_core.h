@@ -582,6 +582,10 @@ typedef struct bc_host {
   // The tab's page didn't keep a key, such as ⌘F on a page without a find of its own. Return true
   // if the app used it; otherwise the window's menus get it, as ⌘M does on the Mac.
   bool (*tab_key_unhandled)(void* context, bc_id tab, const bc_key* key);
+  // No field of the app's opens for the key the keys typed after it are held for (bc_hold_keys):
+  // the page kept it, neither the page nor the app used it, or it got no answer in a second. A host
+  // that holds them itself gives them to the page now.
+  void (*held_keys_unclaimed)(void* context);
   // The archive changed, or what the last launch archived was read: |tabs| is all of it, newest
   // first.
   void (*archive_changed)(void* context, const bc_archived_tab* tabs, size_t count);
@@ -827,6 +831,9 @@ typedef struct bc_host {
   // On Linux: |window| became the active one. Under X11 the UI's window in it hears nothing of that
   // when the keyboard goes to the page, as a click on another window's page gives it.
   void (*window_activated)(void* context, bc_id window);
+  // On Linux under X11: ⌥ was pressed and let go alone, with no other key or click while it was
+  // down, as the page in |window| had the keyboard. GPUI hears only the UI's keys there.
+  void (*window_option_tapped)(void* context, bc_id window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -899,6 +906,11 @@ BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 // the Mac's sees it as a child window with the keyboard.
 BC_EXPORT bool bc_window_keyboard_in_child(bc_id window);
 
+// On Linux, whether one of |window|'s pages has the keys, and if so its pane's frame in |frame|,
+// from the top-left of the window's content. For the test driver, as the Mac's finds the page of
+// the view with the keyboard.
+BC_EXPORT bool bc_window_keyboard_page(bc_id window, bc_rect* frame);
+
 // On Linux and Windows, where the core draws a split view's ring around the focused page: whether
 // it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
 // For the test driver, which sees the Mac's ring as a view.
@@ -935,11 +947,13 @@ BC_EXPORT void bc_window_ui_text_input(bc_id window, bool focused, double x, dou
 // During tab_key_before_page: holds the keys typed in the tab's page after the one asked about,
 // which opens a field of the app's, such as ⌃L's address field. A shortcut the page gets first
 // comes back to the app only after the keys typed behind it reached the page, and they belong in
-// the field. bc_give_held_keys gives them to the field once it has the keyboard. If nothing takes
-// them in 400 ms, the page kept the shortcut, and it gets them as typed. Keys an input method
-// composes aren't held. For hosts that can't hold the keys themselves, as on Linux, where a page's
-// keys reach Chromium's window first.
-BC_EXPORT void bc_hold_keys(void);
+// the field. They're held until the page has answered the key: if the page kept it, or the app
+// didn't use it, they go to the page as typed (held_keys_unclaimed), and if the app used it, until
+// the field has the keyboard, however long that takes. Keys an input method composes aren't held.
+// With |in_core| the core holds them, and bc_give_held_keys gives them to the field once it has the
+// keyboard, for hosts that can't, as on Linux, where a page's keys reach Chromium's window first.
+// Otherwise the host holds them, and the core only tells it when no field takes them.
+BC_EXPORT void bc_hold_keys(bool in_core);
 
 // Ends a hold (bc_hold_keys): |take| gets the keys held, |count| of them in the order typed, during
 // the call, for the field that now has the keyboard. Not called if nothing was held.
@@ -2273,12 +2287,13 @@ BC_EXPORT void bc_window_start_move(bc_id window);
 // maximizing and restoring change them.
 BC_EXPORT bool bc_window_is_maximized(bc_id window);
 
-// On Linux, as bc_window_is_maximized: whether |window| is full screen, as the window manager's
-// own full-screen key or a page can put it. The UI asks as the window's bounds change.
+// On Linux and Windows: whether |window| is full screen, as the window manager's own full-screen
+// key, bc_window_toggle_full_screen or a page can put it. The UI asks as the window's bounds change.
 BC_EXPORT bool bc_window_is_full_screen(bc_id window);
 
-// On Linux: puts |window| full screen, or takes it out, as the window manager's own full-screen key
-// does, for the test driver. bc_window_toggle_maximized takes it out as Escape asks.
+// On Linux and Windows: puts |window| full screen, or takes it out, as the window manager's own
+// full-screen key does on Linux, for the test driver, and on Windows, which has none, for Escape
+// too. On Linux bc_window_toggle_maximized takes it out as Escape asks.
 BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 
 // On Linux, the title of the window of Chromium's own with the keys in |window|

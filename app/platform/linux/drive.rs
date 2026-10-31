@@ -7,8 +7,8 @@
 //! display's pointer or keyboard. Keys go to the window with the X server's input focus, as real
 //! keys do, and the pointer's events to the window of the app's on top at that point.
 //!
-//! X11 only: under Wayland no client can hand another's surfaces input.
-//! shortcut: a core call that hands Chromium's windows the events would drive Wayland too.
+//! Under Wayland no client can hand another's surfaces input, so there the pointer and keys are
+//! sway's virtual devices, in tools/headless.sh's session alone (drive_wayland.rs).
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, middleclick,
 //! clickkey, doubleclickkey, rightclickkey, drag, dragkey, press, dragto, release, rightpress,
@@ -80,6 +80,7 @@ unsafe extern "C" {
 
 /// Starts reading commands from stdin.
 pub fn start() {
+    crate::drive_wayland::start();
     // Its events are the pointer the app has, as the X server's own, which it never moves, would
     // otherwise come and go under GPUI's pointer as windows change around it.
     gpui_linux::drive_pointer();
@@ -91,6 +92,11 @@ pub fn start() {
             let n = number;
             idle(Box::new(move || {
                 log!("browser: drive {n}: {line}");
+                // It's done once the title has come, which it reports itself.
+                if let Some(text) = line.strip_prefix("title ").filter(|text| !text.is_empty()) {
+                    await_key_title(n, text.to_owned(), 100);
+                    return;
+                }
                 if !run(&line) {
                     log!("browser: drive {n}: can't do that");
                 }
@@ -130,6 +136,7 @@ fn after(ms: u32, task: Box<dyn FnOnce()>) {
 /// windows have drawn what the events changed.
 fn settle(n: u64) {
     sync();
+    crate::drive_wayland::sync();
     // Until the drag's target has answered, which it does from the loop.
     if drag_waits() {
         after(10, Box::new(move || settle(n)));
@@ -138,6 +145,7 @@ fn settle(n: u64) {
     gpui_linux::sync_display();
     idle(Box::new(move || {
         sync();
+        crate::drive_wayland::sync();
         gpui_linux::sync_display();
         drawn(Box::new(move || {
             if let Some(browser) = driven() {
@@ -210,8 +218,8 @@ thread_local! {
     static FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The modifiers the last key went with.
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
-    /// Whether the X server's keyboard has Control locked, for `hold_control`.
-    static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
+    /// The modifiers the X server's keyboard has locked, for `hold_modifiers`.
+    static LOCKED: Cell<u16> = const { Cell::new(0) };
     /// The last press, a click's or a drag's, in any of the app's windows: its time, place and
     /// button.
     static LAST_CLICK: Cell<Option<(std::time::Instant, Target, u8)>> = const { Cell::new(None) };
@@ -248,7 +256,7 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
 
 /// The views of the app's windows that show over a browser window: the overlays, the Site Controls
 /// and Capture, the find bar and the offer to save a password, then ilo's menu, and the toast.
-fn overlay_views() -> Vec<*mut c_void> {
+pub(super) fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(popovers::shown());
     views.extend(panels::shown());
@@ -318,6 +326,14 @@ fn browser(index: usize) -> Option<Browser> {
 
 fn driven() -> Option<Browser> {
     browser(DRIVEN.get())
+}
+
+/// The driven browser window's id, under Wayland too.
+fn driven_id() -> Option<bc::bc_id> {
+    match crate::drive_wayland::on() {
+        true => crate::drive_wayland::driven_id(),
+        false => driven().map(|browser| browser.id),
+    }
 }
 
 /// Whether `window` is mapped, with every window it's in: the server sends no key to one that isn't.
@@ -409,6 +425,9 @@ fn insert(text: &str) -> Option<()> {
 
 /// The done line's key window, focus and whether the app is active.
 fn keyboard() -> (&'static str, &'static str, bool) {
+    if crate::drive_wayland::on() {
+        return crate::drive_wayland::keyboard();
+    }
     match keyboard_window() {
         Some(Keyboard::Overlay(_)) => ("GPUIPanel", "GPUIView", true),
         Some(Keyboard::Settings(..)) => ("GPUIWindow", "GPUIView", true),
@@ -525,7 +544,7 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
 }
 
 /// How far the Mac's close button is in from its window's top-left corner, at most, in points.
-const CLOSE_CORNER: f64 = 26.;
+pub(super) const CLOSE_CORNER: f64 = 26.;
 
 /// Asks `window` to close, as the window manager does for its close button.
 fn close(window: xproto::Window) -> Option<()> {
@@ -695,7 +714,7 @@ fn first_press(at: Target, which: u8, again: bool) {
 /// The Mac's modifiers named in `words`, cmd, shift, alt and ctrl, as an X state holds them on
 /// the keys that press them off the Mac: ⌘ with Ctrl, and ⌃ and ⌥ with Alt (docs/ux-spec.md ›
 /// Keyboard), so ⌥⌘↓ is Ctrl+Alt+↓ and ⌥↩ is Alt+Enter.
-fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
+pub(super) fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     let (ctrl, alt) = (u16::from(KeyButMask::CONTROL), u16::from(KeyButMask::MOD1));
     words.fold(0, |state, word| {
         state
@@ -711,7 +730,7 @@ fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
 /// The Mac's modifiers named in `words` for a click, as Chrome reads a click's off the Mac: ⌘ with
 /// Ctrl and ⌥ with Alt. Its ⌥⌘-click is Ctrl+Alt there, and Ctrl+Alt+Shift, as keys press ⌥⇧, is
 /// a foreground tab's. ⌃-click, the Mac's right-click, has none.
-fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
+pub(super) fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     words.fold(0, |state, word| {
         state
             | match word {
@@ -724,7 +743,7 @@ fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
 }
 
 /// The keysym of drive.mm's key `key`: a printable ASCII character, or a named key.
-fn keysym(key: &str) -> Option<u32> {
+pub(super) fn keysym(key: &str) -> Option<u32> {
     Some(match key {
         "return" => 0xff0d,
         "escape" => 0xff1b,
@@ -839,7 +858,7 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     state |= FLAGS.get();
     let modifiers = KeyButMask::CONTROL | KeyButMask::MOD1 | KeyButMask::SHIFT;
     KEY_FLAGS.set(state & u16::from(modifiers));
-    hold_control();
+    hold_modifiers();
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
@@ -847,25 +866,26 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
 }
 
 /// Has the X server's keyboard hold Control while the driver does, after `flags` or a key with it,
-/// as a real Control key would: the app's ⌃Tab walk lasts while the server says Control is held
-/// (gpui_linux::watch_control), and the events the driver sends change none of its state.
-fn hold_control() -> Option<()> {
+/// and Alt while `flags` does, as real keys would: the events the driver sends change none of its
+/// state, and the app's ⌃Tab walk lasts while the server says Control is held
+/// (gpui_linux::watch_control), as a menu shows ⌥'s alternates while it says Alt is.
+fn hold_modifiers() -> Option<()> {
     use x11rb::protocol::xkb::{self, ConnectionExt as _};
-    let held = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL) != 0;
-    if held == CONTROL_LOCKED.get() {
+    let control = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL);
+    let held = control | (FLAGS.get() & u16::from(KeyButMask::MOD1));
+    if held == LOCKED.get() {
         return Some(());
     }
     let x = server()?;
     let (connection, _) = &*x;
     // The server takes no other XKB request from a client before this one.
     connection.xkb_use_extension(1, 0).ok()?.reply().ok()?;
-    let control = xproto::ModMask::CONTROL;
-    let locks = if held { control } else { xproto::ModMask::from(0u16) };
+    let affected = xproto::ModMask::CONTROL | xproto::ModMask::M1;
     let none = xproto::ModMask::from(0u16);
     (connection.xkb_latch_lock_state(
         xkb::ID::USE_CORE_KBD.into(),
-        control,
-        locks,
+        affected,
+        xproto::ModMask::from(held),
         false,
         xkb::Group::M1,
         none,
@@ -874,7 +894,7 @@ fn hold_control() -> Option<()> {
     ))
     .ok()?;
     connection.flush().ok()?;
-    CONTROL_LOCKED.set(held);
+    LOCKED.set(held);
     Some(())
 }
 
@@ -922,7 +942,7 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
 }
 
 /// Two numbers from `words`.
-fn point<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<(f64, f64)> {
+pub(super) fn point<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<(f64, f64)> {
     Some((words.next()?.parse().ok()?, words.next()?.parse().ok()?))
 }
 
@@ -961,7 +981,7 @@ fn stacked() -> Option<Vec<Browser>> {
 /// shortcut: where the shell lays them out and the radius it gives their corners, which the core
 /// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
 /// are or how round.
-fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
+pub(super) fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
@@ -987,7 +1007,7 @@ fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
 
 /// The ring the core draws inside a split view's focused page, over the pages, as the Mac's driver
 /// lists its view: from the content's bottom-left corner, as the pages are.
-fn ring(id: bc::bc_id, height: f64) -> Option<String> {
+pub(super) fn ring(id: bc::bc_id, height: f64) -> Option<String> {
     let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
     unsafe { bc::bc_window_focus_ring(id, &mut frame) }.then_some(())?;
     let bc::bc_rect { x, y, width, height: high } = frame;
@@ -997,7 +1017,7 @@ fn ring(id: bc::bc_id, height: f64) -> Option<String> {
 
 /// A tab's dialog over `id`, such as print preview, from the content's top-left corner, and its
 /// size, as the Mac's driver lists a child window.
-fn dialog(id: bc::bc_id) -> Option<String> {
+pub(super) fn dialog(id: bc::bc_id) -> Option<String> {
     let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
     unsafe { bc::bc_window_dialog(id, &mut frame) }.then_some(())?;
     let bc::bc_rect { x, y, width, height } = frame;
@@ -1006,7 +1026,7 @@ fn dialog(id: bc::bc_id) -> Option<String> {
 
 /// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
 /// the Mac's driver gives AppKit's, or "hidden" for each.
-fn buttons(id: bc::bc_id) -> Option<String> {
+pub(super) fn buttons(id: bc::bc_id) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
@@ -1081,6 +1101,48 @@ fn chromium_focus() -> Option<xproto::Window> {
         }
         window = tree.parent;
     }
+}
+
+/// The title of the window with the keyboard.
+fn key_title() -> Option<String> {
+    Some(match keyboard_window() {
+        Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
+            text_property(window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A dialog of Chromium's in it is an aura window, which the X server has no title for, so
+        // the core gives it.
+        Some(Keyboard::Browser(browser, _))
+            if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
+        {
+            let length = unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
+            let mut title = vec![0u8; length + 1];
+            let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
+            unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
+            title.truncate(length);
+            String::from_utf8_lossy(&title).into_owned()
+        }
+        Some(Keyboard::Browser(browser, _)) => {
+            text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A window of Chromium's own, such as the Task Manager.
+        None => focus_title()?,
+    })
+}
+
+/// Logs the title of the window with the keyboard once it has `text` in it, as a window that takes
+/// the keyboard a moment after a command does, for up to 10 s as drive.mm's AwaitKeyTitle, then
+/// reports command `n` done.
+fn await_key_title(n: u64, text: String, tries: u32) {
+    let title = key_title().unwrap_or_default();
+    if title.contains(&text) {
+        log!("browser: key window titled {title}");
+    } else if tries > 0 {
+        after(100, Box::new(move || await_key_title(n, text, tries - 1)));
+        return;
+    } else {
+        log!("browser: no key window titled {text}, the key window's is {title}");
+    }
+    settle(n);
 }
 
 /// The title of the window with the input focus, or of the first window it's in that has one.
@@ -1508,6 +1570,11 @@ fn run_command(line: &str) -> Option<()> {
     // What follows the command's name, for those that take text.
     let rest = line.get(action.len() + 1..).unwrap_or("");
     let none = 0;
+    if crate::drive_wayland::on()
+        && let Some(done) = crate::drive_wayland::run(action, line)
+    {
+        return done;
+    }
     match action {
         "window" => {
             let number: usize = words.next()?.parse().ok()?;
@@ -1632,14 +1699,29 @@ fn run_command(line: &str) -> Option<()> {
             let (x, y) = point(&mut words)?;
             motion(target_at(x, y)?, none)
         }
-        // A notch of the wheel for each event, down for content moving up.
+        // Each event moves the content up by <dy> points, as drive.mm's trackpad events do.
         "scroll" => {
             let (x, y) = point(&mut words)?;
             let dy: f64 = words.next()?.parse().ok()?;
             let count: usize = words.next()?.parse().ok()?;
             let at = target_at(x, y)?;
+            // A page, Chromium's, scrolls a notch of the wheel an event, the notches alone: with a
+            // move before them, the window run's page stopped short of its 3000 points under Xvfb.
+            if at.window == driven()?.window {
+                for _ in 0..count.max(1) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
+                return Some(());
+            }
+            // GPUI's windows scroll by the points asked, as the Mac's trackpad events do, where a
+            // wheel's notch moves three lines.
+            motion(at, none)?;
+            let logical = |each: i16| px((f64::from(each) / scale()) as f32);
+            let position = gpui::point(logical(at.x), logical(at.y));
             for _ in 0..count.max(1) {
-                click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                if !gpui_linux::drive_scroll(at.window, position, px(dy as f32)) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
             }
             Some(())
         }
@@ -1699,7 +1781,7 @@ fn run_command(line: &str) -> Option<()> {
                 code_events(keycode(keysym)?.0, held, &[kind])?;
                 FLAGS.set(held ^ mask);
             }
-            hold_control();
+            hold_modifiers();
             Some(())
         }
         // Repeats are presses like the first, so repeat changes nothing here.
@@ -1719,7 +1801,7 @@ fn run_command(line: &str) -> Option<()> {
         // As the window manager's full-screen key, through the core, as the Mac's goes through the
         // green button.
         "fullscreen" => {
-            unsafe { bc::bc_window_toggle_full_screen(driven()?.id) };
+            unsafe { bc::bc_window_toggle_full_screen(driven_id()?) };
             Some(())
         }
         "resize" | "place" => {
@@ -1799,6 +1881,19 @@ fn run_command(line: &str) -> Option<()> {
                     y - top
                 );
             }
+            // The page with the keyboard, by its pane's frame from the content's bottom-left
+            // corner, as the pages are, which tells a split view's pages apart.
+            let mut page = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+            match unsafe { bc::bc_window_keyboard_page(browser.id, &mut page) } {
+                true => log!(
+                    "browser: layout keyboard {:.0},{:.0} {:.0}x{:.0}",
+                    page.x,
+                    height - (page.y + page.height),
+                    page.width,
+                    page.height
+                ),
+                false => log!("browser: layout keyboard none"),
+            }
             log!(
                 "browser: layout full screen {}",
                 full_screen(browser.window)? as u8
@@ -1807,29 +1902,7 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let title = match keyboard_window() {
-                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
-                    text_property(window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A dialog of Chromium's in it is an aura window, which the X server has no title
-                // for, so the core gives it.
-                Some(Keyboard::Browser(browser, _))
-                    if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
-                {
-                    let length =
-                        unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
-                    let mut title = vec![0u8; length + 1];
-                    let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
-                    unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
-                    title.truncate(length);
-                    String::from_utf8_lossy(&title).into_owned()
-                }
-                Some(Keyboard::Browser(browser, _)) => {
-                    text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A window of Chromium's own, such as the Task Manager.
-                None => focus_title()?,
-            };
+            let title = key_title()?;
             log!("browser: key window titled {title}");
             Some(())
         }
@@ -1877,7 +1950,7 @@ fn run_command(line: &str) -> Option<()> {
                 return None;
             };
             let handle = WINDOWS.with_borrow(|windows| {
-                let id = driven()?.id;
+                let id = driven_id()?;
                 windows.iter().find(|w| w.id == id).map(|w| w.handle)
             })?;
             let cx = CX.with_borrow(Clone::clone)?;
