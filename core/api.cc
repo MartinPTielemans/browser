@@ -227,13 +227,13 @@ void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
 }
 
 void bc_window_ui_takes_keyboard(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   browser_core::platform::UITakesKeyboard(OpenWidget(id), /*until_page=*/false);
 #endif
 }
 
 void bc_window_ui_holds_keyboard(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   browser_core::platform::UITakesKeyboard(OpenWidget(id), /*until_page=*/true);
 #endif
 }
@@ -310,6 +310,12 @@ size_t bc_window_child_title(bc_id id, char* title, size_t capacity) {
                     title, capacity);
 #else
   return CopyString(std::string(), title, capacity);
+#endif
+}
+
+void bc_answer_clipboard_requests(void) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::platform::AnswerClipboardRequests();
 #endif
 }
 
