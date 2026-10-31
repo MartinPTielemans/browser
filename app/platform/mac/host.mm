@@ -3537,9 +3537,10 @@ void host_show_window_buttons(void* ui_view, bool shown) {
   }
 }
 
+// Level change: AppKit's alignment haptic was too faint to feel (#1075).
 void host_detent(void) {
   [NSHapticFeedbackManager.defaultPerformer
-      performFeedbackPattern:NSHapticFeedbackPatternAlignment
+      performFeedbackPattern:NSHapticFeedbackPatternLevelChange
              performanceTime:NSHapticFeedbackPerformanceTimeNow];
 }
 
