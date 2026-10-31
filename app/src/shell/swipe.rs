@@ -170,6 +170,10 @@ impl Shell {
             swipe.across = Some(across);
             // check.sh waits for this line.
             log!("browser: swipe {}", if across { "across" } else { "along" });
+            // The page moves from under what floats over it, and no click outside closes it.
+            if across {
+                self.leave_popovers(cx);
+            }
             // Fingers catch a page, or the Library, that's still settling where it is.
             if across && swipe.library {
                 swipe.way = (self.library_out() - 1.) * self.library_width();
@@ -293,6 +297,7 @@ impl Shell {
         if (sum * WHEEL_LINE).abs() > 1. {
             self.wheel = None;
             self.wheel_paged = Some(now);
+            self.leave_popovers(cx);
             let library = sum > 0. && (self.library_open || self.library_beside(self.space));
             if library != self.library_open {
                 // check.sh waits for this line.
