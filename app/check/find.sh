@@ -9,11 +9,12 @@
 # View menu's Zoom In zoom the page, and the zoom HUD shows the percent under the find bar for a
 # moment, and goes at once when another tab shows. ⌥⌘I from the page docks DevTools in the card,
 # filling it, with the page on its left, through a resize, and F12 closes them and gives the page
-# the keyboard. View › Developer's JavaScript Console opens them, a tab without them shows its page
-# across the card, and View Source opens the page's source in a tab under it. Help ›
-# Troubleshooting's Open Task Manager opens Chrome's, with the keyboard, and ⌘W there closes it, not
-# the tab. Its Record a Trace records until the toast's Stop, which shows while it records, and the
-# command bar offers to stop it meanwhile; Stop saves Chromium's trace where the save panel picks.
+# the keyboard. View › Developer's JavaScript Console opens them, where ⌘A, ⌘C and ⌘V are the
+# console's, a tab without them shows its page across the card, and View Source opens the page's
+# source in a tab under it. Help › Troubleshooting's Open Task Manager opens Chrome's, with the
+# keyboard, and ⌘W there closes it, not the tab. Its Record a Trace records until the toast's Stop,
+# which shows while it records, and the command bar offers to stop it meanwhile; Stop saves
+# Chromium's trace where the save panel picks.
 # Undocked, after a relaunch, ⌥⌘J opens DevTools in a window of Chrome's, where ⌘C copies
 # the console's text to the run's own pasteboard, and ⌥⌘I from the page brings them to the front.
 
@@ -314,6 +315,36 @@ send menu "JavaScript Console"
 expect '^browser: command javascript-console via ui$' \
   "the View menu's JavaScript Console didn't reach the UI"
 await_views 2 "after JavaScript Console"
+# In docked DevTools, ⌘A, ⌘C and ⌘V are the console's, as in undocked ones: ⌘C copies its text
+# to the run's own pasteboard, and ⌘V pastes it, which a second copy reads. The console's prompt
+# takes the keyboard once DevTools have loaded, so the copy is tried until it has. On a new profile
+# Chromium's guard against pasted scams refuses the first paste until "allow pasting" is typed;
+# where it's off already, ↩ runs those words as a script that fails, and the paste reads the same.
+keys=$((step + 1))
+word=docked-copy
+for _ in $(seq 50); do
+  send key a cmd
+  send type "$word"
+  send key a cmd
+  send key c cmd
+  send pasteboard
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "^browser: pasteboard text $word\$" &&
+    break
+done
+expect "^browser: pasteboard text $word\$" "⌘C in docked DevTools didn't copy the console's text"
+send key v cmd
+send key a cmd
+send type "allow pasting"
+send key return
+send type pasted-
+send key v cmd
+send key a cmd
+send key c cmd
+send pasteboard
+expect "^browser: pasteboard text pasted-$word\$" "⌘V in docked DevTools didn't paste in the console"
+# A command logs "command <name> via <where>"; the command bar's own lines aren't commands.
+sed -n "/^browser: drive $keys: /,\$p" "$log" | grep -qE '^browser: command .* via ' &&
+  fail "⌘A, ⌘C or ⌘V in docked DevTools ran a command of the app's"
 send key 1 cmd
 expect "^browser: selected $second" "⌘1 didn't show the second tab"
 await_views 1 "on a tab without DevTools"
@@ -485,4 +516,4 @@ quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
 dock right
-echo "ok: ⌘F opens the find bar from the page with the keyboard, what's typed right after it lands there, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Record a Trace records until the toast's Stop, and saves Chromium's trace where the save panel picks. Undocked DevTools open in a window of their own, where ⌘C copies, and ⌥⌘I from the page brings them to the front. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png, $out/trace.png, $out/devtools-undocked.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, what's typed right after it lands there, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, where ⌘A, ⌘C and ⌘V are the console's, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Record a Trace records until the toast's Stop, and saves Chromium's trace where the save panel picks. Undocked DevTools open in a window of their own, where ⌘C copies, and ⌥⌘I from the page brings them to the front. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png, $out/trace.png, $out/devtools-undocked.png"
