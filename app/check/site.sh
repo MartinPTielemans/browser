@@ -121,11 +121,16 @@ onkeydown = e => {
 </script>' > "$out/site/dialogs.html"
 # The cookie page's title says whether it finds its cookie, c, never a value, since the app logs
 # every title, and how many times the server has sent its script, which the cache keeps for an
-# hour. Another run's cookies on the site don't count. "c" in it sets the cookie.
-printf '%s' '<title>loading</title><script src="count.js"></script>
+# hour. Another run's cookies on the site don't count. "c" in it sets the cookie. Chromium drops a
+# key that comes before a page it loaded first shows, for up to half a second (paint holding), so
+# the title comes once the page has painted, which it does once it has something to draw.
+printf '%s' '<title>loading</title><p>c sets a cookie.</p><script src="count.js"></script>
 <script>
-document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
-  " cache " + count;
+new PerformanceObserver((entries, observer) => {
+  observer.disconnect();
+  document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
+    " cache " + count;
+}).observe({type: "paint", buffered: true});
 onkeydown = e => {
   if (e.key == "c") {
     document.cookie = "c=1";
