@@ -88,6 +88,16 @@ jobs:
           cygpath -w "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           python -m pip install --disable-pip-version-check comtypes==1.4.17
 
+      # Chrome asks before a page opens another app only when Windows names an app for the link's
+      # scheme, and the runner has none for the dialogs run's maps: link, which the Mac opens in
+      # Maps. The run cancels it, so the stand-in never starts.
+      - shell: pwsh
+        run: |
+          $maps = 'HKCU:\Software\Classes\maps'
+          New-Item -Path "$maps\shell\open\command" -Force -Value '"C:\Windows\System32\cmd.exe" /c exit' | Out-Null
+          Set-Item -Path $maps -Value 'URL:Maps'
+          New-ItemProperty -Path $maps -Name 'URL Protocol' -Value '' -Force | Out-Null
+
       - uses: actions/cache@v4
         with:
           path: |
