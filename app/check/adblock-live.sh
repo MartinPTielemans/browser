@@ -19,6 +19,9 @@ BROWSER_DRIVE=1 BROWSER_URL="${site}live.html" BROWSER_PROFILE_DIR="$profile_dir
   "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
+# The time to blocking counts from here, as uBlock Origin is loaded into the profile.
+await "^browser: extensions 1 .*$ublock\$" || fail "uBlock Origin wasn't loaded"
+loaded=$(date +%s)
 await_load
 tab=$(today | cut -d' ' -f1)
 await "^browser: title $tab ad script " || fail "the page didn't say whether the ad script loaded"
@@ -30,11 +33,17 @@ if [ "$active" != 1 ]; then
   echo "skip: adblock-live. Browser wasn't the active app, so the page didn't get its keys."
   exit 0
 fi
-# On a new profile uBlock Origin lets everything through until it has read and compiled its lists,
-# longer for its own than for adblock's one filter, so the page reloads until its ad script is
-# blocked, for at most 20 reloads, each waiting up to 2 s for the page to say so, as adblock's do.
-for _ in $(seq 20); do
-  grep -q "^browser: title $tab ad script blocked\$" "$log" && break
+# On a new profile uBlock Origin lets everything through until it has read and compiled the lists
+# it ships, so the page reloads until its ad script is blocked, until 120 s after uBlock Origin
+# loaded, each reload waiting up to 2 s for the page to say so. Blocking began between the last
+# reload that let the script through and the one that didn't.
+before=0
+since=0
+while ! grep -q "^browser: title $tab ad script blocked\$" "$log"; do
+  before=$since
+  since=$(($(date +%s) - loaded))
+  [ "$since" -lt 120 ] ||
+    fail "uBlock Origin's lists didn't block Google's ad script within 120 s of its loading"
   send key r cmd
   expect "^browser: title $tab ad script " "the page didn't report after ⌘R"
   for _ in $(seq 20); do
@@ -42,9 +51,8 @@ for _ in $(seq 20); do
     sleep 0.1
   done
 done
-grep -q "^browser: title $tab ad script blocked\$" "$log" ||
-  fail "uBlock Origin's lists didn't block Google's ad script"
-echo "adblock-live: blocked on load $(grep -c "^browser: title $tab ad script " "$log")"
+loads=$(grep -c "^browser: title $tab ad script " "$log")
+echo "adblock-live: blocking began $before to $since s after uBlock Origin loaded, on load $loads"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-live-script.png" || fail "no window to capture"
 go_from_bar doubleclick.net
 expect "^browser: loaded $tab chrome-extension://$ublock/document-blocked\.html" \
