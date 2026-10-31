@@ -102,7 +102,8 @@ check_buttons() {
   buttons=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout buttons' |
     cut -d' ' -f4-)
   expected="20.0,24.0 43.0,24.0 66.0,24.0"
-  [ "${2:-}" = hidden ] && expected="hidden hidden hidden"
+  # On Windows they're the system's, in its own title bar (platform/windows/drive.cc).
+  { [ "${2:-}" = hidden ] || windows; } && expected="hidden hidden hidden"
   [ "$buttons" = "$expected" ] || fail "$1: the window's buttons are at $buttons, not $expected"
 }
 # Waits for a page's full screen $1 (enter or exit) to end in the window and the UI to have placed
