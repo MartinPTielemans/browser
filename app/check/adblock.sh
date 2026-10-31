@@ -244,12 +244,13 @@ const probe = () => {
 };
 probe();
 </script>' > "$out/site/probe.html"
-for i in 1 2 3; do
+for i in 1 2 3 4; do
   log="$out/adblock-probe-$i.log"
   step=0
   launched=$(python3 -I -c 'import time; print(time.time())')
   BROWSER_DRIVE=1 BROWSER_URL="${site}probe.html?$i" BROWSER_PROFILE_DIR="$profile_dir" \
-    "$browser" --ad-block-filters="$filters" < "$out/drive" > "$log" 2>&1 &
+    "$browser" --ad-block-filters="$filters" --enable-logging=stderr --v=0 \
+    < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await "^browser: title [0-9]* probe $i blocked " || fail "probe $i: never blocked"
@@ -258,6 +259,18 @@ for i in 1 2 3; do
 t = float(sys.argv[1]) * 1000
 w = sys.argv[2].split()
 print("adblock probe " + sys.argv[3] + ": launch to first page %d ms, launch to blocking %d ms, page unblocked for %d ms, %s tries" % (int(w[7]) - t, int(w[5]) - t, int(w[5]) - int(w[7]), w[9]))' "$launched" "$line" "$((i + 1))"
+  # Diag (#744): the first stays until uBlock Origin has written its selfie, 53 s after its lists.
+  if [ "$i" = 1 ]; then
+    for _ in 1 2 3 4 5 6; do await 'Filtering engine selfie created' && break; done
+  fi
+  python3 -I -c 'import re, sys
+t = float(sys.argv[1]) * 1000
+for line in open(sys.argv[2], errors="replace"):
+    m = re.search(r"\[uBO\] (\d+) (.*?)\", source", line)
+    if m:
+        print("  ublock %d %6d ms: %s" % (int(sys.argv[3]), int(m.group(1)) - t, m.group(2)[:150]))' \
+    "$launched" "$log" "$((i + 1))"
+  grep -c 'CONSOLE' "$log" | sed "s/^/  console lines in launch $((i + 1)): /"
   quit
 done
 
