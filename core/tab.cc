@@ -1108,8 +1108,16 @@ void Tab::ShowOnPageColor() {
 void Tab::RenderFrameHostChanged(content::RenderFrameHost* old_host,
                                  content::RenderFrameHost* new_host) {
   // A page from another site comes in a view of its own, white until its first frame.
-  if (page_color_ && new_host == web_contents()->GetPrimaryMainFrame() && new_host->GetView()) {
+  if (new_host != web_contents()->GetPrimaryMainFrame() || !new_host->GetView()) {
+    return;
+  }
+  if (page_color_) {
     new_host->GetView()->SetBackgroundColor(*page_color_);
+  }
+  // Chromium moves the keyboard to the new view only if the old one's widget counted itself
+  // focused, which on X11 can lag the focus it has, and then no key reaches the page (#866).
+  if (old_host && old_host->GetView() != new_host->GetView()) {
+    Window::PageCommittedInNewView(id_);
   }
 }
 
