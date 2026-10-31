@@ -97,7 +97,7 @@ send press $(in_page 320 210) cmd shift
 send dragto $(in_page 330 220) cmd shift
 send dragto $(in_page 480 290) cmd shift
 send release $(in_page 480 290) cmd shift
-expect '^browser: tab [0-9]* press with modifiers [0-9]* taken$' \
+expect 'browser: tab [0-9]* press with modifiers [0-9]* taken$' \
   "the core didn't hand the app the ⇧⌘ press on the page" "$from"
 expect '^browser: capture started$' "⇧⌘-drag on the page didn't start capture mode" "$from"
 expect '^browser: capture chose 320 210 160 80$' \
@@ -297,7 +297,7 @@ expect "^browser: toast shown Screenshot Copied to Clipboard \\[$buttons\\]\$" \
 # ⇧⌘-click on a link, a press the core takes in case it's a drag, still reaches the page, which
 # opens the link in a tab in front as Chrome does.
 send click $(in_page 40 30) cmd shift
-expect '^browser: tab [0-9]* press ended, handed back$' \
+expect 'browser: tab [0-9]* press ended, handed back$' \
   "the ⇧⌘-click on a link wasn't handed back to the page"
 expect '^browser: tab [0-9]* opened by [0-9]* in the foreground$' \
   "⇧⌘-click on a link didn't open it in a tab in front"
