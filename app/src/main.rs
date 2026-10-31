@@ -3351,6 +3351,7 @@ unsafe extern "C" fn tab_key_before_page(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    diag_f12("before page", tab, key);
     #[cfg(target_os = "linux")]
     if held_escape::keeps_from_page(unsafe { &*key }) {
         return true;
@@ -3463,7 +3464,16 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    diag_f12("unhandled", tab, key);
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
+}
+
+// #1120 diagnostic, not for merging.
+fn diag_f12(when: &str, tab: bc::bc_id, key: *const bc::bc_key) {
+    let name = unsafe { CStr::from_ptr((*key).key) }.to_string_lossy();
+    if name == "F12" {
+        log!("browser: diag F12 {when} tab {tab}");
+    }
 }
 
 /// Opens a browser window and returns its id, with `ui_view` filling it under the page: the first

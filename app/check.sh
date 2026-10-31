@@ -68,7 +68,7 @@ runs="load keys tabs window popup history spaces agents profiles restore relaunc
 runs="$runs split favorites cards extensions adblock adblock-lists windows private capture passwords"
 runs="$runs links preview access trouble dialogs crash import quit onboarding passkeys mcp"
 runs="$runs appearance about"
-named="store adblock-live widevine updates keychain"
+named="zzf12 store adblock-live widevine updates keychain"
 for run in "$@"; do
   case " $runs $named " in
     *" $run "*) ;;
