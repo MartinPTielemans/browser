@@ -28,7 +28,7 @@ page='data:text/html,<title>loading</title>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
 // Like Google Docs, the page keeps ⌘F. It answers ⌘L late, as a busy page can, past the 0.4 s
-// the keys typed after it were once held for (#937).
+// the keys typed after it were once held for. No number sign: it would end this data URL.
 addEventListener("keydown", e => {
   if (!e.'"$cmd_key"') return;
   document.title = "page saw cmd-" + e.key;
