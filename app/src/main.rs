@@ -562,9 +562,6 @@ pub(crate) fn shell_with_view(ui_view: *mut c_void) -> WeakEntity<Shell> {
     })
 }
 
-/// A browser window became key: it goes first, so the shared overlays and the menu bar follow it.
-/// AppKit makes one key as another window orders out or closes, from inside the update that did
-/// it, such as Settings' close (#819), so the shell hears it once that update is over.
 /// Windows' close of a browser window, which the core closes as the Mac's close button does.
 #[cfg(target_os = "windows")]
 extern "C" fn window_close_asked(ui_view: *mut c_void) {
@@ -574,6 +571,9 @@ extern "C" fn window_close_asked(ui_view: *mut c_void) {
     }
 }
 
+/// A browser window became key: it goes first, so the shared overlays and the menu bar follow it.
+/// AppKit makes one key as another window orders out or closes, from inside the update that did
+/// it, such as Settings' close (#819), so the shell hears it once that update is over.
 extern "C" fn key_window_changed(ui_view: *mut c_void) {
     let moved = WINDOWS.with_borrow_mut(|windows| {
         let index = windows.iter().position(|window| window.ui_view == ui_view)?;
