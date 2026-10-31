@@ -39,6 +39,7 @@
 #include "browser_core/main_delegate.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/page_text.h"
+#include "browser_core/autofill_offer.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
@@ -1722,6 +1723,9 @@ void bc_tab_show_certificate(bc_id id) {
 }
 
 void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
+  if (browser_core::AutofillOffer::Answer(id, answer)) {
+    return;
+  }
   browser_core::PasswordOffer::Answer(id, answer, username);
 }
 
