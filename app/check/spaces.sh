@@ -263,7 +263,8 @@ send swipe $swipe_point 1 -10 10
 expect '^browser: swipe along$' "two fingers along the list didn't read as scrolling"
 none_since '^browser: space [0-9]' || fail "two fingers along the list showed another Space"
 else
-  show_space "key 2 ctrl" select-space ui "$second" "$b"
+  # The page has the keyboard from the ⌘W above.
+  show_space "key 2 ctrl" select-space page "$second" "$b"
   expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 fi
 send wheel $swipe_point 1
@@ -460,10 +461,11 @@ expect "^browser: space $third in " "the window didn't show the third Space"
 send key return
 none_since '^browser: create space' || fail "return with no name named the Space"
 show_space "key 1 ctrl" select-space ui "$first" "$a"
-# The footer's + offers New Space…, New Folder… and New Split View, 8 in from the sidebar's edge.
+# The footer's + offers New Space…, New Folder…, New Split View and New Note, 8 in from the
+# sidebar's edge.
 post click 204 $((${content#*x} - 25))
-expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View')\$" \
-  "the footer's + didn't offer New Space…, New Folder… and New Split View"
+expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View, New Note')\$" \
+  "the footer's + didn't offer New Space…, New Folder…, New Split View and New Note"
 send choose New Space…
 expect '^browser: command new-space via footer$' "New Space… in the +'s menu didn't run"
 expect "^browser: space $third in " "New Space didn't show the form already open"

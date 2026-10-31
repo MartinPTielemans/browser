@@ -25,7 +25,7 @@ use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
     capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
-    icon_picker, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    icon_picker, launch, link_preview, link_target, log, menu, offer, passwords, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -391,13 +391,9 @@ mod platform {
         pub fn host_add_tooltip(tooltip_view: *mut c_void, margin: f64, away: extern "C" fn());
         pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_tooltip(fade: f64);
-        #[cfg(not(target_os = "linux"))]
         pub fn host_add_hover_card(card_view: *mut c_void, margin: f64, away: extern "C" fn());
-        #[cfg(not(target_os = "linux"))]
         pub fn host_show_hover_card(ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64);
-        #[cfg(not(target_os = "linux"))]
         pub fn host_hide_hover_card();
-        #[cfg(not(target_os = "linux"))]
         pub fn host_watch_memory_pressure(pressed: extern "C" fn());
         pub fn host_add_link_target(
             link_view: *mut c_void,
@@ -1099,8 +1095,9 @@ impl link_preview::Host for LinkPreviewHost {
     }
 
     fn page_under(&self) -> bool {
-        // No window of the app's holds a page on Linux (link_preview_window.rs).
-        cfg!(target_os = "linux")
+        // No window of the app's holds a page on Linux (link_preview_window.rs) or Windows
+        // (platform/windows/host.cc).
+        cfg!(any(target_os = "linux", target_os = "windows"))
     }
 
     fn release(&self) {
@@ -1134,7 +1131,7 @@ extern "C" fn link_preview_dismissed() {
 }
 
 thread_local! {
-    /// Whether the host has a view for a link preview's page, which only the Mac's has so far.
+    /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -1801,10 +1798,8 @@ extern "C" fn tooltip_away() {
 }
 
 /// The hover card's requests, to the host's card window, over the browser window in front.
-#[cfg(not(target_os = "linux"))]
 struct CardHost;
 
-#[cfg(not(target_os = "linux"))]
 impl hover_card::Host for CardHost {
     fn show(&self, left: f32, top: f32, width: f32, height: f32) {
         let (left, top, width, height) = (left.into(), top.into(), width.into(), height.into());
@@ -1818,14 +1813,12 @@ impl hover_card::Host for CardHost {
 
 /// The window lost the keyboard, the app stopped being the active one, or a press or a scroll
 /// landed outside the card.
-#[cfg(not(target_os = "linux"))]
 extern "C" fn card_away() {
     // Later, as tooltip_away.
     update_app_later(hover_card::close);
 }
 
 /// The system is short of memory: the hover cards' pictures, which the core can take again, go.
-#[cfg(not(target_os = "linux"))]
 extern "C" fn memory_pressed() {
     update_app(hover_card::forget_all);
 }
@@ -2611,6 +2604,21 @@ impl Browser for Engine {
 
     fn open_page(&self, url: &str, _: &mut App) {
         open_tab(self.window, url);
+    }
+
+    fn new_note(&self, space: u64, beside: Option<u64>, cx: &mut App) {
+        let profile = unsafe { bc::bc_space_profile(space) };
+        let url = browser::notes::new_document(&name(bc::bc_profile_notes_service, profile));
+        // check.sh waits for this line.
+        log!("browser: new note {url}{}", if beside.is_some() { " split" } else { "" });
+        match beside {
+            // Outside the shell's update, which the split's layout updates.
+            Some(with) => {
+                let window = self.window;
+                cx.defer(move |cx| open_split(window, url, with, cx));
+            }
+            None => open_tab(self.window, url),
+        }
     }
 
     fn site_search_settings(&self, _: &mut App) {
@@ -4215,8 +4223,6 @@ fn finish_opening(
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
-    // shortcut: Linux's host has no card window yet, so the card is off there.
-    #[cfg(not(target_os = "linux"))]
     if let Some(card) = hover_card::open(Rc::new(CardHost), cx)
         && let Ok(view) = card.update(cx, |_, window, _| ns_view(window))
     {
@@ -4428,11 +4434,12 @@ fn start_updates(cx: &mut App) {
             };
             log!("browser: updater started");
             let restarting = portal.clone();
-            cx.update(|cx| {
+            let retries = cx.update(|cx| {
                 flatpak::on_restart(move |cx| restart_into_newest(restarting.clone(), cx), cx);
                 flatpak::changed(flatpak::State::Current, cx);
+                flatpak::retries(cx)
             });
-            flatpak::watch(&portal, events, |state| {
+            flatpak::watch(&portal, events, retries, flatpak::ANSWER, |state| {
                 log!("browser: update {state:?}");
                 cx.update(|cx| flatpak::changed(state.clone(), cx));
             })
@@ -6109,10 +6116,8 @@ fn profile_dir() -> String {
 /// What the app gives the core to start with: Chromium's switches, from the arguments the process
 /// was `given`, and the callbacks.
 fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
-    let mut given = given.into_iter();
-    let mut args: Vec<String> = given.next().into_iter().collect();
     let profile = profile_dir();
-    args.extend([
+    let mut args: Vec<String> = vec![
         format!("--user-data-dir={profile}"),
         // Chrome would copy the app bundle to check its signature against, which an
         // ad-hoc-signed build doesn't need.
@@ -6122,7 +6127,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         // back.
         "--disable-stack-profiler".into(),
         "--enable-features=PartitionAllocAdaptiveMemoryReclaimInterval".into(),
-    ]);
+    ];
     // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed dev build asking
     // for it gets a password prompt after every build, and every request that uses cookies waits.
     // The prod build is signed alike every time (tools/install.sh), so macOS asks once.
@@ -6152,11 +6157,12 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
-    // Switches given to the app come after, so they override these: Chromium keeps a repeated
-    // switch's last value.
-    args.extend(given.filter(|arg| {
+    let given = given.into_iter().filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
-    }));
+    });
+    // On Windows and Linux Chromium has started already, with what it was given.
+    let chromium_started = cfg!(any(target_os = "windows", target_os = "linux"));
+    let args = launch::chromium_args(given.collect(), args, chromium_started);
     let args: Vec<CString> = args
         .into_iter()
         .filter_map(|arg| CString::new(arg).ok())
@@ -6334,6 +6340,47 @@ fn ui_view_of(window: bc::bc_id) -> Option<*mut c_void> {
 fn main() {
     log!("browser: on Linux, run chrome beside libBrowser.so, which linux/ builds");
     std::process::exit(1);
+}
+
+/// The Windows driver's scripted input method (platform/windows/drive.cc), in GPUI's window `hwnd`:
+/// marks `text` in its field with the keys, with `start..end` of it selected if `selected`, or with
+/// `text` empty takes the composition out. Returns whether a field had the keys.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_compose(
+    hwnd: *mut c_void,
+    text: *const c_char,
+    start: usize,
+    end: usize,
+    selected: bool,
+) -> bool {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    gpui_windows::drive_compose(hwnd, &text, selected.then_some(start..end))
+}
+
+/// As browser_drive_compose: commits `text` in place of what was composed.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_commit(hwnd: *mut c_void, text: *const c_char) -> bool {
+    gpui_windows::drive_commit(hwnd, &unsafe { CStr::from_ptr(text) }.to_string_lossy())
+}
+
+/// What the field with the keys in GPUI's window `hwnd` has marked, in UTF-16, if anything.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_marked(
+    hwnd: *mut c_void,
+    start: *mut usize,
+    length: *mut usize,
+) -> bool {
+    let Some(marked) = gpui_windows::marked_range(hwnd) else {
+        return false;
+    };
+    unsafe {
+        *start = marked.start;
+        *length = marked.len();
+    }
+    true
 }
 
 /// On Windows and Linux the browser is this library, which the core in Chromium's own executable

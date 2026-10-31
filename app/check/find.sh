@@ -67,28 +67,15 @@ check_find_bar() {
     fail "$1: the find bar is at ${child:-nowhere} in a window $content wide"
 }
 
-# What's typed right after ⌘F, with no wait, lands in the bar, though the page has ⌘F first and the
-# keys come before the bar has the keyboard. All of it in the bar is none of it in the page.
-# Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
-# it has the input focus, so there what the bar finds is the proof. The driver starts a command as
-# its line comes, so on the Mac nothing that forks, such as uname, comes between ⌘F and the keys:
-# ⌘F could be back from the page before they're sent, and they'd test no hold.
-if [ "$(uname)" = Linux ]; then
-  post key f cmd
-  send type apple
-  expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
-  expect '^browser: find bar shown$' "⌘F didn't open the find bar"
-else
-  post key f cmd
-  send type apple
-  sed -n "/^browser: drive $((step - 1)): /,/^browser: drive $step: /p" "$log" |
-    grep -q '^browser: command find via page$' &&
-    fail "⌘F was back from the page before the keys after it were sent, so they tested no hold"
-  expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
-  expect '^browser: find bar shown$' "⌘F didn't open the find bar"
-  expect '^browser: held [0-9]* key events for GPUIPanel$' \
-    "the keys typed right after ⌘F didn't wait for the find bar"
-fi
+# What's typed right after ⌘F, with no wait, lands in the bar, though the page has ⌘F first: the
+# app holds the keys that come before the bar has the keyboard, and the bar can have it before the
+# first one comes, when there are none to hold (#905). All of it in the bar, which finds it, is
+# none of it in the page. On the Mac nothing that forks, such as uname, comes between ⌘F and the
+# keys, as the driver starts a command as its line comes.
+post key f cmd
+send type apple
+expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
+expect '^browser: find bar shown$' "⌘F didn't open the find bar"
 expect_find "$first" "open 1 of 3 apple" "typing right after ⌘F didn't find in the page"
 send state
 in_find_bar "after ⌘F"
