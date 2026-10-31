@@ -1,5 +1,6 @@
 //! What the readers find in another browser's files, in the shape it comes in here: Spaces with
-//! their pinned tabs and folders, favorites and history, each in the profile it was kept in.
+//! their pinned and Today tabs and folders, favorites, history and addresses, each in the profile
+//! it was kept in.
 
 use super::extensions::Extension;
 use crate::theme::Theme;
@@ -45,6 +46,8 @@ pub struct Space {
     pub icon: String,
     pub theme: Option<Theme>,
     pub pinned: Vec<Node>,
+    /// The tabs the browser had open, as the Space's Today tabs, in its order.
+    pub today: Vec<Tab>,
 }
 
 /// A page from the browser's history.
@@ -59,6 +62,23 @@ pub struct Page {
     pub typed: u32,
 }
 
+/// A saved address, as Chromium's Web Data keeps one: each of its fields by Chromium's FieldType
+/// number, which the core reads as Chromium's own table does.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Address {
+    pub fields: Vec<Field>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
+    /// Chromium's FieldType, such as 33 for the city.
+    pub kind: i32,
+    pub value: String,
+    /// Chromium's VerificationStatus: how the value came to be, such as typed by the user or
+    /// parsed from the rest.
+    pub status: i32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Found {
     pub spaces: Vec<Space>,
@@ -67,6 +87,7 @@ pub struct Found {
     pub history: Vec<(FromProfile, Vec<Page>)>,
     /// The Web Store extensions of every profile, once each, pinned if any profile pinned it.
     pub extensions: Vec<Extension>,
+    pub addresses: Vec<(FromProfile, Vec<Address>)>,
 }
 
 /// Whether a page at `url` can open here: another browser's own pages, such as `arc://` or

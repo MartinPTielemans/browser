@@ -46,8 +46,7 @@ pub fn parse(json: &str) -> Result<Found, String> {
     Ok(Found {
         spaces,
         favorites,
-        history: Vec::new(),
-        extensions: Vec::new(),
+        ..Found::default()
     })
 }
 
@@ -100,6 +99,8 @@ impl Reader<'_> {
             pinned: pinned_container(space)
                 .map(|id| self.nodes(id, &mut HashSet::new()))
                 .unwrap_or_default(),
+            // Today tabs stay in Arc.
+            today: Vec::new(),
         }
     }
 
