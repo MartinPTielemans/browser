@@ -36,6 +36,8 @@ struct Made {
     asked: RefCell<Option<Question>>,
     /// The tabs the user holds from agents, as the core keeps them.
     held: RefCell<HashSet<u64>>,
+    /// Each action the agents asked the core whether they may take (bc_agent_may_act).
+    checked: RefCell<Vec<String>>,
 }
 
 impl Made {
@@ -102,7 +104,8 @@ impl Browser for Made {
         )
     }
 
-    fn may_act(&self, agent: &str, tab: u64, _: &str, _: &mut App) -> Result<(), String> {
+    fn may_act(&self, agent: &str, tab: u64, action: &str, _: &mut App) -> Result<(), String> {
+        self.checked.borrow_mut().push(action.into());
         if self.held.borrow().contains(&tab) {
             return Err(HELD.into());
         }
@@ -170,6 +173,21 @@ impl Browser for Made {
 
     fn close_tab(&self, tab: u64, _: &mut App) {
         self.tabs.borrow_mut().retain(|each| each.0 != tab);
+    }
+
+    // As the core does: only a tab of the user's, into an agent's Space.
+    fn give(&self, tab: u64, space: u64, _: &mut App) -> bool {
+        let agents = self.agent_spaces.borrow();
+        let mut tabs = self.tabs.borrow_mut();
+        let Some(each) = tabs.iter_mut().find(|each| each.0 == tab) else {
+            return false;
+        };
+        if agents.values().any(|&agent| agent == each.1) || !agents.values().any(|&s| s == space) {
+            return false;
+        }
+        each.1 = space;
+        self.held.borrow_mut().remove(&tab);
+        true
     }
 }
 
@@ -1026,6 +1044,32 @@ fn a_tab_the_user_took_back_stays_theirs_until_they_hand_it_back(cx: &mut TestAp
     assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
 }
 
+/// The user gives the agent a tab of theirs, which it may then read, with an entry in its log.
+/// Nothing else moves into its Space: a tab of its own, or one into a Space that isn't an agent's.
+#[gpui::test]
+fn the_user_gives_an_agent_a_tab_of_theirs(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let read = |agents: &Entity<Agents>, cx: &mut TestAppContext| {
+        call(agents, "claude-code", "snapshot", json!({ "tab": 10 }), cx)
+    };
+    assert!(read(&agents, cx).recv().unwrap().error, "the user's tab was the agent's already");
+    agents.update(cx, |agents, cx| {
+        agents.give(20, 2, cx);
+        agents.give(10, 1, cx);
+    });
+    assert!(log(&agents, "claude-code", cx).iter().all(|entry| entry.0 != "given"));
+
+    agents.update(cx, |agents, cx| agents.give(10, 2, cx));
+    assert_eq!(
+        log(&agents, "claude-code", cx)
+            .into_iter()
+            .find(|entry| entry.0 == "given"),
+        Some(("given".into(), "en.wikipedia.org".into(), String::new()))
+    );
+    let answer = read(&agents, cx);
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+}
+
 /// A page asking for the user's passkey hands its tab to them, as a handoff with no call waiting:
 /// no card over Chrome's dialog, the bar says why, the log has it and Hand Back ends it.
 #[gpui::test]
@@ -1125,4 +1169,98 @@ fn run_steps_runs_its_steps_in_order(cx: &mut TestAppContext) {
     assert!(stopped.text.starts_with("Step 2 would click “Place order” on example.com"));
     assert!(stopped.text.ends_with("1. Scrolled down."));
     assert_eq!(*browser.asked.borrow(), None, "the run left its question");
+}
+
+/// The actions the core lets an agent take in its tabs, agent_session.cc's RefusedAction: each a
+/// thing the user does in a page, or handing the tab to them.
+const CORE_ALLOWS: [&str; 13] = [
+    "back",
+    "click",
+    "close_tab",
+    "forward",
+    "hand_off",
+    "navigate",
+    "press_key",
+    "read_page",
+    "screenshot",
+    "scroll",
+    "select_option",
+    "snapshot",
+    "type",
+];
+
+/// Agents never read or fill a saved password, address, card or passkey (principle 3). The server
+/// offers exactly these tools, and every one asks the core only for an action its allowlist has,
+/// so a tool or action that could reach them fails here until it's added on purpose, with its rule.
+#[gpui::test]
+fn agents_get_only_the_allowlisted_tools(cx: &mut TestAppContext) {
+    let listed = tools::list();
+    let names: Vec<&str> = (listed.as_array().unwrap().iter())
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "list_tabs",
+            "open_tab",
+            "close_tab",
+            "navigate",
+            "snapshot",
+            "read_page",
+            "click",
+            "type",
+            "press_key",
+            "scroll",
+            "screenshot",
+            "run_steps",
+            "hand_off",
+            "ask_for_tab",
+        ]
+    );
+
+    let (agents, browser, _) = connected(cx);
+    let tab = |more: Value| {
+        let mut arguments = json!({ "tab": 20 });
+        arguments.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        arguments
+    };
+    let calls = [
+        ("list_tabs", json!({})),
+        ("open_tab", json!({ "url": "example.com" })),
+        ("snapshot", tab(json!({}))),
+        ("read_page", tab(json!({}))),
+        ("click", tab(json!({ "ref": "e1" }))),
+        ("type", tab(json!({ "ref": "e1", "text": "SAVE10" }))),
+        ("press_key", tab(json!({ "key": "Tab" }))),
+        ("scroll", tab(json!({}))),
+        ("screenshot", tab(json!({}))),
+        ("navigate", tab(json!({ "url": "back" }))),
+        ("navigate", tab(json!({ "url": "forward" }))),
+        ("navigate", tab(json!({ "url": "iana.org" }))),
+        ("run_steps", tab(json!({ "steps": [{ "action": "scroll" }] }))),
+        ("hand_off", tab(json!({ "reason": "Sign in" }))),
+        ("ask_for_tab", tab(json!({ "reason": "To go on" }))),
+        ("close_tab", json!({ "tab": 30 })),
+    ];
+    for (tool, arguments) in calls {
+        let pages = browser.pages.borrow().len();
+        let answer = call(&agents, "claude-code", tool, arguments, cx);
+        if browser.pages.borrow().len() > pages {
+            shop_done(&agents, &browser, cx);
+        }
+        if let Some(read) = browser.reads.borrow_mut().pop() {
+            agents.update(cx, |agents, cx| agents.text_read(read.1, Some("Shop".into()), cx));
+        }
+        cx.run_until_parked();
+        _ = answer.try_recv();
+    }
+
+    let checked: HashSet<String> = browser.checked.borrow().iter().cloned().collect();
+    for action in &checked {
+        assert!(CORE_ALLOWS.contains(&action.as_str()), "{action} isn't the core's to allow");
+    }
+    let page_actions = ["snapshot", "read_page", "click", "type", "press_key", "scroll"];
+    for action in page_actions.into_iter().chain(["screenshot", "back", "hand_off", "close_tab"]) {
+        assert!(checked.contains(action), "{action} didn't ask the core: {checked:?}");
+    }
 }

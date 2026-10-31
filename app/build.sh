@@ -44,6 +44,8 @@ case "$(uname -s)" in
     cp -al .deps/engine build/Browser
     cp target/release/Browser.dll build/Browser/
     cp -R "$(./fetch-ublock.sh)" build/Browser/ublock
+    # shellcheck disable=SC2086
+    ../tools/licences.sh build/Browser windows/Cargo.toml "$(rustc -vV | sed -n 's/^host: //p')" $features
     exit 0
     ;;
 esac
@@ -155,6 +157,9 @@ plutil -replace CFBundleName -string "$name" "$plist"
 plutil -replace CFBundleDisplayName -string "$name" "$plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$plist"
 plutil -replace CFBundleVersion -string "$build" "$plist"
+# macOS 15 (Sequoia) or later, the owner's call (#678). Below it macOS won't open the app, and
+# Sparkle's generate_appcast copies it into the feed's entry, so an older Mac is offered no update.
+plutil -replace LSMinimumSystemVersion -string 15.0 "$plist"
 rm "$app/Contents/Resources/app.icns"
 cp branding/Assets.car "branding/$name.icns" "$app/Contents/Resources/"
 plutil -replace CFBundleIconFile -string "$name" "$plist"
@@ -206,4 +211,16 @@ plutil -replace NSMicrophoneUsageDescription -string "Websites can ask to use th
 plutil -replace NSLocationUsageDescription -string "Websites can ask for your location." "$plist"
 plutil -replace NSLocationWhenInUseUsageDescription -string "Websites can ask for your location." "$plist"
 plutil -replace NSLocalNetworkUsageDescription -string "Websites and casting can reach devices on your network." "$plist"
+# A prod build's crash reports name its functions only once the collector has its symbols: the
+# framework's and helpers' dSYMs, which the Release engine writes beside Chromium.app, and the app's
+# executable, which keeps its symbol table. tools/symbols.sh uploads them with SENTRY_AUTH_TOKEN
+# and the rest set (README.md › Releases). The app is built either way.
+if [ -n "$features" ]; then
+  set -- "$app/Contents/MacOS/Browser"
+  for dsym in "$engine_out"/*.dSYM; do
+    [ -e "$dsym" ] && set -- "$@" "$dsym"
+  done
+  ../tools/symbols.sh "$@" ||
+    echo "symbols: none uploaded, though $app is built. Try again with: tools/symbols.sh $*" >&2
+fi
 echo "$app"

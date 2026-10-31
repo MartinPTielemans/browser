@@ -1,7 +1,10 @@
 //! Where the shell asks for the Site Controls, and the tooltips its buttons ask for, on a host
 //! that records them.
 
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     AppContext, Bounds, Entity, Modifiers, MouseButton, NavigationDirection, TestAppContext,
@@ -11,7 +14,8 @@ use gpui::{
 use crate::{
     passwords::Key,
     shell::{
-        Command, FOOTER_HEIGHT, Folders, NAV_SIZE, NAV_TOP, Page, SIDEBAR_BUTTON_X, Shell,
+        BACK_X, Command, FOOTER_HEIGHT, FORWARD_X, Folders, NAV_PRESS_SCALE, NAV_SIZE, NAV_TOP,
+        PRESS_TIME, Page, RELOAD_X, SIDEBAR_BUTTON_X, Shell, beside::AtRest, history::HOLD,
         library::LIBRARY_BACK_INSET, recorder::Recorder,
     },
     site_controls::Place,
@@ -157,32 +161,40 @@ fn a_press_with_no_move_before_it_puts_the_pointer_over_the_sidebar(cx: &mut Tes
     assert!(!tools(&shell, cx).0);
 }
 
-/// A mouse's back and forward buttons over the sidebar go back and forward in the selected tab,
-/// as over Chrome's toolbar, and do nothing where its page can't.
+/// A mouse's back and forward buttons over the sidebar show the previous and next Space, as Arc's
+/// do, never past the first or last, and leave the page's history alone.
 #[gpui::test]
-fn mouse_back_and_forward_over_the_sidebar_go_back_and_forward(cx: &mut TestAppContext) {
+fn mouse_back_and_forward_over_the_sidebar_switch_spaces(cx: &mut TestAppContext) {
     let (shell, cx, host) = drawn_shell(cx);
-    let mut page = Page { url: "https://example.org/".into(), ..Page::default() };
+    let page = Page {
+        url: "https://example.org/".into(),
+        can_go_back: true,
+        can_go_forward: true,
+        ..Page::default()
+    };
     shell.update(cx, |shell, cx| {
-        shell.set_tabs(1, Vec::new(), vec![10, 11], Vec::new(), Folders::default(), cx);
+        let space = |id, name: &str| (id, name.into(), None, 0, "".into(), "".into(), "".into());
+        shell.set_spaces(vec![space(1, "One"), space(2, "Two")], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
         shell.set_selected(10, cx);
+        shell.set_page(10, page, cx);
     });
-    let mut press = |page: &Page, direction| {
-        shell.update(cx, |shell, cx| shell.set_page(10, page.clone(), cx));
+    let press = |direction, cx: &mut VisualTestContext| {
         cx.run_until_parked();
         host.take();
         let button = MouseButton::Navigate(direction);
         cx.simulate_mouse_down(point(px(100.), px(300.)), button, Modifiers::none());
         cx.run_until_parked();
-        host.take().into_iter().filter(|call| call.ends_with(" 10")).collect::<Vec<_>>()
+        // The page's history is left alone.
+        assert!(host.take().iter().all(|call| !call.ends_with(" 10")));
+        host.shown.take()
     };
-    assert!(press(&page, NavigationDirection::Back).is_empty());
-    assert!(press(&page, NavigationDirection::Forward).is_empty());
-    page.can_go_back = true;
-    assert_eq!(press(&page, NavigationDirection::Back), ["back 10"]);
-    assert!(press(&page, NavigationDirection::Forward).is_empty());
-    page.can_go_forward = true;
-    assert_eq!(press(&page, NavigationDirection::Forward), ["forward 10"]);
+    assert!(press(NavigationDirection::Back, cx).is_empty());
+    assert_eq!(press(NavigationDirection::Forward, cx), [2]);
+    shell.update(cx, |shell, cx| shell.set_space(2, cx));
+    assert!(press(NavigationDirection::Forward, cx).is_empty());
+    assert_eq!(press(NavigationDirection::Back, cx), [1]);
 }
 
 /// Whether the pointer is over the sidebar and Clear and the URL field's buttons show, once the
@@ -316,4 +328,150 @@ fn the_key_brings_the_offer_back_or_opens_the_site_controls(cx: &mut TestAppCont
     press(at, cx);
     assert!(host.site_controls.take().is_empty(), "a press where the key was opened them");
     assert!(!host.take().iter().any(|call| call.starts_with("show offer")));
+}
+
+/// Back, forward and reload shrink about their middle, 1 pt in at each end, over PRESS_TIME while
+/// they're held, and grow back as long once let go; the click still goes on the release. Reload
+/// keeps shrinking as it turns into stop. Held for its menu, back grows back as the menu opens, and
+/// the sidebar button doesn't shrink. Grown back, the button is let go at the next frame, so a
+/// button at rest asks for no frames.
+#[gpui::test]
+fn back_forward_and_reload_shrink_a_little_while_held(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    let page = Page { url: "https://example.org/".into(), can_go_back: true, ..Page::default() };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+        shell.set_selected(10, cx);
+        shell.set_page(10, page.clone(), cx);
+    });
+    cx.run_until_parked();
+    host.take();
+    let at = |x: f32| point(px(x + NAV_SIZE / 2.), px(NAV_TOP + NAV_SIZE / 2.));
+    let scale = |cx: &mut VisualTestContext, x| shell.read_with(cx, |shell, _| shell.nav_scale(x));
+    // As if the press were `ago` seconds back, and the release `let_go` seconds back.
+    let back = |cx: &mut VisualTestContext, ago: f32, let_go: f32| {
+        shell.update(cx, |shell, _| {
+            let held = shell.held_nav.as_mut().unwrap();
+            let now = Instant::now();
+            held.pressed = now - Duration::from_secs_f32(ago);
+            held.let_go = held.let_go.map(|_| now - Duration::from_secs_f32(let_go));
+        })
+    };
+    let between = |scale: f32| scale < 1. && scale > NAV_PRESS_SCALE;
+    assert_eq!(NAV_SIZE * NAV_PRESS_SCALE, NAV_SIZE - 2.);
+
+    cx.simulate_mouse_down(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    back(cx, PRESS_TIME / 2., 0.);
+    assert!(between(scale(cx, BACK_X)), "half way in");
+    back(cx, PRESS_TIME * 2., 0.);
+    assert_eq!(scale(cx, BACK_X), NAV_PRESS_SCALE);
+    assert_eq!((scale(cx, FORWARD_X), scale(cx, RELOAD_X)), (1., 1.), "only the one held");
+    assert!(!host.take().contains(&"back 10".to_string()), "not before the release");
+
+    cx.simulate_mouse_up(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert!(host.take().contains(&"back 10".to_string()));
+    back(cx, PRESS_TIME * 3., PRESS_TIME / 2.);
+    assert!(between(scale(cx, BACK_X)), "half way out");
+    back(cx, PRESS_TIME * 3., PRESS_TIME);
+    assert_eq!(scale(cx, BACK_X), 1.);
+    shell.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.held_nav.is_none()), "let go once grown back");
+
+    cx.simulate_mouse_down(at(RELOAD_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    shell.update(cx, |shell, cx| shell.set_page(10, Page { loading: true, ..page.clone() }, cx));
+    cx.run_until_parked();
+    back(cx, PRESS_TIME * 2., 0.);
+    assert_eq!(scale(cx, RELOAD_X), NAV_PRESS_SCALE, "reload, turned into stop");
+    cx.simulate_mouse_up(at(RELOAD_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+
+    shell.update(cx, |shell, cx| shell.set_page(10, page.clone(), cx));
+    cx.simulate_mouse_down(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.executor().advance_clock(HOLD);
+    cx.run_until_parked();
+    assert!(host.take().contains(&"history 10 back".to_string()));
+    let let_go = shell.read_with(cx, |shell, _| shell.held_nav.as_ref().map(|held| held.let_go));
+    assert!(matches!(let_go, Some(Some(_))), "its menu took the press over");
+    cx.simulate_mouse_up(at(BACK_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+
+    shell.update(cx, |shell, _| shell.held_nav = None);
+    cx.simulate_mouse_down(at(SIDEBAR_BUTTON_X), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.held_nav.is_none()), "the sidebar button");
+}
+
+/// The URL field says the page's host, and its whole URL while it's in Developer Mode.
+#[gpui::test]
+fn the_url_field_shows_the_whole_url_in_developer_mode(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+    let url = "http://localhost:3000/app?tab=2#top";
+    let mut words = |developer_mode| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: url.into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+            shell.set_selected(1, cx);
+            shell.url_field_words(url).0.to_string()
+        })
+    };
+    assert_eq!(words(false), "localhost");
+    assert_eq!(words(true), url);
+}
+
+/// In Developer Mode the URL field has DevTools' button before Copy URL, under the pointer as
+/// those are, named with ⌥⌘I, and a click on it opens the page's DevTools as ⌥⌘I does. Out of it
+/// there's none, and a click there is the field's, which opens the command bar.
+#[gpui::test]
+fn developer_mode_puts_devtools_in_the_url_field(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    let url = "http://localhost:3000/";
+    let set = |developer_mode, shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: url.into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+        });
+        cx.run_until_parked();
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![1], Vec::new(), Folders::default(), cx);
+        shell.set_selected(1, cx);
+    });
+    set(true, &shell, cx);
+    move_to(cx, &host, 100., 300.);
+    shell.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    host.take();
+    cx.simulate_click(point(px(150.), px(64.)), Modifiers::none());
+    let calls = host.take();
+    assert!(calls.iter().any(|call| call == "tooltip Developer Tools ⌥⌘I"), "{calls:?}");
+    let calls: Vec<_> = calls.into_iter().filter(|call| !call.starts_with("tooltip")).collect();
+    assert_eq!(calls, ["devtools 1 0"]);
+    assert!(host.command_bars.take().is_empty());
+    set(false, &shell, cx);
+    cx.simulate_click(point(px(150.), px(64.)), Modifiers::none());
+    assert!(host.take().iter().all(|call| !call.starts_with("devtools")));
+    assert_eq!(host.command_bars.take().len(), 1);
+}
+
+/// While the page slides with a Space switch, a press on DevTools' place does what it does once
+/// it settles, in Developer Mode only.
+#[gpui::test]
+fn devtools_rests_in_the_url_field_in_developer_mode(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+    let at = |developer_mode, cx: &mut TestAppContext| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { url: "http://localhost/".into(), developer_mode, ..Page::default() };
+            shell.set_page(1, page, cx);
+            shell.set_selected(1, cx);
+            shell.sidebar_hovered = true;
+            shell.tools_on = true;
+            shell.field_part_at(150. - 8.)
+        })
+    };
+    assert_eq!(at(true, cx), AtRest::DevTools);
+    assert_eq!(at(false, cx), AtRest::Field);
 }

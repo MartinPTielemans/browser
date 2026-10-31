@@ -2,9 +2,9 @@
 //! a split view and a Space's folders. The engine answers in main.rs, the preview with
 //! made-up tabs in preview.rs.
 
-use std::{collections::HashMap, rc::Rc, time::Duration};
+use std::{collections::HashMap, rc::Rc, sync::Arc, time::Duration};
 
-use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
+use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size};
 
 use crate::theme::Appearance;
 
@@ -21,8 +21,9 @@ pub trait Browser {
     fn close(&self, tab: u64, split: bool, cx: &mut App);
     /// Closes the Today tabs below `tab`, showing `tab` if one of them showed.
     fn close_below(&self, tab: u64, cx: &mut App);
-    /// Opens a copy of `tab` with its history, under it in Today, and shows it.
-    fn duplicate(&self, tab: u64, cx: &mut App);
+    /// Opens a copy of `tab` with its history, under it in Today, and shows it. Returns its id, or
+    /// 0.
+    fn duplicate(&self, tab: u64, cx: &mut App) -> u64;
     /// Moves `tab` to `space`. The window goes with it if it shows it. Into another profile's Space
     /// it goes as a new tab, whose page loads there again.
     fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
@@ -49,7 +50,14 @@ pub trait Browser {
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, cx: &mut App)
     -> u64;
     fn rename_folder(&self, folder: u64, name: &str, cx: &mut App);
+    /// Gives `folder` `icon`, an emoji, or takes its icon away with an empty one.
+    fn set_folder_icon(&self, folder: u64, icon: &str, cx: &mut App);
+    /// Makes a copy of `folder` under it, with a copy of each tab and folder in it, the tabs
+    /// unloaded, and returns it, or 0.
+    fn duplicate_folder(&self, folder: u64, cx: &mut App) -> u64;
     fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App);
+    /// Collapses `space`'s pinned rows, or expands them.
+    fn set_pinned_open(&self, space: u64, open: bool, cx: &mut App);
     /// Moves `folder`, with what's in it, to `index` in `to`, else in the pinned tabs, counted as
     /// `move_tab` counts.
     fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App);
@@ -69,8 +77,11 @@ pub trait Browser {
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
-    /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
-    /// hides it.
+    /// Opens a tab loading `url` in a split view with `with`, at its left end if `left`, else its
+    /// right end, stacking a new split if `stacked`, and shows it there.
+    fn open_split_at(&self, url: &str, with: u64, left: bool, stacked: bool, cx: &mut App);
+    /// Shows the window over the page that draws `Shell::over_page`, drawing it again, or hides
+    /// it.
     fn show_drop_targets(&self, shown: bool, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
@@ -86,6 +97,16 @@ pub trait Browser {
     fn undo_delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
+    /// Opens the link preview the user closed again, at its page, over its tab, whose window's
+    /// page is at `page` with corners of that radius, growing from its link.
+    fn reopen_preview(
+        &self,
+        closed: &crate::link_preview::Closed,
+        page: (Bounds<Pixels>, f32),
+        cx: &mut App,
+    );
+    /// Closes the link preview over `over`, if one shows, as Redo does. Returns whether it did.
+    fn close_preview(&self, over: u64, cx: &mut App) -> bool;
     /// Reopens the Today tab that had the id `closed` when it closed, at its place, and returns its
     /// new id, or 0 if it isn't among the closed tabs.
     fn reopen_tab(&self, closed: u64, cx: &mut App) -> u64;
@@ -117,6 +138,20 @@ pub trait Browser {
     /// Looks up a preview of the download's file at `path`, a thumbnail of an image, else the
     /// system's icon for it, and calls `Shell::set_download_preview`.
     fn file_preview(&self, download: u64, path: &str, cx: &mut App);
+    /// Plays the video at `path` for Media's tile `id`, `side` pixels square, without sound and
+    /// from its start again at its end. False where the platform plays none.
+    fn open_video(&self, id: u64, path: &str, side: u32, cx: &mut App) -> bool;
+    /// The frame tile `id`'s video shows now, if it's new since the last.
+    fn video_frame(&self, id: u64, cx: &mut App) -> Option<Arc<RenderImage>>;
+    /// Stops the video tile `id` plays.
+    fn close_video(&self, id: u64, cx: &mut App);
+    /// Lists the captures saved to the Library, away from the main thread, and calls
+    /// `Shell::set_captures`.
+    fn list_captures(&self, cx: &mut App);
+    /// What the Library button's hover lists, as `recent_downloads::HOVER_IMAGES`' and its
+    /// fellows' bits, as the user picked them from its menu.
+    fn hover_kinds(&self, cx: &mut App) -> u32;
+    fn set_hover_kinds(&self, kinds: u32, cx: &mut App);
     /// Moves the file at `path` to the system's Trash, and says whether it's gone, as it is if it
     /// was gone already.
     fn trash(&self, path: &str, cx: &mut App) -> bool;
@@ -130,10 +165,20 @@ pub trait Browser {
     fn day_starts(&self) -> [f64; 4];
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
+    /// Lists the pages back from `tab`'s, or forward of it, and calls `Shell::show_history`.
+    fn tab_history(&self, tab: u64, forward: bool, cx: &mut App);
+    /// Goes to the page `offset` from `tab`'s in its history, as `tab_history` numbers them.
+    fn go_to_history(&self, tab: u64, offset: i32, cx: &mut App);
+    /// Opens a copy of `tab` at the page `offset` from its own, or 0 for its page again, under it
+    /// and not shown.
+    fn open_history(&self, tab: u64, offset: i32, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
     /// Deletes the cookies, or else the cache, the profile keeps for the site of the tab's page,
     /// then reloads it.
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
+    /// Turns Developer Mode on or off for the site of the tab's page, in its profile. The user's
+    /// view: agents get none.
+    fn set_developer_mode(&self, tab: u64, on: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
     /// Answers what an agent asks (Shell::set_agent_question), if it still asks.
@@ -153,6 +198,9 @@ pub trait Browser {
     fn view_source(&self, tab: u64, cx: &mut App);
     /// Asks where to save the tab's page, and saves it there.
     fn save_page(&self, tab: u64, cx: &mut App);
+    /// Asks where to save `markdown`, which holds `links` links, offering `name`, and saves it
+    /// there: a Space's from its menu, or every Space's from Settings.
+    fn save_markdown(&self, name: &str, markdown: String, links: usize, cx: &mut App);
     /// Shows print preview for the tab's page.
     fn print(&self, tab: u64, cx: &mut App);
     /// Opens or closes the tab's DevTools (0), opens or closes them at the console (1), or opens
@@ -160,6 +208,14 @@ pub trait Browser {
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
     /// Opens Chrome's Task Manager, with the page shown selected.
     fn task_manager(&self, cx: &mut App);
+    /// Starts recording a trace of the whole browser, and returns false if one is recording
+    /// already. The user's alone: agents get no tool for it.
+    fn start_trace(&self) -> bool;
+    /// Stops the trace, which comes back to `trace::recorded`.
+    fn stop_trace(&self);
+    /// Shows that a trace is recording in the toast, with Stop, which runs `stop`, until it's
+    /// pressed or `None` takes it away. Another toast shows in its place only for its own time.
+    fn trace_note(&self, stop: Option<Rc<dyn Fn(&mut App)>>, cx: &mut App);
     /// Makes the menu bar show `bar`, if the window is the key one.
     fn set_menus(&self, bar: &MenuBar, cx: &mut App);
     /// Titles the window `title`, which the Window menu and Mission Control list it by.
@@ -174,6 +230,10 @@ pub trait Browser {
     fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, cx: &mut App);
     /// Removes extension `id` from `profile`, with the data it keeps, and returns whether it went.
     fn remove_extension(&self, profile: u64, id: &str, cx: &mut App) -> bool;
+    /// Turns extension `id` on again in `profile`, and returns whether it's on.
+    fn turn_on_extension(&self, profile: u64, id: &str, cx: &mut App) -> bool;
+    /// Tells the core the user was told it turned extension `id` off in `profile` as it crashed.
+    fn extension_crash_told(&self, profile: u64, id: &str, cx: &mut App);
     /// Opens an extension's options page, `url`, in a new tab, and shows it.
     fn open_extension_options(&self, url: &str, cx: &mut App);
     /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,
@@ -194,6 +254,8 @@ pub trait Browser {
     fn set_side_panel_width(&self, width: f32, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
+    /// Opens `url`, one of the app's own web pages such as its help, in a new tab, and shows it.
+    fn open_page(&self, url: &str, cx: &mut App);
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);
@@ -204,15 +266,18 @@ pub trait Browser {
     /// Opens Chromium's settings page for the addresses or the cards autofill keeps, in a tab of
     /// the Space shown. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn autofill_settings(&self, kind: AutoFill, cx: &mut App);
+    /// Opens Chrome's Clear browsing data dialog in a tab of the Space shown, for its profile. The
+    /// user's, as site_search_settings is.
+    fn clear_browsing_data(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
-    /// Makes an empty Space named `name` after the others, in `profile` if it isn't 0, and returns
-    /// it.
-    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64;
+    /// Makes an empty Space named `name` right after `after`, else after the others, in `profile`
+    /// if it isn't 0, and returns it.
+    fn create_space(&self, name: &str, profile: u64, after: u64, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
     /// title for an empty one.
@@ -234,6 +299,8 @@ pub trait Browser {
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.
     fn create_profile(&self, name: &str, cx: &mut App) -> u64;
+    /// Names `profile` `name`.
+    fn rename_profile(&self, profile: u64, name: &str, cx: &mut App);
     /// What the import view (crate::import) reads and adds through, for the first launch's step.
     fn import_host(&self) -> Rc<dyn crate::import::Host>;
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
@@ -264,6 +331,15 @@ pub trait Browser {
         confirmed: Box<dyn FnOnce(&mut App)>,
         cx: &mut App,
     );
+    /// Asks `question` in the browser's dialog, and calls `confirmed` with what its fields hold if
+    /// the user chooses its action, once the dialog has gone. Returns whether it asks: not while it
+    /// asks another.
+    fn tell(
+        &self,
+        question: crate::dialog::Question,
+        confirmed: Box<dyn FnOnce(Vec<String>, &mut App)>,
+        cx: &mut App,
+    ) -> bool;
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
     /// Gives the page shown the keyboard, from the UI if it has it, now or once a page still
@@ -310,6 +386,8 @@ pub trait Browser {
     /// Keeps the docked sidebar's width for the next launch.
     fn set_sidebar_width(&self, width: f32, cx: &mut App);
     fn hide_reveal(&self, cx: &mut App);
+    /// Whether ⌥ pressed alone brings the hidden sidebar out, as the user chose.
+    fn option_reveals_sidebar(&self) -> bool;
     /// A detent on the trackpad, as a swipe's nearest Space changes.
     fn detent(&self, cx: &mut App);
     /// Calls `Shell::control_released` once the user lets go of ⌃.
@@ -374,6 +452,18 @@ pub trait Browser {
     /// Shows `text` in the toast with an Undo button and ⌘Z's chip after it, which runs `undo` as
     /// the key does, for `time` and for as long as the pointer is over it.
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App);
+    /// Whether this window is the browser window in front, over which the toast shows.
+    fn in_front(&self) -> bool;
+    /// Shows `text` in the toast with a button after it, its label and its name in the logs, which
+    /// runs `run`, for `time` and for as long as the pointer is over it.
+    fn toast_button(
+        &self,
+        text: &str,
+        button: (&'static str, &'static str),
+        run: Rc<dyn Fn(&mut App)>,
+        time: Duration,
+        cx: &mut App,
+    );
     /// Takes the toast away if it has an Undo button, as the undo it offered has been done.
     fn hide_undo_toast(&self, cx: &mut App);
     /// Gives the Edit menu's Undo and Redo the titles of what they'd undo and redo, plain Undo and
@@ -390,6 +480,9 @@ pub trait Browser {
     /// Tells a tab's hover card the pointer rests on its row or tile, or left it, or ends it
     /// (crate::hover_card). The app ends it too on the window losing the keyboard.
     fn hover_card(&self, hover: crate::hover_card::Hover, cx: &mut App);
+    /// Tells a closed folder's preview the pointer rests on its row, or left it, or ends it
+    /// (crate::folder_preview).
+    fn folder_preview(&self, ask: crate::folder_preview::Ask, cx: &mut App);
     /// Asks for a small picture of `tab`'s page, as it was last drawn, for its hover card, which
     /// the browser keeps for it. The user's: agents get none, as with the page's picture.
     fn card_picture(&self, tab: u64, cx: &mut App);
@@ -448,13 +541,17 @@ pub trait Browser {
         cx: &mut App,
     );
     /// Starts capture mode over the tab's page, at `frame` in the window with corners of `radius`,
-    /// or leaves it if it's on; or with `full_page` captures all of the page and copies it.
+    /// or leaves it if it's on; or with `full_page` captures all of the page and copies it. Its
+    /// menu offers Save to Library with `library`, as a private window has no Library, and it
+    /// draws in the window's menus' `look`.
     fn capture(
         &self,
         tab: u64,
         frame: Bounds<Pixels>,
         radius: f32,
         full_page: bool,
+        library: bool,
+        look: crate::menu::Look,
         cx: &mut App,
     );
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers
@@ -470,6 +567,12 @@ pub trait Browser {
     fn shortcuts(&self, cx: &mut App);
     /// Opens the Settings window on its About tab.
     fn about(&self, cx: &mut App);
+    /// Whether this build updates itself: a release with its updater, or on Linux the Flatpak.
+    fn updates(&self) -> bool {
+        false
+    }
+    /// Check for Updates…: asks the updater to look, or says where the update stands.
+    fn check_for_updates(&self, _: &mut App) {}
     /// Opens the Settings window on its Import tab.
     fn import(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
@@ -491,6 +594,8 @@ pub trait Browser {
     fn take_over(&self, agent: SharedString, tab: u64, cx: &mut App);
     /// The user hands `tab` back to its agent.
     fn hand_back(&self, tab: u64, cx: &mut App);
+    /// The user gives the agent whose Space is `space` their `tab`, which moves there.
+    fn give_to_agent(&self, tab: u64, space: u64, cx: &mut App);
     /// The user stops the agent with the id `agent`: what it's doing and asking ends.
     fn stop_agent(&self, agent: SharedString, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
@@ -562,6 +667,8 @@ pub struct Page {
     pub trouble: Trouble,
     /// Safari's engine shows the page, in place of Chromium.
     pub system_engine: bool,
+    /// The tab shows its page in Developer Mode, for its site or as localhost.
+    pub developer_mode: bool,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the
@@ -610,4 +717,10 @@ pub struct Folders {
     pub folders: HashMap<u64, (SharedString, bool)>,
     /// The folder holding each pinned tab or folder in one.
     pub parents: HashMap<u64, u64>,
+    /// Whether its pinned rows are collapsed, which hides them as a closed folder hides what's in
+    /// it.
+    pub pinned_shut: bool,
+    /// Each folder's icon, an emoji, which the sidebar draws in place of the folder; those without
+    /// one aren't here.
+    pub icons: HashMap<u64, SharedString>,
 }

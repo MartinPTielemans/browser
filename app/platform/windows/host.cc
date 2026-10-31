@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <ctime>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <string>
 #include <thread>
@@ -521,7 +522,7 @@ void WatchForeground() {
   (void)hook;
 }
 
-Floating g_overlays[3];
+Floating g_overlays[4];
 struct Corner {
   Floating floating;
   double right = 0;
@@ -656,11 +657,14 @@ void ReleaseKeys(HWND from) {
     KillTimer(nullptr, g_hold_timer);
     g_hold_timer = 0;
   }
+  // A bar, or with none the page, which kept the shortcut.
+  const bool to_bar = g_keys_for || from;
   HWND to = g_keys_for ? g_keys_for : (from ? from : GetFocus());
   g_keys_for = nullptr;
   if (!g_held_keys.empty()) {
-    // check.sh reads this line.
-    fprintf(stderr, "browser: held %zu key events\n", g_held_keys.size());
+    // check.sh reads this line, which names the window that took them as the Mac's does.
+    fprintf(stderr, "browser: held %zu key events for %s\n", g_held_keys.size(),
+            to_bar ? "GPUIPanel" : "BrowserCoreNSWindow");
   }
   for (const MSG& held : g_held_keys) {
     PostMessageW(to, held.message, held.wParam, held.lParam);
@@ -1211,6 +1215,12 @@ void host_set_window_title(void* ui_view, const char* title) {
   SetWindowTextW(Root(ui_view), Wide(title).c_str());
 }
 
+// The window has no material under the UI, whose tint is the window's look.
+void host_set_window_light(void* ui_view, bool light) {}
+
+// The UI takes the choice itself; the system's controls and the pages keep Windows'.
+void host_set_app_appearance(int appearance) {}
+
 void host_activate(void* ui_view) {
   HWND root = Root(ui_view);
   if (IsIconic(root)) {
@@ -1230,6 +1240,7 @@ void host_watch_full_screen(void (*)(void*, bool)) {}
 // Windows delivers a touchpad's swipes to the page as scrolls, which it takes, so there's nothing
 // here for the host to watch.
 void host_watch_swipes(bool (*)(void*, double, double, bool)) {}
+void host_watch_option_taps(void (*)(void*)) {}
 
 // A window's menu bar isn't replaced while it's open on Windows: it's modal and runs no tasks.
 bool host_after_menus(void (*)(void)) { return false; }
@@ -1325,7 +1336,7 @@ void host_show_overlay(int overlay,
                        double left,
                        double top,
                        double width) {
-  for (int each = 0; each < 3; ++each) {
+  for (int each = 0; each < int(std::size(g_overlays)); ++each) {
     Floating& other = g_overlays[each];
     if (each != overlay && other.hwnd && IsWindowVisible(other.hwnd)) {
       Hide(other);
@@ -1508,7 +1519,7 @@ void* host_add_link_preview(void*, void (*)(void)) {
 
 void host_show_link_preview(void*) {}
 
-void host_link_preview_drew(double, double, double, double, double) {}
+void host_link_preview_drew(double, double, double, double, double, double) {}
 
 void host_release_link_preview(void) {}
 
@@ -1544,6 +1555,16 @@ void host_copy_png(const uint8_t* png, size_t size) {
     }
   }
   CloseClipboard();
+}
+
+void host_capture_name(char* name, size_t capacity) {
+  SYSTEMTIME now;
+  GetLocalTime(&now);
+  if (capacity && snprintf(name, capacity, "Capture %04d-%02d-%02d at %02d.%02d.%02d.png",
+                           now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+                           now.wSecond) < 0) {
+    name[0] = 0;
+  }
 }
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
@@ -1626,7 +1647,9 @@ void host_show_toast(void* ui_view) {
   double content_width, content_height, width, height;
   ContentSize(Root(ui_view), &content_width, &content_height);
   WindowSize(g_toast.hwnd, &width, &height);
-  Show(g_toast, ui_view, content_width - width, 0, -1, -1, false);
+  // At the focused page's corner, which in a split view is its pane's.
+  auto [extra_right, extra_top] = g_pane_corners[ui_view];
+  Show(g_toast, ui_view, content_width - extra_right - width, extra_top, -1, -1, false);
 }
 
 void host_hide_toast(void) {
@@ -2064,6 +2087,17 @@ void host_file_preview(const char* path,
     });
   }).detach();
 }
+
+// shortcut: no video playback yet; Media's video tiles show their preview.
+void* host_video_open(const char*, int) {
+  return nullptr;
+}
+
+bool host_video_frame(void*, uint8_t*) {
+  return false;
+}
+
+void host_video_close(void*) {}
 
 void host_copy(const char* text) {
   std::wstring wide = Wide(text);

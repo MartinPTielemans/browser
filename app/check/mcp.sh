@@ -1,16 +1,18 @@
 # An MCP client reaches the browser through the bridge beside it once Settings › Agents is on and
 # it's connected, as the saved settings say here. The socket is the user's alone, and the bridge
 # gets nowhere without the agent's token. Its first call makes its Space, and it may list and read
-# only the tabs there: its list leaves out the user's tab, a read of the user's tab is refused,
-# with an activity-log entry, and a read of example.com, opened in its Space, gives the page's text.
-# A page with fields gives its prose and none of their values: typed, filled in or a password, in
-# its text and in its outline, and the agent can't type into the password field. It types into
-# another, opens a page, clicks its link, scrolls, takes a screenshot and closes a tab, and a bank's
-# site asks first, in a card whose Allow Once opens it. Always Allow opens it from then on, until
-# Revoke Permission in the Space's menu takes that back. A login the user saved fills in neither as
-# the agent's tab loads it nor from a dropdown, and fills once the user takes the tab over, without
-# a reload. Closing the client's end ends its session with the tab, and turning Settings › Agents
-# off takes the socket away and drops a client connected.
+# only the tabs there: its list leaves out the user's tab, a read of the user's tab is refused, with
+# an activity-log entry, and a read of example.com, opened in its Space, gives the page's text. A
+# page with fields gives its prose and none of their values: typed, filled in or a password, in its
+# text and in its outline, and the agent can't type into the password field. It types into another.
+# A page's frames, of its own site and of another, are in its outline, where the agent clicks and
+# types, and not into a frame's password field. Where it acts in the page shown, its pointer and a
+# ring with the element's ref show it. It opens a page, clicks its link, scrolls, takes a screenshot
+# and closes a tab, and a bank's site asks first, in a card whose Allow Once opens it. Always Allow
+# opens it from then on, until Revoke Permission in the Space's menu takes that back. A login the
+# user saved fills in neither as the agent's tab loads it nor from a dropdown, and fills once the
+# user takes the tab over, without a reload. Closing the client's end ends its session with the tab,
+# and turning Settings › Agents off takes the socket away and drops a client connected.
 
 log="$out/mcp.log"
 step=0
@@ -70,11 +72,17 @@ mkfifo "$out/mcp-in" "$out/mcp-out"
 BROWSER_AGENT_TOKEN=$token "$bridge" "$socket" < "$out/mcp-in" > "$out/mcp-out" 2> "$out/mcp-bridge.log" &
 bridge_pid=$!
 exec 4> "$out/mcp-in" 5< "$out/mcp-out"
+# Prints the bridge's next line within 30 s. sh has no read -t on Linux, where it's dash, and the
+# Mac has no timeout, so perl's alarm, which outlives its exec, bounds a shell that reads the line:
+# a shell reads a fifo a byte at a time, so it takes that line alone.
+next_answer() {
+  perl -e 'alarm 30; exec @ARGV' sh -c 'read -r line && printf "%s\n" "$line"' <&5
+}
 # Sends the JSON-RPC message $1 and, for a request, prints its answer, within 30 s.
 id=0
 mcp() {
   printf '%s\n' "$1" >&4
-  case "$1" in *'"id":'*) read -r -t 30 answer <&5 || fail "the browser didn't answer $1"; printf '%s\n' "$answer" ;; esac
+  case "$1" in *'"id":'*) answer=$(next_answer) || fail "the browser didn't answer $1"; printf '%s\n' "$answer" ;; esac
 }
 # Prints a tool's answer on stdin: its text, after "error: " if it's an error, or a picture's type
 # and size.
@@ -170,6 +178,9 @@ document.title = "fields";
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
+  # A click while the page still loads can land before its field is drawn, and focus no field.
+  await_log "^browser: page $agent_tab back 1 forward 0 loading 0 http://localhost:$port/fields\\.html\$" \
+    "the fields page didn't finish loading"
   send click $page_point
   [ "$focus" = RenderWidgetHostViewCocoa ] || fail "a click on the fields page left focus on $focus"
   send type typed-by-ada
@@ -212,6 +223,56 @@ document.title = "fields";
   esac
   case "$typed" in *by-the-agent*) fail "the outline gave what the agent typed" ;; esac
   await_log "^browser: title $agent_tab noted\$" "the agent's typing didn't reach the field"
+  # The page shown in the agent's Space has its pointer: at the note it typed into, ringed and
+  # tagged with the note's ref, over the page in the window the mouse goes through. It goes a
+  # moment after.
+  await_log "^browser: agent element $agent_tab [0-9]* at [0-9.]* [0-9.]* [1-9][0-9.]* [1-9][0-9.]*\$" \
+    "the core didn't say where the note was"
+  await_log "^browser: agent pointer $agent_tab $note at " "the agent's pointer didn't come to the note"
+  ../tools/window-screenshot.sh "$pid" "$out/agent-pointer.png" || fail "no window to capture"
+  await_log '^browser: agent pointer gone$' "the agent's pointer didn't go"
+
+  # A page's frames are part of it: the outline has what's in a frame of the page's site and in
+  # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
+  # password field in a frame is as off limits as one in the page.
+  printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
+    > "$out/site/inner.html"
+  printf '%s' '<p>Cross text</p>
+<button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
+<input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
+<input type=password aria-label="Cross password">' > "$out/site/cross.html"
+  printf '%s' "<title>frames</title><p>Top text</p><iframe src=inner.html></iframe>
+<iframe src=http://127.0.0.1:$port/cross.html></iframe>" > "$out/site/frames.html"
+  outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
+  printf '%s\n' "$outline" > "$out/mcp-frames.txt"
+  case "$outline" in
+    "Opened tab "*"Top text"*"Inner text"*"Inner button"*"Cross text"*"Cross button"*"(password: off limits)"*) ;;
+    *) fail "the page with frames was outlined as: $outline" ;;
+  esac
+  frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  inner=$(ref_of button "Inner button")
+  cross=$(ref_of button "Cross button")
+  [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
+    fail "the frames' buttons had the refs '$inner' and '$cross'"
+  clicked=$(call click "{\"tab\":$frames_tab,\"ref\":\"$cross\"}")
+  case "$clicked" in
+    "Clicked button “Cross button”."*"cross clicked"*) ;;
+    *) fail "clicking in the other site's frame answered: $clicked" ;;
+  esac
+  await_log "^browser: agent activity mcp-client $frames_tab click\$" \
+    "the click in the frame didn't reach the activity log"
+  field=$(ref_of textbox "Cross field")
+  typed=$(call type "{\"tab\":$frames_tab,\"ref\":\"$field\",\"text\":\"by-the-agent\"}")
+  case "$typed" in
+    "Typed into “Cross field”."*"cross typed"*) ;;
+    *) fail "typing in the other site's frame answered: $typed" ;;
+  esac
+  password=$(ref_of textbox "Cross password")
+  refused=$(call type "{\"tab\":$frames_tab,\"ref\":\"$password\",\"text\":\"by-the-agent\"}")
+  case "$refused" in
+    "error: Password fields are off limits"*) ;;
+    *) fail "typing into the frame's password field answered: $refused" ;;
+  esac
 
   # It opens a page in its Space, clicks its link, scrolls and takes a screenshot.
   opened=$(call open_tab '{"url":"example.com"}')
@@ -263,7 +324,7 @@ CARD
   # Hand Back, at the right end of the card's buttons.
   send click $((qx + qw - 16)) $((qy + qh - 26))
   await_log "^browser: agent mcp-client handed back $opened_tab\$" "Hand Back didn't hand the tab back"
-  read -r -t 30 handed <&5 || fail "the browser didn't answer hand_off"
+  handed=$(next_answer) || fail "the browser didn't answer hand_off"
   handed=$(printf '%s\n' "$handed" | answered)
   case "$handed" in
     "The user handed tab $opened_tab back."*) ;;
@@ -300,7 +361,7 @@ CARD
   ../tools/window-screenshot.sh "$pid" "$out/agent-ask-for-tab.png" || fail "no window to capture"
   send click $((qx + 30)) $((qy + qh - 26))
   await_log "^browser: agent mcp-client answered $q Never\$" "Keep didn't answer"
-  read -r -t 30 kept <&5 || fail "the browser didn't answer ask_for_tab"
+  kept=$(next_answer) || fail "the browser didn't answer ask_for_tab"
   kept=$(printf '%s\n' "$kept" | answered)
   case "$kept" in
     "error: The user keeps tab $opened_tab."*) ;;
@@ -418,7 +479,7 @@ CARD
     case "$1" in Once) x=$((qw / 2)) ;; Always) x=$((qw - 16)) ;; esac
     send click $((qx + x)) $((qy + qh - 26))
     await_log "^browser: agent mcp-client answered $q $1\$" "$1 didn't answer the question"
-    read -r -t 30 allowed <&5 || fail "the browser didn't answer the bank's open_tab"
+    allowed=$(next_answer) || fail "the browser didn't answer the bank's open_tab"
     allowed=$(printf '%s\n' "$allowed" | answered)
   }
   answer_bank Once

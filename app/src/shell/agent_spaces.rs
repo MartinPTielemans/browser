@@ -1,9 +1,9 @@
-//! An agent's Space in the UI, which shows and switches like the user's, and which none of the
-//! user's tabs move into, on a host that records what the shell asks.
+//! An agent's Space in the UI, which shows and switches like the user's, and which the user's tabs
+//! move into only as the user gives the agent one, on a host that records what the shell asks.
 
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
-use gpui::{AppContext, Entity, SharedString, TestAppContext, point, px};
+use gpui::{AppContext, Bounds, Entity, SharedString, TestAppContext, point, px, size};
 
 use crate::shell::{AgentGrants, Command, Folders, Shell, recorder::Recorder};
 
@@ -57,19 +57,37 @@ fn an_agents_space_shows_and_switches_like_the_users(cx: &mut TestAppContext) {
     assert_eq!(*host.shown.borrow(), [2, 1]);
 }
 
-/// A tab's Move to lists the user's Spaces and leaves the agent's out, while a tab of the agent's
-/// can come to the user's. A favorite can't be taken out of the favorites into the agent's Space.
+/// A tab of the user's Move to lists the agent's Space after theirs, which gives the agent the tab,
+/// but not an agent's Space in another profile, where the page would load again without its
+/// logins. A tab of the agent's can come to the user's and not go to another agent's, and a
+/// favorite can't be taken out of the favorites into the agent's Space.
 #[gpui::test]
-fn no_tab_of_the_users_moves_into_an_agents_space(cx: &mut TestAppContext) {
+fn the_users_tab_moves_into_an_agents_space_only_as_a_gift(cx: &mut TestAppContext) {
     let (shell, host) = shell_with_agent(cx);
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(
+            vec![
+                (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into()),
+                (2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into()),
+                (3, "Elsewhere".into(), None, 1, "".into(), "Codex".into(), "".into()),
+            ],
+            cx,
+        );
+    });
     let menu = tab_menu(&shell, &host, cx, 10);
     assert_eq!(item(&menu, "Space 1"), Some(true));
-    assert_eq!(item(&menu, "Research"), None);
+    assert_eq!(item(&menu, "Research"), Some(true));
+    assert_eq!(item(&menu, "Elsewhere"), None);
+    host.take();
+    cx.update(|cx| host.choose("Research", cx));
+    assert_eq!(host.take(), ["give 10 to 2"]);
     assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Remove from Favorites"), Some(true));
+    assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Research"), None);
     shell.update(cx, |shell, cx| shell.set_space(2, cx));
     let menu = tab_menu(&shell, &host, cx, 20);
     assert_eq!(item(&menu, "Move to"), Some(true));
     assert_eq!(item(&menu, "Research"), None);
+    assert_eq!(item(&menu, "Elsewhere"), None);
     assert_eq!(item(&menu, "Space 1"), Some(true));
     assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Remove from Favorites"), Some(false));
 }
@@ -225,4 +243,31 @@ fn an_agents_space_menu_lists_its_permissions_to_revoke(cx: &mut TestAppContext)
     let sites = vec![("shop.example".into(), true)];
     *host.agent_permissions.borrow_mut() = AgentGrants { sites, connected: true, tabs: true };
     assert_eq!(item(&menu(cx), "All Sites"), None, "one site had All Sites");
+}
+
+/// The agent's pointer comes to an element it acts on in the page the window shows in its Space,
+/// and not in a tab of its the window doesn't show or while the user's Space is shown. It goes a
+/// moment after the agent's last action.
+#[gpui::test]
+fn the_agents_pointer_shows_where_it_acts_in_the_page_shown(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with_agent(cx);
+    let element = Bounds::new(point(px(40.), px(60.)), size(px(120.), px(30.)));
+    let point_at = |shell: &Entity<Shell>, cx: &mut TestAppContext, tab| {
+        shell.update(cx, |shell, cx| {
+            shell.agent_pointing(tab, "e3".into(), element, cx);
+            shell.agent_pointer_shown()
+        })
+    };
+    assert!(!point_at(&shell, cx, 20), "the user's Space is shown");
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+        shell.set_space(2, cx);
+        shell.set_selected(20, cx);
+    });
+    assert!(!point_at(&shell, cx, 21), "the window doesn't show tab 21");
+    assert!(point_at(&shell, cx, 20));
+    cx.executor().advance_clock(Duration::from_secs(1));
+    assert!(shell.update(cx, |shell, _| shell.agent_pointer_shown()));
+    cx.executor().advance_clock(Duration::from_secs(2));
+    assert!(!shell.update(cx, |shell, _| shell.agent_pointer_shown()));
 }

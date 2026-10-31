@@ -33,7 +33,7 @@ jobs:
         working-directory: app
     env:
       # The runs the Windows driver (platform/windows/drive.cc) is meant to pass so far.
-      WINDOWS_RUNS: load tabs dialogs
+      WINDOWS_RUNS: load tabs dialogs crash about
     steps:
       # setup.sh and the patches it applies need the repository's line endings.
       - run: git config --global core.autocrlf false
@@ -119,9 +119,13 @@ jobs:
               start=$SECONDS
               status=0
               timeout 20m ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
-              [ ! -d build/check ] || mv build/check "$out/$run"
-              # By the app's path, never by image name, which would reach any other Chrome.
+              # By the app's path, never by image name, which would reach any other Chrome. Before
+              # the move, as Windows won't move a folder a process still has a file open in.
               pkill -9 -f "$(cygpath -m "$PWD/build/Browser")/" || true
+              if [ -d build/check ] && ! mv build/check "$out/$run"; then
+                cp -r build/check "$out/$run" || true
+                rm -rf build/check || true
+              fi
               if [ "$status" = 0 ]; then
                 result="passed in $((SECONDS - start)) s"
               else

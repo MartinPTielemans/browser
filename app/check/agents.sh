@@ -2,9 +2,9 @@
 # open, reaches the menu once it closes. It shows in the switcher as the agent's, and comes back the
 # agent's, with its owner, after a quit. The agent may act only on the tabs of its own Space: not on
 # the user's, nor another agent's on its. ⌃2 shows it as any second Space, a tab opened there is the
-# agent's, and the user's tab's Move to leaves it out, listing only the user's own Space, checked,
-# and New Space…. The agent's mark on its tab goes as its session there ends: it releases the tab,
-# its client disconnects, or the user takes the tab back.
+# agent's, and the user's tab's Move to lists it after the user's own Space, checked: choosing it
+# gives the agent the tab, which moving it back takes away. The agent's mark on its tab goes as its
+# session there ends: it releases the tab, its client disconnects, or the user takes the tab back.
 
 log="$out/agents.log"
 step=0
@@ -54,8 +54,9 @@ if [ "$driven" = 1 ]; then
   expect "^browser: space $agent\( in .*\)\{0,1\}\$" "⌃2 didn't show the agent's Space"
   open_from_bar example.com
   agent_tab=$tab
-  # Even in its own Space, the core refuses an agent ad blocking, passwords and DevTools, and any
-  # action agents don't have, each with why in the activity log, and none starts a session.
+  # Even in its own Space, the core refuses an agent ad blocking, passwords, DevTools and a
+  # profile's settings, and any action agents don't have, each with why in the activity log, and
+  # none starts a session.
   refused() {
     send agentmayact claude-code "$agent_tab" "$1"
     expect "^browser: agent claude-code may act on $agent_tab: 0\$" "the agent may $1 in its own Space"
@@ -66,6 +67,7 @@ if [ "$driven" = 1 ]; then
   refused ad_blocking "Agents can't change ad blocking. It's the user's, in Site Controls."
   refused passwords "Agents never read passwords, cookies or autofill data."
   refused devtools "Agents get no DevTools or debugging port."
+  refused profile_settings "Agents can't change a profile's settings. They're the user's, in Settings › Profiles."
   refused run_script 'Agents have no action "run_script".'
   sed -n "/^browser: drive $before: /,\$p" "$log" | grep -q "^browser: agent claude-code at work" &&
     fail "a refused action started the agent's session"
@@ -101,10 +103,36 @@ if [ "$driven" = 1 ]; then
   send key 1 ctrl
   expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the user's Space again"
   expect "^browser: settled space $first\$" "the user's Space's page didn't settle"
+  # The user's tab's Move to lists the agent's Space after theirs, and choosing it gives the agent
+  # the tab, with an entry in its log. Moving it back to the user's Space takes it away again.
   post rightclick $(row 0)
-  expect '^browser: menu shown .*, Move to › [^,]* (checked), Move to › New Space…, ' \
-    "the user's tab's menu offered the agent's Space to move to"
+  expect "^browser: menu shown .*, Move to › [^,]* (checked), Move to › Claude Code, Move to › $(cased 'New Space…'), " \
+    "the user's tab's menu didn't offer the agent's Space to give it the tab"
+  user_space=$(grep '^browser: menu shown' "$log" | tail -1 | sed 's/.*Move to › \([^,]*\) (checked).*/\1/')
   send choose Duplicate
+  expect '^browser: today [1-9][0-9]* [1-9][0-9]*$' "Duplicate didn't copy the user's tab"
+  at() { today | tr ' ' '\n' | grep -nx "$1" | cut -d: -f1; }
+  copy=$(today | tr ' ' '\n' | grep -vx "$user_tab")
+  send click $(row $(($(at "$user_tab") - 1)))
+  expect "^browser: selected $user_tab\( in .*\)\{0,1\}\$" "the user's tab didn't show again"
+  post rightclick $(row $(($(at "$copy") - 1)))
+  expect '^browser: menu shown .*, Move to › Claude Code, ' "the copy's menu didn't offer the agent's Space"
+  send choose 'Claude Code'
+  expect "^browser: gave $copy to agent claude-code\$" "Move to › Claude Code didn't give the agent the tab"
+  expect "^browser: today $user_tab\$" "the tab given stayed in the user's Space"
+  send agentmayact claude-code "$copy"
+  expect "^browser: agent claude-code may act on $copy: 1\$" "the agent may not act on the tab the user gave it"
+  send key 2 ctrl
+  expect "^browser: space $agent\( in .*\)\{0,1\}\$" "⌃2 didn't show the agent's Space with the tab given"
+  expect "^browser: today $copy $agent_tab\$" "the tab given isn't at the top of the agent's Space"
+  post rightclick $(row 0)
+  expect "^browser: menu shown .*, Move to › $user_space, " "the tab given can't go back to the user's Space"
+  send choose "$user_space"
+  expect "^browser: today $agent_tab\$" "Move to didn't take the tab given back"
+  send agentmayact claude-code "$copy"
+  expect "^browser: agent claude-code may act on $copy: 0\$" "the agent may act on the tab taken back to the user's Space"
+  send key 1 ctrl
+  expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the user's Space again"
 fi
 quit
 
@@ -136,7 +164,7 @@ if [ "$driven" = 1 ]; then
 fi
 quit
 if [ "$driven" = 1 ]; then
-  echo "ok: $made; an agent's Space shows and switches as the user's, keeps the user's tabs out, refuses an agent ad blocking, passwords, DevTools and any action agents lack, with why in the activity log, clears its mark as each session ends, and comes back the agent's"
+  echo "ok: $made; an agent's Space shows and switches as the user's, keeps the user's tabs out, refuses an agent ad blocking, passwords, DevTools, a profile's settings and any action agents lack, with why in the activity log, gets a tab the user gives it until they move it back, clears its mark as each session ends, and comes back the agent's"
 else
   echo "ok: $made; an agent's Space comes back the agent's. skip: switching to it and its tab. Browser wasn't the active app, so the page ignored the click."
 fi

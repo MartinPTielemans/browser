@@ -22,10 +22,16 @@ namespace browser_core {
 
 namespace {
 
-// By id, which is the order they were made in.
+// By id.
 std::map<bc_id, std::unique_ptr<Space>>& Spaces() {
   static base::NoDestructor<std::map<bc_id, std::unique_ptr<Space>>> spaces;
   return *spaces;
+}
+
+// The listed Spaces' ids in the switcher's order, as a new one goes after the one shown (Arc).
+std::vector<bc_id>& SpaceOrder() {
+  static base::NoDestructor<std::vector<bc_id>> order;
+  return *order;
 }
 
 // Gives each of |nodes|, siblings in their order, a place after the one before it: the most that
@@ -93,12 +99,14 @@ void ReportSpacesChanged() {
 }  // namespace
 
 // static
-Space* Space::Create(std::string name, bc_id id, std::optional<Agent> agent) {
+Space* Space::Create(std::string name, bc_id id, std::optional<Agent> agent, size_t at) {
   if (!id) {
     id = NewId();
   }
   Space* space = new Space(id, std::move(name), std::move(agent));
   Spaces()[id] = base::WrapUnique(space);
+  std::vector<bc_id>& order = SpaceOrder();
+  order.insert(order.begin() + std::min(at, order.size()), id);
   PlaceSpaces();
   ReportSpacesChanged();
   return space;
@@ -124,6 +132,7 @@ void Space::Delete(bc_id id) {
   const bool listed = !it->second->off_the_record_;
   Spaces().erase(it);
   if (listed) {
+    std::erase(SpaceOrder(), id);
     ReportSpacesChanged();
   }
 }
@@ -137,10 +146,8 @@ Space* Space::FromId(bc_id id) {
 // static
 std::vector<Space*> Space::All() {
   std::vector<Space*> all;
-  for (auto& [id, space] : Spaces()) {
-    if (!space->off_the_record_) {
-      all.push_back(space.get());
-    }
+  for (bc_id id : SpaceOrder()) {
+    all.push_back(FromId(id));
   }
   return all;
 }
@@ -215,6 +222,11 @@ bc_id Space::FolderOf(bc_id id) const {
 std::string Space::FolderName(bc_id folder) const {
   auto it = folders_.find(folder);
   return it == folders_.end() ? std::string() : it->second.name;
+}
+
+std::string Space::FolderIcon(bc_id folder) const {
+  auto it = folders_.find(folder);
+  return it == folders_.end() ? std::string() : it->second.icon;
 }
 
 bool Space::IsOpen(bc_id folder) const {
@@ -421,9 +433,23 @@ void Space::RenameFolder(bc_id folder, std::string name) {
   }
 }
 
+void Space::SetFolderIcon(bc_id folder, std::string icon) {
+  if (auto it = folders_.find(folder); it != folders_.end() && it->second.icon != icon) {
+    it->second.icon = std::move(icon);
+    ReportChanged();
+  }
+}
+
 void Space::SetOpen(bc_id folder, bool open) {
   if (auto it = folders_.find(folder); it != folders_.end() && it->second.open != open) {
     it->second.open = open;
+    ReportChanged();
+  }
+}
+
+void Space::SetPinnedOpen(bool open) {
+  if (pinned_open_ != open) {
+    pinned_open_ = open;
     ReportChanged();
   }
 }
