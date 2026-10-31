@@ -17,11 +17,19 @@ mkdir "$out/site"
 # A page that a run types into once its title says so sets that title with painted(): Chromium
 # drops a key that comes before a page it loaded first shows, for up to half a second while it
 # holds the last page's picture (paint holding). A page paints once it has something to draw.
+# Chrome reports the paint only once a frame from then on is presented successfully, and a page
+# that's still makes no more frames, so one whose first frame's presentation isn't reported sits
+# drawn with no paint, for good: the second login page in a tab did, on a GPU's GL in the headless
+# session (#1011). So the page asks for frames until its paint is reported.
 printf '%s' 'function painted(then) {
+  let heard = false;
   new PerformanceObserver((entries, observer) => {
     observer.disconnect();
+    heard = true;
     then();
   }).observe({type: "paint", buffered: true});
+  const frame = () => heard || requestAnimationFrame(frame);
+  requestAnimationFrame(frame);
 }' > "$out/site/painted.js"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
