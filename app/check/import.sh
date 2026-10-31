@@ -159,7 +159,7 @@ if [ -n "$arc" ]; then
   expect '^browser: import drawn pick$' "Arc's choices didn't draw"
   ../tools/window-screenshot.sh "$pid" "$out/import-pick.png" || fail "no window to capture"
   # Arc's five choices: Spaces, Favorites, History, Addresses and Extensions.
-  send clickkey 590 356
+  send clickkey 590 361
   expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 0 open tabs, 3 favorites, 0 pages, 0 addresses$' \
     "Import didn't plan Arc's 2 Spaces, 6 pinned tabs and 3 favorites"
   expect '^browser: added profile [0-9]* Work$' "Arc's Work profile didn't come in"
@@ -182,7 +182,7 @@ if [ -n "$arc" ]; then
   send clickkey 575 134
   expect '^browser: import pick Arc$' "Import… didn't show Arc's choices again"
   expect '^browser: import drawn pick$' "Arc's choices didn't draw"
-  send clickkey 590 356
+  send clickkey 590 361
   expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 open tabs, 0 favorites, 0 pages, 0 addresses$' \
     "the second import would add something again"
   expect '^browser: import done: Everything from Arc is here already\.$' "the second import said it added something"
@@ -198,7 +198,7 @@ expect '^browser: import pick Chrome$' "Import… on Chrome's row didn't show wh
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
 # Chrome's five choices: Bookmarks, Open tabs, History, Addresses and Extensions, then Choose
 # folders.
-send clickkey 590 381
+send clickkey 590 391
 expect '^browser: import from Chrome: 1 Spaces, 3 pinned tabs, 1 open tabs, 0 favorites, 2 pages, 1 addresses$' \
   "Import didn't plan Chrome's bookmarks, open tab, history and address"
 await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Chrome's 2 pages"
@@ -212,7 +212,7 @@ expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 $chrome_row
 expect '^browser: import pick Chrome$' "Import… didn't show Chrome's choices again"
 expect '^browser: import drawn pick$' "Chrome's choices didn't draw"
-send clickkey 590 381
+send clickkey 590 391
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
 await '^browser: addresses added 0 to profile [0-9]*$' || fail "the core added Chrome's address again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
