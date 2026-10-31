@@ -2540,7 +2540,24 @@ impl Shell {
                     drawn: false,
                 });
             }
-            self.set_full_screen(full_screen, cx);
+            match full_screen {
+                // Chrome on Windows takes the window full screen for a page before the core says the
+                // page asked, so whether a page took it there is known a turn later, as is the note.
+                true => {
+                    self.full_screen = true;
+                    cx.spawn(async move |shell, cx| {
+                        shell
+                            .update(cx, |shell, cx| {
+                                if shell.full_screen {
+                                    shell.set_full_screen(true, cx);
+                                }
+                            })
+                            .ok();
+                    })
+                    .detach();
+                }
+                false => self.set_full_screen(false, cx),
+            }
             cx.notify();
         }
     }
