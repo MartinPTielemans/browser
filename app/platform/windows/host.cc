@@ -571,8 +571,6 @@ struct LinkPreview {
     }
   };
   std::optional<Hole> hole;
-  // What had the keyboard as it showed, to give back as it leaves.
-  HWND had_keyboard = nullptr;
 };
 LinkPreview g_link_preview;
 UINT_PTR const kLinkPreviewOwner = 2;
@@ -1939,7 +1937,6 @@ void host_show_link_preview(void* ui_view) {
     SetWindowSubclass(root, LinkPreviewOwnerProc, kLinkPreviewOwner, 0);
   }
   g_link_preview.root = root;
-  g_link_preview.had_keyboard = GetFocus();
   // All of it until its first frame says where the page is.
   g_link_preview.hole.reset();
   g_link_preview.floating.mouse_through = false;
@@ -1982,12 +1979,8 @@ void host_release_link_preview(void) {
   if (!g_link_preview.root || g_link_preview.floating.mouse_through) {
     return;
   }
+  // The app gives the window's page the keyboard back, through the core (LinkPreviewHost).
   g_link_preview.floating.mouse_through = true;
-  // The window's page has the keyboard back from the preview's.
-  HWND had = std::exchange(g_link_preview.had_keyboard, nullptr);
-  if (had && IsWindow(had) && IsChild(g_link_preview.root, had)) {
-    SetFocus(had);
-  }
   // check.sh reads this line.
   fprintf(stderr, "browser: link preview released\n");
 }
