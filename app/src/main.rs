@@ -4346,11 +4346,10 @@ fn start_updates(cx: &mut App) {
             };
             log!("browser: updater started");
             let restarting = portal.clone();
-            let (retry, retries) = futures::channel::mpsc::unbounded();
-            cx.update(|cx| {
+            let retries = cx.update(|cx| {
                 flatpak::on_restart(move |cx| restart_into_newest(restarting.clone(), cx), cx);
-                flatpak::on_retry(move |_| _ = retry.unbounded_send(()), cx);
                 flatpak::changed(flatpak::State::Current, cx);
+                flatpak::retries(cx)
             });
             flatpak::watch(&portal, events, retries, flatpak::ANSWER, |state| {
                 log!("browser: update {state:?}");

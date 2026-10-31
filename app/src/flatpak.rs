@@ -252,6 +252,14 @@ pub fn on_retry(retry: impl Fn(&mut App) + 'static, cx: &mut App) {
     cx.default_global::<Told>().retry = Some(Rc::new(retry));
 }
 
+/// Try Again's presses, as `watch` takes them; made here, as the crate that builds the app on
+/// Linux has no futures of its own.
+pub fn retries(cx: &mut App) -> futures::channel::mpsc::UnboundedReceiver<()> {
+    let (retry, retries) = futures::channel::mpsc::unbounded();
+    on_retry(move |_| _ = retry.unbounded_send(()), cx);
+    retries
+}
+
 /// The update is at `state` now, which once a build is ready offers to restart into it.
 pub fn changed(state: State, cx: &mut App) {
     let ready = state == State::Ready;
