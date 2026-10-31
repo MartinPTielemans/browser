@@ -887,9 +887,16 @@ EOF
 # earlier run, as Clear Cookies and Refresh above does once this run has played. Read before the
 # click, whose page can say it loaded WebKit before the next line runs.
 early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
-send click $((nx + nw / 2)) $((ny + nh - 26))
+# Off the Mac the button downloads Chromium's Widevine instead, which the widevine run checks, so
+# the run leaves it and only takes the tab to another site, where the note goes.
+[ "$(uname)" = Darwin ] && send click $((nx + nw / 2)) $((ny + nh - 26))
 # Safari's engine keeps a store for each profile from macOS 14; before it, the note offers Safari.
-if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
+if [ "$(uname)" != Darwin ]; then
+  drm_done="Chromium's Widevine, which the widevine run checks"
+  go_from_bar "localhost:$port/index.html"
+  expect "^browser: loaded $tab http://localhost:$port/index.html\$" "localhost didn't load again"
+  expect "^browser: page $tab needs nothing\$" "the note stayed at another site"
+elif [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   drm_done="Safari's engine"
   [ -z "$early" ] || fail "WebKit loaded before its first page: $early"
   # Play in This Tab shows the page in Safari's engine, in the tab, and the note goes.
