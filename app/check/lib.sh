@@ -60,7 +60,15 @@ cleanup() {
   [ -z "${scratch:-}" ] || rm -rf "$scratch"
   # A check VM that a run turned light or dark goes back to the appearance it had.
   [ -z "${dark_mode:-}" ] || appearance "$dark_mode" || true
-  kill "$pid" 2>/dev/null || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+  # Git Bash's kill ends a native process's tree from outside, helpers first, and a failed run's
+  # log then ended with their crashes, which read as the failure's cause (#958). taskkill without
+  # /F closes the windows, as quit_app does.
+  if windows; then
+    taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null 2>&1 || true
+  else
+    kill "$pid" 2>/dev/null || return 0
+  fi
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
