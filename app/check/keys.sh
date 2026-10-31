@@ -208,22 +208,19 @@ send type y
 expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 
 # Keys typed right after ⌘T, ⌘L or ⌘F land in the field it opens, in order and a composition
-# whole, never in the page (Ardia P§7). They go with no wait after the shortcut, so they're queued
-# before the bar has the keyboard, and the app says it held them for it.
+# whole, never in the page (Ardia P§7). They go with no wait after the shortcut, and where they
+# land, which every caller checks, is the proof. The app holds those that come before the bar has
+# the keyboard and says so, but the driver sends them a command after the shortcut, and the bar
+# can have the keyboard by then, so there may be none to hold (#905).
 typed_after() {
   post key "$1" cmd
   send type "$2"
-  # Linux holds them only until the bar takes the keyboard, and X11 sends on those that come before
-  # it has the input focus, so there where they land, which every caller checks, is the proof.
-  [ "$(uname)" = Linux ] && return
-  expect '^browser: held [0-9]* key events for GPUIPanel$' \
-    "keys typed right after ⌘$(echo "$1" | tr a-z A-Z) $3 didn't wait for its bar"
 }
 drew() {
   grep "^browser: $1 drew" "$log" | tail -1
 }
 for shortcut in t l; do
-  typed_after $shortcut abc "with the page focused"
+  typed_after $shortcut abc
   expect '^browser: command bar drew "abc"$' \
     "keys typed right after ⌘$shortcut with the page focused went elsewhere: $(drew 'command bar')"
   send key escape
@@ -234,7 +231,7 @@ if [ "$(uname)" = Linux ]; then
   echo "skip: composing right after ⌘L: the Linux driver types plain keys in a page."
 else
   send ime on
-  typed_after l nihongo "with the page focused, composing,"
+  typed_after l nihongo
   expect '^browser: command bar drew "nihongo"$' \
     "a composition typed right after ⌘L didn't go to the command bar: $(drew 'command bar')"
   send state
@@ -248,7 +245,7 @@ fi
 send click $sidebar_point
 in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
 for shortcut in t l; do
-  typed_after $shortcut abc "with the UI focused"
+  typed_after $shortcut abc
   expect '^browser: command bar drew "abc"$' \
     "keys typed right after ⌘$shortcut with the UI focused went elsewhere: $(drew 'command bar')"
   send key escape
@@ -260,7 +257,7 @@ send key escape
 expect '^browser: find bar hidden$' "escape didn't close the find bar"
 send click $sidebar_point
 in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
-typed_after f abc "with the UI focused"
+typed_after f abc
 expect '^browser: find bar drew "abc" ' \
   "keys typed right after ⌘F with the UI focused went elsewhere: $(drew 'find bar')"
 send key escape
