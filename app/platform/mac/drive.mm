@@ -14,6 +14,7 @@
 //   doubleclickkey <x> <y>                two left clicks in the key window, as doubleclick
 //   rightclickkey <x> <y>                 a right click in the key window
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
+//   dragkey <x> <y> <x2> <y2>             as drag, in the key window, such as Settings
 //   press <x> <y>                         presses at (x, y), for a drag in steps
 //   rightpress, rightdragto, rightrelease <x> <y>
 //                                         as press, dragto and release, with the right button,
@@ -1263,6 +1264,20 @@ bool Run(const std::string& line, void (^done)(void)) {
     Convert(window, target, &x, &y);
     Click(target, x, y, 1);
     Click(target, x, y, 2);
+    done();
+    return true;
+  }
+  if (action == "dragkey") {
+    double x, y, x2, y2;
+    NSWindow* key = NSApp.keyWindow;
+    if (!key || !(words >> x >> y >> x2 >> y2)) {
+      return false;
+    }
+    // Halfway first, so the view sees the drag start before it ends.
+    PostMouse(key, NSEventTypeLeftMouseDown, x, y, 1);
+    PostMouse(key, NSEventTypeLeftMouseDragged, (x + x2) / 2, (y + y2) / 2, 1);
+    PostMouse(key, NSEventTypeLeftMouseDragged, x2, y2, 1);
+    PostMouse(key, NSEventTypeLeftMouseUp, x2, y2, 1);
     done();
     return true;
   }
