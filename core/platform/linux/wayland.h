@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -71,6 +72,10 @@ void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret);
 // The frame of a tab's dialog, such as print preview, shown in |widget|'s window, from its content's
 // top-left, if one shows (bc_window_dialog). In window_views.cc.
 std::optional<gfx::Rect> DialogFrame(views::Widget* widget);
+
+// Where DevTools docked in a page of |widget|'s window show, the first pane's with them, and the
+// page beside them, from its content's top-left (bc_window_devtools). In window_views.cc.
+std::optional<std::pair<gfx::Rect, gfx::Rect>> DevToolsFrames(views::Widget* widget);
 
 }  // namespace browser_core::platform
 
