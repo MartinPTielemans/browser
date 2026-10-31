@@ -52,6 +52,10 @@ jobs:
         restore favorites
       # The runs that pass on Wayland so far, in the headless sway session.
       WAYLAND_RUNS: tabs
+      # The runs that don't apply to Linux, a line each with why, which the summary gives. They're
+      # skipped even when named.
+      LINUX_SKIPS: |
+        keychain: it checks the Mac's Keychain across a change of signing identity, in a check VM
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
@@ -166,6 +170,12 @@ jobs:
               echo "|---|---|"
             } >> "$GITHUB_STEP_SUMMARY"
             for run in $all; do
+              why=$(printf '%s\n' "$LINUX_SKIPS" | sed -n "s/^$run: //p")
+              if [ -n "$why" ]; then
+                [ "$session" != wayland ] || continue
+                echo "| $run | not for Linux: $why |" | tee -a "$GITHUB_STEP_SUMMARY"
+                continue
+              fi
               case " $runs " in
               *" $run "*)
                 start=$SECONDS
