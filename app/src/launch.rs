@@ -49,13 +49,10 @@ mod tests {
 
     #[test]
     fn a_launch_opens_only_the_pages_and_files_it_was_given_once() {
-        let given = [
-            "/opt/ilo/chrome",
-            "--ozone-platform=x11",
-            "https://example.org/",
-            "/home/ada/page.html",
-        ];
-        assert_eq!(opened(&given), strings(&["https://example.org/", "/home/ada/page.html"]));
+        // On Windows a path starting with "/" is a switch, as Chromium reads it.
+        let file = if cfg!(windows) { r"C:\Users\ada\page.html" } else { "/home/ada/page.html" };
+        let given = ["/opt/ilo/chrome", "--ozone-platform=x11", "https://example.org/", file];
+        assert_eq!(opened(&given), strings(&["https://example.org/", file]));
     }
 
     #[test]
