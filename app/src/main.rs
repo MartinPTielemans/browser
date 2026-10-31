@@ -3217,8 +3217,7 @@ impl Browser for Engine {
         cx.defer(save_launch_picture);
         // With no window to ask over, there's nothing open to lose.
         if !unsafe { bc::bc_warn_before_quitting() } || front().1.is_null() {
-            unsafe { bc::bc_quit() };
-            return;
+            return quit_because("the user's Quit, which had nothing to ask");
         }
         let question = dialog::Question {
             icon: None,
@@ -3233,17 +3232,15 @@ impl Browser for Engine {
                 Box::new(|_| {
                     // check.sh waits for this line.
                     log!("browser: warn before quitting off");
-                    unsafe {
-                        bc::bc_set_warn_before_quitting(false);
-                        bc::bc_quit();
-                    }
+                    unsafe { bc::bc_set_warn_before_quitting(false) };
+                    quit_because("the user's Quit, answered");
                 }),
             )),
             fields: Vec::new(),
             check: None,
             return_cancels: false,
         };
-        dialog::pose(question, Box::new(|_, _| unsafe { bc::bc_quit() }), cx);
+        dialog::pose(question, Box::new(|_, _| quit_because("the user's Quit, answered")), cx);
     }
 }
 
@@ -3926,7 +3923,7 @@ fn open_window_as(
         Err(error) => {
             log!("couldn't open the window: {error}");
             if from.is_none() {
-                unsafe { bc::bc_quit() };
+                quit_because("the first window didn't open");
             } else {
                 unsafe { bc::bc_window_close(id) };
             }
@@ -4421,7 +4418,7 @@ fn start_updates(cx: &mut App) {
         _ = cx;
         // The installer WinSparkle started waits for the browser to quit, which needs no asking.
         extern "C" fn quit() {
-            unsafe { bc::bc_quit() };
+            quit_because("the updater's install");
         }
         unsafe { platform::host_start_updater(quit) };
     }
@@ -4469,7 +4466,7 @@ fn check_for_updates(cx: &mut App) {
 fn restart_into_newest(portal: flatpak::Portal, cx: &mut App) {
     let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
     cx.spawn(async move |_| match portal.restart(&lock).await {
-        Ok(()) => unsafe { bc::bc_quit() },
+        Ok(()) => quit_because("the restart into the newest build"),
         Err(error) => log!("browser: no restart: {error}"),
     })
     .detach();
@@ -4768,8 +4765,16 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
     // A private window alone doesn't keep the browser: the Spaces' pages closed with the last
     // regular window, which the next launch brings back, so the private ones close with them.
     if left == 0 || (!private && !regular) {
-        unsafe { bc::bc_quit() };
+        quit_because("the last window closed");
     }
+}
+
+/// Quits the browser, saying what asked, as each way the browser ends logs a line that names it:
+/// this, Chromium's shutdown (main_delegate.cc) and, on the Mac, a quit Apple Event (host.mm).
+fn quit_because(why: &str) {
+    // check.sh reads this line.
+    log!("browser: quit for {why}");
+    unsafe { bc::bc_quit() };
 }
 
 unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
