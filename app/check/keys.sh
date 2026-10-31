@@ -389,8 +389,8 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar"
 in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 
 # The sidebar's commands are in Settings › Shortcuts, where Focus Sidebar gets the key Arc's isn't
-# measured for (#676). Given ⌃⌘K, it gives the sidebar the keyboard from the page, and ↺ takes the
-# key away again.
+# measured for (#676). Given ⌃⌘K, it gives the sidebar the keyboard from the page, and Restore
+# Defaults takes the key away again.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 401 60
@@ -435,8 +435,12 @@ send key a cmd
 send type focus sidebar
 expect '^browser: shortcuts search "focus sidebar" finds Focus Sidebar$' \
   "the search didn't find Focus Sidebar again"
-send clickkey 537 203
-expect '^browser: shortcut focus-sidebar none$' "↺ didn't take Focus Sidebar's key away"
+# Restore Defaults, under the one row found, where ↺'s place follows its chip's width, which is
+# the key's name's off the Mac. New Tab has its default already.
+send clickkey 126 246
+expect '^browser: shortcuts restored$' "a click on Restore Defaults didn't restore the keys"
+expect '^browser: shortcut focus-sidebar none$' \
+  "Restore Defaults didn't take Focus Sidebar's key away"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
