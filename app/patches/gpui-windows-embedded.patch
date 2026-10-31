@@ -1,16 +1,7 @@
 diff --git a/crates/gpui_windows/src/events.rs b/crates/gpui_windows/src/events.rs
-index 08f91bd626..1561b1a96a 100644
+index 08f91bd626..afd53c256b 100644
 --- a/crates/gpui_windows/src/events.rs
 +++ b/crates/gpui_windows/src/events.rs
-@@ -109,7 +109,7 @@ impl WindowsWindowInner {
-             WM_CLOSE => self.handle_close_msg(),
-             WM_DESTROY => self.handle_destroy_msg(handle),
-             WM_MOUSEMOVE => self.handle_mouse_move_msg(handle, lparam, wparam),
--            WM_MOUSELEAVE | WM_NCMOUSELEAVE => self.handle_mouse_leave_msg(),
-+            WM_MOUSELEAVE | WM_NCMOUSELEAVE => self.handle_mouse_leave_msg(handle),
-             WM_NCMOUSEMOVE => self.handle_nc_mouse_move_msg(handle, lparam),
-             // Treat double click as a second single click, since we track the double clicks ourselves.
-             // If you don't interact with any elements, this will fall through to the windows default
 @@ -146,11 +146,18 @@ impl WindowsWindowInner {
              }
              WM_MOUSEWHEEL => self.handle_mouse_wheel_msg(handle, wparam, lparam),
@@ -30,33 +21,32 @@ index 08f91bd626..1561b1a96a 100644
              WM_SETCURSOR => self.handle_set_cursor(handle, lparam),
              WM_SETTINGCHANGE => self.handle_system_settings_changed(handle, wparam, lparam),
              WM_INPUTLANGCHANGE => self.handle_input_language_changed(),
-@@ -381,8 +388,24 @@ impl WindowsWindowInner {
-         if handled { Some(0) } else { Some(1) }
-     }
+@@ -383,6 +390,24 @@ impl WindowsWindowInner {
  
--    fn handle_mouse_leave_msg(&self) -> Option<isize> {
-+    fn handle_mouse_leave_msg(&self, handle: HWND) -> Option<isize> {
+     fn handle_mouse_leave_msg(&self) -> Option<isize> {
          self.state.hovered.set(false);
-+        // As the Mac's and Linux's do, so what follows the pointer hears it leave, as for a page
-+        // under the window's view, which takes the pointer over from it.
++        // As Linux's does, a move to outside the window, so nothing it drew is under the pointer,
++        // then the leave, so what follows the pointer hears it go, as for the page under the
++        // window's view, which takes the pointer over from it.
 +        if let Some(mut func) = self.state.callbacks.input.take() {
-+            let mut cursor_point = POINT::default();
-+            unsafe {
-+                GetCursorPos(&mut cursor_point).log_err();
-+                ScreenToClient(handle, &mut cursor_point).ok().log_err();
-+            }
-+            let scale_factor = self.state.scale_factor.get();
-+            func(PlatformInput::MouseExited(MouseExitEvent {
-+                position: logical_point(cursor_point.x as f32, cursor_point.y as f32, scale_factor),
++            let position = point(px(-1.), px(-1.));
++            let modifiers = current_modifiers();
++            func(PlatformInput::MouseMove(MouseMoveEvent {
++                position,
 +                pressed_button: None,
-+                modifiers: current_modifiers(),
++                modifiers,
++            }));
++            func(PlatformInput::MouseExited(MouseExitEvent {
++                position,
++                pressed_button: None,
++                modifiers,
 +            }));
 +            self.state.callbacks.input.set(Some(func));
 +        }
          // The next window's `WM_SETCURSOR` picks its own cursor, so we just clear
          // the flag for tight `is_cursor_visible()` semantics.
          self.state.cursor_visible.store(true, Ordering::Relaxed);
-@@ -439,6 +462,31 @@ impl WindowsWindowInner {
+@@ -439,6 +464,31 @@ impl WindowsWindowInner {
          if handled { Some(0) } else { Some(1) }
      }
  
@@ -88,7 +78,7 @@ index 08f91bd626..1561b1a96a 100644
      fn handle_keyup_msg(&self, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
          let Some(input) = handle_key_event(wparam, lparam, &self.state, |keystroke, _| {
              PlatformInput::KeyUp(KeyUpEvent { keystroke })
-@@ -710,6 +758,72 @@ impl WindowsWindowInner {
+@@ -710,6 +760,72 @@ impl WindowsWindowInner {
          }
      }
  
@@ -161,7 +151,7 @@ index 08f91bd626..1561b1a96a 100644
      fn handle_ime_composition(&self, handle: HWND, lparam: LPARAM) -> Option<isize> {
          let ctx = ImeContext::get(handle)?;
          self.handle_ime_composition_inner(*ctx, lparam)
-@@ -1823,3 +1937,42 @@ fn notify_frame_changed(handle: HWND) {
+@@ -1823,3 +1939,42 @@ fn notify_frame_changed(handle: HWND) {
          .log_err();
      }
  }
