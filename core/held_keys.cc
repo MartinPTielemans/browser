@@ -192,7 +192,7 @@ void Unclaimed() {
 }  // namespace
 
 base::AutoReset<Asking> AskingAbout(bc_id tab, const input::NativeWebKeyboardEvent& key) {
-  return base::AutoReset<Asking>(&g_asking, {tab, &key});
+  return base::AutoReset<Asking>(&g_asking, Asking{tab, &key});
 }
 
 void Hold(bool in_core) {
