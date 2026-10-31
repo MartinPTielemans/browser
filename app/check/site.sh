@@ -132,7 +132,10 @@ printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
 # page, and puts what the user answered in the title. "u" has it ask before it's left, and "o" goes
-# to a maps: link, which macOS opens in Maps.
+# to a link another app opens: maps:, which macOS opens in Maps, or on Windows, which no longer
+# has a Maps app, ms-settings:, which every Windows 10 and 11 opens in Settings.
+app_link=maps:?q=check
+! windows || app_link=ms-settings:
 printf '%s' '<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
@@ -155,7 +158,7 @@ onkeydown = e => {
     document.title = "armed";
   }
   if (e.key == "o") {
-    location = "maps:?q=check";
+    location = "'"$app_link"'";
   }
 };
 </script>' > "$out/site/dialogs.html"
