@@ -329,10 +329,12 @@ for name in "Duplicate Current Tab" "Favorite Tab" "Rename Current Tab" Share "C
   "Site Controls" "Export Space as Markdown" "View Media" "About $app_name" "Check for Updates" \
   "Import from Other Browsers" Passwords "Site Search Settings" "Welcome to $app_name" \
   "Help Center" "What's New" "Report a Problem" "Copy Build Info"; do
+  # The Mac's driver types only lowercase letters, dots and spaces, and the search ignores case.
+  query=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed "s/[^a-z. ].*//; s/ *\$//")
   send key a cmd
-  send type $name
-  expect "^browser: shortcuts search \"$name\" finds " "the search for $name didn't end"
-  grep "^browser: shortcuts search \"$name\" finds " "$log" | tail -1 |
+  send type $query
+  expect "^browser: shortcuts search \"$query\" finds " "the search for $name didn't end"
+  grep "^browser: shortcuts search \"$query\" finds " "$log" | tail -1 |
     grep -q -e "finds $name\$" -e "finds $name, " -e ", $name\$" -e ", $name, " ||
     fail "Settings › Shortcuts has no row $name"
 done
