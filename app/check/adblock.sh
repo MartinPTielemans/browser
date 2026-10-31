@@ -257,7 +257,7 @@ for i in 1 2 3 4 5; do
   python3 -I -c 'import sys
 t = float(sys.argv[1]) * 1000
 w = sys.argv[2].split()
-print("adblock probe: launch to first page %d ms, launch to blocking %d ms, page unblocked for %d ms, %s tries" % (int(w[6]) - t, int(w[4]) - t, int(w[4]) - int(w[6]), w[8]))' "$launched" "$line"
+print("adblock probe: launch to first page %d ms, launch to blocking %d ms, page unblocked for %d ms, %s tries" % (int(w[7]) - t, int(w[5]) - t, int(w[5]) - int(w[7]), w[9]))' "$launched" "$line"
   quit
 done
 
