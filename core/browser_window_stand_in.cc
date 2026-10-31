@@ -322,7 +322,7 @@ BrowserWindowStandIn::~BrowserWindowStandIn() {
 
 void BrowserWindowStandIn::SetBrowser(BrowserWindowInterface* browser) {
   browser_ = browser;
-  // Chrome's card offer finds the handler there, where BrowserView puts Chrome's.
+  // Chrome's card and address offers find the handler there, where BrowserView puts Chrome's.
   autofill_bubbles_data_.reset();
   autofill_bubbles_data_.emplace(browser->GetUnownedUserDataHost(), autofill_bubbles_);
   location_bar_->set_browser(browser);
