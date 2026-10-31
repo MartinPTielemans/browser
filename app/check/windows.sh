@@ -157,17 +157,15 @@ send window 2
 in_front || true
 expect '^browser: front driven, main driven, key driven, ax focused driven, ax main driven$' \
   "with the first window in full screen, other apps take the wrong window: $(grep '^browser: front ' "$log" | tail -1)"
-# Bringing the first window forward slides to its Space, and leaving full screen from anywhere else
-# slides there and back after AppKit says it has left, so a click comes in the middle (#889). Left
-# from its own Space, it slides back once, and until then the first window still covers the second
-# and clicks go nowhere. Elsewhere full screen is no Space of its own.
+# Bringing the first window forward slides to its Space. Left from the desktop before that slide
+# ends, full screen ends at once and macOS slides none, or there and back after AppKit says it has
+# left, so a click can come in the middle (#889). Left from its own Space, it slides back once, and
+# until then the first window still covers the second and clicks go nowhere. That Space's first
+# window is full screen's toolbar, so only the slide's end says it's in. Elsewhere full screen is no
+# Space of its own.
 send window 1
-back=$step
 if [ "$(uname)" = Darwin ]; then
-  in_front ||
-    fail "the first window's full-screen Space didn't come forward: $(grep '^browser: front ' "$log" | tail -1)"
-  expect '^browser: desktop space changed$' "the first window's full-screen Space didn't come forward" \
-    "$back"
+  expect '^browser: desktop space changed$' "the first window's full-screen Space didn't come forward"
 fi
 send fullscreen
 left=$step
