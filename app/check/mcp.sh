@@ -336,10 +336,10 @@ document.title = "fields";
   listed=$(call list_tabs '{}')
   printf '%s\n' "$listed" | grep -q "^. $closing  " && fail "list_tabs listed the closed tab"
 
-  # run_steps takes several actions in one call, in order.
-  ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"}]}")
+  # run_steps takes several actions in one call, in order, and waits for a page's text.
+  ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"},{\"action\":\"wait\",\"text\":\"example domain\"}]}")
   case "$ran" in
-    "Ran 2 steps."*"1. Scrolled up."*"2. Tab $opened_tab:"*) ;;
+    "Ran 3 steps."*"1. Scrolled up."*"2. Tab $opened_tab:"*"3. “example domain” showed."*) ;;
     *) fail "run_steps answered: $ran" ;;
   esac
 
