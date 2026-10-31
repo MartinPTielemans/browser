@@ -115,7 +115,15 @@
 //   menubar <menu>                        logs the items of the main menu's <menu>, as
 //                                         "browser: menu bar <menu>: <titles>", enabled as
 //                                         AppKit would show them now, written as "menu shown"
-//                                         writes a menu's, and chooses none
+//                                         writes a menu's, and chooses none. Then "browser:
+//                                         menu bar <menu> disabled <title>: <action> to
+//                                         <target>" for each disabled item, and "browser: menu
+//                                         bar <menu> keyboard: key <window>, responder <class>,
+//                                         input context <client>, macOS <version>"
+//   nativemenubar <menu>                  as menubar, logged as "native menu bar", with the
+//                                         keyboard in an AppKit text field in a window of the
+//                                         driver's over the browser window, which then gives
+//                                         the keyboard back to the browser window
 //   openmenu <menu>                       opens the main menu's <menu>, the same menu the menu
 //                                         bar opens, near the window's top left, tracked until
 //                                         dismiss or choose closes it. Commands still come in
@@ -1122,6 +1130,67 @@ bool ChooseModal(NSString* title) {
   return false;
 }
 
+// Logs |menu|'s items as "browser: <prefix> <title>: <titles>", enabled as AppKit would show them
+// now. For telling why one is disabled, it logs each disabled one's action and the object that
+// would get it, and the key window's responder and input context.
+void LogMenuBar(NSMenu* menu, NSString* prefix, NSString* title) {
+  const char* name = title.UTF8String;
+  NSMutableArray<NSString*>* titles = [NSMutableArray array];
+  NSMutableArray<NSString*>* disabled = [NSMutableArray array];
+  auto add = ^(NSMenuItem* item, NSString* label) {
+    if (item.state == NSControlStateValueOn) {
+      label = [label stringByAppendingString:@" (checked)"];
+    }
+    if (item.enabled) {
+      [titles addObject:label];
+      return;
+    }
+    [titles addObject:[label stringByAppendingString:@" (disabled)"]];
+    id target = [NSApp targetForAction:item.action to:item.target from:item];
+    [disabled addObject:[NSString stringWithFormat:@"%@: %@ to %@", label,
+                                                   item.action ? NSStringFromSelector(item.action)
+                                                               : @"no action",
+                                                   target ? NSStringFromClass([target class])
+                                                          : @"none"]];
+  };
+  // Updated as the menu would be before it opens: its delegate's items, then their validation.
+  auto update = ^(NSMenu* each) {
+    if ([each.delegate respondsToSelector:@selector(menuNeedsUpdate:)]) {
+      [each.delegate menuNeedsUpdate:each];
+    }
+    [each update];
+  };
+  update(menu);
+  for (NSMenuItem* item in menu.itemArray) {
+    if (item.separatorItem || item.hidden) {
+      continue;
+    }
+    if (!item.submenu) {
+      add(item, item.title);
+      continue;
+    }
+    update(item.submenu);
+    for (NSMenuItem* inner in item.submenu.itemArray) {
+      if (!inner.separatorItem && !inner.hidden) {
+        add(inner, [NSString stringWithFormat:@"%@ › %@", item.title, inner.title]);
+      }
+    }
+  }
+  fprintf(stderr, "browser: %s %s: %s\n", prefix.UTF8String, name,
+          [titles componentsJoinedByString:@", "].UTF8String);
+  for (NSString* line in disabled) {
+    fprintf(stderr, "browser: %s %s disabled %s\n", prefix.UTF8String, name, line.UTF8String);
+  }
+  NSWindow* key = NSApp.keyWindow;
+  NSResponder* responder = key.firstResponder;
+  id client = NSTextInputContext.currentInputContext.client;
+  fprintf(stderr, "browser: %s %s keyboard: key %s, responder %s, input context %s, macOS %s\n",
+          prefix.UTF8String, name, key ? NSStringFromClass(key.class).UTF8String : "none",
+          responder ? NSStringFromClass(responder.class).UTF8String : "none",
+          client ? NSStringFromClass([client class]).UTF8String : "none",
+          NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String);
+}
+
 // Calls |done| once the command's events are posted. Returns false, without calling it, for a
 // command it can't do.
 bool Run(const std::string& line, void (^done)(void)) {
@@ -1646,33 +1715,36 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!menu) {
       return false;
     }
-    NSMutableArray<NSString*>* titles = [NSMutableArray array];
-    auto add = ^(NSMenuItem* item, NSString* name) {
-      if (item.state == NSControlStateValueOn) {
-        name = [name stringByAppendingString:@" (checked)"];
-      }
-      [titles addObject:item.enabled ? name : [name stringByAppendingString:@" (disabled)"]];
-    };
-    // Enabled as the menu would open now, which validates its items.
-    [menu update];
-    for (NSMenuItem* item in menu.itemArray) {
-      if (item.separatorItem || item.hidden) {
-        continue;
-      }
-      if (!item.submenu) {
-        add(item, item.title);
-        continue;
-      }
-      [item.submenu update];
-      for (NSMenuItem* inner in item.submenu.itemArray) {
-        if (!inner.separatorItem && !inner.hidden) {
-          add(inner, [NSString stringWithFormat:@"%@ › %@", item.title, inner.title]);
-        }
-      }
-    }
-    fprintf(stderr, "browser: menu bar %s: %s\n", title.UTF8String,
-            [titles componentsJoinedByString:@", "].UTF8String);
+    LogMenuBar(menu, @"menu bar", title);
     done();
+    return true;
+  }
+  if (action == "nativemenubar") {
+    NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
+    NSMenu* menu = [NSApp.mainMenu itemWithTitle:title].submenu;
+    if (!menu) {
+      return false;
+    }
+    NSWindow* field_window =
+        [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 240, 40)
+                                    styleMask:NSWindowStyleMaskTitled
+                                      backing:NSBackingStoreBuffered
+                                        defer:NO];
+    field_window.releasedWhenClosed = NO;
+    NSTextField* field = [NSTextField textFieldWithString:@""];
+    field.frame = NSMakeRect(8, 8, 224, 24);
+    [field_window.contentView addSubview:field];
+    NSRect over = window.frame;
+    [field_window setFrameTopLeftPoint:NSMakePoint(NSMinX(over) + 40, NSMaxY(over) - 40)];
+    [field_window makeKeyAndOrderFront:nil];
+    [field_window makeFirstResponder:field];
+    // AppKit hands the input context to the field's editor on the next turn of the loop.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      LogMenuBar(menu, @"native menu bar", title);
+      [field_window orderOut:nil];
+      [window makeKeyWindow];
+      dispatch_async(dispatch_get_main_queue(), done);
+    });
     return true;
   }
   if (action == "choose") {

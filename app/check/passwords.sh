@@ -232,7 +232,16 @@ if [ "$(uname)" = Darwin ]; then
   items=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: menu bar Edit: ')
   case "$items" in
     *"AutoFill › Passwords…,"* | *"AutoFill › Passwords…") ;;
-    *) fail "the system's AutoFill › Passwords… wasn't enabled in the page's field: $items" ;;
+    *)
+      # The same menu with an AppKit field focused tells whether macOS greys the item for the
+      # page's field or for every field on this Mac.
+      page=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: menu bar Edit ')
+      send nativemenubar Edit
+      native=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: native menu bar ')
+      fail "the system's AutoFill › Passwords… wasn't enabled in the page's field: $items
+$page
+$native"
+      ;;
   esac
 else
   shown=$(children)
