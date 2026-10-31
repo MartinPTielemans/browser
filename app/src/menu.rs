@@ -707,22 +707,30 @@ pub(crate) fn described_held(entries: &[MenuEntry], alt: bool) -> String {
             (true, false) => title,
         }
     };
-    let mut titles = Vec::new();
-    for (at, entry) in entries.iter().enumerate() {
-        if entry.parent.is_some() || entry.title.is_empty() || entry.alternate {
-            continue;
-        }
-        let children: Vec<&MenuEntry> =
-            entries.iter().filter(|each| each.parent == Some(at) && !each.title.is_empty()).collect();
-        match children.is_empty() {
-            true => {
-                let entry = &entries[as_held(entries, at, alt)];
-                titles.push(mark(entry, entry.title.to_string()))
+    // A submenu's items after its title, however deep, as Move to › a Space › its folder.
+    fn walk(
+        entries: &[MenuEntry],
+        parent: Option<usize>,
+        path: &str,
+        alt: bool,
+        mark: &dyn Fn(&MenuEntry, String) -> String,
+        titles: &mut Vec<String>,
+    ) {
+        for (at, entry) in entries.iter().enumerate() {
+            if entry.parent != parent || entry.title.is_empty() || entry.alternate {
+                continue;
             }
-            false => (children.into_iter())
-                .for_each(|child| titles.push(mark(child, format!("{} › {}", entry.title, child.title)))),
+            let title = format!("{path}{}", entry.title);
+            if entries.iter().any(|each| each.parent == Some(at) && !each.title.is_empty()) {
+                walk(entries, Some(at), &format!("{title} › "), alt, mark, titles);
+            } else {
+                let held = &entries[as_held(entries, at, alt)];
+                titles.push(mark(held, format!("{path}{}", held.title)));
+            }
         }
     }
+    let mut titles = Vec::new();
+    walk(entries, None, "", alt, &mark, &mut titles);
     titles.join(", ")
 }
 
