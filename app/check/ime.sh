@@ -169,8 +169,6 @@ t.addEventListener("compositionupdate",()=>setTimeout(u));
 t.addEventListener("compositionend",()=>{c=0;setTimeout(u)});
 t.addEventListener("input",()=>setTimeout(u));
 </script>'
-# Its caret blinks, which a software renderer's slower captures see as a picture that never stands
-# still, so headless.sh lets it change.
 url="data:text/html,$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$page")"
 failed=
 for mode in $modes; do
@@ -178,7 +176,7 @@ for mode in $modes; do
   rm -rf "$home/profile"
   dbus-run-session --config-file="$home/bus.conf" -- \
     env BROWSER_PROFILE_DIR="$home/profile" BROWSER_URL="$url" \
-    ../tools/headless.sh $x11 --moving 100 --then "$PWD/check/ime.sh --steps $mode $out" \
+    ../tools/headless.sh $x11 --then "$PWD/check/ime.sh --steps $mode $out" \
     "$out/$mode.png" 'browser: loaded' "$home/run.sh" "$mode" build/Browser/chrome \
     > "$out/$mode-run.log" 2>&1 || true
   if [ ! -f "$out/$mode-page-preedit.png" ] || [ -f "$out/$mode.failed" ]; then
