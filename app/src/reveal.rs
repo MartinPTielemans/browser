@@ -36,14 +36,22 @@ impl Render for Reveal {
                 })
                 // The window's own leave rather than the div's hover, which GPUI counts only after
                 // a move over it: a press with none before it, on a panel that came out under a
-                // still pointer, would leave the pointer's going unheard.
+                // still pointer, would leave the pointer's going unheard. It's past the panel once
+                // the move that took it off is through: onto a row's card, the card hears that
+                // move after this window hears it leave, and the card keeps the sidebar out (#830).
                 .child(
                     gpui::canvas(
                         |_, _, _| {},
                         move |_, _, window, _| {
+                            let left = left.downgrade();
                             window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
                                 if phase == DispatchPhase::Capture {
-                                    left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx));
+                                    let left = left.clone();
+                                    cx.spawn(async move |cx| {
+                                        left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx))
+                                            .ok();
+                                    })
+                                    .detach();
                                 }
                             });
                         },
