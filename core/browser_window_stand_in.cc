@@ -668,6 +668,23 @@ void BrowserWindowStandIn::EnterFullscreen(const url::Origin& origin,
                                            FullscreenTabParams fullscreen_tab_params) {
   // Chrome's fullscreen controller asks when a page goes full screen in a window that isn't, and
   // back only if the window went for the page. The app hears of the page from its tab.
+#if BUILDFLAG(IS_WIN)
+  // Before the window resizes, which on Windows it does as SetFullscreen is called, ahead of the
+  // page's request returning: the app hears of the page first, as on the Mac and Linux, where the
+  // window resizes later, so it lays the page out once, at the window's new size (#1051).
+  base::WeakPtr<BrowserWindowStandIn> alive = weak_factory_.GetWeakPtr();
+  ExclusiveAccessManager* manager = browser_ ? ExclusiveAccessManager::From(browser_) : nullptr;
+  FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+  Tab* tab = controller && controller->IsTabFullscreen()
+                 ? Tab::FromWebContents(controller->exclusive_access_tab())
+                 : nullptr;
+  if (tab) {
+    tab->EnteredFullScreen();
+  }
+  if (!alive) {
+    return;
+  }
+#endif
   PutFullscreen(true, fullscreen_tab_params.display_id);
 }
 
