@@ -10,9 +10,10 @@
 # unpins it, without showing it, and escape puts it back. New Folder makes a folder under the pinned
 # tabs, which takes the name typed. A row dragged right under it goes in and dragged left comes out,
 # a folder drags as a row, a click closes and opens it, and closed, it previews its tab, which the
-# keyboard shows. Launched again, the app brings it back closed, a double-click renames it,
-# Settings' Export… writes it and its tab as Markdown links, and Delete Folder in its menu leaves
-# its tab where it was. Links and files dragged onto the list from the page or another app open as
+# keyboard shows. Launched again, the app brings it back closed and a double-click renames it. In
+# its menu, Copy All Links is Copy All Links as Markdown with ⌥ held and Change Icon… gives it an
+# emoji. Settings' Export… writes it and its tab as Markdown links, and Delete Folder in its menu
+# leaves its tab where it was. Links and files dragged onto the list from the page or another app open as
 # tabs where the pointer lets go, and dragged text that isn't a link opens a search for it there,
 # but a link that isn't a web link doesn't open. A split made with a pinned tab is pinned. Away from
 # its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change its pinned URL,
@@ -542,6 +543,34 @@ send type later
 send key return
 expect "^browser: renamed folder $f later\$" "the folder didn't take the name typed over its old one"
 ../tools/window-screenshot.sh "$pid" "$out/folder-restored.png" || fail "no window to capture"
+post rightclick $(pinned_row 0)
+# Paste URL as New Tab comes and goes with the clipboard, so it isn't pinned here.
+expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Duplicate, Copy All Links'), .*$(cased 'Delete Folder')\$" \
+  "the folder's menu isn't Rename Folder, Change Icon…, Duplicate, Copy All Links … Delete Folder"
+expect '^browser: menu drawn ' "the folder's menu didn't draw"
+../tools/window-screenshot.sh "$pid" "$out/folder-menu.png" || fail "no window to capture"
+# With ⌥ held, Copy All Links is Copy All Links as Markdown, as in Arc's.
+send flags alt
+expect "^browser: menu drawn with ⌥ held $(cased 'Rename Folder, Change Icon…, Duplicate, Copy All Links as Markdown'), " \
+  "⌥ didn't turn the folder's Copy All Links into Copy All Links as Markdown"
+../tools/window-screenshot.sh "$pid" "$out/folder-menu-option.png" || fail "no window to capture"
+send choose "$(cased 'Copy All Links')"
+send flags
+expect "^browser: menu chose $(cased 'Copy All Links as Markdown')\$" \
+  "Copy All Links with ⌥ held didn't choose Copy All Links as Markdown"
+expect '^browser: toast shown Copied Links as Markdown$' "Copy All Links as Markdown showed no toast"
+# Change Icon… puts an emoji before the folder's name.
+post rightclick $(pinned_row 0)
+expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Duplicate'), " \
+  "a second right-click on the folder didn't show its menu"
+send choose "$(cased 'Change Icon…')"
+expect "^browser: icon picker for folder $f on emoji\$" "Change Icon… didn't open the icon picker for the folder"
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker under the folder"
+send insert glowing star
+send key return
+expect "^browser: iconed folder $f 🌟\$" "the picker's pick didn't become the folder's icon"
+expect '^browser: icon picker hidden$' "picking an emoji didn't close the icon picker"
+../tools/window-screenshot.sh "$pid" "$out/folder-icon.png" || fail "no window to capture"
 # Export… in Settings › Advanced, in the box under the three switch rows, writes the Space's pinned
 # tabs as Markdown links, the folder a list of what it holds.
 send key , cmd
@@ -560,9 +589,8 @@ grep -qx -- "  - \[.*\]($site)" "$out/spaces.md" ||
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 post rightclick $(pinned_row 0)
-# Paste URL as New Tab comes and goes with the clipboard, so the items between aren't pinned here.
-expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Duplicate'), .*$(cased 'Delete Folder')\$" \
-  "the folder's menu isn't Rename Folder, Change Icon…, Duplicate … Delete Folder"
+expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Remove Icon, Duplicate'), .*$(cased 'Delete Folder')\$" \
+  "the folder with an icon didn't offer Remove Icon"
 send choose "$(cased 'Delete Folder')"
 expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
@@ -710,4 +738,4 @@ settled
 ../tools/window-screenshot.sh "$pid" "$out/pinned-expanded.png" || fail "no window to capture"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it, and Expand All Folders, which opens it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, text that isn't a link opens a search for it there, and a link that isn't a web link doesn't open. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Settings' Export… writes the folder and its pinned tab as Markdown links. ⌥-click on a pinned tab's link opens a pinned split. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change the pinned URL, which ⌘Z and ⇧⌘Z undo and redo, and ⌘-click on its favicon goes back after opening the page in a new tab. The chevron after the Space's name collapses the pinned rows, which ⌘1 then skips, Expand Pinned Tabs and Collapse Pinned Tabs in the command bar and the View menu bring them back and fold them, and they come back collapsed. Focus Sidebar from the command bar and the View menu rings the tab shown's row, ↑ and ↓ move the ring past the collapsed rows, return shows its tab with the page holding the keyboard, and a key in the page and escape end it. Windows: $out/pinned-split.png, $out/pinned-url-menu.png, $out/pinned-url-edit.png, $out/pinned-kept-page.png, $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/export.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/dropped-text.png, $out/command-bar-commands.png, $out/pinned-caret.png, $out/pinned-collapsed.png, $out/sidebar-keyed.png, $out/sidebar-keyed-down.png, $out/pinned-expanded.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. A middle-click on a row closes its tab as its ✕ does. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it, and Expand All Folders, which opens it. It comes back closed, a double-click renames it, its menu's Copy All Links is Copy All Links as Markdown with ⌥ held, which copies them, Change Icon… gives it an emoji and offers Remove Icon after, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, text that isn't a link opens a search for it there, and a link that isn't a web link doesn't open. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Settings' Export… writes the folder and its pinned tab as Markdown links. ⌥-click on a pinned tab's link opens a pinned split. Away from its pinned URL, Pinned URL › Replace Pinned URL with Current and Edit… change the pinned URL, which ⌘Z and ⇧⌘Z undo and redo, and ⌘-click on its favicon goes back after opening the page in a new tab. The chevron after the Space's name collapses the pinned rows, which ⌘1 then skips, Expand Pinned Tabs and Collapse Pinned Tabs in the command bar and the View menu bring them back and fold them, and they come back collapsed. Focus Sidebar from the command bar and the View menu rings the tab shown's row, ↑ and ↓ move the ring past the collapsed rows, return shows its tab with the page holding the keyboard, and a key in the page and escape end it. Windows: $out/pinned-split.png, $out/pinned-url-menu.png, $out/pinned-url-edit.png, $out/pinned-kept-page.png, $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/export.png, $out/folder-menu.png, $out/folder-menu-option.png, $out/folder-icon.png, $out/folder-motion.mp4, $out/drop-before.png, $out/drop-line.png, $out/dropped.png, $out/dropped-text.png, $out/command-bar-commands.png, $out/pinned-caret.png, $out/pinned-collapsed.png, $out/sidebar-keyed.png, $out/sidebar-keyed-down.png, $out/pinned-expanded.png"

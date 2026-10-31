@@ -2053,6 +2053,12 @@ impl Shell {
                 log!("browser: renamed folder {folder} {name}");
             }
         }
+        for (folder, icon) in &folders.icons {
+            if entry.folders.icons.get(folder) != Some(icon) {
+                // check.sh waits for this line.
+                log!("browser: iconed folder {folder} {icon}");
+            }
+        }
         if space == self.space {
             self.swaps.folders_changed(&entry.folders, &folders, Instant::now());
         }
