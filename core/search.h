@@ -29,6 +29,16 @@ GURL TypedWithScheme(std::string_view text);
 // if |keyword| is empty. Invalid if it has none.
 GURL SearchUrl(Profile* profile, const std::u16string& keyword, std::string_view text);
 
+// The engines the user picks |profile|'s default from, as Chrome's search engine settings list
+// them, each "keyword\tname" on a line of its own. Empty until its engines have loaded, or while a
+// policy or an extension picks the default.
+std::string DefaultEngineChoices(Profile* profile);
+// The keyword of |profile|'s default engine, or empty until its engines have loaded.
+std::u16string DefaultEngine(Profile* profile);
+// Makes the engine of |keyword| among DefaultEngineChoices |profile|'s default, and returns whether
+// it did.
+bool SetDefaultEngine(Profile* profile, const std::u16string& keyword);
+
 }  // namespace browser_core
 
 #endif  // BROWSER_CORE_SEARCH_H_

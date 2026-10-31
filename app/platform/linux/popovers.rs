@@ -20,7 +20,7 @@ use gpui::{Bounds, CursorStyle, Pixels, point, px, size};
 use crate::{bc, overlays, shadows};
 
 /// The Site Controls' slot in the host's overlays, for their elevation (platform/host.h).
-const SITE_CONTROLS: std::ffi::c_int = 3;
+const SITE_CONTROLS: std::ffi::c_int = 4;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -154,6 +154,11 @@ fn dismiss(kind: Kind) {
 }
 
 fn left_popover(view: *mut c_void) {
+    // To ilo's menu over them, such as a tile's, which gives the keyboard back as it closes.
+    if crate::menu_window::over(view) {
+        gpui_linux::set_overlay_keyboard(view, true, left_popover);
+        return;
+    }
     let kind = POPOVERS.with_borrow(|all| {
         (all.iter())
             .find(|each| each.view == view && each.shown.is_some())
@@ -176,6 +181,26 @@ pub(crate) fn resized(ui_view: *mut c_void) {
     {
         overlays::later(dismissed);
     }
+}
+
+/// The views of those that show and still take clicks and keys, for the driver.
+pub(crate) fn shown() -> Vec<*mut c_void> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter())
+            .filter(|p| p.shown.is_some_and(|shown| !shown.released))
+            .map(|p| p.view)
+            .collect()
+    })
+}
+
+/// The browser window the popover of `view` shows over, by its UI's view, and where in its
+/// content, for ilo's menu to show over it (overlays::placed).
+pub(crate) fn placed(view: *mut c_void) -> Option<(*mut c_void, Bounds<Pixels>)> {
+    POPOVERS.with_borrow(|all| {
+        (all.iter())
+            .find(|p| p.view == view)
+            .and_then(|p| p.shown.map(|shown| (shown.ui_view, shown.bounds)))
+    })
 }
 
 /// `ui_view`'s window is closing: what shows over it goes.

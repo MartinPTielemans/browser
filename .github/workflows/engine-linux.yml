@@ -87,8 +87,9 @@ jobs:
         run: |
           tag=engine-linux-${GITHUB_SHA::12}
           tag_ucl=$(git config -f engine/pins.ini ungoogled-chromium-portablelinux.tag)
+          # Never GitHub's Latest, which releases/latest/download/<name> links mean as ilo's own (#804).
           gh release view "$tag" >/dev/null 2>&1 ||
-            gh release create "$tag" --target "$GITHUB_SHA" --title "Linux engine ${GITHUB_SHA::12}" \
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Linux engine ${GITHUB_SHA::12}" --latest=false \
               --notes "The Linux engine (ungoogled-chromium-portablelinux $tag_ucl, x64) built from $GITHUB_SHA, which holds its source."
           gh release upload "$tag" --clobber "$RUNNER_TEMP/Chromium-linux-x64.tar.xz" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz.sha256"
           rm "$RUNNER_TEMP"/Chromium-linux-x64.tar.xz*

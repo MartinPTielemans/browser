@@ -1,7 +1,9 @@
+#import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <VideoToolbox/VideoToolbox.h>
 #import <objc/runtime.h>
 
 #include <dlfcn.h>
@@ -10,6 +12,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cmath>
 #include <initializer_list>
 #include <iterator>
 #include <memory>
@@ -336,7 +339,8 @@ struct Overlay {
   bool shrinks = false;
 };
 
-Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker"), Overlay("theme picker")};
+Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker"), Overlay("theme picker"),
+                        Overlay("folder preview")};
 
 // The Site Controls: an overlay for its blur and shadow alone, outside g_overlays, so the tooltip
 // shows over it.
@@ -496,6 +500,10 @@ NSScreen* WindowScreen() {
 // notch puts over the browser window's top. An overlay goes where the host puts it, over that.
 NSRect Unconstrained(id, SEL, NSRect frame, NSScreen*) {
   return frame;
+}
+
+BOOL Never(id, SEL) {
+  return NO;
 }
 
 // Another app that asks which of ours is in front takes the first window at the normal level, in
@@ -762,11 +770,13 @@ void SetCaptureCursor() {
   [(g_capture_camera ? g_capture_cursor : NSCursor.arrowCursor) set];
 }
 
-// At the browser window's top right corner, where the toast draws itself.
+// At the browser window's top right corner, where the toast draws itself, or in a split view at the
+// focused pane's (host_set_pane_corner).
 void PlaceToast() {
   NSRect frame = g_toast_over->window.frame;
   NSSize size = g_toast.frame.size;
-  [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - size.width, NSMaxY(frame) - size.height)];
+  [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - g_toast_over->page_right - size.width,
+                                      NSMaxY(frame) - g_toast_over->page_top - size.height)];
 }
 
 // Where the UI asked, which it has kept inside the browser window: its window is wider than the
@@ -1591,6 +1601,45 @@ void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool ba
                                         }];
 }
 
+void host_watch_option_taps(void (*tapped)(void* ui_view)) {
+  static void (*g_tapped)(void* ui_view);
+  g_tapped = tapped;
+  // ⌥ pressed and let go with nothing else between. A key, another modifier, a press or a scroll
+  // makes it part of something else: a shortcut, a typed character, an ⌥-click or a zoom.
+  static bool alone = false;
+  static NSEventModifierFlags held = 0;
+  constexpr NSEventMask kBetween = NSEventMaskKeyDown | NSEventMaskLeftMouseDown |
+                                   NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown |
+                                   NSEventMaskScrollWheel | NSEventMaskMagnify;
+  [NSEvent
+      addLocalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged | kBetween
+                                   handler:^NSEvent*(NSEvent* event) {
+                                     if (event.type != NSEventTypeFlagsChanged) {
+                                       alone = false;
+                                       return event;
+                                     }
+                                     constexpr NSEventModifierFlags kModifiers =
+                                         NSEventModifierFlagCommand | NSEventModifierFlagShift |
+                                         NSEventModifierFlagOption | NSEventModifierFlagControl;
+                                     const NSEventModifierFlags was = held;
+                                     held = event.modifierFlags & kModifiers;
+                                     if (held == NSEventModifierFlagOption && was == 0) {
+                                       alone = true;
+                                     } else if (held == 0 && was == NSEventModifierFlagOption &&
+                                                alone) {
+                                       alone = false;
+                                       // The browser window with the keyboard, not an
+                                       // overlay of it.
+                                       if (Browser* browser = BrowserOf(NSApp.keyWindow)) {
+                                         g_tapped((__bridge void*)browser->ui_view);
+                                       }
+                                     } else {
+                                       alone = false;
+                                     }
+                                     return event;
+                                   }];
+}
+
 bool host_after_menus(void (*apply)(void)) {
   if (g_menus_open.allObjects.count == 0) {
     return false;
@@ -2234,6 +2283,9 @@ void host_set_pane_corner(void* ui_view, double right, double top) {
   if (g_hud_shown && g_hud_over == browser) {
     PlaceHud();
   }
+  if (g_toast_shown && g_toast_over == browser) {
+    PlaceToast();
+  }
 }
 
 void host_add_hud(void* hud_view, double right, double top, double margin) {
@@ -2653,7 +2705,11 @@ void host_show_link_preview(void* ui_view) {
   });
 }
 
-void host_link_preview_drew(double left, double top, double width, double height,
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double,
                             double opacity) {
   // Posted, so the page takes the frame the UI is drawing now.
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -2840,6 +2896,12 @@ NSString* CaptureName() {
 }
 
 }  // namespace
+
+void host_capture_name(char* name, size_t capacity) {
+  if (capacity) {
+    strlcpy(name, CaptureName().UTF8String, capacity);
+  }
+}
 
 void host_copy_png(const uint8_t* png, size_t size) {
   NSPasteboard* pasteboard = CopyPasteboard();
@@ -3117,8 +3179,19 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
   g_card.styleMask = NSWindowStyleMaskBorderless;
   g_card.hasShadow = NO;
   g_card.ignoresMouseEvents = YES;
-  // A click on its buttons leaves the keyboard where it was, in the page or the browser window.
-  ((NSPanel*)g_card).becomesKeyOnlyIfNeeded = YES;
+  // A click on its buttons leaves the keyboard where it was, in the page or the browser window, as
+  // the browser window losing it ends the card before the click reaches the button (#818). The
+  // panel's own class, since GPUI's is every overlay's and the others take the keyboard.
+  static Class card_class;
+  if (!card_class) {
+    Class panel = object_getClass(g_card);
+    SEL key = @selector(canBecomeKeyWindow);
+    card_class = objc_allocateClassPair(panel, "ILOHoverCardPanel", 0);
+    class_addMethod(card_class, key, (IMP)Never,
+                    method_getTypeEncoding(class_getInstanceMethod(panel, key)));
+    objc_registerClassPair(card_class);
+  }
+  object_setClass(g_card, card_class);
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
   void (^left_window)(NSNotification*) = ^(NSNotification*) {
     if (g_card_shown && g_card_away) {
@@ -3139,11 +3212,45 @@ void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
                   usingBlock:left_window];
 }
 
-// Lets the mouse through the card's window but on its plate, with the pointer at |screen|.
-void PlaceCardClicks(NSPoint screen) {
+// Lets the mouse through the card's window but on its plate, with the pointer at |screen|. Returns
+// whether that changed, as the pointer came onto the plate or left it.
+bool PlaceCardClicks(NSPoint screen) {
   NSPoint at = [g_card convertPointFromScreen:screen];
   at.y = NSHeight(g_card.frame) - at.y;
+  const bool was = g_card.ignoresMouseEvents;
   g_card.ignoresMouseEvents = !NSPointInRect(at, g_card_plate);
+  return was != g_card.ignoresMouseEvents;
+}
+
+// The move onto the plate or off it, to |screen|, went to the window under it, so the card hears
+// it too: on it, or the card would go as the row is left with the pointer on it, and off it, or a
+// hidden sidebar would stay out for it (#830).
+void MovedOverCard(NSPoint screen, NSEvent* move) {
+  [g_card_view mouseMoved:[NSEvent mouseEventWithType:NSEventTypeMouseMoved
+                                             location:[g_card convertPointFromScreen:screen]
+                                        modifierFlags:move.modifierFlags
+                                            timestamp:move.timestamp
+                                         windowNumber:g_card.windowNumber
+                                              context:nil
+                                          eventNumber:0
+                                           clickCount:0
+                                             pressure:0]];
+}
+
+// The pointer moved, or dragged, to where |move| says: the card takes the mouse there or doesn't,
+// and hears the move that changes that. The reveal's monitor asks it first, and the card's own
+// then finds nothing changed.
+void CardHearsMove(NSEvent* move) {
+  if (!g_card_monitor) {
+    return;
+  }
+  NSPoint at = move.locationInWindow;
+  if (move.window) {
+    at = [move.window convertPointToScreen:at];
+  }
+  if (PlaceCardClicks(at) && move.window != g_card && move.type == NSEventTypeMouseMoved) {
+    MovedOverCard(at, move);
+  }
 }
 
 // The pointer's moves over the page go to the page's view, so the card's window doesn't hear them:
@@ -3166,11 +3273,7 @@ void WatchCard() {
                                        }
                                        return event;
                                      }
-                                     NSPoint at = event.locationInWindow;
-                                     if (event.window) {
-                                       at = [event.window convertPointToScreen:at];
-                                     }
-                                     PlaceCardClicks(at);
+                                     CardHearsMove(event);
                                      return event;
                                    }];
 }
@@ -3489,6 +3592,20 @@ void host_file_preview(const char* path, uint64_t id,
       }
       CFRelease(source);
     }
+    // A video's is its first frame.
+    if (!thumbnail) {
+      AVURLAsset* asset = [AVURLAsset URLAssetWithURL:[NSURL fileURLWithPath:file] options:nil];
+      AVAssetImageGenerator* generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
+      generator.appliesPreferredTrackTransform = YES;
+      generator.maximumSize = CGSizeMake(96, 96);
+      CGImageRef image = [generator copyCGImageAtTime:kCMTimeZero actualTime:nullptr error:nil];
+      if (image) {
+        thumbnail = PNGOf(image);
+        width = CGImageGetWidth(image);
+        height = CGImageGetHeight(image);
+        CGImageRelease(image);
+      }
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
       if (thumbnail) {
         done(id, static_cast<const uint8_t*>(thumbnail.bytes), thumbnail.length, width, height,
@@ -3521,6 +3638,100 @@ void host_file_preview(const char* path, uint64_t id,
       done(id, static_cast<const uint8_t*>(png.bytes), png.length, side, side, false);
     });
   });
+}
+
+// A video playing for a Media tile, at the size of the frames it gives.
+@interface BrowserVideo : NSObject
+@property(nonatomic) AVPlayer* player;
+@property(nonatomic) AVPlayerItemVideoOutput* output;
+@property(nonatomic) int side;
+// The observer that takes it back to its start at its end.
+@property(nonatomic) id ended;
+@end
+
+@implementation BrowserVideo
+@end
+
+void* host_video_open(const char* path, int side) {
+  NSURL* url = [NSURL fileURLWithPath:@(path)];
+  BrowserVideo* video = [[BrowserVideo alloc] init];
+  video.side = side;
+  video.player = [AVPlayer playerWithURL:url];
+  // A check run makes no sound, and Media's tiles never do.
+  video.player.muted = YES;
+  video.player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+  __weak AVPlayer* player = video.player;
+  video.ended = [NSNotificationCenter.defaultCenter
+      addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                  object:video.player.currentItem
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification*) {
+                [player seekToTime:kCMTimeZero];
+                [player play];
+              }];
+  [video.player play];
+  return (__bridge_retained void*)video;
+}
+
+bool host_video_frame(void* handle, uint8_t* pixels) {
+  BrowserVideo* video = (__bridge BrowserVideo*)handle;
+  AVPlayerItem* item = video.player.currentItem;
+  if (item.status != AVPlayerItemStatusReadyToPlay) {
+    return false;
+  }
+  CGFloat side = video.side;
+  if (!video.output) {
+    // Decoded at the tile's size, its shorter side the tile's, as the frames are copied each time.
+    CGSize size = item.presentationSize;
+    if (size.width <= 0 || size.height <= 0) {
+      return false;
+    }
+    CGFloat scale = side / std::min(size.width, size.height);
+    video.output = [[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:@{
+      (__bridge NSString*)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
+      (__bridge NSString*)kCVPixelBufferWidthKey : @(std::ceil(size.width * scale)),
+      (__bridge NSString*)kCVPixelBufferHeightKey : @(std::ceil(size.height * scale)),
+    }];
+    [item addOutput:video.output];
+  }
+  CMTime time = [video.output itemTimeForHostTime:CACurrentMediaTime()];
+  if (![video.output hasNewPixelBufferForItemTime:time]) {
+    return false;
+  }
+  CVPixelBufferRef buffer =
+      [video.output copyPixelBufferForItemTime:time itemTimeForDisplay:nullptr];
+  if (!buffer) {
+    return false;
+  }
+  CGImageRef frame = nullptr;
+  VTCreateCGImageFromCVPixelBuffer(buffer, nullptr, &frame);
+  CVPixelBufferRelease(buffer);
+  if (!frame) {
+    return false;
+  }
+  // BGRA, its middle filling the square.
+  CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  CGContextRef context = CGBitmapContextCreate(
+      pixels, video.side, video.side, 8, video.side * 4, space,
+      static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) | kCGBitmapByteOrder32Little);
+  CGColorSpaceRelease(space);
+  if (context) {
+    CGFloat width = CGImageGetWidth(frame), height = CGImageGetHeight(frame);
+    CGFloat scale = side / std::min(width, height);
+    CGRect filled = CGRectMake((side - width * scale) / 2, (side - height * scale) / 2,
+                               width * scale, height * scale);
+    CGContextDrawImage(context, filled, frame);
+    CGContextRelease(context);
+  }
+  CGImageRelease(frame);
+  return context != nullptr;
+}
+
+void host_video_close(void* handle) {
+  BrowserVideo* video = (__bridge_transfer BrowserVideo*)handle;
+  [NSNotificationCenter.defaultCenter removeObserver:video.ended];
+  [video.player pause];
+  [video.player replaceCurrentItemWithPlayerItem:nil];
 }
 
 void host_copy(const char* text) {
@@ -3739,6 +3950,9 @@ void host_show_reveal(void* ui_view, double width) {
                                          at = [event.window convertPointToScreen:at];
                                        }
                                        at = [browser->window convertPointFromScreen:at];
+                                       // The card hears it first, so the reveal knows whether
+                                       // the pointer is on it, which keeps the sidebar out.
+                                       CardHearsMove(event);
                                        browser->reveal_pointer(ui_view, at.x);
                                        return event;
                                      }];

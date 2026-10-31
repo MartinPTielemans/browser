@@ -28,6 +28,7 @@ ours/chromium-drm-request.patch
 ours/chromium-widevine-component.patch
 ours/chromium-core-page-stretch.patch
 ours/chromium-core-open-links.patch
+ours/chromium-core-open-command-line.patch
 ours/chromium-core-link-target.patch
 ours/chromium-core-hung-page.patch
 ours/chromium-core-error-page.patch
@@ -44,3 +45,6 @@ ours/chromium-core-external-protocol-dialog.patch
 ours/chromium-core-ad-block.patch
 ours/chromium-core-split-switch.patch
 ours/chromium-core-agent-no-autofill.patch
+ours/chromium-core-page-link-drag.patch
+ours/chromium-center-selection.patch
+ours/chromium-core-alt-click-split.patch
