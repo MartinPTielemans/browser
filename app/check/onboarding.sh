@@ -106,12 +106,16 @@ expect '^browser: onboarding left intro via key$' "dark: a key didn't skip the i
 expect '^browser: onboarding step import settled$' "dark: the import step didn't come"
 capture_step dark-import
 # Its words and chip end 24 in from the window's right and bottom, 20 tall.
-# Linux has no window frame to log (host_window_frame), so there the driver's layout gives its size.
-frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
+# Only the Mac's window frame is its content, so elsewhere the driver's layout gives its size: Linux
+# logs no frame (host_window_frame), and Windows' takes in the title bar and borders.
+frame=
+if [ "$(uname)" = Darwin ]; then
+  frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
+fi
 if [ -z "$frame" ]; then
   send layout
   frame=$(grep -m1 '^browser: layout content ' "$log" |
-    sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+    sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\).*/\1 \2/')
 fi
 width=${frame% *}
 height=${frame#* }
