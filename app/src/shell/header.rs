@@ -257,6 +257,11 @@ impl Shell {
             true => (RELOAD_X, reload_glyph(true), Command::Stop, true),
             false => (RELOAD_X, reload_glyph(false), Command::Reload, self.selected != 0),
         };
+        if self.reload_drawn.replace(Some(reload.2)) != Some(reload.2) {
+            // check.sh reads this line: a press hits the button the window drew last, which
+            // follows the page's loading a frame behind.
+            log!("browser: nav shows {}", reload.2.name());
+        }
         let buttons = [
             (SIDEBAR_BUTTON_X, "icons/nav-sidebar.svg", Command::ToggleSidebar, true),
             (BACK_X, "icons/nav-back.svg", Command::Back, page.can_go_back),

@@ -483,7 +483,8 @@ expect '^browser: settings shown General$' "Settings… didn't bring Settings ba
 send clickkey $unload_switch
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
-post clickkey 16 16
+settings_close
+post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 # A key sent while the keyboard leaves the closing Settings window for the browser's is lost, so
 # ⌘W waits for the click to finish and the browser window to have the keyboard. On the Mac the
@@ -493,6 +494,18 @@ expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send state
 [ "$key" = BrowserCoreNSWindow ] ||
   fail "the browser window didn't get the keyboard back from Settings: it's in $key"
+# On Windows Alt+F4, ⌃F4 to the driver, hides Settings too. It asks Windows to close the window, as
+# the taskbar's Close window does, which Settings takes as hiding.
+if windows; then
+  send menu Settings…
+  expect '^browser: settings shown General$' "Settings… didn't show General after its close button"
+  post key f4 ctrl
+  expect '^browser: settings hidden$' "Alt+F4 didn't hide Settings"
+  await "^browser: drive $step done" || fail "the driver didn't finish Alt+F4 in Settings"
+  send state
+  [ "$key" = BrowserCoreNSWindow ] ||
+    fail "the browser window didn't get the keyboard back from Settings after Alt+F4: it's in $key"
+fi
 # Back to the page's tab alone, as the run had them.
 send key w cmd
 expect "^browser: tab $n closed\$" "⌘W didn't close the right pane"
@@ -756,6 +769,15 @@ send choose back
 expect '^browser: command history -1 via sidebar$' "choosing the held menu's row didn't reach the UI"
 expect "^browser: page $h back 0 forward 1 loading 0 ${site}back.html\$" "choosing the held menu's row didn't go back"
 expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its favicon"
+# A press hits the button drawn last, which is stop until the window draws the loaded page.
+# Off the Mac that frame can come after the driver's press (#1048).
+if [ "$(uname)" != Darwin ]; then
+  for _ in $(seq 100); do
+    [ "$(last 'nav shows')" = reload ] && break
+    sleep 0.1
+  done
+  [ "$(last 'nav shows')" = reload ] || fail "the header didn't draw reload once the page loaded"
+fi
 send press $reload_button
 expect '^browser: nav reload pressed drawn$' "reload pressed didn't draw itself shrunk"
 ../tools/window-screenshot.sh "$pid" "$out/reload-pressed.png" || fail "no window to capture"

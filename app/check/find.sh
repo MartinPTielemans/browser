@@ -73,9 +73,12 @@ check_find_bar() {
 # none of it in the page. On the Mac nothing that forks, such as uname, comes between ⌘F and the
 # keys, as the driver starts a command as its line comes.
 post key f cmd
+# The app can handle ⌘F before the driver reads the next line, so its lines are looked for from
+# ⌘F's step.
+shortcut=$step
 send type apple
-expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
-expect '^browser: find bar shown$' "⌘F didn't open the find bar"
+expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI" "$shortcut"
+expect '^browser: find bar shown$' "⌘F didn't open the find bar" "$shortcut"
 expect_find "$first" "open 1 of 3 apple" "typing right after ⌘F didn't find in the page"
 send state
 in_find_bar "after ⌘F"
