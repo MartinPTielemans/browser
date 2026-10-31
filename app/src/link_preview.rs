@@ -644,6 +644,15 @@ impl Render for LinkPreview {
         if settling {
             // check.sh reads this line.
             log!("browser: link preview settled");
+            let size = window.viewport_size();
+            log!(
+                "browser: link preview diag viewport {}x{} scale {} page {:?} card {:?}",
+                f32::from(size.width),
+                f32::from(size.height),
+                window.scale_factor(),
+                page,
+                card_frame
+            );
         }
         let palette = palette::current(cx);
         let radius = shown.radius() + FRAME;

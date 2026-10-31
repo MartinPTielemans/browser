@@ -336,6 +336,8 @@ void Press(const Target& target, UINT button, int modifiers, bool second) {
   fprintf(stderr, "browser: drive press to %ls in %ls %ld,%ld %ldx%ld\n",
           ClassOf(target.hwnd).c_str(), ClassOf(root).c_str(), frame.left, frame.top,
           frame.right - frame.left, frame.bottom - frame.top);
+  fprintf(stderr, "browser: drive press diag client %ld,%ld screen %ld,%ld\n", target.client.x,
+          target.client.y, target.screen.x, target.screen.y);
   const LRESULT activate = SendMessageW(target.hwnd, WM_MOUSEACTIVATE,
                                         reinterpret_cast<WPARAM>(root), MAKELPARAM(HTCLIENT, down));
   if ((activate == MA_ACTIVATE || activate == MA_ACTIVATEANDEAT) && GetActiveWindow() != root) {

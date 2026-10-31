@@ -599,6 +599,13 @@ void PlaceLinkPreview() {
   SetWindowRgn(hwnd, region, IsWindowVisible(hwnd));
   SetWindowPos(hwnd, HWND_TOP, origin.x, origin.y, client.right, client.bottom, SWP_NOACTIVATE);
   ShowOnScreen(hwnd, false);
+  RECT frame{}, inside{};
+  GetWindowRect(hwnd, &frame);
+  GetClientRect(hwnd, &inside);
+  fprintf(stderr,
+          "browser: link preview diag place %ld,%ld %ldx%ld client %ldx%ld hole %d scale %.2f\n",
+          frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top, inside.right,
+          inside.bottom, g_link_preview.hole ? 1 : 0, Scale(root));
 }
 
 // The browser window under the preview moved or resized, which it follows, or is going.
