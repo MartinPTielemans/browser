@@ -39,7 +39,8 @@ for way in menu key; do
     --trace-startup-file="$PWD/$out/quit-$way-trace.json" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
-  await_load
+  # #905 trial: Quit as the window comes on screen, before the UI is shown.
+  await '^browser: window on screen at ' || fail "the window never came on screen"
   quit_through "$way"
   exited
   [ "$(reports)" = "$before" ] || fail "quitting through the $way left a crash report"
