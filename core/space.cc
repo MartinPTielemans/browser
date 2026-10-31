@@ -203,8 +203,21 @@ const Space::Node* Space::NodeOf(bc_id id) const {
 
 void Space::RestoreNodes(const Node& space, const std::map<bc_id, Node>& rows) {
   if (space.id.is_valid()) {
+    const bool moved = !node_.position.Equals(space.position);
     node_ = space;
+    // The order follows the places sync gives, as the other devices have them, so a place that
+    // came from one is kept here rather than made again and sent back.
+    if (moved) {
+      std::ranges::stable_sort(SpaceOrder(), [](bc_id a, bc_id b) {
+        const syncer::UniquePosition &at = FromId(a)->node_.position,
+                                     &bt = FromId(b)->node_.position;
+        return at.IsValid() && (!bt.IsValid() || at.LessThan(bt));
+      });
+    }
     PlaceSpaces();
+    if (moved) {
+      ReportSpacesChanged();
+    }
   }
   for (const auto& [id, node] : rows) {
     if (node.id.is_valid() && nodes_.contains(id)) {
@@ -247,6 +260,7 @@ std::vector<bc_id> Space::Panes(bc_id tab) const {
 }
 
 void Space::SetName(std::string name) {
+  touched_ |= name != name_;
   name_ = std::move(name);
   ReportSpacesChanged();
 }
@@ -257,6 +271,7 @@ void Space::SetColor(std::optional<uint32_t> color) {
 }
 
 void Space::SetIcon(std::string icon) {
+  touched_ |= icon != icon_;
   icon_ = std::move(icon);
   ReportSpacesChanged();
 }
