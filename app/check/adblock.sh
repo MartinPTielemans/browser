@@ -251,7 +251,9 @@ await "^browser: extensions menu .*$ublock\$" ||
 first_page=$(grep "^browser: title $tab ad script " "$log" | head -1 | cut -d' ' -f4-)
 await "^browser: title $tab $blocked\$" ||
   fail "launched again on its profile, uBlock Origin didn't reload the page that loaded its ad: $(grep "^browser: title $tab " "$log" | tail -1)"
-loads=$(grep -c "^browser: title $tab ad script " "$log")
+# Loads, not titles: uBlock Origin's stylesheet can hide the ad partway through a load, which
+# retitles the page within it.
+loads=$(grep -c "^browser: loaded $tab " "$log")
 [ "$loads" -le 2 ] || fail "launched again on its profile, the page loaded $loads times, not at most twice"
 echo "adblock: an existing profile's first page: $first_page, over $loads loads"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-existing.png" || fail "no window to capture"
