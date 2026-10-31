@@ -1945,6 +1945,9 @@ void host_show_link_preview(void* ui_view) {
       PlaceLinkPreview();
       // check.sh reads this line.
       fprintf(stderr, "browser: link preview shown\n");
+      POINT cursor{};
+      GetCursorPos(&cursor);
+      fprintf(stderr, "browser: diag desktop cursor %ld,%ld\n", cursor.x, cursor.y);
     }
   });
 }

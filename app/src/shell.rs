@@ -2891,6 +2891,15 @@ impl Render for Shell {
         if std::mem::take(&mut self.hover_changed) {
             log!("browser: sidebar hovered {}", self.sidebar_hovered as u8);
         }
+        // Diag (#778), not for merging: where GPUI has the pointer, each time that changes.
+        thread_local! {
+            static DIAG_POINTER: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((-1., -1.)) };
+        }
+        let at = window.mouse_position();
+        let at = (f32::from(at.x), f32::from(at.y));
+        if DIAG_POINTER.with(|was| was.replace(at)) != at {
+            log!("browser: diag shell pointer {:.0},{:.0}", at.0, at.1);
+        }
         // As the outline's: the ✕ or −, and the way back, show only under the pointer, so a click
         // that follows a move waits for this line.
         let close = match self.pointer_row() {
