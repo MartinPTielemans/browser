@@ -1620,14 +1620,21 @@ fn run_command(line: &str) -> Option<()> {
             let (x, y) = point(&mut words)?;
             motion(target_at(x, y)?, none)
         }
-        // A notch of the wheel for each event, down for content moving up.
+        // Each event moves the content up by <dy> points, as drive.mm's trackpad events do.
         "scroll" => {
             let (x, y) = point(&mut words)?;
             let dy: f64 = words.next()?.parse().ok()?;
             let count: usize = words.next()?.parse().ok()?;
             let at = target_at(x, y)?;
+            // GPUI's windows scroll by the points asked, as the Mac's trackpad events do, where a
+            // wheel's notch moves three lines; a page, Chromium's, scrolls a notch an event.
+            motion(at, none)?;
+            let logical = |each: i16| px((f64::from(each) / scale()) as f32);
+            let position = gpui::point(logical(at.x), logical(at.y));
             for _ in 0..count.max(1) {
-                click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                if !gpui_linux::drive_scroll(at.window, position, px(dy as f32)) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
             }
             Some(())
         }
