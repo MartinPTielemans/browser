@@ -810,7 +810,7 @@ send click 298 $(footer_y)
 more_menu=$(cased 'Clear Cache, Clear Cookies, Manage Extensions…, Add Extension…, All Site Settings…')
 expect "^browser: menu shown $more_menu\$" "the … menu didn't list Arc's items"
 send choose "$(cased 'All Site Settings…')"
-expect '^browser: site controls run All Site Settings…$' "All Site Settings… didn't run"
+expect "^browser: site controls run $(cased 'All Site Settings…')\$" "All Site Settings… didn't run"
 site_settings="chrome://settings/content/siteDetails?site=http%3A%2F%2Flocalhost%3A$port"
 expect "^browser: loaded [0-9]* $site_settings\$" "All Site Settings… didn't open them"
 
