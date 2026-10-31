@@ -9,7 +9,7 @@ use gpui::{Context, Div, MouseButton, Stateful, div, prelude::*, px, svg};
 
 use super::{
     CLOSE_HOVERED, FAVICON_X, FOOTER_HEIGHT, HOVERED, MediaAction, NAV_RADIUS, PLATE_INSET,
-    SECONDARY, Shell, TILE, TILE_RADIUS, TITLE, permission::card_listener,
+    SECONDARY, Shell, Space, TILE, TILE_RADIUS, TITLE, permission::card_listener,
 };
 use crate::tokens::shell::{
     MEDIA_ARTIST, MEDIA_BUTTON, MEDIA_GAP, MEDIA_GLYPH, MEDIA_HEIGHT, MEDIA_TITLE,
@@ -23,13 +23,23 @@ impl Shell {
     pub(super) fn media_players(&self) -> Vec<u64> {
         let mut tabs: Vec<u64> = (self.tabs.iter())
             .filter(|(tab, each)| {
-                each.page.media && !self.media_dismissed.contains(tab) && !self.on_screen(**tab)
+                each.page.media
+                    && !self.media_dismissed.contains(tab)
+                    && !self.on_screen(**tab)
+                    && self.lists(**tab)
             })
             .map(|(tab, _)| *tab)
             .collect();
         tabs.sort_unstable();
         tabs.truncate(MOST);
         tabs
+    }
+
+    /// Whether `tab` is a favorite or in one of the window's Spaces: every window hears every
+    /// tab, a private window's included, which no other window may show.
+    pub(super) fn lists(&self, tab: u64) -> bool {
+        let in_space = |space: &Space| space.pinned.contains(&tab) || space.today.contains(&tab);
+        self.all_favorites.contains(&tab) || self.spaces.iter().any(in_space)
     }
 
     /// Where the pages above the footer end, over the players.
@@ -233,6 +243,57 @@ mod tests {
             shell.set_selected(2, cx);
             assert_eq!(shell.media_players(), [1]);
         });
+    }
+
+    /// Every window hears every tab, so a player is for the tabs this window lists: another
+    /// Space's or a favorite's, as Arc's shows in each window, but never a private window's in a
+    /// window of the profiles, nor theirs in the private window.
+    #[gpui::test]
+    fn a_player_is_for_the_tabs_its_window_lists(cx: &mut TestAppContext) {
+        let (shell, host) = shell(cx);
+        let private = cx.new(|cx| Shell::private_window(host, 9, "Private".into(), 1, cx));
+        let tabs = |shell: &mut Shell, cx: &mut gpui::Context<Shell>| {
+            let other = (5, "Work".into(), None, 1, "".into(), "".into(), "".into());
+            let home = (1, "Home".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![home, other], cx);
+            shell.set_tabs(1, Vec::new(), vec![1, 2, 3], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(5, vec![6], Vec::new(), Vec::new(), Folders::default(), cx);
+            shell.set_tabs(9, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_favorites(vec![(7, 1)], cx);
+            for tab in [6, 7, 10] {
+                playing(shell, tab, true, cx);
+            }
+        };
+        shell.update(cx, |shell, cx| {
+            tabs(shell, cx);
+            assert_eq!(shell.media_players(), [6, 7]);
+        });
+        private.update(cx, |shell, cx| {
+            tabs(shell, cx);
+            shell.set_selected(1, cx);
+            assert_eq!(shell.media_players(), [10]);
+        });
+    }
+
+    /// Music in another Space draws its player as it starts, though its row isn't drawn.
+    #[gpui::test]
+    fn another_spaces_music_draws_its_player_as_it_starts(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host, cx));
+        shell.update(cx, |shell, cx| {
+            let home = (1, "Home".into(), None, 1, "".into(), "".into(), "".into());
+            let other = (5, "Work".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![home, other], cx);
+            shell.set_space(1, cx);
+            shell.set_tabs(1, Vec::new(), vec![1], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(5, Vec::new(), vec![6], Vec::new(), Folders::default(), cx);
+            shell.set_selected(1, cx);
+        });
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.media_drawn.get()).is_none());
+        shell.update(cx, |shell, cx| playing(shell, 6, true, cx));
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.media_drawn.get()).is_some());
     }
 
     /// A page that can float has Picture in Picture before play, as Arc's Back to PiP, which asks
