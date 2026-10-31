@@ -1177,68 +1177,8 @@ void* host_ui_view(void) {
   return holder;
 }
 
-void (*g_window_close)(void*) = nullptr;
-
-// A browser window's WM_CLOSE, which its title bar's close button, Alt+F4 and
-// host_press_window_button send, goes to the app, which closes the window through the core.
-// Chromium's own handling closed the window's Browser without the core's Window::Close, which
-// archived its tab and left the window open (#870).
-LRESULT CALLBACK BrowserWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
-                                   UINT_PTR, DWORD_PTR ui_view) {
-  if (message == WM_CLOSE && g_window_close) {
-    g_window_close(reinterpret_cast<void*>(ui_view));
-    return 0;
-  }
-  if (message == WM_NCDESTROY) {
-    RemoveWindowSubclass(hwnd, BrowserWindowProc, 2);
-  }
-  return DefSubclassProc(hwnd, message, wparam, lparam);
-}
-
-// Once a browser window shows, its close is the app's.
-void WatchClose(HWND root, void* ui_view) {
-  SetWindowSubclass(root, BrowserWindowProc, 2, reinterpret_cast<DWORD_PTR>(ui_view));
-}
-
-// DIAG (#870, to be reverted): every WM_CLOSE the UI thread gets, and to which window.
-void LogClose(const MSG& msg, const char* how) {
-  if (msg.message != WM_CLOSE) {
-    return;
-  }
-  wchar_t name[128] = {};
-  GetClassNameW(msg.hwnd, name, 128);
-  wchar_t title[128] = {};
-  GetWindowTextW(msg.hwnd, title, 128);
-  fprintf(stderr, "browser: diag WM_CLOSE %s %p class %ls title %ls visible %d top %d owner %p\n",
-          how, msg.hwnd, name, title, IsWindowVisible(msg.hwnd),
-          GetAncestor(msg.hwnd, GA_ROOT) == msg.hwnd, GetWindow(msg.hwnd, GW_OWNER));
-}
-
-LRESULT CALLBACK PostedClose(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION && wparam == PM_REMOVE) {
-    LogClose(*reinterpret_cast<const MSG*>(lparam), "posted");
-  }
-  return CallNextHookEx(nullptr, code, wparam, lparam);
-}
-
-LRESULT CALLBACK SentClose(int code, WPARAM wparam, LPARAM lparam) {
-  if (code == HC_ACTION) {
-    const CWPSTRUCT* sent = reinterpret_cast<const CWPSTRUCT*>(lparam);
-    MSG msg{sent->hwnd, sent->message, sent->wParam, sent->lParam};
-    LogClose(msg, "sent");
-  }
-  return CallNextHookEx(nullptr, code, wparam, lparam);
-}
-
-void host_watch_window_close(void (*close)(void* ui_view)) {
-  g_window_close = close;
-  SetWindowsHookExW(WH_GETMESSAGE, PostedClose, nullptr, GetCurrentThreadId());
-  SetWindowsHookExW(WH_CALLWNDPROC, SentClose, nullptr, GetCurrentThreadId());
-}
-
 void host_show_window(void* ui_view) {
   HWND root = Root(ui_view);
-  WatchClose(root, ui_view);
   ShowWindow(root, SW_SHOW);
   SetForegroundWindow(root);
 }
@@ -1255,7 +1195,6 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
     host_show_window(ui_view);
     return;
   }
-  WatchClose(root, ui_view);
   SetWindowPos(root, above, 0, 0, 0, 0,
                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
