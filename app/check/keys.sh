@@ -638,6 +638,13 @@ fi
 expect "^browser: shortcut select-space-1 $space_key\$" "⌃⌘1 didn't become Go to Space 1's key"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+# Off the Mac, Settings is a window of its own, and the window manager gives the browser's the
+# keyboard back a moment after it's gone.
+for _ in $(seq 100); do
+  [ "$key" = BrowserCoreNSWindow ] && break
+  sleep 0.1
+  send state
+done
 in_browser AccessKitSubclassOfGPUIView "in the second Space, which has no page"
 send key 1 ctrl
 pressed=$step
