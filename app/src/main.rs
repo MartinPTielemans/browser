@@ -1865,14 +1865,21 @@ unsafe extern "C" fn tab_link_target(
     });
 }
 
-/// Gives the keyboard in `window` to the UI, whose GPUI view is `view`. On Linux the core says whose
-/// the keys are, and takes them from the page.
-fn focus_ui(window: bc::bc_id, view: *mut c_void) {
+/// Gives the keyboard in `window` to the UI, whose GPUI view is `view`, to keep or, with
+/// `until_page`, until a page shows. On Linux the core says whose the keys are, and takes them from
+/// the page.
+fn focus_ui(window: bc::bc_id, view: *mut c_void, until_page: bool) {
     unsafe { platform::host_focus(view) };
     #[cfg(target_os = "linux")]
     unsafe {
-        bc::bc_window_ui_takes_keyboard(window)
+        if until_page {
+            bc::bc_window_ui_holds_keyboard(window)
+        } else {
+            bc::bc_window_ui_takes_keyboard(window)
+        }
     };
+    #[cfg(not(target_os = "linux"))]
+    let _ = (window, until_page);
 }
 
 /// A window's shell's requests, as calls to the core. The core reports back once each call has
@@ -2742,7 +2749,11 @@ impl Browser for Engine {
     }
 
     fn focus_ui(&self, _: &mut App) {
-        focus_ui(self.window, self.view);
+        focus_ui(self.window, self.view, false);
+    }
+
+    fn hold_keyboard_for_page(&self, _: &mut App) {
+        focus_ui(self.window, self.view, true);
     }
 
     fn focus_page(&self, _: &mut App) {
@@ -4128,7 +4139,7 @@ fn finish_opening(
     if seeded {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
         if ui_keyboard && let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
-            focus_ui(id, view);
+            focus_ui(id, view, false);
         }
         return;
     }

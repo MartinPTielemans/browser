@@ -886,6 +886,11 @@ BC_EXPORT void* bc_window_wayland_surface(bc_id window, double* width, double* h
 // server's focus says whose the keys are, and the core follows it.
 BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
 
+// On Linux, as |window| shows no page: gives the keyboard to the app's UI, as
+// bc_window_ui_takes_keyboard does, until a page shows, which then has it, as the Mac's window
+// holds the keys for the next page shown.
+BC_EXPORT void bc_window_ui_holds_keyboard(bc_id window);
+
 // On Linux, whether the keys in |window| are the app's UI's rather than a page's.
 BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 
