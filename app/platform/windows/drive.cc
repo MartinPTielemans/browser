@@ -35,6 +35,7 @@
 
 #include <shlobj.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -98,6 +99,9 @@ int g_flags = 0;
 HWND g_pressed = nullptr;
 // The window the pointer is in, which hears it leave.
 HWND g_hovered = nullptr;
+// The moves the driver has posted and its windows haven't taken yet, which DropRealPointer lets
+// through. Some are never taken, as by a window that closed, so only the latest are kept.
+std::deque<std::pair<HWND, LPARAM>> g_posted_moves;
 // The last click: its window, place on screen, button and time.
 struct Click {
   HWND hwnd = nullptr;
@@ -308,6 +312,10 @@ void Move(const Target& target, int modifiers, UINT buttons) {
     return;
   }
   Enter(target);
+  if (g_posted_moves.size() == 64) {
+    g_posted_moves.pop_front();
+  }
+  g_posted_moves.emplace_back(target.hwnd, ClientParam(target));
   PostMessageW(target.hwnd, WM_MOUSEMOVE, MouseKeys(modifiers, buttons), ClientParam(target));
 }
 
@@ -1364,13 +1372,29 @@ LRESULT CALLBACK DriverProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 
 // Windows tells a window the pointer left it once it asks to hear so and the desktop's pointer
 // isn't in it, which it never is for the driver's pointer: that leave is dropped, and the driver
-// posts its own as its pointer leaves.
-LRESULT CALLBACK DropRealLeave(int code, WPARAM wparam, LPARAM lparam) {
+// posts its own as its pointer leaves. Windows also moves the desktop's pointer, where it rests,
+// over the window under it as a window shows or hides, as the link target's plate does: the
+// page under it heard the pointer leave the link the driver's pointer was on. Only the driver's
+// own moves reach the app's windows.
+LRESULT CALLBACK DropRealPointer(int code, WPARAM wparam, LPARAM lparam) {
   auto* message = reinterpret_cast<MSG*>(lparam);
-  if (code == HC_ACTION && wparam == PM_REMOVE &&
-      (message->message == WM_MOUSELEAVE || message->message == WM_NCMOUSELEAVE) &&
+  if (code != HC_ACTION || wparam != PM_REMOVE) {
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  if ((message->message == WM_MOUSELEAVE || message->message == WM_NCMOUSELEAVE) &&
       message->lParam != kDriverLeave && message->hwnd == g_hovered) {
     message->message = WM_NULL;
+  } else if (message->message == WM_MOUSEMOVE) {
+    const auto posted =
+        std::ranges::find(g_posted_moves, std::pair(message->hwnd, message->lParam));
+    if (posted != g_posted_moves.end()) {
+      g_posted_moves.erase(g_posted_moves.begin(), posted + 1);
+    } else {
+      fprintf(stderr, "browser: drive: dropped the desktop's pointer moving at %d %d\n",
+              static_cast<short>(LOWORD(message->lParam)),
+              static_cast<short>(HIWORD(message->lParam)));
+      message->message = WM_NULL;
+    }
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
@@ -1391,7 +1415,7 @@ void drive_start(void) {
   RegisterClassW(&window_class);
   g_driver = CreateWindowExW(0, window_class.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
                              nullptr, window_class.hInstance, nullptr);
-  SetWindowsHookExW(WH_GETMESSAGE, DropRealLeave, nullptr, GetCurrentThreadId());
+  SetWindowsHookExW(WH_GETMESSAGE, DropRealPointer, nullptr, GetCurrentThreadId());
   HWND driver = g_driver;
   std::thread([driver] {
     HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
