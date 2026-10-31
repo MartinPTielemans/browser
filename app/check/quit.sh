@@ -37,6 +37,8 @@ for way in menu key; do
   pid=$!
   exec 3> "$out/drive"
   await_load
+  # #905 trial: past launch first.
+  await '^browser: UI shown at ' || fail "the UI never came out"
   quit_through "$way"
   exited
   [ "$(reports)" = "$before" ] || fail "quitting through the $way left a crash report"
