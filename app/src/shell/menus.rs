@@ -26,7 +26,9 @@ const PROPER_NOUNS: [&str; 4] = ["Space", "Spaces", "Library", "Markdown"];
 fn sentence_case(title: &str) -> String {
     let word = |(i, word): (usize, &str)| {
         let noun = word.trim_end_matches('…');
-        let acronym = noun.len() > 1 && noun.chars().all(|c| c.is_ascii_uppercase());
+        // An acronym's plural too, as Copy URLs.
+        let stem = noun.strip_suffix('s').unwrap_or(noun);
+        let acronym = stem.len() > 1 && stem.chars().all(|c| c.is_ascii_uppercase());
         match i == 0 || acronym || PROPER_NOUNS.contains(&noun) {
             true => word.to_string(),
             false => word.to_lowercase(),
@@ -1360,6 +1362,8 @@ mod tests {
             ("In Each Profile's Spaces", "In each profile's Spaces"),
             ("Duplicate", "Duplicate"),
             ("Show in Folder", "Show in folder"),
+            ("Copy URLs", "Copy URLs"),
+            ("Close Tabs", "Close tabs"),
         ];
         for (title, sentence) in cases {
             assert_eq!(sentence_case(title), sentence);
