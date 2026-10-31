@@ -371,6 +371,8 @@ players=$(sed -n "/^browser: drive $played: /,\$p" "$log" | grep '^browser: medi
   tail -1)
 [ "$players" = "browser: media players $music" ] ||
   fail "the private window's music out of sight had no player alone: ${players:-none}"
+expect "^browser: media player $music at " "the private window's player wasn't drawn" "$played"
+../tools/window-screenshot.sh "$pid" "$out/media-player-private.png" || fail "no window to capture"
 send window 1
 switch "$key_a cmd" "$a"
 send click $page_point
@@ -378,8 +380,8 @@ send key m
 expect "^browser: title $a playing\$" "m in the page didn't play its silence again"
 switch "$key_b cmd" "$b"
 expect "^browser: media players $a\$" "the regular window's players weren't its music alone"
-../tools/window-screenshot.sh "$pid" "$out/media-player-private.png" all ||
-  fail "no window to capture"
+expect "^browser: media player $a at " "the regular window's player wasn't drawn again"
+../tools/window-screenshot.sh "$pid" "$out/media-player-own.png" || fail "no window to capture"
 send click "$(button_x 2)" $((my + mh / 2))
 expect "^browser: title $a paused\$" "the player's pause didn't pause the page"
 send click "$(button_x 0)" $((my + mh / 2))
