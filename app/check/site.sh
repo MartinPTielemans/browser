@@ -11,6 +11,7 @@
 # ⌘, ⌃ or ⌥ are the browser's. /wait is a page that never comes. login.html is a login form, its
 # username field across the page's top half and its password field across the bottom, that posts
 # to /login, which sends the browser on to welcome.html, as a site that took the login would.
+# signup.html is the same form asking for a new password, which posts to /signup, as /login.
 # /sign-in, with any query, asks for HTTP basic sign-in and takes ada with the password lovelace.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
@@ -88,6 +89,27 @@ setInterval(() => {
   }
 }, 100);
 </script>' > "$out/site/login.html"
+# A sign-up form, laid out as the login is, whose password field asks for a new password. Its title
+# says "signup" once it's drawn, "offered" while Chrome's popup previews a password in that field,
+# "own" once the preview goes with the field left empty, as Choose Your Own leaves it, and
+# "generated" once the field holds a password as long as Chrome's, 15 characters.
+printf '%s' '<title>loading</title>
+<form method="post" action="signup">
+<input id=user name=username autocomplete=username
+  style="position:fixed;left:0;top:0;width:100%;height:50%;font:24px system-ui">
+<input id=pass name=password type=password autocomplete=new-password
+  style="position:fixed;left:0;top:50%;width:100%;height:50%;font:24px system-ui">
+<button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
+</form>
+<script>
+let state = "loading";
+requestAnimationFrame(() => setTimeout(() => document.title = state = "signup"));
+setInterval(() => {
+  const now = pass.value.length >= 15 ? "generated" : pass.matches(":autofill") ? "offered" :
+    state == "offered" ? "own" : state;
+  if (now != state) document.title = state = now;
+}, 100);
+</script>' > "$out/site/signup.html"
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
@@ -121,11 +143,16 @@ onkeydown = e => {
 </script>' > "$out/site/dialogs.html"
 # The cookie page's title says whether it finds its cookie, c, never a value, since the app logs
 # every title, and how many times the server has sent its script, which the cache keeps for an
-# hour. Another run's cookies on the site don't count. "c" in it sets the cookie.
-printf '%s' '<title>loading</title><script src="count.js"></script>
+# hour. Another run's cookies on the site don't count. "c" in it sets the cookie. Chromium drops a
+# key that comes before a page it loaded first shows, for up to half a second (paint holding), so
+# the title comes once the page has painted, which it does once it has something to draw.
+printf '%s' '<title>loading</title><p>c sets a cookie.</p><script src="count.js"></script>
 <script>
-document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
-  " cache " + count;
+new PerformanceObserver((entries, observer) => {
+  observer.disconnect();
+  document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
+    " cache " + count;
+}).observe({type: "paint", buffered: true});
 onkeydown = e => {
   if (e.key == "c") {
     document.cookie = "c=1";

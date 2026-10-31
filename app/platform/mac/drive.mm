@@ -14,6 +14,7 @@
 //   doubleclickkey <x> <y>                two left clicks in the key window, as doubleclick
 //   rightclickkey <x> <y>                 a right click in the key window
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
+//   dragkey <x> <y> <x2> <y2>             as drag, in the key window, such as Settings
 //   press <x> <y>                         presses at (x, y), for a drag in steps
 //   rightpress, rightdragto, rightrelease <x> <y>
 //                                         as press, dragto and release, with the right button,
@@ -66,6 +67,11 @@
 //   hide                                  hides the app, as ⌘H does, or brings it back
 //   place <x> <y> <width> <height>        moves and resizes the window to that frame, in points
 //                                         from the main display's top-left corner
+//   screen                                logs the screen the app opens windows on, the main
+//                                         display or with BROWSER_DISPLAY=builtin the Mac's own
+//                                         (host_screens), as "browser: screen at <x> <y> <width>
+//                                         <height>" in place's terms, so a check places windows
+//                                         there and not on the main display it may be kept off
 //   order                                 logs the browser windows on screen front to back and
 //                                         the key one, as "browser: order window <n> window <m>
 //                                         …, key window <n>|none", numbered as window numbers
@@ -1266,6 +1272,20 @@ bool Run(const std::string& line, void (^done)(void)) {
     done();
     return true;
   }
+  if (action == "dragkey") {
+    double x, y, x2, y2;
+    NSWindow* key = NSApp.keyWindow;
+    if (!key || !(words >> x >> y >> x2 >> y2)) {
+      return false;
+    }
+    // Halfway first, so the view sees the drag start before it ends.
+    PostMouse(key, NSEventTypeLeftMouseDown, x, y, 1);
+    PostMouse(key, NSEventTypeLeftMouseDragged, (x + x2) / 2, (y + y2) / 2, 1);
+    PostMouse(key, NSEventTypeLeftMouseDragged, x2, y2, 1);
+    PostMouse(key, NSEventTypeLeftMouseUp, x2, y2, 1);
+    done();
+    return true;
+  }
   if (action == "drag") {
     double x, y, x2, y2;
     if (!(words >> x >> y >> x2 >> y2)) {
@@ -1446,6 +1466,27 @@ bool Run(const std::string& line, void (^done)(void)) {
     [window setFrame:NSMakeRect(x, top - y - height, width, height) display:YES];
     done();
     return true;
+  }
+  if (action == "screen") {
+    double visible[4];
+    if (host_screens(visible, 1) < 1) {
+      return false;
+    }
+    // host_screens gives the screen's visible area, from the main display's top-left; the screen
+    // holding its middle is the one.
+    const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
+    const NSPoint middle =
+        NSMakePoint(visible[0] + visible[2] / 2, top - visible[1] - visible[3] / 2);
+    for (NSScreen* screen in NSScreen.screens) {
+      const NSRect frame = screen.frame;
+      if (NSPointInRect(middle, frame)) {
+        fprintf(stderr, "browser: screen at %.0f %.0f %.0f %.0f\n", NSMinX(frame),
+                top - NSMaxY(frame), NSWidth(frame), NSHeight(frame));
+        done();
+        return true;
+      }
+    }
+    return false;
   }
   if (action == "order") {
     NSMutableString* order = [NSMutableString string];
