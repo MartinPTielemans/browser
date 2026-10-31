@@ -254,6 +254,9 @@ pub trait Browser {
     fn view_history(&self, cx: &mut App);
     /// Opens `url`, one of the app's own web pages such as its help, in a new tab, and shows it.
     fn open_page(&self, url: &str, cx: &mut App);
+    /// Opens a new document in the notes service `space`'s profile picks, in a tab at the top of
+    /// its Today tabs, as a new tab opens, or in a split view with `beside`, on its right.
+    fn new_note(&self, space: u64, beside: Option<u64>, cx: &mut App);
     /// Opens Chromium's search engines page in a tab of the Space shown, for its profile's site
     /// searches. The user's: agents open no pages outside http(s) (AGENTS.md).
     fn site_search_settings(&self, cx: &mut App);
@@ -545,6 +548,9 @@ pub trait Browser {
         look: crate::menu::Look,
         cx: &mut App,
     );
+    /// The window's menus' `look` changed: capture mode over `tab`, if it's on, takes it, as it
+    /// took the look it started in from `capture`.
+    fn capture_look(&self, _tab: u64, _look: crate::menu::Look, _cx: &mut App) {}
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers
     /// with `Shell::page_pictured` and `request`. For the window whose page another window shows.
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App);

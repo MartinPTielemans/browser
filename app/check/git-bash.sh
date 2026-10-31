@@ -1,12 +1,14 @@
 # What the runs use from the Mac that Git Bash lacks or has only for its own processes. check.sh
 # sources it on Windows.
 
-# The ids of the Windows processes whose command line, its backslashes as slashes, matches $1, as
-# pgrep -f finds them. Git Bash's ps shows a native process's executable, never its arguments.
+# The ids of the Windows processes whose executable's path and command line, their backslashes as
+# slashes, match $1, as pgrep -f finds them. Git Bash's ps shows a native process's executable,
+# never its arguments. The path is there for the app's own process, whose command line Git Bash
+# writes: after a failed run its helpers were killed, and it lived on and started new ones.
 windows_procs() {
   PATTERN="$1" powershell.exe -NoProfile -NonInteractive -Command '
     Get-CimInstance Win32_Process | Where-Object {
-      $_.CommandLine -and ($_.CommandLine -replace "\\", "/") -match $env:PATTERN
+      ("$($_.ExecutablePath) $($_.CommandLine)" -replace "\\", "/") -match $env:PATTERN
     } | ForEach-Object { $_.ProcessId }' | tr -d '\r'
 }
 # pgrep -f and pkill [-9 | -KILL] -f on those, ending them by id, never by image name, which would
@@ -34,6 +36,11 @@ pkill() {
 windows_browser() {
   exec "$app/chrome.exe" "--user-data-dir=$(cygpath -w "${BROWSER_PROFILE_DIR:-$profile_dir}")" \
     "$@" < <(cat)
+}
+# Runs the bridge $1 for the server $2 on the fifos $3, its stdin, and $4, its stdout, which it
+# can't open itself, as windows_browser runs the app, so $! is the bridge's.
+windows_bridge() {
+  exec "$1" "$2" < <(cat "$3") > >(cat > "$4")
 }
 # Writes the image $1 as the BMP $2, as sips does on the Mac.
 to_bmp() {

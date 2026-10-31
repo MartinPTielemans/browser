@@ -15,9 +15,9 @@ use crate::theme::Appearance;
 use crate::build_info::{self, BuildInfo};
 
 use super::{
-    COPIED_TIME, Edit, Section, Shell, Space, Swapped, UserKeys, What,
+    COPIED_TIME, Edit, MAX_PANES, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
+    agent_bar, clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
     panes::pane_frames,
     trace,
     swap::{CHECK, LINK},
@@ -171,6 +171,11 @@ pub enum Command {
     ViewMedia,
     /// Opens the command bar over a new pane beside the pages shown, for a split view.
     AddSplit,
+    /// Opens a new document in the notes service the Space's profile picks (`crate::notes`), in a
+    /// tab, as Arc's New Note does.
+    NewNote,
+    /// The same, in a split view with the tab shown.
+    NewNoteSplit,
     /// Closes the split view's focused page.
     CloseSplitPane,
     /// Takes the split view's focused page out of it, to show alone.
@@ -308,6 +313,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("ctrl-+", Command::AddSplit, false),
     ("ctrl-shift-=", Command::AddSplit, false),
     ("ctrl-shift-+", Command::AddSplit, false),
+    ("ctrl-shift-n", Command::NewNote, false),
     ("ctrl-shift--", Command::CloseSplitPane, false),
     ("ctrl-shift-_", Command::CloseSplitPane, false),
     ("ctrl-shift-]", Command::NextPane, false),
@@ -391,6 +397,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Move Pane Left", Command::MovePaneLeft, &[]),
     ("Move Pane Right", Command::MovePaneRight, &[]),
     ("Separate All Pages", Command::SeparateSplit, &[]),
+    ("New Note", Command::NewNote, &["document", "notion", "google docs", "word", "confluence"]),
+    ("New Note Split", Command::NewNoteSplit, &["document", "side by side"]),
     ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
     ("Automatic Appearance", Command::Appearance(Appearance::Automatic), &["system", "app theme"]),
     ("Light Appearance", Command::Appearance(Appearance::Light), &["light mode", "app theme"]),
@@ -800,6 +808,8 @@ impl Command {
             Command::ViewDownloads => "view-downloads",
             Command::ViewMedia => "view-media",
             Command::AddSplit => "add-split",
+            Command::NewNote => "new-note",
+            Command::NewNoteSplit => "new-note-split",
             Command::CloseSplitPane => "close-split-pane",
             Command::SeparatePane => "separate-pane",
             Command::SeparateSplit => "separate-split",
@@ -876,6 +886,7 @@ pub fn bind_keys(cx: &mut App) {
         }
     });
     extensions::bind(cx);
+    agent_bar::bind(cx);
     drm_note::bind(cx);
     sidebar_keys::bind(cx);
 }
@@ -1094,6 +1105,14 @@ impl Shell {
             }
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
+            Command::NewNote => return self.browser.new_note(self.space, None, cx),
+            Command::NewNoteSplit => {
+                let with = self.selected;
+                if with != 0 && self.panes(with).len() < MAX_PANES {
+                    self.browser.new_note(self.space, Some(with), cx);
+                }
+                return;
+            }
             Command::CloseSplitPane | Command::SeparatePane => {
                 if self.panes(self.selected).len() > 1 {
                     match command {
@@ -1509,6 +1528,7 @@ impl Shell {
             | Command::ManageExtensions
             | Command::AddExtension
             | Command::ViewHistory
+            | Command::NewNote
             | Command::SiteSearchSettings
             | Command::ClearBrowsingData
             | Command::KeyboardShortcuts
@@ -1642,6 +1662,9 @@ fn private_runs(command: Command) -> bool {
             | Command::ManageExtensions
             | Command::AddExtension
             | Command::ToggleDeveloperMode
+            // The service's document needs the profile's sign-in, which a private window hasn't.
+            | Command::NewNote
+            | Command::NewNoteSplit
     )
 }
 
@@ -2041,5 +2064,37 @@ mod tests {
         let calls = host.take();
         let traced: Vec<&String> = calls.iter().filter(|call| call.contains("trace")).collect();
         assert_eq!(traced, ["start trace", "trace note shown", "trace note hidden", "stop trace"]);
+    }
+
+    /// ⌃⇧N opens a new note in the Space's profile's service, New Note Split opens it beside the
+    /// tab shown, and neither runs in a private window, which has no sign-ins.
+    #[gpui::test]
+    fn new_note_opens_in_the_spaces_service_and_new_note_split_beside_the_tab(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui::AppContext as _;
+
+        use crate::shell::{Browser, Folders, recorder::Recorder};
+
+        assert_eq!(UserKeys::default().command_for("ctrl-shift-n", false), Some(Command::NewNote));
+        let host = Rc::new(Recorder::default());
+        let browser: Rc<dyn Browser> = host.clone();
+        let regular = cx.new(|cx| Shell::new(browser.clone(), cx));
+        regular.update(cx, |shell, cx| {
+            let space = (2, "Work".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_tabs(2, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_space(2, cx);
+            shell.set_selected(10, cx);
+            shell.run(Command::NewNote, "keys", cx);
+            shell.run(Command::NewNoteSplit, "command bar", cx);
+        });
+        assert_eq!(*host.notes.borrow(), [(2, None), (2, Some(10))]);
+
+        let private = cx.new(|cx| Shell::private_window(browser, 1, "Incognito".into(), 1, cx));
+        private.update(cx, |shell, cx| shell.run(Command::NewNote, "keys", cx));
+        assert_eq!(host.notes.borrow().len(), 2, "a private window opened a note");
     }
 }

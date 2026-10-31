@@ -379,8 +379,13 @@ bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
       (event.GetModifiers() & command) ? platform::LatinKey(event) : std::string();
   const bc_key key = {name.c_str(), modifiers, editing, latin.c_str()};
   // A shortcut that opens a field of the app's holds the page's keys after it (bc_hold_keys).
-  auto asking = held_keys::AskingAbout(tab);
-  return callback(Host().context, tab, &key);
+  auto asking = held_keys::AskingAbout(tab, event);
+  const bool used = callback(Host().context, tab, &key);
+  // A key the page didn't keep opens a field the keys after it are held for, or nothing does.
+  if (callback == Host().tab_key_unhandled) {
+    held_keys::Answered(tab, event, used);
+  }
+  return used;
 }
 
 // static
@@ -451,6 +456,7 @@ void Tab::Unload() {
   crashed_ = false;
   ClearHang();
   reload_after_kill_.reset();
+  focus_when_ready_ = false;
   net_error_ = 0;
   shown_on_.reset();
   {
@@ -1122,6 +1128,15 @@ void Tab::RenderViewReady() {
     LayOutSoon();
     StateChanged();
   }
+  // As Chrome's reload focuses the page, as the user asked for it. The view the keyboard was in
+  // went with the renderer, and with no view focused no key reaches the host's tab_key_before_page.
+  if (std::exchange(focus_when_ready_, false)) {
+    Window::PageViewChanged(id_);
+  } else {
+    // Aura doesn't focus a new renderer's view either, as for a tab unloaded or killed that loads
+    // again once it's shown: the keyboard stays in the view that holds it, for no page.
+    Window::PageCommittedInNewView(id_);
+  }
 }
 
 void Tab::TitleWasSet(content::NavigationEntry* entry) {
@@ -1243,6 +1258,7 @@ void Tab::PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) {
   LOG(ERROR) << "browser: tab " << id_ << " page gone, status " << static_cast<int>(status);
   ClearHang();
   if (reload_after_kill_) {
+    focus_when_ready_ = true;
     // Posted: Chrome is still telling the page's observers it went.
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&Tab::Reload, weak_factory_.GetWeakPtr(),

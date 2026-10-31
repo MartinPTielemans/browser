@@ -750,7 +750,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.copy_folder_links(folder, false, cx)),
             ),
             (
-                MenuEntry::new("Copy All Links as Markdown", links),
+                MenuEntry::new("Copy All Links as Markdown", links).alternate(),
                 "copy-all-links-markdown",
                 Box::new(move |shell, cx| shell.copy_folder_links(folder, true, cx)),
             ),
@@ -1187,6 +1187,7 @@ impl Shell {
             ("New Space…", Command::NewSpace),
             ("New Folder…", Command::NewFolder),
             ("New Split View", Command::AddSplit),
+            ("New Note", Command::NewNote),
         ];
         let split = self.selected != 0 && self.panes(self.selected).len() < MAX_PANES;
         let enabled = |command| command != Command::AddSplit || split;
@@ -1562,8 +1563,12 @@ mod tests {
         let menu = tab_menu(&shell, &host, cx, 20);
         let at = menu.iter().position(|title| title == "Copy All Links");
         let at = at.unwrap_or_else(|| panic!("{menu:?}"));
-        let items = ["Copy All Links", "Copy All Links as Markdown", "Paste URL as New Tab"];
-        assert_eq!(menu[at..at + 3], items);
+        assert_eq!(menu[at..at + 2], ["Copy All Links", "Paste URL as New Tab"]);
+        // As Markdown, it's Copy All Links' ⌥ alternate, as in Arc's.
+        let entries = host.entries.borrow().clone();
+        let markdown = entries.iter().position(|entry| entry.title == "Copy All Links as Markdown");
+        let markdown = markdown.unwrap_or_else(|| panic!("{menu:?}"));
+        assert!(entries[markdown].alternate && entries[markdown - 1].title == "Copy All Links");
         host.take();
         cx.update(|cx| host.choose("Copy All Links", cx));
         assert!(host.take().contains(&"copy https://a.example/\nhttps://b.example/".to_string()));

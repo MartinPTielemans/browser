@@ -19,6 +19,7 @@ use browser::theme::Appearance;
 use browser::import::ImportView;
 use browser::link_rules::LinkRulesView;
 use browser::log;
+use browser::notes;
 use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
@@ -214,6 +215,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Tab", Keys::Of(Command::NewTab)),
             ("New Window", Keys::Of(Command::NewWindow)),
             ("New Incognito Window", Keys::Of(Command::NewPrivateWindow)),
+            ("New Note", Keys::Of(Command::NewNote)),
             ("Open Command Bar", Keys::Of(Command::EditUrl)),
             ("Search Tabs", Keys::Of(Command::SearchTabs)),
             ("Archive Tab", Keys::Of(Command::CloseTab)),
@@ -292,6 +294,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         "Split View",
         &[
             ("Add Split View", Keys::Of(Command::AddSplit)),
+            ("New Note Split", Keys::Of(Command::NewNoteSplit)),
             ("Close this Split Pane", Keys::Of(Command::CloseSplitPane)),
             ("Next Pane", Keys::Of(Command::NextPane)),
             ("Previous Pane", Keys::Of(Command::PreviousPane)),
@@ -341,6 +344,8 @@ enum Popup {
     /// A profile's, in the Profiles tab.
     SearchEngine(u64),
     ProfileArchiveAfter(u64),
+    /// A profile's New Documents.
+    Notes(u64),
 }
 
 pub struct Settings {
@@ -657,11 +662,21 @@ fn show_now(cx: &mut App) {
         .update(cx, |settings, window, cx| {
             window.focus(&settings.focus, cx);
             settings.shown = true;
+            if settings.tab == Tab::Agents {
+                look_for_clients(cx);
+            }
             cx.notify();
         })
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+}
+
+/// Looks again for the agent clients on this computer, as the Agents tab shows.
+fn look_for_clients(cx: &mut App) {
+    if let Some(agents) = agents::global(cx) {
+        agents.update(cx, |agents, cx| agents.look_for_clients(cx));
+    }
 }
 
 /// Reads again where Google's Widevine module is, as the core says it changed, once Settings has
@@ -865,6 +880,9 @@ impl Settings {
         self.tab = tab;
         if tab == Tab::Import {
             self.show_import(cx);
+        }
+        if tab == Tab::Agents {
+            look_for_clients(cx);
         }
         self.links = (tab == Tab::Links).then(|| {
             let host = Rc::new(crate::link_rules_host::CoreLinkRules);
@@ -1257,8 +1275,10 @@ impl Settings {
     }
 
     /// A row for each profile, with how many Spaces are in it and Delete for one nothing is in, and
-    /// New Profile under them. A double-click on a profile's name renames it, as on a Space's.
+    /// New Profile under them, then each profile's New Documents. A double-click on a profile's name
+    /// renames it, as on a Space's.
     fn profiles(&self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+        let services: Vec<_> = profiles.iter().map(|profile| self.notes_row(profile, cx)).collect();
         let rows = profiles.iter().map(|profile| {
             let (id, name) = (profile.id, profile.name.clone());
             let label = match &self.renaming {
@@ -1368,13 +1388,66 @@ impl Settings {
             .relative()
             .child(self.drawn("new profile".into()))
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
+        let documents = div()
+            // The column's gap is above it too.
+            .mt(px(SECTION_GAP - BOX_GAP))
+            .mb(px(HEADER_GAP))
+            .pl(px(PADDING))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("New Documents");
         div()
             .flex()
             .flex_col()
             .gap(px(BOX_GAP))
             .children(rows)
             .child(div().mt(px(BUTTONS_TOP - BOX_GAP)).flex().child(new))
+            .child(div().child(documents).child(group(&RowLook::settings(), services)))
             .into_any_element()
+    }
+
+    /// A profile's row under New Documents: the notes service New Note opens a new document in, in
+    /// a pop-up, as Arc's Settings › Profiles has it.
+    fn notes_row(&self, profile: &Profile, cx: &mut Context<Self>) -> gpui::Div {
+        let id = profile.id;
+        let chosen = notes::service(&crate::name(bc::bc_profile_notes_service, id));
+        let label = notes::SERVICES[chosen].1.into();
+        let popup = self.popup(
+            Popup::Notes(id),
+            label,
+            POPUP_WIDTH,
+            cx.listener(move |settings, _, window, cx| settings.choose_notes(id, chosen, window, cx)),
+        );
+        let icon = Some(("icons/user.svg", PROFILE_TILE));
+        row(icon, profile.name.clone(), popup.into_any_element())
+    }
+
+    /// Opens a profile's New Documents pop-up menu over its button, as the archive's, and keeps the
+    /// service picked for the profile.
+    fn choose_notes(
+        &mut self,
+        profile: u64,
+        chosen: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (notes::SERVICES.iter().enumerate())
+            .map(|(index, &(_, title, _))| {
+                let on = index == chosen;
+                // A service's name, as written, as Google Docs keeps its capital off the Mac too.
+                MenuEntry { checked: on, over: on, ..MenuEntry::named(title, true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some(&(name, title, _)) = picked.and_then(|index| notes::SERVICES.get(index)) {
+                // check.sh waits for this line.
+                log!("browser: notes service {profile} {title}");
+                let name = CString::new(name).unwrap_or_default();
+                unsafe { bc::bc_profile_set_notes_service(profile, name.as_ptr()) };
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::Notes(profile), items, picked, window, cx);
     }
 
     /// Shows the profile's name in a field, all selected, to type a new one over.
@@ -1790,7 +1863,9 @@ impl Settings {
                      passwords, cookies or autofill."
                 .into(),
         };
-        let clients = Client::ALL.map(|client| self.client(agents, client, cx));
+        let listed = agents.read(cx).listed();
+        let clients: Vec<gpui::Div> =
+            listed.iter().map(|client| self.client(agents, *client, &listed, cx)).collect();
         // A list for each agent, as each has its own Space (decision 8): what the user let it do
         // or never do on a site, to revoke, then what it did.
         let model = agents.read(cx);
@@ -1895,7 +1970,13 @@ impl Settings {
 
     /// A client's row: whether it's connected, and Connect, or Disconnect, with Copy Setup for a
     /// client the browser can't set up itself.
-    fn client(&self, agents: &Entity<Agents>, client: Client, cx: &mut Context<Self>) -> gpui::Div {
+    fn client(
+        &self,
+        agents: &Entity<Agents>,
+        client: Client,
+        listed: &[Client],
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let model = agents.read(cx);
         let connected = model.is_connected(client);
         let detail: SharedString = if let Some(why) = model.failure(client) {
@@ -1913,7 +1994,17 @@ impl Settings {
         } else if connected {
             format!("Connected in {}", client.config()).into()
         } else if client == Client::Other {
-            "Any MCP client".into()
+            // Says which it looked for, so one missing from the list isn't a mystery.
+            let missing: Vec<&str> = (Client::ALL.into_iter())
+                .filter(|client| !listed.contains(client))
+                .map(Client::name)
+                .collect();
+            match missing.as_slice() {
+                [] => "Any MCP client".into(),
+                [one] => format!("Any MCP client. {one} isn't on this computer.").into(),
+                _ => format!("Any MCP client. {} aren't on this computer.", missing.join(" and "))
+                    .into(),
+            }
         } else {
             format!("Not connected. Connect adds the browser to {}", client.config()).into()
         };

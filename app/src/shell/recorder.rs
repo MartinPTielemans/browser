@@ -93,6 +93,8 @@ pub(super) struct Recorder {
     pub(super) window_title: RefCell<String>,
     /// Whether it was last asked to draw the window's material light.
     pub(super) window_light: Cell<Option<bool>>,
+    /// The tab and the look capture mode over it was last given, and whether it was light.
+    pub(super) capture_look: Cell<Option<(u64, bool)>>,
     /// The appearance View › Appearance last chose.
     pub(super) appearance: Cell<Option<Appearance>>,
     /// The share services it lists for any page.
@@ -119,6 +121,8 @@ pub(super) struct Recorder {
     pub(super) searched_tabs: RefCell<Vec<Vec<u64>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
     pub(super) bar_open: Cell<bool>,
+    /// Each New Note: the Space whose profile's service it opens, and the tab it splits with.
+    pub(super) notes: RefCell<Vec<(u64, Option<u64>)>>,
     /// How many times Site Search Settings opened.
     pub(super) site_search_settings: Cell<usize>,
     pub(super) clear_browsing_data: Cell<usize>,
@@ -721,6 +725,9 @@ impl Browser for Recorder {
     fn set_side_panel_width(&self, _: f32, _: &mut App) {}
 
     fn view_history(&self, _: &mut App) {}
+    fn new_note(&self, space: u64, beside: Option<u64>, _: &mut App) {
+        self.notes.borrow_mut().push((space, beside));
+    }
 
     fn open_page(&self, url: &str, _: &mut App) {
         self.opened_pages.borrow_mut().push(url.to_owned());
@@ -875,6 +882,10 @@ impl Browser for Recorder {
 
     fn set_window_light(&self, light: bool, _: &mut App) {
         self.window_light.set(Some(light));
+    }
+
+    fn capture_look(&self, tab: u64, look: crate::menu::Look, _: &mut App) {
+        self.capture_look.set(Some((tab, look.light)));
     }
 
     fn set_appearance(&self, appearance: Appearance, _: &mut App) {

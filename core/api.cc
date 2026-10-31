@@ -37,6 +37,7 @@
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/notes.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/page_text.h"
 #include "browser_core/password_offer.h"
@@ -108,23 +109,6 @@ views::Widget* OpenWidget(bc_id id) {
   views::Widget* widget = window ? window->widget() : nullptr;
   return widget && !widget->IsClosed() ? widget : nullptr;
 }
-
-#if BUILDFLAG(IS_LINUX)
-// Takes window |id|'s |widget| out of full screen. Linux reports no change Chromium asks for
-// itself, so a page full screen leaves with it here, as the Mac's does as AppKit says it's leaving.
-void LeaveFullScreen(bc_id id, views::Widget* widget) {
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  // The app lays the page leaving out once, at the window's new size.
-  if (window && window->FullScreenForPage()) {
-    browser_core::platform::HoldPagesForResize(widget);
-  }
-  widget->SetFullscreen(false);
-  // Found again: the window's resize runs the app, which may close it.
-  if (browser_core::Window* still = browser_core::Window::FromId(id)) {
-    still->LeavingFullScreen();
-  }
-}
-#endif
 
 // Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
 size_t CopyString(const std::string& text, char* to, size_t capacity) {
@@ -350,7 +334,7 @@ void bc_window_toggle_maximized(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else if (widget->IsMaximized()) {
     widget->Restore();
   } else {
@@ -371,8 +355,8 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
 #endif
 }
 
-void bc_hold_keys(void) {
-  browser_core::held_keys::Hold();
+void bc_hold_keys(bool in_core) {
+  browser_core::held_keys::Hold(in_core);
 }
 
 void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
@@ -758,6 +742,18 @@ double bc_profile_archive_after(bc_id profile_id) {
 bool bc_profile_set_archive_after(bc_id profile, double seconds) {
   return seconds > 0 && browser_core::SetProfileArchiveAfter(browser_core::ProfileOrLoad(profile),
                                                               base::Seconds(seconds));
+}
+
+size_t bc_profile_notes_service(bc_id profile_id, char* service, size_t capacity) {
+  Profile* profile = LoadedProfile(profile_id);
+  return CopyString(profile ? browser_core::notes::Service(profile) : std::string(), service,
+                    capacity);
+}
+
+void bc_profile_set_notes_service(bc_id profile_id, const char* service) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && service) {
+    browser_core::notes::SetService(profile, service);
+  }
 }
 
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
@@ -2043,7 +2039,7 @@ bool bc_window_is_maximized(bc_id id) {
 }
 
 bool bc_window_is_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   return widget && widget->IsFullscreen();
 #else
@@ -2052,13 +2048,13 @@ bool bc_window_is_full_screen(bc_id id) {
 }
 
 void bc_window_toggle_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   if (!widget) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else {
     widget->SetFullscreen(true);
   }

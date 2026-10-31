@@ -75,6 +75,7 @@ fn png() -> Vec<u8> {
 /// Capture mode's window over a page that fills it.
 struct Mode {
     cx: VisualTestContext,
+    window: WindowHandle<Capture>,
     host: Rc<Recorder>,
     /// Whether the window has a Library, as a private one hasn't.
     library: bool,
@@ -85,7 +86,7 @@ impl Mode {
         let host = Rc::new(Recorder::default());
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for Capture");
         let cx = VisualTestContext::from_window(window.into(), cx);
-        Mode { cx, host, library: true }
+        Mode { cx, window, host, library: true }
     }
 
     /// What ⇧⌘2 does: the shell's `start`.
@@ -138,6 +139,20 @@ impl Mode {
 
     fn calls(&self) -> Vec<String> {
         self.host.0.take()
+    }
+
+    /// The browser window over `tab` draws its menus light, or dark, now.
+    fn look(&mut self, tab: u64, light: bool) {
+        let look = Look { light, ..Look::dark() };
+        self.cx.cx.update(|cx| set_look(tab, look, cx));
+        self.cx.run_until_parked();
+    }
+
+    /// What capture mode last drew, the pill or the menu, and whether in the light look.
+    fn drawn(&mut self) -> Option<(&'static str, bool)> {
+        let window = self.window;
+        let drawn = |capture: &mut Capture| capture.session.as_ref().and_then(|session| session.drawn);
+        self.cx.cx.update(|cx| window.update(cx, |capture, _, _| drawn(capture))).unwrap()
     }
 }
 
@@ -321,4 +336,20 @@ fn save_to_library_is_the_first_row_but_in_a_private_window(cx: &mut TestAppCont
     private.captured(2);
     let copied = ["hide".to_string(), format!("end {TAB}"), format!("copy {len}")];
     assert_eq!(private.calls()[1..], copied);
+}
+
+#[gpui::test]
+fn it_takes_the_windows_look_as_it_changes(cx: &mut TestAppContext) {
+    let mut mode = Mode::shown(cx);
+    assert_eq!(mode.drawn(), Some(("pill", false)));
+    // Another window's look isn't this one's.
+    mode.look(TAB + 1, true);
+    assert_eq!(mode.drawn(), Some(("pill", false)));
+    mode.look(TAB, true);
+    assert_eq!(mode.drawn(), Some(("pill", true)));
+    mode.hover(100., 100., rect(50., 60., 200., 80.));
+    mode.click(100., 100.);
+    assert_eq!(mode.drawn(), Some(("menu", true)));
+    mode.look(TAB, false);
+    assert_eq!(mode.drawn(), Some(("menu", false)));
 }
