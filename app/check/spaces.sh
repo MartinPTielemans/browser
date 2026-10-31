@@ -562,6 +562,46 @@ Export as Markdown…, Delete Space")\$" \
   send dismiss
   expect '^browser: menu closed$' "the Space's menu from the … didn't close"
 done
+# The same with the sidebar hidden and out over the page (#1090), whose panel is a window of its
+# own, 5 in from the browser window's top left, that the menu goes over: a tap on the …, a press
+# let go once the menu shows, and a right-click on the name. The menu stays, and the panel with it.
+send key s cmd
+expect '^browser: sidebar hidden$' "⌘S didn't hide the sidebar for the … out over the page"
+send move $page_point
+send move 3 300
+expect '^browser: reveal shown$' "the pointer at the window's edge didn't bring the sidebar out"
+expect '^browser: reveal window shown$' "the sidebar out didn't come on screen"
+reveal_edit="201 117"
+for how in tap press rightclick; do
+  case $how in
+    tap)
+      send move $reveal_edit
+      send click $reveal_edit
+      ;;
+    press)
+      send move $reveal_edit
+      send press $reveal_edit
+      ;;
+    *)
+      send move 105 117
+      post rightclick 105 117
+      ;;
+  esac
+  expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
+    "a $how on the sidebar out over the page didn't show the Space's menu"
+  expect '^browser: menu drawn ' "the Space's menu from a $how on the sidebar out didn't come on screen"
+  if [ $how = press ]; then send release $reveal_edit; fi
+  ../tools/window-screenshot.sh "$pid" "$out/space-edit-reveal-$how.png" || fail "no window to capture"
+  none_since '^browser: menu c' || fail "the Space's menu from a $how on the sidebar out closed"
+  none_since '^browser: reveal hidden$' || fail "the Space's menu from a $how sent the sidebar out away"
+  send dismiss
+  expect '^browser: menu closed$' "the Space's menu over the sidebar out didn't close"
+done
+send move $page_point
+expect '^browser: reveal hidden$' "the pointer past the sidebar out didn't send it away after its menu"
+send key s cmd
+expect '^browser: sidebar shown$' "⌘S didn't bring the sidebar back after its menus out over the page"
 # A press shows it too, and it stays once the button comes up after the menu shows, as it does
 # when the user holds the button.
 send move $edit_point
