@@ -598,7 +598,7 @@ if [ "$(uname)" = Darwin ] && [ -n "${CI:-}" ]; then
     send state
     sed -n "/^browser: drive $((step - 1)): /,\$p" "$log" > "$out/outside-$how.log"
     ../tools/window-screenshot.sh "$pid" "$out/space-edit-outside-$how.png" || true
-    echo "outside $how: menu ${shown:+shown}${shown:-not shown}, active $active, front $(front)"
+    echo "outside $how: menu $([ -n "$shown" ] && echo shown || echo "not shown"), active $active, front $(front)"
     if [ -n "$shown" ]; then
       send dismiss
       expect '^browser: menu closed$' "the Space's menu from the … clicked from another app didn't close"
