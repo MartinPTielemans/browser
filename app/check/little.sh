@@ -2,8 +2,8 @@
 # its bar, and ⌘L there opens the command bar, whose URL loads in it. ⌘O moves its page, live, to
 # that Space in the main window and closes it. ⌥⌘-click on a link opens the link in one, not
 # beside the page as ⌥-click does, and ⌘W closes that window, its page with it. An escape the page
-# doesn't use closes one. A tab its page opens goes behind, to the top of its Space's Today. Links
-# from other apps come with the next slice (#693).
+# doesn't use closes one. A tab its page opens goes behind, to the top of its Space's Today, and
+# outlives it. Links from other apps come with the next slice (#693).
 
 serve
 log="$out/little.log"
@@ -121,9 +121,11 @@ send click 450 340
 send key escape
 expect '^browser: little window closed by escape$' "an unused escape didn't close Little ilo"
 expect "^browser: window closed $little\$" "the escape didn't close the Little ilo window"
+none_since "^browser: tab $behind closed\$" ||
+  fail "the tab the Little ilo window's page opened behind closed with the window"
 send window 1
 
 exec 3>&-
 quit
 kill "$server"
-echo "ok: ⌥⌘N opens a Little ilo window for the Space shown, ⌘L loads a URL in it, ⌘O moves its page to the main window and closes it, ⌥⌘-click on a link opens it in one and not beside the page, a tab a Little ilo window's page opens goes to its Space's Today, ⌘W closes one, and so does an unused escape. Windows: $out/little.png $out/little-moved.png $out/little-link.png"
+echo "ok: ⌥⌘N opens a Little ilo window for the Space shown, ⌘L loads a URL in it, ⌘O moves its page to the main window and closes it, ⌥⌘-click on a link opens it in one and not beside the page, a tab a Little ilo window's page opens goes to its Space's Today and outlives it, ⌘W closes one, and so does an unused escape. Windows: $out/little.png $out/little-moved.png $out/little-link.png"

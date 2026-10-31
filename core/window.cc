@@ -1568,7 +1568,7 @@ void Window::SetLetGo(bool let_go) {
                      weak_factory_.GetWeakPtr(), let_go ? selected_ : 0));
 }
 
-void Window::HandOver(Window& to) {
+void Window::HandOver(Window& to, bool others_only) {
   std::vector<BrowserWindowInterface*> browsers;
   for (auto& [profile, held] : browsers_) {
     browsers.push_back(held.browser);
@@ -1581,6 +1581,10 @@ void Window::HandOver(Window& to) {
     }
     // Last first: the Browser closes as its last tab leaves, and isn't touched after.
     for (int index = tabs->count() - 1; index >= 0; --index) {
+      const Space* holding = Space::Holding(Tab::IdOf(tabs->GetWebContentsAt(index)));
+      if (others_only && (!holding || holding->id() == space_)) {
+        continue;
+      }
       std::unique_ptr<tabs::TabModel> moved = tabs->DetachTabAtForInsertion(index);
       base::AutoReset<bool> opening(&to.opening_tab_, true);
       into->GetTabStripModel()->InsertDetachedTabAt(into->GetTabStripModel()->count(),
@@ -2100,6 +2104,11 @@ void Window::Close() {
     }
   }
   const bool hand_over = to && !own_space_ && !browser_shutdown::IsTryingToQuit();
+  // A Little ilo window's page opens its tabs behind, in its home Space (the app moves them there),
+  // so they stay in its Browser until a window shows them, and outlive it.
+  if (to && own_space_ && !off_the_record_ && !browser_shutdown::IsTryingToQuit()) {
+    HandOver(*to, /*others_only=*/true);
+  }
   if (hand_over) {
     for (bc_id pane : panes_) {
       HoldWhileMoving(Tab::FromId(pane));

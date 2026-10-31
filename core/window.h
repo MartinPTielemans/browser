@@ -389,8 +389,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void HoldPictured();
   // Sets let_go_, and tells the app when it changes.
   void SetLetGo(bool let_go);
-  // Moves every tab of this window's Browsers into |to|'s, unshown, which empties them.
-  void HandOver(Window& to);
+  // Moves every tab of this window's Browsers into |to|'s, unshown, which empties them, or with
+  // |others_only| those not in its own Space, as a Little ilo window's page opens behind.
+  void HandOver(Window& to, bool others_only = false);
   // Whether another window shows |tab|'s page, which an implicit pick passes over.
   bool ShownElsewhere(bc_id tab) const;
   // Shows |tab|, or if another window shows it the first tab of the Space shown no window shows,
