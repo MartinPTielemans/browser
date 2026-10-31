@@ -42,10 +42,10 @@ int ResizeEdgeOf(views::Widget* widget);
 // (bc_window_start_move). In window_views.cc.
 void StartMove(views::Widget* widget);
 
-// Gives the keyboard in |widget|'s window to the app's UI (bc_window_ui_takes_keyboard), and whether
-// the UI has it (bc_window_keyboard_is_ui). In window_views.cc, as on X11 the core follows the X
-// server's focus.
-void UITakesKeyboard(views::Widget* widget);
+// Gives the keyboard in |widget|'s window to the app's UI, to keep (bc_window_ui_takes_keyboard) or
+// |until_page| shows (bc_window_ui_holds_keyboard), and whether the UI has it
+// (bc_window_keyboard_is_ui). In window_views.cc, as on X11 the core follows the X server's focus.
+void UITakesKeyboard(views::Widget* widget, bool until_page);
 bool KeyboardIsUI(views::Widget* widget);
 
 // Whether a window of Chromium's own in |widget|'s window has the keyboard, such as an extension's
