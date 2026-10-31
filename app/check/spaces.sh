@@ -562,6 +562,78 @@ expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $pr
 Export as Markdown…, Delete Space")\$" \
   "a right-click on the Space's name didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
+send dismiss
+expect '^browser: menu closed$' "the Space's menu didn't close"
+# So does a click on the … at the end of the name's row, its down and up together as a tap sends
+# them, and the menu stays (#1090): with the UI holding the keyboard, then the page.
+edit_point="196 112"
+for holder in ui page; do
+  if [ $holder = page ]; then
+    send click $page_point
+    in_browser RenderWidgetHostViewCocoa "after a click on the page"
+  fi
+  send move $edit_point
+  send click $edit_point
+  expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
+    "a click on the … didn't show the Space's menu, the $holder holding the keyboard"
+  expect '^browser: menu drawn ' "the Space's menu from a click on the … didn't come on screen ($holder)"
+  ../tools/window-screenshot.sh "$pid" "$out/space-edit-click-$holder.png" || fail "no window to capture"
+  none_since '^browser: menu c' || fail "the Space's menu from a click on the … closed ($holder)"
+  send dismiss
+  expect '^browser: menu closed$' "the Space's menu from the … didn't close"
+done
+# The same with the sidebar hidden and out over the page (#1090), whose panel is a window of its
+# own, 5 in from the browser window's top left, that the menu goes over: a tap on the …, a press
+# let go once the menu shows, and a right-click on the name. The menu stays, and the panel with it.
+send key s cmd
+expect '^browser: sidebar hidden$' "⌘S didn't hide the sidebar for the … out over the page"
+send move $page_point
+send move 3 300
+expect '^browser: reveal shown$' "the pointer at the window's edge didn't bring the sidebar out"
+expect '^browser: reveal window shown$' "the sidebar out didn't come on screen"
+reveal_edit="201 117"
+for how in tap press rightclick; do
+  case $how in
+    tap)
+      send move $reveal_edit
+      send click $reveal_edit
+      ;;
+    press)
+      send move $reveal_edit
+      send press $reveal_edit
+      ;;
+    *)
+      send move 105 117
+      post rightclick 105 117
+      ;;
+  esac
+  expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
+    "a $how on the sidebar out over the page didn't show the Space's menu"
+  expect '^browser: menu drawn ' "the Space's menu from a $how on the sidebar out didn't come on screen"
+  if [ $how = press ]; then send release $reveal_edit; fi
+  ../tools/window-screenshot.sh "$pid" "$out/space-edit-reveal-$how.png" || fail "no window to capture"
+  none_since '^browser: menu c' || fail "the Space's menu from a $how on the sidebar out closed"
+  none_since '^browser: reveal hidden$' || fail "the Space's menu from a $how sent the sidebar out away"
+  send dismiss
+  expect '^browser: menu closed$' "the Space's menu over the sidebar out didn't close"
+done
+send move $page_point
+expect '^browser: reveal hidden$' "the pointer past the sidebar out didn't send it away after its menu"
+send key s cmd
+expect '^browser: sidebar shown$' "⌘S didn't bring the sidebar back after its menus out over the page"
+# A press shows it too, and it stays once the button comes up after the menu shows, as it does
+# when the user holds the button.
+send move $edit_point
+send press $edit_point
+expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
+  "a press on the … at the end of the Space's name didn't show its menu"
+expect '^browser: menu drawn ' "the Space's menu from the … didn't come on screen"
+send release $edit_point
+../tools/window-screenshot.sh "$pid" "$out/space-edit-menu.png" || fail "no window to capture"
+none_since '^browser: menu c' || fail "the Space's menu from the … closed as the button came up"
 send choose Rename Space
 expect "^browser: rename space $first\$" "Rename Space didn't open the name's field"
 send state

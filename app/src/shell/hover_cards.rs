@@ -184,11 +184,15 @@ impl Shell {
         if !favorite && self.split_partner(tab).is_some() {
             actions.push(Action::Split);
         }
+        // Chrome offers it on every tab but those the share is from and of.
+        if self.page(tab).share_instead {
+            actions.push(Action::ShareInstead);
+        }
         actions
     }
 
     /// Whether `tab`'s page is on screen in this window, alone or in the split view shown.
-    fn on_screen(&self, tab: u64) -> bool {
+    pub(super) fn on_screen(&self, tab: u64) -> bool {
         self.selected != 0 && !self.new_tab && self.panes(self.selected).contains(&tab)
     }
 
@@ -229,6 +233,7 @@ impl Shell {
                             self.join_split(tab, with, false, false, cx);
                         }
                     }
+                    Action::ShareInstead => self.browser.share_instead(tab, cx),
                 }
             }
         }

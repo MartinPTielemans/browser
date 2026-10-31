@@ -7,7 +7,7 @@
 use gpui::{App, Context, FontWeight, MouseButton, SharedString, div, prelude::*, px, rgba};
 
 use super::{
-    Command, FOOTER_HEIGHT, Shell, TITLE,
+    Command, Shell, TITLE,
     commands::{ShellHandle, keystroke_keys},
     extensions::keystroke_text,
     keys::user_keys,
@@ -185,7 +185,7 @@ impl Shell {
         Some(
             self.plate("agent-bar")
                 .top(gpui::auto())
-                .bottom(px(FOOTER_HEIGHT + GAP))
+                .bottom(px(self.list_bottom() + GAP))
                 .child(listener)
                 .child(
                     div()
