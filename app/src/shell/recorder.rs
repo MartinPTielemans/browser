@@ -981,7 +981,7 @@ impl Browser for Recorder {
     fn toast_button(
         &self,
         text: &str,
-        _: (&'static str, &'static str),
+        _: (Option<&'static str>, &'static str),
         run: Rc<dyn Fn(&mut App)>,
         _: Duration,
         _: &mut App,

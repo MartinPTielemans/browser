@@ -107,13 +107,16 @@ expect "^browser: today [0-9]* $tab\$" "the second tab didn't open over the firs
 second=$(today | cut -d' ' -f1)
 expect "^browser: loaded $second " "the second tab didn't load"
 
-# Every renderer killed: the tab shown shows the card, and the one behind is unloaded, with none.
-pkill -KILL -f "$procs.*--type=renderer" || fail "no renderer to kill"
+# Every page's renderer killed: the tab shown shows the card, and the one behind is unloaded,
+# with none.
+kill_pages || fail "no renderer to kill"
 expect "browser: tab $second page gone" "a killed renderer didn't report its page gone"
 expect "^browser: page $second trouble crashed\$" "the tab shown wasn't called crashed"
 expect "^browser: crash card shown $second\$" "the crash card didn't show"
 expect "^browser: page $tab unloaded 1\$" "the tab behind wasn't unloaded"
 none_since "page $tab trouble crashed" || fail "the tab behind was called crashed"
+# The bundled extension's process lives on, so it stays in the Extensions menu (#1091).
+none_since '^browser: extensions menu $' || fail "the pages' renderers took the extension with them"
 ../tools/window-screenshot.sh "$pid" "$out/crashed.png" || fail "no window to capture"
 # Its Reload, where the card says it is.
 at=$(sed -n "s/^browser: crash reload $second at \([0-9]*\) \([0-9]*\) \([0-9]*\) \([0-9]*\)$/\1 \2 \3 \4/p" \
@@ -126,7 +129,7 @@ expect "^browser: loaded $second ${site}index.html\$" "Reload didn't load the de
 expect "^browser: page $second trouble fine\$" "the page loaded again wasn't fine"
 
 # Killed again, ⇧⌘R loads it, as Arc's does its Sad Tab, and the card goes.
-pkill -KILL -f "$procs.*--type=renderer" || fail "no renderer to kill again"
+kill_pages || fail "no renderer to kill again"
 expect "^browser: page $second trouble crashed\$" "the tab shown wasn't called crashed again"
 expect "^browser: crash card shown $second\$" "the crash card didn't show again"
 send key r cmd shift
