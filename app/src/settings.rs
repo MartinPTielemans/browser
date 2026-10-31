@@ -85,6 +85,7 @@ use browser::tokens::settings::TAB_TEXT;
 use browser::tokens::settings::TEXT;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::MINI_PLAYER_TILE;
 use browser::tokens::settings::OPTION_REVEAL_TILE;
 use browser::tokens::settings::RESTORE_WINDOWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
@@ -2075,6 +2076,8 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let mini_player = unsafe { bc::bc_auto_picture_in_picture() };
+        let mini_player = self.toggle("mini player", mini_player, set_mini_player, accent, cx);
         let option = unsafe { bc::bc_option_reveals_sidebar() };
         let option = self.toggle("option reveals sidebar", option, set_option_reveals, accent, cx);
         // Where the host watches for it (host_watch_option_taps).
@@ -2121,6 +2124,11 @@ impl Settings {
                         Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
                         "Preview links to other sites from pinned tabs and favorites",
                         previews,
+                    ),
+                    row(
+                        Some(("icons/picture-in-picture-2.svg", MINI_PLAYER_TILE)),
+                        "Float a video or call in Picture in Picture as you leave its tab",
+                        mini_player,
                     ),
                     row(
                         Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
@@ -2417,6 +2425,11 @@ pub(crate) fn crash_reports_collector() -> String {
 
 fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
+}
+
+/// In every profile; a site the user allows in its Site Controls still floats.
+fn set_mini_player(on: bool, _: &mut App) {
+    unsafe { bc::bc_set_auto_picture_in_picture(on) };
 }
 
 fn set_option_reveals(reveals: bool, _: &mut App) {

@@ -8,18 +8,18 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, Context, MouseButton, MouseDownEvent, Pixels, Radians,
+    AnyElement, App, Bounds, ClickEvent, Context, Div, MouseButton, MouseDownEvent, Pixels, Radians,
     Role, SharedString, Transformation, Window, canvas, div, prelude::*, px, rgb, svg,
 };
 
 use super::{
     CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, Pending,
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
-    FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
+    FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
     BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, CHOSEN, PINNED_CARET,
     PINNED_CARET_GAP, PINNED_CARET_PLATE, PLATE_HEIGHT, PLATE_INSET, PLATE_RADIUS, SPACE_NAME,
-    SPACE_NAME_SHUT,
+    SPACE_NAME_SHUT, Page,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, URL_BUTTON_GLYPH, URL_BUTTON_SIZE, clear_label, cubic_bezier, divider_box, favicon,
@@ -511,6 +511,27 @@ impl Shell {
         })
     }
 
+    /// What `tab`'s page captures or shares, after its favicon and before its speaker, as Chrome's
+    /// tab strip marks it (Arc animates it; ours is still, as a call would draw every frame).
+    fn capture_mark(&self, tab: u64) -> Option<Div> {
+        let glyph = capture_glyph(&self.page(tab))?;
+        Some(
+            div()
+                .flex_none()
+                .mr(px(SPEAKER_GAP))
+                .size(px(SPEAKER_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path(glyph)
+                        .size(px(SPEAKER_DRAWN))
+                        .text_color(self.palette.text(SECONDARY)),
+                ),
+        )
+    }
+
     /// Mutes `tab`, or unmutes it.
     pub(super) fn toggle_mute(&mut self, tab: u64, cx: &mut Context<Self>) {
         if tab != 0 {
@@ -557,7 +578,7 @@ impl Shell {
         }
         let at = in_sidebar(event.position, self.sidebar_origin.get());
         let width = self.width();
-        let rows = self.drawn_list_top()..f32::from(self.viewport.height) - FOOTER_HEIGHT;
+        let rows = self.drawn_list_top()..f32::from(self.viewport.height) - self.list_bottom();
         if !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
             return false;
         }
@@ -847,8 +868,10 @@ impl Shell {
                 .when(!(hovered && closable), |label| label.pr(px(TITLE_END_INSET)))
                 // The mark takes the speaker's place while the page has died or hung.
                 .children(match self.trouble_mark(tab) {
-                    Some(mark) => Some(mark.into_any_element()),
-                    None => self.speaker(tab, cx).map(IntoElement::into_any_element),
+                    Some(mark) => vec![mark.into_any_element()],
+                    None => (self.capture_mark(tab).map(IntoElement::into_any_element).into_iter())
+                        .chain(self.speaker(tab, cx).map(IntoElement::into_any_element))
+                        .collect(),
                 })
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))
@@ -1272,6 +1295,20 @@ pub(super) fn emoji(icon: SharedString) -> AnyElement {
         .line_height(px(FAVICON_SIZE))
         .child(icon)
         .into_any_element()
+}
+
+/// The glyph for what `page` captures or shares: sharing a screen, a window or a tab, or being
+/// shared, then the camera, then the microphone alone.
+pub(super) fn capture_glyph(page: &Page) -> Option<&'static str> {
+    if page.sharing || page.shared {
+        Some("icons/screen-share.svg")
+    } else if page.camera {
+        Some("icons/video.svg")
+    } else if page.microphone {
+        Some("icons/mic.svg")
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
