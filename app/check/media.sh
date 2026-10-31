@@ -7,10 +7,12 @@
 # player at the sidebar's foot, whose button pauses it, whose click shows the tab, and whose × puts
 # it away. View › Cast… and the page menu's Cast… open the tab's Cast card, and × closes it. A
 # video's page menu floats it in Picture in Picture, the Mini Player, which a scroll or a drag
-# moves, ⌘ or Ctrl with a scroll sizes, and a double-click puts back in its tab, shown. Chromium's
-# fake camera and microphone stand in for real ones, and the share takes the tab titled Shared
-# without its picker; the question for the camera is answered with Allow, as the user would, since
-# the fake question Chromium can put in its place never tells the browser what's captured.
+# moves, ⌘ or Ctrl with a scroll sizes, and a double-click puts back in its tab, shown. It stays
+# as a playlist goes on, a finished video stays finished, a page's alert shows while it floats, and
+# the way back shows the video, not a blank player. Chromium's fake camera and microphone stand in
+# for real ones, and the share takes the tab titled Shared without its picker; the question for the
+# camera is answered with Allow, as the user would, since the fake question Chromium can put in its
+# place never tells the browser what's captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
@@ -441,7 +443,103 @@ else
   send key x
   expect "^browser: title $v landed\$" "the floating video didn't come back"
 fi
+
+# The Mini Player behaves as Arc's fixes made Arc's: it stays as a playlist goes on to its next
+# video in the same element, a finished video stays finished, a page's alert shows while it floats,
+# and the way back shows the video, not a blank player. The page plays the clip on "p", then again
+# from another URL, as a playlist's next item, and says in its title where each plays; "a" alerts,
+# "x" lands it, and "q" says whether it plays, has ended and floats.
+printf '%s' '<title>loading</title><body style="margin:0;background:#333">
+<video id=v muted preload=auto src="clip.mp4" style="width:100vw;height:100vh"></video>
+<script>
+let item = 1;
+const where = () => document.pictureInPictureElement ? "floating" : "in its tab";
+v.onloadeddata = () => item == 1 && (document.title = "ready");
+v.onenterpictureinpicture = () => document.title = "floating";
+v.onleavepictureinpicture = () => document.title = "landed";
+v.onplaying = () => document.title = `playing ${item} ${where()}`;
+v.onended = () => {
+  if (item == 2) return document.title = `ended ${where()}`;
+  item = 2;
+  v.src = "clip.mp4?2";
+  v.play();
+};
+onkeydown = e => {
+  if (e.key == "p") v.play();
+  if (e.key == "x") document.exitPictureInPicture();
+  if (e.key == "a") {
+    alert("The playlist says hello.");
+    document.title = "alerted";
+  }
+  if (e.key == "q") {
+    document.title = `${v.paused ? "paused" : "playing"} ${v.ended ? "ended" : "on"} ${where()}`;
+  }
+};
+</script>' > "$out/site/playlist.html"
+# Whether the capture $1 has colour across the page's middle, as the clip's bars do, where a blank
+# player is black or the page's grey.
+coloured() {
+  for x in 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    pixel "$1" "$x" 0.5 | awk '{ m = $1; n = $1
+      for (i = 2; i <= 3; i++) { if ($i > m) m = $i; if ($i < n) n = $i }
+      exit !(m - n > 100) }' && return 0
+  done
+  return 1
+}
+send key t cmd
+expect '^browser: command bar shown$' "the command bar didn't open for the playlist"
+send type "${site}playlist.html"
+send key return
+expect "^browser: loaded [0-9]* ${site}playlist.html\$" "the playlist's page didn't load"
+l=$(grep "^browser: loaded [0-9]* ${site}playlist.html\$" "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: title $l ready\$" "the playlist's video didn't load"
+post rightclick $page_point
+expect "^browser: menu shown .*$(cased 'Picture in Picture')" \
+  "the playlist video's menu had no Picture in Picture"
+send choose "$(cased 'Picture in Picture')"
+expect "^browser: title $l floating\$" "the playlist's video didn't float"
+# From here, the driver logs "pip gone" should the Mini Player close, if only for a moment.
+if [ "$(uname)" = Linux ]; then
+  px=0 py=0 pw=0 ph=0
+  send pip
+  mini_player_at 1 "the playlist's floating video had no Mini Player"
+  watched=$step
+fi
+send click $page_point
+send key p
+expect "^browser: title $l playing 1 floating\$" "the playlist's first video didn't play floating"
+expect "^browser: title $l playing 2 floating\$" \
+  "the playlist's next video didn't play in the Mini Player"
+expect "^browser: title $l ended floating\$" "the playlist's last video didn't end floating"
+send key a
+expect "^browser: page $l dialog Alert .* says\$" \
+  "the page's alert didn't show with the Mini Player up"
+expect '^browser: dialog settled$' "the page's alert didn't settle with the Mini Player up"
+../tools/window-screenshot.sh "$pid" "$out/mini-player-alert.png" || fail "no window to capture"
+send key return
+expect "^browser: page $l dialog answered accept\$" "↩ didn't answer the alert over the Mini Player"
+expect "^browser: title $l alerted\$" "the page didn't go on after its alert"
+if [ "$(uname)" = Linux ]; then
+  if sed -n "/^browser: drive $watched: /,\$p" "$log" | grep -q '^browser: pip gone$'; then
+    fail "the Mini Player closed as the playlist went on or the page alerted"
+  fi
+  send click $(row $(($(today | tr ' ' '\n' | grep -nx "$b" | cut -d: -f1) - 1)))
+  expect "^browser: selected $b in " "a click on its row didn't show tab $b of \"$(today)\""
+  send pip doubleclick $((pw / 2)) $((ph / 4))
+  expect "^browser: selected $l\( in .*\)\{0,1\}\$" \
+    "a double-click on the finished video's Mini Player didn't show its tab"
+else
+  send click $page_point
+  send key x
+fi
+expect "^browser: title $l landed\$" "the finished video didn't come back"
+send click $page_point
+send key q
+expect "^browser: title $l paused ended in its tab\$" \
+  "the finished video played again on its way back"
+../tools/window-screenshot.sh "$pid" "$out/mini-player-back.png" || fail "no window to capture"
+coloured "$out/mini-player-back.png" || fail "the finished video's tab showed a blank player"
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab; it stays as a playlist goes on, a finished video stays finished, a page's alert shows while it floats, and the way back shows the video."
