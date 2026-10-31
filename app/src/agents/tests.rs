@@ -1198,6 +1198,76 @@ fn run_steps_runs_its_steps_in_order(cx: &mut TestAppContext) {
     assert_eq!(*browser.asked.borrow(), None, "the run left its question");
 }
 
+/// A run's wait step looks at the page until its text shows, checked as a snapshot and logged once
+/// as a wait, and fails once its time is up without it. Without text it waits its time, then looks.
+#[gpui::test]
+fn a_wait_step_waits_for_its_text_in_the_page(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    page_done(&agents, &browser, answer, shop_tree(), cx);
+    let look = |tree: String, cx: &mut TestAppContext| {
+        let request = browser.pages.borrow().last().unwrap().1;
+        agents.update(cx, |agents, cx| agents.page_done(request, tree, false, cx));
+    };
+    let looks = || browser.pages.borrow().len();
+    let thanks = json!([
+        { "nodeId": "1", "role": { "value": "RootWebArea" }, "name": { "value": "Shop" },
+          "childIds": ["2"] },
+        { "nodeId": "2", "role": { "value": "heading" }, "name": { "value": "Thanks for your order" } },
+    ])
+    .to_string();
+    for wrong in [json!({}), json!({ "seconds": 31 }), json!({ "text": "Thanks", "seconds": 0 })] {
+        let mut step = json!({ "action": "wait" });
+        step.as_object_mut().unwrap().extend(wrong.as_object().unwrap().clone());
+        let steps = json!({ "tab": 20, "steps": [step] });
+        let refused = call(&agents, "claude-code", "run_steps", steps, cx).recv().unwrap();
+        assert!(refused.text.starts_with("Step 1 failed: wait needs text"), "{}", refused.text);
+    }
+
+    let wait = json!({ "action": "wait", "text": "thanks", "seconds": 2 });
+    let steps = json!({ "tab": 20, "steps": [{ "action": "scroll" }, wait] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    shop_done(&agents, &browser, cx);
+    let before = looks();
+    look(shop_tree(), cx);
+    cx.run_until_parked();
+    assert_eq!(looks(), before, "the wait looked again before its time");
+    assert!(run.try_recv().is_err());
+    cx.executor().advance_clock(Duration::from_millis(500));
+    assert_eq!(looks(), before + 1);
+    look(thanks.clone(), cx);
+    let ran = run.recv().unwrap();
+    assert!(
+        ran.text.starts_with("Ran 2 steps.\n1. Scrolled down.\n2. “thanks” showed.\n\nTab 20"),
+        "{}",
+        ran.text
+    );
+    let entry = agents.read_with(cx, |agents, _| agents.recent().next().unwrap().clone());
+    let steps: Vec<&str> = entry.steps.iter().map(|step| step.action.as_ref()).collect();
+    assert_eq!(steps, ["scroll", "wait"]);
+    assert_eq!(browser.checked.borrow().last().unwrap(), "snapshot");
+
+    let steps = json!({ "tab": 20, "steps": [{ "action": "wait", "text": "Thanks", "seconds": 1 }] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    for _ in 0..2 {
+        look(shop_tree(), cx);
+        cx.executor().advance_clock(Duration::from_millis(500));
+    }
+    look(shop_tree(), cx);
+    let failed = run.recv().unwrap();
+    assert!(failed.error);
+    assert!(failed.text.starts_with("Step 1 failed: “Thanks” didn't show in 1 s."), "{}", failed.text);
+
+    let steps = json!({ "tab": 20, "steps": [{ "action": "wait", "seconds": 2 }] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    let before = looks();
+    cx.executor().advance_clock(Duration::from_millis(1900));
+    assert_eq!(looks(), before, "a wait without text looked before its time");
+    cx.executor().advance_clock(Duration::from_millis(100));
+    look(shop_tree(), cx);
+    assert!(run.recv().unwrap().text.starts_with("Ran 1 steps.\n1. Waited 2 s.\n\nTab 20"));
+}
+
 /// The actions the core lets an agent take in its tabs, agent_session.cc's RefusedAction: each a
 /// thing the user does in a page, or handing the tab to them.
 const CORE_ALLOWS: [&str; 13] = [

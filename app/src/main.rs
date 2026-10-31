@@ -3341,6 +3341,10 @@ unsafe extern "C" fn tab_key_before_page(
         return true;
     }
     let keystroke = keystroke(unsafe { &*key });
+    // ⌘. is the agent bar's Stop while it shows one, before the page could keep it.
+    if update_tab_window(tab, |shell, cx| shell.run_agent_key(&keystroke, cx)).unwrap_or(false) {
+        return true;
+    }
     if update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
         .unwrap_or(false)
     {
@@ -6264,6 +6268,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         archive_note_changed: Some(archive_note_changed),
         #[cfg(target_os = "linux")]
         window_activated: Some(window_activated),
+        #[cfg(target_os = "linux")]
+        window_option_tapped: Some(window_option_tapped),
         ..Default::default()
     };
     (args, host)
@@ -6294,6 +6300,8 @@ fn main() {
     let (args, host) = switches_and_host(std::env::args().collect());
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
+    // The quit's last stage the log can show: what's left is the process's exit (#959).
+    log!("browser: quit: chromium returned {code}");
     std::process::exit(code);
 }
 
@@ -6325,6 +6333,16 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
                 key_window_changed(ui_view);
             }
         };
+        cx.foreground_executor().spawn(later).detach();
+    }
+}
+
+/// ⌥ was pressed alone with the page in `window` focused, which GPUI doesn't hear under X11, as
+/// option_tapped is for the UI's. After, as window_activated.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_option_tapped(_: *mut c_void, window: bc::bc_id) {
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move { update_window(window, |shell, cx| shell.option_tapped(cx)) };
         cx.foreground_executor().spawn(later).detach();
     }
 }

@@ -617,8 +617,33 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // On X11 GPUI hears only the keys sent to its own windows, so ⌥ pressed and let go alone while
+  // the page has the keyboard is told from here, as GPUI tells the UI's (host_watch_option_taps).
+  // Under Wayland GPUI hears the page's keys too.
+  void WatchOptionTap(const ui::KeyEvent& event) {
+    const bool option = event.key_code() == ui::VKEY_MENU;
+    const int others = ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN;
+    if (event.type() == ui::EventType::kKeyPressed) {
+      option_alone_ = option && !(event.flags() & others);
+      return;
+    }
+    if (!option || !std::exchange(option_alone_, false) || !Host().window_option_tapped) {
+      return;
+    }
+    for (Window* window : Window::All()) {
+      if (window->widget() == widget_) {
+        Host().window_option_tapped(Host().context, window->id());
+      }
+    }
+  }
+
   // ui::EventHandler, before the window's views and pages get the event:
+  void OnScrollEvent(ui::ScrollEvent* event) override { option_alone_ = false; }
+
   void OnKeyEvent(ui::KeyEvent* event) override {
+    if (!ui_has_keyboard_ && !overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      WatchOptionTap(*event);
+    }
     // The UI's or an overlay's, which on Wayland reach the window too.
     if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
@@ -648,6 +673,11 @@ class WindowViews : public views::WidgetObserver,
   }
 
   void OnMouseEvent(ui::MouseEvent* event) override {
+    // ⌥ held for a click or a scroll isn't a tap.
+    if (event->type() == ui::EventType::kMousePressed ||
+        event->type() == ui::EventType::kMousewheel) {
+      option_alone_ = false;
+    }
     if (event->type() != ui::EventType::kMousePressed) {
       return;
     }
@@ -852,6 +882,8 @@ class WindowViews : public views::WidgetObserver,
   // Whether the core took the input focus back down to the UI's window since the focus last left or
   // entered the window.
   bool retook_ = false;
+  // ⌥ is down with no other key or click since it went down, while the page has the keyboard.
+  bool option_alone_ = false;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
@@ -1084,6 +1116,11 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
     }
   }
   return std::nullopt;
+}
+
+bool PageDialogsInOwnWindow() {
+  // Chrome's default, which hasn't been looked at here.
+  return false;
 }
 
 bool KeyboardForPage(views::Widget* widget) {

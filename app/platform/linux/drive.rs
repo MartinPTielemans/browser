@@ -215,8 +215,8 @@ thread_local! {
     static FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The modifiers the last key went with.
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
-    /// Whether the X server's keyboard has Control locked, for `hold_control`.
-    static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
+    /// The modifiers the X server's keyboard has locked, for `hold_modifiers`.
+    static LOCKED: Cell<u16> = const { Cell::new(0) };
     /// The last press, a click's or a drag's, in any of the app's windows: its time, place and
     /// button.
     static LAST_CLICK: Cell<Option<(std::time::Instant, Target, u8)>> = const { Cell::new(None) };
@@ -844,7 +844,7 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     state |= FLAGS.get();
     let modifiers = KeyButMask::CONTROL | KeyButMask::MOD1 | KeyButMask::SHIFT;
     KEY_FLAGS.set(state & u16::from(modifiers));
-    hold_control();
+    hold_modifiers();
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
@@ -852,25 +852,26 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
 }
 
 /// Has the X server's keyboard hold Control while the driver does, after `flags` or a key with it,
-/// as a real Control key would: the app's ⌃Tab walk lasts while the server says Control is held
-/// (gpui_linux::watch_control), and the events the driver sends change none of its state.
-fn hold_control() -> Option<()> {
+/// and Alt while `flags` does, as real keys would: the events the driver sends change none of its
+/// state, and the app's ⌃Tab walk lasts while the server says Control is held
+/// (gpui_linux::watch_control), as a menu shows ⌥'s alternates while it says Alt is.
+fn hold_modifiers() -> Option<()> {
     use x11rb::protocol::xkb::{self, ConnectionExt as _};
-    let held = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL) != 0;
-    if held == CONTROL_LOCKED.get() {
+    let control = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL);
+    let held = control | (FLAGS.get() & u16::from(KeyButMask::MOD1));
+    if held == LOCKED.get() {
         return Some(());
     }
     let x = server()?;
     let (connection, _) = &*x;
     // The server takes no other XKB request from a client before this one.
     connection.xkb_use_extension(1, 0).ok()?.reply().ok()?;
-    let control = xproto::ModMask::CONTROL;
-    let locks = if held { control } else { xproto::ModMask::from(0u16) };
+    let affected = xproto::ModMask::CONTROL | xproto::ModMask::M1;
     let none = xproto::ModMask::from(0u16);
     (connection.xkb_latch_lock_state(
         xkb::ID::USE_CORE_KBD.into(),
-        control,
-        locks,
+        affected,
+        xproto::ModMask::from(held),
         false,
         xkb::Group::M1,
         none,
@@ -879,7 +880,7 @@ fn hold_control() -> Option<()> {
     ))
     .ok()?;
     connection.flush().ok()?;
-    CONTROL_LOCKED.set(held);
+    LOCKED.set(held);
     Some(())
 }
 
@@ -1746,7 +1747,7 @@ fn run_command(line: &str) -> Option<()> {
                 code_events(keycode(keysym)?.0, held, &[kind])?;
                 FLAGS.set(held ^ mask);
             }
-            hold_control();
+            hold_modifiers();
             Some(())
         }
         // Repeats are presses like the first, so repeat changes nothing here.

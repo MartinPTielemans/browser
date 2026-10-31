@@ -76,6 +76,12 @@ windows() {
   case "$(uname)" in MINGW* | MSYS*) return 0 ;; esac
   return 1
 }
+# The absolute path $1, as chrome.exe takes it in a switch's value. Git Bash converts the path a
+# value starts with, not the others in a list such as --load-extension's, and Chrome on Windows
+# resolves a relative path against its own folder, not the directory it started in (#997).
+app_path() {
+  if windows; then cygpath -m "$1"; else printf '%s\n' "$1"; fi
+}
 # The app, what runs it, the pattern that finds its processes, Chromium's helpers too, and its dev
 # profile.
 if windows; then

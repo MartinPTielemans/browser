@@ -39,7 +39,7 @@ printf '{"on":true,"agents":[{"client":"mcp-client","token":"%s"}]}' "$token" > 
 chmod 600 "$agents_file"
 # An extension of the check's own, whose content script puts a frame of its page in the frames
 # page, as a password manager puts its own in pages. The frame tells the page it's there.
-extension="$out/frame-extension"
+extension="$PWD/$out/frame-extension"
 mkdir -p "$extension"
 cat > "$extension/manifest.json" << 'EOF'
 {
@@ -56,7 +56,7 @@ document.body.append(frame);' > "$extension/content.js"
 printf '%s' '<p>Extension text</p><script src=frame.js></script>' > "$extension/frame.html"
 printf '%s' 'parent.postMessage("extension frame", "*");' > "$extension/frame.js"
 BROWSER_DRIVE=1 BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' \
-  "$browser" --load-extension="$extension" < "$out/drive" > "$log" 2>&1 &
+  "$browser" --load-extension="$(app_path "$extension")" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -364,10 +364,10 @@ painted(() => document.title = "fields");
   listed=$(call list_tabs '{}')
   printf '%s\n' "$listed" | grep -q "^. $closing  " && fail "list_tabs listed the closed tab"
 
-  # run_steps takes several actions in one call, in order.
-  ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"}]}")
+  # run_steps takes several actions in one call, in order, and waits for a page's text.
+  ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"},{\"action\":\"wait\",\"text\":\"example domain\"}]}")
   case "$ran" in
-    "Ran 2 steps."*"1. Scrolled up."*"2. Tab $opened_tab:"*) ;;
+    "Ran 3 steps."*"1. Scrolled up."*"2. Tab $opened_tab:"*"3. “example domain” showed."*) ;;
     *) fail "run_steps answered: $ran" ;;
   esac
 
@@ -400,6 +400,15 @@ CARD
 $(grep '^browser: agent bar [0-9]* at ' "$log" | tail -1 | cut -d' ' -f6-)
 BAR
   ../tools/window-screenshot.sh "$pid" "$out/agent-bar.png" || fail "no window to capture"
+  # Stop's tooltip shows its key, as Take Over's does Back to Pinned URL's.
+  hidden=$(grep -c '^browser: tooltip hidden$' "$log" || true)
+  faded=$(grep -c '^browser: tooltip window shown$' "$log" || true)
+  send move $((bx + bw / 4)) $((by + bh - 26))
+  await_log '^browser: tooltip shown Stop \(⌘\.\|Ctrl+\.\)$' "resting on Stop didn't show its key"
+  await_more '^browser: tooltip window shown$' "$faded" || fail "Stop's tooltip didn't fade in"
+  ../tools/window-screenshot.sh "$pid" "$out/agent-bar-tooltip.png" || fail "no window to capture"
+  send move $((bx + bw / 2)) $((by - 40))
+  await_more '^browser: tooltip hidden$' "$hidden" || fail "leaving Stop didn't hide its tooltip"
   send click $((bx + bw - 16)) $((by + bh - 26))
   await_log "^browser: agent mcp-client taken over in $opened_tab\$" "Take Over didn't take the tab"
   refused=$(call scroll "{\"tab\":$opened_tab}")
@@ -459,6 +468,17 @@ BAR
   logins() {
     grep -c "^browser: title $opened_tab login\$" "$log" || true
   }
+  # Waits until no tooltip is up, its window faded out too, so it isn't counted as a child window.
+  no_tooltip() {
+    for _ in $(seq 50); do
+      case "$(grep '^browser: tooltip \(shown\|hidden\)' "$log" | tail -1)" in
+        "browser: tooltip shown "*) sleep 0.1 ;;
+        # Its window fades out in 270 ms (tooltip.rs FADE_OUT).
+        *) sleep 0.4; return 0 ;;
+      esac
+    done
+    return 1
+  }
   call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/welcome.html\"}" > /dev/null
   await_log "^browser: title $opened_tab welcome\$" "the welcome page didn't load in the agent's tab"
   take_over "to save a login"
@@ -491,11 +511,16 @@ BAR
   bar
   send click $((bx + 30)) $((by + bh - 26))
   await_more "$handed" "$before" || fail "the bar's Hand Back didn't hand the login's tab back"
+  # Off the bar, which comes back with Stop under where Hand Back was, and Stop's tooltip would
+  # count below as a dropdown's child window.
+  send move $((bx + bw / 2)) $((by - 40))
+  tips=$(grep -c '^browser: tooltip shown ' "$log" || true)
 
   before=$(logins)
   call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/login.html\"}" > /dev/null
   await_more "^browser: title $opened_tab login\$" "$before" ||
     fail "the login page didn't load in the agent's tab"
+  no_tooltip || fail "a tooltip stayed up with the pointer off the agent bar"
   shown=$(children)
   # A click in the username field, where Chrome's dropdown would offer the login.
   send click 600 60
@@ -504,6 +529,8 @@ BAR
   sleep 1
   ../tools/window-screenshot.sh "$pid" "$out/agent-login-empty.png" || fail "no window to capture"
   [ "$(children)" = "$shown" ] || fail "the agent's tab offered the saved login in a dropdown"
+  [ "$(grep -c '^browser: tooltip shown ' "$log" || true)" = "$tips" ] ||
+    fail "a tooltip showed with the pointer off the agent bar: $(grep '^browser: tooltip shown ' "$log" | tail -1)"
   grep -q "^browser: title $opened_tab filled\$" "$log" &&
     fail "Chrome filled the saved password in the agent's tab"
   outline=$(call snapshot "{\"tab\":$opened_tab}")
@@ -612,7 +639,7 @@ forget_login
 trap cleanup EXIT
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, its bar's Stop naming ⌘. in its tooltip, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi
