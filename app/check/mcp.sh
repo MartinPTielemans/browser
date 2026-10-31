@@ -372,6 +372,15 @@ CARD
 $(grep '^browser: agent bar [0-9]* at ' "$log" | tail -1 | cut -d' ' -f6-)
 BAR
   ../tools/window-screenshot.sh "$pid" "$out/agent-bar.png" || fail "no window to capture"
+  # Stop's tooltip shows its key, as Take Over's does Back to Pinned URL's.
+  hidden=$(grep -c '^browser: tooltip hidden$' "$log")
+  faded=$(grep -c '^browser: tooltip window shown$' "$log")
+  send move $((bx + bw / 4)) $((by + bh - 26))
+  await_log '^browser: tooltip shown Stop \(⌘\.\|Ctrl+\.\)$' "resting on Stop didn't show its key"
+  await_more '^browser: tooltip window shown$' "$faded" || fail "Stop's tooltip didn't fade in"
+  ../tools/window-screenshot.sh "$pid" "$out/agent-bar-tooltip.png" || fail "no window to capture"
+  send move $((bx + bw / 2)) $((by - 40))
+  await_more '^browser: tooltip hidden$' "$hidden" || fail "leaving Stop didn't hide its tooltip"
   send click $((bx + bw - 16)) $((by + bh - 26))
   await_log "^browser: agent mcp-client taken over in $opened_tab\$" "Take Over didn't take the tab"
   refused=$(call scroll "{\"tab\":$opened_tab}")
@@ -589,7 +598,7 @@ forget_login
 trap cleanup EXIT
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, its bar's Stop naming ⌘. in its tooltip, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi
