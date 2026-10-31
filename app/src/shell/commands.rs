@@ -1057,6 +1057,9 @@ impl Shell {
             Command::ClearCookiesAndRefresh => {
                 return self.browser.clear_site(self.selected, true, cx);
             }
+            // Escape closes the Library, after a picker over it, which has the keyboard, has
+            // closed (the owner, #1074; Arc's doesn't).
+            Command::Stop if self.library_open => return self.set_library(false, cx),
             // Escape leaves full screen when there's no load to stop, as the note there says.
             Command::Stop if self.full_screen && !self.page_fullscreen => {
                 if !self.page(self.selected).loading {
