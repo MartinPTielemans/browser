@@ -63,8 +63,6 @@ extern "C" unsigned g_unix_fd_add_full(int priority,
                                        void* data,
                                        void (*notify)(void* data)) __attribute__((weak));
 constexpr unsigned kGlibIoIn = 1;
-// The core's (core/public/browser_core.h), in the chrome that loads the app. Weak, as GLib's are.
-extern "C" void bc_hold_keys(void) __attribute__((weak));
 constexpr unsigned kGlibIoPri = 2;
 constexpr unsigned kGlibIoErr = 8;
 // Chromium's fd watches', its Wayland display's among them (G_PRIORITY_DEFAULT_IDLE - 10). GLib
@@ -429,12 +427,10 @@ void host_window_closed(void* ui_view) {
 // Under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own, and under
 // X11 Chromium's window has the focus, so a page's keys reach Chromium first and the host can't
 // keep those typed after a bar's shortcut from the page. The core holds them, and an overlay that
-// takes the keyboard takes them (overlays.rs).
-void host_hold_keys(void) {
-  if (bc_hold_keys) {
-    bc_hold_keys();
-  }
-}
+// takes the keyboard takes them (overlays.rs), or the page does.
+void host_hold_keys(void) {}
+
+void host_release_held_keys(void) {}
 
 // GPUI's clipboard and its file chooser portal copy text and a capture and save a capture
 // (platform/linux/system.rs).

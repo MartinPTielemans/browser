@@ -204,7 +204,8 @@ share='\(, Share…\( (disabled)\)\?\|, Share › [^,]*\(, Share › [^,]*\)*\)\
 # fails with $2.
 expect() {
   for _ in $(seq 100); do
-    sed -n "/^browser: drive ${3:-$step}: /,\$p" "$log" | grep -q "$1" && return 0
+    logged "$1" "${3:-}" && return 0
+    exited_without "$1" "$2" "${3:-}"
     sleep 0.1
   done
   fail "$2"
@@ -220,10 +221,20 @@ expect_late() {
 # expect, looking every 10 ms, for a press that has to land within the first frames of a motion.
 expect_soon() {
   for _ in $(seq 1000); do
-    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
+    logged "$1" && return 0
+    exited_without "$1" "$2"
     sleep 0.01
   done
   fail "$2"
+}
+# A line matching $1 was logged after the last command was sent, or after command $2.
+logged() {
+  sed -n "/^browser: drive ${2:-$step}: /,\$p" "$log" | grep -q "$1"
+}
+# The app that was to log $1 is gone without it, which says why the step $2 failed. It's looked
+# for again, as the app may have logged it as it went.
+exited_without() {
+  [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
 }
 # Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
 # draws one ("browser: settings $1 at x y").
