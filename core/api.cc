@@ -228,7 +228,13 @@ void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
 
 void bc_window_ui_takes_keyboard(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
-  browser_core::platform::UITakesKeyboard(OpenWidget(id));
+  browser_core::platform::UITakesKeyboard(OpenWidget(id), /*until_page=*/false);
+#endif
+}
+
+void bc_window_ui_holds_keyboard(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::platform::UITakesKeyboard(OpenWidget(id), /*until_page=*/true);
 #endif
 }
 

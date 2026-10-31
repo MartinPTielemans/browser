@@ -336,6 +336,11 @@ pub trait Browser {
     ) -> bool;
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
+    /// With no page shown, gives the UI the keyboard until a page shows, which then has it, as the
+    /// Mac's window holds the keys for the next page.
+    fn hold_keyboard_for_page(&self, cx: &mut App) {
+        self.focus_ui(cx)
+    }
     /// Gives the page shown the keyboard, from the UI if it has it, now or once a page still
     /// loading has a view, unless the UI takes it back first.
     fn focus_page(&self, cx: &mut App);
