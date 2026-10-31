@@ -1312,7 +1312,8 @@ impl Shell {
 
     /// The clipboard's web link, read now, as one URL to open, or None for anything else.
     pub(super) fn pasted_urls(&self, cx: &App) -> Option<Vec<String>> {
-        let text = cx.read_from_clipboard().and_then(|item| item.text()).unwrap_or_default();
+        // From the host, where Copy Link put it: a driven Mac run's pasteboard is its own.
+        let text = self.browser.pasted(cx).unwrap_or_default();
         // Text that isn't a web link opens nothing here, not a search, as Arc's ⌥⌘V does.
         let urls = dropped_urls([(text.trim(), false)], |_| None);
         if urls.is_empty() {
@@ -1964,13 +1965,15 @@ mod tests {
     }
 
     /// ⌥⌘V opens the clipboard's web link as a tab at the top of Today, and text that isn't one
-    /// opens nothing, as a drop of it doesn't.
+    /// opens nothing, as a drop of it doesn't. The clipboard is the host's, where Copy Link puts
+    /// it, as a driven Mac run's pasteboard of its own isn't GPUI's.
     #[gpui::test]
     fn paste_url_as_new_tab_opens_only_a_web_link(cx: &mut gpui::TestAppContext) {
         let shell_with = crate::shell::drag::detents::shell_with;
         let (shell, host) = shell_with(cx, &[], &[2], Default::default());
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://example.org/gpui".into()));
         let paste = |text: &str, cx: &mut gpui::TestAppContext| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.into()));
+            host.copied.borrow_mut().push(text.into());
             host.take();
             shell.update(cx, |shell, cx| shell.run(Command::PasteUrlAsTab, "page", cx));
             host.take().into_iter().filter(|call| call.starts_with("open ")).collect::<Vec<_>>()

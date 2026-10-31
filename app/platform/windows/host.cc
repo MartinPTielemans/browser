@@ -2900,6 +2900,23 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
+size_t host_paste(char* text, size_t capacity) {
+  std::string held;
+  if (OpenClipboard(nullptr)) {
+    if (HANDLE memory = GetClipboardData(CF_UNICODETEXT)) {
+      if (const wchar_t* wide = static_cast<const wchar_t*>(GlobalLock(memory))) {
+        held = Utf8(wide);
+        GlobalUnlock(memory);
+      }
+    }
+    CloseClipboard();
+  }
+  if (capacity) {
+    snprintf(text, capacity, "%s", held.c_str());
+  }
+  return held.size();
+}
+
 void host_open_full_disk_access(void) {}
 
 // There's no Safari: Windows plays protected video with Chromium's own PlayReady (decision 1).

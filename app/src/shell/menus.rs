@@ -1626,7 +1626,7 @@ mod tests {
         let markdown = format!("copy {a}\n[{title}]({b})");
         assert!(host.take().contains(&markdown), "{markdown}");
 
-        cx.write_to_clipboard(gpui::ClipboardItem::new_string("https://d.example/".into()));
+        host.copied.borrow_mut().push("https://d.example/".into());
         tab_menu(&shell, &host, cx, 22);
         host.take();
         cx.update(|cx| host.choose("Paste URL as New Tab", cx));
