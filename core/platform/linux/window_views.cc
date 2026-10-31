@@ -630,6 +630,9 @@ class WindowViews : public views::WidgetObserver,
       if (x11::Window main = UIMain(); key && main != x11::Window::None) {
         key->event = main;
         x11::Connection* connection = x11::Connection::Get();
+        // With the focus, or GPUI, finding it on this window, hands the key back here as the
+        // page's, and the two pass it on without end, as ⌘Q after full screen did (#919).
+        SetInputFocus(main);
         connection->SendEvent(*key, main, x11::EventMask::NoEvent);
         connection->Flush();
       }
