@@ -43,7 +43,7 @@ jobs:
       LINUX_RUNS: >-
         tabs window find agents spaces crash profiles private quit mcp appearance access history
         load preview import adblock adblock-lists passkeys onboarding links relaunch split
-        extensions capture popup pinned about windows dialogs trouble
+        extensions capture popup pinned about windows dialogs trouble cards
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
