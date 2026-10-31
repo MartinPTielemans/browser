@@ -229,6 +229,8 @@ send click $page_point
 # floats <value> [capture]: sets the call's Automatic picture-in-picture to <value> in its Site
 # Controls, capturing them first as <capture>.
 floats() {
+  # Out first, as a move back within the tools' fade out draws them shown again with no new line.
+  away
   send move $sidebar_point
   expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
   send click 206 64
