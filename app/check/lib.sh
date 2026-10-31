@@ -400,13 +400,15 @@ start_with_cdp() {
   # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
   # DevTools pipe, then cdp.py's input.
   if windows; then
-    # Chromium on Windows takes its DevTools pipe as handles, not fds 3 and 4, and Git Bash's fifos
-    # are files native Python can't open, so there it listens on a port it names in the profile.
+    # Chromium on Windows takes its DevTools pipe as handles, not fds 3 and 4, and native Python
+    # can't open Git Bash's fifos, so there it listens on a port it names in the profile, and cat
+    # passes cdp.py its commands, as windows_browser does the driver's (git-bash.sh).
     rm -f "$2/DevToolsActivePort"
     BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
       "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
     pid=$!
-    python3 -I -u check/cdp.py --profile "$2" "$3" < "$scratch/cdp" > "$cdp_log" 2>&1 &
+    cat "$scratch/cdp" | python3 -I -u check/cdp.py --profile "$(cygpath -w "$2")" "$3" \
+      > "$cdp_log" 2>&1 &
   else
     mkfifo "$scratch/to-browser" "$scratch/from-browser"
     BROWSER_DRIVE=1 BROWSER_URL="$1" BROWSER_PROFILE_DIR="$2" \
