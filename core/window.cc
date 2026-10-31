@@ -531,6 +531,15 @@ void Window::LayOutShowing(bc_id tab) {
 }
 
 // static
+void Window::PageCommittedInNewView(bc_id tab) {
+  for (Window* window : All()) {
+    if (window->selected_ == tab) {
+      window->FocusPageSoon();
+    }
+  }
+}
+
+// static
 void Window::OnPageClicked(bc_id tab) {
   for (auto& [id, window] : Windows()) {
     if (window->selected_ != tab && std::ranges::contains(window->panes_, tab)) {
