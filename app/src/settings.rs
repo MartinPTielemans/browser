@@ -207,7 +207,7 @@ impl Keys {
     }
 }
 
-/// The Shortcuts tab, in the menus' order and names.
+/// The Shortcuts tab, every command the user can give keys, in the menus' order and names.
 const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     (
         "Tabs",
@@ -221,6 +221,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Archive Tab", Keys::Of(Command::CloseTab)),
             ("Close Window", Keys::Of(Command::CloseWindow)),
             ("Restore Last Closed Tab", Keys::Of(Command::ReopenClosedTab)),
+            ("Duplicate Current Tab", Keys::Of(Command::DuplicateTab)),
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
@@ -228,6 +229,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
+            ("Favorite Tab", Keys::Of(Command::FavoriteTab)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
             ("Clear Today", Keys::Of(Command::Clear)),
             ("Reset all tabs in this Space", Keys::Of(Command::ResetSpaceTabs)),
@@ -235,6 +237,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
             ("Paste URL as New Tab", Keys::Of(Command::PasteUrlAsTab)),
             ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
+            ("Rename Current Tab", Keys::Of(Command::RenameTab)),
             ("New Folder", Keys::Of(Command::NewFolder)),
             ("Collapse All Folders", Keys::Of(Command::CollapseFolders)),
             ("Expand All Folders", Keys::Of(Command::ExpandFolders)),
@@ -255,11 +258,14 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Zoom In", Keys::Of(Command::ZoomIn)),
             ("Zoom Out", Keys::Of(Command::ZoomOut)),
             ("Actual Size", Keys::Of(Command::ActualSize)),
+            ("Share", Keys::Of(Command::Share)),
             ("Capture", Keys::Of(Command::CapturePortion)),
+            ("Capture Full Page", Keys::Of(Command::CaptureFullPage)),
             ("Save Page As", Keys::Of(Command::SavePage)),
             ("Print", Keys::Of(Command::Print)),
             ("Clear Cache and Refresh", Keys::Of(Command::ClearCacheAndRefresh)),
             ("Clear Cookies and Refresh", Keys::Of(Command::ClearCookiesAndRefresh)),
+            ("Site Controls", Keys::Of(Command::SiteControls)),
         ],
     ),
     (
@@ -278,6 +284,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Go to Space 9", Keys::Of(Command::SelectSpace(8))),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
+            ("Export Space as Markdown", Keys::Of(Command::ExportSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
             ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
             ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
@@ -286,6 +293,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("View Archive", Keys::Of(Command::ViewArchive)),
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
             ("View Downloads", Keys::Of(Command::ViewDownloads)),
+            ("View Media", Keys::Of(Command::ViewMedia)),
             ("View History", Keys::Of(Command::ViewHistory)),
             ("Clear Browsing Data", Keys::Of(Command::ClearBrowsingData)),
         ],
@@ -324,13 +332,28 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     (
         env!("APP_NAME"),
         &[
+            (concat!("About ", env!("APP_NAME")), Keys::Of(Command::About)),
+            ("Check for Updates", Keys::Of(Command::CheckForUpdates)),
             ("Settings", Keys::Of(Command::Settings)),
-            ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
+            ("Import from Other Browsers", Keys::Of(Command::Import)),
+            ("Passwords", Keys::Of(Command::Passwords)),
+            ("Site Search Settings", Keys::Of(Command::SiteSearchSettings)),
             // main.rs binds these.
             (concat!("Hide ", env!("APP_NAME")), Keys::Fixed("cmd-h")),
             ("Hide Others", Keys::Fixed("alt-cmd-h")),
             ("Minimize", Keys::Fixed("cmd-m")),
             (concat!("Quit ", env!("APP_NAME")), Keys::Of(Command::Quit)),
+        ],
+    ),
+    (
+        "Help",
+        &[
+            (concat!("Welcome to ", env!("APP_NAME")), Keys::Of(Command::Welcome)),
+            ("Help Center", Keys::Of(Command::HelpCenter)),
+            ("What's New", Keys::Of(Command::WhatsNew)),
+            ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
+            ("Report a Problem", Keys::Of(Command::ReportProblem)),
+            ("Copy Build Info", Keys::Of(Command::CopyBuildInfo)),
         ],
     ),
 ];
