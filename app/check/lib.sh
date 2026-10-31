@@ -77,6 +77,10 @@ cleanup() {
 fail() {
   echo "FAIL: $1" >&2
   grep -v '^$' "$log" | tail -5 >&2
+  # What the window showed, for a failure the log doesn't explain, as on CI.
+  if [ -n "${pid:-}" ] && [ -n "${out:-}" ] && kill -0 "$pid" 2>/dev/null; then
+    ../tools/window-screenshot.sh "$pid" "$out/failed.png" > /dev/null 2>&1 || true
+  fi
   exit 1
 }
 # The app ended by itself.
