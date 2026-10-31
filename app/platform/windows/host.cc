@@ -1622,7 +1622,7 @@ void host_link_preview_drew(double left,
   std::optional<LinkPreview::Hole> hole;
   if (width >= 1 && height >= 1) {
     const double scale = Scale(g_link_preview.root);
-    radius = std::min({radius, width / 2, height / 2});
+    radius = (std::min)({radius, width / 2, height / 2});
     hole = LinkPreview::Hole{
         RECT{static_cast<LONG>(std::lround(left * scale)),
              static_cast<LONG>(std::lround(top * scale)),
