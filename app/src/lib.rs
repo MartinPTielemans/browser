@@ -105,6 +105,7 @@ pub mod link_preview;
 pub mod link_rules;
 pub mod link_target;
 pub mod menu;
+pub mod notes;
 pub mod offer;
 pub mod palette;
 pub mod passwords;
