@@ -12,19 +12,26 @@
 
 serve
 # The import step reads the fixture's home, set for each launch so the runs after keep their own.
-# Arc has no Linux build, so there the home has a made-up Chrome, where Linux keeps it.
+# Arc has no Linux build, so there the home has a made-up Chrome where Linux keeps it, and on
+# Windows where Windows does.
 fixture="$PWD/src/import/fixture"
+import_home=$fixture
 found=Arc
 if [ "$(uname)" != Darwin ]; then
   fixture="$out/onboarding-home"
+  import_home=$fixture
   found=Chrome
+  chrome="$fixture/.config/google-chrome"
+  if windows; then
+    chrome="$fixture/AppData/Local/Google/Chrome/User Data"
+    import_home=$(cygpath -w "$fixture")
+  fi
   rm -rf "$fixture"
-  mkdir -p "$fixture/.config/google-chrome/Default"
-  printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' \
-    > "$fixture/.config/google-chrome/Local State"
-  printf '%s' '{}' > "$fixture/.config/google-chrome/Default/Preferences"
+  mkdir -p "$chrome/Default"
+  printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' > "$chrome/Local State"
+  printf '%s' '{}' > "$chrome/Default/Preferences"
   # The import lists a browser only once it has bookmarks or history to bring in.
-  printf '%s' '{"roots":{}}' > "$fixture/.config/google-chrome/Default/Bookmarks"
+  printf '%s' '{"roots":{}}' > "$chrome/Default/Bookmarks"
 fi
 # Captures the window as onboarding-$1.png.
 capture_step() {
@@ -36,7 +43,7 @@ launch_new() {
   log="$out/onboarding-$1.log"
   step=0
   rm -f "$saved"
-  BROWSER_IMPORT_HOME="$fixture" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
+  BROWSER_IMPORT_HOME="$import_home" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
     "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
