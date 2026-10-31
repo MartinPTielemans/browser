@@ -5,13 +5,14 @@
 # Picture while its tab is hidden, and comes back with it, unless its Site Controls block that, or
 # Settings turns it off for the sites they don't allow. A tab playing music out of sight has a
 # player at the sidebar's foot, whose buttons pause it and float it in Picture in Picture, whose
-# click shows the tab, and whose × puts it away. View › Cast… and the page menu's Cast… open the
-# tab's Cast card, and × closes it. A video's page menu floats it in Picture in Picture, the Mini
-# Player, which a scroll or a drag moves, ⌘ or Ctrl with a scroll sizes, and a double-click puts
-# back in its tab, shown. Chromium's fake camera and microphone stand in for real ones, and the
-# share takes the tab titled Shared without its picker; the question for the camera is answered
-# with Allow, as the user would, since the fake question Chromium can put in its place never tells
-# the browser what's captured.
+# click shows the tab, and whose × puts it away. A private window's music has a player in that
+# window alone. View › Cast… and the page menu's Cast… open the tab's Cast card, and × closes it.
+# A video's page menu floats it in Picture in Picture, the Mini Player, which a scroll or a drag
+# moves, ⌘ or Ctrl with a scroll sizes, and a double-click puts back in its tab, shown.
+# Chromium's fake camera and microphone stand in for real ones, and the share takes the tab titled
+# Shared without its picker; the question for the camera is answered with Allow, as the user
+# would, since the fake question Chromium can put in its place never tells the browser what's
+# captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
@@ -339,6 +340,50 @@ send click "$(button_x 0)" $((my + mh / 2))
 expect '^browser: command media-dismiss via player$' "the player's × didn't take the click"
 expect '^browser: media players $' "× didn't put the player away"
 
+# A private window's music out of sight has a player there alone. Every window hears every tab,
+# but the regular window's players are its Spaces' tabs, so its music, playing again, is its one.
+# The private window logs a Today of its own, so the regular one's keys are taken first.
+key_a=$(($(today | tr ' ' '\n' | grep -nx "$a" | cut -d: -f1) + $(pinned | wc -w)))
+key_b=$(($(today | tr ' ' '\n' | grep -nx "$b" | cut -d: -f1) + $(pinned | wc -w)))
+send key n cmd shift
+expect '^browser: private window opened [0-9]* profile [0-9]*$' "⇧⌘N didn't open a private window"
+private=$(grep '^browser: private window opened ' "$log" | tail -1 | cut -d' ' -f5)
+expect "^browser: window opened $private\$" "the private window didn't open"
+send window 2
+# private_page <name>: opens the call page named <name> in the private window, as $p.
+private_page() {
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar in the private window"
+  send insert "${site}call.html?$1"
+  send key return
+  expect "^browser: title [0-9]* $1\$" "the private window's $1 page didn't draw"
+  p=$(sed -n "s/^browser: title \([0-9]*\) $1\$/\1/p" "$log" | tail -1)
+}
+private_page Private
+music=$p
+send click $page_point
+send key m
+expect "^browser: title $music playing\$" "m in the private page didn't play its silence"
+private_page Hidden
+expect "^browser: media players $music\$" "the private window's music out of sight had no player"
+send window 1
+switch "$key_a cmd" "$a"
+send click $page_point
+send key m
+expect "^browser: title $a playing\$" "m in the page didn't play its silence again"
+switch "$key_b cmd" "$b"
+expect "^browser: media players $a\$" "the regular window's players weren't its music alone"
+../tools/window-screenshot.sh "$pid" "$out/media-player-private.png" all ||
+  fail "no window to capture"
+send click "$(button_x 2)" $((my + mh / 2))
+expect "^browser: title $a paused\$" "the player's pause didn't pause the page"
+send click "$(button_x 0)" $((my + mh / 2))
+expect '^browser: media players $' "× didn't put the player away"
+send window 2
+send key w cmd shift
+expect "^browser: window closed $private\$" "⇧⌘W didn't close the private window"
+send window 1
+
 # The Cast card, from View › Cast… and from the page menu, with whatever devices the network has,
 # none clicked. Linux alone: the Mac asks for the local network on the screen as Chrome looks with
 # DIAL, and Windows' firewall may.
@@ -460,4 +505,4 @@ fi
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, floats it in Picture in Picture, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, floats it in Picture in Picture, shows its tab and goes on ×, and a private window's music has one there alone; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab."
