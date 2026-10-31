@@ -12,7 +12,7 @@ fail() {
 }
 
 # What starts each file this changes, as GPL 3 asks of a changed file.
-changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser, and it doesn't reload as it first starts. Diag (#744): it logs."
+changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser, and it doesn't reload as it first starts. Diag (#744): it logs, and why its selfie loads."
 
 # Puts $3, which may be several lines or none, in place of the line $2 of uBlock Origin's file $1,
 # and fails unless that line is there once, so a new release is read again before it ships.
@@ -80,6 +80,11 @@ if [ ! -f "$dir/manifest.json" ] || ! grep -qF "\"key\": \"$key\"" "$dir/manifes
   edit js/console.js 'function ubologIgnore() {' 'function ubologIgnore(...args) { ubologDo(...args);'
   edit js/start.js '    lastVersionInt = vAPI.app.intFromVersion(lastVersion);' \
     '    lastVersionInt = vAPI.app.intFromVersion(lastVersion); ubolog(`Last version ${lastVersion}`);'
+  edit js/storage.js '            if ( results.every(v => v) ) {' \
+    '            ubolog(`Selfie loads ${results.join(",")}`); if ( results.every(v => v) ) {'
+  edit js/static-net-filtering.js \
+    '    if ( results.slice(1).every(v => v === true) === false ) { return false; }' \
+    "    console.error('[uBO] ' + Date.now() + ' Net selfie ' + results.join(',') + ' version ' + selfie.version + ' of ' + this.selfieVersion); if ( results.slice(1).every(v => v === true) === false ) { return false; }"
   mv "$dir.part/uBlock0.chromium" "$dir"
   rm -rf "$dir.part"
   # Earlier versions go.
