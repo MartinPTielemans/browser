@@ -5075,7 +5075,11 @@ extern "C" fn became_active() {
     });
 }
 
+/// When Chromium stopped, for how long the rest of the quit took (#959).
+static STOPPED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
 unsafe extern "C" fn stopping(_: *mut c_void) {
+    STOPPED.get_or_init(Instant::now);
     log!("browser: stopping");
 }
 
@@ -6494,7 +6498,13 @@ fn main() {
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
     // The quit's last stage the log can show: what's left is the process's exit (#959).
-    log!("browser: quit: chromium returned {code}");
+    match STOPPED.get() {
+        Some(stopped) => {
+            let ms = stopped.elapsed().as_millis();
+            log!("browser: quit: chromium returned {code} at {ms} ms");
+        }
+        None => log!("browser: quit: chromium returned {code}"),
+    }
     std::process::exit(code);
 }
 
