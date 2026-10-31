@@ -666,7 +666,8 @@ send flags alt
 send key left alt
 send flags
 none_since '^browser: reveal by option$' || fail "⌥ let go after a key brought the sidebar out"
-# The same with the page focused, whose keys on X11 GPUI doesn't hear: the core tells of its ⌥.
+# The same with the page focused, whose keys on X11 GPUI doesn't hear, so the core tells of its ⌥,
+# and on the Mac come through the app again when the page doesn't use them.
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after a click on the page with the sidebar hidden"
 send flags alt
