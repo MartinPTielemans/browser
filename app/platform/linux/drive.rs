@@ -894,6 +894,14 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
         // A window of Chromium's own, such as the Task Manager, else none of the app's has it.
         None => chromium_focus().or_else(|| driven().map(|browser| browser.window))?,
     };
+    let focus = connection.get_input_focus().ok().and_then(|c| c.reply().ok()).map(|r| r.focus);
+    let ui = driven().map(|browser| (browser.window, browser.ui, browser.gpui));
+    eprintln!(
+        "browser: diag919 drive key {code} to {window:#x}, focus {:#x}, browser {:x?}, hovered {:?}",
+        focus.unwrap_or(0),
+        ui,
+        HOVERED.get().map(|hovered| hovered.window)
+    );
     for &kind in kinds {
         let event = KeyPressEvent {
             response_type: kind,
