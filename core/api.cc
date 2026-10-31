@@ -2020,7 +2020,7 @@ bool bc_window_is_maximized(bc_id id) {
 }
 
 bool bc_window_is_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   return widget && widget->IsFullscreen();
 #else
@@ -2029,7 +2029,7 @@ bool bc_window_is_full_screen(bc_id id) {
 }
 
 void bc_window_toggle_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   if (!widget) {
     return;
