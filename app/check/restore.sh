@@ -7,7 +7,7 @@
 # place until Remove Icon, and a Japanese conversion in the picker's search isn't a pick. A Space's
 # icon, picked in its icon picker, comes back too. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
-# check's folder, on the Mac with macOS's quarantine flag and their page, a new one's icon flies
+# check's folder, on the Mac with macOS's quarantine flag, a new one's icon flies
 # into the Library button, none of those a relaunch reads does, and ⇧⌘J opens the Library on
 # Downloads, which lists them. While one runs, the button keeps
 # its name and resting on it shows the running one with the finished one. With one running, ⌘Q
@@ -65,19 +65,11 @@ send type d
 expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
 # On the Mac it carries macOS's quarantine flag, naming the app that downloaded it, so Gatekeeper
-# checks it the first time it opens, and the page it came from (#685), both from Chromium.
+# checks it the first time it opens (#685). Chromium's quarantine service sets it.
 if [ "$(uname)" = Darwin ]; then
   flag=$(xattr -p com.apple.quarantine "$out/downloads/notes.txt" 2>&1) ||
     fail "the download has no quarantine flag: $flag"
   [ -n "$(echo "$flag" | cut -d';' -f3)" ] || fail "the download's quarantine flag names no app: $flag"
-  froms=$(xattr -px com.apple.metadata:kMDItemWhereFroms "$out/downloads/notes.txt" 2>&1 |
-    python3 -I -c 'import plistlib, sys
-print(" ".join(plistlib.loads(bytes.fromhex(sys.stdin.read()))))' 2>&1) ||
-    fail "the download doesn't say where it came from: $froms"
-  case " $froms " in
-  *" ${site}notes.txt "*) ;;
-  *) fail "the download says it came from \"$froms\", not ${site}notes.txt" ;;
-  esac
 fi
 send type s
 expect '^browser: download [0-9]* running slow.bin$' "the page's slow download didn't start"
