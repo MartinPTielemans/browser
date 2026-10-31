@@ -334,7 +334,6 @@ class Window : public web_modal::WebContentsModalDialogHost,
   class ClientView;
   struct Held {
     raw_ptr<BrowserWindowInterface> browser;
-    base::CallbackListSubscription close_cancelled;
   };
   // A tab Clear closed, and its place in Today before.
   struct Cleared {
@@ -389,6 +388,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void Pick(bc_id tab);
   // Shows next_after_closing_, as the tab shown has closed.
   void SelectAfterClosing();
+  // Chrome stopped a close or a quit (|closing| false): the window stays if its Browsers did.
+  void OnCloseStopped(bool closing);
   // Shows no page, as for a Space without tabs.
   void ShowNothing();
   // Puts the pages shown, and their docked DevTools if they have them, at the page frame, side by
@@ -442,6 +443,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
+  // While closing, for a page's Stay or the downloads question, which keeps the window open.
+  base::CallbackListSubscription close_stopped_;
   bool off_the_record_ = false;
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;

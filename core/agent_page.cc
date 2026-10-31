@@ -111,15 +111,6 @@ std::optional<int64_t> ElementOf(const base::DictValue& node) {
   return id ? std::optional<int64_t>(static_cast<int64_t>(*id)) : std::nullopt;
 }
 
-// Whether the frame holds a web page's content, from an http(s) origin, as do the about:blank and
-// sandboxed frames a page makes. An extension's or the browser's frame, as a password manager puts
-// in pages, is never an agent's.
-bool IsWebFrame(content::RenderFrameHost* frame) {
-  const std::string& scheme =
-      frame->GetLastCommittedOrigin().GetTupleOrPrecursorTupleIfOpaque().scheme();
-  return scheme == url::kHttpScheme || scheme == url::kHttpsScheme;
-}
-
 // A frame's tree, read through the session at |slot|, with its ids made the snapshot's: |prefix|
 // before each node's, as each frame's tree numbers its own, and each DOM node's its element's.
 base::ListValue Tagged(base::ListValue nodes, const std::string& prefix, int slot) {
@@ -154,6 +145,12 @@ void Report(bc_id tab, uint64_t request, std::string text, bool error) {
 }
 
 }  // namespace
+
+bool IsWebFrame(content::RenderFrameHost* frame) {
+  const std::string& scheme =
+      frame->GetLastCommittedOrigin().GetTupleOrPrecursorTupleIfOpaque().scheme();
+  return scheme == url::kHttpScheme || scheme == url::kHttpsScheme;
+}
 
 base::ListValue AgentTree(base::ListValue nodes, const std::set<int64_t>& passwords) {
   std::map<std::string, const base::DictValue*> by_id;

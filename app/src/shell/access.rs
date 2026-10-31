@@ -323,7 +323,7 @@ mod tests {
         assert!(back.is_disabled());
         let (_, sidebar) = tree.named(Role::Button, "Hide Sidebar");
         assert!(!sidebar.is_disabled() && sidebar.supports_action(Action::Click));
-        let (_, plus) = tree.named(Role::Button, "New Space or Folder");
+        let (_, plus) = tree.named(Role::Button, "New Space, Folder or Note");
         assert!(plus.supports_action(Action::Click));
         tree.named(Role::Button, "View Library");
         tree.named(Role::Button, "New Tab");

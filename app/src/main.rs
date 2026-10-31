@@ -25,7 +25,7 @@ use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
     capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
-    icon_picker, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    icon_picker, launch, link_preview, link_target, log, menu, offer, passwords, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -105,6 +105,7 @@ mod system;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/window_buttons.rs"]
 mod window_buttons;
+mod link_rules_host;
 mod reveal;
 mod agents_core;
 mod settings;
@@ -1098,8 +1099,9 @@ impl link_preview::Host for LinkPreviewHost {
     }
 
     fn page_under(&self) -> bool {
-        // No window of the app's holds a page on Linux (link_preview_window.rs).
-        cfg!(target_os = "linux")
+        // No window of the app's holds a page on Linux (link_preview_window.rs) or Windows
+        // (platform/windows/host.cc).
+        cfg!(any(target_os = "linux", target_os = "windows"))
     }
 
     fn release(&self) {
@@ -1133,7 +1135,7 @@ extern "C" fn link_preview_dismissed() {
 }
 
 thread_local! {
-    /// Whether the host has a view for a link preview's page, which only the Mac's has so far.
+    /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -1167,7 +1169,8 @@ unsafe extern "C" fn tab_link_dragged(
 }
 
 /// A link clicked in `tab`'s page leads to another site. A pinned tab's or a favorite's opens in
-/// the link preview, over the window showing the tab, unless the user turned previews off.
+/// the link preview, over the window showing the tab, unless the user turned previews off or a link
+/// rule sends it to another Space.
 unsafe extern "C" fn tab_link_to_site(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -1186,9 +1189,9 @@ unsafe extern "C" fn tab_link_to_site(
         let shell = window.shell.upgrade()?;
         let shell = shell.read(cx);
         let page = shell.page_laid().filter(|_| shell.shows(tab) && shell.previews_links_of(tab));
-        Some((window.id, page?))
+        Some((window.id, window.private, page?))
     });
-    let Some((window, page)) = over else {
+    let Some((window, private, page)) = over else {
         return false;
     };
     let url = unsafe { CStr::from_ptr(url) }.to_owned();
@@ -1197,6 +1200,28 @@ unsafe extern "C" fn tab_link_to_site(
         // check.sh waits for this line.
         log!("browser: meeting link from {tab} opens as a tab");
         update_app_later(move |_| open_tab(window, &url.to_string_lossy()));
+        return true;
+    }
+    // A link rule sends it to its Space instead, as one from another app, when that's another than
+    // the one shown. Never from a private window, whose links stay off the record.
+    let shown = unsafe { bc::bc_window_space(window) };
+    let routed = match private {
+        true => 0,
+        false => link_rules_host::preview_route(&url.to_string_lossy(), shown),
+    };
+    if routed != 0 {
+        update_app_later(move |_| {
+            let url = url.to_string_lossy();
+            let (to, opened, space) = open_link_in(window, &url, routed);
+            // check.sh reads this line.
+            log!("browser: link from {tab} {url}: tab {opened} in space {space} of window {to}");
+            let ui_view = WINDOWS.with_borrow(|windows| {
+                windows.iter().find(|w| w.id == to).map(|w| w.ui_view)
+            });
+            if let Some(ui_view) = ui_view.filter(|_| to != window) {
+                unsafe { platform::host_activate(ui_view) };
+            }
+        });
         return true;
     }
     // Outside the navigation that asked, which the core cancels once this returns.
@@ -2589,6 +2614,21 @@ impl Browser for Engine {
         open_tab(self.window, url);
     }
 
+    fn new_note(&self, space: u64, beside: Option<u64>, cx: &mut App) {
+        let profile = unsafe { bc::bc_space_profile(space) };
+        let url = browser::notes::new_document(&name(bc::bc_profile_notes_service, profile));
+        // check.sh waits for this line.
+        log!("browser: new note {url}{}", if beside.is_some() { " split" } else { "" });
+        match beside {
+            // Outside the shell's update, which the split's layout updates.
+            Some(with) => {
+                let window = self.window;
+                cx.defer(move |cx| open_split(window, url, with, cx));
+            }
+            None => open_tab(self.window, url),
+        }
+    }
+
     fn site_search_settings(&self, _: &mut App) {
         open_tab(self.window, "chrome://settings/searchEngines");
     }
@@ -3498,6 +3538,8 @@ fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -
     } else {
         unsafe { bc::bc_window_show_space(window, create_space("Space 1", 0)) };
     }
+    // The rules name the Spaces by their places, so they're read once the Spaces are back.
+    link_rules_host::read();
     let links = LAUNCH_LINKS.take().unwrap_or_default();
     match std::env::var("BROWSER_URL") {
         Ok(url) => open_tab(window, &url),
@@ -3546,11 +3588,40 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     else {
         return;
     };
-    open_links_in(window.id, &urls);
-    unsafe { platform::host_activate(window.ui_view) };
+    let shown = open_links_in(window.id, &urls);
+    let ui_view = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == shown).map_or(window.ui_view, |w| w.ui_view)
+    });
+    unsafe { platform::host_activate(ui_view) };
     // AppKit hands over the links that launched the browser all at once, so the first window
     // needn't wait for it to finish.
     finished_launching();
+}
+
+/// Opens a tab loading `url` in the front window and shows it: in the Space the window shows if
+/// it's one of the user's in `profile`, else in the first of theirs that is, which the window then
+/// shows, as a profile's own page, such as Chrome's password manager, shows that profile's data.
+/// With none, in the Space shown, unless it's an agent's, which none of the user's tabs go in.
+fn open_in_profile(profile: bc::bc_id, url: &str) {
+    let window = front().0;
+    if window == 0 {
+        return;
+    }
+    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
+    let theirs =
+        |space: bc::bc_id| users(space) && unsafe { bc::bc_space_profile(space) } == profile;
+    let shown = unsafe { bc::bc_window_space(window) };
+    let space = match theirs(shown) {
+        true => Some(shown),
+        false => ids(bc::bc_spaces).into_iter().find(|&space| theirs(space)),
+    };
+    let Some(space) = space.or(users(shown).then_some(shown)) else {
+        return;
+    };
+    if space != shown {
+        unsafe { bc::bc_window_show_space(window, space) };
+    }
+    open_tab(window, url);
 }
 
 /// Opens Chrome's Clear browsing data dialog for `profile`, as Arc's Settings › Profiles does, in
@@ -3580,39 +3651,66 @@ pub fn clear_browsing_data(profile: u64) -> bool {
     true
 }
 
-/// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
-/// that's an agent's, which none of the user's tabs go in. The last one opened shows.
-fn open_links_in(window: bc::bc_id, urls: &[String]) {
-    if urls.is_empty() {
-        return;
-    }
-    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
-    let shown = unsafe { bc::bc_window_space(window) };
-    let space = if users(shown) {
-        shown
-    } else {
-        let last = WINDOWS.with_borrow(|windows| {
-            windows.iter().find(|w| w.id == window).map_or(0, |w| w.users_space)
-        });
-        let spaces = ids(bc::bc_spaces);
-        match spaces.contains(&last) && users(last) {
-            true => last,
-            false => spaces.into_iter().find(|&space| users(space)).unwrap_or(0),
-        }
-    };
-    if space == 0 {
-        return;
-    }
-    if space != shown {
-        unsafe { bc::bc_window_show_space(window, space) };
-    }
+/// Opens `urls` as new tabs in `front`, the regular window in front, in the Space it shows, or in
+/// the user's it showed last if that's an agent's, which none of the user's tabs go in. The last
+/// one opened shows, and the window it's in is returned.
+fn open_links_in(front: bc::bc_id, urls: &[String]) -> bc::bc_id {
+    let mut window = front;
     for url in urls {
-        let tab = open_tab_behind(window, url, false);
-        if tab != 0 {
-            unsafe { bc::bc_window_select(window, tab) };
+        let (shown, tab, space) = open_link_in(front, url, link_rules_host::route(url));
+        window = shown;
+        if space == 0 {
+            continue;
         }
         // check.sh reads this line.
         log!("browser: link from another app {url}: tab {tab} in space {space} of window {window}");
+    }
+    window
+}
+
+/// Opens `url` as a new tab, shown, in the Space `routed`, a link rule's, in the regular window
+/// showing it, else in `front` switched to it; with `routed` 0, in `front`'s user's Space. Returns
+/// the window, the tab and the Space, 0 if there's no Space for it.
+fn open_link_in(front: bc::bc_id, url: &str, routed: bc::bc_id) -> (bc::bc_id, u64, bc::bc_id) {
+    let showing = (routed != 0).then(|| {
+        WINDOWS.with_borrow(|windows| {
+            let shows = |w: &&BrowserWindow| unsafe { bc::bc_window_space(w.id) } == routed;
+            windows.iter().filter(|w| !w.private).find(shows).map(|w| w.id)
+        })
+    });
+    let window = showing.flatten().unwrap_or(front);
+    let space = match routed {
+        0 => users_space_of(window),
+        routed => routed,
+    };
+    if space == 0 {
+        return (window, 0, 0);
+    }
+    if space != unsafe { bc::bc_window_space(window) } {
+        unsafe { bc::bc_window_show_space(window, space) };
+    }
+    let tab = open_tab_behind(window, url, false);
+    if tab != 0 {
+        unsafe { bc::bc_window_select(window, tab) };
+    }
+    (window, tab, space)
+}
+
+/// The Space `window` shows, or the user's it showed last if that's an agent's, else the user's
+/// first, or 0.
+fn users_space_of(window: bc::bc_id) -> bc::bc_id {
+    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
+    let shown = unsafe { bc::bc_window_space(window) };
+    if users(shown) {
+        return shown;
+    }
+    let last = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|w| w.id == window).map_or(0, |w| w.users_space)
+    });
+    let spaces = ids(bc::bc_spaces);
+    match spaces.contains(&last) && users(last) {
+        true => last,
+        false => spaces.into_iter().find(|&space| users(space)).unwrap_or(0),
     }
 }
 
@@ -4346,11 +4444,12 @@ fn start_updates(cx: &mut App) {
             };
             log!("browser: updater started");
             let restarting = portal.clone();
-            cx.update(|cx| {
+            let retries = cx.update(|cx| {
                 flatpak::on_restart(move |cx| restart_into_newest(restarting.clone(), cx), cx);
                 flatpak::changed(flatpak::State::Current, cx);
+                flatpak::retries(cx)
             });
-            flatpak::watch(&portal, events, |state| {
+            flatpak::watch(&portal, events, retries, flatpak::ANSWER, |state| {
                 log!("browser: update {state:?}");
                 cx.update(|cx| flatpak::changed(state.clone(), cx));
             })
@@ -4946,6 +5045,8 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_spaces(spaces.clone(), cx);
     });
     update_app(settings::refresh);
+    // The rules name their Spaces by place, which a Space moved or deleted changes.
+    link_rules_host::save();
     // After the update under way, as an import waiting here makes Spaces of its own.
     update_app_later(import_host::spaces_changed);
 }
@@ -6025,10 +6126,8 @@ fn profile_dir() -> String {
 /// What the app gives the core to start with: Chromium's switches, from the arguments the process
 /// was `given`, and the callbacks.
 fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
-    let mut given = given.into_iter();
-    let mut args: Vec<String> = given.next().into_iter().collect();
     let profile = profile_dir();
-    args.extend([
+    let mut args: Vec<String> = vec![
         format!("--user-data-dir={profile}"),
         // Chrome would copy the app bundle to check its signature against, which an
         // ad-hoc-signed build doesn't need.
@@ -6038,7 +6137,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         // back.
         "--disable-stack-profiler".into(),
         "--enable-features=PartitionAllocAdaptiveMemoryReclaimInterval".into(),
-    ]);
+    ];
     // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed dev build asking
     // for it gets a password prompt after every build, and every request that uses cookies waits.
     // The prod build is signed alike every time (tools/install.sh), so macOS asks once.
@@ -6068,11 +6167,12 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
-    // Switches given to the app come after, so they override these: Chromium keeps a repeated
-    // switch's last value.
-    args.extend(given.filter(|arg| {
+    let given = given.into_iter().filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
-    }));
+    });
+    // On Windows and Linux Chromium has started already, with what it was given.
+    let chromium_started = cfg!(any(target_os = "windows", target_os = "linux"));
+    let args = launch::chromium_args(given.collect(), args, chromium_started);
     let args: Vec<CString> = args
         .into_iter()
         .filter_map(|arg| CString::new(arg).ok())
