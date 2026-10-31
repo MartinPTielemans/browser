@@ -562,6 +562,56 @@ Export as Markdown…, Delete Space")\$" \
   send dismiss
   expect '^browser: menu closed$' "the Space's menu from the … didn't close"
 done
+# And with another app in front, the click on the … that makes ilo active shows the menu, as
+# Arc's does (#1090): the pointer coming in from the page, then straight to it, with the Space's
+# one tab, a white page, in Today and then pinned under the name. A click from outside goes to
+# whatever is under its point, so only CI's Macs, which nobody is using, do it.
+if [ "$(uname)" = Darwin ] && [ -n "${CI:-}" ]; then
+  cc -o "$out/click" check/click.c -framework ApplicationServices || fail "check/click.c didn't build"
+  front() {
+    osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'
+  }
+  send order
+  at=$(sed -n "/^browser: drive $step: /,\$p" "$log" | sed -n 's/^browser: frame window 1 //p' |
+    tail -1 | awk -v at="$edit_point" '{ split(at, p, " "); print $1 + p[1], $2 + p[2] }')
+  [ -n "$at" ] || fail "the driver didn't log the window's frame"
+  missed=
+  for how in today-moved today-bare pinned-moved pinned-bare; do
+    if [ $how = pinned-moved ]; then
+      send click $page_point
+      send key d cmd
+      expect '^browser: command toggle-pin via page$' "⌘D didn't pin the Space's tab"
+    fi
+    osascript -e 'tell application "Finder" to activate' > /dev/null
+    for _ in $(seq 50); do
+      [ "$(front)" = Finder ] && break
+      sleep 0.1
+    done
+    send state
+    echo "outside $how: before the click at $at, active $active, front $(front)"
+    "$out/click" $at "${how#*-}"
+    shown=
+    for _ in $(seq 30); do
+      none_since '^browser: menu shown ' || { shown=1; break; }
+      sleep 0.1
+    done
+    send state
+    sed -n "/^browser: drive $((step - 1)): /,\$p" "$log" > "$out/outside-$how.log"
+    ../tools/window-screenshot.sh "$pid" "$out/space-edit-outside-$how.png" || true
+    echo "outside $how: menu ${shown:+shown}${shown:-not shown}, active $active, front $(front)"
+    if [ -n "$shown" ]; then
+      send dismiss
+      expect '^browser: menu closed$' "the Space's menu from the … clicked from another app didn't close"
+    else
+      missed="$missed $how"
+    fi
+    osascript -e "tell application id \"$app_id\" to activate"
+  done
+  send click $page_point
+  send key d cmd
+  expect '^browser: command toggle-pin via page$' "⌘D didn't unpin the Space's tab"
+  [ -z "$missed" ] || fail "a click on the … from another app didn't show the Space's menu:$missed"
+fi
 # The same with the sidebar hidden and out over the page (#1090), whose panel is a window of its
 # own, 5 in from the browser window's top left, that the menu goes over: a tap on the …, a press
 # let go once the menu shows, and a right-click on the name. The menu stays, and the panel with it.
