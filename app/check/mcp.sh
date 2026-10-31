@@ -160,8 +160,9 @@ if [ "$driven" = 1 ]; then
   # typed it, the page filled it in as autofill does, or it's a password.
   serve
   # The page names itself once its fields and their handlers are there, which its title in the
-  # head, read before them, wouldn't say.
-  printf '%s' '<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
+  # head, read before them, wouldn't say, and it has painted (painted.js, site.sh).
+  printf '%s' '<script src="painted.js"></script>
+<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
 <label>Name <input id=typed style="position:fixed;inset:0;width:100%;height:100%"></label>
 <label>Password <input id=password type=password></label>
 <label>Email <input id=email autocomplete=email></label>
@@ -174,7 +175,7 @@ password.value = "hunter2-by-ada";
 email.value = "ada@example.com";
 typed.oninput = () => document.title = "typed";
 note.oninput = () => document.title = "noted";
-document.title = "fields";
+painted(() => document.title = "fields");
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"

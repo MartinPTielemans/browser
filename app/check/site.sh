@@ -13,6 +13,15 @@
 # to /login, which sends the browser on to welcome.html, as a site that took the login would.
 # /sign-in, with any query, asks for HTTP basic sign-in and takes ada with the password lovelace.
 mkdir "$out/site"
+# A page that a run types into once its title says so sets that title with painted(): Chromium
+# drops a key that comes before a page it loaded first shows, for up to half a second while it
+# holds the last page's picture (paint holding). A page paints once it has something to draw.
+printf '%s' 'function painted(then) {
+  new PerformanceObserver((entries, observer) => {
+    observer.disconnect();
+    then();
+  }).observe({type: "paint", buffered: true});
+}' > "$out/site/painted.js"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
 <a id=d download href="notes.txt"></a><a id=s download href="slow.bin"></a>
@@ -65,12 +74,11 @@ const say = () => document.title = "scheme " + (dark.matches ? "dark" : "light")
 say();
 dark.onchange = say;
 </script>' > "$out/site/scheme.html"
-# Its title says "login" once it has painted, since Chromium drops a key that comes before a page
-# it loaded first shows, for up to half a second (paint holding); "filled" each time Chrome fills a
-# saved password in, and "cleared" when the password filled in is edited. Chrome's preview of a
-# login its dropdown has highlighted fills it too, but only a fill the user chose gives the page its
-# value, with a change event, and then the title says "chosen".
-printf '%s' '<title>loading</title>
+# Its title says "login" once it has painted, "filled" each time Chrome fills a saved password in,
+# and "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
+# highlighted fills it too, but only a fill the user chose gives the page its value, with a change
+# event, and then the title says "chosen".
+printf '%s' '<title>loading</title><script src="painted.js"></script>
 <form method="post" action="login">
 <input id=user name=username autocomplete=username
   style="position:fixed;left:0;top:0;width:100%;height:50%;font:24px system-ui">
@@ -79,10 +87,7 @@ printf '%s' '<title>loading</title>
 <button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
 </form>
 <script>
-new PerformanceObserver((entries, observer) => {
-  observer.disconnect();
-  if (document.title == "loading") document.title = "login";
-}).observe({type: "paint", buffered: true});
+painted(() => document.title == "loading" && (document.title = "login"));
 let filled = false;
 pass.onchange = () => { if (pass.matches(":autofill") && pass.value) document.title = "chosen"; };
 setInterval(() => {
@@ -125,11 +130,13 @@ onkeydown = e => {
 </script>' > "$out/site/dialogs.html"
 # The cookie page's title says whether it finds its cookie, c, never a value, since the app logs
 # every title, and how many times the server has sent its script, which the cache keeps for an
-# hour. Another run's cookies on the site don't count. "c" in it sets the cookie.
-printf '%s' '<title>loading</title><script src="count.js"></script>
+# hour, once it has painted. Another run's cookies on the site don't count. "c" in it sets the
+# cookie.
+printf '%s' '<title>loading</title><p>c sets a cookie.</p><script src="count.js"></script>
+<script src="painted.js"></script>
 <script>
-document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
-  " cache " + count;
+painted(() => document.title = "cookie " +
+  (document.cookie.split("; ").includes("c=1") ? "c" : "none") + " cache " + count);
 onkeydown = e => {
   if (e.key == "c") {
     document.cookie = "c=1";
