@@ -2236,9 +2236,10 @@ impl Shell {
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
         // With no page, AppKit offers the window's ⌘ shortcuts to the UI's view. On Linux the keys
-        // go to the window, where nothing takes them, unless the UI has them, and the next page
-        // shown, as a window's first, has them back (#895).
-        if tab == 0 && cfg!(target_os = "linux") {
+        // go to the window, where nothing takes them, and on Windows to the hidden page that had
+        // them, unless the UI has them, and the next page shown, as a window's first, has them back
+        // (#895).
+        if tab == 0 && cfg!(any(target_os = "linux", target_os = "windows")) {
             self.browser.hold_keyboard_for_page(cx);
         }
         // The command bar open over the Space before lists this one's tabs and suggestions now, so
