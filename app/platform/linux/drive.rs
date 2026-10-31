@@ -92,6 +92,11 @@ pub fn start() {
             let n = number;
             idle(Box::new(move || {
                 log!("browser: drive {n}: {line}");
+                // It's done once the title has come, which it reports itself.
+                if let Some(text) = line.strip_prefix("title ").filter(|text| !text.is_empty()) {
+                    await_key_title(n, text.to_owned(), 100);
+                    return;
+                }
                 if !run(&line) {
                     log!("browser: drive {n}: can't do that");
                 }
@@ -1098,6 +1103,48 @@ fn chromium_focus() -> Option<xproto::Window> {
     }
 }
 
+/// The title of the window with the keyboard.
+fn key_title() -> Option<String> {
+    Some(match keyboard_window() {
+        Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
+            text_property(window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A dialog of Chromium's in it is an aura window, which the X server has no title for, so
+        // the core gives it.
+        Some(Keyboard::Browser(browser, _))
+            if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
+        {
+            let length = unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
+            let mut title = vec![0u8; length + 1];
+            let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
+            unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
+            title.truncate(length);
+            String::from_utf8_lossy(&title).into_owned()
+        }
+        Some(Keyboard::Browser(browser, _)) => {
+            text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A window of Chromium's own, such as the Task Manager.
+        None => focus_title()?,
+    })
+}
+
+/// Logs the title of the window with the keyboard once it has `text` in it, as a window that takes
+/// the keyboard a moment after a command does, for up to 10 s as drive.mm's AwaitKeyTitle, then
+/// reports command `n` done.
+fn await_key_title(n: u64, text: String, tries: u32) {
+    let title = key_title().unwrap_or_default();
+    if title.contains(&text) {
+        log!("browser: key window titled {title}");
+    } else if tries > 0 {
+        after(100, Box::new(move || await_key_title(n, text, tries - 1)));
+        return;
+    } else {
+        log!("browser: no key window titled {text}, the key window's is {title}");
+    }
+    settle(n);
+}
+
 /// The title of the window with the input focus, or of the first window it's in that has one.
 fn focus_title() -> Option<String> {
     let x = server()?;
@@ -1652,14 +1699,29 @@ fn run_command(line: &str) -> Option<()> {
             let (x, y) = point(&mut words)?;
             motion(target_at(x, y)?, none)
         }
-        // A notch of the wheel for each event, down for content moving up.
+        // Each event moves the content up by <dy> points, as drive.mm's trackpad events do.
         "scroll" => {
             let (x, y) = point(&mut words)?;
             let dy: f64 = words.next()?.parse().ok()?;
             let count: usize = words.next()?.parse().ok()?;
             let at = target_at(x, y)?;
+            // A page, Chromium's, scrolls a notch of the wheel an event, the notches alone: with a
+            // move before them, the window run's page stopped short of its 3000 points under Xvfb.
+            if at.window == driven()?.window {
+                for _ in 0..count.max(1) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
+                return Some(());
+            }
+            // GPUI's windows scroll by the points asked, as the Mac's trackpad events do, where a
+            // wheel's notch moves three lines.
+            motion(at, none)?;
+            let logical = |each: i16| px((f64::from(each) / scale()) as f32);
+            let position = gpui::point(logical(at.x), logical(at.y));
             for _ in 0..count.max(1) {
-                click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                if !gpui_linux::drive_scroll(at.window, position, px(dy as f32)) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
             }
             Some(())
         }
@@ -1840,29 +1902,7 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let title = match keyboard_window() {
-                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
-                    text_property(window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A dialog of Chromium's in it is an aura window, which the X server has no title
-                // for, so the core gives it.
-                Some(Keyboard::Browser(browser, _))
-                    if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
-                {
-                    let length =
-                        unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
-                    let mut title = vec![0u8; length + 1];
-                    let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
-                    unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
-                    title.truncate(length);
-                    String::from_utf8_lossy(&title).into_owned()
-                }
-                Some(Keyboard::Browser(browser, _)) => {
-                    text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A window of Chromium's own, such as the Task Manager.
-                None => focus_title()?,
-            };
+            let title = key_title()?;
             log!("browser: key window titled {title}");
             Some(())
         }
