@@ -458,6 +458,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Chrome: cookies | MVP | not imported: no other browser's cookies or passwords are decrypted, and the user signs in again | #453 |
 | [x] | Firefox, Zen, LibreWolf: bookmarks, history | MVP | ours: as Chrome's family's, from `places.sqlite` | ours |
 | [x] | Safari: bookmarks, Reading List, history | MVP | ours: as Chrome's family's, the Reading List as a folder | ours |
+| [x] | A bookmarks file, from any browser | MVP | ours: the Netscape HTML every browser exports, as a browser's own bookmarks come; `cargo test` and `./check.sh import`'s `import-bookmarks.png` | #453 |
 | [ ] | Chrome: extensions | MVP | listed with store links, not installed. Built for Chrome's family and Arc, from each profile's `Extensions` folder, and checked by `cargo test`. To tick: an extension in the import run's made-up Chrome, and a capture of the list | P§20 |
 | [ ] | Extensions keep their pins | MVP | one pinned in the other browser is pinned once it's added from the list (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a run that adds one from the store | Arc help |
 | [ ] | Another ad blocker | MVP | left off the extension list, as uBlock Origin is built in, said once with Add Anyway (owner, 2026-10-29). Built, and checked by `cargo test`; to tick: a capture of the line | Arc help |
