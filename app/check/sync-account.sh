@@ -30,7 +30,8 @@ import socket
 s = socket.socket()
 s.bind(("127.0.0.1", 0))
 print(s.getsockname()[1])')
-server_url="http://127.0.0.1:$server_port"
+# localhost, as passkeys, which the server offers, take no address for their origin.
+server_url="http://localhost:$server_port"
 # helper, so cleanup stops it after a failure.
 DEV_MODE=1 HOST=127.0.0.1 PORT=$server_port PUBLIC_URL=$server_url NO_COLOR=1 \
   DATABASE_URL="sqlite:$db?mode=rwc" "$ILO_SERVER" > "$server_log" 2>&1 3>&- &

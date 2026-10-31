@@ -255,7 +255,7 @@ send key , cmd
 expect '^browser: settings shown Advanced$' "⌘, didn't show Settings on its Advanced tab"
 send clickkey 592 168
 expect '^browser: link previews on$' "a click on the link previews switch didn't turn them on"
-send clickkey 162 60
+send clickkey $(drawn "tab Links")
 expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
 send clickkey 76 173
 expect '^browser: link rule 0 field has the keyboard$' "+ didn't give the new rule's field the keyboard"
