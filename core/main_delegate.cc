@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -14,7 +16,10 @@
 #include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/scoped_multi_source_observation.h"
+#include "base/scoped_observation.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "browser_core/ad_block.h"
 #include "browser_core/agent_autofill.h"
 #include "browser_core/auto_archive.h"
@@ -43,13 +48,18 @@
 #include "browser_core/widevine.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/lifetime/termination_notification.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager_observer.h"
+#include "chrome/browser/profiles/profile_observer.h"
 #include "chrome/browser/ui/startup/startup_tab.h"
 #include "chrome/browser/ui/startup/startup_tab_provider.h"
 #include "chrome/common/chrome_content_client.h"
@@ -136,8 +146,13 @@ base::FilePath FindNativeHost(const std::string& name) {
 }
 
 // Keeps the browser process up while it has no windows, which Chrome would otherwise quit at, and
-// tells the app when it can call in and when it has to stop.
-class ExtraParts : public ChromeBrowserMainExtraParts {
+// tells the app when it can call in and when it has to stop. After that it logs the stages of
+// Chrome's teardown as each starts, with the time since the stop, so a slow quit says which it
+// was in (#959): the profiles, Chrome's known hang on the Mac, then the threads and their
+// blocking tasks.
+class ExtraParts : public ChromeBrowserMainExtraParts,
+                   public ProfileManagerObserver,
+                   public ProfileObserver {
  public:
   // Chrome has just set its crash keys again, with the switches about:flags added.
   void PreCreateThreads() override { crash_reports::LeaveOutFolders(); }
@@ -190,18 +205,79 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
     if (g_host.stopping) {
       g_host.stopping(g_host.context);
     }
+    stopped_ = base::TimeTicks::Now();
+    ProfileManager* manager = g_browser_process->profile_manager();
+    if (!manager) {
+      return;
+    }
+    manager_observation_.Observe(manager);
+    for (Profile* profile : manager->GetLoadedProfiles()) {
+      profile_observations_.AddObservation(profile);
+      for (Profile* off_the_record : profile->GetAllOffTheRecordProfiles()) {
+        profile_observations_.AddObservation(off_the_record);
+      }
+    }
+  }
+
+  // Every thread has stopped, the thread pool's blocking tasks done; then Chrome lets go of the
+  // browser process and returns to the app. Not after a start that never ran the loop.
+  void PostDestroyThreads() override {
+    if (!stopped_.is_null()) {
+      LogStage("threads stopped");
+    }
+  }
+
+  void OnProfileManagerDestroying() override {
+    LogStage("profiles going");
+    manager_observation_.Reset();
+  }
+
+  void OnProfileWillBeDestroyed(Profile* profile) override {
+    std::string name = profile->GetBaseName().AsUTF8Unsafe();
+    LogStage("profile " + name + (profile->IsOffTheRecord() ? " private" : "") + " going");
+    profile_observations_.RemoveObservation(profile);
   }
 
  private:
+  void LogStage(const std::string& stage) {
+    fprintf(stderr, "browser: quit: %s at %lld ms\n", stage.c_str(),
+            static_cast<long long>((base::TimeTicks::Now() - stopped_).InMilliseconds()));
+  }
+
   void OnAppTerminating() {
+    // check.sh reads this line. It names the way a quit came, whatever started it: the app's
+    // own (bc_quit) logs its reason before this, and the system's Apple Event on the Mac too.
+    fprintf(stderr, "browser: terminating, %s\n",
+            ShutdownName(browser_shutdown::GetShutdownType()));
     keep_alive_.reset();
     // A remote-debugging switch, with the window Chrome doesn't open at startup, has Chrome hold
     // the browser up until a client closes it over the protocol, so the user's quit never ended.
     ChromeDevToolsManagerDelegate::AllowBrowserToClose();
   }
 
+  static const char* ShutdownName(browser_shutdown::ShutdownType type) {
+    switch (type) {
+      case browser_shutdown::ShutdownType::kNotValid:
+        return "no shutdown type";
+      case browser_shutdown::ShutdownType::kWindowClose:
+        return "the last window closed";
+      case browser_shutdown::ShutdownType::kBrowserExit:
+        return "an exit asked for";
+      case browser_shutdown::ShutdownType::kEndSession:
+        return "the session ending";
+      case browser_shutdown::ShutdownType::kSilentExit:
+        return "a silent exit";
+      case browser_shutdown::ShutdownType::kOtherExit:
+        return "another exit";
+    }
+    return "an unknown shutdown type";
+  }
+
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
   base::CallbackListSubscription app_terminating_;
+  base::TimeTicks stopped_;
+  base::ScopedObservation<ProfileManager, ProfileManagerObserver> manager_observation_{this};
+  base::ScopedMultiSourceObservation<Profile, ProfileObserver> profile_observations_{this};
 };
 
 class ContentBrowserClient : public ChromeContentBrowserClient {
@@ -303,7 +379,16 @@ int Run(int argc, const char** argv, const bc_host& host) {
   return 1;
 #else
   Install(host);
-  return ChromeMain(argc, argv);
+  // Only the browser's process logs its end: a helper's has a type.
+  const bool browser = std::none_of(argv, argv + argc, [](const char* arg) {
+    return std::string_view(arg).starts_with("--type=");
+  });
+  const int status = ChromeMain(argc, argv);
+  if (browser) {
+    // check.sh reads this line, the last the browser logs as it ends cleanly.
+    fprintf(stderr, "browser: exited with status %d\n", status);
+  }
+  return status;
 #endif
 }
 

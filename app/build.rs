@@ -110,6 +110,8 @@ fn main() {
             println!("cargo:rustc-link-arg-bin=Browser={arg}");
         }
         println!("cargo:rustc-link-lib=framework=Cocoa");
+        // The Apple Event Manager's C calls, for the quit Apple Event's sender (host.mm).
+        println!("cargo:rustc-link-lib=framework=CoreServices");
         println!("cargo:rustc-link-lib=framework=Security");
         println!("cargo:rustc-link-lib=framework=CoreText");
         println!("cargo:rustc-link-lib=framework=ImageIO");

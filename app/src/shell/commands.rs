@@ -17,7 +17,7 @@ use crate::build_info::{self, BuildInfo};
 use super::{
     COPIED_TIME, Edit, MAX_PANES, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
+    agent_bar, clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
     panes::pane_frames,
     trace,
     swap::{CHECK, LINK},
@@ -886,6 +886,7 @@ pub fn bind_keys(cx: &mut App) {
         }
     });
     extensions::bind(cx);
+    agent_bar::bind(cx);
     drm_note::bind(cx);
     sidebar_keys::bind(cx);
 }

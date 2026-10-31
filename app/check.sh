@@ -26,12 +26,13 @@
 # runs from build/Browser. The runs need what the Windows driver (platform/windows/drive.cc) does
 # so far: load, tabs, dialogs and crash.
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
-# Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
-# windows and input then never reach the owner's session. Of the runs, load and history pass
-# there so far; the others stop where they need what Linux hasn't yet, such as Japanese input in a
-# page (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
-# the driver says it can't do. Captures are the session's whole output.
-# BROWSER_XVFB=1 runs it under Xvfb and openbox instead, which CI has.
+# Xwayland, and the app's windows and input then never reach the owner's session. Of the runs,
+# load and history pass there so far; the others stop where they need what Linux hasn't yet, such
+# as Japanese input in a page (keys), ilo's menu over the command bar (tabs) and IME (spaces),
+# which the driver says it can't do. Captures are the session's whole output.
+# BROWSER_XVFB=1 runs it under Xvfb and openbox instead, which CI has. BROWSER_WAYLAND=1 runs it
+# on the sway session's Wayland, where the driver's input is sway's virtual pointer and keyboard
+# (platform/linux/drive_wayland.rs), which it refuses outside that session.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 # Each run starts a new profile, which would play the onboarding first. Only its own run plays it.
@@ -58,6 +59,9 @@ if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
       xdotool mousemove 1279 799
       exec env BROWSER_HEADLESS=xvfb ./check.sh "$@"' sh "$@"
   fi
+  [ -z "${BROWSER_WAYLAND:-}" ] || exec ../tools/headless.sh --run ./check.sh "$@"
+  # Focus steps can fail here, as wlroots' Xwayland window manager hands the X focus back to the
+  # browser window (#851), so Xvfb on CI is the reference for focus.
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
@@ -75,6 +79,12 @@ out=build/check
 windows() {
   case "$(uname)" in MINGW* | MSYS*) return 0 ;; esac
   return 1
+}
+# The absolute path $1, as chrome.exe takes it in a switch's value. Git Bash converts the path a
+# value starts with, not the others in a list such as --load-extension's, and Chrome on Windows
+# resolves a relative path against its own folder, not the directory it started in (#997).
+app_path() {
+  if windows; then cygpath -m "$1"; else printf '%s\n' "$1"; fi
 }
 # The app, what runs it, the pattern that finds its processes, Chromium's helpers too, and its dev
 # profile.

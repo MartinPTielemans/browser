@@ -75,6 +75,9 @@ void ShowPages(views::Widget* widget,
 // it, and on Windows so far, it does nothing.
 void HoldPagesForResize(views::Widget* widget);
 
+// Whether |widget|'s pages are held for a resize (HoldPagesForResize) that ShowPages hasn't ended.
+bool PagesHeldForResize(views::Widget* widget);
+
 // Hides the pages shown, their DevTools and the side panel, in place, for a window out of sight, so
 // Chromium counts them hidden. ShowPages shows them again.
 void HidePages(views::Widget* widget);
@@ -89,6 +92,10 @@ void ShowPageIn(views::Widget* widget,
                 void* view,
                 const gfx::Rect& frame,
                 double corner_radius);
+
+// Whether a page's dialog, such as Chrome's passkey dialog, needs a native window of its own to
+// show over the pages, rather than being drawn in the window's own.
+bool PageDialogsInOwnWindow();
 
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools or the side

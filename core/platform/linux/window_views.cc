@@ -41,6 +41,7 @@
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/gfx/x/atom_cache.h"
 #include "ui/gfx/x/connection.h"
 #include "ui/gfx/x/event.h"
 #include "ui/gfx/x/event_observer.h"
@@ -229,6 +230,7 @@ class WindowViews : public views::WidgetObserver,
   Slot& preview() { return preview_; }
   FocusRing& ring() { return ring_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  bool held() const { return held_; }
   void set_held(bool held) { held_ = held; }
   void set_preview_color(SkColor4f color) { preview_color_ = color; }
   UITextInput& ui_text_input() { return ui_text_input_; }
@@ -615,8 +617,33 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // On X11 GPUI hears only the keys sent to its own windows, so ⌥ pressed and let go alone while
+  // the page has the keyboard is told from here, as GPUI tells the UI's (host_watch_option_taps).
+  // Under Wayland GPUI hears the page's keys too.
+  void WatchOptionTap(const ui::KeyEvent& event) {
+    const bool option = event.key_code() == ui::VKEY_MENU;
+    const int others = ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN;
+    if (event.type() == ui::EventType::kKeyPressed) {
+      option_alone_ = option && !(event.flags() & others);
+      return;
+    }
+    if (!option || !std::exchange(option_alone_, false) || !Host().window_option_tapped) {
+      return;
+    }
+    for (Window* window : Window::All()) {
+      if (window->widget() == widget_) {
+        Host().window_option_tapped(Host().context, window->id());
+      }
+    }
+  }
+
   // ui::EventHandler, before the window's views and pages get the event:
+  void OnScrollEvent(ui::ScrollEvent* event) override { option_alone_ = false; }
+
   void OnKeyEvent(ui::KeyEvent* event) override {
+    if (!ui_has_keyboard_ && !overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      WatchOptionTap(*event);
+    }
     // The UI's or an overlay's, which on Wayland reach the window too.
     if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
@@ -649,6 +676,11 @@ class WindowViews : public views::WidgetObserver,
   }
 
   void OnMouseEvent(ui::MouseEvent* event) override {
+    // ⌥ held for a click or a scroll isn't a tap.
+    if (event->type() == ui::EventType::kMousePressed ||
+        event->type() == ui::EventType::kMousewheel) {
+      option_alone_ = false;
+    }
     if (event->type() != ui::EventType::kMousePressed) {
       return;
     }
@@ -663,8 +695,38 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
+  // The window manager's state for the window changed. A full screen it ended itself, by its own
+  // key, Chromium's X11 window ignores, keeping its own (X11Window::OnXWindowStateChanged), so the
+  // window leaves here, the one way every exit takes (Window::LeaveFullScreen).
+  void WindowManagerStateChanged() {
+    std::vector<x11::Atom> states;
+    x11::Connection::Get()->GetArrayProperty(window(), x11::GetAtom("_NET_WM_STATE"), &states);
+    const bool full_screen =
+        std::ranges::contains(states, x11::GetAtom("_NET_WM_STATE_FULLSCREEN"));
+    // Only once the window manager has had it full screen: until it takes Chromium's request, the
+    // window's state lacks it.
+    const bool ended = window_manager_full_screen_ && !full_screen;
+    window_manager_full_screen_ = full_screen;
+    if (!ended || !widget_->IsFullscreen()) {
+      return;
+    }
+    for (Window* each : Window::All()) {
+      if (each->widget() == widget_) {
+        // Its resize runs the app, which may close the window, and this with it.
+        each->LeaveFullScreen();
+        return;
+      }
+    }
+  }
+
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
+    if (auto* property = event.As<x11::PropertyNotifyEvent>()) {
+      if (property->window == window() && property->atom == x11::GetAtom("_NET_WM_STATE")) {
+        WindowManagerStateChanged();
+      }
+      return;
+    }
     if (auto* focus = event.As<x11::FocusEvent>()) {
       if (focus->opcode == x11::FocusEvent::Out) {
         SendEarlyKeys();
@@ -809,6 +871,8 @@ class WindowViews : public views::WidgetObserver,
   double corner_radius_ = 0;
   // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
   bool held_ = false;
+  // Whether the window manager's state for the window last said full screen.
+  bool window_manager_full_screen_ = false;
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
   // The UI has the keyboard while no page shows, for the next page shown (KeyboardForPage).
@@ -821,6 +885,8 @@ class WindowViews : public views::WidgetObserver,
   // Whether the core took the input focus back down to the UI's window since the focus last left or
   // entered the window.
   bool retook_ = false;
+  // ⌥ is down with no other key or click since it went down, while the page has the keyboard.
+  bool option_alone_ = false;
   x11::Window ui_main_ = x11::Window::None;
   // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
   UITextInput ui_text_input_;
@@ -999,6 +1065,11 @@ void HoldPagesForResize(views::Widget* widget) {
   }
 }
 
+bool PagesHeldForResize(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  return views && views->held();
+}
+
 void HidePages(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   if (!views) {
@@ -1048,6 +1119,11 @@ std::optional<gfx::Rect> FocusRingFrame(views::Widget* widget) {
     }
   }
   return std::nullopt;
+}
+
+bool PageDialogsInOwnWindow() {
+  // Chrome's default, which hasn't been looked at here.
+  return false;
 }
 
 bool KeyboardForPage(views::Widget* widget) {
@@ -1140,6 +1216,26 @@ bool KeyboardInChild(views::Widget* widget) {
   aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
   aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
   return focused && focused != widget->GetNativeView() && !views->InSlot(focused);
+}
+
+std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || views->ui_has_keyboard()) {
+    return std::nullopt;
+  }
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+  if (!focused) {
+    return std::nullopt;
+  }
+  // A pane's page, not the DevTools docked in it.
+  for (Slot& slot : views->panes()) {
+    if (slot.holder && slot.holder->Contains(focused) &&
+        !(slot.devtools && slot.devtools->Contains(focused))) {
+      return slot.holder->bounds();
+    }
+  }
+  return std::nullopt;
 }
 
 std::u16string ChildTitle(views::Widget* widget) {

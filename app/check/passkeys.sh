@@ -52,17 +52,34 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
   step=0
   scratch=$(mktemp -d)
   mkdir "$scratch/profile"
-  mkfifo "$scratch/to-browser" "$scratch/from-browser" "$scratch/cdp"
-  # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
-  # DevTools pipe, then cdp.py's input.
-  BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
-    "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
-    4> "$scratch/from-browser" > "$log" 2>&1 &
-  pid=$!
-  python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /passkey.html \
-    < "$scratch/cdp" > "$cdp_log" 2>&1 &
-  helper=$!
-  exec 3> "$out/drive"
+  mkfifo "$scratch/cdp"
+  if windows; then
+    # Chrome on Windows takes its DevTools pipe as handles, which Git Bash can't give it, so
+    # DevTools listens on a loopback port instead, which the browser says on its standard error. A
+    # native program can't read Git Bash's fifo, so cat passes cdp.py its commands, and the page is
+    # named without its slash, which Git Bash would make a path of Git's own.
+    BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
+      "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+    pid=$!
+    exec 3> "$out/drive"
+    await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
+    socket=$(grep -m1 '^DevTools listening on ws://' "$log" | cut -d' ' -f4 | tr -d '\r')
+    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" passkey.html \
+      > "$cdp_log" 2>&1 &
+    helper=$!
+  else
+    mkfifo "$scratch/to-browser" "$scratch/from-browser"
+    # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+    # DevTools pipe, then cdp.py's input.
+    BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
+      "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+      4> "$scratch/from-browser" > "$log" 2>&1 &
+    pid=$!
+    python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /passkey.html \
+      < "$scratch/cdp" > "$cdp_log" 2>&1 &
+    helper=$!
+    exec 3> "$out/drive"
+  fi
   exec 5> "$scratch/cdp"
   echo authenticator >&5
   await_load
@@ -135,9 +152,10 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
     grep -q '^cdp: presence 0$' "$cdp_log" || fail "cdp.py didn't stop the key's touches"
     send key s
     expect "^browser: title $tab signing in\$" "\"s\" didn't start signing in again"
-    # Chrome's dialog, a child window more than the browser window had. On Linux, Chrome draws it
-    # in its own window, which the X server doesn't see, so only escape below finds it there.
-    if [ "$(uname)" = Darwin ]; then
+    # Chrome's dialog, a child window more than the browser window had, on Windows a window it
+    # owns. On Linux, Chrome draws it in its own window, which the X server doesn't see, so only
+    # escape below finds it there.
+    if [ "$(uname)" != Linux ]; then
       for _ in $(seq 100); do
         send layout
         [ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child')" \

@@ -12,19 +12,27 @@
 
 serve
 # The import step reads the fixture's home, set for each launch so the runs after keep their own.
-# Arc has no Linux build, so there the home has a made-up Chrome, where Linux keeps it.
+# Arc has no Linux build, so there the home has a made-up Chrome where Linux keeps it, and on
+# Windows where Windows does.
 fixture="$PWD/src/import/fixture"
+import_home=$fixture
 found=Arc
 if [ "$(uname)" != Darwin ]; then
-  fixture="$out/onboarding-home"
+  # From the root, as chrome.exe moves into its own folder as it starts.
+  fixture="$PWD/$out/onboarding-home"
+  import_home=$fixture
   found=Chrome
+  chrome="$fixture/.config/google-chrome"
+  if windows; then
+    chrome="$fixture/AppData/Local/Google/Chrome/User Data"
+    import_home=$(cygpath -w "$fixture")
+  fi
   rm -rf "$fixture"
-  mkdir -p "$fixture/.config/google-chrome/Default"
-  printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' \
-    > "$fixture/.config/google-chrome/Local State"
-  printf '%s' '{}' > "$fixture/.config/google-chrome/Default/Preferences"
+  mkdir -p "$chrome/Default"
+  printf '%s' '{"profile":{"info_cache":{"Default":{"name":"Me"}}}}' > "$chrome/Local State"
+  printf '%s' '{}' > "$chrome/Default/Preferences"
   # The import lists a browser only once it has bookmarks or history to bring in.
-  printf '%s' '{"roots":{}}' > "$fixture/.config/google-chrome/Default/Bookmarks"
+  printf '%s' '{"roots":{}}' > "$chrome/Default/Bookmarks"
 fi
 # Captures the window as onboarding-$1.png.
 capture_step() {
@@ -36,7 +44,7 @@ launch_new() {
   log="$out/onboarding-$1.log"
   step=0
   rm -f "$saved"
-  BROWSER_IMPORT_HOME="$fixture" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
+  BROWSER_IMPORT_HOME="$import_home" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
     "$browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
@@ -98,12 +106,16 @@ expect '^browser: onboarding left intro via key$' "dark: a key didn't skip the i
 expect '^browser: onboarding step import settled$' "dark: the import step didn't come"
 capture_step dark-import
 # Its words and chip end 24 in from the window's right and bottom, 20 tall.
-# Linux has no window frame to log (host_window_frame), so there the driver's layout gives its size.
-frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
+# Only the Mac's window frame is its content, so elsewhere the driver's layout gives its size: Linux
+# logs no frame (host_window_frame), and Windows' takes in the title bar and borders.
+frame=
+if [ "$(uname)" = Darwin ]; then
+  frame=$(grep -m1 '^browser: window [0-9]* frame ' "$log" | cut -d' ' -f7-8)
+fi
 if [ -z "$frame" ]; then
   send layout
   frame=$(grep -m1 '^browser: layout content ' "$log" |
-    sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+    sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\).*/\1 \2/')
 fi
 width=${frame% *}
 height=${frame#* }
