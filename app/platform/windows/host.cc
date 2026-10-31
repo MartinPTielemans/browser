@@ -26,8 +26,10 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "../host.h"
@@ -536,6 +538,71 @@ double g_hud_right = 0, g_hud_top = 0;
 Floating g_drop_targets;
 Floating g_dialog;
 Floating g_site_controls;
+
+// The link preview (platform/host.h), as Linux's (link_preview_window.rs): its window, the dim and
+// the card, covers the browser window's content and never takes the keyboard. No window of the
+// app's can hold a page here either, so the core shows the page in the browser window, over its
+// pages (window_views.cc's ShowPageIn), and the overlay's region has a hole there, which the page
+// shows and takes clicks through. Its keys are the page's, and the core hands the preview the ones
+// it acts on.
+//
+// shortcut: the page doesn't scale with the card's motion, as the Mac's does, and the preview stays
+// when the user goes to another window, where the Mac's closes, both as on Linux.
+struct LinkPreview {
+  Floating floating;
+  // The browser window it covers, while it shows.
+  HWND root = nullptr;
+  // Where the page shows, device pixels from the content's top left, and its corners' diameter.
+  struct Hole {
+    RECT rect;
+    int diameter;
+    bool operator==(const Hole& other) const {
+      return EqualRect(&rect, &other.rect) && diameter == other.diameter;
+    }
+  };
+  std::optional<Hole> hole;
+  // What had the keyboard as it showed, to give back as it leaves.
+  HWND had_keyboard = nullptr;
+};
+LinkPreview g_link_preview;
+UINT_PTR const kLinkPreviewOwner = 2;
+
+// Puts the preview over all of its browser window's content, with its hole where the page shows.
+void PlaceLinkPreview() {
+  HWND hwnd = g_link_preview.floating.hwnd;
+  HWND root = g_link_preview.root;
+  if (!hwnd || !root) {
+    return;
+  }
+  RECT client{};
+  GetClientRect(root, &client);
+  POINT origin{0, 0};
+  ClientToScreen(root, &origin);
+  SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
+  HRGN region = CreateRectRgn(0, 0, client.right, client.bottom);
+  if (const auto& hole = g_link_preview.hole) {
+    HRGN page = CreateRoundRectRgn(hole->rect.left, hole->rect.top, hole->rect.right + 1,
+                                   hole->rect.bottom + 1, hole->diameter, hole->diameter);
+    CombineRgn(region, region, page, RGN_DIFF);
+    DeleteObject(page);
+  }
+  // The window owns the region from here.
+  SetWindowRgn(hwnd, region, IsWindowVisible(hwnd));
+  SetWindowPos(hwnd, HWND_TOP, origin.x, origin.y, client.right, client.bottom,
+               SWP_SHOWWINDOW | SWP_NOACTIVATE);
+}
+
+// The browser window under the preview moved or resized, which it follows, or is going.
+LRESULT CALLBACK LinkPreviewOwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
+                                      UINT_PTR, DWORD_PTR) {
+  if (message == WM_WINDOWPOSCHANGED && hwnd == g_link_preview.root) {
+    PlaceLinkPreview();
+  } else if (message == WM_DESTROY && hwnd == g_link_preview.root) {
+    host_hide_link_preview();
+  }
+  return DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
 Floating g_capture;
 Floating g_toast;
 Floating g_tooltip;
@@ -1511,19 +1578,91 @@ void host_hide_site_controls(void) {
   g_site_controls.mouse_through = false;
 }
 
-// No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
-// the tab.
-void* host_add_link_preview(void*, void (*)(void)) {
-  return nullptr;
+void* host_add_link_preview(void* view, void (*)(void)) {
+  // It never has the keyboard, which stays with the page.
+  Adopt(g_link_preview.floating, view, false, nullptr);
+  SetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE,
+                    GetWindowLongPtrW(g_link_preview.floating.hwnd, GWL_EXSTYLE) |
+                        WS_EX_NOACTIVATE);
+  // The core shows the page in the browser window, under this one, and only needs to know there's
+  // a view it goes with.
+  return view;
 }
 
-void host_show_link_preview(void*) {}
+void host_show_link_preview(void* ui_view) {
+  HWND root = Root(ui_view);
+  if (!g_link_preview.floating.hwnd || !root) {
+    return;
+  }
+  if (g_link_preview.root && g_link_preview.root != root) {
+    host_hide_link_preview();
+  }
+  if (g_link_preview.root != root) {
+    SetWindowSubclass(root, LinkPreviewOwnerProc, kLinkPreviewOwner, 0);
+  }
+  g_link_preview.root = root;
+  g_link_preview.had_keyboard = GetFocus();
+  // All of it until its first frame says where the page is.
+  g_link_preview.hole.reset();
+  g_link_preview.floating.mouse_through = false;
+  PlaceLinkPreview();
+  // check.sh reads this line.
+  fprintf(stderr, "browser: link preview shown\n");
+}
 
-void host_link_preview_drew(double, double, double, double, double, double) {}
+void host_link_preview_drew(double left,
+                            double top,
+                            double width,
+                            double height,
+                            double radius,
+                            double) {
+  if (!g_link_preview.root) {
+    return;
+  }
+  std::optional<LinkPreview::Hole> hole;
+  if (width >= 1 && height >= 1) {
+    const double scale = Scale(g_link_preview.root);
+    radius = (std::min)({radius, width / 2, height / 2});
+    hole = LinkPreview::Hole{
+        RECT{static_cast<LONG>(std::lround(left * scale)),
+             static_cast<LONG>(std::lround(top * scale)),
+             static_cast<LONG>(std::lround((left + width) * scale)),
+             static_cast<LONG>(std::lround((top + height) * scale))},
+        static_cast<int>(std::lround(2 * radius * scale))};
+  }
+  if (!(hole == g_link_preview.hole)) {
+    g_link_preview.hole = hole;
+    PlaceLinkPreview();
+  }
+}
 
-void host_release_link_preview(void) {}
+void host_release_link_preview(void) {
+  if (!g_link_preview.root || g_link_preview.floating.mouse_through) {
+    return;
+  }
+  g_link_preview.floating.mouse_through = true;
+  // The window's page has the keyboard back from the preview's.
+  HWND had = std::exchange(g_link_preview.had_keyboard, nullptr);
+  if (had && IsWindow(had) && IsChild(g_link_preview.root, had)) {
+    SetFocus(had);
+  }
+  // check.sh reads this line.
+  fprintf(stderr, "browser: link preview released\n");
+}
 
-void host_hide_link_preview(void) {}
+void host_hide_link_preview(void) {
+  host_release_link_preview();
+  if (!g_link_preview.root) {
+    return;
+  }
+  RemoveWindowSubclass(g_link_preview.root, LinkPreviewOwnerProc, kLinkPreviewOwner);
+  g_link_preview.root = nullptr;
+  g_link_preview.hole.reset();
+  Hide(g_link_preview.floating);
+  g_link_preview.floating.mouse_through = false;
+  // check.sh reads this line.
+  fprintf(stderr, "browser: link preview hidden\n");
+}
 
 void host_add_capture(void* view, void (*dismissed)(void)) {
   Adopt(g_capture, view, false, dismissed);

@@ -102,7 +102,8 @@ check_buttons() {
   buttons=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout buttons' |
     cut -d' ' -f4-)
   expected="20.0,24.0 43.0,24.0 66.0,24.0"
-  [ "${2:-}" = hidden ] && expected="hidden hidden hidden"
+  # On Windows they're the system's, in its own title bar (platform/windows/drive.cc).
+  { [ "${2:-}" = hidden ] || windows; } && expected="hidden hidden hidden"
   [ "$buttons" = "$expected" ] || fail "$1: the window's buttons are at $buttons, not $expected"
 }
 # Waits for a page's full screen $1 (enter or exit) to end in the window and the UI to have placed
@@ -249,7 +250,7 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 # The footer is at the screen's bottom in full screen, so the +'s menu flips up over the pointer.
 post click 204 $((height - 25))
-expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View')\$" "the footer's + in full screen showed no menu"
+expect "^browser: menu shown $(cased 'New Space…, New Folder…, New Split View, New Note')\$" "the footer's + in full screen showed no menu"
 expect '^browser: menu window at ' "the +'s menu in full screen didn't open its window"
 top=$(grep '^browser: menu window at' "$log" | tail -1 | cut -d' ' -f5 | cut -d, -f2)
 [ "$top" -lt $((height - 65)) ] ||
