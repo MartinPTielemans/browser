@@ -669,7 +669,9 @@ send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-send clickkey 592 209
+# Where Settings drew the switch, as the Mini Player's row above it moves it.
+at=$(drawn "switch restore windows") || fail "Restore windows from last session has no switch"
+send clickkey $at
 expect '^browser: restore windows off$' \
   "a click on Restore windows from last session didn't turn it off"
 send key w cmd
