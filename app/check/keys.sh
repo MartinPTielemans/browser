@@ -677,8 +677,11 @@ expect '^browser: settings shown Shortcuts$' \
 send clickkey 300 120
 send key a cmd
 send type include favorites
-expect '^browser: shortcuts search "include favorites" finds Include Favorites in ⌘1–⌘8$' \
-  "the search didn't find Include Favorites in ⌘1–⌘8"
+# The row names the keys as its OS does, Ctrl+1–Ctrl+8 off the Mac.
+numbered='⌘1–⌘8'
+[ "$(uname)" = Darwin ] || numbered='Ctrl+1–Ctrl+8'
+expect "^browser: shortcuts search \"include favorites\" finds Include Favorites in $numbered\$" \
+  "the search didn't find Include Favorites in $numbered"
 at=$(drawn "switch favorites numbered") || fail "Include Favorites has no switch"
 send clickkey $at
 expect '^browser: favorites numbered off$' "a click on Include Favorites didn't turn it off"
