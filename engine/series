@@ -20,6 +20,7 @@ ours/chromium-extensions-web-store.patch
 ours/chromium-core-password-prompt.patch
 ours/chromium-rust-std-component-link.patch
 ours/chromium-prefs-passwords-autofill-on.patch
+ours/chromium-passwords-generation-this-device.patch
 ours/chromium-search-default-duckduckgo.patch
 ours/chromium-core-sad-tab.patch
 ours/chromium-os-crypt-keychain-name.patch

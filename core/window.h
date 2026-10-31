@@ -104,11 +104,14 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // pane to the app's card under it.
   static void LayOutShowing(bc_id tab);
   // Has each window showing |tab| show its page's view, which went from one engine's to the
-  // other's (Tab::PageViewOf).
+  // other's (Tab::PageViewOf), or to a new renderer's after Reload ended a hung one.
   static void PageViewChanged(bc_id tab);
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);
+  // |tab|'s page committed in a new view: each window showing it gives that view the keyboard, if
+  // the page had it.
+  static void PageCommittedInNewView(bc_id tab);
   // Chrome's navigator calls this before it picks the Browser for a navigation.
   static void AdjustNavigate(NavigateParams& params);
   // From Chrome's DevTools: whether |browser|'s window docks them, as the core's windows do, and
@@ -334,7 +337,6 @@ class Window : public web_modal::WebContentsModalDialogHost,
   class ClientView;
   struct Held {
     raw_ptr<BrowserWindowInterface> browser;
-    base::CallbackListSubscription close_cancelled;
   };
   // A tab Clear closed, and its place in Today before.
   struct Cleared {
@@ -389,6 +391,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void Pick(bc_id tab);
   // Shows next_after_closing_, as the tab shown has closed.
   void SelectAfterClosing();
+  // Chrome stopped a close or a quit (|closing| false): the window stays if its Browsers did.
+  void OnCloseStopped(bool closing);
   // Shows no page, as for a Space without tabs.
   void ShowNothing();
   // Puts the pages shown, and their docked DevTools if they have them, at the page frame, side by
@@ -442,6 +446,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
+  // While closing, for a page's Stay or the downloads question, which keeps the window open.
+  base::CallbackListSubscription close_stopped_;
   bool off_the_record_ = false;
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;
