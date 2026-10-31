@@ -6192,7 +6192,12 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         format!("--user-data-dir={profile}"),
         // Chrome would copy the app bundle to check its signature against, which an
         // ad-hoc-signed build doesn't need.
-        "--disable-features=MacAppCodeSignClone".into(),
+        // Diagnostic for #1050: whether Chromium's bubbles as platform windows raise the window.
+        if cfg!(target_os = "linux") {
+            "--disable-features=MacAppCodeSignClone,OzoneBubblesUsePlatformWidgets".into()
+        } else {
+            "--disable-features=MacAppCodeSignClone".into()
+        },
         // An idle browser shouldn't wake: Chrome's stack sampling feeds metrics nobody receives,
         // and the allocator's memory reclaim backs off from every 4 s while there's little to give
         // back.
