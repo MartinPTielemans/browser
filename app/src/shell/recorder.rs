@@ -224,6 +224,15 @@ impl Recorder {
         answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
     }
 
+    /// Chooses the last item titled `title`, for a title that's in two submenus.
+    pub(super) fn choose_last(&self, title: &str, cx: &mut App) {
+        let at = self.menus.borrow().last().and_then(|items| {
+            items.iter().rposition(|(each, enabled)| each.as_ref() == title && *enabled)
+        });
+        let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
+        answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
+    }
+
     /// Closes the last menu without a choice, as Escape or a click outside it does.
     pub(super) fn dismiss(&self, cx: &mut App) {
         let answer = self.answer.borrow_mut().take().expect("a menu to close");

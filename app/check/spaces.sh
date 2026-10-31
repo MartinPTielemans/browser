@@ -11,7 +11,7 @@
 # was made from; fingers going on rubber-band the form. A right-click on the Space's name, a
 # dot or its card in the Library shows Rename Space, Change Icon…, Edit Theme Color… and Delete
 # Space, and Remove Theme Color once the Space has a colour, and one on the sidebar's empty space
-# shows New Tab before them; an emoji committed after Change Icon…
+# shows New Tab and New Folder… before them; an emoji committed after Change Icon…
 # is the Space's icon, in its dot's place, until Remove Icon. Rename, the Spaces
 # menu's too, and a double-click on the name, turn it into a field, where a right-click shows the
 # field's menu, return keeps the name and escape cancels. A Library card's brush opens the theme
@@ -403,14 +403,14 @@ library_to "wheel $swipe_point -1" wheel hidden
 
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
 post rightclick $(row 0)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1 (checked), Move to › reading 日本語, Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" "the tab's menu didn't offer the other Space"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › Space 1 (checked), Move to › reading 日本語, Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)")\$" "the tab's menu didn't offer the other Space"
 send choose reading 日本語
 expect '^browser: command move-to-space via tab menu$' "Move to didn't run"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to didn't show the tab's new Space"
 expect_tabs "$a $b" "$a" "after Move to"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 post rightclick $(row 0)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1, Move to › reading 日本語 (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "the moved tab's menu didn't offer the first Space"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › Space 1, Move to › reading 日本語 (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "the moved tab's menu didn't offer the first Space"
 send choose Space 1
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
 expect_tabs "$a" "$a" "after moving the tab back"
@@ -543,11 +543,11 @@ show_space "key 1 ctrl" select-space ui "$first" "$a"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 
 # A right-click on the sidebar's empty space, three rows under the Space's one Today row, shows
-# New Tab and the Space's menu, and New Tab opens the command bar, as ⌘T does.
+# New Tab, New Folder… and the Space's menu, and New Tab opens the command bar, as ⌘T does.
 post rightclick $(row 3)
-expect "^browser: menu shown $(cased "New Tab, Rename Space, Change Icon…, $colors, $profile, \
+expect "^browser: menu shown $(cased "New Tab, New Folder…, Rename Space, Change Icon…, $colors, $profile, \
 Export as Markdown…, Delete Space")\$" \
-  "a right-click under the Space's rows didn't show New Tab and the Space's menu"
+  "a right-click under the Space's rows didn't show New Tab, New Folder… and the Space's menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-empty-menu.png" || fail "no window to capture"
 send choose "$(cased 'New Tab')"
 expect '^browser: command new-tab via sidebar$' "New Tab in the empty space's menu didn't run new-tab"
