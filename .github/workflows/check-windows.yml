@@ -137,6 +137,11 @@ jobs:
               # By the app's path, never by image name, which would reach any other Chrome. Before
               # the move, as Windows won't move a folder a process still has a file open in.
               pkill -9 -f "$(cygpath -m "$PWD/build/Browser")/" || true
+              # Gone, so the next run doesn't find it still running.
+              for _ in $(seq 20); do
+                pgrep -f "$(cygpath -m "$PWD/build/Browser")/" > /dev/null || break
+                sleep 0.5
+              done
               if [ -d build/check ] && ! mv build/check "$out/$run"; then
                 cp -r build/check "$out/$run" || true
                 rm -rf build/check || true
