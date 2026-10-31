@@ -475,7 +475,7 @@ expect "^browser: outline $f+\\[$c\\] $g+\\[\\]\$" \
 send type read
 send key return
 expect "^browser: renamed folder $g read\$" "the folder from the empty space didn't take its name"
-settled
+# A name moves no row, so there's nothing to wait for.
 # A tab's menu has Add to Folder ›: New Folder, then the Space's folders. A folder takes the tab at
 # its bottom.
 post rightclick $(pinned_row 1)
