@@ -99,7 +99,7 @@ setInterval(() => {
 }, 100);
 </script>' > "$out/site/login.html"
 # A sign-up form, laid out as the login is, whose password field asks for a new password. Its title
-# says "signup" once it's drawn, "offered" while Chrome's popup previews a password in that field,
+# says "signup" once it has painted, "offered" while Chrome's popup previews a password in that field,
 # "own" once the preview goes with the field left empty, as Choose Your Own leaves it, and
 # "generated" once the field holds a password as long as Chrome's, 15 characters.
 printf '%s' '<title>loading</title>
@@ -110,9 +110,10 @@ printf '%s' '<title>loading</title>
   style="position:fixed;left:0;top:50%;width:100%;height:50%;font:24px system-ui">
 <button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
 </form>
+<script src="painted.js"></script>
 <script>
 let state = "loading";
-requestAnimationFrame(() => setTimeout(() => document.title = state = "signup"));
+painted(() => state == "loading" && (document.title = state = "signup"));
 setInterval(() => {
   const now = pass.value.length >= 15 ? "generated" : pass.matches(":autofill") ? "offered" :
     state == "offered" ? "own" : state;
