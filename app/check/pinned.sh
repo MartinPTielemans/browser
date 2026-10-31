@@ -641,6 +641,7 @@ expect '^browser: settings shown General$' "⌘, didn't show Settings on its Gen
 expect '^browser: settings drew General$' "Settings didn't draw General"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 # On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other four.
 case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
 send clickkey 575 $((302 + option_row))

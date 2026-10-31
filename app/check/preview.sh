@@ -227,6 +227,7 @@ expect '^browser: settings shown General$' "⌘, didn't show Settings on its Gen
 expect '^browser: settings drew General$' "Settings didn't draw General"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+settings_drew Advanced
 expect '^browser: settings switch link previews at ' "Advanced didn't draw the link previews switch"
 # Its switch is the row under the haptics', as General's rows are 42 apart.
 send clickkey 592 168
@@ -261,6 +262,7 @@ send clickkey 592 168
 expect '^browser: link previews on$' "a click on the link previews switch didn't turn them on"
 send clickkey 162 60
 expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
+settings_drew Links
 expect '^browser: link rules drawn ' "the Links tab didn't draw its rules"
 send clickkey 76 173
 expect '^browser: link rule 0 field has the keyboard$' "+ didn't give the new rule's field the keyboard"

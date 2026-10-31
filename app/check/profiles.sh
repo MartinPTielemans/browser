@@ -267,6 +267,7 @@ elsewhere_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')elsewhere.html"
 tile="114 110"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show Settings on its General tab"
+settings_drew General
 post clickkey 500 250
 expect "^browser: menu shown $(cased "In Every Space, In Each Profile's Spaces (checked), In Each Space")\$" \
   "a click on Favorites didn't show the choices"
@@ -318,6 +319,7 @@ expect "^browser: title $twin cookie none\$" \
 # closed, the second Space has only its tab again.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 post clickkey 500 250
 expect "^browser: menu shown $(cased "In Every Space (checked), In Each Profile's Spaces, In Each Space")\$" \
   "a click on Favorites didn't show In Every Space chosen"
@@ -355,8 +357,10 @@ expect "^browser: today $d\$" "⌘W didn't close Clear browsing data: Today is \
 # run named.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
+settings_drew
 send clickkey 218 60
 expect '^browser: settings tab Profiles$' "a click on Profiles didn't show its tab"
+settings_drew Profiles
 at=$(drawn "download folder $work") || fail "Settings didn't draw the second profile's Change…"
 ../tools/window-screenshot.sh "$pid" "$out/settings-profile-boxes.png" || fail "no window to capture"
 send clickkey $at

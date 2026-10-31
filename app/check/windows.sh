@@ -109,6 +109,7 @@ send window 2
 # GPUI's update, and the app aborted).
 send key , cmd
 expect '^browser: settings shown ' "⌘, in the second window didn't show Settings"
+settings_drew
 # The driver's done for a click that closes its window can be lost with the window, as in
 # favorites.sh, so Settings going is waited for.
 settings_close
