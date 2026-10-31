@@ -124,9 +124,10 @@ void LaunchedAgain(const base::CommandLine& command_line,
 #endif
   OpenLinks(CommandLineLinks(command_line, current_directory));
   if (g_host.launched_again) {
-    int what = command_line.HasSwitch(switches::kIncognito)   ? BC_LAUNCH_PRIVATE_WINDOW
-               : command_line.HasSwitch(switches::kNewWindow) ? BC_LAUNCH_WINDOW
-                                                              : BC_LAUNCH_FRONT;
+    int what =
+        command_line.HasSwitch(switches::kIncognito) ? BC_LAUNCH_PRIVATE_WINDOW
+        : command_line.HasSwitch(switches::kOpenInNewWindow) ? BC_LAUNCH_WINDOW
+                                                             : BC_LAUNCH_FRONT;
     g_host.launched_again(g_host.context, what);
   }
 }
