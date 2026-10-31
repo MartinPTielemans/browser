@@ -478,8 +478,8 @@ $(cased 'Move to') › reading 日本語 › shelf, $(cased 'Move to › New Spa
 send choose shelf
 expect '^browser: command move-to-folder via tab menu$' "Move to › reading 日本語 › shelf didn't run"
 expect '^browser: today $' "Move to › shelf left the tab in the first Space's Today"
-send key 2 ctrl
-expect "^browser: space $second in " "⌃2 didn't show the second Space after Move to › shelf"
+# The window follows the tab into its Space, as Move to › a Space does.
+expect "^browser: space $second\$" "the window didn't show the second Space after Move to › shelf"
 expect "^browser: outline $g+\\[$a\\]\$" \
   "Move to › shelf didn't put the tab in the second Space's folder: $(grep '^browser: outline' "$log" | tail -1)"
 undo=$((step + 1))
