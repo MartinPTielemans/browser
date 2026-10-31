@@ -357,13 +357,16 @@ expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was 
 # Choose Your Own, whose return leaves the field to the user. On the page again, down twice selects
 # Use Strong Password, whose return fills the password in; Chrome saves it in the profile, which
 # Settings hears, and the sign-up brings no offer to save it. Made-up usernames only.
-# Loads the sign-up page and types username $1, then tab takes the keyboard to the password field.
+# Loads the sign-up page and types username $1, then tab takes the keyboard to the password field,
+# where down brings the popup: Chrome's desktop Autofill opens on a click, typing or an arrow key in
+# a field, not on focus from the keyboard.
 generation_offered() {
   go_from_bar "${site#http://}signup.html"
   expect "^browser: title $tab signup\$" "the sign-up page didn't load"
   send click 600 60
   send type "$1"
   send key tab
+  send key down
   expect "^browser: title $tab offered\$" "Chrome's popup didn't offer a password to the field"
 }
 generation_offered own@example.test
