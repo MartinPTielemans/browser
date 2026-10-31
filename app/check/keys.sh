@@ -225,6 +225,16 @@ typed_after() {
 drew() {
   grep "^browser: $1 drew" "$log" | tail -1
 }
+# The bar asks the core for nothing typed as it opens, and logs the answer's time from then, not
+# from an ask before, which here is seconds earlier, as the bar was made at launch (#1072).
+send key t cmd
+expect '^browser: command bar suggestions "" in ' "the command bar didn't ask for nothing typed"
+ms=$(grep '^browser: command bar suggestions "" in ' "$log" | tail -1 |
+  sed 's/.* in \([0-9]*\).*/\1/')
+[ "$ms" -lt 1000 ] || fail "the command bar's suggestions for nothing typed logged $ms ms"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 for shortcut in t l; do
   typed_after $shortcut abc
   expect '^browser: command bar drew "abc"$' \
