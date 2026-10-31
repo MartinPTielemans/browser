@@ -549,6 +549,14 @@ void Window::OnPageClicked(bc_id tab) {
 }
 
 // static
+void Window::ActivateContents(content::WebContents* contents) {
+  const bc_id tab = Tab::IdOf(contents);
+  if (Window* window = tab ? Holding(tab) : nullptr) {
+    window->Select(tab);
+  }
+}
+
+// static
 bool Window::CanDockDevTools(BrowserWindowInterface* browser) {
   return ForBrowser(browser);
 }
@@ -570,7 +578,7 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
   }
   // Arc's menu is Chrome's without Lens, Reading Mode, Listen, QR Code, Send to Your Devices, Copy
   // Link Text and the items whose UI is Chrome's side panel or Gemini's (ux-spec.md › Page menu).
-  // Cast and Translate wait for the browser to have them.
+  // Translate waits for the browser to have it. Cast… opens the app's card (CastDialog).
   static constexpr int kTrimmed[] = {
       IDC_CONTENT_CONTEXT_SEARCHLENSFORIMAGE,
       IDC_CONTENT_CONTEXT_SEARCHLENSFORVIDEOFRAME,
@@ -589,7 +597,6 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
       IDC_CONTENT_CONTEXT_GLICSHAREIMAGE,
       IDC_CONTENT_CONTEXT_RELOAD_GLIC,
       IDC_CONTENT_CONTEXT_ARCHIVE_GLIC,
-      IDC_ROUTE_MEDIA,
       IDC_CONTENT_CONTEXT_TRANSLATE,
       IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
   };
@@ -996,7 +1003,7 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind)
                                    views::Widget::InitParams::TYPE_WINDOW);
   params.delegate = delegate_.get();
   params.native_widget = platform::NewNativeWidget(
-      widget_.get(), base::BindRepeating(&Window::LeavingFullScreen, weak_factory_.GetWeakPtr()));
+      widget_.get(), base::BindRepeating(&Window::LeaveFullScreen, weak_factory_.GetWeakPtr()));
   params.bounds = bounds;
   params.name = "BrowserCoreWindow";
 #if BUILDFLAG(IS_LINUX)
@@ -1153,6 +1160,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   const bc_id freed = left && Picturing(left) ? left : 0;
   PasswordOffer::Moving moving(freed);
   HoldPictured();
+  // A full-screen page's tab leaving takes the window out with it, within ActivateTabAt.
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
@@ -1170,8 +1178,11 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
     g_left_size = focused_frame_.size();
   }
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
-  // new page takes it.
-  LayOutPage();
+  // new page takes it. Not at a frame for a window that has just left full screen, whose pages
+  // wait for its new size: the app lays them out once it has it (LeaveFullScreen).
+  if (!platform::PagesHeldForResize(widget_.get())) {
+    LayOutPage();
+  }
   if (freed) {
     LogHandover("giver let go", Handing(id_, freed));
   }
@@ -1375,8 +1386,15 @@ void Window::ShowNothing() {
 void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
   page_frame_ = frame;
   page_corner_radius_ = corner_radius;
-  if (shown_) {
-    Show(shown_.get(), frame);
+  if (!shown_) {
+    return;
+  }
+  // The app's frame at the window's size, so pages held for its resize are laid out here, which
+  // lets them go, though a tab switch's Show leaves them waiting for it.
+  const bool held = platform::PagesHeldForResize(widget_.get());
+  Show(shown_.get(), frame);
+  if (held) {
+    LayOutPage();
   }
 }
 
@@ -2214,6 +2232,11 @@ gfx::Size Window::GetMaximumDialogSize() {
   return focused_frame_.size();
 }
 
+bool Window::ShouldConstrainDialogBoundsByHost() {
+  // Unconstrained, Chrome gives the dialog a window of its own (constrained_window_views.cc).
+  return !platform::PageDialogsInOwnWindow();
+}
+
 void Window::AddObserver(web_modal::ModalDialogHostObserver* observer) {
   dialog_observers_.AddObserver(observer);
 }
@@ -2320,11 +2343,46 @@ void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
   platform::HidePages(widget_.get());
 }
 
-void Window::LeavingFullScreen() {
+void Window::LeaveFullScreen() {
+  // The app lays a page leaving out once, at the window's new size, which off the Mac it hears of
+  // after the window has resized.
+  if (FullScreenForPage()) {
+    platform::HoldPagesForResize(widget_.get());
+  }
+#if !BUILDFLAG(IS_MAC)
+  // The page hears it's out before the window resizes, as on the Mac. Each Browser found again:
+  // the controller's calls reach code that may change them.
+  std::vector<Profile*> profiles;
+  for (const auto& [profile, held] : browsers_) {
+    profiles.push_back(profile);
+  }
+  base::WeakPtr<Window> letting_go = weak_factory_.GetWeakPtr();
+  for (Profile* profile : profiles) {
+    const auto held = browsers_.find(profile);
+    if (held == browsers_.end()) {
+      continue;
+    }
+    static_cast<BrowserWindowStandIn*>(held->second.browser->GetWindow())->LetGoOfPage();
+    if (!letting_go) {
+      return;
+    }
+  }
+  // Off the Mac the window is out as SetFullscreen returns. The window manager's own way out has
+  // taken it out already, which Chromium's X11 window ignores, still counting itself full screen.
+  if (widget_->IsFullscreen()) {
+    base::WeakPtr<Window> alive = weak_factory_.GetWeakPtr();
+    widget_->SetFullscreen(false);
+    // The window's resize runs the app, which may close it.
+    if (!alive) {
+      return;
+    }
+  }
+#endif
   // Chrome's controller keeps a page full screen until it hears the window is out, ignoring the
   // page's own exit meanwhile, so a window AppKit took out (its green button, ⌃⌘F, its display
-  // going) without finishing kept the page full screen in a window that wasn't. Chrome lets go of
-  // the page before leaving when it asks itself, so only the window's own exit gets here with one.
+  // going) without finishing kept the page full screen in a window that wasn't. On the Mac Chrome
+  // lets go of the page before leaving when it asks itself, so only the window's own exit gets
+  // here with one; off the Mac the stand-ins have let go of it above.
   for (const auto& [profile, held] : browsers_) {
     ExclusiveAccessManager* manager = ExclusiveAccessManager::From(held.browser);
     FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;

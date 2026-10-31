@@ -269,11 +269,11 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
     {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
     {"pageup", 116}, {"pagedown", 121}, {"/", 44}, {"?", 44}, {"=", 24}, {"&", 26}, {"_", 27},
-    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109},
+    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109}, {"f6", 97},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
-// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey and
-// NSF10FunctionKey.
+// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey,
+// NSF10FunctionKey and NSF6FunctionKey.
 const std::map<std::string, std::string> kCharacters = {
     {"return", "\r"},
     {"tab", "\t"},
@@ -289,6 +289,7 @@ const std::map<std::string, std::string> kCharacters = {
     {"pagedown", "\xEF\x9C\xAD"},
     {"f12", "\xEF\x9C\x8F"},
     {"f10", "\xEF\x9C\x8D"},
+    {"f6", "\xEF\x9C\x89"},
 };
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
@@ -572,7 +573,7 @@ bool Key(NSWindow* window,
   if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
   } else if (key == "delete" || key == "pageup" || key == "pagedown" || key == "f12" ||
-             key == "f10") {
+             key == "f10" || key == "f6") {
     flags |= NSEventModifierFlagFunction;
   }
   for (NSEventType type : types) {

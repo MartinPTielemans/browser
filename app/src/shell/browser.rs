@@ -85,6 +85,16 @@ pub trait Browser {
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Mutes `tab`, or unmutes it.
     fn set_muted(&self, tab: u64, muted: bool, cx: &mut App);
+    /// Has the page sharing a tab share `tab` in its place.
+    fn share_instead(&self, tab: u64, cx: &mut App);
+    /// Plays, pauses or skips `tab`'s media.
+    fn media(&self, tab: u64, action: MediaAction, cx: &mut App);
+    /// Opens `tab`'s Cast dialog, which the core reports with `Shell::set_cast`.
+    fn cast(&self, tab: u64, cx: &mut App);
+    /// Closes the Cast dialog.
+    fn cast_close(&self, cx: &mut App);
+    /// A click on the device `id` in `tab`'s Cast dialog: casts to it, or stops it casting.
+    fn cast_to(&self, tab: u64, id: SharedString, cx: &mut App);
     /// Closes the Today tabs of the Space shown, but the one shown, unless it shows them all, and
     /// returns the id of the clear, or 0 if it closed none.
     fn clear(&self, cx: &mut App) -> u64;
@@ -336,6 +346,11 @@ pub trait Browser {
     ) -> bool;
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
+    /// With no page shown, gives the UI the keyboard until a page shows, which then has it, as the
+    /// Mac's window holds the keys for the next page.
+    fn hold_keyboard_for_page(&self, cx: &mut App) {
+        self.focus_ui(cx)
+    }
     /// Gives the page shown the keyboard, from the UI if it has it, now or once a page still
     /// loading has a view, unless the UI takes it back first.
     fn focus_page(&self, cx: &mut App);
@@ -449,11 +464,12 @@ pub trait Browser {
     /// Whether this window is the browser window in front, over which the toast shows.
     fn in_front(&self) -> bool;
     /// Shows `text` in the toast with a button after it, its label and its name in the logs, which
-    /// runs `run`, for `time` and for as long as the pointer is over it.
+    /// runs `run`, for `time` and for as long as the pointer is over it. With no label, the toast
+    /// itself is the button.
     fn toast_button(
         &self,
         text: &str,
-        button: (&'static str, &'static str),
+        button: (Option<&'static str>, &'static str),
         run: Rc<dyn Fn(&mut App)>,
         time: Duration,
         cx: &mut App,
@@ -548,6 +564,9 @@ pub trait Browser {
         look: crate::menu::Look,
         cx: &mut App,
     );
+    /// The window's menus' `look` changed: capture mode over `tab`, if it's on, takes it, as it
+    /// took the look it started in from `capture`.
+    fn capture_look(&self, _tab: u64, _look: crate::menu::Look, _cx: &mut App) {}
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers
     /// with `Shell::page_pictured` and `request`. For the window whose page another window shows.
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App);
@@ -661,8 +680,35 @@ pub struct Page {
     pub trouble: Trouble,
     /// Safari's engine shows the page, in place of Chromium.
     pub system_engine: bool,
+    /// The page uses the camera, or the microphone.
+    pub camera: bool,
+    pub microphone: bool,
+    /// The page shares a screen, a window or another tab, as a call does.
+    pub sharing: bool,
+    /// Another page shares this tab.
+    pub shared: bool,
+    /// Another page shares a tab, and `share_instead` would have it share this one.
+    pub share_instead: bool,
+    /// The page has media the browser can play, pause and skip, as Chrome's media controls do:
+    /// whether it's playing, its title and artist, each empty without one, whether it has a next
+    /// track, and whether it can float in Picture in Picture while nothing of the page floats.
+    pub media: bool,
+    pub media_playing: bool,
+    pub media_title: SharedString,
+    pub media_artist: SharedString,
+    pub media_next: bool,
+    pub media_picture_in_picture: bool,
     /// The tab shows its page in Developer Mode, for its site or as localhost.
     pub developer_mode: bool,
+}
+
+/// What the sidebar's player does to a page's media.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaAction {
+    Play,
+    Pause,
+    Next,
+    PictureInPicture,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the

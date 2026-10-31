@@ -335,6 +335,23 @@ fn start_now(
     });
 }
 
+/// The browser window over `tab` draws its menus in `look` now, as its appearance or its Space's
+/// theme changed: capture mode over it, if it's on, draws in it from now on.
+pub fn set_look(tab: u64, look: Look, cx: &mut App) {
+    // Once the update that asked is over, as start's, since the shell asks as it draws.
+    cx.defer(move |cx| {
+        update(cx, |capture, _, cx| {
+            let Some(session) = capture.session.as_mut().filter(|session| session.tab == tab) else {
+                return;
+            };
+            if session.look != look {
+                session.look = look;
+                cx.notify();
+            }
+        });
+    });
+}
+
 /// Captures all of `tab`'s page, beyond its view, and copies it.
 pub fn full_page(tab: u64, cx: &mut App) {
     // Once the update that asked is over, as start's.
@@ -721,6 +738,8 @@ impl Capture {
             .child(
                 div()
                     .absolute()
+                    .top_0()
+                    .left_0()
                     .size_full()
                     .rounded(px(RADIUS))
                     .border_1()

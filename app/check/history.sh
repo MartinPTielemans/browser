@@ -77,21 +77,27 @@ expect_page example.com 1 1 "after ⌘← with the UI focused"
 history_key right forward ui
 expect_page example.org 1 0 "after ⌘→ with the UI focused"
 # A swipe between pages, as three fingers send one, goes back and forward over the page, and does
-# nothing over the sidebar.
-send pageswipe $page_point back
-expect "^browser: swiped back $tab\$" "a swipe over the page didn't reach the UI"
-expect_page example.com 1 1 "after a swipe back"
-send pageswipe $page_point forward
-expect "^browser: swiped forward $tab\$" "a swipe forward over the page didn't reach the UI"
-expect_page example.org 1 0 "after a swipe forward"
-send pageswipe $sidebar_point back
-none_since '^browser: swiped' || fail "a swipe over the sidebar went back"
+# nothing over the sidebar. Windows' driver has nothing to stand in for one yet (drive.cc).
+if windows; then
+  echo "skip: swipe between pages: the Windows driver can't send one yet."
+else
+  send pageswipe $page_point back
+  expect "^browser: swiped back $tab\$" "a swipe over the page didn't reach the UI"
+  expect_page example.com 1 1 "after a swipe back"
+  send pageswipe $page_point forward
+  expect "^browser: swiped forward $tab\$" "a swipe forward over the page didn't reach the UI"
+  expect_page example.org 1 0 "after a swipe forward"
+  send pageswipe $sidebar_point back
+  none_since '^browser: swiped' || fail "a swipe over the sidebar went back"
+fi
 
 history_key r reload ui
 expect "^browser: loaded $tab https://example.org/\$" "⌘R didn't load the page again"
 send key r cmd shift
 expect '^browser: command force-reload via ui$' "⇧⌘R didn't run force-reload"
 expect "^browser: loaded $tab https://example.org/\$" "⇧⌘R didn't load the page again"
+# The button is stop until the page says it has stopped loading, a little after its load (#1114).
+expect '^browser: nav shows reload$' "the stop button didn't turn back into reload"
 send click $reload_button
 expect '^browser: command reload via sidebar$' "a click on reload didn't reload"
 expect "^browser: loaded $tab https://example.org/\$" "a click on reload didn't load the page again"

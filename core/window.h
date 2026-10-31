@@ -109,6 +109,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);
+  // The hook for Chrome's tabs (hooks.h): |contents|, which asked to be shown, as Picture in
+  // Picture's way back to its tab does, shows in the window holding it, in its Space.
+  static void ActivateContents(content::WebContents* contents);
   // |tab|'s page committed in a new view: each window showing it gives that view the keyboard, if
   // the page had it.
   static void PageCommittedInNewView(bc_id tab);
@@ -175,9 +178,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether the window is full screen because a page took it there, not the user, so it leaves
   // with the page.
   bool FullScreenForPage() const;
-  // From the platform's window, as it starts to leave full screen, and off the Mac from the core
-  // as it takes the window out: a page full screen leaves now.
-  void LeavingFullScreen();
+  // The one way out of full screen, whoever starts it: the app's buttons, Chrome's controller as a
+  // page or its tab leaves, AppKit as it starts to leave, or off the Mac the window manager, which
+  // has taken the window out already. A page full screen leaves now, and is laid out once, at the
+  // window's new size.
+  void LeaveFullScreen();
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
@@ -320,6 +325,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   gfx::NativeView GetHostView() const override;
   gfx::Point GetDialogPosition(const gfx::Size& size) override;
   gfx::Size GetMaximumDialogSize() override;
+  bool ShouldConstrainDialogBoundsByHost() override;
   void AddObserver(web_modal::ModalDialogHostObserver* observer) override;
   void RemoveObserver(web_modal::ModalDialogHostObserver* observer) override;
 

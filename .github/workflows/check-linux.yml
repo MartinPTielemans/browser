@@ -1,12 +1,13 @@
 # The browser on Linux, run and checked by app/check.sh (AGENTS.md, Verifying) under Xvfb and
-# openbox, on X11, or by hand in a headless sway session on its Xwayland, and by app/check/drops.sh
-# under Wayland, on the Linux engine built from this commit's core: the safety net for what the
-# Mac and Linux share. Main's pushes and runs by hand only, on GitHub's hosted runners: never a
-# pull request, and never the self-hosted runner, which builds the engine. It never builds an
-# engine: it takes the newest engine-linux release in this commit's history (engine/fetch.sh), and
-# a commit whose core/public/browser_core.h no published engine has is skipped, as nothing can run
-# it. Every run in app/check/ shows in the summary: passed, failed, or skipped and why, with the
-# lines a run that passed skipped. Failures fail the job, which nothing waits on yet.
+# openbox, on X11, or by hand in a headless sway session on its Xwayland, then in that session on
+# Wayland, and by app/check/drops.sh under Wayland, on the Linux engine built from this commit's
+# core: the safety net for what the Mac and Linux share. Main's pushes and runs by hand only, on
+# GitHub's hosted runners: never a pull request, and never the self-hosted runner, which builds the
+# engine. It never builds an engine: it takes the newest engine-linux release in this commit's
+# history (engine/fetch.sh), and a commit whose core/public/browser_core.h no published engine has
+# is skipped, as nothing can run it. Every run in app/check/ shows in X11's summary: passed,
+# failed, or skipped and why, with the lines a run that passed skipped; Wayland's lists those it
+# did. Failures fail the job, which nothing waits on yet.
 name: Check on Linux
 
 on:
@@ -19,14 +20,18 @@ on:
         description: The runs to do, such as "load tabs drops", or "all"; empty for the ones Linux passes
         default: ''
       session:
-        description: Where check.sh runs the app, on X11 either way
+        description: >-
+          Where check.sh runs the app: on X11 under Xvfb or sway's Xwayland, then on Wayland with
+          no runs named, or on Wayland alone
         type: choice
-        options: [xvfb, sway]
+        options: [xvfb, sway, wayland]
         default: xvfb
 
 concurrency:
   group: check-linux-${{ github.ref }}
-  cancel-in-progress: true
+  # Main's run in progress finishes, and while it runs a newer merge's pending run replaces the
+  # older pending one; a branch's newer push cancels its older run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -43,7 +48,10 @@ jobs:
       LINUX_RUNS: >-
         tabs window find agents spaces crash profiles private quit mcp appearance access history
         load preview import adblock adblock-lists passkeys onboarding links relaunch split
-        extensions capture popup pinned about windows dialogs trouble
+        extensions capture popup pinned about windows dialogs trouble cards passwords updates
+        restore favorites
+      # The runs that pass on Wayland so far, in the headless sway session.
+      WAYLAND_RUNS: tabs
     steps:
       # With the history, where fetch.sh looks for the engine's commit.
       - uses: actions/checkout@v4
@@ -113,7 +121,7 @@ jobs:
       - if: ${{ steps.engine.outputs.found == 'true' }}
         env:
           RUNS: ${{ inputs.runs }}
-          BROWSER_XVFB: ${{ inputs.session != 'sway' && '1' || '' }}
+          SESSION: ${{ inputs.session || 'xvfb' }}
           # The runner's C.UTF-8 names no country, for which Chromium's search engines leave out
           # DuckDuckGo, the one the core picks, so the command bar would offer no search.
           LANG: en_US.UTF-8
@@ -124,46 +132,69 @@ jobs:
           export XDG_RUNTIME_DIR
           # check.sh's own list, the runs it does with no names and the ones it does only when named.
           all=$(sed -n 's/^runs="\(\$runs \)\{0,1\}\(.*\)"$/\2/p; s/^named="\(.*\)"$/\1/p' check.sh | tr '\n' ' ')
-          case $RUNS in
-          '') runs=$LINUX_RUNS ;;
-          all) runs=$all ;;
-          *) runs=$RUNS ;;
+          # X11's runs, then Wayland's, unless runs are named or Wayland's alone are asked for.
+          case $SESSION in
+          wayland) sessions=wayland ;;
+          *) sessions=$SESSION; [ -n "$RUNS" ] || sessions="$SESSION wayland" ;;
           esac
-          {
-            case $BROWSER_XVFB in
-            1) echo "Under Xvfb and openbox, on X11." ;;
-            *) echo "In a headless sway session, on its Xwayland." ;;
-            esac
-            echo
-            echo "| Run | Result |"
-            echo "|---|---|"
-          } >> "$GITHUB_STEP_SUMMARY"
           failed=0
-          for run in $all; do
-            case " $runs " in
-            *" $run "*)
-              start=$SECONDS
-              status=0
-              # The updates run builds a Flatpak first.
-              limit=20m
-              [ "$run" != updates ] || limit=45m
-              timeout "$limit" ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
-              [ ! -d build/check ] || mv build/check "$out/$run"
-              pkill -9 -f "$PWD/build/Browser/" || true
-              # A run that passes may have skipped steps, or all of itself, such as when the app
-              # wasn't the active one.
-              skipped=$(grep '^skip: ' "$out/$run.log" | cut -c7- | tr '|\n' '/;' | sed 's/;$//')
-              if [ "$status" = 0 ]; then
-                result="passed in $((SECONDS - start)) s${skipped:+, skipping: $skipped}"
-              else
-                result="failed ($status): $(grep -m1 '^FAIL' "$out/$run.log" | cut -c7- | tr '|' '/')"
-                failed=1
-                echo "::error::The $run run failed. Its log: $run.log in the artifact."
-              fi
+          for session in $sessions; do
+            unset BROWSER_XVFB BROWSER_WAYLAND
+            where=
+            passing=$LINUX_RUNS
+            case $session in
+            xvfb) export BROWSER_XVFB=1; title="Under Xvfb and openbox, on X11." ;;
+            sway) title="In a headless sway session, on its Xwayland." ;;
+            wayland)
+              export BROWSER_WAYLAND=1
+              where=wayland/
+              passing=$WAYLAND_RUNS
+              title="In a headless sway session, on Wayland. The runs not listed aren't driven there yet."
               ;;
-            *) result="skipped: not in the runs Linux passes yet" ;;
             esac
-            echo "| $run | $result |" | tee -a "$GITHUB_STEP_SUMMARY"
+            dir=$out/$where
+            mkdir -p "$dir"
+            case $RUNS in
+            '') runs=$passing ;;
+            all) runs=$all ;;
+            *) runs=$RUNS ;;
+            esac
+            {
+              echo "$title"
+              echo
+              echo "| Run | Result |"
+              echo "|---|---|"
+            } >> "$GITHUB_STEP_SUMMARY"
+            for run in $all; do
+              case " $runs " in
+              *" $run "*)
+                start=$SECONDS
+                status=0
+                # The updates run builds a Flatpak first.
+                limit=20m
+                [ "$run" != updates ] || limit=45m
+                timeout "$limit" ./check.sh "$run" > "$dir/$run.log" 2>&1 || status=$?
+                [ ! -d build/check ] || mv build/check "$dir/$run"
+                pkill -9 -f "$PWD/build/Browser/" || true
+                # A run that passes may have skipped steps, or all of itself, such as when the app
+                # wasn't the active one.
+                skipped=$(grep '^skip: ' "$dir/$run.log" | cut -c7- | tr '|\n' '/;' | sed 's/;$//')
+                if [ "$status" = 0 ]; then
+                  result="passed in $((SECONDS - start)) s${skipped:+, skipping: $skipped}"
+                else
+                  result="failed ($status): $(grep -m1 '^FAIL' "$dir/$run.log" | cut -c7- | tr '|' '/')"
+                  failed=1
+                  echo "::error::The $run run failed on $session. Its log: $where$run.log in the artifact."
+                fi
+                ;;
+              *)
+                [ "$session" != wayland ] || continue
+                result="skipped: not in the runs Linux passes yet"
+                ;;
+              esac
+              echo "| $run | $result |" | tee -a "$GITHUB_STEP_SUMMARY"
+            done
+            echo >> "$GITHUB_STEP_SUMMARY"
           done
           exit "$failed"
 

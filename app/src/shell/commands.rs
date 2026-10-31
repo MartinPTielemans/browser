@@ -17,7 +17,7 @@ use crate::build_info::{self, BuildInfo};
 use super::{
     COPIED_TIME, Edit, MAX_PANES, Section, Shell, Space, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
+    agent_bar, clean_link, drag::dropped_urls, drm_note, extensions, keys, sidebar_keys,
     panes::pane_frames,
     trace,
     swap::{CHECK, LINK},
@@ -95,6 +95,8 @@ pub enum Command {
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
+    /// Opens the selected tab's Cast dialog, or closes it.
+    Cast,
     /// Starts capture mode over the selected tab's page, or leaves it.
     CapturePortion,
     /// Captures all of the selected tab's page, beyond its view, and copies it.
@@ -305,6 +307,9 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     // keeps it. Off the Mac it would be Alt+D, Chrome's, so it has none there.
     ("ctrl-d", Command::ToggleDeveloperMode, false),
     ("cmd-s", Command::ToggleSidebar, false),
+    // Chrome's key for moving the keyboard out of the page, unreserved as Chrome's is, as Arc's ⌘.
+    // is Stop Loading here.
+    ("f6", Command::FocusSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
     ("cmd-y", Command::ViewHistory, false),
@@ -379,6 +384,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
     ("Find…", Command::Find, &[]),
     ("Site Controls", Command::SiteControls, &["permissions"]),
+    ("Cast…", Command::Cast, &["chromecast", "tv", "mirror"]),
     ("Go Back", Command::Back, &[]),
     ("Go Forward", Command::Forward, &[]),
     ("Refresh the Page", Command::Reload, &["reload"]),
@@ -764,6 +770,7 @@ impl Command {
             Command::Share => "share",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
+            Command::Cast => "cast",
             Command::CapturePortion => "capture",
             Command::CaptureFullPage => "capture-full-page",
             Command::FindNext => "find-next",
@@ -886,6 +893,7 @@ pub fn bind_keys(cx: &mut App) {
         }
     });
     extensions::bind(cx);
+    agent_bar::bind(cx);
     drm_note::bind(cx);
     sidebar_keys::bind(cx);
 }
@@ -1049,6 +1057,9 @@ impl Shell {
             Command::ClearCookiesAndRefresh => {
                 return self.browser.clear_site(self.selected, true, cx);
             }
+            // Escape closes the Library, after a picker over it, which has the keyboard, has
+            // closed (the owner, #1074; Arc's doesn't).
+            Command::Stop if self.library_open => return self.set_library(false, cx),
             // Escape leaves full screen when there's no load to stop, as the note there says.
             Command::Stop if self.full_screen && !self.page_fullscreen => {
                 if !self.page(self.selected).loading {
@@ -1180,6 +1191,7 @@ impl Shell {
             }
             Command::Find => return self.browser.find(self.selected, cx),
             Command::SiteControls => return self.site_controls(cx),
+            Command::Cast => return self.cast(cx),
             Command::CapturePortion => return self.capture(false, cx),
             Command::CaptureFullPage => return self.capture(true, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),

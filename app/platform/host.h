@@ -57,8 +57,8 @@ void* host_ui_view(void);
 // runs inside it (gpui_linux::embed).
 void host_watch_fd(int fd, void (*ready)(void));
 
-// Linux only: |window| is the core's id for the browser window of |ui_view|. The window is
-// Chromium's, so the calls below that act on it go through the core.
+// Linux and Windows: |window| is the core's id for the browser window of |ui_view|. The window is
+// Chromium's, so the calls that act on it, such as the driver's, go through the core.
 void host_window_opened(void* ui_view, uint64_t window);
 
 // Linux only: the browser window of |ui_view| has closed, for the watches below.
@@ -215,9 +215,13 @@ void host_hide_overlay(int overlay);
 void host_dismiss_overlay(int overlay);
 
 // Holds the keys typed from now until the command bar or the find bar takes the keyboard, and then
-// gives them to it, or for 400 ms at most: for a shortcut that opens one but reaches the page
-// first, which may keep it. Showing either bar with the keyboard holds them by itself.
+// gives them to it: for a shortcut that opens one but reaches the page first, which may keep it.
+// Showing either bar with the keyboard holds them by itself. The core says when the page has
+// answered the shortcut and no bar opens (host_release_held_keys).
 void host_hold_keys(void);
+
+// No bar opens for the shortcut host_hold_keys held the keys after, so they go to the page now.
+void host_release_held_keys(void);
 
 // Makes the window of |find_bar_view| the find bar of |ui_view|'s window, floating over it when
 // shown, |right| and |top| points from the top right corner of the window's content. It starts
@@ -459,6 +463,14 @@ void host_show_window_buttons(void* ui_view, bool shown);
 
 // Does what a click on the close (0), minimize (1) or zoom (2) button of |ui_view|'s window does.
 void host_press_window_button(void* ui_view, int button);
+
+#ifdef _WIN32
+// Windows' alone, whose browser window has no title bar for these: moves |ui_view|'s window with
+// the pointer until the button that's down comes up, as a drag on a title bar does, and whether
+// it's maximized. Linux has the core's (bc_window_start_move, bc_window_is_maximized).
+void host_start_window_move(void* ui_view);
+bool host_window_maximized(void* ui_view);
+#endif
 
 // Makes the window of |reveal_view| the sidebar reveal of |ui_view|'s window, which shows over its
 // left edge without taking the keyboard. It starts hidden. While it shows, |pointer_moved| hears,

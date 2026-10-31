@@ -360,6 +360,8 @@ impl FolderPreview {
         shown.found = matches(&shown.rest.items, text);
         shown.kept = true;
         shown.selected = (!text.trim().is_empty() && !shown.found.is_empty()).then_some(0);
+        // check.sh waits for this line, to see what's typed reaches the search.
+        log!("browser: folder preview found {} for {text}", shown.found.len());
         self.wait = None;
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         cx.notify();
@@ -559,6 +561,8 @@ impl Render for FolderPreview {
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.
         let rim = div()
             .absolute()
+            .top_0()
+            .left_0()
             .size_full()
             .rounded(px(RADIUS))
             .border(px(RIM))

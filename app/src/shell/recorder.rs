@@ -14,8 +14,8 @@ use gpui::{App, Bounds, Pixels, Point, RenderImage, SharedString, Size, WeakEnti
 use crate::theme::Appearance;
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
-    browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, MediaAction, MenuBar, MenuEntry, PageReply,
+    ShownPageDialog, browser::WindowButton,
 };
 
 /// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
@@ -93,6 +93,8 @@ pub(super) struct Recorder {
     pub(super) window_title: RefCell<String>,
     /// Whether it was last asked to draw the window's material light.
     pub(super) window_light: Cell<Option<bool>>,
+    /// The tab and the look capture mode over it was last given, and whether it was light.
+    pub(super) capture_look: Cell<Option<(u64, bool)>>,
     /// The appearance View › Appearance last chose.
     pub(super) appearance: Cell<Option<Appearance>>,
     /// The share services it lists for any page.
@@ -217,6 +219,15 @@ impl Recorder {
     pub(super) fn choose(&self, title: &str, cx: &mut App) {
         let at = self.menus.borrow().last().and_then(|items| {
             items.iter().position(|(each, enabled)| each.as_ref() == title && *enabled)
+        });
+        let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
+        answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
+    }
+
+    /// Chooses the last item titled `title`, for a title that's in two submenus.
+    pub(super) fn choose_last(&self, title: &str, cx: &mut App) {
+        let at = self.menus.borrow().last().and_then(|items| {
+            items.iter().rposition(|(each, enabled)| each.as_ref() == title && *enabled)
         });
         let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
         answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
@@ -378,6 +389,26 @@ impl Browser for Recorder {
     }
 
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn share_instead(&self, tab: u64, _: &mut App) {
+        self.record(format!("share instead {tab}"));
+    }
+
+    fn media(&self, tab: u64, action: MediaAction, _: &mut App) {
+        self.record(format!("media {tab} {action:?}"));
+    }
+
+    fn cast(&self, tab: u64, _: &mut App) {
+        self.record(format!("cast {tab}"));
+    }
+
+    fn cast_close(&self, _: &mut App) {
+        self.record("cast close".to_owned());
+    }
+
+    fn cast_to(&self, tab: u64, id: SharedString, _: &mut App) {
+        self.record(format!("cast to {tab} {id}"));
+    }
 
     fn clear(&self, _: &mut App) -> u64 {
         let id = self.core.ticket();
@@ -866,6 +897,10 @@ impl Browser for Recorder {
         self.record("focus ui".into())
     }
 
+    fn hold_keyboard_for_page(&self, _: &mut App) {
+        self.record("hold keyboard for page".into())
+    }
+
     fn focus_page(&self, _: &mut App) {
         self.record("focus page".into())
     }
@@ -880,6 +915,10 @@ impl Browser for Recorder {
 
     fn set_window_light(&self, light: bool, _: &mut App) {
         self.window_light.set(Some(light));
+    }
+
+    fn capture_look(&self, tab: u64, look: crate::menu::Look, _: &mut App) {
+        self.capture_look.set(Some((tab, look.light)));
     }
 
     fn set_appearance(&self, appearance: Appearance, _: &mut App) {
@@ -971,7 +1010,7 @@ impl Browser for Recorder {
     fn toast_button(
         &self,
         text: &str,
-        _: (&'static str, &'static str),
+        _: (Option<&'static str>, &'static str),
         run: Rc<dyn Fn(&mut App)>,
         _: Duration,
         _: &mut App,

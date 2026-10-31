@@ -28,6 +28,10 @@ pkill() {
     taskkill $force //PID "$id" > /dev/null 2>&1 || true
   done
 }
+# Git Bash rewrites what looks like a path in a native program's environment, and took the </script>
+# in a run's data: URL for one, so the page the app opened never ran its script (#872). The URLs a
+# run opens are never paths.
+export MSYS2_ENV_CONV_EXCL=BROWSER_URL
 # Runs the app. A native program can't read Git Bash's fifo, so cat passes the driver's commands on
 # through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid. chrome_elf
 # starts Crashpad before the app adds its profile, in the folder chrome.exe's own --user-data-dir
@@ -36,6 +40,11 @@ pkill() {
 windows_browser() {
   exec "$app/chrome.exe" "--user-data-dir=$(cygpath -w "${BROWSER_PROFILE_DIR:-$profile_dir}")" \
     "$@" < <(cat)
+}
+# Runs the bridge $1 for the server $2 on the fifos $3, its stdin, and $4, its stdout, which it
+# can't open itself, as windows_browser runs the app, so $! is the bridge's.
+windows_bridge() {
+  exec "$1" "$2" < <(cat "$3") > >(cat > "$4")
 }
 # Writes the image $1 as the BMP $2, as sips does on the Mac.
 to_bmp() {
