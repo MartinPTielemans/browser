@@ -207,7 +207,8 @@ expect '^browser: import done: 1 Space, 3 pinned tabs, 1 open tab, 2 pages of hi
   "the import didn't say what came from Chrome"
 ../tools/window-screenshot.sh "$pid" "$out/import-chrome.png" || fail "no window to capture"
 expect '^browser: import drawn done$' "the import's end didn't draw"
-send clickkey 590 145
+# Chrome's summary takes two lines on the Mac, so its Done sits one line, 21, lower.
+send clickkey 590 166
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 575 $chrome_row
 expect '^browser: import pick Chrome$' "Import… didn't show Chrome's choices again"
