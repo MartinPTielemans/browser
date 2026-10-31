@@ -94,8 +94,10 @@ echo '<title>the panel</title><body style="font:16px system-ui">the panel</body>
   "$extensions/panel/panel.html"
 echo '<title>the tab panel</title><body style="font:16px system-ui">the tab panel</body>' > \
   "$extensions/panel/tab.html"
+# Its script ends on a line of its own: Git Bash passes a ;</script> to the app as a path.
 page='data:text/html,<title>loading</title>
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+</script>'
 log="$out/extensions.log"
 step=0
 rm -f "$saved" "$launch_frame"

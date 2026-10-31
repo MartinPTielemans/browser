@@ -8,10 +8,12 @@
 # run's.
 
 # A page of colour, so its picture shows in the card.
+# Its script ends on a line of its own: Git Bash passes a ;</script> to the app as a path.
 page='data:text/html,<title>loading</title>
 <body style="margin:0;height:100vh;background:linear-gradient(135deg,%23e1676f,%237eb6d5)">
 <h1 style="font:bold 64px system-ui;color:white;margin:40px">Colours</h1>
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "colours"));</script>'
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "colours"));
+</script>'
 log="$out/cards.log"
 step=0
 rm -f "$saved" "$launch_frame"

@@ -23,9 +23,11 @@ for _ in $(seq 50); do
 done
 [ -s "$out/port" ] || fail "the server that never answers didn't start"
 # The start page's favicon is a 16 × 16 orange square.
+# Its script ends on a line of its own: Git Bash passes a ;</script> to the app as a path.
 page='data:text/html,<title>loading</title>
 <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg==">
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+</script>'
 log="$out/history.log"
 step=0
 rm -f "$saved" "$launch_frame"
