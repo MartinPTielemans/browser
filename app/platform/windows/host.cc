@@ -1589,8 +1589,18 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   WatchForeground();
 }
 
-// shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
+// The window is Chromium's, which goes full screen through the core (bc_window_toggle_full_screen),
+// and the app hears of it as the window's bounds change, as on Linux.
 void host_watch_full_screen(void (*)(void*, bool)) {}
+
+static std::map<void*, uint64_t>& WindowIds() {
+  static std::map<void*, uint64_t> ids;
+  return ids;
+}
+
+void host_window_opened(void* ui_view, uint64_t window) {
+  WindowIds()[ui_view] = window;
+}
 
 // Windows delivers a touchpad's swipes to the page as scrolls, which it takes, so there's nothing
 // here for the host to watch.
@@ -2625,6 +2635,16 @@ void* host_browser_window(size_t index) {
   }
   HWND root = Root(MadeUiViews()[index]);
   return root != MadeUiViews()[index] && IsWindowVisible(root) ? root : nullptr;
+}
+
+// The core's id for that browser window, for the driver's commands that act on it through the core,
+// or 0.
+uint64_t host_browser_window_id(size_t index) {
+  if (index >= MadeUiViews().size()) {
+    return 0;
+  }
+  auto it = WindowIds().find(MadeUiViews()[index]);
+  return it == WindowIds().end() ? 0 : it->second;
 }
 
 // For the driver (drive.cc), whose input is posted to the app's windows, which the thread hooks

@@ -138,7 +138,7 @@ mod platform {
         pub fn host_ui_view() -> *mut c_void;
         #[cfg(target_os = "linux")]
         pub fn host_watch_fd(fd: c_int, ready: extern "C" fn());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         pub fn host_window_opened(ui_view: *mut c_void, window: u64);
         #[cfg(target_os = "linux")]
         pub fn host_window_closed(ui_view: *mut c_void);
@@ -2790,6 +2790,15 @@ impl Browser for Engine {
     }
 
     fn press_window_button(&self, button: WindowButton, _: &mut App) {
+        // Windows' own zoom button maximizes, and its window has no full screen of its own, so the
+        // zoom Escape presses in full screen takes the window out through the core.
+        if cfg!(target_os = "windows")
+            && matches!(button, WindowButton::Zoom)
+            && self.window_full_screen()
+        {
+            unsafe { bc::bc_window_toggle_full_screen(self.window) };
+            return;
+        }
         let button = match button {
             WindowButton::Close => 0,
             WindowButton::Minimize => 1,
@@ -2807,7 +2816,8 @@ impl Browser for Engine {
     }
 
     fn window_full_screen(&self) -> bool {
-        cfg!(target_os = "linux") && unsafe { bc::bc_window_is_full_screen(self.window) }
+        cfg!(any(target_os = "linux", target_os = "windows"))
+            && unsafe { bc::bc_window_is_full_screen(self.window) }
     }
 
     fn show_reveal(&self, width: f32, _: &mut App) {
@@ -3834,7 +3844,7 @@ fn open_window_as(
             false => (surface, Some(size(px(width as f32), px(height as f32)))),
         }
     };
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     unsafe { platform::host_window_opened(ui_view, id) };
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
     // Its Space, which the core made with the window.
@@ -3867,7 +3877,7 @@ fn open_window_as(
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, cx| {
                 let viewport = window.viewport_size();
                 // First, as a page's full screen can end with the window's.
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
                 shell.bounds_changed(cx);
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
