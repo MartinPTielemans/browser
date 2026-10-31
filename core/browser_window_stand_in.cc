@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/held_keys.h"
 #include "build/build_config.h"
@@ -18,6 +19,7 @@
 #include "browser_core/side_panel.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
+#include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/autofill/autofill_bubble_base.h"
@@ -34,6 +36,11 @@
 #include "components/input/native_web_keyboard_event.h"
 #include "content/public/browser/eye_dropper.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_widget_host.h"
+#include "content/public/browser/render_widget_host_view.h"
+#include "third_party/blink/public/common/input/web_keyboard_event.h"
+#include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
 #include "ui/content_accelerators/accelerator_util.h"
@@ -56,6 +63,52 @@ bool AskApp(bool (*callback)(void*, bc_id, const bc_key*),
       browser ? browser->GetTabStripModel()->GetActiveWebContents() : nullptr;
   return contents && Tab::AskAppAboutKey(callback, Tab::IdOf(contents), event,
                                          contents->IsFocusedElementEditable());
+}
+
+// #1120 diagnostic, not for merging: what Chromium hears back about an F12 from each widget.
+class F12Ack : public content::RenderWidgetHost::InputEventObserver {
+ public:
+  F12Ack(const char* name, content::RenderWidgetHost* widget) : name_(name), widget_(widget) {
+    widget_->AddInputEventObserver(this);
+  }
+  void OnInputEventAck(const content::RenderWidgetHost&,
+                       blink::mojom::InputEventResultSource source,
+                       blink::mojom::InputEventResultState state,
+                       const blink::WebInputEvent& event) override {
+    if (done_ || event.GetType() != blink::WebInputEvent::Type::kRawKeyDown ||
+        static_cast<const blink::WebKeyboardEvent&>(event).windows_key_code != 0x7B) {
+      return;
+    }
+    done_ = true;
+    content::RenderWidgetHostView* view = widget_->GetView();
+    fprintf(stderr, "browser: diag F12 ack from %s, state %d, source %d, showing %d\n", name_,
+            static_cast<int>(state), static_cast<int>(source), view && view->IsShowing());
+    widget_->RemoveInputEventObserver(this);
+  }
+
+ private:
+  const char* name_;
+  raw_ptr<content::RenderWidgetHost> widget_;
+  bool done_ = false;
+};
+
+void DiagF12(content::WebContents* page) {
+  content::WebContents* devtools =
+      page ? DevToolsWindow::GetInTabWebContents(page, nullptr) : nullptr;
+  auto describe = [](const char* name, content::WebContents* contents) {
+    if (!contents) {
+      fprintf(stderr, "browser: diag F12 %s none\n", name);
+      return;
+    }
+    content::RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
+    fprintf(stderr, "browser: diag F12 %s visibility %d, showing %d, focus %d, loading %d\n", name,
+            static_cast<int>(contents->GetVisibility()), view && view->IsShowing(),
+            view && view->HasFocus(), contents->IsLoading());
+    // Leaked on purpose: a diagnostic.
+    new F12Ack(name, contents->GetPrimaryMainFrame()->GetRenderWidgetHost());
+  };
+  describe("page", page);
+  describe("devtools", devtools);
 }
 
 }  // namespace
@@ -567,6 +620,10 @@ content::KeyboardEventProcessingResult BrowserWindowStandIn::PreHandleKeyboardEv
   content::WebContents* contents =
       browser_ ? browser_->GetTabStripModel()->GetActiveWebContents() : nullptr;
   // Typed after a shortcut that opens a field of the app's, for the field.
+  if (event.windows_key_code == 0x7B &&
+      event.GetType() == blink::WebInputEvent::Type::kRawKeyDown) {
+    DiagF12(contents);
+  }
   if (contents && held_keys::Holds(Tab::IdOf(contents), event)) {
     return content::KeyboardEventProcessingResult::HANDLED;
   }
