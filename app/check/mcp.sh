@@ -373,8 +373,8 @@ $(grep '^browser: agent bar [0-9]* at ' "$log" | tail -1 | cut -d' ' -f6-)
 BAR
   ../tools/window-screenshot.sh "$pid" "$out/agent-bar.png" || fail "no window to capture"
   # Stop's tooltip shows its key, as Take Over's does Back to Pinned URL's.
-  hidden=$(grep -c '^browser: tooltip hidden$' "$log")
-  faded=$(grep -c '^browser: tooltip window shown$' "$log")
+  hidden=$(grep -c '^browser: tooltip hidden$' "$log" || true)
+  faded=$(grep -c '^browser: tooltip window shown$' "$log" || true)
   send move $((bx + bw / 4)) $((by + bh - 26))
   await_log '^browser: tooltip shown Stop \(⌘\.\|Ctrl+\.\)$' "resting on Stop didn't show its key"
   await_more '^browser: tooltip window shown$' "$faded" || fail "Stop's tooltip didn't fade in"
