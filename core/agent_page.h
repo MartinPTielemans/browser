@@ -61,6 +61,13 @@ class AgentPage : public content::WebContentsObserver,
   };
   using Reply = base::OnceCallback<void(const base::DictValue* result)>;
   using Then = base::OnceCallback<void(std::optional<gfx::RectF>)>;
+  // An element's box in CSS pixels: in the viewport of the session it's in, where input to it
+  // goes, and in the main frame's, where the agent's pointer shows it.
+  struct Box {
+    gfx::RectF in_session;
+    gfx::RectF in_page;
+  };
+  using Found = base::OnceCallback<void(std::optional<Box>)>;
   // A frame whose tree a snapshot reads, through the session at |slot|, below the frame at
   // |parent| in the snapshot's list.
   struct Frame {
@@ -91,7 +98,8 @@ class AgentPage : public content::WebContentsObserver,
   void Settle();
 
   void Click();
-  void Mouse(const char* type, std::pair<double, double> at, base::OnceClosure then);
+  // Sends a mouse event at |at| in the viewport of the session at |slot|.
+  void Mouse(const char* type, gfx::PointF at, int slot, base::OnceClosure then);
   void Type(bool submit);
   void Focus(int64_t element, bool submit);
   void PressKey(const std::string& key, base::OnceClosure then);
@@ -114,8 +122,8 @@ class AgentPage : public content::WebContentsObserver,
   void Answer(std::string text, bool error);
   void Fail(std::string why);
 
-  // Scrolls the job's element into view and gives its box, in the viewport's CSS pixels.
-  void Center(Then then);
+  // Scrolls the job's element into view and gives its box.
+  void Center(Found then);
   // Moves |box|, in the session at |slot|, into the main frame's viewport, through the elements
   // its frame is in.
   void Offset(int slot, gfx::RectF box, Then then);
