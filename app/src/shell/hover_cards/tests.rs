@@ -11,7 +11,9 @@ use gpui::{
 use crate::{
     dock_dot::QUIET,
     hover_card::{Action, Event},
+    icon_picker::{self, Picked, Recents, Subject},
     shell::{Folders, Page, Row, Shell, recorder::Recorder},
+    theme_picker,
 };
 
 /// A drawn shell with the pinned tab 1, the Today tabs 2, 3 and 4, and the favorite 10, showing 2.
@@ -148,6 +150,54 @@ fn a_rows_menu_closes_the_card(cx: &mut TestAppContext) {
     // And none rests while it's up.
     shell.update(cx, |shell, cx| shell.hover_card(Row::Tab(4), true, cx));
     assert!(!host.take().iter().any(|call| call.starts_with("card rest")));
+}
+
+/// The pickers' windows, which show nowhere.
+struct NoWhere;
+
+impl theme_picker::Host for NoWhere {
+    fn show(&self, _: f32, _: f32, _: &[(f32, f32, f32)]) {}
+
+    fn hide(&self) {}
+
+    fn detent(&self) {}
+}
+
+impl icon_picker::Host for NoWhere {
+    fn show(&self, _: f32, _: f32) {}
+
+    fn hide(&self) {}
+
+    fn keep_recents(&self, _: &str) {}
+}
+
+/// The theme picker, as Edit Space opens it beside the sidebar, sends the card showing away, and
+/// none rests while it or the icon picker shows, as the card would be under it (#1071).
+#[gpui::test]
+fn a_picker_closes_the_card(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        theme_picker::open(Rc::new(NoWhere), cx);
+        icon_picker::open(Rc::new(NoWhere), Recents::default(), cx);
+    });
+    let (shell, cx, host) = with_tabs(cx);
+    let rests = |cx: &mut VisualTestContext, tab: u64| {
+        shell.update(cx, |shell, cx| shell.hover_card(Row::Tab(tab), true, cx));
+        host.take().iter().any(|call| call.starts_with("card rest"))
+    };
+    rest_on(&shell, cx, &host, 3);
+    shell.update(cx, |shell, cx| shell.show_theme_picker(1, point(200., 100.), cx));
+    assert!(host.take().contains(&"card close".to_string()));
+    assert!(!rests(cx, 4), "the theme picker shows");
+    cx.update(|_, cx| theme_picker::dismissed(cx));
+    assert!(rests(cx, 4), "the theme picker closed");
+
+    shell.update(cx, |_, cx| {
+        let picked: Picked = Rc::new(|_, _| {});
+        icon_picker::show(Subject::Tab(3), "".into(), point(0., 0.), picked, cx);
+    });
+    assert!(!rests(cx, 4), "the icon picker shows");
+    cx.update(|_, cx| icon_picker::dismissed(cx));
+    assert!(rests(cx, 4), "the icon picker closed");
 }
 
 /// Each button makes the call the row's menu makes, or for Split, the one its drag onto the page

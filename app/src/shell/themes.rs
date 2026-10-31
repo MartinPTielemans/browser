@@ -173,6 +173,8 @@ impl Shell {
             shell.update(cx, |shell, cx| shell.theme_changed(space, theme, done, cx)).ok();
         });
         let height = f32::from(self.viewport.height);
+        // A card showing would stay under the picker, as rows' cards wait while it shows.
+        self.browser.hover_card(crate::hover_card::Hover::Close, cx);
         theme_picker::show(space, theme, anchor, height, changed, cx);
     }
 
