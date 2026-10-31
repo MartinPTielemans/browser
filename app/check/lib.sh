@@ -89,15 +89,20 @@ await_load() {
 }
 # Waits up to $1 seconds (10) for the app to exit and checks that no Chromium process outlives it.
 exited() {
-  for _ in $(seq $((${1:-10} * 2))); do
+  stopping=
+  for tick in $(seq $((${1:-10} * 2))); do
     kill -0 "$pid" 2>/dev/null || break
+    # The tick Chromium said it was stopping, so a slow end says how long its rest took (#959).
+    [ -n "$stopping" ] || ! grep -q '^browser: stopping$' "$log" || stopping=$tick
     sleep 0.5
   done
   if kill -0 "$pid" 2>/dev/null; then
     windows || [ "$(uname)" = Linux ] || sample "$pid" 2 -file "$out/hang.txt" > /dev/null 2>&1
-    fail "the app didn't quit. Where it was: $out/hang.txt"
+    fail "the app didn't quit${stopping:+, after stopping}. Where it was: $out/hang.txt"
   fi
   wait "$pid" || fail "the app exited with status $?"
+  # Every quit's time on this proof branch, so a full check's quits show their worst (#959).
+  [ -z "$stopping" ] || echo "quit time: the app ended $(((tick - stopping) * 500)) ms after stopping"
   for _ in $(seq 10); do
     pgrep -f "$procs" > /dev/null || break
     sleep 0.5
