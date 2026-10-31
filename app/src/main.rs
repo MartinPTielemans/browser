@@ -3774,6 +3774,12 @@ extern "C" fn file_preview(
         let png = Arc::new(Image::from_bytes(ImageFormat::Png, png));
         FilePreview { image: png, width: width as f32, height: height as f32, photo: image }
     });
+    let kind = match preview {
+        Some(_) if image => "picture",
+        Some(_) => "icon",
+        None => "none",
+    };
+    log!("browser: download {download} preview {kind} {width}x{height}");
     update_shells(|shell, cx| shell.set_download_preview(download, preview.clone(), cx));
 }
 
