@@ -125,6 +125,12 @@ void ReportHistory(bc_id tab,
   Host().tab_history(Host().context, tab, forward, entries.data(), entries.size());
 }
 
+// Set once StopHearingCaptures has run, after which no tab starts hearing them.
+bool& CapturesStopped() {
+  static bool stopped = false;
+  return stopped;
+}
+
 std::map<bc_id, std::unique_ptr<Tab>>& Tabs() {
   static base::NoDestructor<std::map<bc_id, std::unique_ptr<Tab>>> tabs;
   return *tabs;
@@ -329,8 +335,10 @@ void Tab::Attach(content::WebContents* contents) {
     audible_subscription_ = audible->RegisterRecentlyAudibleChangedCallback(
         base::IgnoreArgs<bool>(base::BindRepeating(&Tab::ReportStateSoon, base::Unretained(this))));
   }
-  // Its page's camera, microphone and sharing, as Chrome's tab strip marks them.
-  if (!capture_observation_.IsObserving()) {
+  // Its page's camera, microphone and sharing, as Chrome's tab strip marks them. Not once quitting,
+  // as a page's popup can still come after StopHearingCaptures.
+  if (!capture_observation_.IsObserving() && !CapturesStopped() &&
+      !browser_shutdown::HasShutdownStarted()) {
     capture_observation_.Observe(
         MediaCaptureDevicesDispatcher::GetInstance()->GetMediaStreamCaptureIndicator().get());
   }
@@ -357,6 +365,14 @@ std::vector<content::WebContents*> Tab::Pages() {
     }
   }
   return pages;
+}
+
+// static
+void Tab::StopHearingCaptures() {
+  CapturesStopped() = true;
+  for (const auto& [id, tab] : Tabs()) {
+    tab->capture_observation_.Reset();
+  }
 }
 
 // static

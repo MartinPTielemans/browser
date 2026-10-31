@@ -203,6 +203,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
     widevine::Stop();
     FlushSession();
     Window::CloseAll();
+    Tab::StopHearingCaptures();
     ReleaseProfiles();
     if (g_host.stopping) {
       g_host.stopping(g_host.context);

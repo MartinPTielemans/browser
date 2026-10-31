@@ -81,6 +81,9 @@ class Tab : public content::WebContentsObserver,
                           const gfx::PointF& point);
   // Every tab's page, of the tabs that have one.
   static std::vector<content::WebContents*> Pages();
+  // Stops every tab hearing Chrome's capture indicator, at a quit once the run loop is done: the
+  // tabs outlive it, and it checks it has no one left to tell as it goes.
+  static void StopHearingCaptures();
   // The view a window shows for |contents|'s page: its system page's, else its own.
   static gfx::NativeView PageViewOf(content::WebContents* contents);
   // Gives |contents|'s page the keyboard.
