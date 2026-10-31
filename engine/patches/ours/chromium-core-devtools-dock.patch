@@ -23,7 +23,7 @@ views, and so no DevtoolsUIController to dock them in.
  namespace {
  
  typedef std::vector<DevToolsWindow*> DevToolsWindows;
-@@ -1079,9 +1085,17 @@
+@@ -1079,9 +1085,19 @@
      if (auto* devtools_ui_controller =
              DevtoolsUIController::From(inspected_browser)) {
        devtools_ui_controller->UpdateDevtools(inspected_web_contents);
@@ -33,16 +33,18 @@ views, and so no DevtoolsUIController to dock them in.
      }
      main_web_contents_->SetInitialFocus();
 -    inspected_window->Show();
-+    // browser_core: not the core's windows, already on screen, where showing one activates it, as
-+    // DevTools that finish loading after the user went to another window would (#1050).
++    // browser_core: a core window, always on screen, is shown only while it's active, where it
++    // gives the page back the keyboard. Inactive, showing it would activate it, taking the user
++    // from the window they went to as DevTools loaded (#1050).
 +    if (!g_browser_core_can_dock_devtools ||
-+        !g_browser_core_can_dock_devtools(inspected_browser)) {
++        !g_browser_core_can_dock_devtools(inspected_browser) ||
++        inspected_window->IsActive()) {
 +      inspected_window->Show();
 +    }
      // On Aura, focusing once is not enough. Do it again.
      // Note that focusing only here but not before isn't enough either. We just
      // need to focus twice.
-@@ -1403,7 +1417,11 @@
+@@ -1403,7 +1419,11 @@
  #endif  // BUILDFLAG(IS_MAC)
      DevtoolsUIController* devtools_ui_controller =
          browser ? DevtoolsUIController::From(browser) : nullptr;

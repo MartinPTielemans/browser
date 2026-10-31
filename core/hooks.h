@@ -78,9 +78,9 @@ extern media_router::MediaRouterDialogController* (*g_browser_core_cast_dialog)(
     content::WebContents* contents);
 
 // chrome/browser/devtools/devtools_window.cc: the core docks DevTools in its windows, which have no
-// DevtoolsUIController. Whether |browser|'s window can, and then Chrome doesn't show it as they
-// dock, as it's on screen and showing it would activate it; and the call as the docked DevTools
-// of |inspected|, a tab of |browser|, open, lay out again or close.
+// DevtoolsUIController. Whether |browser|'s window can, and then Chrome shows it as they dock only
+// while it's active, as showing an inactive one would activate it; and the call as the docked
+// DevTools of |inspected|, a tab of |browser|, open, lay out again or close.
 extern bool (*g_browser_core_can_dock_devtools)(BrowserWindowInterface* browser);
 extern void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
                                               content::WebContents* inspected);
