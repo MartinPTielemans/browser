@@ -144,6 +144,11 @@ impl Shell {
             self.browser.set_window_light(light, cx);
             log!("browser: window light {light}");
         }
+        let look = self.menu_look();
+        if self.capture_look != Some(look) {
+            self.capture_look = Some(look);
+            self.browser.capture_look(self.selected, look, cx);
+        }
         if cx.try_global::<super::commands::ShellHandle>().is_some_and(|key| key.0 == cx.weak_entity()) {
             palette::set_current(palette, cx);
         }
