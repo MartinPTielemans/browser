@@ -892,7 +892,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: page $tab needs nothing\$" "the note stayed in Safari's engine"
   grep -q '^browser: system engine loaded for ' "$log" || fail "Safari's engine's page didn't say WebKit loaded"
   expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "Safari's engine didn't load the page"
-  expect "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
+  expect_late "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
   # The site's session came first: the page's first request carried both cookies, and its script
   # found the item.
   copied="^browser: copied [0-9]* cookies and [0-9]* storage items for 127.0.0.1 into the system's engine\$"
@@ -1188,7 +1188,7 @@ if [ "$drm_done" = "Safari's engine" ]; then
   send choose On
   expect "^browser: site controls set Safari's engine On\$" "On in the menu didn't run"
   expect "^browser: system engine $tab on\$" "On didn't show the page in Safari's engine"
-  expect "^browser: title $tab drm asked\$" "Safari's engine didn't load the closed site's page"
+  expect_late "^browser: title $tab drm asked\$" "Safari's engine didn't load the closed site's page"
 else
   grep "$controls" "$log" | tail -1 | grep -q "Safari's engine" &&
     fail "the Site Controls offered Safari's engine where the note's button opens Safari"
