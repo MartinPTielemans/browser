@@ -12,7 +12,7 @@ fail() {
 }
 
 # What starts each file this changes, as GPL 3 asks of a changed file.
-changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser, and it doesn't reload as it first starts. Diag (#744): it logs, and why its selfie loads."
+changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser, and it doesn't reload as it first starts. Diag (#744): it logs, why its selfie loads, and when its page starts."
 
 # Puts $3, which may be several lines or none, in place of the line $2 of uBlock Origin's file $1,
 # and fails unless that line is there once, so a new release is read again before it ships.
@@ -80,6 +80,10 @@ if [ ! -f "$dir/manifest.json" ] || ! grep -qF "\"key\": \"$key\"" "$dir/manifes
   edit js/console.js 'function ubologIgnore() {' 'function ubologIgnore(...args) { ubologDo(...args);'
   edit js/start.js '    lastVersionInt = vAPI.app.intFromVersion(lastVersion);' \
     '    lastVersionInt = vAPI.app.intFromVersion(lastVersion); ubolog(`Last version ${lastVersion}`);'
+  edit js/vapi.js '// For background page, auxiliary pages, and content scripts.' \
+    "if ( self.location && self.location.pathname === '/background.html' ) { console.error('[uBO] ' + Date.now() + ' First script; page started ' + Math.round(performance.timeOrigin)); }"
+  edit js/vapi-common.js 'vAPI.T0 = Date.now();' \
+    "vAPI.T0 = Date.now(); if ( self.location && self.location.pathname === '/background.html' ) { console.error('[uBO] ' + vAPI.T0 + ' Modules evaluating'); }"
   edit js/storage.js '            if ( results.every(v => v) ) {' \
     '            ubolog(`Selfie loads ${results.join(",")}`); if ( results.every(v => v) ) {'
   edit js/static-net-filtering.js \
