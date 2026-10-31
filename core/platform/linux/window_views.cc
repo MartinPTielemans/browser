@@ -486,14 +486,19 @@ class WindowViews : public views::WidgetObserver,
   // the window has it. Taken from another window, as by a window whose page moved out, that
   // window's handling of its focus event, which comes after it has the focus back, would take it
   // back too, and the two would go on without end (#531).
-  void UITakesKeyboard(bool asked = false) {
+  enum class Asked { kNo, kToKeep, kToHold };
+  void UITakesKeyboard(Asked asked = Asked::kNo) {
     // With no page shown, the keys only reach the window's shortcuts through the UI, which holds
     // them for the next page shown, as the Mac's window does. Taken again while it has them, as the
     // window manager focusing the window as it maps has it, it still holds them or keeps them.
     // Asked by the app, as for the New Space form's field, it keeps them, as the Mac's UI view
-    // does once it's the first responder.
-    if (asked) {
+    // does once it's the first responder. Asked to hold them, as the app does as it shows a Space
+    // with no page, the window's first too, it holds them for the next page shown, even with the
+    // page before still in the window, unless it keeps them, as the form's Space shows (#895).
+    if (asked == Asked::kToKeep) {
       ui_holds_for_page_ = false;
+    } else if (asked == Asked::kToHold) {
+      ui_holds_for_page_ = ui_holds_for_page_ || !ui_has_keyboard_;
     } else if (!ui_has_keyboard_) {
       ui_holds_for_page_ =
           std::ranges::none_of(panes_, [](const Slot& slot) { return slot.page; });
@@ -658,6 +663,9 @@ class WindowViews : public views::WidgetObserver,
       if (x11::Window main = UIMain(); key && main != x11::Window::None) {
         key->event = main;
         x11::Connection* connection = x11::Connection::Get();
+        // With the focus, or GPUI, finding it on this window, hands the key back here as the
+        // page's, and the two pass it on without end, as ⌘Q after full screen did (#919).
+        SetInputFocus(main);
         connection->SendEvent(*key, main, x11::EventMask::NoEvent);
         connection->Flush();
       }
@@ -1199,9 +1207,9 @@ void StartMove(views::Widget* widget, std::optional<gfx::Point> press) {
   handler->DispatchHostWindowDragMovement(HTCAPTION, pointer);
 }
 
-void UITakesKeyboard(views::Widget* widget) {
+void UITakesKeyboard(views::Widget* widget, bool until_page) {
   if (WindowViews* views = ViewsOf(widget)) {
-    views->UITakesKeyboard(/*asked=*/true);
+    views->UITakesKeyboard(until_page ? WindowViews::Asked::kToHold : WindowViews::Asked::kToKeep);
   }
 }
 
@@ -1218,6 +1226,26 @@ bool KeyboardInChild(views::Widget* widget) {
   aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
   aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
   return focused && focused != widget->GetNativeView() && !views->InSlot(focused);
+}
+
+std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  if (!views || views->ui_has_keyboard()) {
+    return std::nullopt;
+  }
+  aura::client::FocusClient* client = aura::client::GetFocusClient(widget->GetNativeView());
+  aura::Window* focused = client ? client->GetFocusedWindow() : nullptr;
+  if (!focused) {
+    return std::nullopt;
+  }
+  // A pane's page, not the DevTools docked in it.
+  for (Slot& slot : views->panes()) {
+    if (slot.holder && slot.holder->Contains(focused) &&
+        !(slot.devtools && slot.devtools->Contains(focused))) {
+      return slot.holder->bounds();
+    }
+  }
+  return std::nullopt;
 }
 
 std::u16string ChildTitle(views::Widget* widget) {
@@ -1268,6 +1296,27 @@ std::optional<gfx::Rect> DialogFrame(views::Widget* widget) {
 
 void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Linux; the page shows its last frame unscaled until it redraws.
+}
+
+void AnswerClipboardRequests() {
+  if (OnWayland()) {
+    return;
+  }
+  x11::Connection* connection = x11::Connection::Get();
+  connection->ReadResponses();
+  // The rest wait their turn in the queue: dispatched inside the UI's read, they could call the UI.
+  // Taken out first, as answering one can read more into the queue.
+  std::vector<x11::Event> requests;
+  for (x11::Event& event : connection->events()) {
+    if (event.As<x11::SelectionRequestEvent>()) {
+      requests.push_back(std::move(event));
+      event = x11::Event();
+    }
+  }
+  for (const x11::Event& request : requests) {
+    connection->DispatchEvent(request);
+  }
+  connection->Flush();
 }
 
 }  // namespace browser_core::platform

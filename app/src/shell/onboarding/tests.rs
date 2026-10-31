@@ -140,6 +140,27 @@ fn the_intro_goes_on_by_itself(cx: &mut TestAppContext) {
     assert_eq!(step(&shell, cx), Some(Step::Import));
 }
 
+/// The timer the intro holds on can wake the window before the end by the flow's own clock, as
+/// Windows' did (#1026); the intro then waits out what's left, with nothing else drawing it.
+#[gpui::test]
+fn the_intro_goes_on_after_a_timer_that_wakes_it_early(cx: &mut TestAppContext) {
+    let (shell, cx, _) = first_window(cx);
+    started(&shell, cx);
+    later(&shell, cx, INTRO_END - 0.5);
+    // The timer ends, while the flow's clock has half a second to go.
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    assert_eq!(step(&shell, cx), Some(Step::Intro));
+    // The half second passes, and only a timer wakes the window.
+    shell.update(cx, |shell, _| {
+        let onboarding = shell.onboarding.as_mut().expect("the flow shows");
+        onboarding.since -= Duration::from_secs_f32(0.5);
+    });
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    assert_eq!(step(&shell, cx), Some(Step::Import));
+}
+
 /// Esc skips each step in turn, and after the last the flow fades out from over the first
 /// Space's welcome, which then shows alone.
 #[gpui::test]
