@@ -94,7 +94,10 @@ jobs:
             dbus-daemon at-spi2-core fcitx5 libxkbcommon-tools
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
-          printf '#!/bin/sh\nexec convert "$@"\n' > "$RUNNER_TEMP/bin/magick"
+          # ImageMagick 6 has a tool for each of 7's magick subcommands, such as headless.sh's
+          # magick compare, and convert for the rest.
+          printf '#!/bin/sh\ncase $1 in compare|montage|identify) tool=$1; shift; exec "$tool" "$@" ;; esac\nexec convert "$@"\n' \
+            > "$RUNNER_TEMP/bin/magick"
           chmod +x "$RUNNER_TEMP/bin/magick"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
