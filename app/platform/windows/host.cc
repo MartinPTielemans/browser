@@ -1831,10 +1831,10 @@ void host_set_overlay_height(int overlay, double height) {
   if (!floating.hwnd) {
     return;
   }
-  // In pixels, as Resize sets it.
+  // Its client area's, in pixels, as Resize sets it.
   RECT rect{};
-  GetWindowRect(floating.hwnd, &rect);
-  if (rect.bottom - rect.top == static_cast<int>(height * Scale(floating.hwnd))) {
+  GetClientRect(floating.hwnd, &rect);
+  if (rect.bottom == static_cast<LONG>(height * Scale(floating.hwnd))) {
     return;
   }
   Resize(floating, height);
