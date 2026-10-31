@@ -245,22 +245,38 @@ fn the_brush_opens_the_theme_picker_beside_itself(cx: &mut TestAppContext) {
     assert_eq!(renaming_in_card(&shell, cx), None, "the brush renamed");
 }
 
-/// A click on another card's brush moves the picker there. One on the brush whose picker shows
-/// closes it, as the press outside the picker does, rather than opening it again.
+/// A click on another card's brush or slot moves the picker there, once the press has closed it,
+/// whichever the picker hears of first. One on the brush whose picker shows closes it, as the
+/// press outside the picker does, rather than opening it again.
 #[gpui::test]
-fn another_card_s_brush_moves_the_picker_and_its_own_closes_it(cx: &mut TestAppContext) {
-    let (_, themes) = pickers(cx);
+fn another_card_s_brush_or_slot_moves_the_picker_and_its_own_closes_it(cx: &mut TestAppContext) {
+    let (icons, themes) = pickers(cx);
     let (_, cx, _) = library(cx);
+    let dismiss_theme = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| theme_picker::dismissed(cx));
+        cx.run_until_parked();
+    };
     click(cx, brush(0));
+    // The host closes the picker on the press, which the picker hears after the click on Linux,
     click(cx, brush(1));
+    assert_eq!(themes.borrow().len(), 1, "the picker moved before it had closed");
+    dismiss_theme(cx);
     assert_eq!(shown(cx), (None, Some(2)));
     assert_eq!(themes.borrow().len(), 2);
-    // The host closes the picker on the press, which the picker hears after it.
-    click(cx, brush(1));
-    assert_eq!(themes.borrow().len(), 2, "the press on the picker's own brush opened it again");
-    cx.update(|_, cx| theme_picker::dismissed(cx));
+    // and before it on the Mac.
+    dismiss_theme(cx);
+    click(cx, brush(0));
+    assert_eq!(shown(cx), (None, Some(1)));
+    click(cx, brush(0));
+    assert_eq!(themes.borrow().len(), 3, "the press on the picker's own brush opened it again");
+    dismiss_theme(cx);
+    assert_eq!(shown(cx), (None, None));
     click(cx, slot(0));
-    assert_eq!(shown(cx), (Some(Subject::Space(1)), None));
+    click(cx, slot(1));
+    cx.update(|_, cx| icon_picker::dismissed(cx));
+    cx.run_until_parked();
+    assert_eq!(shown(cx), (Some(Subject::Space(2)), None));
+    assert_eq!(icons.borrow().len(), 2);
 }
 
 /// While a picker shows for a card, its field stays lit, though the pointer has left it for the

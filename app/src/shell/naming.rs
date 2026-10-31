@@ -182,7 +182,24 @@ impl Shell {
 
     /// Hangs the icon picker from the icon slot of `space`'s card in the Library, which stays open
     /// with the Space shown where it was, so several can be changed in a row, as in Arc (#1074).
+    /// The press closed a picker showing for another card, which on Linux hears so only after the
+    /// click, so it opens from this card once that one has closed.
     pub(super) fn change_space_icon_in_card(&mut self, space: u64, cx: &mut Context<Self>) {
+        let showing = icon_picker::open_for(cx);
+        if let Some(other) = showing.filter(|&other| other != Subject::Space(space)) {
+            let picker = icon_picker::entity(cx);
+            self.card_move = picker.map(|picker| {
+                cx.observe(&picker, move |shell, _, cx| match icon_picker::open_for(cx) {
+                    Some(now) if now == other => {}
+                    None => {
+                        shell.card_move = None;
+                        shell.change_space_icon_in_card(space, cx);
+                    }
+                    Some(_) => shell.card_move = None,
+                })
+            });
+            return;
+        }
         let Some(slot) = self.slot_frames.borrow().get(&space).copied() else {
             return;
         };
@@ -192,8 +209,23 @@ impl Shell {
     }
 
     /// Opens the theme picker beside the brush of `space`'s card in the Library, which stays open
-    /// under it, the card's gradient taking the theme as it's made (#1074).
+    /// under it, the card's gradient taking the theme as it's made (#1074), once a picker showing
+    /// for another card has closed, as the icon picker does.
     pub(super) fn edit_space_theme_in_card(&mut self, space: u64, cx: &mut Context<Self>) {
+        if let Some(other) = theme_picker::open_for(cx).filter(|&other| other != space) {
+            let picker = theme_picker::entity(cx);
+            self.card_move = picker.map(|picker| {
+                cx.observe(&picker, move |shell, _, cx| match theme_picker::open_for(cx) {
+                    Some(now) if now == other => {}
+                    None => {
+                        shell.card_move = None;
+                        shell.edit_space_theme_in_card(space, cx);
+                    }
+                    Some(_) => shell.card_move = None,
+                })
+            });
+            return;
+        }
         let Some(brush) = self.brush_frames.borrow().get(&space).copied() else {
             return;
         };
