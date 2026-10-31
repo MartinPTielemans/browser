@@ -48,6 +48,7 @@ impl What {
     pub const ADD_FAVORITE: What = What::quiet("Add to Favorites");
     pub const REMOVE_FAVORITE: What = What::said("Remove from Favorites", "Removed from Favorites");
     pub const MOVE_TAB: What = What::quiet("Move Tab");
+    pub const DUPLICATE: What = What::quiet("Duplicate");
     pub const MOVE_FAVORITE: What = What::quiet("Move Favorite");
     pub const MOVE_TO_SPACE: What = What::said("Move to Space", "Tab Moved to Space");
     pub const DELETE_FOLDER: What = What::said("Delete Folder", "Folder Deleted");
