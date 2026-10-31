@@ -868,6 +868,10 @@ impl Browser for Recorder {
         self.record("focus ui".into())
     }
 
+    fn hold_keyboard_for_page(&self, _: &mut App) {
+        self.record("hold keyboard for page".into())
+    }
+
     fn focus_page(&self, _: &mut App) {
         self.record("focus page".into())
     }
