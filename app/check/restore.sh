@@ -597,11 +597,9 @@ quit
 
 # A tab put back that no window shows has no page, as the core logs, until it's first shown, when
 # its page loads scrolled where it was.
-# Its script ends on a line of its own: Git Bash passes a ;</script> to the app as a path.
 long='data:text/html,<title>top</title><div style="height:5000px"></div>
 <script>onscroll = () => document.title = "scrolled " + Math.round(scrollY);
-onkeydown = (e) => e.key == "f" && document.documentElement.requestFullscreen();
-</script>'
+onkeydown = (e) => e.key == "f" && document.documentElement.requestFullscreen();</script>'
 log="$out/unloaded-a.log"
 step=0
 rm -f "$saved" "$launch_frame"

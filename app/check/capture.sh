@@ -18,12 +18,10 @@ else
   buttons=save
 fi
 # A page longer than any view, with a box at a known place in it.
-# Its script ends on a line of its own: Git Bash passes a ;</script> to the app as a path.
 page='data:text/html;charset=utf-8,<title>loading</title>
 <body style="margin:0;height:6000px">
 <div style="position:absolute;left:300px;top:200px;width:200px;height:100px;background:teal"></div>
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
-</script>'
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/capture.log"
 step=0
 rm -f "$saved" "$launch_frame"
