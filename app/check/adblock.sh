@@ -233,6 +233,34 @@ trusted=$(sed -n '/^ *netWhitelistDefault: \[$/,/^ *\],$/p' "$ublock_js/backgrou
 [ -n "$trusted" ] || fail "the run found no trusted sites in uBlock Origin's background.js"
 echo "$trusted" | grep -qi youtube && fail "uBlock Origin trusts YouTube by default: $trusted"
 
+# Diagnostic for #744: how long after launch an existing profile starts blocking.
+printf '%s' '<title>probe</title><script>
+let n = 0;
+const probe = () => {
+  const sent = Date.now();
+  fetch("check-ad.js?n=" + n++, {cache: "no-store"}).then(() => setTimeout(probe, 10), () => {
+    document.title = "probe blocked " + sent + " page " + Math.round(performance.timeOrigin) + " tries " + n;
+  });
+};
+probe();
+</script>' > "$out/site/probe.html"
+for i in 1 2 3 4 5; do
+  log="$out/adblock-probe-$i.log"
+  step=0
+  launched=$(python3 -I -c 'import time; print(time.time())')
+  BROWSER_DRIVE=1 BROWSER_URL="${site}probe.html" BROWSER_PROFILE_DIR="$profile_dir" \
+    "$browser" --ad-block-filters="$filters" < "$out/drive" > "$log" 2>&1 &
+  pid=$!
+  exec 3> "$out/drive"
+  await "^browser: title [0-9]* probe blocked " || fail "probe $i: never blocked"
+  line=$(grep "^browser: title [0-9]* probe blocked " "$log" | head -1)
+  python3 -I -c 'import sys
+t = float(sys.argv[1]) * 1000
+w = sys.argv[2].split()
+print("adblock probe: launch to first page %d ms, launch to blocking %d ms, page unblocked for %d ms, %s tries" % (int(w[6]) - t, int(w[4]) - t, int(w[4]) - int(w[6]), w[8]))' "$launched" "$line"
+  quit
+done
+
 # An existing profile blocks too: launched again on it, uBlock Origin reads the lists it kept. The
 # run reports whether that launch's first page was blocked before any reload.
 log="$out/adblock-again.log"
