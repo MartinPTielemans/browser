@@ -286,7 +286,7 @@ if [ "$active" != 1 ]; then
 fi
 # Rename… in its menu, with the name taken out, gives the tab back its page's title.
 post rightclick $(row 0)
-menu=$(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below")
+menu=$(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below")
 expect "^browser: menu shown $menu\$" \
   "a right-click on the renamed tab's row didn't offer Rename…"
 send choose Rename…
@@ -683,6 +683,9 @@ pid=$!
 await '^browser: restored in ' || fail "a launch with Restore windows off didn't bring the Spaces back"
 await "^browser: pinned $p\$" || fail "the pinned tab didn't come back with Restore windows off"
 await '^browser: archive 1 tabs$' || fail "the Today tab didn't go in the archive with Restore windows off"
+# A window says it's open after its Space's lines, on Linux after the archive's too, so the count
+# below waits for it (#1038).
+await '^browser: window opened ' || fail "no window opened with Restore windows off"
 ../tools/window-screenshot.sh "$pid" "$out/fresh-window.png" || fail "no window to capture"
 [ -z "$(today)" ] || fail "Today is \"$(today)\" with Restore windows off, not empty"
 grep -q '^browser: loaded ' "$log" && fail "a page loaded at a launch with Restore windows off"

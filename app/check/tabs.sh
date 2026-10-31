@@ -276,7 +276,7 @@ expect '^browser: command bar hidden$' "Esc didn't close the command bar"
 # ilo's menu as #324 has it. The keys walk it past the line and the dimmed Mute, and typing selects
 # by a title's start.
 post rightclick $(row 0)
-expect "^browser: menu shown $(cased 'Copy Link, .*, Mute (disabled), .*, Duplicate, Move to › ')" \
+expect "^browser: menu shown $(cased 'Copy Link, .*, Mute (disabled), .*, Duplicate, Add to Folder › New Folder, Move to › ')" \
   "a right-click on the top Today row didn't show its tab's menu"
 expect '^browser: menu window at ' "the menu didn't take the keyboard"
 send key down

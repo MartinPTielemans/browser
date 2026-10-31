@@ -28,6 +28,8 @@ actions!(
     [
         Backspace,
         Delete,
+        DeleteToStart,
+        DeleteWordBack,
         Left,
         Right,
         SelectLeft,
@@ -113,6 +115,21 @@ pub fn bind_keys(cx: &mut App) {
     // A Mac text field's forward delete, which keeps ⌃D from the browser's Developer Mode.
     if !crate::shell::OFF_THE_MAC {
         cx.bind_keys([KeyBinding::new("ctrl-d", Delete, context)]);
+    }
+    // ⌘⌫ deletes to the field's start and ⌥⌫ the word before the caret, as in any Mac field. Off
+    // the Mac Ctrl+Backspace deletes the word, and on Linux Ctrl+Shift+Backspace to the start, as
+    // in Chrome's fields there, ahead of Clear Browsing Data while a field has the keys.
+    match crate::shell::OFF_THE_MAC {
+        false => cx.bind_keys([
+            KeyBinding::new("cmd-backspace", DeleteToStart, context),
+            KeyBinding::new("alt-backspace", DeleteWordBack, context),
+        ]),
+        true => {
+            cx.bind_keys([KeyBinding::new("ctrl-backspace", DeleteWordBack, context)]);
+            if cfg!(target_os = "linux") {
+                cx.bind_keys([KeyBinding::new("ctrl-shift-backspace", DeleteToStart, context)]);
+            }
+        }
     }
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, context),
@@ -306,6 +323,37 @@ impl TextInput {
                 return;
             }
             self.select_to(prev, window, cx)
+        }
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
+    fn delete_to_start(&mut self, _: &DeleteToStart, window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_back_to(0, window, cx);
+    }
+
+    fn delete_word_back(
+        &mut self,
+        _: &DeleteWordBack,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let start = self.previous_word_start(self.cursor_offset());
+        self.delete_back_to(start, window, cx);
+    }
+
+    /// Deletes the selection, or with none, back from the caret to `offset`, as ⌫ does a
+    /// character.
+    fn delete_back_to(&mut self, offset: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // The input method's while it composes, which has the keys before the field.
+        if self.marked_range.is_some() {
+            return;
+        }
+        if self.selected_range.is_empty() {
+            if offset == self.cursor_offset() {
+                window.play_system_bell();
+                return;
+            }
+            self.select_to(offset, window, cx);
         }
         self.replace_text_in_range(None, "", window, cx)
     }
@@ -546,6 +594,20 @@ impl TextInput {
             .rev()
             .find_map(|(idx, _)| (idx < offset).then_some(idx))
             .unwrap_or(0)
+    }
+
+    /// Where the word before `offset` starts, past the spaces and punctuation after it, as ⌥⌫
+    /// finds it: in "example.com/some/path" from its end, at "path".
+    fn previous_word_start(&self, offset: usize) -> usize {
+        let before = &self.content[..offset];
+        let mut start = offset;
+        for (index, text) in before.split_word_bound_indices().rev() {
+            start = index;
+            if text.chars().any(char::is_alphanumeric) {
+                break;
+            }
+        }
+        start
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
@@ -1020,6 +1082,8 @@ impl Render for TextInput {
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
+            .on_action(cx.listener(Self::delete_to_start))
+            .on_action(cx.listener(Self::delete_word_back))
             .on_action(cx.listener(Self::left))
             .on_action(cx.listener(Self::right))
             .on_action(cx.listener(Self::select_left))
