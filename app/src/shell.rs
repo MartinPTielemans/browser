@@ -1016,8 +1016,15 @@ pub struct Shell {
     /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
     button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
     /// The icon slots the Library's Space cards were last drawn with, by Space, for their
-    /// tooltips to hang from.
+    /// tooltips and the icon picker to hang from.
     slot_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// The brushes the Library's Space cards were last drawn with, by Space, for the theme picker
+    /// to open beside.
+    brush_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// Whether the press on a card's icon slot or brush came while its own picker showed, so the
+    /// click closes it rather than opening it again: the press outside the picker has closed it,
+    /// but the picker hears so only after the press.
+    card_press_closes: bool,
     /// Whether each Space card's field was last drawn with its plate, for its log lines.
     fields_drawn: Rc<RefCell<HashMap<u64, bool>>>,
     /// Where the Library's empty line was last laid out, for its log line.
@@ -1355,6 +1362,12 @@ pub struct Shell {
     /// The Space with no icon the icon picker shows for, whose name row holds the icon's place
     /// with a placeholder until the picker closes, and the watch on the picker that tells it so.
     icon_placeholder: Option<(u64, Subscription)>,
+    /// The Space whose card in the Library a picker opened from, whose field stays lit while the
+    /// picker shows for it, as while its name is typed over; and the watch on the picker.
+    card_picker: Option<(u64, Subscription)>,
+    /// The watch on a picker that showed for another card when a card's slot or brush was
+    /// clicked, which opens it from that card once it has closed.
+    card_move: Option<Subscription>,
     /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
     private: bool,
 }
@@ -1416,6 +1429,8 @@ impl Shell {
             beside_frames: Rc::default(),
             button_frames: Rc::default(),
             slot_frames: Rc::default(),
+            brush_frames: Rc::default(),
+            card_press_closes: false,
             fields_drawn: Rc::default(),
             empty_drawn: Rc::default(),
             scrolled: false,
@@ -1571,6 +1586,8 @@ impl Shell {
             tile_icons_drawn: Rc::default(),
             name_row_before: None,
             icon_placeholder: None,
+            card_picker: None,
+            card_move: None,
             switching: None,
             background_pressed: false,
             palette: Palette::default(),
