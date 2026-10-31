@@ -222,6 +222,7 @@ mod platform {
         pub fn host_can_draw_emoji(emoji: *const c_char) -> bool;
         pub fn host_dismiss_overlay(overlay: c_int);
         pub fn host_hold_keys();
+        pub fn host_release_held_keys();
         pub fn host_add_find_bar(
             ui_view: *mut c_void,
             find_bar_view: *mut c_void,
@@ -3333,6 +3334,9 @@ unsafe extern "C" fn tab_key_before_page(
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.holds_keys(&keystroke))
     });
     if holds == Some(true) {
+        // The core says when the page has answered the key and no field opens for it, and holds
+        // them itself where the host can't (bc_hold_keys).
+        unsafe { bc::bc_hold_keys(cfg!(target_os = "linux")) };
         unsafe { platform::host_hold_keys() };
         #[cfg(target_os = "linux")]
         gpui_linux::hold_keys(Some(&held_keystroke(unsafe { &*key })));
@@ -3398,6 +3402,12 @@ fn give_held_keys(view: *mut c_void) {
             })
         })
         .detach();
+}
+
+/// No field opens for the key the keys after it are held for (bc_hold_keys), so the host gives them
+/// to the page.
+unsafe extern "C" fn held_keys_unclaimed(_: *mut c_void) {
+    unsafe { platform::host_release_held_keys() };
 }
 
 unsafe extern "C" fn tab_key_unhandled(
@@ -6211,6 +6221,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
+        held_keys_unclaimed: Some(held_keys_unclaimed),
         tab_media_unsupported: Some(tab_media_unsupported),
         widevine_changed: Some(widevine_changed),
         tab_page_menu: Some(tab_page_menu),

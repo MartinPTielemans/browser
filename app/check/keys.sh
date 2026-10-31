@@ -9,8 +9,9 @@
 # loads what's typed in it, over https for a host typed without one, or searches DuckDuckGo for
 # words. A page it opens in a new tab has the keyboard: its autofocused field gets what's typed, and
 # ⌘T opens the bar again. While ⌘T's is open, "New Tab" has the selected plate. Keys
-# typed right after ⌘T, ⌘L or ⌘F, from the page or the UI, wait for the bar it opens and land in its
-# field, a composition too, and a page that keeps ⌘F gets them after it. Japanese input composes
+# typed right after ⌘T, ⌘L or ⌘F, from the page or the UI, wait for the bar it opens, however late
+# the page answers ⌘L, and land in its field, a composition too, and a page that keeps ⌘F gets them
+# after it. Japanese input composes
 # and commits in the page and in the command bar, where return and escape go to the input method
 # while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
 # history page from the page and the UI. A page whose renderer crashes leaves the browser running,
@@ -26,11 +27,13 @@ page='data:text/html,<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
-// Like Google Docs, the page keeps ⌘F.
+// Like Google Docs, the page keeps ⌘F. It answers ⌘L late, as a busy page can, past the 0.4 s
+// the keys typed after it were once held for (#937).
 addEventListener("keydown", e => {
   if (!e.'"$cmd_key"') return;
   document.title = "page saw cmd-" + e.key;
   if (e.key == "f") e.preventDefault();
+  for (const until = performance.now() + (e.key == "l" ? 700 : 0); performance.now() < until;);
 }, true);
 addEventListener("keydown", e => {
   if (e.key == "Escape") document.title = "page saw escape " + (e.repeat ? "repeat" : "press");

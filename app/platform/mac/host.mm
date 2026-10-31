@@ -982,7 +982,8 @@ void PlaceReveal(Browser* browser) {
 // (Ardia P§7), but the bar takes the keyboard only once it has drawn, a main-queue turn later, and
 // a shortcut the page gets first, such as ⌘L, comes back after the keys behind it went to the page.
 // So from the shortcut until the bar has the keyboard, keys are held and then given to it in order,
-// a composition whole. A hold lasts kHoldKeys at most, which is the page keeping the shortcut.
+// a composition whole. For a shortcut the page gets first, the core says if the page kept it and
+// no bar opens (host_release_held_keys). A hold lasts kHoldKeys at most, as the core's does.
 NSMutableArray<NSEvent*>* g_held_keys;
 bool g_holding_keys = false;
 // The bar the keys wait for, or nil for whichever opens.
@@ -993,7 +994,7 @@ NSWindow* g_keys_to;
 NSTimeInterval g_keys_released;
 // Counts holds, so a hold's time running out doesn't end a later one.
 unsigned g_hold = 0;
-constexpr double kHoldKeys = 0.4;
+constexpr double kHoldKeys = 1;
 // The shortcut a hold is for, which is never held: Safari's engine sends a shortcut its page didn't
 // keep through the app again, which runs it then, so holding it would hold it again each time.
 NSTimeInterval g_holding_for_time = -1;
@@ -2119,6 +2120,13 @@ void host_dismiss_overlay(int index) {
 
 void host_hold_keys(void) {
   HoldKeys(nil);
+}
+
+void host_release_held_keys(void) {
+  // Unless a bar opened since, which holds them for itself.
+  if (g_holding_keys && !g_keys_for) {
+    ReleaseKeys(nil);
+  }
 }
 
 void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {

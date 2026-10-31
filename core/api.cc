@@ -352,8 +352,8 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
 #endif
 }
 
-void bc_hold_keys(void) {
-  browser_core::held_keys::Hold();
+void bc_hold_keys(bool in_core) {
+  browser_core::held_keys::Hold(in_core);
 }
 
 void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
