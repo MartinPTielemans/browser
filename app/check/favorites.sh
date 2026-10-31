@@ -114,6 +114,7 @@ expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't sh
 # the header's sidebar button under it; each goes when the pointer leaves.
 check_layout "before the buttons' tooltips"
 send move 24 $((height - 25))
+# Off the Mac the keys are named as Chrome names them there.
 library_keys=⇧⌘L sidebar_keys=⌘S
 [ "$(uname)" = Darwin ] || { library_keys=Ctrl+Shift+L; sidebar_keys=Ctrl+S; }
 expect "^browser: tooltip shown View Library $library_keys\$" \
@@ -215,7 +216,9 @@ expect '^browser: scroll edge shown$' "the list scrolled past its top didn't sho
 ../tools/window-screenshot.sh "$pid" "$out/scroll-edge.png" || fail "no window to capture"
 edge=$(pixel "$out/scroll-edge.png" 0.1 $(echo "135.5 / 340" | bc -l))
 gap=$(pixel "$out/scroll-edge.png" 0.1 $(echo "133.5 / 340" | bc -l))
-brighter "$edge" "$gap" || fail "the edge is $edge over the sidebar's $gap"
+# A light sidebar, as an opaque window's is, draws its edge darker.
+brighter "$edge" "$gap" || brighter "$gap" "$edge" ||
+  fail "the edge is $edge over the sidebar's $gap"
 send scroll 100 200 -10 5
 expect '^browser: scroll edge hidden$' "the list back at its top didn't hide its edge"
 # There, showing the last tab scrolls the list the least that shows its row whole, and showing a
@@ -534,8 +537,10 @@ send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
 # More Settings… sits under Advanced's box of three switch rows, the haptics', the link previews'
 # and restoring windows', and on the Mac and Linux ⌥'s 42 under them, and the box of Export…'s row.
+# On Linux the box of Widevine's module, which Chromium downloads there, puts it 93 lower.
 case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
-send clickkey 120 $((303 + option_row))
+[ "$(uname)" = Linux ] && widevine=93 || widevine=0
+send clickkey 120 $((303 + option_row + widevine))
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
 expect '^browser: loaded [0-9]* chrome://settings/$' \
