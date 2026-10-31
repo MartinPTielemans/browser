@@ -364,7 +364,7 @@ jobs:
           if [ -z "$missing" ]; then
             echo "signed=true" >> "$GITHUB_OUTPUT"
           elif [ "$TRIAL" = true ]; then
-            echo "::notice title=Skipped: Developer ID signing, notarization and the appcast::No$missing, which the owner holds: this try signs ad hoc and makes no DMG, appcast or Mac upload."
+            echo "::notice title=Skipped: Developer ID signing and notarization::No$missing, which the owner holds: this try signs ad hoc and makes no DMG, appcast or Mac upload."
             echo "signed=false" >> "$GITHUB_OUTPUT"
           else
             echo "::error::The Mac's DMG needs the repository secrets$missing (README.md › Releases). Without them it isn't built, and no unsigned DMG is uploaded."
