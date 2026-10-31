@@ -6268,7 +6268,10 @@ pub extern "C" fn bc_app_host(argc: *mut c_int, argv: *mut *const *const c_char)
     };
     let given = (given.iter()).map(|&arg| unsafe { CStr::from_ptr(arg) }.to_string_lossy().into());
     let (args, host) = switches_and_host(given.collect());
-    let pointers: Vec<*const c_char> = args.leak().iter().map(|arg| arg.as_ptr()).collect();
+    // The switches alone: the core keeps Chromium's own program, and the path left in would be a
+    // link of the launch's, which Chrome opens as a tab, downloading the executable (#896).
+    let switches = args.leak().iter().skip(1);
+    let pointers: Vec<*const c_char> = switches.map(|arg| arg.as_ptr()).collect();
     unsafe {
         *argc = pointers.len() as c_int;
         *argv = pointers.leak().as_ptr();
