@@ -690,13 +690,14 @@ pub struct Page {
     /// Another page shares a tab, and `share_instead` would have it share this one.
     pub share_instead: bool,
     /// The page has media the browser can play, pause and skip, as Chrome's media controls do:
-    /// whether it's playing, its title and artist, each empty without one, and whether it has a
-    /// next track.
+    /// whether it's playing, its title and artist, each empty without one, whether it has a next
+    /// track, and whether it can float in Picture in Picture while nothing of the page floats.
     pub media: bool,
     pub media_playing: bool,
     pub media_title: SharedString,
     pub media_artist: SharedString,
     pub media_next: bool,
+    pub media_picture_in_picture: bool,
     /// The tab shows its page in Developer Mode, for its site or as localhost.
     pub developer_mode: bool,
 }
@@ -707,6 +708,7 @@ pub enum MediaAction {
     Play,
     Pause,
     Next,
+    PictureInPicture,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the

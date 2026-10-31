@@ -4,19 +4,21 @@
 # Instead, which moves the share there. The marks go once the call ends. A call floats in Picture in
 # Picture while its tab is hidden, and comes back with it, unless its Site Controls block that, or
 # Settings turns it off for the sites they don't allow. A tab playing music out of sight has a
-# player at the sidebar's foot, whose button pauses it, whose click shows the tab, and whose × puts
-# it away. View › Cast… and the page menu's Cast… open the tab's Cast card, and × closes it. A
-# video's page menu floats it in Picture in Picture, the Mini Player, which a scroll or a drag
-# moves, ⌘ or Ctrl with a scroll sizes, and a double-click puts back in its tab, shown. Chromium's
-# fake camera and microphone stand in for real ones, and the share takes the tab titled Shared
-# without its picker; the question for the camera is answered with Allow, as the user would, since
-# the fake question Chromium can put in its place never tells the browser what's captured.
+# player at the sidebar's foot, whose buttons pause it and float it in Picture in Picture, whose
+# click shows the tab, and whose × puts it away. View › Cast… and the page menu's Cast… open the
+# tab's Cast card, and × closes it. A video's page menu floats it in Picture in Picture, the Mini
+# Player, which a scroll or a drag moves, ⌘ or Ctrl with a scroll sizes, and a double-click puts
+# back in its tab, shown. Chromium's fake camera and microphone stand in for real ones, and the
+# share takes the tab titled Shared without its picker; the question for the camera is answered
+# with Allow, as the user would, since the fake question Chromium can put in its place never tells
+# the browser what's captured.
 
 serve
 # "c" calls with the camera and microphone, "s" shares the tab titled Shared, "e" ends both, "o"
 # opens that tab, the same page with ?Shared, whose title is what follows the ?, "p" one titled
 # Other, and "m" plays ten seconds of silence over and over, as music titled Quiet with a next
-# track: long enough for Chrome to give it controls, and no sound.
+# track: long enough for Chrome to give it controls, and no sound. Asked to float in Picture in
+# Picture through its media session, it opens a floating window, which closes as its tab shows.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 const name = decodeURIComponent(location.search.slice(1));
@@ -50,6 +52,12 @@ onkeydown = async e => {
       music.onpause = () => document.title = "paused";
       navigator.mediaSession.metadata = new MediaMetadata({title: "Quiet", artist: "Check"});
       navigator.mediaSession.setActionHandler("nexttrack", () => document.title = "next track");
+      navigator.mediaSession.setActionHandler("enterpictureinpicture", async () => {
+        const floating = await documentPictureInPicture.requestWindow({width: 320, height: 180});
+        floating.onpagehide = () => document.title = "landed";
+        document.onvisibilitychange = () => document.hidden || floating.close();
+        document.title = "floating";
+      });
       await music.play();
     } else if (e.key == "o" || e.key == "p") {
       window.open(e.key == "o" ? "call.html?Shared" : "call.html?Other");
@@ -299,7 +307,7 @@ shown_again "$a"
 # Music in the call's tab, then another tab shown: the tab playing out of sight has a player.
 send key m
 expect "^browser: title $a playing\$" "m in the page didn't play its silence"
-expect "^browser: page $a media 1 playing 1 next 1 Quiet\$" "the page's music had no controls"
+expect "^browser: page $a media 1 playing 1 next 1 pip 1 Quiet\$" "the page's music had no controls"
 none_since "^browser: media players [0-9]" || fail "the tab shown had a player"
 shown "$b"
 expect "^browser: media players $a\$" "the tab playing out of sight had no player"
@@ -308,14 +316,22 @@ read -r mx my mw mh <<EOF
 $(grep "^browser: media player $a at " "$log" | tail -1 | cut -d' ' -f6-)
 EOF
 ../tools/window-screenshot.sh "$pid" "$out/media-player.png" || fail "no window to capture"
-# Its buttons from the right, 8 in, 24 wide and 6 apart: ×, the next track, then pause.
+# Its buttons from the right, 8 in, 24 wide and 6 apart: ×, the next track, pause, then Picture in
+# Picture, as Arc's Back to PiP, there while the page can float and doesn't.
 button_x() { echo $((mx + mw - 8 - 12 - $1 * 30)); }
 send click "$(button_x 2)" $((my + mh / 2))
 expect '^browser: command media-pause via player$' "the player's pause didn't take the click"
 expect "^browser: title $a paused\$" "the player's pause didn't pause the page"
-expect "^browser: page $a media 1 playing 0 next 1 Quiet\$" "the player didn't show it paused"
+expect "^browser: page $a media 1 playing 0 next 1 pip 1 Quiet\$" "the player didn't show it paused"
+send click "$(button_x 3)" $((my + mh / 2))
+expect '^browser: command media-picture-in-picture via player$' \
+  "the player's Picture in Picture didn't take the click"
+expect "^browser: title $a floating\$" "the player's Picture in Picture didn't float the page"
+expect "^browser: page $a media 1 playing 0 next 1 pip 0 Quiet\$" \
+  "the player kept Picture in Picture while the page floated"
 send click $((mx + 60)) $((my + mh / 2))
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the player didn't show its tab"
+expect "^browser: title $a landed\$" "the floating page didn't land as its tab showed"
 expect '^browser: media players $' "the tab shown kept its player"
 shown "$b"
 expect "^browser: media players $a\$" "the paused tab out of sight had no player"
@@ -444,4 +460,4 @@ fi
 exec 3>&-
 quit
 
-echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab."
+echo "ok: a tab in a call marks its row with the camera, then the screen while it shares a tab, the tab it shares shows the screen too, another tab's Share This Tab Instead moves the share there, and the marks go when the call ends; a call floats while its tab is hidden, unless its Site Controls or Settings turn that off; music playing out of sight has a player that pauses it, floats it in Picture in Picture, shows its tab and goes on ×; the Cast card opens from View and the page menu and closes on ×; a video's menu floats it in Picture in Picture, where a scroll or a drag moves it, Ctrl with a scroll sizes it and a double-click shows its tab."
