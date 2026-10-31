@@ -391,13 +391,9 @@ mod platform {
         pub fn host_add_tooltip(tooltip_view: *mut c_void, margin: f64, away: extern "C" fn());
         pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_tooltip(fade: f64);
-        #[cfg(not(target_os = "linux"))]
         pub fn host_add_hover_card(card_view: *mut c_void, margin: f64, away: extern "C" fn());
-        #[cfg(not(target_os = "linux"))]
         pub fn host_show_hover_card(ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64);
-        #[cfg(not(target_os = "linux"))]
         pub fn host_hide_hover_card();
-        #[cfg(not(target_os = "linux"))]
         pub fn host_watch_memory_pressure(pressed: extern "C" fn());
         pub fn host_add_link_target(
             link_view: *mut c_void,
@@ -1802,10 +1798,8 @@ extern "C" fn tooltip_away() {
 }
 
 /// The hover card's requests, to the host's card window, over the browser window in front.
-#[cfg(not(target_os = "linux"))]
 struct CardHost;
 
-#[cfg(not(target_os = "linux"))]
 impl hover_card::Host for CardHost {
     fn show(&self, left: f32, top: f32, width: f32, height: f32) {
         let (left, top, width, height) = (left.into(), top.into(), width.into(), height.into());
@@ -1819,14 +1813,12 @@ impl hover_card::Host for CardHost {
 
 /// The window lost the keyboard, the app stopped being the active one, or a press or a scroll
 /// landed outside the card.
-#[cfg(not(target_os = "linux"))]
 extern "C" fn card_away() {
     // Later, as tooltip_away.
     update_app_later(hover_card::close);
 }
 
 /// The system is short of memory: the hover cards' pictures, which the core can take again, go.
-#[cfg(not(target_os = "linux"))]
 extern "C" fn memory_pressed() {
     update_app(hover_card::forget_all);
 }
@@ -4231,8 +4223,6 @@ fn finish_opening(
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
-    // shortcut: Linux's host has no card window yet, so the card is off there.
-    #[cfg(not(target_os = "linux"))]
     if let Some(card) = hover_card::open(Rc::new(CardHost), cx)
         && let Ok(view) = card.update(cx, |_, window, _| ns_view(window))
     {
@@ -6350,6 +6340,47 @@ fn ui_view_of(window: bc::bc_id) -> Option<*mut c_void> {
 fn main() {
     log!("browser: on Linux, run chrome beside libBrowser.so, which linux/ builds");
     std::process::exit(1);
+}
+
+/// The Windows driver's scripted input method (platform/windows/drive.cc), in GPUI's window `hwnd`:
+/// marks `text` in its field with the keys, with `start..end` of it selected if `selected`, or with
+/// `text` empty takes the composition out. Returns whether a field had the keys.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_compose(
+    hwnd: *mut c_void,
+    text: *const c_char,
+    start: usize,
+    end: usize,
+    selected: bool,
+) -> bool {
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    gpui_windows::drive_compose(hwnd, &text, selected.then_some(start..end))
+}
+
+/// As browser_drive_compose: commits `text` in place of what was composed.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_commit(hwnd: *mut c_void, text: *const c_char) -> bool {
+    gpui_windows::drive_commit(hwnd, &unsafe { CStr::from_ptr(text) }.to_string_lossy())
+}
+
+/// What the field with the keys in GPUI's window `hwnd` has marked, in UTF-16, if anything.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_drive_marked(
+    hwnd: *mut c_void,
+    start: *mut usize,
+    length: *mut usize,
+) -> bool {
+    let Some(marked) = gpui_windows::marked_range(hwnd) else {
+        return false;
+    };
+    unsafe {
+        *start = marked.start;
+        *length = marked.len();
+    }
+    true
 }
 
 /// On Windows and Linux the browser is this library, which the core in Chromium's own executable
