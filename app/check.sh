@@ -188,6 +188,9 @@ check_profile_dir=$profile_dir
 for run in ${*:-$runs}; do
   profile_dir=$check_profile_dir
   only_default
+  # Rules a run made, as import's from Arc, would send a later run's links to another Space and
+  # put their rows under its clicks, so each run starts without them, as it does without Spaces.
+  rm -f "$profile_dir/Link rules"
   # The windows and clear runs keep 127.0.0.1 for Safari's engine, whose pages would then open there
   # in a later run if one failed, and clear the note it closed and the listed host it turned off.
   forget_engine_sites
