@@ -158,8 +158,12 @@ impl Shell {
         let url = self.url(tab);
         let bounds = self.little_title_bounds();
         let icon = self.tabs.get(&tab).and_then(|tab| tab.favicon.clone());
-        let title = if tab == 0 { SharedString::default() } else { self.title(tab) };
         let site: SharedString = host(&url).to_string().into();
+        // A page with no title of its own is named by its host, which the bar shows already.
+        let title = match tab {
+            0 => SharedString::default(),
+            _ => Some(self.title(tab)).filter(|title| *title != site).unwrap_or_default(),
+        };
         let title = div()
             .id("little-title")
             .absolute()

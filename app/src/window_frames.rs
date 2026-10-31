@@ -57,7 +57,8 @@ pub fn place(saved: Frame, screens: &[Frame]) -> Option<Frame> {
 
 /// Where a Little ilo window opens from `centered`, centred on its screen: a little above the
 /// middle, four tenths of the room over it rather than half, on the screen holding its centre
-/// (ux-spec.md › Little Arc). Unmoved with no screens, as under Wayland.
+/// (ux-spec.md › Little Arc). Unmoved with no screens, as under Wayland, or when the host didn't
+/// centre it, leaving the window manager to place it, as on X11.
 pub fn raised(centered: Frame, screens: &[Frame]) -> Frame {
     let (x, y) = (centered.x + centered.width / 2., centered.y + centered.height / 2.);
     let holds = |screen: &&Frame| {
@@ -67,6 +68,9 @@ pub fn raised(centered: Frame, screens: &[Frame]) -> Frame {
     let Some(screen) = screens.iter().find(holds) else {
         return centered;
     };
+    if (screen.x + screen.width / 2. - x).abs() > 1. {
+        return centered;
+    }
     let room = (screen.height - centered.height).max(0.);
     Frame { y: screen.y + room * 0.4, ..centered }
 }
@@ -142,5 +146,8 @@ mod tests {
         let centered = frame(2342., 412.5, 900., 640.);
         assert_eq!(raised(centered, &[LAPTOP, DISPLAY]).y, 25. + 775. * 0.4);
         assert_eq!(raised(centered, &[]), centered);
+        // At the screen's corner, where a host leaves it for the window manager to place.
+        let placed = frame(0., 0., 900., 640.);
+        assert_eq!(raised(placed, &[LAPTOP, DISPLAY]), placed);
     }
 }

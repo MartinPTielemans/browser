@@ -73,7 +73,8 @@ expect "^browser: link ${site}notes.txt in little window [0-9]* from $main profi
 little=$(opened)
 expect "^browser: loaded [0-9]* ${site}notes.txt\$" "the link didn't load in the Little ilo window"
 none_since "^browser: splits $a+" || fail "⌥⌘-click on a link opened it beside the page too"
-send window 2
+# The driver numbers windows in the order they were made, the closed one too.
+send window 3
 ../tools/window-screenshot.sh "$pid" "$out/little-link.png" all || fail "no window to capture"
 # ⌘W closes the window, its page with it.
 send key w cmd
@@ -87,7 +88,7 @@ send key n cmd alt
 expect "^browser: little window opened [0-9]* profile [0-9]* home $home\$" \
   "⌥⌘N didn't open a second Little ilo window"
 little=$(opened)
-send window 2
+send window 4
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the second Little ilo window's command bar"
 send insert "$site"
