@@ -30,15 +30,21 @@ if [ "$active" != 1 ]; then
   echo "skip: adblock-live. Browser wasn't the active app, so the page didn't get its keys."
   exit 0
 fi
-# On a new profile uBlock Origin lets everything through until it has read its lists, so the page
-# reloads until its ad script is blocked, for at most 20 reloads.
+# On a new profile uBlock Origin lets everything through until it has read and compiled its lists,
+# longer for its own than for adblock's one filter, so the page reloads until its ad script is
+# blocked, for at most 20 reloads, each waiting up to 2 s for the page to say so, as adblock's do.
 for _ in $(seq 20); do
   grep -q "^browser: title $tab ad script blocked\$" "$log" && break
   send key r cmd
   expect "^browser: title $tab ad script " "the page didn't report after ⌘R"
+  for _ in $(seq 20); do
+    none_since "^browser: title $tab ad script blocked\$" || break
+    sleep 0.1
+  done
 done
 grep -q "^browser: title $tab ad script blocked\$" "$log" ||
   fail "uBlock Origin's lists didn't block Google's ad script"
+echo "adblock-live: blocked on load $(grep -c "^browser: title $tab ad script " "$log")"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-live-script.png" || fail "no window to capture"
 go_from_bar doubleclick.net
 expect "^browser: loaded $tab chrome-extension://$ublock/document-blocked\.html" \
