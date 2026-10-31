@@ -1871,18 +1871,22 @@ unsafe extern "C" fn tab_link_target(
 
 /// Gives the keyboard in `window` to the UI, whose GPUI view is `view`, to keep or, with
 /// `until_page`, until a page shows. On Linux the core says whose the keys are, and takes them from
-/// the page.
+/// the page. On Windows it hears first, while the focus still says whether the UI had them.
 fn focus_ui(window: bc::bc_id, view: *mut c_void, until_page: bool) {
-    unsafe { platform::host_focus(view) };
-    #[cfg(target_os = "linux")]
-    unsafe {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let tell_core = || unsafe {
         if until_page {
             bc::bc_window_ui_holds_keyboard(window)
         } else {
             bc::bc_window_ui_takes_keyboard(window)
         }
     };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    tell_core();
+    unsafe { platform::host_focus(view) };
+    #[cfg(target_os = "linux")]
+    tell_core();
+    #[cfg(target_os = "macos")]
     let _ = (window, until_page);
 }
 
