@@ -84,6 +84,7 @@ pub fn start() {
     // Its events are the pointer the app has, as the X server's own, which it never moves, would
     // otherwise come and go under GPUI's pointer as windows change around it.
     gpui_linux::drive_pointer();
+    std::thread::spawn(watch_activation);
     std::thread::spawn(|| {
         let mut number = 0;
         for line in std::io::stdin().lock().lines() {
@@ -1236,6 +1237,53 @@ fn zoom_changes(connection: &RustConnection) {
             log!("browser: window zoomed {}", now as u8);
         }
     }
+}
+
+/// Logs each window an X client asks the window manager to activate, and each the window manager
+/// makes the active one, with the client that made it, for a Task Manager that loses the keyboard
+/// to the browser window it opened over (#1050).
+fn watch_activation() -> Option<()> {
+    let (connection, screen) = x11rb::connect(None).ok()?;
+    let root = connection.setup().roots[screen].root;
+    let mask = !connection.setup().resource_id_mask;
+    let atom = |name: &str| {
+        let cookie = connection.intern_atom(false, name.as_bytes()).ok()?;
+        cookie.reply().ok().map(|reply| reply.atom)
+    };
+    let active = atom("_NET_ACTIVE_WINDOW")?;
+    let name = atom("_NET_WM_NAME")?;
+    let utf8 = atom("UTF8_STRING")?;
+    let aux = ChangeWindowAttributesAux::new()
+        .event_mask(EventMask::PROPERTY_CHANGE | EventMask::SUBSTRUCTURE_NOTIFY);
+    connection.change_window_attributes(root, &aux).ok()?.check().ok()?;
+    let title = |window: u32| {
+        let reply = connection.get_property(false, window, name, utf8, 0, 64).ok()?.reply().ok()?;
+        String::from_utf8(reply.value).ok()
+    };
+    let said = |window: u32| {
+        let title = title(window).unwrap_or_default();
+        format!("{window:#x} of client {:#x} titled {title}", window & mask)
+    };
+    while let Ok(event) = connection.wait_for_event() {
+        match event {
+            Event::ClientMessage(message) if message.type_ == active => {
+                let [source, _, requester, ..] = message.data.as_data32();
+                log!(
+                    "browser: x asked to activate {} by source {source}, from {requester:#x}",
+                    said(message.window)
+                );
+            }
+            Event::PropertyNotify(notify) if notify.window == root && notify.atom == active => {
+                let atom_type = xproto::AtomEnum::WINDOW;
+                let reply = connection.get_property(false, root, active, atom_type, 0, 1);
+                let reply = reply.ok().and_then(|cookie| cookie.reply().ok());
+                let window = reply.and_then(|r| r.value32()?.next()).unwrap_or(0);
+                log!("browser: x active window {}", said(window));
+            }
+            _ => {}
+        }
+    }
+    Some(())
 }
 
 /// Chromium's own windows over browser window `browser`, such as autofill's dropdown, which
