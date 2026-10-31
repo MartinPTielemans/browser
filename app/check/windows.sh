@@ -145,6 +145,8 @@ expect '^browser: command bar shown$' "⌘T didn't open the command bar in full 
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 send window 2
+# The desktop's Space slides back from here on.
+forward=$step
 # The second window is on screen once its Space has slid in.
 for _ in $(seq 30); do
   send front
@@ -157,9 +159,12 @@ send window 1
 send fullscreen
 expect '^browser: window left full screen$' "the first window didn't leave full screen"
 # AppKit says so before the desktop's Space has slid back, and until it has, the first window still
-# covers the second and clicks go nowhere. Elsewhere full screen is no Space of its own.
+# covers the second and clicks go nowhere. It slides back as the second window comes forward, which
+# can end before the first leaves full screen, when leaving changes no Space, or after (#889).
+# Elsewhere full screen is no Space of its own.
 if [ "$(uname)" = Darwin ]; then
-  expect '^browser: desktop space changed$' "the desktop's Space didn't come back after full screen"
+  expect '^browser: desktop space changed$' \
+    "the desktop's Space didn't come back after full screen" "$forward"
 fi
 send window 2
 

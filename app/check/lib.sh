@@ -170,10 +170,11 @@ post() {
 # with none its one Share… for the share sheet, dimmed for a page with no link, or nothing on Linux,
 # which has neither. A check reads past them and never chooses one.
 share='\(, Share…\( (disabled)\)\?\|, Share › [^,]*\(, Share › [^,]*\)*\)\?'
-# Waits for a line matching $1 logged after the last command was sent.
+# Waits for a line matching $1 logged after the last command was sent, or after command $3, and
+# fails with $2.
 expect() {
   for _ in $(seq 100); do
-    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
+    sed -n "/^browser: drive ${3:-$step}: /,\$p" "$log" | grep -q "$1" && return 0
     sleep 0.1
   done
   fail "$2"
