@@ -111,6 +111,9 @@ devtools_point="150 64"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
+# Windows' runner has a 768 pixel tall screen, which leaves the window shorter, with the page's
+# bottom 679 pt down.
+if windows; then field_point="600 650"; fi
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -125,6 +128,8 @@ switch "2 cmd" "$c"
 send key c cmd shift
 expect '^browser: command copy-url via page$' "⇧⌘C with the page focused didn't reach the UI"
 expect '^browser: copied https://example.org/$' "⇧⌘C didn't copy the tab's URL"
+clipboard_holds https://example.org/ ||
+  fail "⇧⌘C left the clipboard holding \"$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n)\""
 # The toast says so, 8 inside the card's top right corner.
 expect '^browser: toast shown Copied Current URL$' "⇧⌘C's toast didn't say it copied the URL"
 expect '^browser: toast settled$' "⇧⌘C's toast didn't settle"
@@ -134,6 +139,8 @@ send key c cmd shift alt
 expect '^browser: command copy-markdown-link via ui$' "⌥⇧⌘C with the UI focused didn't run"
 expect '^browser: copied \[Example Domain](https://example.org/)$' \
   "⌥⇧⌘C didn't copy a Markdown link to the tab"
+clipboard_holds '[Example Domain](https://example.org/)' ||
+  fail "⌥⇧⌘C left the clipboard holding \"$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n)\""
 
 # Clear and the URL field's button fade in while the pointer is over the sidebar, and out when it
 # leaves. The button copies the URL, and doesn't open the command bar as the rest of the field does.
@@ -330,7 +337,7 @@ none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"
 d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Unmute, Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on a Today row didn't show Arc's tab menu"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Unmute, Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on a Today row didn't show Arc's tab menu"
 ../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
 send choose Duplicate
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate didn't run"
@@ -381,7 +388,7 @@ if [ "$(uname)" = Darwin ]; then
 fi
 # Archive Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
-expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on the top Today row didn't show Arc's tab menu"
+expect "^browser: menu shown $(cased "Copy Link$share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below")\$" "a right-click on the top Today row didn't show Arc's tab menu"
 send choose "$(cased 'Archive Tabs Below')"
 expect '^browser: command close-tabs-below via tab menu$' "Archive Tabs Below didn't run"
 expect_lists "$a" "$t" "after Archive Tabs Below"
@@ -411,7 +418,7 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Archive Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Pinned URL › Replace Pinned URL with Current (disabled), Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab')\$" "a right-click on a pinned row didn't show its tab's menu"
+expect "^browser: menu shown $(cased 'Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Pinned URL › Replace Pinned URL with Current (disabled), Pinned URL › Edit…, Rename Tab, Change Icon…, Duplicate Tab, Add to Folder › New Folder, Move to Space (disabled), Close Tab')\$" "a right-click on a pinned row didn't show its tab's menu"
 send choose "$(cased 'Unpin Tab')"
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
@@ -678,7 +685,13 @@ expect "^browser: url field http://localhost:$port/index.html\$" \
 expect "^browser: developer outline $r at " "in Developer Mode the tab drew no outline"
 # In Developer Mode the URL field has DevTools' button before Copy URL, under the pointer as those
 # are: a click docks DevTools in the card, as ⌥⌘I does, and another closes them.
+# Linux's driver lists the pages the UI lays out, and docked DevTools are an aura window in
+# Chromium's, which the X server doesn't see (drive.rs), so there it doesn't count them, as find.sh.
+if [ "$(uname)" = Linux ]; then
+  echo "skip: where DevTools' button docks DevTools: Linux's driver can't see aura windows."
+fi
 page_views() {
+  [ "$(uname)" != Linux ] || return 0
   for _ in $(seq 50); do
     send layout
     views=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
@@ -710,38 +723,45 @@ expect "^browser: menu bar View: .*, $developer on Developer Mode for this site$
   "View › Developer didn't name Turn on Developer Mode for this site once it was off"
 send menu Developer › Turn on Developer Mode for this site
 expect "^browser: page $r developer mode 1\$" "View › Developer didn't turn Developer Mode on"
-# So does ⌃D, which the page gets first: in its text field it deletes forward, as in any Mac field,
-# and so it does in the command bar's, and with the page's keyboard elsewhere, or the UI's, it
-# turns Developer Mode off and on.
-send click $field_point
-send key a cmd
-send type ab
-expect "^browser: title $r value ab\$" "typing didn't reach the localhost page's text field"
-send key left
-send key d ctrl
-expect "^browser: title $r value a\$" "⌃D in the page's text field didn't delete forward"
-none_since '^browser: command toggle-developer-mode ' ||
-  fail "⌃D in the page's text field toggled Developer Mode"
-send click $page_point
-send key d ctrl
-expect '^browser: command toggle-developer-mode via page$' "⌃D with the page focused didn't reach the UI"
-expect "^browser: page $r developer mode 0\$" "⌃D from the page didn't turn Developer Mode off"
-send key l cmd
-expect '^browser: command bar shown$' "⌘L didn't open the command bar"
-send type developer
-expect '^browser: command bar commands "developer": ' "the command bar didn't find developer"
-send key left
-send key d ctrl
-expect '^browser: command bar commands "develope": ' "⌃D in the command bar didn't delete forward"
-none_since '^browser: command toggle-developer-mode ' ||
-  fail "⌃D in the command bar's field toggled Developer Mode"
-send key escape
-expect '^browser: command bar hidden$' "escape didn't close the command bar"
-# The sidebar's empty space under its rows.
-send click 120 650
-send key d ctrl
-expect '^browser: command toggle-developer-mode via ui$' "⌃D with the UI focused didn't run"
-expect "^browser: page $r developer mode 1\$" "⌃D from the UI didn't turn Developer Mode on"
+# Off the Mac ⌃D is pressed as Alt+D, Chrome's for the address bar, so Developer Mode has no key
+# there (commands.rs), and fields don't delete forward on it.
+if [ "$(uname)" = Linux ]; then
+  echo "skip: ⌃D for Developer Mode and forward delete: off the Mac it's Alt+D, the address bar's."
+else
+  # So does ⌃D, which the page gets first: in its text field it deletes forward, as in any Mac
+  # field, and so it does in the command bar's, and with the page's keyboard elsewhere, or the
+  # UI's, it turns Developer Mode off and on.
+  send click $field_point
+  send key a cmd
+  send type ab
+  expect "^browser: title $r value ab\$" "typing didn't reach the localhost page's text field"
+  send key left
+  send key d ctrl
+  expect "^browser: title $r value a\$" "⌃D in the page's text field didn't delete forward"
+  none_since '^browser: command toggle-developer-mode ' ||
+    fail "⌃D in the page's text field toggled Developer Mode"
+  send click $page_point
+  send key d ctrl
+  expect '^browser: command toggle-developer-mode via page$' \
+    "⌃D with the page focused didn't reach the UI"
+  expect "^browser: page $r developer mode 0\$" "⌃D from the page didn't turn Developer Mode off"
+  send key l cmd
+  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+  send type developer
+  expect '^browser: command bar commands "developer": ' "the command bar didn't find developer"
+  send key left
+  send key d ctrl
+  expect '^browser: command bar commands "develope": ' "⌃D in the command bar didn't delete forward"
+  none_since '^browser: command toggle-developer-mode ' ||
+    fail "⌃D in the command bar's field toggled Developer Mode"
+  send key escape
+  expect '^browser: command bar hidden$' "escape didn't close the command bar"
+  # The sidebar's empty space under its rows.
+  send click 120 650
+  send key d ctrl
+  expect '^browser: command toggle-developer-mode via ui$' "⌃D with the UI focused didn't run"
+  expect "^browser: page $r developer mode 1\$" "⌃D from the UI didn't turn Developer Mode on"
+fi
 # The page asks and is refused without a question.
 send click $page_point
 send key a
@@ -764,7 +784,11 @@ expect '^browser: site controls settled$' "the Site Controls didn't open from th
 send key escape
 expect '^browser: site controls closing (escape)$' "escape didn't close the Site Controls"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave after escape"
-# Reset permissions sets the site back to asking, and a click outside closes them.
+# Reset permissions sets the site back to asking, and a click outside closes them. The button
+# shows only under the pointer, as it was last over the page.
+away
+send move $sidebar_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
 send click 207 $(row_y $(listed | wc -l))
@@ -780,13 +804,16 @@ send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $r granted\$" "Allow didn't grant the page after the reset"
 # The footer's … menu is Arc's without Boost's items, and All Site Settings… opens Chrome's for the
 # site.
+away
+send move $sidebar_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open for their … menu"
 send click 298 $(footer_y)
 more_menu=$(cased 'Clear Cache, Clear Cookies, Manage Extensions…, Add Extension…, All Site Settings…')
 expect "^browser: menu shown $more_menu\$" "the … menu didn't list Arc's items"
 send choose "$(cased 'All Site Settings…')"
-expect '^browser: site controls run All Site Settings…$' "All Site Settings… didn't run"
+expect "^browser: site controls run $(cased 'All Site Settings…')\$" "All Site Settings… didn't run"
 site_settings="chrome://settings/content/siteDetails?site=http%3A%2F%2Flocalhost%3A$port"
 expect "^browser: loaded [0-9]* $site_settings\$" "All Site Settings… didn't open them"
 
@@ -878,9 +905,14 @@ EOF
 # earlier run, as Clear Cookies and Refresh above does once this run has played. Read before the
 # click, whose page can say it loaded WebKit before the next line runs.
 early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
-send click $((nx + nw / 2)) $((ny + nh - 26))
+# On Linux the note's button downloads Google's Widevine module from Google, which the widevine run
+# checks, so it isn't pressed here.
+[ "$(uname)" = Linux ] || send click $((nx + nw / 2)) $((ny + nh - 26))
 # Safari's engine keeps a store for each profile from macOS 14; before it, the note offers Safari.
-if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
+if [ "$(uname)" = Linux ]; then
+  drm_done="nothing, as on Linux it offers Google's Widevine module, the widevine run's"
+  echo "skip: the note's button: on Linux it downloads Google's Widevine module (the widevine run)."
+elif [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   drm_done="Safari's engine"
   [ -z "$early" ] || fail "WebKit loaded before its first page: $early"
   # Play in This Tab shows the page in Safari's engine, in the tab, and the note goes.
@@ -888,7 +920,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: page $tab needs nothing\$" "the note stayed in Safari's engine"
   grep -q '^browser: system engine loaded for ' "$log" || fail "Safari's engine's page didn't say WebKit loaded"
   expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "Safari's engine didn't load the page"
-  expect "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
+  expect_late "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
   # The site's session came first: the page's first request carried both cookies, and its script
   # found the item.
   copied="^browser: copied [0-9]* cookies and [0-9]* storage items for 127.0.0.1 into the system's engine\$"
@@ -1184,7 +1216,7 @@ if [ "$drm_done" = "Safari's engine" ]; then
   send choose On
   expect "^browser: site controls set Safari's engine On\$" "On in the menu didn't run"
   expect "^browser: system engine $tab on\$" "On didn't show the page in Safari's engine"
-  expect "^browser: title $tab drm asked\$" "Safari's engine didn't load the closed site's page"
+  expect_late "^browser: title $tab drm asked\$" "Safari's engine didn't load the closed site's page"
 else
   grep "$controls" "$log" | tail -1 | grep -q "Safari's engine" &&
     fail "the Site Controls offered Safari's engine where the note's button opens Safari"

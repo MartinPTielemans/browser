@@ -119,6 +119,8 @@ pub enum Action {
     Favorite,
     Unfavorite,
     Split,
+    /// The page sharing another tab shares this one instead.
+    ShareInstead,
 }
 
 impl Action {
@@ -130,6 +132,7 @@ impl Action {
             Action::Favorite => "Add to Favorites",
             Action::Unfavorite => "Remove from Favorites",
             Action::Split => "Open in Split View",
+            Action::ShareInstead => "Share This Tab Instead",
         }
     }
 
@@ -141,6 +144,7 @@ impl Action {
             Action::Favorite => "favorite",
             Action::Unfavorite => "unfavorite",
             Action::Split => "split",
+            Action::ShareInstead => "share-instead",
         }
     }
 
@@ -149,6 +153,7 @@ impl Action {
             Action::Pin | Action::Unpin => "icons/pin.svg",
             Action::Favorite | Action::Unfavorite => "icons/star.svg",
             Action::Split => "icons/columns-2.svg",
+            Action::ShareInstead => "icons/screen-share.svg",
         }
     }
 
@@ -641,7 +646,7 @@ impl Render for HoverCard {
             window.drop_image(image).ok();
         }
         // The plate is inset by the margin, which its shadow draws in.
-        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(crate::face::UI);
         let Some(drawn) = self.drawn.clone() else {
             return root;
         };

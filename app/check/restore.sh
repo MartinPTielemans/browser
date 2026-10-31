@@ -13,9 +13,10 @@
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files.
 # A new download's row dragged hands its file to the system's drag, the Library closing until it's
-# let go. Resting on the Library button shows the newest finished downloads, and the menu of one's
-# row there has Move to Trash, which puts its file in the Trash. A SIGTERM, which macOS sends at
-# logout and restart, keeps a tab opened just before it. Reports how long putting them back takes.
+# let go. Resting on the Library button shows the newest finished downloads, each with its picture
+# or its type's icon, and the menu of one's row there has Move to Trash, which puts its file in the
+# Trash. A SIGTERM, which macOS sends at logout and restart, keeps a tab opened just before it.
+# Reports how long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
 # the archive, counting the time across a quit, and the tab shown stays. The first tabs it takes
 # bring a note, until View Archive answers it, which opens the Library there, and never again. A
@@ -285,7 +286,7 @@ if [ "$active" != 1 ]; then
 fi
 # Rename… in its menu, with the name taken out, gives the tab back its page's title.
 post rightclick $(row 0)
-menu=$(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below")
+menu=$(cased "Copy Link$share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Add to Folder › New Folder, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below")
 expect "^browser: menu shown $menu\$" \
   "a right-click on the renamed tab's row didn't offer Rename…"
 send choose Rename…
@@ -345,6 +346,8 @@ grep -q '^browser: download flying ' "$log" && fail "a download the relaunch rea
 send move 24 $((height - 25))
 expect '^browser: recent downloads shown 1$' \
   "resting on the Library button didn't show the recent download"
+# notes.txt's row shows the system's icon for its type, as Finder's or the file manager's.
+expect '^browser: download [0-9]* preview icon 52x52$' "notes.txt's row didn't show its type's icon"
 send move 24 $((height - 45))
 send move 120 $((height - 78))
 none_since '^browser: recent downloads hidden$' ||
@@ -450,14 +453,15 @@ expect '^browser: recent downloads hidden$' "the recent downloads stayed with no
 send click $page_point
 send type v
 expect '^browser: download [0-9]* done clip.mp4$' "the page's video didn't download"
-send menu "$(cased 'View Media…')"
+# The menu bar keeps its titles' case on every system, unlike the sidebar's menus.
+send menu 'View Media…'
 expect '^browser: library section media$' "View Media… didn't open the Library on Media"
 expect '^browser: library shown$' "View Media… didn't open the Library"
 if [ "$(uname)" = Darwin ]; then
   expect '^browser: media video playing clip.mp4$' "the video's tile didn't play it"
   ../tools/window-screenshot.sh "$pid" "$out/media-video.png" || fail "no window to capture"
 fi
-send menu "$(cased 'View Media…')"
+send menu 'View Media…'
 expect '^browser: library hidden$' "View Media… didn't close the Library"
 if [ "$(uname)" = Darwin ]; then
   expect '^browser: media video stopped clip.mp4$' "the video played on with the Library closed"
@@ -679,6 +683,9 @@ pid=$!
 await '^browser: restored in ' || fail "a launch with Restore windows off didn't bring the Spaces back"
 await "^browser: pinned $p\$" || fail "the pinned tab didn't come back with Restore windows off"
 await '^browser: archive 1 tabs$' || fail "the Today tab didn't go in the archive with Restore windows off"
+# A window says it's open after its Space's lines, on Linux after the archive's too, so the count
+# below waits for it (#1038).
+await '^browser: window opened ' || fail "no window opened with Restore windows off"
 ../tools/window-screenshot.sh "$pid" "$out/fresh-window.png" || fail "no window to capture"
 [ -z "$(today)" ] || fail "Today is \"$(today)\" with Restore windows off, not empty"
 grep -q '^browser: loaded ' "$log" && fail "a page loaded at a launch with Restore windows off"

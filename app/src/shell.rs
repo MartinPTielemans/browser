@@ -68,6 +68,7 @@ mod link;
 #[cfg(test)]
 mod link_target;
 mod menu_bar;
+mod media_player;
 mod menus;
 mod naming;
 mod new_space;
@@ -77,6 +78,7 @@ mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
+mod cast;
 mod agent_bar;
 mod agent_pointer;
 mod agent_question;
@@ -101,7 +103,7 @@ mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{AgentGrants, Browser, Folders, Page, Split, Trouble, WindowButton};
+pub use browser::{AgentGrants, Browser, Folders, MediaAction, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, copy_url_of_preview, find_commands,
@@ -127,6 +129,7 @@ pub use side_panel::SidePanel;
 pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
+pub use cast::{Cast, CastDevice, CastState};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use trace::{RECORDING, STOP, recorded as trace_recorded};
 pub use picture::{PagePicture, picture_answered};
@@ -258,6 +261,7 @@ use crate::tokens::shell::TILE_HEIGHT;
 use crate::tokens::shell::TILE_GAP;
 use crate::tokens::shell::TILE_MIN;
 use crate::tokens::shell::TILE_RADIUS;
+use crate::tokens::shell::{TILE_MARK, TILE_MARK_INSET};
 use crate::tokens::shell::TALL_FAVORITES;
 use crate::tokens::shell::NAME_HEIGHT;
 // The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
@@ -1136,6 +1140,9 @@ pub struct Shell {
     width_motion: Option<(f32, Instant)>,
     /// While the sidebar moves: where the card's left edge started from, and when.
     sidebar_motion: Option<(f32, Instant)>,
+    /// Lines check.sh waits on that say the page is where a press or a drag put it, held until
+    /// the draw that lays the page out there, as the event changes only what that draw shows.
+    logged_once_laid: Vec<String>,
     /// Whether the hidden sidebar is out over the page, or on its way.
     revealed: bool,
     /// The reveal's panel came out for ⌥ with the pointer elsewhere, so it stays out until the
@@ -1238,6 +1245,8 @@ pub struct Shell {
     window_title: SharedString,
     /// What the URL field said when it last drew, for its log line.
     url_field_drawn: RefCell<SharedString>,
+    /// Whether the header last drew reload or stop, for its log line.
+    reload_drawn: Cell<Option<Command>>,
     /// The tab whose Developer Mode outline last drew, and where, for its log lines.
     developer_outline_drawn: Rc<Cell<Option<(u64, Bounds<Pixels>)>>>,
     /// The pinned actions the window shows, for its tab shown.
@@ -1273,6 +1282,9 @@ pub struct Shell {
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab whose question's card shows, and its moment on screen before Block and Allow work.
     question_settling: RefCell<Option<(u64, crate::settling::Settling)>>,
+    /// The Cast dialog the core reports for the tab it's for (cast.rs).
+    cast: Option<(u64, Cast)>,
+    cast_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// What an agent asks the user first, in every window (agent_question.rs).
     agent_question: Option<crate::agents::Question>,
     agent_question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -1280,6 +1292,14 @@ pub struct Shell {
     /// (agent_bar.rs).
     agent_status: Vec<crate::agents::Status>,
     agent_bar_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The tabs whose player × put away until their page plays again.
+    media_dismissed: HashSet<u64>,
+    /// The players last drawn, as the log has them, and where the bottom one is.
+    media_logged: RefCell<Vec<u64>>,
+    media_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// Whether a tooltip the agent bar asked for may be up, and whether its bar showed the agent
+    /// at work, so it ends once that bar is gone (agent_bar.rs).
+    agent_tip: Cell<Option<bool>>,
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
@@ -1317,6 +1337,8 @@ pub struct Shell {
     window_watches: Vec<Subscription>,
     /// Whether the host was last asked to draw the material light.
     window_light: Option<bool>,
+    /// The menus' look capture mode was last given, which it takes again when it changes (#861).
+    capture_look: Option<crate::menu::Look>,
     /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
     /// picker, or a Space's theme picker; and when it was asked for.
     picker_pending: Option<(Pending, Instant)>,
@@ -1452,6 +1474,7 @@ impl Shell {
             pane_resize: None,
             width_motion: None,
             sidebar_motion: None,
+            logged_once_laid: Vec::new(),
             revealed: false,
             revealed_by_option: false,
             reveal_motion: None,
@@ -1504,6 +1527,7 @@ impl Shell {
             menus: MenuBar::default(),
             window_title: SharedString::default(),
             url_field_drawn: RefCell::default(),
+            reload_drawn: Cell::default(),
             developer_outline_drawn: Rc::default(),
             extension_actions: Vec::new(),
             unpinned_actions: Vec::new(),
@@ -1520,11 +1544,17 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            cast: None,
+            cast_drawn: Rc::default(),
             question_settling: RefCell::default(),
             agent_question: None,
             agent_question_drawn: Rc::default(),
             agent_status: Vec::new(),
             agent_bar_drawn: Rc::default(),
+            media_dismissed: HashSet::new(),
+            media_logged: RefCell::default(),
+            media_drawn: Rc::default(),
+            agent_tip: Cell::default(),
             drm_notes: HashMap::new(),
             keys: HashMap::new(),
             drm_drawn: Rc::default(),
@@ -1551,6 +1581,7 @@ impl Shell {
             window_active: true,
             window_watches: Vec::new(),
             window_light: None,
+            capture_look: None,
             private: false,
         }
     }
@@ -2053,6 +2084,12 @@ impl Shell {
                 log!("browser: renamed folder {folder} {name}");
             }
         }
+        for (folder, icon) in &folders.icons {
+            if entry.folders.icons.get(folder) != Some(icon) {
+                // check.sh waits for this line.
+                log!("browser: iconed folder {folder} {icon}");
+            }
+        }
         if space == self.space {
             self.swaps.folders_changed(&entry.folders, &folders, Instant::now());
         }
@@ -2083,6 +2120,9 @@ impl Shell {
             let tiles = self.drawn();
             if self.end_drag(false) {
                 self.move_tiles(tiles, Curve::Slide);
+            } else if let Some(position) = self.drag_position() {
+                // A row carried over the new lists finds its place in them where the pointer is.
+                self.drag_to(position, cx);
             }
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
@@ -2225,13 +2265,16 @@ impl Shell {
         }
         self.selected_for_picture(tab, cx);
         self.hid_for_cards(hidden, cx);
+        self.cast_for_shown(cx);
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
         // With no page, AppKit offers the window's ⌘ shortcuts to the UI's view. On Linux the keys
-        // go to the window, where nothing takes them, unless the UI has them.
-        if tab == 0 && cfg!(target_os = "linux") {
-            self.browser.focus_ui(cx);
+        // go to the window, where nothing takes them, and on Windows to the hidden page that had
+        // them, unless the UI has them, and the next page shown, as a window's first, has them back
+        // (#895).
+        if tab == 0 && cfg!(any(target_os = "linux", target_os = "windows")) {
+            self.browser.hold_keyboard_for_page(cx);
         }
         // The command bar open over the Space before lists this one's tabs and suggestions now, so
         // a pick never goes to the other or its profile (Arc).
@@ -2391,6 +2434,38 @@ impl Shell {
             let (audible, muted) = (flag(page.audible), flag(page.muted));
             log!("browser: page {tab} audible {audible} muted {muted}");
         }
+        let capture = |page: &Page| [page.camera, page.microphone, page.sharing, page.shared];
+        if capture(&page) != capture(&entry.page) {
+            let [camera, microphone, sharing, shared] = capture(&page).map(flag);
+            // check.sh waits for these lines.
+            log!(
+                "browser: page {tab} camera {camera} microphone {microphone} sharing {sharing} \
+                 shared {shared}"
+            );
+        }
+        if page.share_instead != entry.page.share_instead {
+            // check.sh waits for this line.
+            log!("browser: page {tab} share instead {}", flag(page.share_instead));
+        }
+        let media = |page: &Page| {
+            let pip = page.media_picture_in_picture;
+            (page.media, page.media_playing, page.media_next, pip, page.media_title.clone())
+        };
+        if media(&page) != media(&entry.page) {
+            // check.sh waits for this line.
+            log!(
+                "browser: page {tab} media {} playing {} next {} pip {} {}",
+                flag(page.media),
+                flag(page.media_playing),
+                flag(page.media_next),
+                flag(page.media_picture_in_picture),
+                page.media_title
+            );
+        }
+        // A player put away comes back once its page plays again.
+        if page.media_playing && !entry.page.media_playing {
+            self.media_dismissed.remove(&tab);
+        }
         if page.icon != entry.page.icon {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
             log!("browser: page {tab} icon {icon}");
@@ -2427,9 +2502,9 @@ impl Shell {
         if !fullscreen && !self.page_fullscreen {
             return;
         }
-        // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
-        // shell hears of Chromium's as it resizes.
-        let full_screen = match cfg!(target_os = "linux") {
+        // On Linux and Windows GPUI's window is the UI's, inside Chromium's, and never full screen
+        // itself; the shell hears of Chromium's as it resizes.
+        let full_screen = match cfg!(any(target_os = "linux", target_os = "windows")) {
             true => self.full_screen,
             false => window.is_fullscreen(),
         };
@@ -2519,7 +2594,24 @@ impl Shell {
                     drawn: false,
                 });
             }
-            self.set_full_screen(full_screen, cx);
+            match full_screen {
+                // Chrome on Windows takes the window full screen for a page before the core says the
+                // page asked, so whether a page took it there is known a turn later, as is the note.
+                true => {
+                    self.full_screen = true;
+                    cx.spawn(async move |shell, cx| {
+                        shell
+                            .update(cx, |shell, cx| {
+                                if shell.full_screen {
+                                    shell.set_full_screen(true, cx);
+                                }
+                            })
+                            .ok();
+                    })
+                    .detach();
+                }
+                false => self.set_full_screen(false, cx),
+            }
             cx.notify();
         }
     }
@@ -2949,7 +3041,10 @@ impl Render for Shell {
             window.focus(&field, cx);
             // check.sh waits for these lines, which say the field has the keyboard.
             match renaming.naming {
-                Naming::Folder(folder) => log!("browser: rename folder {folder}"),
+                Naming::Folder(folder) => {
+                    log!("browser: rename folder {folder}");
+                    log!("browser: folder name field {}", renaming.name.read(cx).text());
+                }
                 Naming::Profile(profile) => log!("browser: rename profile {profile}"),
                 _ => {}
             }
@@ -3031,6 +3126,9 @@ impl Render for Shell {
             }
         }
         self.lay_out_moving_page(cx);
+        for line in self.logged_once_laid.drain(..) {
+            log!("{line}");
+        }
         self.show_page_dialog(cx);
         let card_left = self.card_left();
         self.update_palette(cx);
@@ -3240,7 +3338,9 @@ impl Shell {
                     .children(self.dragged_tile(cx))
                     .children(self.turning_drag())
                     .children(self.question_card(cx))
+                    .children(self.cast_card(cx))
                     .children(self.agent_question_card(cx))
+                    .children(self.media_player_cards(cx))
                     .children(self.agent_bar_card(cx))
                     .children(self.drm_note_card(cx))
             }
@@ -3306,7 +3406,7 @@ impl Shell {
             .top(px(self.pages_top()))
             .left_0()
             .w(px(self.width()))
-            .bottom(px(FOOTER_HEIGHT))
+            .bottom(px(self.list_bottom()))
             .overflow_hidden()
             .children(pages)
             .child(self.rest_press_listener(Self::press_at_rest, cx).absolute().size_full())

@@ -93,8 +93,39 @@ if [ "$(uname)" = Linux ]; then
   [ -n "${BROWSER_HEADLESS:-}" ] ||
     { echo "Captures only a session of tools/headless.sh --run or check.sh's Xvfb." >&2; exit 1; }
   kill -0 "$1" 2>/dev/null || { echo "process $1 isn't running" >&2; exit 1; }
-  # check.sh's Xvfb (BROWSER_XVFB), whose root window is its whole screen.
-  [ "$BROWSER_HEADLESS" != xvfb ] || exec import -window root "$2"
+  # The largest window of the process on screen is its main one, captured at its own size and
+  # place with what's over it, as on the Mac, so a check reads a resized window's pixels where
+  # they are. With "all", or with no window found, the whole screen.
+  area=
+  if [ "$BROWSER_HEADLESS" = xvfb ]; then
+    # check.sh's Xvfb (BROWSER_XVFB), whose root window is its whole screen.
+    [ -n "${3:-}" ] || area=$(
+      best=0
+      for window in $(xdotool search --onlyvisible --pid "$1" 2> /dev/null); do
+        # WINDOW, X, Y, WIDTH, HEIGHT and SCREEN, X and Y from the root's corner.
+        eval "$(xdotool getwindowgeometry --shell "$window")"
+        [ $((WIDTH * HEIGHT)) -gt "$best" ] || continue
+        best=$((WIDTH * HEIGHT))
+        echo "${WIDTH}x$HEIGHT+$((X < 0 ? 0 : X))+$((Y < 0 ? 0 : Y))"
+      done | tail -1
+    )
+    [ -z "$area" ] || exec import -window root -crop "$area" +repage "$2"
+    exec import -window root "$2"
+  fi
+  # tools/headless.sh's sway session, which names the app's windows' process in its tree.
+  [ -n "${3:-}" ] || area=$(swaymsg -t get_tree 2> /dev/null | python3 -I -c '
+import json, sys
+def nodes(node):
+    yield node
+    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+        yield from nodes(child)
+ours = [node["rect"] for node in nodes(json.load(sys.stdin))
+        if node.get("pid") == int(sys.argv[1]) and node.get("visible")]
+if ours:
+    rect = max(ours, key=lambda rect: rect["width"] * rect["height"])
+    print("%(x)d,%(y)d %(width)dx%(height)d" % rect)
+' "$1" 2> /dev/null) || area=
+  [ -z "$area" ] || exec env WAYLAND_DISPLAY="$BROWSER_HEADLESS" grim -g "$area" "$2"
   exec env WAYLAND_DISPLAY="$BROWSER_HEADLESS" grim "$2"
 fi
 PID="$1" OUT="$2" ALL="${3:-}" swift - <<'SWIFT'

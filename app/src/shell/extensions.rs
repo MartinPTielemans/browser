@@ -615,7 +615,7 @@ fn command_for<'a>(
 
 /// `keystroke` as the browser's shortcuts write it, with the modifiers in their order, and off the
 /// Mac in the Mac's names, as the core lists the extensions' keys.
-fn keystroke_text(keystroke: &Keystroke) -> String {
+pub(super) fn keystroke_text(keystroke: &Keystroke) -> String {
     let modifiers = &keystroke.modifiers;
     let mut text = String::new();
     for (held, name) in [

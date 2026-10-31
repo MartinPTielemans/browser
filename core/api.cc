@@ -23,6 +23,7 @@
 #include "browser_core/auto_archive.h"
 #include "browser_core/autofill_data.h"
 #include "browser_core/capture.h"
+#include "browser_core/cast_dialog.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/crash_reports.h"
 #include "browser_core/developer_mode.h"
@@ -38,6 +39,7 @@
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/notes.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/page_text.h"
 #include "browser_core/password_offer.h"
@@ -109,23 +111,6 @@ views::Widget* OpenWidget(bc_id id) {
   views::Widget* widget = window ? window->widget() : nullptr;
   return widget && !widget->IsClosed() ? widget : nullptr;
 }
-
-#if BUILDFLAG(IS_LINUX)
-// Takes window |id|'s |widget| out of full screen. Linux reports no change Chromium asks for
-// itself, so a page full screen leaves with it here, as the Mac's does as AppKit says it's leaving.
-void LeaveFullScreen(bc_id id, views::Widget* widget) {
-  browser_core::Window* window = browser_core::Window::FromId(id);
-  // The app lays the page leaving out once, at the window's new size.
-  if (window && window->FullScreenForPage()) {
-    browser_core::platform::HoldPagesForResize(widget);
-  }
-  widget->SetFullscreen(false);
-  // Found again: the window's resize runs the app, which may close it.
-  if (browser_core::Window* still = browser_core::Window::FromId(id)) {
-    still->LeavingFullScreen();
-  }
-}
-#endif
 
 // Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
 size_t CopyString(const std::string& text, char* to, size_t capacity) {
@@ -244,8 +229,14 @@ void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
 }
 
 void bc_window_ui_takes_keyboard(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
-  browser_core::platform::UITakesKeyboard(OpenWidget(id));
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+  browser_core::platform::UITakesKeyboard(OpenWidget(id), /*until_page=*/false);
+#endif
+}
+
+void bc_window_ui_holds_keyboard(bc_id id) {
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+  browser_core::platform::UITakesKeyboard(OpenWidget(id), /*until_page=*/true);
 #endif
 }
 
@@ -260,6 +251,22 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 bool bc_window_keyboard_in_child(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
   return browser_core::platform::KeyboardInChild(OpenWidget(id));
+#else
+  return false;
+#endif
+}
+
+bool bc_window_keyboard_page(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> page =
+      widget ? browser_core::platform::KeyboardPageFrame(widget) : std::nullopt;
+  if (!page) {
+    return false;
+  }
+  *frame = {static_cast<double>(page->x()), static_cast<double>(page->y()),
+            static_cast<double>(page->width()), static_cast<double>(page->height())};
+  return true;
 #else
   return false;
 #endif
@@ -308,6 +315,12 @@ size_t bc_window_child_title(bc_id id, char* title, size_t capacity) {
 #endif
 }
 
+void bc_answer_clipboard_requests(void) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::platform::AnswerClipboardRequests();
+#endif
+}
+
 void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
 #if BUILDFLAG(IS_LINUX)
   if (views::Widget* widget = OpenWidget(id)) {
@@ -332,7 +345,7 @@ void bc_window_toggle_maximized(bc_id id) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else if (widget->IsMaximized()) {
     widget->Restore();
   } else {
@@ -353,8 +366,8 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
 #endif
 }
 
-void bc_hold_keys(void) {
-  browser_core::held_keys::Hold();
+void bc_hold_keys(bool in_core) {
+  browser_core::held_keys::Hold(in_core);
 }
 
 void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
@@ -740,6 +753,18 @@ double bc_profile_archive_after(bc_id profile_id) {
 bool bc_profile_set_archive_after(bc_id profile, double seconds) {
   return seconds > 0 && browser_core::SetProfileArchiveAfter(browser_core::ProfileOrLoad(profile),
                                                               base::Seconds(seconds));
+}
+
+size_t bc_profile_notes_service(bc_id profile_id, char* service, size_t capacity) {
+  Profile* profile = LoadedProfile(profile_id);
+  return CopyString(profile ? browser_core::notes::Service(profile) : std::string(), service,
+                    capacity);
+}
+
+void bc_profile_set_notes_service(bc_id profile_id, const char* service) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && service) {
+    browser_core::notes::SetService(profile, service);
+  }
 }
 
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
@@ -1346,6 +1371,16 @@ void bc_set_ad_blocking(bool on) {
   browser_core::SessionChanged();
 }
 
+bool bc_auto_picture_in_picture(void) {
+  return browser_core::UserSettings().auto_picture_in_picture;
+}
+
+void bc_set_auto_picture_in_picture(bool on) {
+  browser_core::UserSettings().auto_picture_in_picture = on;
+  browser_core::ApplyAutoPictureInPicture(/*changed=*/true);
+  browser_core::SessionChanged();
+}
+
 size_t bc_crash_reports_collector(char* host, size_t capacity) {
   return CopyString(browser_core::crash_reports::CollectorHost(), host, capacity);
 }
@@ -1685,6 +1720,18 @@ void bc_site_controls_close(void) {
   browser_core::SiteControls::Close();
 }
 
+void bc_tab_cast(bc_id id) {
+  browser_core::CastDialog::Open(id);
+}
+
+void bc_cast_close(void) {
+  browser_core::CastDialog::Close();
+}
+
+void bc_tab_cast_to(bc_id id, const char* device) {
+  browser_core::CastDialog::To(id, device);
+}
+
 void bc_tab_set_site_permission(bc_id id, int type, int value) {
   browser_core::SiteControls::SetPermission(id, type, value);
 }
@@ -1923,6 +1970,18 @@ void bc_tab_set_muted(bc_id id, bool muted) {
   }
 }
 
+void bc_tab_share_instead(bc_id id) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->ShareInstead();
+  }
+}
+
+void bc_tab_media(bc_id id, int action) {
+  if (browser_core::Tab* tab = browser_core::Tab::Get(id)) {
+    tab->Media(action);
+  }
+}
+
 void bc_tab_close_below(bc_id id) {
   browser_core::Window::CloseBelow(id);
 }
@@ -2030,7 +2089,7 @@ bool bc_window_is_maximized(bc_id id) {
 }
 
 bool bc_window_is_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   return widget && widget->IsFullscreen();
 #else
@@ -2039,13 +2098,13 @@ bool bc_window_is_full_screen(bc_id id) {
 }
 
 void bc_window_toggle_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   if (!widget) {
     return;
   }
   if (widget->IsFullscreen()) {
-    LeaveFullScreen(id, widget);
+    browser_core::Window::FromId(id)->LeaveFullScreen();
   } else {
     widget->SetFullscreen(true);
   }

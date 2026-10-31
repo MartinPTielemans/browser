@@ -1,7 +1,16 @@
 diff --git a/crates/gpui_windows/src/events.rs b/crates/gpui_windows/src/events.rs
-index 08f91bd626..45a77e4727 100644
+index 08f91bd626..bc9dfc6b20 100644
 --- a/crates/gpui_windows/src/events.rs
 +++ b/crates/gpui_windows/src/events.rs
+@@ -109,7 +109,7 @@ impl WindowsWindowInner {
+             WM_CLOSE => self.handle_close_msg(),
+             WM_DESTROY => self.handle_destroy_msg(handle),
+             WM_MOUSEMOVE => self.handle_mouse_move_msg(handle, lparam, wparam),
+-            WM_MOUSELEAVE | WM_NCMOUSELEAVE => self.handle_mouse_leave_msg(),
++            WM_MOUSELEAVE | WM_NCMOUSELEAVE => self.handle_mouse_leave_msg(handle),
+             WM_NCMOUSEMOVE => self.handle_nc_mouse_move_msg(handle, lparam),
+             // Treat double click as a second single click, since we track the double clicks ourselves.
+             // If you don't interact with any elements, this will fall through to the windows default
 @@ -146,11 +146,18 @@ impl WindowsWindowInner {
              }
              WM_MOUSEWHEEL => self.handle_mouse_wheel_msg(handle, wparam, lparam),
@@ -21,7 +30,37 @@ index 08f91bd626..45a77e4727 100644
              WM_SETCURSOR => self.handle_set_cursor(handle, lparam),
              WM_SETTINGCHANGE => self.handle_system_settings_changed(handle, wparam, lparam),
              WM_INPUTLANGCHANGE => self.handle_input_language_changed(),
-@@ -439,6 +446,31 @@ impl WindowsWindowInner {
+@@ -381,8 +388,28 @@ impl WindowsWindowInner {
+         if handled { Some(0) } else { Some(1) }
+     }
+ 
+-    fn handle_mouse_leave_msg(&self) -> Option<isize> {
++    fn handle_mouse_leave_msg(&self, handle: HWND) -> Option<isize> {
+         self.state.hovered.set(false);
++        // As on Linux, the pointer leaving for a page's window is a move to outside the window, so
++        // nothing GPUI drew stays under it, and the exit its views listen for. A drag holding the
++        // capture still hears where the pointer is.
++        if unsafe { GetCapture() } != handle
++            && let Some(mut func) = self.state.callbacks.input.take()
++        {
++            let position = point(px(-1.), px(-1.));
++            let modifiers = current_modifiers();
++            func(PlatformInput::MouseMove(MouseMoveEvent {
++                position,
++                pressed_button: None,
++                modifiers,
++            }));
++            func(PlatformInput::MouseExited(MouseExitEvent {
++                position,
++                pressed_button: None,
++                modifiers,
++            }));
++            self.state.callbacks.input.set(Some(func));
++        }
+         // The next window's `WM_SETCURSOR` picks its own cursor, so we just clear
+         // the flag for tight `is_cursor_visible()` semantics.
+         self.state.cursor_visible.store(true, Ordering::Relaxed);
+@@ -439,6 +466,31 @@ impl WindowsWindowInner {
          if handled { Some(0) } else { Some(1) }
      }
  
@@ -53,7 +92,7 @@ index 08f91bd626..45a77e4727 100644
      fn handle_keyup_msg(&self, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
          let Some(input) = handle_key_event(wparam, lparam, &self.state, |keystroke, _| {
              PlatformInput::KeyUp(KeyUpEvent { keystroke })
-@@ -710,6 +742,72 @@ impl WindowsWindowInner {
+@@ -710,6 +762,72 @@ impl WindowsWindowInner {
          }
      }
  
@@ -126,14 +165,58 @@ index 08f91bd626..45a77e4727 100644
      fn handle_ime_composition(&self, handle: HWND, lparam: LPARAM) -> Option<isize> {
          let ctx = ImeContext::get(handle)?;
          self.handle_ime_composition_inner(*ctx, lparam)
+@@ -1823,3 +1941,42 @@ fn notify_frame_changed(handle: HWND) {
+         .log_err();
+     }
+ }
++
++/// For an embedder's test driver, which types as a Japanese input method would where there's none:
++/// in the text field with the keys in GPUI's window `hwnd`, marks `text`, with `selected` of it
++/// selected, in place of what was composed, or with `text` empty takes the composition out, as
++/// cancelling one does. Returns whether the window has a field with the keys.
++pub fn drive_compose(
++    hwnd: *mut std::ffi::c_void,
++    text: &str,
++    selected: Option<std::ops::Range<usize>>,
++) -> bool {
++    window_from_hwnd(HWND(hwnd))
++        .and_then(|window| {
++            window.with_input_handler(|handler| match text.is_empty() {
++                true => {
++                    if let Some(marked) = handler.marked_text_range() {
++                        handler.replace_text_in_range(Some(marked), "");
++                    }
++                }
++                false => handler.replace_and_mark_text_in_range(None, text, selected),
++            })
++        })
++        .is_some()
++}
++
++/// As `drive_compose`: commits `text` in place of what was composed.
++pub fn drive_commit(hwnd: *mut std::ffi::c_void, text: &str) -> bool {
++    window_from_hwnd(HWND(hwnd))
++        .and_then(|window| {
++            window.with_input_handler(|handler| handler.replace_text_in_range(None, text))
++        })
++        .is_some()
++}
++
++/// What the text field with the keys in GPUI's window `hwnd` has marked, in UTF-16.
++pub fn marked_range(hwnd: *mut std::ffi::c_void) -> Option<std::ops::Range<usize>> {
++    window_from_hwnd(HWND(hwnd))?
++        .with_input_handler(|handler| handler.marked_text_range())
++        .flatten()
++}
 diff --git a/crates/gpui_windows/src/gpui_windows.rs b/crates/gpui_windows/src/gpui_windows.rs
-index e7a45a034d..0f2c31b687 100644
+index e7a45a034d..63c4e0675b 100644
 --- a/crates/gpui_windows/src/gpui_windows.rs
 +++ b/crates/gpui_windows/src/gpui_windows.rs
-@@ -20,6 +20,9 @@ mod vsync;
+@@ -20,6 +20,10 @@ mod vsync;
  mod window;
  mod wrapper;
  
++pub use events::{drive_commit, drive_compose, marked_range};
 +pub use platform::embed;
 +pub use window::open_next_window_in;
 +

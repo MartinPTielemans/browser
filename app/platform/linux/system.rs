@@ -8,9 +8,15 @@ use std::{
 };
 
 use browser::log;
-use gpui::{ClipboardItem, Context, Image, ImageFormat, Window};
+use gpui::{App, ClipboardItem, Context, Image, ImageFormat, Window};
 
 use crate::platform;
+
+/// Puts `text` on the clipboard, as host_copy does on the Mac: a tab's URL, a link to it, a build's
+/// details. check.sh's runs have a headless session's clipboard, never the user's.
+pub fn copy(text: &str, cx: &mut App) {
+    cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+}
 
 /// Puts the capture on the clipboard, as host_copy_png does on the Mac.
 pub fn copy_png(png: &[u8]) {

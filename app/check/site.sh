@@ -11,8 +11,26 @@
 # ⌘, ⌃ or ⌥ are the browser's. /wait is a page that never comes. login.html is a login form, its
 # username field across the page's top half and its password field across the bottom, that posts
 # to /login, which sends the browser on to welcome.html, as a site that took the login would.
+# signup.html is the same form asking for a new password, which posts to /signup, as /login.
 # /sign-in, with any query, asks for HTTP basic sign-in and takes ada with the password lovelace.
 mkdir "$out/site"
+# A page that a run types into once its title says so sets that title with painted(): Chromium
+# drops a key that comes before a page it loaded first shows, for up to half a second while it
+# holds the last page's picture (paint holding). A page paints once it has something to draw.
+# Chrome reports the paint only once a frame from then on is presented successfully, and a page
+# that's still makes no more frames, so one whose first frame's presentation isn't reported sits
+# drawn with no paint, for good: the second login page in a tab did, on a GPU's GL in the headless
+# session (#1011). So the page asks for frames until its paint is reported.
+printf '%s' 'function painted(then) {
+  let heard = false;
+  new PerformanceObserver((entries, observer) => {
+    observer.disconnect();
+    heard = true;
+    then();
+  }).observe({type: "paint", buffered: true});
+  const frame = () => heard || requestAnimationFrame(frame);
+  requestAnimationFrame(frame);
+}' > "$out/site/painted.js"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
 <a id=d download href="notes.txt"></a><a id=s download href="slow.bin"></a>
@@ -65,11 +83,11 @@ const say = () => document.title = "scheme " + (dark.matches ? "dark" : "light")
 say();
 dark.onchange = say;
 </script>' > "$out/site/scheme.html"
-# Its title says "login" once it's drawn, "filled" each time Chrome fills a saved password in, and
-# "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
+# Its title says "login" once it has painted, "filled" each time Chrome fills a saved password in,
+# and "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
 # highlighted fills it too, but only a fill the user chose gives the page its value, with a change
 # event, and then the title says "chosen".
-printf '%s' '<title>loading</title>
+printf '%s' '<title>loading</title><script src="painted.js"></script>
 <form method="post" action="login">
 <input id=user name=username autocomplete=username
   style="position:fixed;left:0;top:0;width:100%;height:50%;font:24px system-ui">
@@ -78,7 +96,7 @@ printf '%s' '<title>loading</title>
 <button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
 </form>
 <script>
-requestAnimationFrame(() => setTimeout(() => document.title = "login"));
+painted(() => document.title == "loading" && (document.title = "login"));
 let filled = false;
 pass.onchange = () => { if (pass.matches(":autofill") && pass.value) document.title = "chosen"; };
 setInterval(() => {
@@ -88,6 +106,28 @@ setInterval(() => {
   }
 }, 100);
 </script>' > "$out/site/login.html"
+# A sign-up form, laid out as the login is, whose password field asks for a new password. Its title
+# says "signup" once it has painted, "offered" while Chrome's popup previews a password in that field,
+# "own" once the preview goes with the field left empty, as Choose Your Own leaves it, and
+# "generated" once the field holds a password as long as Chrome's, 15 characters.
+printf '%s' '<title>loading</title>
+<form method="post" action="signup">
+<input id=user name=username autocomplete=username
+  style="position:fixed;left:0;top:0;width:100%;height:50%;font:24px system-ui">
+<input id=pass name=password type=password autocomplete=new-password
+  style="position:fixed;left:0;top:50%;width:100%;height:50%;font:24px system-ui">
+<button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
+</form>
+<script src="painted.js"></script>
+<script>
+let state = "loading";
+painted(() => state == "loading" && (document.title = state = "signup"));
+setInterval(() => {
+  const now = pass.value.length >= 15 ? "generated" : pass.matches(":autofill") ? "offered" :
+    state == "offered" ? "own" : state;
+  if (now != state) document.title = state = now;
+}, 100);
+</script>' > "$out/site/signup.html"
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
@@ -121,11 +161,13 @@ onkeydown = e => {
 </script>' > "$out/site/dialogs.html"
 # The cookie page's title says whether it finds its cookie, c, never a value, since the app logs
 # every title, and how many times the server has sent its script, which the cache keeps for an
-# hour. Another run's cookies on the site don't count. "c" in it sets the cookie.
-printf '%s' '<title>loading</title><script src="count.js"></script>
+# hour, once it has painted. Another run's cookies on the site don't count. "c" in it sets the
+# cookie.
+printf '%s' '<title>loading</title><p>c sets a cookie.</p><script src="count.js"></script>
+<script src="painted.js"></script>
 <script>
-document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
-  " cache " + count;
+painted(() => document.title = "cookie " +
+  (document.cookie.split("; ").includes("c=1") ? "c" : "none") + " cache " + count);
 onkeydown = e => {
   if (e.key == "c") {
     document.cookie = "c=1";
@@ -136,8 +178,11 @@ onkeydown = e => {
 # Pages that ask for a key system as soon as they load, Widevine, which ilo can't play, and ClearKey,
 # which it can. Each puts "asked" in its title once the request is answered, either way. Widevine's
 # is asked from a promise, so the title comes in an engine with no request, as Safari's may have none
-# for this page. Widevine's first asks the server for /seen with the item the session page below
-# stored, as its script found it.
+# for this page. Safari's engine answers only once its GPU process does (RemoteCDMFactory's
+# supportsKeySystem is a synchronous message to it), which the first time a run asks may still be
+# starting, as it likely was past 10 s on a VM in #961, so the checks wait for it with expect_late.
+# Widevine's first asks the server for /seen with the item the session page below stored, as its
+# script found it.
 printf '%s' '<title>loading</title><script>
 fetch("seen?item=" + localStorage.item);
 Promise.resolve().then(() => navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{

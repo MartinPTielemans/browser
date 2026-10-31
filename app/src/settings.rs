@@ -19,6 +19,7 @@ use browser::theme::Appearance;
 use browser::import::ImportView;
 use browser::link_rules::LinkRulesView;
 use browser::log;
+use browser::notes;
 use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
@@ -84,6 +85,7 @@ use browser::tokens::settings::TAB_TEXT;
 use browser::tokens::settings::TEXT;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
+use browser::tokens::settings::MINI_PLAYER_TILE;
 use browser::tokens::settings::OPTION_REVEAL_TILE;
 use browser::tokens::settings::RESTORE_WINDOWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
@@ -206,7 +208,7 @@ impl Keys {
     }
 }
 
-/// The Shortcuts tab, in the menus' order and names.
+/// The Shortcuts tab, every command the user can give keys, in the menus' order and names.
 const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     (
         "Tabs",
@@ -214,11 +216,13 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("New Tab", Keys::Of(Command::NewTab)),
             ("New Window", Keys::Of(Command::NewWindow)),
             ("New Incognito Window", Keys::Of(Command::NewPrivateWindow)),
+            ("New Note", Keys::Of(Command::NewNote)),
             ("Open Command Bar", Keys::Of(Command::EditUrl)),
             ("Search Tabs", Keys::Of(Command::SearchTabs)),
             ("Archive Tab", Keys::Of(Command::CloseTab)),
             ("Close Window", Keys::Of(Command::CloseWindow)),
             ("Restore Last Closed Tab", Keys::Of(Command::ReopenClosedTab)),
+            ("Duplicate Current Tab", Keys::Of(Command::DuplicateTab)),
             ("Next Tab", Keys::Of(Command::NextTab)),
             ("Previous Tab", Keys::Of(Command::PreviousTab)),
             ("Last Used Tab", Keys::Of(Command::RecentTab)),
@@ -226,13 +230,17 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Include Favorites in ⌘1–⌘8", Keys::FavoritesNumbered),
             ("Last Tab", Keys::Of(Command::SelectLastTab)),
             ("Pin/Unpin Tab", Keys::Of(Command::TogglePin)),
+            ("Favorite Tab", Keys::Of(Command::FavoriteTab)),
             ("Back to Pinned URL", Keys::Of(Command::BackToPinnedUrl)),
+            ("Reveal Tab in Sidebar", Keys::Of(Command::RevealTab)),
+            ("Focus Sidebar", Keys::Of(Command::FocusSidebar)),
             ("Clear Today", Keys::Of(Command::Clear)),
             ("Reset all tabs in this Space", Keys::Of(Command::ResetSpaceTabs)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
             ("Paste URL as New Tab", Keys::Of(Command::PasteUrlAsTab)),
             ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
+            ("Rename Current Tab", Keys::Of(Command::RenameTab)),
             ("New Folder", Keys::Of(Command::NewFolder)),
             ("Collapse All Folders", Keys::Of(Command::CollapseFolders)),
             ("Expand All Folders", Keys::Of(Command::ExpandFolders)),
@@ -253,11 +261,14 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Zoom In", Keys::Of(Command::ZoomIn)),
             ("Zoom Out", Keys::Of(Command::ZoomOut)),
             ("Actual Size", Keys::Of(Command::ActualSize)),
+            ("Share", Keys::Of(Command::Share)),
             ("Capture", Keys::Of(Command::CapturePortion)),
+            ("Capture Full Page", Keys::Of(Command::CaptureFullPage)),
             ("Save Page As", Keys::Of(Command::SavePage)),
             ("Print", Keys::Of(Command::Print)),
             ("Clear Cache and Refresh", Keys::Of(Command::ClearCacheAndRefresh)),
             ("Clear Cookies and Refresh", Keys::Of(Command::ClearCookiesAndRefresh)),
+            ("Site Controls", Keys::Of(Command::SiteControls)),
         ],
     ),
     (
@@ -276,7 +287,10 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Go to Space 9", Keys::Of(Command::SelectSpace(8))),
             ("New Space", Keys::Of(Command::NewSpace)),
             ("Rename Space", Keys::Of(Command::RenameSpace)),
+            ("Export Space as Markdown", Keys::Of(Command::ExportSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
+            ("Collapse Pinned Tabs", Keys::Of(Command::CollapsePinned)),
+            ("Expand Pinned Tabs", Keys::Of(Command::ExpandPinned)),
             ("Automatic Appearance", Keys::Of(Command::Appearance(Appearance::Automatic))),
             ("Light Appearance", Keys::Of(Command::Appearance(Appearance::Light))),
             ("Dark Appearance", Keys::Of(Command::Appearance(Appearance::Dark))),
@@ -284,6 +298,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("View Archive", Keys::Of(Command::ViewArchive)),
             ("Clear Archive", Keys::Of(Command::ClearArchive)),
             ("View Downloads", Keys::Of(Command::ViewDownloads)),
+            ("View Media", Keys::Of(Command::ViewMedia)),
             ("View History", Keys::Of(Command::ViewHistory)),
             ("Clear Browsing Data", Keys::Of(Command::ClearBrowsingData)),
         ],
@@ -292,6 +307,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         "Split View",
         &[
             ("Add Split View", Keys::Of(Command::AddSplit)),
+            ("New Note Split", Keys::Of(Command::NewNoteSplit)),
             ("Close this Split Pane", Keys::Of(Command::CloseSplitPane)),
             ("Next Pane", Keys::Of(Command::NextPane)),
             ("Previous Pane", Keys::Of(Command::PreviousPane)),
@@ -321,13 +337,28 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     (
         env!("APP_NAME"),
         &[
+            (concat!("About ", env!("APP_NAME")), Keys::Of(Command::About)),
+            ("Check for Updates", Keys::Of(Command::CheckForUpdates)),
             ("Settings", Keys::Of(Command::Settings)),
-            ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
+            ("Import from Other Browsers", Keys::Of(Command::Import)),
+            ("Passwords", Keys::Of(Command::Passwords)),
+            ("Site Search Settings", Keys::Of(Command::SiteSearchSettings)),
             // main.rs binds these.
             (concat!("Hide ", env!("APP_NAME")), Keys::Fixed("cmd-h")),
             ("Hide Others", Keys::Fixed("alt-cmd-h")),
             ("Minimize", Keys::Fixed("cmd-m")),
             (concat!("Quit ", env!("APP_NAME")), Keys::Of(Command::Quit)),
+        ],
+    ),
+    (
+        "Help",
+        &[
+            (concat!("Welcome to ", env!("APP_NAME")), Keys::Of(Command::Welcome)),
+            ("Help Center", Keys::Of(Command::HelpCenter)),
+            ("What's New", Keys::Of(Command::WhatsNew)),
+            ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
+            ("Report a Problem", Keys::Of(Command::ReportProblem)),
+            ("Copy Build Info", Keys::Of(Command::CopyBuildInfo)),
         ],
     ),
 ];
@@ -341,6 +372,8 @@ enum Popup {
     /// A profile's, in the Profiles tab.
     SearchEngine(u64),
     ProfileArchiveAfter(u64),
+    /// A profile's New Documents.
+    Notes(u64),
 }
 
 pub struct Settings {
@@ -657,11 +690,21 @@ fn show_now(cx: &mut App) {
         .update(cx, |settings, window, cx| {
             window.focus(&settings.focus, cx);
             settings.shown = true;
+            if settings.tab == Tab::Agents {
+                look_for_clients(cx);
+            }
             cx.notify();
         })
         .ok();
     check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+}
+
+/// Looks again for the agent clients on this computer, as the Agents tab shows.
+fn look_for_clients(cx: &mut App) {
+    if let Some(agents) = agents::global(cx) {
+        agents.update(cx, |agents, cx| agents.look_for_clients(cx));
+    }
 }
 
 /// Reads again where Google's Widevine module is, as the core says it changed, once Settings has
@@ -819,14 +862,17 @@ pub fn refresh(cx: &mut App) {
     }
 }
 
-/// The window's close button, where the browser window's is, for a window without a frame to draw
-/// it. Settings can't be minimized or zoomed, so it's alone.
-fn close_button() -> impl IntoElement {
+/// The window's close button, for a window without a frame to draw it: where the browser window's
+/// is on Linux, and in the top right corner on Windows, where Windows puts close. Settings can't be
+/// minimized or zoomed, so it's alone. `at` logs where it's drawn.
+fn close_button(at: gpui::Canvas<()>) -> impl IntoElement {
     let (x, colour) = shell::WINDOW_BUTTONS[0];
-    div()
-        .id("close")
-        .absolute()
-        .left(px(x - WINDOW_BUTTON_SIZE / 2.))
+    let button = div().id("close").absolute();
+    let button = match cfg!(target_os = "windows") {
+        true => button.right(px(x - WINDOW_BUTTON_SIZE / 2.)),
+        false => button.left(px(x - WINDOW_BUTTON_SIZE / 2.)),
+    };
+    button
         .top(px((TITLE_BAR - WINDOW_BUTTON_SIZE) / 2.))
         .size(px(WINDOW_BUTTON_SIZE))
         .rounded_full()
@@ -842,6 +888,7 @@ fn close_button() -> impl IntoElement {
                 .text_color(gpui::transparent_black())
                 .group_hover("close", |style| style.text_color(rgba(WINDOW_BUTTON_GLYPH))),
         )
+        .child(at)
 }
 
 fn hide(_: &mut App) {
@@ -865,6 +912,9 @@ impl Settings {
         self.tab = tab;
         if tab == Tab::Import {
             self.show_import(cx);
+        }
+        if tab == Tab::Agents {
+            look_for_clients(cx);
         }
         self.links = (tab == Tab::Links).then(|| {
             let host = Rc::new(crate::link_rules_host::CoreLinkRules);
@@ -929,7 +979,7 @@ impl Settings {
             .border_color(rgb(BAR_LINE))
             .relative()
             .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
-            .children(frameless.then(close_button))
+            .children(frameless.then(|| close_button(self.drawn("close".into()))))
             .child(
                 div()
                     .h(px(TITLE_BAR))
@@ -1239,8 +1289,10 @@ impl Settings {
     }
 
     /// A row for each profile, with how many Spaces are in it and Delete for one nothing is in, and
-    /// New Profile under them. A double-click on a profile's name renames it, as on a Space's.
+    /// New Profile under them, then each profile's New Documents. A double-click on a profile's name
+    /// renames it, as on a Space's.
     fn profiles(&self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+        let services: Vec<_> = profiles.iter().map(|profile| self.notes_row(profile, cx)).collect();
         let rows = profiles.iter().map(|profile| {
             let (id, name) = (profile.id, profile.name.clone());
             let label = match &self.renaming {
@@ -1350,13 +1402,66 @@ impl Settings {
             .relative()
             .child(self.drawn("new profile".into()))
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
+        let documents = div()
+            // The column's gap is above it too.
+            .mt(px(SECTION_GAP - BOX_GAP))
+            .mb(px(HEADER_GAP))
+            .pl(px(PADDING))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("New Documents");
         div()
             .flex()
             .flex_col()
             .gap(px(BOX_GAP))
             .children(rows)
             .child(div().mt(px(BUTTONS_TOP - BOX_GAP)).flex().child(new))
+            .child(div().child(documents).child(group(&RowLook::settings(), services)))
             .into_any_element()
+    }
+
+    /// A profile's row under New Documents: the notes service New Note opens a new document in, in
+    /// a pop-up, as Arc's Settings › Profiles has it.
+    fn notes_row(&self, profile: &Profile, cx: &mut Context<Self>) -> gpui::Div {
+        let id = profile.id;
+        let chosen = notes::service(&crate::name(bc::bc_profile_notes_service, id));
+        let label = notes::SERVICES[chosen].1.into();
+        let popup = self.popup(
+            Popup::Notes(id),
+            label,
+            POPUP_WIDTH,
+            cx.listener(move |settings, _, window, cx| settings.choose_notes(id, chosen, window, cx)),
+        );
+        let icon = Some(("icons/user.svg", PROFILE_TILE));
+        row(icon, profile.name.clone(), popup.into_any_element())
+    }
+
+    /// Opens a profile's New Documents pop-up menu over its button, as the archive's, and keeps the
+    /// service picked for the profile.
+    fn choose_notes(
+        &mut self,
+        profile: u64,
+        chosen: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (notes::SERVICES.iter().enumerate())
+            .map(|(index, &(_, title, _))| {
+                let on = index == chosen;
+                // A service's name, as written, as Google Docs keeps its capital off the Mac too.
+                MenuEntry { checked: on, over: on, ..MenuEntry::named(title, true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            if let Some(&(name, title, _)) = picked.and_then(|index| notes::SERVICES.get(index)) {
+                // check.sh waits for this line.
+                log!("browser: notes service {profile} {title}");
+                let name = CString::new(name).unwrap_or_default();
+                unsafe { bc::bc_profile_set_notes_service(profile, name.as_ptr()) };
+            }
+            settings.update(cx, |settings, cx| settings.chose(cx)).ok();
+        });
+        self.pop_up(Popup::Notes(profile), items, picked, window, cx);
     }
 
     /// Shows the profile's name in a field, all selected, to type a new one over.
@@ -1772,7 +1877,9 @@ impl Settings {
                      passwords, cookies or autofill."
                 .into(),
         };
-        let clients = Client::ALL.map(|client| self.client(agents, client, cx));
+        let listed = agents.read(cx).listed();
+        let clients: Vec<gpui::Div> =
+            listed.iter().map(|client| self.client(agents, *client, &listed, cx)).collect();
         // A list for each agent, as each has its own Space (decision 8): what the user let it do
         // or never do on a site, to revoke, then what it did.
         let model = agents.read(cx);
@@ -1877,7 +1984,13 @@ impl Settings {
 
     /// A client's row: whether it's connected, and Connect, or Disconnect, with Copy Setup for a
     /// client the browser can't set up itself.
-    fn client(&self, agents: &Entity<Agents>, client: Client, cx: &mut Context<Self>) -> gpui::Div {
+    fn client(
+        &self,
+        agents: &Entity<Agents>,
+        client: Client,
+        listed: &[Client],
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let model = agents.read(cx);
         let connected = model.is_connected(client);
         let detail: SharedString = if let Some(why) = model.failure(client) {
@@ -1895,7 +2008,17 @@ impl Settings {
         } else if connected {
             format!("Connected in {}", client.config()).into()
         } else if client == Client::Other {
-            "Any MCP client".into()
+            // Says which it looked for, so one missing from the list isn't a mystery.
+            let missing: Vec<&str> = (Client::ALL.into_iter())
+                .filter(|client| !listed.contains(client))
+                .map(Client::name)
+                .collect();
+            match missing.as_slice() {
+                [] => "Any MCP client".into(),
+                [one] => format!("Any MCP client. {one} isn't on this computer.").into(),
+                _ => format!("Any MCP client. {} aren't on this computer.", missing.join(" and "))
+                    .into(),
+            }
         } else {
             format!("Not connected. Connect adds the browser to {}", client.config()).into()
         };
@@ -1935,6 +2058,8 @@ impl Settings {
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let previews = unsafe { bc::bc_link_previews() };
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
+        let mini_player = unsafe { bc::bc_auto_picture_in_picture() };
+        let mini_player = self.toggle("mini player", mini_player, set_mini_player, accent, cx);
         let option = unsafe { bc::bc_option_reveals_sidebar() };
         let option = self.toggle("option reveals sidebar", option, set_option_reveals, accent, cx);
         // Where the host watches for it (host_watch_option_taps).
@@ -1981,6 +2106,11 @@ impl Settings {
                         Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
                         "Preview links to other sites from pinned tabs and favorites",
                         previews,
+                    ),
+                    row(
+                        Some(("icons/picture-in-picture-2.svg", MINI_PLAYER_TILE)),
+                        "Float a video or call in Picture in Picture as you leave its tab",
+                        mini_player,
                     ),
                     row(
                         Some(("icons/rotate-ccw-clock.svg", RESTORE_WINDOWS_TILE)),
@@ -2052,7 +2182,7 @@ impl Settings {
                         (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
                             .into_any_element(),
                     };
-                    row(None, *name, control)
+                    row(None, shown(name), control)
                 })
                 .collect();
             (!rows.is_empty()).then(|| {
@@ -2277,6 +2407,11 @@ pub(crate) fn crash_reports_collector() -> String {
 
 fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
+}
+
+/// In every profile; a site the user allows in its Site Controls still floats.
+fn set_mini_player(on: bool, _: &mut App) {
+    unsafe { bc::bc_set_auto_picture_in_picture(on) };
 }
 
 fn set_option_reveals(reveals: bool, _: &mut App) {
@@ -2525,16 +2660,25 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
             Keys::FavoritesNumbered => None,
             _ => keys.fixed(),
         };
-        shell::shortcut_found(typed, name, label.as_deref())
+        shell::shortcut_found(typed, &shown(name), label.as_deref())
     });
     found.map(|(name, _)| *name).collect()
+}
+
+/// A row's name as the tab shows it, with ⌘1–⌘8 in this OS's keys, Ctrl+1–Ctrl+8 off the Mac.
+fn shown(name: &str) -> String {
+    let tabs = format!("{}–{}", shell::keystroke_label("cmd-1"), shell::keystroke_label("cmd-8"));
+    name.replace("⌘1–⌘8", &tabs)
 }
 
 fn log_found(typed: &str, cx: &App) {
     // check.sh waits for this line.
     match typed {
         "" => log!("browser: shortcuts search cleared"),
-        _ => log!("browser: shortcuts search {typed:?} finds {}", found(typed, cx).join(", ")),
+        _ => {
+            let found: Vec<String> = found(typed, cx).into_iter().map(shown).collect();
+            log!("browser: shortcuts search {typed:?} finds {}", found.join(", "))
+        }
     }
 }
 
@@ -2581,8 +2725,10 @@ impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The app's window, not a Space's, so ilo green rather than a Space's accent (#319).
         let accent = rgb(browser::palette::NO_THEME_ACCENT);
-        // As Linux's client-side decorations leave it; AppKit's frame is always there.
-        let frameless = matches!(window.window_decorations(), gpui::Decorations::Client { .. });
+        // As Linux's client-side decorations leave it, and Windows', where GPUI hides the system's
+        // title bar and its buttons for a transparent one; AppKit's frame is always there.
+        let frameless = cfg!(target_os = "windows")
+            || matches!(window.window_decorations(), gpui::Decorations::Client { .. });
         if self.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE) {
             window.request_animation_frame();
         }
