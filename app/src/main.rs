@@ -2778,6 +2778,10 @@ impl Browser for Engine {
         unsafe { platform::host_set_window_light(self.ui_view, light) };
     }
 
+    fn capture_look(&self, tab: u64, look: menu::Look, cx: &mut App) {
+        capture::set_look(tab, look, cx);
+    }
+
     fn set_appearance(&self, appearance: Appearance, _: &mut App) {
         settings::save_appearance(appearance);
         give_host_appearance(appearance);

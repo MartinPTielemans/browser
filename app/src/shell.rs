@@ -1136,6 +1136,9 @@ pub struct Shell {
     width_motion: Option<(f32, Instant)>,
     /// While the sidebar moves: where the card's left edge started from, and when.
     sidebar_motion: Option<(f32, Instant)>,
+    /// Lines check.sh waits on that say the page is where a press or a drag put it, held until
+    /// the draw that lays the page out there, as the event changes only what that draw shows.
+    logged_once_laid: Vec<String>,
     /// Whether the hidden sidebar is out over the page, or on its way.
     revealed: bool,
     /// The reveal's panel came out for ⌥ with the pointer elsewhere, so it stays out until the
@@ -1317,6 +1320,8 @@ pub struct Shell {
     window_watches: Vec<Subscription>,
     /// Whether the host was last asked to draw the material light.
     window_light: Option<bool>,
+    /// The menus' look capture mode was last given, which it takes again when it changes (#861).
+    capture_look: Option<crate::menu::Look>,
     /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
     /// picker, or a Space's theme picker; and when it was asked for.
     picker_pending: Option<(Pending, Instant)>,
@@ -1452,6 +1457,7 @@ impl Shell {
             pane_resize: None,
             width_motion: None,
             sidebar_motion: None,
+            logged_once_laid: Vec::new(),
             revealed: false,
             revealed_by_option: false,
             reveal_motion: None,
@@ -1551,6 +1557,7 @@ impl Shell {
             window_active: true,
             window_watches: Vec::new(),
             window_light: None,
+            capture_look: None,
             private: false,
         }
     }
@@ -3031,6 +3038,9 @@ impl Render for Shell {
             }
         }
         self.lay_out_moving_page(cx);
+        for line in self.logged_once_laid.drain(..) {
+            log!("{line}");
+        }
         self.show_page_dialog(cx);
         let card_left = self.card_left();
         self.update_palette(cx);
