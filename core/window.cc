@@ -531,6 +531,15 @@ void Window::LayOutShowing(bc_id tab) {
 }
 
 // static
+void Window::PageCommittedInNewView(bc_id tab) {
+  for (Window* window : All()) {
+    if (window->selected_ == tab) {
+      window->FocusPageSoon();
+    }
+  }
+}
+
+// static
 void Window::OnPageClicked(bc_id tab) {
   for (auto& [id, window] : Windows()) {
     if (window->selected_ != tab && std::ranges::contains(window->panes_, tab)) {
@@ -2362,8 +2371,11 @@ void Window::OverlayTakesKeyboard(bool takes) {
   // The overlay showed another tab, as the command bar does going to a page: its page takes the
   // keyboard, as a press that shows a tab gives it. On X11 the window isn't active while the
   // overlay has the input focus, so FocusPage passed the page over as it showed, and the window
-  // holds the keyboard for it until it's active again.
-  if (std::exchange(selected_under_overlay_, 0) != selected_ && shown_) {
+  // holds the keyboard for it until it's active again. Not when the tab it showed closed, as a
+  // Space the dialog deleted did: what shows then comes of that, and the UI keeps the keyboard, as
+  // the Mac's does.
+  const bc_id under = std::exchange(selected_under_overlay_, 0);
+  if (under != selected_ && shown_ && (!under || Tab::Get(under))) {
     page_had_keyboard_ = true;
     GiveKeyboardToPage();
   }
