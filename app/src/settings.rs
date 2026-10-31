@@ -40,6 +40,8 @@ use browser::settings_rows::{
 actions!(settings, [CloseSettings]);
 
 use browser::tokens::settings::WIDTH;
+use browser::tokens::settings::CONTROL;
+use browser::tokens::settings::CONTROL_RADIUS;
 use browser::tokens::settings::HEIGHT;
 use browser::tokens::settings::TITLE_BAR;
 use browser::tokens::shell::WINDOW_BUTTON_GLYPH;
