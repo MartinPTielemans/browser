@@ -5,6 +5,7 @@
 
 #include "base/auto_reset.h"
 #include "base/functional/bind.h"
+#include "base/logging.h"
 #include "browser_core/host.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -79,7 +80,10 @@ bool PagePresses::OnMouse(content::RenderWidgetHost* widget, const blink::WebMou
   }
   const Type type = event.GetType();
   if (pressed_) {
-    const bool held = event.GetModifiers() & blink::WebInputEvent::kLeftButtonDown;
+    // From the event, not its modifiers: on the Mac those are the hardware's buttons, which an
+    // event posted to the app, as the check's driver's are, never holds, while a drag's move says
+    // its button.
+    const bool held = event.button == blink::WebPointerProperties::Button::kLeft;
     if (type == Type::kMouseDown) {
       // The release went elsewhere, such as to a window that opened over the page.
       End(last_);
@@ -112,7 +116,10 @@ bool PagePresses::OnMouse(content::RenderWidgetHost* widget, const blink::WebMou
     return false;
   }
   const gfx::PointF at = InPage(widget, event);
-  if (!Host().tab_press_before_page(Host().context, tab_, modifiers, at.x(), at.y())) {
+  const bool taken = Host().tab_press_before_page(Host().context, tab_, modifiers, at.x(), at.y());
+  LOG(ERROR) << "browser: tab " << tab_ << " press with modifiers " << modifiers << " "
+             << (taken ? "taken" : "left to the page");
+  if (!taken) {
     return false;
   }
   pressed_ = widget;
@@ -123,8 +130,10 @@ bool PagePresses::OnMouse(content::RenderWidgetHost* widget, const blink::WebMou
 
 bool PagePresses::End(const gfx::PointF& at) {
   pressed_ = nullptr;
-  return Host().tab_press_released &&
-         Host().tab_press_released(Host().context, tab_, at.x(), at.y());
+  const bool kept = Host().tab_press_released &&
+                    Host().tab_press_released(Host().context, tab_, at.x(), at.y());
+  LOG(ERROR) << "browser: tab " << tab_ << " press ended, " << (kept ? "kept" : "handed back");
+  return kept;
 }
 
 void PagePresses::RenderFrameCreated(content::RenderFrameHost* frame) {
