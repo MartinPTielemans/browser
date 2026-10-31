@@ -39,6 +39,8 @@ impl Render for Reveal {
                 // still pointer, would leave the pointer's going unheard. It's past the panel once
                 // the move that took it off is through: onto a row's card, the card hears that
                 // move after this window hears it leave, and the card keeps the sidebar out (#830).
+                // A panel already gone, docked under the pointer, hears its leave only with the
+                // next move, which may be the one to the edge that brings it out again.
                 .child(
                     gpui::canvas(
                         |_, _, _| {},
@@ -48,8 +50,12 @@ impl Render for Reveal {
                                 if phase == DispatchPhase::Capture {
                                     let left = left.clone();
                                     cx.spawn(async move |cx| {
-                                        left.update(cx, |shell, cx| shell.pointer_at(f32::MAX, cx))
-                                            .ok();
+                                        left.update(cx, |shell, cx| {
+                                            if shell.reveal_shown() {
+                                                shell.pointer_at(f32::MAX, cx);
+                                            }
+                                        })
+                                        .ok();
                                     })
                                     .detach();
                                 }
