@@ -545,9 +545,27 @@ Export as Markdown…, Delete Space")\$" \
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
 send dismiss
 expect '^browser: menu closed$' "the Space's menu didn't close"
-# So does a press on the … at the end of the name's row, and the menu stays once the button comes
-# up (#1090). A click the user makes comes up after the menu shows, which the driver's click doesn't.
+# So does a click on the … at the end of the name's row, its down and up together as a tap sends
+# them, and the menu stays (#1090): with the UI holding the keyboard, then the page.
 edit_point="196 112"
+for holder in ui page; do
+  if [ $holder = page ]; then
+    send click $page_point
+    in_browser RenderWidgetHostViewCocoa "after a click on the page"
+  fi
+  send move $edit_point
+  send click $edit_point
+  expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
+Export as Markdown…, Delete Space")\$" \
+    "a click on the … didn't show the Space's menu, the $holder holding the keyboard"
+  expect '^browser: menu drawn ' "the Space's menu from a click on the … didn't come on screen ($holder)"
+  ../tools/window-screenshot.sh "$pid" "$out/space-edit-click-$holder.png" || fail "no window to capture"
+  none_since '^browser: menu c' || fail "the Space's menu from a click on the … closed ($holder)"
+  send dismiss
+  expect '^browser: menu closed$' "the Space's menu from the … didn't close"
+done
+# A press shows it too, and it stays once the button comes up after the menu shows, as it does
+# when the user holds the button.
 send move $edit_point
 send press $edit_point
 expect "^browser: menu shown $(cased "Rename Space, Change Icon…, $colors, $profile, \
