@@ -32,13 +32,14 @@ for way in menu key; do
   log="$out/quit-$way.log"
   step=0
   before=$(reports)
-  BROWSER_DRIVE=1 BROWSER_URL='data:text/html,<h1>Quit</h1>' "$browser" < "$out/drive" \
-    > "$log" 2>&1 &
+  # #905 trial: every task Chrome runs, for 15 s, to see where a quit during launch stops.
+  BROWSER_DRIVE=1 BROWSER_URL='data:text/html,<h1>Quit</h1>' "$browser" \
+    --trace-startup=toplevel,toplevel.flow,shutdown,browser,navigation,disabled-by-default-toplevel.flow \
+    --trace-startup-duration=15 --enable-tracing-format=json \
+    --trace-startup-file="$PWD/$out/quit-$way-trace.json" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await_load
-  # #905 trial: past launch first.
-  await '^browser: UI shown at ' || fail "the UI never came out"
   quit_through "$way"
   exited
   [ "$(reports)" = "$before" ] || fail "quitting through the $way left a crash report"
