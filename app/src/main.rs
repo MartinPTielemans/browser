@@ -3297,6 +3297,13 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     let command = cx.and_then(|cx| {
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, reserved))
     });
+    log!(
+        "browser: diag page key {:?} reserved {} editing {} command {:?}",
+        keystroke,
+        reserved,
+        key.editing,
+        command.flatten().map(|command| command.name())
+    );
     let Some(command) = command.flatten() else {
         return false;
     };

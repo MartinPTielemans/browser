@@ -1274,6 +1274,7 @@ impl Shell {
                 return true;
             }
         };
+        log!("browser: diag run for page {} done {}", command.name(), done);
         if done {
             // check.sh waits for this line.
             log!("browser: command {} via page", command.name());
