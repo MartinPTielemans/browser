@@ -3066,7 +3066,7 @@ index 86dc7da97b..c2805d8f83 100644
          if let Some(text) = self
              .primary_contents
 diff --git a/crates/gpui_linux/src/linux/wayland/window.rs b/crates/gpui_linux/src/linux/wayland/window.rs
-index 8d92234ef1..88ee3cb6ff 100644
+index 8d92234ef1..e2a70f83bc 100644
 --- a/crates/gpui_linux/src/linux/wayland/window.rs
 +++ b/crates/gpui_linux/src/linux/wayland/window.rs
 @@ -11,12 +11,13 @@ use calloop::ping::Ping;
@@ -3240,7 +3240,7 @@ index 8d92234ef1..88ee3cb6ff 100644
              presentation: PresentationState::Unpresented,
              pending_frame_callback: None,
              in_progress_window_controls: None,
-@@ -896,6 +971,259 @@ impl WaylandWindowStatePtr {
+@@ -896,6 +971,260 @@ impl WaylandWindowStatePtr {
          self.state.borrow().surface.clone()
      }
  
@@ -3467,10 +3467,11 @@ index 8d92234ef1..88ee3cb6ff 100644
 +            state.redraw_requested = true;
 +            state.pending_frame_callback = None;
 +        }
-+        // A frame callback asked for while it had no role never comes.
-+        if self.frame_loop.get() != FrameLoop::Unconfigured {
-+            self.frame_loop.set(FrameLoop::Parked);
-+        }
++        // Its new role draws first when the compositor configures it, as on its first show: a
++        // buffer committed before then is a protocol error, which ends the app's connection, as a
++        // redraw asked for in between drew one (#1035). A frame callback asked for without the
++        // role never comes either.
++        self.frame_loop.set(FrameLoop::Unconfigured);
 +        self.surface().commit();
 +        Ok(())
 +    }
@@ -3500,7 +3501,7 @@ index 8d92234ef1..88ee3cb6ff 100644
      pub fn toplevel(&self) -> Option<xdg_toplevel::XdgToplevel> {
          self.state.borrow().surface_state.toplevel().cloned()
      }
-@@ -936,6 +1264,21 @@ impl WaylandWindowStatePtr {
+@@ -936,6 +1265,21 @@ impl WaylandWindowStatePtr {
      }
  
      pub fn frame(&self, signal_at: Option<Instant>, signal_source: FrameRequestSource) {
@@ -3522,7 +3523,17 @@ index 8d92234ef1..88ee3cb6ff 100644
          self.frame_loop.set(FrameLoop::Ticking);
          let mut state = self.state.borrow_mut();
          state.resize_throttle = false;
-@@ -1024,6 +1367,12 @@ impl WaylandWindowStatePtr {
+@@ -966,7 +1310,8 @@ impl WaylandWindowStatePtr {
+         let mut state = self.state.borrow_mut();
+ 
+         let frame_loop = self.frame_loop.get();
+-        if frame_loop == FrameLoop::AwaitingCallback {
++        // Or shown again as a toplevel in the tick, whose configure draws it (show_toplevel).
++        if matches!(frame_loop, FrameLoop::AwaitingCallback | FrameLoop::Unconfigured) {
+             return;
+         }
+ 
+@@ -1024,6 +1369,12 @@ impl WaylandWindowStatePtr {
          }
      }
  
@@ -3535,7 +3546,7 @@ index 8d92234ef1..88ee3cb6ff 100644
      pub fn retry_timer_fired(&self, signal_at: Instant) {
          if self.frame_loop.get() == FrameLoop::RetryScheduled {
              self.frame(
-@@ -1060,6 +1409,10 @@ impl WaylandWindowStatePtr {
+@@ -1060,6 +1411,10 @@ impl WaylandWindowStatePtr {
      }
  
      fn update_ime_enabled(&self) {
@@ -3546,7 +3557,7 @@ index 8d92234ef1..88ee3cb6ff 100644
          let mut state = self.state.borrow_mut();
          if !state.active {
              return;
-@@ -1493,6 +1846,17 @@ impl WaylandWindowStatePtr {
+@@ -1493,6 +1848,17 @@ impl WaylandWindowStatePtr {
          }
      }
  
@@ -3564,7 +3575,7 @@ index 8d92234ef1..88ee3cb6ff 100644
      pub fn get_ime_area(&self) -> Option<Bounds<Pixels>> {
          let mut state = self.state.borrow_mut();
          let mut bounds: Option<Bounds<Pixels>> = None;
-@@ -1598,6 +1962,23 @@ impl WaylandWindowStatePtr {
+@@ -1598,6 +1964,23 @@ impl WaylandWindowStatePtr {
          }
      }
  
@@ -3588,7 +3599,7 @@ index 8d92234ef1..88ee3cb6ff 100644
      pub fn set_focused(&self, focus: bool) {
          self.state.borrow_mut().active = focus;
          let callback = self.callbacks.borrow_mut().active_status_change.take();
-@@ -1888,9 +2269,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -1888,9 +2271,11 @@ impl PlatformWindow for WaylandWindow {
      }
  
      fn set_title(&mut self, title: &str) {
@@ -3601,7 +3612,21 @@ index 8d92234ef1..88ee3cb6ff 100644
      }
  
      fn set_app_id(&mut self, app_id: &str) {
-@@ -2046,6 +2429,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -2011,6 +2396,13 @@ impl PlatformWindow for WaylandWindow {
+     fn draw(&self, scene: &Scene) {
+         let mut state = self.borrow_mut();
+         let state = &mut *state;
++        // A toplevel's buffer before its configure is a protocol error (#1035): it draws then.
++        if self.0.frame_loop.get() == FrameLoop::Unconfigured
++            && matches!(state.surface_state, WaylandSurfaceState::Xdg(_))
++        {
++            state.redraw_requested = true;
++            return;
++        }
+         let Some(renderer) = &mut state.renderer else {
+             return;
+         };
+@@ -2046,6 +2438,11 @@ impl PlatformWindow for WaylandWindow {
          if renderer.draw(scene) {
              state.presentation = PresentationState::Presented;
              self.0.frame_loop.set(FrameLoop::AwaitingCallback);
@@ -3613,7 +3638,7 @@ index 8d92234ef1..88ee3cb6ff 100644
          } else {
              state.presentation = state.presentation.failed();
              self.0.frame_loop.set(FrameLoop::PresentationFailed);
-@@ -2208,6 +2596,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -2208,6 +2605,11 @@ impl PlatformWindow for WaylandWindow {
      }
  
      fn update_ime_position(&self, bounds: Bounds<Pixels>) {
@@ -3700,8 +3725,8 @@ index e21f019c64..4e204c34d1 100644
 +    /// touchpad doesn't end their scroll (`FingerScrolls`): Xwayland's devices and libinput's
 +    /// driver's do.
 +    lifts: bool,
- }
- 
++}
++
 +/// Fingers scrolling on a touchpad. XInput's smooth scrolling has no begin or end, so the first
 +/// scroll that isn't a wheel's starts it, and the scroll of nothing that libinput's driver and
 +/// Xwayland send as the fingers lift ends it, or for a driver that sends none (synaptics, evdev),
@@ -3718,8 +3743,8 @@ index e21f019c64..4e204c34d1 100644
 +    position: Point<Pixels>,
 +    modifiers: Modifiers,
 +    last: Instant,
-+}
-+
+ }
+ 
 +/// A finger scroll's event, with the window it goes to.
 +type FingerEvent = (xproto::Window, gpui::ScrollEvent);
 +
