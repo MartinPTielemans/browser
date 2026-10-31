@@ -18,7 +18,8 @@ fixture="$PWD/src/import/fixture"
 import_home=$fixture
 found=Arc
 if [ "$(uname)" != Darwin ]; then
-  fixture="$out/onboarding-home"
+  # From the root, as chrome.exe moves into its own folder as it starts.
+  fixture="$PWD/$out/onboarding-home"
   import_home=$fixture
   found=Chrome
   chrome="$fixture/.config/google-chrome"
