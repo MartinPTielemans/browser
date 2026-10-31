@@ -223,8 +223,11 @@ send click $page_point
 expect "^browser: title $a pressed [0-9]*\$" "a click on the test page's lower part didn't reach it"
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+# Settings takes no click until it has drawn, nor a tab's rows until the tab has (#1101, #1133).
+expect '^browser: settings drew General$' "Settings didn't draw General"
 send clickkey 519 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+expect '^browser: settings switch link previews at ' "Advanced didn't draw the link previews switch"
 # Its switch is the row under the haptics', as General's rows are 42 apart.
 send clickkey 592 168
 expect '^browser: link previews off$' "a click on the link previews switch didn't turn them off"
@@ -253,10 +256,12 @@ expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the first S
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "the first Space didn't show the pinned tab again"
 send key , cmd
 expect '^browser: settings shown Advanced$' "⌘, didn't show Settings on its Advanced tab"
+expect '^browser: settings drew Advanced$' "Settings didn't draw Advanced"
 send clickkey 592 168
 expect '^browser: link previews on$' "a click on the link previews switch didn't turn them on"
 send clickkey 162 60
 expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
+expect '^browser: link rules drawn ' "the Links tab didn't draw its rules"
 send clickkey 76 173
 expect '^browser: link rule 0 field has the keyboard$' "+ didn't give the new rule's field the keyboard"
 send type preview-target
