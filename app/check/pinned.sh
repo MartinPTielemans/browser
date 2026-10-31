@@ -555,10 +555,10 @@ expect "^browser: menu drawn with ⌥ held $(cased 'Rename Folder, Change Icon�
   "⌥ didn't turn the folder's Copy All Links into Copy All Links as Markdown"
 ../tools/window-screenshot.sh "$pid" "$out/folder-menu-option.png" || fail "no window to capture"
 send choose "$(cased 'Copy All Links')"
-send flags
 expect "^browser: menu chose $(cased 'Copy All Links as Markdown')\$" \
   "Copy All Links with ⌥ held didn't choose Copy All Links as Markdown"
 expect '^browser: toast shown Copied Links as Markdown$' "Copy All Links as Markdown showed no toast"
+send flags
 # Change Icon… puts an emoji before the folder's name.
 post rightclick $(pinned_row 0)
 expect "^browser: menu shown $(cased 'Rename Folder, Change Icon…, Duplicate'), " \
