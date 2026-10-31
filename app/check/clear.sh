@@ -111,6 +111,9 @@ devtools_point="150 64"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
+# Windows' runner has a 768 pixel tall screen, which leaves the window shorter, with the page's
+# bottom 679 pt down.
+if windows; then field_point="600 650"; fi
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
