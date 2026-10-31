@@ -10,13 +10,14 @@ use crate::dock_dot::QUIET;
 use crate::folder_preview::{self, Ask, Item};
 use crate::hover_card::{Action, Anchor, Card, Event, Hover, Icon, Rest};
 use crate::space_icon::has_icon;
+use crate::{icon_picker, theme_picker};
 
 use super::{PLATE_INSET, Row, Shell, host};
 
 impl Shell {
     /// The pointer came onto `row` or left it: a tab's row or tile rests for its card, and leaving
     /// it lets the card go. Folders, split views' rows and New Tab have none, and none shows while
-    /// a row is dragged or has its menu up.
+    /// a row is dragged or has its menu up, or the theme or icon picker shows over the sidebar.
     pub(super) fn hover_card(&self, row: Row, hovered: bool, cx: &mut Context<Self>) {
         let Row::Tab(tab) = row else {
             return;
@@ -24,7 +25,8 @@ impl Shell {
         if !hovered {
             return self.browser.hover_card(Hover::Left(tab), cx);
         }
-        let busy = self.dragging().is_some() || self.menu_row.is_some();
+        let picker = theme_picker::is_open(cx) || icon_picker::is_open(cx);
+        let busy = self.dragging().is_some() || self.menu_row.is_some() || picker;
         let Some(card) = self.card(tab).filter(|_| !busy) else {
             return;
         };

@@ -224,6 +224,11 @@ class Tab : public content::WebContentsObserver,
   base::Time last_seen() const { return last_seen_; }
   void set_last_seen(base::Time time) { last_seen_ = time; }
 
+  // Tells the app the page went full screen, once, as it does when the page's request returns
+  // (DidToggleFullscreenModeForTab). On Windows the window resizes before that returns, and the
+  // app lays the page out once, at the window's new size, only if it hears first.
+  void EnteredFullScreen();
+
  private:
   Tab(bc_id id, Profile* profile);
 
