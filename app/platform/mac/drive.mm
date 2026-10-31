@@ -67,6 +67,11 @@
 //   hide                                  hides the app, as ⌘H does, or brings it back
 //   place <x> <y> <width> <height>        moves and resizes the window to that frame, in points
 //                                         from the main display's top-left corner
+//   screen                                logs the screen the app opens windows on, the main
+//                                         display or with BROWSER_DISPLAY=builtin the Mac's own
+//                                         (host_screens), as "browser: screen at <x> <y> <width>
+//                                         <height>" in place's terms, so a check places windows
+//                                         there and not on the main display it may be kept off
 //   order                                 logs the browser windows on screen front to back and
 //                                         the key one, as "browser: order window <n> window <m>
 //                                         …, key window <n>|none", numbered as window numbers
@@ -264,11 +269,11 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
     {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
     {"pageup", 116}, {"pagedown", 121}, {"/", 44}, {"?", 44}, {"=", 24}, {"&", 26}, {"_", 27},
-    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109},
+    {":", 41}, {"@", 19}, {"f12", 111}, {"f10", 109}, {"f6", 97},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
-// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey and
-// NSF10FunctionKey.
+// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey, NSF12FunctionKey,
+// NSF10FunctionKey and NSF6FunctionKey.
 const std::map<std::string, std::string> kCharacters = {
     {"return", "\r"},
     {"tab", "\t"},
@@ -284,6 +289,7 @@ const std::map<std::string, std::string> kCharacters = {
     {"pagedown", "\xEF\x9C\xAD"},
     {"f12", "\xEF\x9C\x8F"},
     {"f10", "\xEF\x9C\x8D"},
+    {"f6", "\xEF\x9C\x89"},
 };
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
@@ -567,7 +573,7 @@ bool Key(NSWindow* window,
   if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
   } else if (key == "delete" || key == "pageup" || key == "pagedown" || key == "f12" ||
-             key == "f10") {
+             key == "f10" || key == "f6") {
     flags |= NSEventModifierFlagFunction;
   }
   for (NSEventType type : types) {
@@ -1461,6 +1467,27 @@ bool Run(const std::string& line, void (^done)(void)) {
     [window setFrame:NSMakeRect(x, top - y - height, width, height) display:YES];
     done();
     return true;
+  }
+  if (action == "screen") {
+    double visible[4];
+    if (host_screens(visible, 1) < 1) {
+      return false;
+    }
+    // host_screens gives the screen's visible area, from the main display's top-left; the screen
+    // holding its middle is the one.
+    const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
+    const NSPoint middle =
+        NSMakePoint(visible[0] + visible[2] / 2, top - visible[1] - visible[3] / 2);
+    for (NSScreen* screen in NSScreen.screens) {
+      const NSRect frame = screen.frame;
+      if (NSPointInRect(middle, frame)) {
+        fprintf(stderr, "browser: screen at %.0f %.0f %.0f %.0f\n", NSMinX(frame),
+                top - NSMaxY(frame), NSWidth(frame), NSHeight(frame));
+        done();
+        return true;
+      }
+    }
+    return false;
   }
   if (action == "order") {
     NSMutableString* order = [NSMutableString string];

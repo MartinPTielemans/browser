@@ -1,7 +1,12 @@
 # The core calls the app through pointers it gets from the app (BC_APP_ENTRY, bc_host), in another
 # library, which Clang's indirect-call check traps on in official Linux builds. This drops the
 # check in the core's own functions only; they keep their type data, so Chromium's checked calls
-# into them still pass, which -fno-sanitize=cfi-icall on the core's files would break.
+# into them still pass, which -fno-sanitize=cfi-icall on the core's files would break. The names
+# are mangled ones: a lambda in a C API function, and base's code that runs it as a callback, name
+# the function as a local scope, Z and its length before it, as bc_trace_stop's that calls
+# trace_recorded does (Z13bc_trace_stop, #913). Globs, with no #! line, as Clang reads them.
 [cfi-icall]
 fun:*browser_core*
 fun:bc_*
+fun:*Z[0-9]bc_*
+fun:*Z[0-9][0-9]bc_*

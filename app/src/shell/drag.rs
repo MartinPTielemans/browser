@@ -28,7 +28,7 @@ pub(super) const EDGE_WAIT: Duration = Duration::from_millis(500);
 /// How long the pointer rests on the middle half of another tab's row before the dragged tab
 /// would join it in a split view, so passing rows still reorders (ours, interim: Arc's isn't
 /// measured).
-const SPLIT_REST: Duration = Duration::from_millis(400);
+pub(super) const SPLIT_REST: Duration = Duration::from_millis(400);
 
 impl Shell {
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
@@ -376,8 +376,12 @@ impl Shell {
             (place, span, line.filter(|_| !stays))
         };
         // Rested on another tab's row, it would join it, so the gap it would go to stays where it
-        // was. Off the row's middle, it no longer would, and reordering carries on.
-        let middle = (!incoming && !over_favorites).then(|| self.split_onto(tab, pointer.y)).flatten();
+        // was. Off the row's middle, it no longer would, and reordering carries on. Held at an
+        // edge that pages, it's going to another Space, so it rests on no row there, whose wait is
+        // the shorter (#1089).
+        let paging = self.drag.as_ref().is_some_and(|drag| drag.edge.is_some());
+        let rests = !incoming && !over_favorites && !paging;
+        let middle = rests.then(|| self.split_onto(tab, pointer.y)).flatten();
         let resting = self.drag.as_ref().and_then(|drag| drag.resting.as_ref().map(|rest| rest.0));
         if middle != resting {
             let rest = middle.map(|row| {
@@ -790,10 +794,11 @@ impl Shell {
         self.move_tiles(tiles, Curve::Slide);
     }
 
-    /// The browser reported its favorites, or else the Space shown's lists. A drag still held ends,
-    /// since the lists changed under it. A dragged tab let go lands once it's where it was dropped:
-    /// moved in one list, once that list comes, and between them, once it's in the one and out of
-    /// the other. Returns whether the drag ended.
+    /// The browser reported its favorites, or else the Space shown's lists. A row still held whose
+    /// tab is still in its list goes on from where it is now, as when its own press opened or
+    /// closed a folder (#1118); any other drag still held goes back. A dragged tab let go lands once
+    /// it's where it was dropped: moved in one list, once that list comes, and between them, once
+    /// it's in the one and out of the other. Returns whether the drag ended.
     pub(super) fn end_drag(&mut self, favorites: bool) -> bool {
         let Some(drag) = &self.drag else {
             return false;
@@ -801,6 +806,19 @@ impl Shell {
         // One paged to another Space is held over lists it isn't in.
         if !drag.dropped && drag.space != self.space {
             return false;
+        }
+        if !drag.dropped {
+            let moving = drag.moving;
+            if !favorites && self.carry_drag() {
+                return false;
+            }
+            // The rows have already slid from where they're drawn, the dragged one home with them;
+            // the release that ends the drag isn't a click.
+            self.dragged |= moving;
+            self.putting_back |= moving;
+            self.drag = None;
+            self.retip = true;
+            return true;
         }
         let tab = drag.tab;
         let in_favorites = self.favorites.contains(&tab);
@@ -813,12 +831,47 @@ impl Shell {
             (_, Place::Favorite(_)) => in_favorites && !in_space,
             (_, Place::List(..)) => in_space && !in_favorites,
         };
-        if drag.dropped && !landed {
+        if !landed {
             return false;
         }
         self.drag = None;
         self.retip = true;
         true
+    }
+
+    /// The lists changed under a row still held in them: it goes on from its row's place in the
+    /// new ones, if its tab is still in the list it came from. Returns whether it does.
+    fn carry_drag(&mut self) -> bool {
+        let Some((tab, Place::List(in_pinned, _))) =
+            self.drag.as_ref().map(|drag| (drag.tab, drag.from))
+        else {
+            return false;
+        };
+        let (pinned, today) = self.rows();
+        let rows = if in_pinned { pinned } else { today };
+        let (Some(index), Some(&top)) =
+            (rows.iter().position(|&row| row == tab), self.layout().get(&Slot::Tab(tab)))
+        else {
+            return false;
+        };
+        let depth = self.depth(tab);
+        let Some(drag) = &mut self.drag else {
+            return false;
+        };
+        drag.from = Place::List(in_pinned, index);
+        drag.from_depth = depth;
+        drag.top = top;
+        if !drag.moving {
+            (drag.to, drag.depth) = (drag.from, depth);
+        }
+        true
+    }
+
+    /// Where the pointer holding a drag is in the window, for its place to be found again.
+    pub(super) fn drag_position(&self) -> Option<Point<Pixels>> {
+        let held = |drag: &&Drag| drag.moving && !drag.dropped && drag.space == self.space;
+        let drag = self.drag.as_ref().filter(held)?;
+        Some(drag.origin + point(px(drag.pointer.x), px(drag.pointer.y)))
     }
 
     /// Where the sidebar's top-left corner is in the window a press is in, heard before the row or

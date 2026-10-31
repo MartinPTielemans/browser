@@ -1,5 +1,6 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
+#import <CoreServices/CoreServices.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -7,6 +8,8 @@
 #import <objc/runtime.h>
 
 #include <dlfcn.h>
+#include <execinfo.h>
+#include <pthread.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -982,7 +985,8 @@ void PlaceReveal(Browser* browser) {
 // (Ardia P§7), but the bar takes the keyboard only once it has drawn, a main-queue turn later, and
 // a shortcut the page gets first, such as ⌘L, comes back after the keys behind it went to the page.
 // So from the shortcut until the bar has the keyboard, keys are held and then given to it in order,
-// a composition whole. A hold lasts kHoldKeys at most, which is the page keeping the shortcut.
+// a composition whole. For a shortcut the page gets first, the core says if the page kept it and
+// no bar opens (host_release_held_keys). A hold lasts kHoldKeys at most, as the core's does.
 NSMutableArray<NSEvent*>* g_held_keys;
 bool g_holding_keys = false;
 // The bar the keys wait for, or nil for whichever opens.
@@ -993,7 +997,7 @@ NSWindow* g_keys_to;
 NSTimeInterval g_keys_released;
 // Counts holds, so a hold's time running out doesn't end a later one.
 unsigned g_hold = 0;
-constexpr double kHoldKeys = 0.4;
+constexpr double kHoldKeys = 1;
 // The shortcut a hold is for, which is never held: Safari's engine sends a shortcut its page didn't
 // keep through the app again, which runs it then, so holding it would hold it again each time.
 NSTimeInterval g_holding_for_time = -1;
@@ -1221,6 +1225,47 @@ void host_close_launch_window(void) {
   [CATransaction flush];
 }
 
+// AppKit's handler for the quit Apple Event, which LogQuitEvent hands each one on to.
+AEEventHandlerUPP g_quit_handler;
+SRefCon g_quit_refcon;
+
+// A quit from outside the app, from the Dock, a logout or a script, comes as an Apple Event, and
+// says nothing in the log by itself. It names its sender and reason, then quits as AppKit would.
+OSErr LogQuitEvent(const AppleEvent* event, AppleEvent* reply, SRefCon) {
+  pid_t sender = 0;
+  OSType reason = 0;
+  DescType type;
+  Size size;
+  AEGetAttributePtr(event, keySenderPIDAttr, typeSInt32, &type, &sender, sizeof(sender), &size);
+  AEGetParamPtr(event, kAEQuitReason, typeType, &type, &reason, sizeof(reason), &size);
+  NSString* name =
+      sender ? [NSRunningApplication runningApplicationWithProcessIdentifier:sender].localizedName
+             : nil;
+  const char why[5] = {char(reason >> 24), char(reason >> 16), char(reason >> 8), char(reason), 0};
+  // check.sh reads this line.
+  fprintf(stderr, "browser: quit Apple Event from %d %s, reason %s\n", sender,
+          name ? name.UTF8String : "unknown", reason ? why : "none");
+  return g_quit_handler(event, reply, g_quit_refcon);
+}
+
+// Twice the browser went through exit() off the main thread, past every line its quits log
+// (#937), so this names the thread and what called it. The main thread's is main()'s return.
+void LogExit() {
+  if (pthread_main_np()) {
+    fprintf(stderr, "browser: exit on the main thread\n");
+    return;
+  }
+  uint64_t thread = 0;
+  pthread_threadid_np(nullptr, &thread);
+  char name[64] = "";
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  // check.sh reads this line.
+  fprintf(stderr, "browser: exit on thread %llx %s, queue %s\n", thread, name,
+          dispatch_queue_get_label(DISPATCH_CURRENT_QUEUE_LABEL));
+  void* calls[64];
+  backtrace_symbols_fd(calls, backtrace(calls, 64), STDERR_FILENO);
+}
+
 void host_watch_finished_launching(void (*finished)(void)) {
   // AppKit posts it once.
   [NSNotificationCenter.defaultCenter
@@ -1228,6 +1273,15 @@ void host_watch_finished_launching(void (*finished)(void)) {
                   object:nil
                    queue:nil
               usingBlock:^(NSNotification*) {
+                // AppKit has its handler by now. Without one there's nothing to hand on to.
+                if (AEGetEventHandler(kCoreEventClass, kAEQuitApplication, &g_quit_handler,
+                                      &g_quit_refcon, false) == noErr &&
+                    g_quit_handler) {
+                  AEInstallEventHandler(kCoreEventClass, kAEQuitApplication, LogQuitEvent, nullptr,
+                                        false);
+                }
+                // After the frameworks' handlers, so exit() runs it before theirs.
+                atexit(LogExit);
                 // A plain launch (Dock, Finder, `open -a`) carried no links to wait for.
                 NSAppleEventDescriptor* launch =
                     NSAppleEventManager.sharedAppleEventManager.currentAppleEvent;
@@ -1608,6 +1662,10 @@ void host_watch_option_taps(void (*tapped)(void* ui_view)) {
   // makes it part of something else: a shortcut, a typed character, an ⌥-click or a zoom.
   static bool alone = false;
   static NSEventModifierFlags held = 0;
+  // When the newest change of modifiers seen came. Chromium sends a key the page didn't use, ⌥
+  // among them, through the app again, as pressed and maybe after the next (redispatchKeyEvent:):
+  // taken as a second press, it would make ⌥ alone look held with something else.
+  static NSTimeInterval seen = -1;
   constexpr NSEventMask kBetween = NSEventMaskKeyDown | NSEventMaskLeftMouseDown |
                                    NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown |
                                    NSEventMaskScrollWheel | NSEventMaskMagnify;
@@ -1618,6 +1676,10 @@ void host_watch_option_taps(void (*tapped)(void* ui_view)) {
                                        alone = false;
                                        return event;
                                      }
+                                     if (event.timestamp <= seen) {
+                                       return event;
+                                     }
+                                     seen = event.timestamp;
                                      constexpr NSEventModifierFlags kModifiers =
                                          NSEventModifierFlagCommand | NSEventModifierFlagShift |
                                          NSEventModifierFlagOption | NSEventModifierFlagControl;
@@ -2119,6 +2181,13 @@ void host_dismiss_overlay(int index) {
 
 void host_hold_keys(void) {
   HoldKeys(nil);
+}
+
+void host_release_held_keys(void) {
+  // Unless a bar opened since, which holds them for itself.
+  if (g_holding_keys && !g_keys_for) {
+    ReleaseKeys(nil);
+  }
 }
 
 void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {
@@ -3468,9 +3537,10 @@ void host_show_window_buttons(void* ui_view, bool shown) {
   }
 }
 
+// Level change: AppKit's alignment haptic was too faint to feel (#1075).
 void host_detent(void) {
   [NSHapticFeedbackManager.defaultPerformer
-      performFeedbackPattern:NSHapticFeedbackPatternAlignment
+      performFeedbackPattern:NSHapticFeedbackPatternLevelChange
              performanceTime:NSHapticFeedbackPerformanceTimeNow];
 }
 

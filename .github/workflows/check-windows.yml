@@ -78,13 +78,25 @@ jobs:
 
       - run: ../engine/fetch.sh > /dev/null
 
-      # The runs call python3, which the runner names python.
+      # The runs call python3, which the runner names python. The access run reads UI Automation
+      # with comtypes (tools/uia-tree.sh).
       - run: |
           rustup update stable --no-self-update
           mkdir -p "$RUNNER_TEMP/bin"
           printf '#!/bin/sh\nexec python "$@"\n' > "$RUNNER_TEMP/bin/python3"
           chmod +x "$RUNNER_TEMP/bin/python3"
           cygpath -w "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          python -m pip install --disable-pip-version-check comtypes==1.4.17
+
+      # Chrome asks before a page opens another app only when Windows names an app for the link's
+      # scheme, and the runner has none for the dialogs run's maps: link, which the Mac opens in
+      # Maps. The run cancels it, so the stand-in never starts.
+      - shell: pwsh
+        run: |
+          $maps = 'HKCU:\Software\Classes\maps'
+          New-Item -Path "$maps\shell\open\command" -Force -Value '"C:\Windows\System32\cmd.exe" /c exit' | Out-Null
+          Set-Item -Path $maps -Value 'URL:Maps'
+          New-ItemProperty -Path $maps -Name 'URL Protocol' -Value '' -Force | Out-Null
 
       - uses: actions/cache@v4
         with:
@@ -137,6 +149,11 @@ jobs:
               # By the app's path, never by image name, which would reach any other Chrome. Before
               # the move, as Windows won't move a folder a process still has a file open in.
               pkill -9 -f "$(cygpath -m "$PWD/build/Browser")/" || true
+              # Gone, so the next run doesn't find it still running.
+              for _ in $(seq 20); do
+                pgrep -f "$(cygpath -m "$PWD/build/Browser")/" > /dev/null || break
+                sleep 0.5
+              done
               if [ -d build/check ] && ! mv build/check "$out/$run"; then
                 cp -r build/check "$out/$run" || true
                 rm -rf build/check || true
@@ -144,7 +161,10 @@ jobs:
               if [ "$status" = 0 ]; then
                 result="passed in $((SECONDS - start)) s"
               else
-                result="failed ($status): $(grep -m1 '^FAIL' "$out/$run.log" | cut -c7- | tr '|' '/')"
+                # A run that ends without a FAIL line, such as one whose tool is missing, mustn't
+                # end the loop: the step's shell is bash -eo pipefail.
+                said=$(grep -m1 '^FAIL' "$out/$run.log" | cut -c7-) || said=$(tail -1 "$out/$run.log")
+                result="failed ($status): $(echo "$said" | tr '|' '/')"
                 failed=1
                 echo "::error::The $run run failed. Its log: $run.log in the artifact."
               fi

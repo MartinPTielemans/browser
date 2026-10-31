@@ -92,6 +92,25 @@ typedef struct bc_tab_state {
   // The system's engine shows the page, WebKit on the Mac, in place of Chromium
   // (bc_tab_set_system_engine).
   bool system_engine;
+  // The page uses the camera, or the microphone, as Chrome's tab strip marks it.
+  bool camera;
+  bool microphone;
+  // The page shares a screen, a window or another tab, as a call does.
+  bool sharing;
+  // Another page shares this tab, as a call shows it.
+  bool shared;
+  // Another page shares a tab, and bc_tab_share_instead would have it share this one.
+  bool share_instead;
+  // The page's media, as Chrome's media controls show it: whether it has a session the browser
+  // can play, pause and skip (bc_tab_media), whether that's playing, its title and artist, each
+  // empty without one, whether it has a next track, and whether it can float in Picture in Picture
+  // while nothing of the page floats.
+  bool media;
+  bool media_playing;
+  const char* media_title;
+  const char* media_artist;
+  bool media_next;
+  bool media_picture_in_picture;
   // The tab shows its page in Developer Mode (bc_tab_set_developer_mode): the user turned it on for
   // the page's site, or it's localhost, as Chrome counts it, and they didn't turn it off there.
   bool developer_mode;
@@ -381,6 +400,25 @@ typedef struct bc_site_controls {
   int developer_mode;
 } bc_site_controls;
 
+// What a device to cast to is doing, as Chrome's Cast dialog shows it.
+#define BC_CAST_AVAILABLE 0
+#define BC_CAST_CONNECTING 1
+#define BC_CAST_CONNECTED 2
+#define BC_CAST_DISCONNECTING 3
+#define BC_CAST_UNAVAILABLE 4
+
+// A device Chrome's media router found on the network, as its Cast dialog lists it.
+typedef struct bc_cast_device {
+  // Chrome's, for bc_tab_cast_to.
+  const char* id;
+  // The device's own name, such as "Living Room TV".
+  const char* name;
+  // A BC_CAST_ value.
+  int state;
+  // Chrome's words for what it's doing or what went wrong, such as "Casting tab", or "".
+  const char* status;
+} bc_cast_device;
+
 
 // An agent's call the core checked, for the activity log (bc_agent_may_act).
 typedef struct bc_agent_activity {
@@ -589,6 +627,10 @@ typedef struct bc_host {
   // The tab's page didn't keep a key, such as ⌘F on a page without a find of its own. Return true
   // if the app used it; otherwise the window's menus get it, as ⌘M does on the Mac.
   bool (*tab_key_unhandled)(void* context, bc_id tab, const bc_key* key);
+  // No field of the app's opens for the key the keys typed after it are held for (bc_hold_keys):
+  // the page kept it, neither the page nor the app used it, or it got no answer in a second. A host
+  // that holds them itself gives them to the page now.
+  void (*held_keys_unclaimed)(void* context);
   // The archive changed, or what the last launch archived was read: |tabs| is all of it, newest
   // first.
   void (*archive_changed)(void* context, const bc_archived_tab* tabs, size_t count);
@@ -631,6 +673,15 @@ typedef struct bc_host {
   // changes, until bc_site_controls_close: a permission changed or was used, the tab went to
   // another page, or a video started or stopped.
   void (*tab_site_controls)(void* context, bc_id tab, const bc_site_controls* controls);
+  // The tab's Cast dialog, in place of Chrome's: after bc_tab_cast, the page menu's Cast… or the
+  // page asking to cast, and again as the devices found change, with Chrome's header, such as
+  // "Cast tab", and the devices, |count| of them. Once it closes, with |header| null: on
+  // bc_cast_close, another tab's, the tab going, or casting starting, as Chrome's closes then.
+  void (*tab_cast)(void* context,
+                   bc_id tab,
+                   const char* header,
+                   const bc_cast_device* devices,
+                   size_t count);
   // The box of the element at (|x|, |y|) bc_tab_element_at asked for, its border's in points from
   // the top-left of the page's view, or a box 0 wide if there's none or the page went.
   void (*tab_element_box)(void* context, bc_id tab, double x, double y, bc_rect box);
@@ -834,6 +885,9 @@ typedef struct bc_host {
   // On Linux: |window| became the active one. Under X11 the UI's window in it hears nothing of that
   // when the keyboard goes to the page, as a click on another window's page gives it.
   void (*window_activated)(void* context, bc_id window);
+  // On Linux under X11: ⌥ was pressed and let go alone, with no other key or click while it was
+  // down, as the page in |window| had the keyboard. GPUI hears only the UI's keys there.
+  void (*window_option_tapped)(void* context, bc_id window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -890,8 +944,14 @@ BC_EXPORT void* bc_window_wayland_surface(bc_id window, double* width, double* h
 // On Linux under Wayland, where every key reaches both the browser window, for its pages, and the
 // app's UI: gives the keyboard in |window| to the UI, as a click in the UI does, and the page that
 // had it lets it go. A click in a page, or the core focusing one, takes it back. On X11 the X
-// server's focus says whose the keys are, and the core follows it.
+// server's focus says whose the keys are, and the core follows it. On Windows the app calls it
+// before it focuses the UI, so the core knows whether the UI kept the keyboard already.
 BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
+
+// On Linux and Windows, as |window| shows no page: gives the keyboard to the app's UI, as
+// bc_window_ui_takes_keyboard does, until a page shows, which then has it, as the Mac's window
+// holds the keys for the next page shown.
+BC_EXPORT void bc_window_ui_holds_keyboard(bc_id window);
 
 // On Linux, whether the keys in |window| are the app's UI's rather than a page's.
 BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
@@ -900,6 +960,11 @@ BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 // extension's popup or a tab's dialog, rather than a page's or the UI's. For the test driver, as
 // the Mac's sees it as a child window with the keyboard.
 BC_EXPORT bool bc_window_keyboard_in_child(bc_id window);
+
+// On Linux, whether one of |window|'s pages has the keys, and if so its pane's frame in |frame|,
+// from the top-left of the window's content. For the test driver, as the Mac's finds the page of
+// the view with the keyboard.
+BC_EXPORT bool bc_window_keyboard_page(bc_id window, bc_rect* frame);
 
 // On Linux and Windows, where the core draws a split view's ring around the focused page: whether
 // it shows in |window|, and if so its frame in |frame|, from the top-left of the window's content.
@@ -937,11 +1002,13 @@ BC_EXPORT void bc_window_ui_text_input(bc_id window, bool focused, double x, dou
 // During tab_key_before_page: holds the keys typed in the tab's page after the one asked about,
 // which opens a field of the app's, such as ⌃L's address field. A shortcut the page gets first
 // comes back to the app only after the keys typed behind it reached the page, and they belong in
-// the field. bc_give_held_keys gives them to the field once it has the keyboard. If nothing takes
-// them in 400 ms, the page kept the shortcut, and it gets them as typed. Keys an input method
-// composes aren't held. For hosts that can't hold the keys themselves, as on Linux, where a page's
-// keys reach Chromium's window first.
-BC_EXPORT void bc_hold_keys(void);
+// the field. They're held until the page has answered the key: if the page kept it, or the app
+// didn't use it, they go to the page as typed (held_keys_unclaimed), and if the app used it, until
+// the field has the keyboard, however long that takes. Keys an input method composes aren't held.
+// With |in_core| the core holds them, and bc_give_held_keys gives them to the field once it has the
+// keyboard, for hosts that can't, as on Linux, where a page's keys reach Chromium's window first.
+// Otherwise the host holds them, and the core only tells it when no field takes them.
+BC_EXPORT void bc_hold_keys(bool in_core);
 
 // Ends a hold (bc_hold_keys): |take| gets the keys held, |count| of them in the order typed, during
 // the call, for the field that now has the keyboard. Not called if nothing was held.
@@ -1215,6 +1282,12 @@ BC_EXPORT double bc_profile_archive_after(bc_id profile);
 // Sets it, and returns whether it did: not for a profile that isn't loaded or a time that isn't
 // positive. The tabs that have waited that long go in the archive at once.
 BC_EXPORT bool bc_profile_set_archive_after(bc_id profile, double seconds);
+
+// Copies the profile's notes service, which New Note opens a new document in, into |service| as
+// bc_space_name does: the app's name for it, as bc_profile_set_notes_service was given, or "" for
+// none picked. The app keeps the services and their URLs; the profile keeps the name.
+BC_EXPORT size_t bc_profile_notes_service(bc_id profile, char* service, size_t capacity);
+BC_EXPORT void bc_profile_set_notes_service(bc_id profile, const char* service);
 
 // A page of another browser's history, for bc_profile_add_history. Strings are UTF-8.
 typedef struct bc_history_page {
@@ -1641,6 +1714,12 @@ BC_EXPORT void bc_age_tabs_for_testing(double seconds);
 // The user's: agents get none, as it keeps trackers off the user's pages.
 BC_EXPORT bool bc_ad_blocking(void);
 BC_EXPORT void bc_set_ad_blocking(bool on);
+// Whether a page may take its video or call into Picture in Picture as its tab is hidden, the
+// Mini Player, in every profile: on unless the user turned it off. Off blocks it by default, as
+// Chrome's settings do, and a site the user allows in its Site Controls still may. The core keeps
+// it with the Spaces. The user's: agents get none.
+BC_EXPORT bool bc_auto_picture_in_picture(void);
+BC_EXPORT void bc_set_auto_picture_in_picture(bool on);
 
 // Crash reports. Crashpad writes a minidump of every crash in the profile folder, and the core sends
 // one only while the user has Settings › Privacy › Send Crash Reports on, which is off by default:
@@ -1924,8 +2003,9 @@ BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_re
 // bc_tab_capture.
 BC_EXPORT void bc_tab_picture(bc_id tab, uint64_t request, int width, int height);
 
-// Reads the text of the tab's page as its accessibility tree has it, across its frames, a line for
-// each block: what a screen reader reads, but no field's value, typed or autofilled, a password's
+// Reads the text of the tab's page as its accessibility tree has it, across its frames from
+// http(s) origins, a line for each block: what a screen reader reads, but no extension's frame and
+// no field's value, typed or autofilled, a password's
 // above all, nor the text of an editable region. Chromium builds the tree for this one read,
 // without running the page's JavaScript or turning accessibility on for the tab. A page that's
 // loading is read once it stops, or after 15 s. A tab without its page loaded has nothing to read.
@@ -1971,6 +2051,20 @@ BC_EXPORT void bc_tab_site_controls(bc_id tab);
 // Stops watching the site bc_tab_site_controls read. Then window_extension_actions, with the
 // pinned actions alone.
 BC_EXPORT void bc_site_controls_close(void);
+
+// Opens the tab's Cast dialog, as Chrome's View › Cast… does, which looks for devices on the
+// network with DIAL (ungoogled-chromium builds without mDNS). Then tab_cast. The last tab's closes
+// first: one shows at a time. Does nothing for a profile Chrome's media router doesn't serve. The
+// user's: agents get none, as casting shows the page to a screen others can see.
+BC_EXPORT void bc_tab_cast(bc_id tab);
+
+// Closes the Cast dialog. Then tab_cast with a null header.
+BC_EXPORT void bc_cast_close(void);
+
+// A click on the device |id| in the tab's Cast dialog, as on Chrome's: one with a problem clears
+// it, one casting stops, and one available casts the tab, or the page's presentation where it
+// has one. Then tab_cast as it changes.
+BC_EXPORT void bc_tab_cast_to(bc_id tab, const char* id);
 
 // Gives the site of the tab's page |value|, a BC_SITE_ value, for the permission of |type|, as
 // Chrome's page info does, if it's one of the permission's choices and bc_tab_site_controls is
@@ -2141,6 +2235,22 @@ BC_EXPORT void bc_tab_set_icon(bc_id tab, const char* icon);
 // doesn't. Then tab_state_changed.
 BC_EXPORT void bc_tab_set_muted(bc_id tab, bool muted);
 
+// While a page shares a tab and the tab's state has share_instead, has the page share this tab's
+// page in its place, as Chrome's Share this tab instead does. The user's: agents get none, as it
+// would show a page to whoever the call reaches. Then tab_state_changed, for both tabs.
+BC_EXPORT void bc_tab_share_instead(bc_id tab);
+
+// What bc_tab_media does to the page's media, as Chrome's media controls do.
+#define BC_MEDIA_PLAY 0
+#define BC_MEDIA_PAUSE 1
+#define BC_MEDIA_NEXT 2
+#define BC_MEDIA_PICTURE_IN_PICTURE 3
+
+// Plays, pauses, skips or floats the page's media in Picture in Picture, one of BC_MEDIA_, while
+// its state has media, and media_picture_in_picture for the last. Then tab_state_changed. The
+// user's: agents act in the page instead.
+BC_EXPORT void bc_tab_media(bc_id tab, int action);
+
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
 // shows the tab first. Then tab_closed for each, and space_changed.
 BC_EXPORT void bc_tab_close_below(bc_id tab);
@@ -2269,18 +2379,25 @@ BC_EXPORT void bc_window_start_move(bc_id window);
 // maximizing and restoring change them.
 BC_EXPORT bool bc_window_is_maximized(bc_id window);
 
-// On Linux, as bc_window_is_maximized: whether |window| is full screen, as the window manager's
-// own full-screen key or a page can put it. The UI asks as the window's bounds change.
+// On Linux and Windows: whether |window| is full screen, as the window manager's own full-screen
+// key, bc_window_toggle_full_screen or a page can put it. The UI asks as the window's bounds change.
 BC_EXPORT bool bc_window_is_full_screen(bc_id window);
 
-// On Linux: puts |window| full screen, or takes it out, as the window manager's own full-screen key
-// does, for the test driver. bc_window_toggle_maximized takes it out as Escape asks.
+// On Linux and Windows: puts |window| full screen, or takes it out, as the window manager's own
+// full-screen key does on Linux, for the test driver, and on Windows, which has none, for Escape
+// too. On Linux bc_window_toggle_maximized takes it out as Escape asks.
 BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 
 // On Linux, the title of the window of Chromium's own with the keys in |window|
 // (bc_window_keyboard_in_child), such as a tab's dialog, copied into |title| as bc_space_name does,
 // or an empty string. For the test driver, as the X server has none for it.
 BC_EXPORT size_t bc_window_child_title(bc_id window, char* title, size_t capacity);
+
+// On Linux, under X11: answers the requests for the clipboard's contents that other clients have
+// sent Chromium, from what it holds, and dispatches no other event of its. The UI calls it while its
+// own read of the clipboard waits, as the owner it asks can be Chromium, which answers on the UI's
+// thread.
+BC_EXPORT void bc_answer_clipboard_requests(void);
 
 #ifdef __cplusplus
 }

@@ -4,9 +4,10 @@
 # selected, and ↓ selects the next; ⇧F10 opens its field's menu on the first item. A tab's menu is
 # the app's window in front and a menu of menu items and separators, whose Move to opens a submenu.
 # It reads the tree from outside, as an assistive app does: on the Mac through tools/ax-tree.sh,
-# which needs this terminal to have the Accessibility permission, and off it as Orca does, over
-# AT-SPI through tools/atspi-tree.sh, which needs dbus-daemon and at-spi2-core. Without them the
-# run says it skipped, and it never asks for the permission.
+# which needs this terminal to have the Accessibility permission, on Linux as Orca does, over
+# AT-SPI through tools/atspi-tree.sh, which needs dbus-daemon and at-spi2-core, and on Windows as
+# Narrator does, over UI Automation through tools/uia-tree.sh, which needs Python's comtypes.
+# Without them the run says it skipped, and it never asks for the permission.
 
 # Each role as the run's reader writes it, and how the tab shown says it's selected.
 if [ "$(uname)" = Linux ]; then
@@ -14,6 +15,12 @@ if [ "$(uname)" = Linux ]; then
   heading=heading button=button tab_group='page tab list' tab='page tab' shown=selected
   field=entry suggestion='list item' menu_role=menu menu_at=' menu "Menu"'
   submenu_role=menu menu_item='menu item' separator=separator
+elif windows; then
+  # Control type/ARIA role: UI Automation has no heading type, and AccessKit says it in the role.
+  screen_reader=Narrator reader=../tools/uia-tree.sh
+  heading=Text/heading button=Button/button tab_group=Tab/tablist tab=TabItem/tab shown=selected
+  field=Edit/textbox suggestion=ListItem/ menu_role=Menu/menu menu_at=' Menu/menu "Menu"'
+  submenu_role=Menu/menu menu_item=MenuItem/menuitem separator=Separator/separator
 else
   screen_reader=VoiceOver reader=../tools/ax-tree.sh
   heading=AXHeading/- button=AXButton/- tab_group=AXTabGroup/- tab=AXRadioButton/AXTabButton
@@ -54,7 +61,11 @@ if [ "$(uname)" = Linux ]; then
 fi
 # The tree, read again until a line has $1.
 read_tree() {
-  AT_SPI_BUS_ADDRESS=$a11y "$reader" "$pid" "$1"
+  if windows; then
+    "$reader" "$(cat "/proc/$pid/winpid")" "$1"
+  else
+    AT_SPI_BUS_ADDRESS=$a11y "$reader" "$pid" "$1"
+  fi
 }
 
 page='data:text/html,<title>Docs</title><p>A page for VoiceOver to find in the sidebar.'
@@ -146,8 +157,9 @@ else
     menu="$out/access-menu.txt"
     read_tree '"Duplicate"' > "$menu"
     windows="$out/access-menu-windows.txt"
-    if [ "$(uname)" = Linux ]; then
-      # AT-SPI has no window order, but the window in front is the one that's active.
+    if [ "$(uname)" = Linux ] || windows; then
+      # AT-SPI has no window order, but the window in front is the one that's active, and the
+      # Windows reader marks it alike.
       awk -v at="$menu_at" '$1 == 0 { window = $0 } index($0, at) { print window; exit }' \
         "$menu" > "$windows"
       grep -q ' active' "$windows" || fail "the tab's menu isn't in the active window: $menu"

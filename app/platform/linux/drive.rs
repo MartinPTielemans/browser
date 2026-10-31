@@ -7,8 +7,8 @@
 //! display's pointer or keyboard. Keys go to the window with the X server's input focus, as real
 //! keys do, and the pointer's events to the window of the app's on top at that point.
 //!
-//! X11 only: under Wayland no client can hand another's surfaces input.
-//! shortcut: a core call that hands Chromium's windows the events would drive Wayland too.
+//! Under Wayland no client can hand another's surfaces input, so there the pointer and keys are
+//! sway's virtual devices, in tools/headless.sh's session alone (drive_wayland.rs).
 //!
 //! The commands are drive.mm's, with what Linux has: click, doubleclick, rightclick, middleclick,
 //! clickkey, doubleclickkey, rightclickkey, drag, dragkey, press, dragto, release, rightpress,
@@ -27,7 +27,12 @@
 //! Chromium's, and it can't compose in a page. dragover and dragdrop are XDND's source, as
 //! another app's drag is, to the browser window's top-level window or its proxy, and wait for its
 //! answer. The others, such as swipe and displays, the driver can't do yet, and says so as drive.mm
-//! does.
+//! does. pip, which drive.mm doesn't have yet, finds a video's Picture in Picture window, the Mini
+//! Player, and logs "browser: pip at <x> <y> <width> <height>" as it is and each time it moves or
+//! resizes, then "browser: pip gone", or "browser: pip none" without one. pip doubleclick, pip
+//! wheel, and pip press, dragto and release work in it, at points from its top-left corner as the
+//! command finds it, or as it was at the press. pip press, dragto and release alone move the
+//! display's pointer, through XTest, onto the Mini Player only, and the release puts it back.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -45,7 +50,10 @@ use std::{
     ffi::{CString, c_int, c_uint, c_void},
     io::BufRead,
     rc::Rc,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use browser::log;
@@ -54,6 +62,7 @@ use x11rb::{
     connection::Connection,
     protocol::{
         Event,
+        xtest::ConnectionExt as _,
         xproto::{
             self, ButtonPressEvent, ChangeWindowAttributesAux, ConfigureWindowAux,
             ConnectionExt as _, EnterNotifyEvent, EventMask, KeyButMask, KeyPressEvent,
@@ -80,6 +89,7 @@ unsafe extern "C" {
 
 /// Starts reading commands from stdin.
 pub fn start() {
+    crate::drive_wayland::start();
     // Its events are the pointer the app has, as the X server's own, which it never moves, would
     // otherwise come and go under GPUI's pointer as windows change around it.
     gpui_linux::drive_pointer();
@@ -91,10 +101,20 @@ pub fn start() {
             let n = number;
             idle(Box::new(move || {
                 log!("browser: drive {n}: {line}");
+                // It's done once the title has come, which it reports itself.
+                if let Some(text) = line.strip_prefix("title ").filter(|text| !text.is_empty()) {
+                    await_key_title(n, text.to_owned(), 100);
+                    return;
+                }
                 if !run(&line) {
                     log!("browser: drive {n}: can't do that");
                 }
-                settle(n);
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                match (ACTIVATING.take(), RESIZING.take()) {
+                    (Some(window), _) => await_focus(n, window, until),
+                    (_, Some((gpui, width, height))) => await_size(n, gpui, (width, height), until),
+                    (None, None) => settle(n),
+                }
             }));
         }
     });
@@ -130,6 +150,7 @@ fn after(ms: u32, task: Box<dyn FnOnce()>) {
 /// windows have drawn what the events changed.
 fn settle(n: u64) {
     sync();
+    crate::drive_wayland::sync();
     // Until the drag's target has answered, which it does from the loop.
     if drag_waits() {
         after(10, Box::new(move || settle(n)));
@@ -138,6 +159,7 @@ fn settle(n: u64) {
     gpui_linux::sync_display();
     idle(Box::new(move || {
         sync();
+        crate::drive_wayland::sync();
         gpui_linux::sync_display();
         drawn(Box::new(move || {
             if let Some(browser) = driven() {
@@ -200,9 +222,17 @@ thread_local! {
     static MADE: RefCell<Vec<(bc::bc_id, xproto::Window)>> = const { RefCell::new(Vec::new()) };
     /// The window command's, from 0.
     static DRIVEN: Cell<usize> = const { Cell::new(0) };
+    /// The window the window command asked the window manager to give the keyboard, which it's
+    /// done once it has.
+    static ACTIVATING: Cell<Option<xproto::Window>> = const { Cell::new(None) };
+    /// The UI's window of the browser window the resize command asked a size of, in points, which
+    /// it's done once the UI has.
+    static RESIZING: Cell<Option<(xproto::Window, f64, f64)>> = const { Cell::new(None) };
     /// The window a press went to, which gets the drag's events until the release, as the X
     /// server's grab of the pointer does.
     static PRESSED: Cell<Option<Target>> = const { Cell::new(None) };
+    /// The Mini Player's press through XTest, till its release (hold_mini_player).
+    static PIP_HELD: Cell<Option<HeldPip>> = const { Cell::new(None) };
     /// The window the pointer is in, which hears it leave.
     static HOVERED: Cell<Option<Target>> = const { Cell::new(None) };
     /// The modifiers the flags command holds, in an X state, which the keys go with until it lets
@@ -210,8 +240,8 @@ thread_local! {
     static FLAGS: Cell<u16> = const { Cell::new(0) };
     /// The modifiers the last key went with.
     static KEY_FLAGS: Cell<u16> = const { Cell::new(0) };
-    /// Whether the X server's keyboard has Control locked, for `hold_control`.
-    static CONTROL_LOCKED: Cell<bool> = const { Cell::new(false) };
+    /// The modifiers the X server's keyboard has locked, for `hold_modifiers`.
+    static LOCKED: Cell<u16> = const { Cell::new(0) };
     /// The last press, a click's or a drag's, in any of the app's windows: its time, place and
     /// button.
     static LAST_CLICK: Cell<Option<(std::time::Instant, Target, u8)>> = const { Cell::new(None) };
@@ -248,7 +278,7 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
 
 /// The views of the app's windows that show over a browser window: the overlays, the Site Controls
 /// and Capture, the find bar and the offer to save a password, then ilo's menu, and the toast.
-fn overlay_views() -> Vec<*mut c_void> {
+pub(super) fn overlay_views() -> Vec<*mut c_void> {
     let mut views = overlays::shown();
     views.extend(popovers::shown());
     views.extend(panels::shown());
@@ -318,6 +348,14 @@ fn browser(index: usize) -> Option<Browser> {
 
 fn driven() -> Option<Browser> {
     browser(DRIVEN.get())
+}
+
+/// The driven browser window's id, under Wayland too.
+fn driven_id() -> Option<bc::bc_id> {
+    match crate::drive_wayland::on() {
+        true => crate::drive_wayland::driven_id(),
+        false => driven().map(|browser| browser.id),
+    }
 }
 
 /// Whether `window` is mapped, with every window it's in: the server sends no key to one that isn't.
@@ -409,6 +447,9 @@ fn insert(text: &str) -> Option<()> {
 
 /// The done line's key window, focus and whether the app is active.
 fn keyboard() -> (&'static str, &'static str, bool) {
+    if crate::drive_wayland::on() {
+        return crate::drive_wayland::keyboard();
+    }
     match keyboard_window() {
         Some(Keyboard::Overlay(_)) => ("GPUIPanel", "GPUIView", true),
         Some(Keyboard::Settings(..)) => ("GPUIWindow", "GPUIView", true),
@@ -525,7 +566,7 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
 }
 
 /// How far the Mac's close button is in from its window's top-left corner, at most, in points.
-const CLOSE_CORNER: f64 = 26.;
+pub(super) const CLOSE_CORNER: f64 = 26.;
 
 /// Asks `window` to close, as the window manager does for its close button.
 fn close(window: xproto::Window) -> Option<()> {
@@ -695,7 +736,7 @@ fn first_press(at: Target, which: u8, again: bool) {
 /// The Mac's modifiers named in `words`, cmd, shift, alt and ctrl, as an X state holds them on
 /// the keys that press them off the Mac: ⌘ with Ctrl, and ⌃ and ⌥ with Alt (docs/ux-spec.md ›
 /// Keyboard), so ⌥⌘↓ is Ctrl+Alt+↓ and ⌥↩ is Alt+Enter.
-fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
+pub(super) fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     let (ctrl, alt) = (u16::from(KeyButMask::CONTROL), u16::from(KeyButMask::MOD1));
     words.fold(0, |state, word| {
         state
@@ -711,7 +752,7 @@ fn modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
 /// The Mac's modifiers named in `words` for a click, as Chrome reads a click's off the Mac: ⌘ with
 /// Ctrl and ⌥ with Alt. Its ⌥⌘-click is Ctrl+Alt there, and Ctrl+Alt+Shift, as keys press ⌥⇧, is
 /// a foreground tab's. ⌃-click, the Mac's right-click, has none.
-fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
+pub(super) fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
     words.fold(0, |state, word| {
         state
             | match word {
@@ -724,7 +765,7 @@ fn click_modifiers<'a>(words: impl Iterator<Item = &'a str>) -> u16 {
 }
 
 /// The keysym of drive.mm's key `key`: a printable ASCII character, or a named key.
-fn keysym(key: &str) -> Option<u32> {
+pub(super) fn keysym(key: &str) -> Option<u32> {
     Some(match key {
         "return" => 0xff0d,
         "escape" => 0xff1b,
@@ -739,6 +780,7 @@ fn keysym(key: &str) -> Option<u32> {
         "down" => 0xff54,
         "left" => 0xff51,
         "right" => 0xff53,
+        "f6" => 0xffc3,
         "f10" => 0xffc7,
         "f12" => 0xffc9,
         _ => {
@@ -839,7 +881,7 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
     state |= FLAGS.get();
     let modifiers = KeyButMask::CONTROL | KeyButMask::MOD1 | KeyButMask::SHIFT;
     KEY_FLAGS.set(state & u16::from(modifiers));
-    hold_control();
+    hold_modifiers();
     if shift {
         state |= u16::from(KeyButMask::SHIFT);
     }
@@ -847,25 +889,26 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
 }
 
 /// Has the X server's keyboard hold Control while the driver does, after `flags` or a key with it,
-/// as a real Control key would: the app's ⌃Tab walk lasts while the server says Control is held
-/// (gpui_linux::watch_control), and the events the driver sends change none of its state.
-fn hold_control() -> Option<()> {
+/// and Alt while `flags` does, as real keys would: the events the driver sends change none of its
+/// state, and the app's ⌃Tab walk lasts while the server says Control is held
+/// (gpui_linux::watch_control), as a menu shows ⌥'s alternates while it says Alt is.
+fn hold_modifiers() -> Option<()> {
     use x11rb::protocol::xkb::{self, ConnectionExt as _};
-    let held = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL) != 0;
-    if held == CONTROL_LOCKED.get() {
+    let control = (FLAGS.get() | KEY_FLAGS.get()) & u16::from(KeyButMask::CONTROL);
+    let held = control | (FLAGS.get() & u16::from(KeyButMask::MOD1));
+    if held == LOCKED.get() {
         return Some(());
     }
     let x = server()?;
     let (connection, _) = &*x;
     // The server takes no other XKB request from a client before this one.
     connection.xkb_use_extension(1, 0).ok()?.reply().ok()?;
-    let control = xproto::ModMask::CONTROL;
-    let locks = if held { control } else { xproto::ModMask::from(0u16) };
+    let affected = xproto::ModMask::CONTROL | xproto::ModMask::M1;
     let none = xproto::ModMask::from(0u16);
     (connection.xkb_latch_lock_state(
         xkb::ID::USE_CORE_KBD.into(),
-        control,
-        locks,
+        affected,
+        xproto::ModMask::from(held),
         false,
         xkb::Group::M1,
         none,
@@ -874,7 +917,7 @@ fn hold_control() -> Option<()> {
     ))
     .ok()?;
     connection.flush().ok()?;
-    CONTROL_LOCKED.set(held);
+    LOCKED.set(held);
     Some(())
 }
 
@@ -922,7 +965,7 @@ fn code_events(code: u8, state: u16, kinds: &[u8]) -> Option<()> {
 }
 
 /// Two numbers from `words`.
-fn point<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<(f64, f64)> {
+pub(super) fn point<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<(f64, f64)> {
     Some((words.next()?.parse().ok()?, words.next()?.parse().ok()?))
 }
 
@@ -961,7 +1004,7 @@ fn stacked() -> Option<Vec<Browser>> {
 /// shortcut: where the shell lays them out and the radius it gives their corners, which the core
 /// follows. They're Aura's windows in Chromium's one X window, and no core call says where they
 /// are or how round.
-fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
+pub(super) fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
@@ -987,7 +1030,7 @@ fn pages(id: bc::bc_id, width: f64, height: f64) -> Option<String> {
 
 /// The ring the core draws inside a split view's focused page, over the pages, as the Mac's driver
 /// lists its view: from the content's bottom-left corner, as the pages are.
-fn ring(id: bc::bc_id, height: f64) -> Option<String> {
+pub(super) fn ring(id: bc::bc_id, height: f64) -> Option<String> {
     let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
     unsafe { bc::bc_window_focus_ring(id, &mut frame) }.then_some(())?;
     let bc::bc_rect { x, y, width, height: high } = frame;
@@ -997,7 +1040,7 @@ fn ring(id: bc::bc_id, height: f64) -> Option<String> {
 
 /// A tab's dialog over `id`, such as print preview, from the content's top-left corner, and its
 /// size, as the Mac's driver lists a child window.
-fn dialog(id: bc::bc_id) -> Option<String> {
+pub(super) fn dialog(id: bc::bc_id) -> Option<String> {
     let mut frame = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
     unsafe { bc::bc_window_dialog(id, &mut frame) }.then_some(())?;
     let bc::bc_rect { x, y, width, height } = frame;
@@ -1006,7 +1049,7 @@ fn dialog(id: bc::bc_id) -> Option<String> {
 
 /// The centres of the window buttons the UI draws for `id`, from the window's top-left corner, as
 /// the Mac's driver gives AppKit's, or "hidden" for each.
-fn buttons(id: bc::bc_id) -> Option<String> {
+pub(super) fn buttons(id: bc::bc_id) -> Option<String> {
     let shell = WINDOWS.with_borrow(|windows| {
         windows.iter().find(|w| w.id == id).map(|w| w.shell.clone())
     })?;
@@ -1081,6 +1124,93 @@ fn chromium_focus() -> Option<xproto::Window> {
         }
         window = tree.parent;
     }
+}
+
+/// The title of the window with the keyboard.
+fn key_title() -> Option<String> {
+    Some(match keyboard_window() {
+        Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
+            text_property(window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A dialog of Chromium's in it is an aura window, which the X server has no title for, so
+        // the core gives it.
+        Some(Keyboard::Browser(browser, _))
+            if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
+        {
+            let length = unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
+            let mut title = vec![0u8; length + 1];
+            let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
+            unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
+            title.truncate(length);
+            String::from_utf8_lossy(&title).into_owned()
+        }
+        Some(Keyboard::Browser(browser, _)) => {
+            text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
+        }
+        // A window of Chromium's own, such as the Task Manager.
+        None => focus_title()?,
+    })
+}
+
+/// Logs the title of the window with the keyboard once it has `text` in it, as a window that takes
+/// the keyboard a moment after a command does, for up to 10 s as drive.mm's AwaitKeyTitle, then
+/// reports command `n` done.
+fn await_key_title(n: u64, text: String, tries: u32) {
+    let title = key_title().unwrap_or_default();
+    if title.contains(&text) {
+        log!("browser: key window titled {title}");
+    } else if tries > 0 {
+        after(100, Box::new(move || await_key_title(n, text, tries - 1)));
+        return;
+    } else {
+        log!("browser: no key window titled {text}, the key window's is {title}");
+    }
+    settle(n);
+}
+
+/// Reports command `n` done once `window` has the keyboard, which the window manager gives it a
+/// moment after it's asked, or at `until`. A deadline, as a busy main loop runs the timer late.
+fn await_focus(n: u64, window: xproto::Window, until: std::time::Instant) {
+    let has = server().is_some_and(|x| input_focus().is_some_and(|f| within(&x.0, f, window)));
+    if !has && std::time::Instant::now() < until {
+        after(100, Box::new(move || await_focus(n, window, until)));
+        return;
+    }
+    if !has {
+        log!("browser: drive {n}: the window manager didn't give the window the keyboard");
+    }
+    settle(n);
+}
+
+/// Reports command `n` done once the UI's window `gpui` is `size` in points, as the UI has then
+/// laid out at that size and placed what floats over it, or at `until`.
+fn await_size(n: u64, gpui: xproto::Window, size: (f64, f64), until: std::time::Instant) {
+    let has = ui_size(gpui).is_some_and(|(width, height)| {
+        (f64::from(width) - size.0).abs() < 1. && (f64::from(height) - size.1).abs() < 1.
+    });
+    if !has && std::time::Instant::now() < until {
+        after(10, Box::new(move || await_size(n, gpui, size, until)));
+        return;
+    }
+    if !has {
+        log!("browser: drive {n}: the UI isn't {}x{} yet", size.0, size.1);
+    }
+    settle(n);
+}
+
+/// The size GPUI has for its window `gpui`, in points.
+fn ui_size(gpui: xproto::Window) -> Option<(f32, f32)> {
+    let cx = CX.with_borrow(Clone::clone)?;
+    cx.update(|cx| {
+        cx.windows().into_iter().find_map(|handle| {
+            let size = handle.update(cx, |_, window, _| {
+                let ours = crate::ns_view(window) as usize as u32 == gpui;
+                ours.then(|| window.viewport_size())
+            });
+            size.ok().flatten()
+        })
+    })
+    .map(|size| (f32::from(size.width), f32::from(size.height)))
 }
 
 /// The title of the window with the input focus, or of the first window it's in that has one.
@@ -1508,6 +1638,11 @@ fn run_command(line: &str) -> Option<()> {
     // What follows the command's name, for those that take text.
     let rest = line.get(action.len() + 1..).unwrap_or("");
     let none = 0;
+    if crate::drive_wayland::on()
+        && let Some(done) = crate::drive_wayland::run(action, line)
+    {
+        return done;
+    }
     match action {
         "window" => {
             let number: usize = words.next()?.parse().ok()?;
@@ -1516,17 +1651,22 @@ fn run_command(line: &str) -> Option<()> {
             log!("browser: drive window {number}");
             // To the front with the keyboard, as a click on it does.
             let x = server()?;
-            let (connection, _) = &*x;
+            let (connection, root) = &*x;
             let above = ConfigureWindowAux::new().stack_mode(StackMode::ABOVE);
             connection.configure_window(browser.window, &above).ok()?;
             // A window that has it keeps it where it is, as a window manager leaves it: taken up
             // from GPUI's window to the browser window's own, the keys go to neither.
             let focus = connection.get_input_focus().ok()?.reply().ok()?.focus;
             if !within(connection, focus, browser.window) {
-                let focus = xproto::InputFocus::PARENT;
-                connection
-                    .set_input_focus(focus, browser.window, x11rb::CURRENT_TIME)
-                    .ok()?;
+                // Asked of the window manager, as a taskbar asks, so it knows which window has the
+                // keyboard: one that thought another still had it would take that window's own
+                // request to be activated, as Chrome's DevTools window makes, for done (#1039).
+                let data = [2, x11rb::CURRENT_TIME, 0, 0, 0];
+                let active = atom("_NET_ACTIVE_WINDOW")?;
+                let message = xproto::ClientMessageEvent::new(32, browser.window, active, data);
+                let mask = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
+                connection.send_event(false, *root, mask, message).ok()?;
+                ACTIVATING.set(Some(browser.window));
             }
             connection.flush().ok()
         }
@@ -1632,14 +1772,29 @@ fn run_command(line: &str) -> Option<()> {
             let (x, y) = point(&mut words)?;
             motion(target_at(x, y)?, none)
         }
-        // A notch of the wheel for each event, down for content moving up.
+        // Each event moves the content up by <dy> points, as drive.mm's trackpad events do.
         "scroll" => {
             let (x, y) = point(&mut words)?;
             let dy: f64 = words.next()?.parse().ok()?;
             let count: usize = words.next()?.parse().ok()?;
             let at = target_at(x, y)?;
+            // A page, Chromium's, scrolls a notch of the wheel an event, the notches alone: with a
+            // move before them, the window run's page stopped short of its 3000 points under Xvfb.
+            if at.window == driven()?.window {
+                for _ in 0..count.max(1) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
+                return Some(());
+            }
+            // GPUI's windows scroll by the points asked, as the Mac's trackpad events do, where a
+            // wheel's notch moves three lines.
+            motion(at, none)?;
+            let logical = |each: i16| px((f64::from(each) / scale()) as f32);
+            let position = gpui::point(logical(at.x), logical(at.y));
             for _ in 0..count.max(1) {
-                click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                if !gpui_linux::drive_scroll(at.window, position, px(dy as f32)) {
+                    click(at, if dy > 0. { 5 } else { 4 }, none, false)?;
+                }
             }
             Some(())
         }
@@ -1699,7 +1854,7 @@ fn run_command(line: &str) -> Option<()> {
                 code_events(keycode(keysym)?.0, held, &[kind])?;
                 FLAGS.set(held ^ mask);
             }
-            hold_control();
+            hold_modifiers();
             Some(())
         }
         // Repeats are presses like the first, so repeat changes nothing here.
@@ -1719,7 +1874,7 @@ fn run_command(line: &str) -> Option<()> {
         // As the window manager's full-screen key, through the core, as the Mac's goes through the
         // green button.
         "fullscreen" => {
-            unsafe { bc::bc_window_toggle_full_screen(driven()?.id) };
+            unsafe { bc::bc_window_toggle_full_screen(driven_id()?) };
             Some(())
         }
         "resize" | "place" => {
@@ -1739,6 +1894,9 @@ fn run_command(line: &str) -> Option<()> {
                 .height((height * scale) as u32);
             let x = server()?;
             x.0.configure_window(browser.window, &aux).ok()?;
+            // The window manager gives the window its size a moment later, and the UI follows,
+            // where the Mac's resize is done at once (#1065).
+            RESIZING.set(Some((browser.gpui, width, height)));
             x.0.flush().ok()
         }
         "order" => {
@@ -1799,6 +1957,19 @@ fn run_command(line: &str) -> Option<()> {
                     y - top
                 );
             }
+            // The page with the keyboard, by its pane's frame from the content's bottom-left
+            // corner, as the pages are, which tells a split view's pages apart.
+            let mut page = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+            match unsafe { bc::bc_window_keyboard_page(browser.id, &mut page) } {
+                true => log!(
+                    "browser: layout keyboard {:.0},{:.0} {:.0}x{:.0}",
+                    page.x,
+                    height - (page.y + page.height),
+                    page.width,
+                    page.height
+                ),
+                false => log!("browser: layout keyboard none"),
+            }
             log!(
                 "browser: layout full screen {}",
                 full_screen(browser.window)? as u8
@@ -1807,29 +1978,7 @@ fn run_command(line: &str) -> Option<()> {
         }
         "state" => Some(()),
         "title" => {
-            let title = match keyboard_window() {
-                Some(Keyboard::Overlay(window) | Keyboard::Settings(window, _)) => {
-                    text_property(window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A dialog of Chromium's in it is an aura window, which the X server has no title
-                // for, so the core gives it.
-                Some(Keyboard::Browser(browser, _))
-                    if unsafe { bc::bc_window_keyboard_in_child(browser.id) } =>
-                {
-                    let length =
-                        unsafe { bc::bc_window_child_title(browser.id, std::ptr::null_mut(), 0) };
-                    let mut title = vec![0u8; length + 1];
-                    let (to, capacity) = (title.as_mut_ptr().cast(), title.len());
-                    unsafe { bc::bc_window_child_title(browser.id, to, capacity) };
-                    title.truncate(length);
-                    String::from_utf8_lossy(&title).into_owned()
-                }
-                Some(Keyboard::Browser(browser, _)) => {
-                    text_property(browser.window, "_NET_WM_NAME").unwrap_or_default()
-                }
-                // A window of Chromium's own, such as the Task Manager.
-                None => focus_title()?,
-            };
+            let title = key_title()?;
             log!("browser: key window titled {title}");
             Some(())
         }
@@ -1877,7 +2026,7 @@ fn run_command(line: &str) -> Option<()> {
                 return None;
             };
             let handle = WINDOWS.with_borrow(|windows| {
-                let id = driven()?.id;
+                let id = driven_id()?;
                 windows.iter().find(|w| w.id == id).map(|w| w.handle)
             })?;
             let cx = CX.with_borrow(Clone::clone)?;
@@ -1960,8 +2109,166 @@ fn run_command(line: &str) -> Option<()> {
             unsafe { bc::bc_age_tabs_for_testing(seconds) };
             Some(())
         }
+        "pip" => mini_player_command(words),
         _ => None,
     }
+}
+
+/// Chromium's Picture in Picture window for a video, the Mini Player, if it shows: a window of the
+/// X client's that made the driven browser window, titled as Chrome titles it.
+fn mini_player() -> Option<xproto::Window> {
+    let browser = driven()?;
+    let x = server()?;
+    let (connection, root) = &*x;
+    let client = !connection.setup().resource_id_mask;
+    let ours = |window: xproto::Window| {
+        window & client == browser.window & client
+            && (text_property(window, "_NET_WM_NAME"))
+                .is_some_and(|title| title.eq_ignore_ascii_case("Picture in Picture"))
+            && (connection.get_window_attributes(window).ok())
+                .and_then(|cookie| cookie.reply().ok())
+                .is_some_and(|a| a.map_state == xproto::MapState::VIEWABLE)
+    };
+    let tops = connection.query_tree(*root).ok()?.reply().ok()?.children;
+    // A window manager that reparents, as openbox does, holds it in a frame of its own.
+    tops.into_iter().find_map(|top| {
+        if ours(top) {
+            return Some(top);
+        }
+        let children = connection.query_tree(top).ok()?.reply().ok()?.children;
+        children.into_iter().find(|&child| ours(child))
+    })
+}
+
+/// pip, and pip doubleclick, wheel, press, dragto and release (run_command's header).
+fn mini_player_command<'a>(mut words: impl Iterator<Item = &'a str>) -> Option<()> {
+    let Some(window) = mini_player() else {
+        log!("browser: pip none");
+        return Some(());
+    };
+    let action = words.next();
+    let Some(action) = action else {
+        let [x, y, width, height] = frame(window)?;
+        log!("browser: pip at {x:.0} {y:.0} {width:.0} {height:.0}");
+        watch_mini_player(window);
+        return Some(());
+    };
+    let (x, y) = point(&mut words)?;
+    if let "press" | "dragto" | "release" = action {
+        return hold_mini_player(window, action, x, y);
+    }
+    let at = target_in(window, x, y)?;
+    match action {
+        "doubleclick" => {
+            click(at, 1, 0, false)?;
+            click(at, 1, 0, true)
+        }
+        // pip wheel <x> <y> <notches> [cmd]: a notch of the wheel for each, down for content moving
+        // up, as scroll's.
+        "wheel" => {
+            let notches: i32 = words.next()?.parse().ok()?;
+            let state = click_modifiers(words);
+            for _ in 0..notches.unsigned_abs() {
+                click(at, if notches > 0 { 5 } else { 4 }, state, false)?;
+            }
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+/// pip press, pip dragto and pip release <x> <y>, at points where the window was at the press: the
+/// display's own pointer, through XTest. Sent events can't move it, as the window manager moves it
+/// with the pointer the X server has, as a hand moves it.
+fn hold_mini_player(window: xproto::Window, step: &str, x: f64, y: f64) -> Option<()> {
+    let server = server()?;
+    let (connection, root) = &*server;
+    let fake = |kind: u8, button: u8, (x, y): (i16, i16)| {
+        (connection.xtest_fake_input(kind, button, x11rb::CURRENT_TIME, *root, x, y, 0)).ok()?;
+        connection.get_input_focus().ok()?.reply().ok().map(drop)
+    };
+    if step == "press" {
+        let at = target_in(window, x, y)?;
+        let was = connection.query_pointer(*root).ok()?.reply().ok()?;
+        let back = (was.root_x, was.root_y);
+        fake(xproto::MOTION_NOTIFY_EVENT, 0, (at.root_x, at.root_y))?;
+        // The pointer is the display's, so a press anywhere but on the Mini Player would be
+        // another window's.
+        let under = connection.query_pointer(*root).ok()?.reply().ok()?.child;
+        if !within(connection, window, under) {
+            log!("browser: pip press: another window is over the Mini Player there");
+            return fake(xproto::MOTION_NOTIFY_EVENT, 0, back);
+        }
+        first_press(at, 1, false);
+        PIP_HELD.set(Some(HeldPip { x, y, root: (at.root_x, at.root_y), back }));
+        return fake(xproto::BUTTON_PRESS_EVENT, 1, (at.root_x, at.root_y));
+    }
+    let held = PIP_HELD.get()?;
+    let scale = scale();
+    let to = (
+        held.root.0 + ((x - held.x) * scale).round() as i16,
+        held.root.1 + ((y - held.y) * scale).round() as i16,
+    );
+    fake(xproto::MOTION_NOTIFY_EVENT, 0, to)?;
+    if step == "dragto" {
+        return Some(());
+    }
+    PIP_HELD.set(None);
+    fake(xproto::BUTTON_RELEASE_EVENT, 1, to)?;
+    fake(xproto::MOTION_NOTIFY_EVENT, 0, held.back)
+}
+
+/// A press on the Mini Player through XTest: where it was in the window and on the screen, and
+/// where the display's pointer was before it, where the release puts it back.
+#[derive(Clone, Copy)]
+struct HeldPip {
+    x: f64,
+    y: f64,
+    root: (i16, i16),
+    back: (i16, i16),
+}
+
+/// Logs the Mini Player's frame each time `window`, it, moves or resizes, from a thread of its own
+/// on a connection of its own, as watch_zoom does.
+fn watch_mini_player(window: xproto::Window) {
+    static WATCHER: OnceLock<Option<Arc<RustConnection>>> = OnceLock::new();
+    // The display's scale, which the thread can't ask the core for.
+    static SCALE: AtomicU64 = AtomicU64::new(0);
+    SCALE.store(scale().to_bits(), Ordering::Relaxed);
+    let watcher = WATCHER.get_or_init(|| {
+        let (connection, screen) = x11rb::connect(None).ok()?;
+        let root = connection.setup().roots.get(screen)?.root;
+        let connection = Arc::new(connection);
+        let reader = connection.clone();
+        std::thread::spawn(move || {
+            while let Ok(event) = reader.wait_for_event() {
+                match event {
+                    // Placed in the root's terms, as the event places it only where no window
+                    // manager reparents it, as none does in sway, but openbox does.
+                    Event::ConfigureNotify(e) => {
+                        let Some(at) = (reader.translate_coordinates(e.window, root, 0, 0).ok())
+                            .and_then(|cookie| cookie.reply().ok())
+                        else {
+                            continue;
+                        };
+                        let scale = f64::from_bits(SCALE.load(Ordering::Relaxed));
+                        let [x, y] = [at.dst_x, at.dst_y].map(|n| f64::from(n) / scale);
+                        let [width, height] = [e.width, e.height].map(|n| f64::from(n) / scale);
+                        log!("browser: pip at {x:.0} {y:.0} {width:.0} {height:.0}");
+                    }
+                    Event::UnmapNotify(_) | Event::DestroyNotify(_) => log!("browser: pip gone"),
+                    _ => {}
+                }
+            }
+        });
+        Some(connection)
+    });
+    let Some(connection) = watcher else { return };
+    let aux = ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY);
+    if let Ok(cookie) = connection.change_window_attributes(window, &aux) {
+        cookie.ignore_error();
+    }
+    connection.flush().ok();
 }
 
 /// `to`, a point in the root's terms, in `window`, which a press grabbed the pointer for.
