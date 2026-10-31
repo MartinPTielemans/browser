@@ -752,6 +752,15 @@ send choose back
 expect '^browser: command history -1 via sidebar$' "choosing the held menu's row didn't reach the UI"
 expect "^browser: page $h back 0 forward 1 loading 0 ${site}back.html\$" "choosing the held menu's row didn't go back"
 expect "^browser: favicon $h [0-9]* bytes\$" "the back page's tab didn't get its favicon"
+# A press hits the button drawn last, which is stop until the window draws the loaded page.
+# Off the Mac that frame can come after the driver's press (#1048).
+if [ "$(uname)" != Darwin ]; then
+  for _ in $(seq 100); do
+    [ "$(last 'nav shows')" = reload ] && break
+    sleep 0.1
+  done
+  [ "$(last 'nav shows')" = reload ] || fail "the header didn't draw reload once the page loaded"
+fi
 send press $reload_button
 expect '^browser: nav reload pressed drawn$' "reload pressed didn't draw itself shrunk"
 ../tools/window-screenshot.sh "$pid" "$out/reload-pressed.png" || fail "no window to capture"
