@@ -43,10 +43,10 @@ archive=$engine/.deps/publish/Chromium-mac-arm64.tar.xz
 tar -cJf "$archive" --no-mac-metadata --options xz:threads=0 -C "$out" Chromium.app
 shasum -a 256 "$archive" | cut -d' ' -f1 >"$archive.sha256"
 # Never GitHub's Latest, which releases/latest/download/<name> links mean as a release of its
-# repository's own (#804). The tag is on that repository's history, which hasn't this commit: the
+# repository's own (#804). The tag is on that repository's main, which hasn't this commit: the
 # name carries it.
 gh release view "$tag" -R "$repo" >/dev/null 2>&1 ||
-  gh release create "$tag" -R "$repo" --title "Mac engine ${commit:0:12}" --latest=false \
+  gh release create "$tag" -R "$repo" --target main --title "Mac engine ${commit:0:12}" --latest=false \
     --notes "The Mac engine (Chromium $version, Apple silicon) built from $source/commit/$commit, which holds its source."
 gh release upload "$tag" -R "$repo" --clobber "$archive" "$archive.sha256"
 rm "$archive" "$archive.sha256"

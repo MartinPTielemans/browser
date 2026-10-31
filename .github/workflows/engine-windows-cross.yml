@@ -102,10 +102,10 @@ jobs:
           tag=engine-windows-${GITHUB_SHA::12}
           tag_ucw=$(git config -f engine/pins.ini ungoogled-chromium-windows.tag)
           # Never GitHub's Latest, which releases/latest/download/<name> links mean as a release of
-          # its repository's own (#804). The tag is on that repository's history, which hasn't this
+          # its repository's own (#804). The tag is on that repository's main, which hasn't this
           # commit: the name carries it.
           gh release view "$tag" -R "$repo" >/dev/null 2>&1 ||
-            gh release create "$tag" -R "$repo" --title "Windows engine ${GITHUB_SHA::12}" --latest=false \
+            gh release create "$tag" -R "$repo" --target main --title "Windows engine ${GITHUB_SHA::12}" --latest=false \
               --notes "The Windows engine (ungoogled-chromium-windows $tag_ucw, x64, cross-compiled) built from $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA, which holds its source."
           gh release upload "$tag" -R "$repo" --clobber "$RUNNER_TEMP"/Chromium-windows-x64.zip "$RUNNER_TEMP"/Chromium-windows-x64.zip.sha256 \
             "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip.sha256
