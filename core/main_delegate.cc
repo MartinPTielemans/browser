@@ -177,8 +177,6 @@ class ExtraParts : public ChromeBrowserMainExtraParts,
   void PreBrowserStart() override {
     // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.
     LeaveDialog::Install();
-    // A tab's Cast dialog is the app's card, in place of the Views dialog Chrome's parts set.
-    CastDialog::Install();
     keep_alive_ = std::make_unique<ScopedKeepAlive>(KeepAliveOrigin::APP_CONTROLLER,
                                                     KeepAliveRestartOption::DISABLED);
     // A quit can start in Chrome too, such as from the Dock or the system logging out, and Chrome
@@ -349,6 +347,8 @@ void Install(const bc_host& host) {
   g_host = host;
   g_browser_core_supplies_windows = true;
   g_browser_core_adjust_navigate = &Window::AdjustNavigate;
+  // A tab's Cast dialog is the app's card, in place of the Views dialog.
+  g_browser_core_cast_dialog = &CastDialog::For;
   g_browser_core_can_dock_devtools = &Window::CanDockDevTools;
   g_browser_core_update_devtools = &Window::UpdateDevTools;
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;

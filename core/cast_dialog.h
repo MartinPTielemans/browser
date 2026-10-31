@@ -26,8 +26,9 @@ class CastDialog : public media_router::MediaRouterDialogController,
                    public media_router::CastDialogController::Observer,
                    public content::WebContentsUserData<CastDialog> {
  public:
-  // Makes Chrome ask the core's for each tab, in place of the Views dialog's controller.
-  static void Install();
+  // |contents|'s, made the first time, which Chrome's media router asks for through
+  // g_browser_core_cast_dialog in place of the Views dialog's controller.
+  static media_router::MediaRouterDialogController* For(content::WebContents* contents);
   // See bc_tab_cast and the calls after it.
   static void Open(bc_id tab);
   static void Close();
