@@ -64,6 +64,11 @@ futures-lite = "2"
 # The driver's keys on X11 (platform/linux/drive.rs) and the windows' frames (frames.rs), as
 # linux/Cargo.toml has it for the library.
 x11rb = { version = "0.13", features = ["xkb", "randr"] }
+# The driver's pointer and keyboard in the headless sway session (platform/linux/drive_wayland.rs).
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+xkbcommon = "0.8"
 
 [build-dependencies]
 # 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.
