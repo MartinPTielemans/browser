@@ -68,8 +68,8 @@ fn escape_leaves_full_screen_when_nothing_loads(cx: &mut TestAppContext) {
 const WINDOWED: Size<Pixels> = size(px(1000.), px(700.));
 const SCREEN: Size<Pixels> = size(px(1440.), px(900.));
 
-/// A windowed window showing tab 10, 1000 × 700.
-fn window(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext) {
+/// A windowed window showing tab 10, 1000 × 700, and its host.
+fn window(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>, &mut VisualTestContext) {
     let host = Rc::new(Recorder::default());
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
     shell.update(cx, |shell, cx| {
@@ -80,7 +80,7 @@ fn window(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext) {
     });
     cx.simulate_resize(WINDOWED);
     cx.run_until_parked();
-    (shell, cx)
+    (shell, host, cx)
 }
 
 /// AppKit takes the window into full screen or out, to its size there, but doesn't say so yet.
@@ -91,6 +91,19 @@ fn window_goes(full_screen: bool, cx: &mut VisualTestContext) {
         }
     });
     cx.simulate_resize(if full_screen { SCREEN } else { WINDOWED });
+}
+
+/// Linux's window manager takes the window into full screen or out, which the shell hears of as
+/// the window resizes.
+fn window_manager_takes(
+    full_screen: bool,
+    shell: &Entity<Shell>,
+    host: &Recorder,
+    cx: &mut VisualTestContext,
+) {
+    host.full_screen.set(full_screen);
+    cx.simulate_resize(if full_screen { SCREEN } else { WINDOWED });
+    shell.update(cx, |shell, cx| shell.bounds_changed(cx));
 }
 
 /// The core says the page went full screen, or left.
@@ -126,7 +139,7 @@ fn page_takes_the_window(shell: &Entity<Shell>, cx: &mut VisualTestContext) {
 
 #[gpui::test]
 fn a_page_leaving_after_its_window_left_full_screen_brings_the_card_back(cx: &mut TestAppContext) {
-    let (shell, cx) = window(cx);
+    let (shell, _, cx) = window(cx);
     page_takes_the_window(&shell, cx);
     // The green button, ⌃⌘F or the display going: the window is out before the core says the page
     // is, so no resize is coming to lay the page out.
@@ -145,7 +158,7 @@ fn a_page_leaving_after_its_window_left_full_screen_brings_the_card_back(cx: &mu
 
 #[gpui::test]
 fn a_page_leaving_as_its_window_starts_out_waits_for_the_resize(cx: &mut TestAppContext) {
-    let (shell, cx) = window(cx);
+    let (shell, _, cx) = window(cx);
     page_takes_the_window(&shell, cx);
     // The core lets the page go as AppKit starts taking the window out, while it's still full
     // screen, so the page stays put until the window's resize lays it out, once.
@@ -157,4 +170,38 @@ fn a_page_leaving_as_its_window_starts_out_waits_for_the_resize(cx: &mut TestApp
 
     // From there, the page's full screen takes the window again.
     page_takes_the_window(&shell, cx);
+}
+
+#[gpui::test]
+fn the_note_waits_to_hear_whether_a_page_took_the_window(cx: &mut TestAppContext) {
+    let (shell, host, cx) = window(cx);
+    notes(&host);
+    window_manager_takes(true, &shell, &host, cx);
+    cx.run_until_parked();
+    assert_eq!(notes(&host), ["full screen note shown"]);
+    window_manager_takes(false, &shell, &host, cx);
+    notes(&host);
+    // Chrome on Windows takes the window full screen for a page before the core says it asked.
+    window_manager_takes(true, &shell, &host, cx);
+    page_goes(true, &shell, cx);
+    cx.run_until_parked();
+    assert!(notes(&host).is_empty(), "a page's full screen showed the window's note");
+}
+
+#[gpui::test]
+fn a_page_whose_window_comes_back_first_goes_to_the_card_with_the_resize(cx: &mut TestAppContext) {
+    let (shell, host, cx) = window(cx);
+    page_goes(true, &shell, cx);
+    window_manager_takes(true, &shell, &host, cx);
+    assert_eq!(page(&shell, cx), Some("fills"));
+    // The page's own exit, which the window manager can finish before the core says the page left:
+    // the resize lays the page out in the card, and the core's word leaves it there.
+    window_manager_takes(false, &shell, &host, cx);
+    assert_eq!(page(&shell, cx), Some("at the sidebar"));
+    page_goes(false, &shell, cx);
+    assert_eq!(page(&shell, cx), Some("at the sidebar"));
+
+    // From there, the page's full screen takes the window again.
+    page_goes(true, &shell, cx);
+    assert_eq!(page(&shell, cx), None, "the page moved before the window went full screen");
 }

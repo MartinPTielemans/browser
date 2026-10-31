@@ -72,8 +72,11 @@ void ShowPages(views::Widget* widget,
 // Keeps the pages shown in |widget|'s window where they are as it resizes, until ShowPages lays
 // them out again: for a page going full screen, or back, which the app lays out once, at the
 // window's new size. On the Mac, where the app hears of a resize before the pages are laid out at
-// it, and on Windows so far, it does nothing.
+// it, it does nothing.
 void HoldPagesForResize(views::Widget* widget);
+
+// Whether |widget|'s pages are held for a resize (HoldPagesForResize) that ShowPages hasn't ended.
+bool PagesHeldForResize(views::Widget* widget);
 
 // Hides the pages shown, their DevTools and the side panel, in place, for a window out of sight, so
 // Chromium counts them hidden. ShowPages shows them again.
@@ -81,8 +84,18 @@ void HidePages(views::Widget* widget);
 
 // Shows |page| in |view|, a view of the app's, which keeps it: at |frame| from the view's top-left,
 // over what the view draws, with corners of |corner_radius|. For a page no window shows, such as a
-// link preview's.
-void ShowPageIn(gfx::NativeView page, void* view, const gfx::Rect& frame, double corner_radius);
+// link preview's. Where the app can't hold a page in a view of its own, as on Linux, it shows over
+// the pages of |widget|'s window, the one whose Browser holds it, at |frame| in its content, and
+// the app's view over the window leaves it a hole.
+void ShowPageIn(views::Widget* widget,
+                gfx::NativeView page,
+                void* view,
+                const gfx::Rect& frame,
+                double corner_radius);
+
+// Whether a page's dialog, such as Chrome's passkey dialog, needs a native window of its own to
+// show over the pages, rather than being drawn in the window's own.
+bool PageDialogsInOwnWindow();
 
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools or the side
@@ -92,6 +105,12 @@ bool KeyboardForPage(views::Widget* widget);
 // Gives the keyboard in |widget|'s window to the window itself, which KeyboardForPage counts as
 // the page's.
 void ReleaseKeyboard(views::Widget* widget);
+
+// On Linux and Windows: the app's UI takes the keyboard in |widget|'s window, to keep
+// (bc_window_ui_takes_keyboard) or until a page shows (bc_window_ui_holds_keyboard), which
+// KeyboardForPage counts as the page's meanwhile. The Mac's window holds the keys for the next page
+// itself.
+void UITakesKeyboard(views::Widget* widget, bool until_page);
 
 // Runs |change|, which may move the keyboard in |widget|'s window, then gives the keyboard back to
 // what had it, if that's still in the window.

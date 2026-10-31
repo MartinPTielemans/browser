@@ -6,7 +6,11 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, Pixels, Point, Size, canvas, div, point, prelude::*, px, size,
 };
 
-use super::{CARD_INSET, EXPANDED_OTHER, MAX_PANES, PANE_LEAST, PANE_SNAP, SPLIT_GAP, Shell};
+use super::{
+    CARD_INSET, EXPANDED_OTHER, MAX_PANES, MenuAction, MenuEntry, PANE_LEAST, PANE_SNAP, SPLIT_GAP,
+    Shell, access::Accessible,
+};
+use crate::tokens::shell::split_controls::{DOT, DOT_GAP, DOTS, DOTS_HOVERED, INSET, WIDTH};
 
 impl Shell {
     /// The gaps between the pages of the split view shown, which drag the pages' shares of the
@@ -71,6 +75,98 @@ impl Shell {
         );
         gaps.push(listener.absolute().size_0().into_any_element());
         gaps
+    }
+
+    /// Each page's split controls: a handle in the strip over it, the window's margin over the card
+    /// or the gap under the page above it stacked, whose menu changes the split's orientation, takes
+    /// the page out of it or closes it. Its look and place are ours, as Arc's aren't measured.
+    pub(super) fn pane_handles(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let panes = self.panes(self.selected);
+        if panes.len() < 2 || self.adding_pane.is_some() || self.page_fullscreen {
+            return Vec::new();
+        }
+        let (frame, _) = self.page_frame(self.viewport);
+        let stacked = self.stacked(self.selected);
+        let frames = pane_frames(frame, panes.len(), stacked, &self.shares(self.selected));
+        let (rest, hovered) = (self.palette.faint(DOTS), self.palette.faint(DOTS_HOVERED));
+        let plate = self.palette.plate(crate::palette::HOVERED_PLATE);
+        let mut handles = Vec::new();
+        for (index, (tab, pane)) in panes.into_iter().zip(frames).enumerate() {
+            let strip = if stacked && index > 0 { SPLIT_GAP } else { f32::from(frame.top()) };
+            let dots = (0..3).map(|_| div().size(px(DOT)).rounded_full().bg(rest));
+            let handle = div()
+                .id(("split-controls", index))
+                .group("split-controls")
+                .when(self.a11y, |handle| {
+                    handle.button_named("Split Controls").pressed_by_mouse_down(true, false)
+                })
+                .absolute()
+                .left(pane.center().x - px(WIDTH / 2.))
+                .top(pane.top() - px(strip))
+                .w(px(WIDTH))
+                .h(px(strip))
+                .flex()
+                .items_center()
+                .justify_center()
+                .block_mouse_except_scroll()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    // At the press, which the menu takes for the click that opened it, so the
+                    // click's release leaves it open.
+                    cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                        shell.split_controls(tab, event.position, cx)
+                    }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(DOT_GAP))
+                        .w_full()
+                        .h(px(strip - 2. * INSET))
+                        .rounded(px((strip - 2. * INSET) / 2.))
+                        .group_hover("split-controls", |style| style.bg(plate))
+                        .children(dots.map(move |dot| {
+                            dot.group_hover("split-controls", move |style| style.bg(hovered))
+                        })),
+                );
+            handles.push(handle.into_any_element());
+        }
+        handles
+    }
+
+    /// The menu of `tab`'s split controls, under its handle at `position`: Change Orientation for
+    /// the split, and Separate Page from Split View and Close this Split Pane for `tab`, as the View
+    /// menu's commands do for the focused page.
+    pub(super) fn split_controls(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let items: Vec<(MenuEntry, MenuAction)> = vec![
+            (
+                MenuEntry::new("Change Orientation", true),
+                Box::new(move |shell, cx| {
+                    // check.sh waits for this line.
+                    log!("browser: command change-orientation via split controls");
+                    let stacked = shell.stacked(tab);
+                    shell.stack_split(tab, !stacked, cx)
+                }),
+            ),
+            (
+                MenuEntry::new("Separate Page from Split View", true),
+                Box::new(move |shell, cx| {
+                    log!("browser: command separate-pane via split controls");
+                    shell.separate_tab(tab, cx)
+                }),
+            ),
+            (
+                MenuEntry::new("Close this Split Pane", true),
+                Box::new(move |shell, cx| {
+                    log!("browser: command close-split-pane via split controls");
+                    shell.close_tab(tab, false, cx)
+                }),
+            ),
+        ];
+        // Over the card, never in the hidden sidebar's reveal.
+        self.show_menu_in(items, position, None, false, cx);
     }
 
     /// Where the pages of the split view shown start, and one after them would.
@@ -164,6 +260,48 @@ impl Shell {
         }
         self.split_pending = Some(tab);
         self.select(tab, cx);
+    }
+
+    /// Duplicate on a split's row copies the whole split, as Arc's does: each page with its history,
+    /// joined again in the same order and orientation. A tab alone is copied alone.
+    pub(super) fn duplicate_row(&mut self, tab: u64, cx: &mut Context<Self>) {
+        let (panes, stacked) = (self.panes(tab), self.stacked(tab));
+        let copies: Vec<u64> = panes.iter().map(|&pane| self.browser.duplicate(pane, cx)).collect();
+        if copies.len() < 2 || copies.contains(&0) {
+            return;
+        }
+        for pair in copies.windows(2) {
+            self.browser.split_with(pair[1], pair[0], false, cx);
+        }
+        if stacked {
+            self.browser.set_split_stacked(copies[0], true, cx);
+        }
+    }
+
+    /// ⌥-click on `tab`'s row or segment in the sidebar, as Arc's: a split's tab leaves it, the
+    /// page shown alone splits with a copy of itself, and another tab joins the page shown.
+    /// Returns false where none applies, so the press shows the tab as a plain one does.
+    pub(super) fn alt_press_row(&mut self, tab: u64, cx: &mut Context<Self>) -> bool {
+        let shown = self.panes(self.selected);
+        if self.is_folder(tab) || self.selected == 0 {
+            return false;
+        }
+        log!("browser: command split via sidebar");
+        if self.panes(tab).len() > 1 {
+            self.separate_tab(tab, cx);
+        } else if tab == self.selected {
+            let copy = self.browser.duplicate(tab, cx);
+            if copy != 0 {
+                self.browser.split_with(copy, tab, false, cx);
+                self.split_opened(copy, cx);
+            }
+        } else if shown.len() < MAX_PANES {
+            self.join_split(tab, self.selected, false, false, cx);
+        } else {
+            return false;
+        }
+        cx.notify();
+        true
     }
 
     /// Expand Current Split: the focused page takes the card and each other page keeps 220 pt, in
@@ -309,9 +447,10 @@ mod tests {
     use std::rc::Rc;
 
     use super::{edge_shares, expanded_shares, pane_edges, pane_frames};
-    use crate::shell::{Command, Folders, Shell, Split, recorder::Recorder};
+    use crate::shell::{Command, Folders, Page, Shell, Split, recorder::Recorder};
     use gpui::{
-        AppContext, Bounds, Entity, MouseButton, MouseDownEvent, TestAppContext, point, px, size,
+        AppContext, Bounds, Entity, Modifiers, MouseButton, MouseDownEvent, TestAppContext, point,
+        px, size,
     };
 
     /// A dragged gap's shares put the pages back where it was dragged to, as the core lays them
@@ -508,6 +647,86 @@ mod tests {
         let beside = point(frames[0].left() - px(20.), frames[0].center().y);
         assert!(!swipe(beside, true, cx), "the sidebar has no history");
         assert!(host.take().is_empty());
+    }
+
+    /// Each page of a split has its controls, whose menu changes the split's orientation, and
+    /// separates or closes that page, focused or not, and a page full screen has none.
+    #[gpui::test]
+    fn each_pages_split_controls_act_on_that_page(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10, 11, 12], 10, 0, 1200., cx);
+        let handles = |cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| shell.pane_handles(cx).len())
+        };
+        assert_eq!(handles(cx), 3);
+        host.take();
+        for (title, call) in [
+            ("Change Orientation", "split stacked 11 true"),
+            ("Separate Page from Split View", "separate 11"),
+            ("Close this Split Pane", "close 11"),
+        ] {
+            shell.update(cx, |shell, cx| shell.split_controls(11, point(px(600.), px(10.)), cx));
+            cx.update(|cx| host.choose(title, cx));
+            let mut calls = host.take();
+            calls.extend(host.take_edits());
+            assert!(calls.iter().any(|each| each == call), "{title}: {calls:?}");
+        }
+        shell.update(cx, |shell, _| shell.page_fullscreen = true);
+        assert_eq!(handles(cx), 0, "a page full screen has the whole window");
+        let (alone, _) = split_of(&[10], 10, 0, 1200., cx);
+        assert_eq!(alone.update(cx, |shell, cx| shell.pane_handles(cx).len()), 0);
+    }
+
+    /// A click on a page's split controls opens their menu where it pressed, which the menu takes
+    /// for the click that opened it, so the click's release, anywhere on the controls, leaves the
+    /// menu open: from the pane's top edge, it would close as a drag let go outside.
+    #[gpui::test]
+    fn a_click_on_split_controls_opens_their_menu_at_the_press(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+            shell.set_selected(10, cx);
+        });
+        reported(&shell, &[10, 11], &[], 0, cx);
+        cx.run_until_parked();
+        let left = shell.read_with(cx, |shell, _| {
+            let (frame, _) = shell.page_frame(shell.viewport);
+            pane_frames(frame, 2, false, &shell.shares(shell.selected))[0]
+        });
+        // Off the handle's middle, and above the pane's top, as a click on it lands.
+        let at = point(left.center().x + px(10.), left.top() - px(5.));
+        cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        let titles = host.menus.borrow().last().cloned().unwrap_or_default();
+        assert_eq!(titles.first().map(|(title, _)| title.as_ref()), Some("Change Orientation"));
+        assert_eq!(host.menu_at.get(), Some(at));
+    }
+
+    /// In a split, the URL field is the focused page's, as Arc's address bar is the panel's: ⌘L,
+    /// a click on the field and Copy URL act on that page, and on the other once a click in it
+    /// focuses it, as the core reports.
+    #[gpui::test]
+    fn the_url_field_is_the_focused_pages(cx: &mut TestAppContext) {
+        let (left, right) = ("https://example.org/left", "https://example.com/right");
+        let (shell, host) = split_of(&[10, 11], 11, 0, 1200., cx);
+        shell.update(cx, |shell, cx| {
+            for (tab, url) in [(10, left), (11, right)] {
+                shell.set_page(tab, Page { url: url.into(), ..Page::default() }, cx);
+            }
+        });
+        for (focused, url) in [(11, right), (10, left)] {
+            shell.update(cx, |shell, cx| {
+                shell.set_selected(focused, cx);
+                shell.run(Command::EditUrl, "page", cx);
+                shell.run(Command::EditUrl, "sidebar", cx);
+                shell.run(Command::CopyUrl, "ui", cx);
+            });
+            assert_eq!(host.bar_edits.take(), [Some(focused), Some(focused)]);
+            assert_eq!(host.copied.take(), [url]);
+        }
     }
 
     #[gpui::test]

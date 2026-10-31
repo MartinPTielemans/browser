@@ -10,12 +10,18 @@ name: Windows packages
 
 on:
   workflow_dispatch:
+  # Branches only: an engine release's tag, pushed with the owner's token, starts nothing here.
   push:
+    branches: ['**']
     paths:
       - app/platform/windows/package/**
       - app/branding/windows-store.ini
       - app/branding/winget.ini
+      - app/fetch-ublock.sh
+      - app/ublock.ini
       - tools/winget.sh
+      - tools/licences.sh
+      - tools/third-party.py
       - .github/workflows/package-windows.yml
 
 permissions:
@@ -74,7 +80,10 @@ jobs:
 
       - name: Browser.dll
         working-directory: app/windows
-        run: cargo build --release --features prod
+        run: |
+          cargo build --release --features prod
+          # The bridge an agent's MCP client runs, which package.sh puts beside Browser.dll.
+          cargo build --release --features prod --manifest-path ../Cargo.toml --bin mcp-bridge --target-dir target
 
       - name: Inno Setup
         run: |
@@ -94,7 +103,7 @@ jobs:
             exit 0
           fi
           ../tools/winget.sh "$installer" \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/v$version/${installer##*/}" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/v$version/ilo-windows-x64-setup.exe" \
             "$RUNNER_TEMP/windows-packages/winget"
 
       - uses: actions/upload-artifact@v4

@@ -1,0 +1,26 @@
+Makes DuckDuckGo the default search engine where Chrome's is Google, which ungoogled-chromium
+makes an engine that searches nowhere. As the fallback it's the default and not the user's choice,
+so a recommended DefaultSearchProvider policy outranks it until the user picks an engine, as it
+outranks Google in Chrome. A locale with no country, such as C or POSIX, has no DuckDuckGo in its
+list, so the fallback brings its own.
+
+--- a/components/search_engines/template_url_prepopulate_data.cc
++++ b/components/search_engines/template_url_prepopulate_data.cc
+@@ -317,9 +317,14 @@
+     PrefService& prefs,
+     const std::vector<raw_ptr<const PrepopulatedEngine>>&
+         regional_prepopulated_engines) {
+-  return FindPrepopulatedEngineInternal(prefs, regional_prepopulated_engines,
+-                                        google.id,
+-                                        /*use_first_as_fallback=*/true);
++  // browser_core: DuckDuckGo in Google's place, from the list if it's in it.
++  if (std::unique_ptr<TemplateURLData> engine =
++          FindPrepopulatedEngineInternal(prefs, regional_prepopulated_engines,
++                                         duckduckgo.id,
++                                         /*use_first_as_fallback=*/false)) {
++    return engine;
++  }
++  return TemplateURLDataFromPrepopulatedEngine(duckduckgo);
+ }
+
+ }  // namespace TemplateURLPrepopulateData

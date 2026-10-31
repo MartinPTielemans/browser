@@ -1,6 +1,7 @@
 # ⌘N opens another window on the same Spaces, showing the key window's Space with no page, whose
-# card shows its one line, and a click on the card with ⌘T's bar open only closes the bar. It never
-# shows another window's page: a Space it switches to and back shows the first tab no window shows.
+# card shows its one line, and a click on the card with ⌘T's bar open only closes the bar. Settings
+# opened from it and closed by its button gives it the keyboard back. The new window never shows
+# another window's page: a Space it switches to and back shows the first tab no window shows.
 # The Spaces menu acts on the window in front. A click on a row whose page another window shows
 # moves the page there live, with no second load, and the window it left keeps its rows and draws a
 # picture of the page in its card, which a click on takes the page back from, live. A window that
@@ -17,9 +18,12 @@
 # move takes.
 
 # The page counts in its title from its first frame, so a page that reloaded would count from 1
-# again. "o" in it opens a tab under it, as a link to a new tab does.
+# again. "o" in it opens a tab under it, as a link to a new tab does. Its beforeunload handler,
+# which never asks, has Chrome run the pages' handlers as the last window closes, which once
+# archived the page's tab and left the window open (#870).
 page='data:text/html,<title>loading</title>
 <script>
+onbeforeunload = () => {};
 let count = 0;
 requestAnimationFrame(() => setTimeout(() =>
   setInterval(() => document.title = "count " + ++count, 200)));
@@ -100,6 +104,21 @@ send window 2
 [ "$(grep -c '^browser: command new-tab via card$' "$log" || true)" = "$opened" ] ||
   fail "the click that closed the command bar opened it again"
 
+# Settings opened from the second window and closed by its close button gives the keyboard back to
+# that window, which AppKit makes key from inside the close (#819: the shell heard it there, inside
+# GPUI's update, and the app aborted).
+send key , cmd
+expect '^browser: settings shown ' "⌘, in the second window didn't show Settings"
+# The driver's done for a click that closes its window can be lost with the window, as in
+# favorites.sh, so Settings going is waited for.
+settings_close
+post clickkey $close
+expect '^browser: settings hidden$' "the close button didn't hide Settings"
+# The app is still there to answer, which fails with "the app exited" if the close aborted it.
+send front
+grep '^browser: front ' "$log" | tail -1 | grep -q ' key driven,' ||
+  fail "after Settings closed, the second window isn't key: $(grep '^browser: front ' "$log" | tail -1)"
+
 # A Space the new window makes and leaves: back in the first Space it shows the first tab no other
 # window shows, the one the page opened, and the first window keeps the page.
 send menu New Space…
@@ -126,22 +145,39 @@ send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar in full screen"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
+# The driven window is the first on screen once its Space has slid in.
+in_front() {
+  for _ in $(seq 50); do
+    send front
+    grep '^browser: front ' "$log" | tail -1 | grep -q '^browser: front driven,' && return 0
+    sleep 0.1
+  done
+  return 1
+}
 send window 2
-# The second window is on screen once its Space has slid in.
-for _ in $(seq 30); do
-  send front
-  grep '^browser: front ' "$log" | tail -1 | grep -q '^browser: front driven,' && break
-  sleep 0.1
-done
+in_front || true
 expect '^browser: front driven, main driven, key driven, ax focused driven, ax main driven$' \
   "with the first window in full screen, other apps take the wrong window: $(grep '^browser: front ' "$log" | tail -1)"
+# Bringing the first window forward slides to its Space. Left from the desktop before that slide
+# ends, full screen ends at once and macOS slides none, or there and back after AppKit says it has
+# left, so a click can come in the middle (#889). Left from its own Space, it slides back once, and
+# until then the first window still covers the second and clicks go nowhere. That Space's first
+# window is full screen's toolbar, so only the slide's end says it's in. Elsewhere full screen is no
+# Space of its own.
 send window 1
+if [ "$(uname)" = Darwin ]; then
+  expect '^browser: desktop space changed$' "the first window's full-screen Space didn't come forward"
+fi
 send fullscreen
+left=$step
 expect '^browser: window left full screen$' "the first window didn't leave full screen"
-# AppKit says so before the desktop's Space has slid back, and until it has, the first window still
-# covers the second and clicks go nowhere.
-expect '^browser: desktop space changed$' "the desktop's Space didn't come back after full screen"
+if [ "$(uname)" = Darwin ]; then
+  expect '^browser: desktop space changed$' \
+    "the desktop's Space didn't come back after full screen" "$left"
+fi
 send window 2
+in_front ||
+  fail "after full screen, the second window didn't come forward: $(grep '^browser: front ' "$log" | tail -1)"
 
 # A click on the page's row in the new window moves the page there, live.
 send click $(row 0)
@@ -286,7 +322,8 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   send choose On
   expect "^browser: site controls set Safari's engine On\$" "On in the menu didn't run"
   expect "^browser: system engine $d on\$" "On didn't show the drm page in Safari's engine"
-  expect "^browser: title $d drm asked\$" "Safari's engine didn't load the drm page"
+  expect "^browser: loaded $d http://127.0.0.1:$port/drm.html\$" "Safari's engine didn't load the drm page"
+  expect_late "^browser: title $d drm asked\$" "Safari's engine didn't answer the drm page's request"
   # Safari's engine's page, taking the pane, may have closed them already.
   if none_since '^browser: site controls hidden$'; then
     send key escape

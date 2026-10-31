@@ -2,7 +2,7 @@
 
 Chromium built as Chrome's framework (`//chrome:chrome_framework`), from ungoogled-chromium plus our patch series. `./setup.sh` prepares the tree in `.deps/src`, and `./build.sh` builds `Chromium.app`, with the framework in it, in `.deps/src/out/Release`. `./setup.sh dev` and `./build.sh dev` do the same for the dev build in `.deps/src/out/Dev`, which has no link-time optimization, so its framework relinks much faster, and checks Chromium's DCHECKs. Work on the core uses it.
 
-Work that doesn't change the core needs no build: `./fetch.sh` downloads the prebuilt engine `prebuilt.ini` names, and the app uses it when there's no local build. `./publish.sh` makes one from the committed tree and uploads it as a GitHub release named after its commit, which is its source. A prebuilt engine has its commit's core, so `fetch.sh` refuses it once `core/public/browser_core.h` has changed; publish a new one with the API change.
+Work that doesn't change the core needs no build: `./fetch.sh` downloads the prebuilt engine built from the nearest commit in the checkout's history, a release `engine-mac-<commit>` of the repository `prebuilt.ini` names, and the app uses it when there's no local build. A prebuilt engine has its commit's core, so `fetch.sh` refuses it once `core/public/browser_core.h` has changed; publish a new one with the API change (The Mac's prebuilt engine, below).
 
 ## Layout
 
@@ -21,7 +21,7 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 | `point-release.sh` | Finds a security point release and dry-runs the patches on it, for the daily Action (Point releases, below) |
 | `windows/cross/` | Prepares, builds and packs the Windows engine, cross-compiled on Linux |
 | `windows/` | ungoogled-chromium-windows's own build with our hooks, for GitHub's Windows runners |
-| `prebuilt.ini` | The prebuilt engine: the commit it was built from, its URL and its SHA-256. Written by `publish.sh` |
+| `prebuilt.ini` | The repository whose releases hold the prebuilt engines `fetch.sh` downloads, which a fork changes |
 
 ## Order
 
@@ -40,9 +40,19 @@ Steps 1–3 change the tree and run once; a run that stopped in one of them mean
 
 It also needs the macOS SDK of Chromium's official builds (`mac_sdk_official_version` in `build/config/mac/mac_sdk.gni`: 26.5 for Chromium 156), from Xcode or the Command Line Tools, even when a newer Xcode is installed. The pinned LLVM's linker can't read newer SDKs.
 
+## The Mac's prebuilt engine
+
+The owner's MacBook builds the Mac engine; no GitHub runner is installed on it, so nothing on GitHub starts code there (#871). `tools/mac-engine-publish.sh`, after `build.sh`, packs the Release `Chromium.app` into `Chromium-mac-arm64.tar.xz` and publishes it with its SHA-256 as the release `engine-mac-<commit>`, tagged on the commit it was built from, which must be clean in `engine/` and `core/` and on GitHub. `fetch.sh` on a Mac takes the one nearest the checkout's history, as on Linux and Windows.
+
+`tools/mac-nightly.sh install` starts a launchd agent that runs at 03:00, or when the Mac wakes after a night it slept through. When main's core or engine differ from the newest `engine-mac` release in main's history, it builds main's Release engine in this checkout's tree, from a worktree of main in `~/.cache/ilo-mac-nightly`, and publishes it. It shares the one tree with the integrator's builds and the prod updater, so it skips the night while one is building, when the tree holds a patch no commit of main had, or when the tree's Chromium isn't the one main pins. A point release waits for the integrator's `setup.sh update`. A build started while the night's runs shares the tree with it, and after a night the tree links the checkout's core again but holds main's series, which the integrator's next `build.sh` replaces with their checkout's. It never runs the browser. `status` shows whether it's on and how the last nights went, from `~/Library/Logs/ilo-mac-nightly.log`, and `uninstall` stops it and removes the worktree.
+
+`.github/workflows/check-mac.yml` runs `app/check.sh` on that engine on GitHub's free hosted `macos-15` runners, on main's pushes and by hand. They're VMs of 3 cores and 7.5 GB with a 1024 by 768 screen, where the driven checks work but scrolling draws 35–41 frames a second, so performance is measured on the owner's Mac only.
+
 ## Linux
 
 `linux/prepare.sh <work>` prepares the tree in `<work>/src` with ungoogled-chromium-portablelinux's scripts at the tag `pins.ini` names, links the core and applies `series`. A new tag is unpacked and patched in `<work>/next` first, then copied over the tree with `rsync --checksum`, so a point release leaves unchanged files as they were and the next build recompiles only what it changed. `linux/build.sh <work>` builds `chrome`, with the core linked in, and `linux/package.sh` packs it with what it runs with into `Chromium-linux-x64.tar.xz`.
+
+`linux/test.sh <work>` builds and runs the core's unit tests, `browser_core_unittests`, as the Linux engine's run does. On Linux base's test support loads Chromium's test fonts, which the source tarball leaves out, so it fetches the object DEPS pins for them from Google's `chromium-fonts` bucket, checks its hash, and keeps it in the tree; a Chromium bump updates the pin in `test.sh`. They're only read by the tests, and `package.sh` never packs them.
 
 `check-linux.sh` prepares the same tree and compiles only the core's own objects; the `browser_core` target would compile most of Chrome, and nothing links. CI (`.github/workflows/core-linux.yml`) runs it on pushes that change the core or the engine, in about half an hour and 40 GB of disk.
 
@@ -58,7 +68,7 @@ Chromium's security point releases (same major, such as 156.0.8078.47 → .60) u
 
 ## Windows
 
-The Windows engine is cross-compiled on Linux, as Chromium's `docs/win_cross.md` describes, by `.github/workflows/engine-windows-cross.yml` on the runner that builds the Linux engine. It keeps its tree in `$ILO_ENGINE_ROOT/windows`, runs on the same pushes to main and by hand, and publishes a release `engine-windows-<commit>`, which `fetch.sh` downloads on Windows and `app/setup.sh` copies into `app/.deps/engine`.
+The Windows engine is cross-compiled on Linux, as Chromium's `docs/win_cross.md` describes, by `.github/workflows/engine-windows-cross.yml` on the runner that builds the Linux engine. It keeps its tree in `$ILO_ENGINE_ROOT/windows`, runs nightly on main, on pushes to main that change the pin, the series or its scripts, and by hand, but not for each core change, which would hold the Linux engines' one runner, and publishes a release `engine-windows-<commit>`, which `fetch.sh` downloads on Windows and `app/setup.sh` copies into `app/.deps/engine`. Until the next one, Windows takes the nearest engine in its history, up to a day's core changes behind main, and none after a change to `core/public/browser_core.h`.
 
 `windows/cross/prepare.sh <work>` takes ungoogled-chromium-windows's patches and Windows-only sources at the tag `pins.ini` names, on Chromium's source tarball, with ungoogled-chromium-portablelinux's Linux toolchain (the same ungoogled-chromium commit, which the script checks). Of ungoogled-chromium-windows's patches it leaves out the ones that fit its build to a Windows host or its own LLVM, and adds portablelinux's for the Linux host's Python and Node tools. A new tag comes in through `<work>/next` as on Linux. Three exceptions to ungoogled-chromium's pruning stay in the tree: the outputs of Microsoft's `midl` and `mc` that Chromium checks in under `win_build_output/` and `chrome/app/etw_events/`, and windows-rs's import libraries. Those tools don't run on Linux, so a cross build copies the checked-in outputs, as Google's own does. `windows/cross/build.sh` builds `chrome`, and `windows/cross/package.sh` packs what Chromium's `FILES.cfg` lists, with `chrome.dll.lib`, which the app links, into `Chromium-windows-x64.zip`.
 
@@ -130,14 +140,16 @@ so a build whose profile is elsewhere, as a dev build's is, does none of that.
   doesn't. Reports leave out the memory that pointers on the stack lead to, which can hold a
   page's, and Chrome's dumps of processes that didn't crash. The stacks can still hold a URL or
   page text, which is why sending is the user's to turn on.
-- **The collector.** `app/branding/crash-reports` holds GlitchTip's minidump endpoint,
+- **The collector.** `app/branding/crash-reports` holds the minidump endpoint of ilo's Sentry
+  project, in Sentry's EU region (organization `ilo-rg`, project `ilo`):
   `https://<host>/api/<project id>/minidump/?sentry_key=<key>`, read off the project's DSN,
-  `https://<key>@<host>/<project id>`. Empty, as a fork's starts, the build sends nothing and
-  Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
-  (glitchtip.com/documentation/install), an organization and a project, and an auth token with
-  `project:write` for the symbols.
+  `https://<key>@<host>/<project id>`. The key is public, as every client carries it. Only the
+  prod build (`app/build.sh prod`, as every release is) names it, so a dev build or a check never
+  sends to it, and Settings › Privacy names it "Sentry (EU region)". Empty, as a fork's starts,
+  the build sends nothing and Settings has no Privacy tab. A fork names its own project's
+  endpoint, Sentry's or a self-hosted collector's that takes Sentry's minidump endpoint.
 - **Symbols.** When the build names a collector, each release job uploads its OS's with
-  `tools/symbols.sh`, through `sentry-cli debug-files upload`, which GlitchTip takes as Sentry does.
+  `tools/symbols.sh`, through `sentry-cli debug-files upload`, to the same project.
   The Mac's are the Release engine's dSYMs and the app's executable; that engine builds with
   ungoogled-chromium-macos's `symbol_level=1` and `blink_symbol_level=0`, so frames have functions
   and lines outside Blink, and Blink's only their library. Linux and Windows build with their

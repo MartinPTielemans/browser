@@ -22,6 +22,10 @@ constexpr int64_t kInstallWait = 15;
 NSString* const kNotes = @"UpdateNotes";
 // The designated requirement Chromium last read its cookie key under.
 NSString* const kKeySignature = @"KeychainKeySignature";
+// The launches that tried to make the cookie key's item again under a signature, and failed. Each
+// try may have macOS ask, so a failure is tried again on only a few launches.
+NSString* const kKeyTries = @"KeychainKeyTries";
+constexpr NSInteger kKeyTriesLimit = 3;
 
 void Log(NSString* line) {
   fprintf(stderr, "browser: %s\n", line.UTF8String);
@@ -51,18 +55,88 @@ NSString* OwnSignature() {
   return CFBridgingRelease(text);
 }
 
-// Reads the cookie key as Chromium will, so macOS asks for it now if it's going to. The key itself
-// is dropped at once.
-OSStatus ReadKey(NSString* name) {
-  NSDictionary* query = @{
+// The cookie key's item, Chromium's, in the login keychain, or with |suffix|, the spare that holds
+// the key while the item is made again.
+NSDictionary* KeyItem(NSString* name, NSString* suffix = @"") {
+  NSString* service = [NSString stringWithFormat:@"%@ Safe Storage%@", name, suffix];
+  return @{
     (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-    (__bridge id)kSecAttrService : [name stringByAppendingString:@" Safe Storage"],
+    (__bridge id)kSecAttrService : service,
     (__bridge id)kSecAttrAccount : name,
-    (__bridge id)kSecReturnData : @YES,
   };
-  CFTypeRef key = nullptr;
-  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &key);
-  if (key) CFRelease(key);
+}
+NSString* const kSpare = @" (moving)";
+
+OSStatus CopyKey(NSDictionary* item, NSData** key) {
+  NSMutableDictionary* query = [item mutableCopy];
+  query[(__bridge id)kSecReturnData] = @YES;
+  CFTypeRef data = nullptr;
+  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &data);
+  *key = CFBridgingRelease(data);
+  return status;
+}
+
+// Adds |item| with |key|. macOS grants an item to the designated requirement of the app that
+// adds it, and to no other.
+OSStatus AddKey(NSDictionary* item, NSData* key) {
+  NSMutableDictionary* attributes = [item mutableCopy];
+  attributes[(__bridge id)kSecAttrLabel] = item[(__bridge id)kSecAttrService];
+  attributes[(__bridge id)kSecValueData] = key;
+  return SecItemAdd((__bridge CFDictionaryRef)attributes, nullptr);
+}
+
+// Whether |item| holds |key|, read back.
+OSStatus ReadBack(NSDictionary* item, NSData* key) {
+  NSData* held = nil;
+  OSStatus status = CopyKey(item, &held);
+  return status == errSecSuccess && ![held isEqual:key] ? errSecIO : status;
+}
+
+// Reads the cookie key as Chromium will, so macOS asks for it now if it's going to. A launch that
+// stopped while the item was made again left the key in the spare, which goes back first. Not
+// found means neither has it: with the spare there, Chromium would make a new key and lose the
+// profile's cookies and passwords, so a spare that can't be read or put back leaves both as they
+// are. |stranded| says the key is in the spare and couldn't be put back.
+OSStatus ReadKey(NSString* name, NSData** key, bool* stranded) {
+  *stranded = false;
+  OSStatus status = CopyKey(KeyItem(name), key);
+  if (status != errSecItemNotFound) return status;
+  OSStatus spare = CopyKey(KeyItem(name, kSpare), key);
+  if (spare == errSecItemNotFound) return status;
+  if (spare != errSecSuccess) {
+    Log([NSString stringWithFormat:@"the cookie key's spare couldn't be read: %d", (int)spare]);
+    return spare;
+  }
+  status = AddKey(KeyItem(name), *key);
+  if (status == errSecSuccess) status = ReadBack(KeyItem(name), *key);
+  Log([NSString stringWithFormat:@"the cookie key came back from its spare: %d", (int)status]);
+  if (status == errSecItemNotFound) status = errSecIO;
+  *stranded = status != errSecSuccess;
+  return status;
+}
+
+// Makes the cookie key's item again, holding the same key, so that it's granted to this app's
+// designated requirement instead of the one that made it. Signed with the team's requirement
+// (tools/requirement.sh), every build the team signs reads it after that, whichever of its
+// identities signed it, and the move from Apple Development to Developer ID asks nothing. Changing
+// the item's access in place would ask for the keychain's password; making it again doesn't.
+// Each step waits for the one before to read back, so one of the two always holds the key, and
+// success means the item does.
+OSStatus Regrant(NSString* name, NSData* key) {
+  NSDictionary* spare = KeyItem(name, kSpare);
+  SecItemDelete((__bridge CFDictionaryRef)spare);
+  OSStatus status = AddKey(spare, key);
+  if (status == errSecSuccess) status = ReadBack(spare, key);
+  if (status == errSecSuccess) status = SecItemDelete((__bridge CFDictionaryRef)KeyItem(name));
+  if (status != errSecSuccess) {
+    // The item is as it was.
+    SecItemDelete((__bridge CFDictionaryRef)spare);
+    return status;
+  }
+  status = AddKey(KeyItem(name), key);
+  if (status == errSecSuccess) status = ReadBack(KeyItem(name), key);
+  // Otherwise the spare stays, for ReadKey to put back.
+  if (status == errSecSuccess) SecItemDelete((__bridge CFDictionaryRef)spare);
   return status;
 }
 
@@ -177,11 +251,15 @@ bool SignedLikeThisApp(NSURL* app) {
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
     NSBundle* app = StagedApp(version);
     NSString* outcome = nil;
+    // The signature's check and the run apart, so the log says which of them macOS's check is in.
+    NSDate* checking = NSDate.date;
     if (!app) {
       outcome = @"not found";
     } else if (!SignedLikeThisApp(app.bundleURL)) {
       outcome = @"not signed as this app is";
     } else {
+      Log([NSString stringWithFormat:@"update %@ signature checked in %.0f ms", version,
+                                     -checking.timeIntervalSinceNow * 1000]);
       NSTask* task = [[NSTask alloc] init];
       task.executableURL = app.executableURL;
       NSMutableDictionary* environment = [NSProcessInfo.processInfo.environment mutableCopy];
@@ -363,21 +441,58 @@ bool host_keep_keychain_key(void) {
   if (name.length == 0 || !signature || [[defaults stringForKey:kKeySignature] isEqual:signature]) {
     return true;
   }
+  auto done = ^{
+    [defaults setObject:signature forKey:kKeySignature];
+    [defaults removeObjectForKey:kKeyTries];
+  };
+  NSInteger tries = [[defaults dictionaryForKey:kKeyTries][signature] integerValue];
   for (;;) {
-    OSStatus status = ReadKey(name);
+    NSData* key = nil;
+    bool stranded = false;
+    OSStatus status = ReadKey(name, &key, &stranded);
     // Not there: a first launch, and Chromium makes one.
-    if (status == errSecSuccess || status == errSecItemNotFound) {
-      [defaults setObject:signature forKey:kKeySignature];
+    if (status == errSecItemNotFound) {
+      done();
       return true;
+    }
+    if (status == errSecSuccess && tries >= kKeyTriesLimit) {
+      Log([NSString stringWithFormat:@"the cookie key is left as it is, after %d tries to regrant it",
+                                     (int)tries]);
+      // The item holds the key, so a spare a try left is only a copy.
+      SecItemDelete((__bridge CFDictionaryRef)KeyItem(name, kSpare));
+      done();
+      return true;
+    }
+    if (status == errSecSuccess) {
+      // Counted first, so a launch that stops partway counts too.
+      [defaults setObject:@{signature : @(++tries)} forKey:kKeyTries];
+      OSStatus regranted = Regrant(name, key);
+      Log([NSString stringWithFormat:@"the cookie key regranted to %@: %d", signature, (int)regranted]);
+      if (regranted == errSecSuccess) {
+        done();
+        return true;
+      }
+      // The item still has the key, or the spare does, which goes back.
+      status = ReadKey(name, &key, &stranded);
+      if (status == errSecSuccess) return true;
     }
     Log([NSString stringWithFormat:@"the cookie key couldn't be read: %d", (int)status]);
     // AppKit isn't up before Chromium starts, so the alert is the system's.
     NSString* title = [NSString stringWithFormat:@"%@ needs its key in your Keychain", name];
-    NSString* message = [NSString
-        stringWithFormat:@"%@ keeps the key to your cookies and saved passwords in your Keychain, as "
-                         @"\"%@ Safe Storage\". Without it, websites would sign you out. When macOS "
-                         @"asks, enter your password and choose Always Allow.",
-                         name, name];
+    NSString* message =
+        stranded
+            ? [NSString stringWithFormat:@"%@ keeps the key to your cookies and saved passwords in "
+                                         @"your Keychain. It couldn't put the key back as \"%@ "
+                                         @"Safe Storage\", and keeps it as \"%@ Safe Storage "
+                                         @"(moving)\" until it can. Without it, websites would "
+                                         @"sign you out. Make sure your login keychain is "
+                                         @"unlocked in Keychain Access, then try again.",
+                                         name, name, name]
+            : [NSString stringWithFormat:@"%@ keeps the key to your cookies and saved passwords in "
+                                         @"your Keychain, as \"%@ Safe Storage\". Without it, "
+                                         @"websites would sign you out. When macOS asks, enter "
+                                         @"your password and choose Always Allow.",
+                                         name, name];
     CFOptionFlags response = kCFUserNotificationOtherResponse;
     CFUserNotificationDisplayAlert(0, kCFUserNotificationCautionAlertLevel, nullptr, nullptr,
                                    nullptr, (__bridge CFStringRef)title,
