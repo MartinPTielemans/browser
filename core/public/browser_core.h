@@ -2385,6 +2385,12 @@ BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 // or an empty string. For the test driver, as the X server has none for it.
 BC_EXPORT size_t bc_window_child_title(bc_id window, char* title, size_t capacity);
 
+// On Linux, under X11: answers the requests for the clipboard's contents that other clients have
+// sent Chromium, from what it holds, and dispatches no other event of its. The UI calls it while its
+// own read of the clipboard waits, as the owner it asks can be Chromium, which answers on the UI's
+// thread.
+BC_EXPORT void bc_answer_clipboard_requests(void);
+
 #ifdef __cplusplus
 }
 #endif

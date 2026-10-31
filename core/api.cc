@@ -314,6 +314,12 @@ size_t bc_window_child_title(bc_id id, char* title, size_t capacity) {
 #endif
 }
 
+void bc_answer_clipboard_requests(void) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::platform::AnswerClipboardRequests();
+#endif
+}
+
 void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
 #if BUILDFLAG(IS_LINUX)
   if (views::Widget* widget = OpenWidget(id)) {
