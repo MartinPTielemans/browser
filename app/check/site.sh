@@ -14,6 +14,15 @@
 # signup.html is the same form asking for a new password, which posts to /signup, as /login.
 # /sign-in, with any query, asks for HTTP basic sign-in and takes ada with the password lovelace.
 mkdir "$out/site"
+# A page that a run types into once its title says so sets that title with painted(): Chromium
+# drops a key that comes before a page it loaded first shows, for up to half a second while it
+# holds the last page's picture (paint holding). A page paints once it has something to draw.
+printf '%s' 'function painted(then) {
+  new PerformanceObserver((entries, observer) => {
+    observer.disconnect();
+    then();
+  }).observe({type: "paint", buffered: true});
+}' > "$out/site/painted.js"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
 <a id=d download href="notes.txt"></a><a id=s download href="slow.bin"></a>
@@ -66,11 +75,11 @@ const say = () => document.title = "scheme " + (dark.matches ? "dark" : "light")
 say();
 dark.onchange = say;
 </script>' > "$out/site/scheme.html"
-# Its title says "login" once it's drawn, "filled" each time Chrome fills a saved password in, and
-# "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
+# Its title says "login" once it has painted, "filled" each time Chrome fills a saved password in,
+# and "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
 # highlighted fills it too, but only a fill the user chose gives the page its value, with a change
 # event, and then the title says "chosen".
-printf '%s' '<title>loading</title>
+printf '%s' '<title>loading</title><script src="painted.js"></script>
 <form method="post" action="login">
 <input id=user name=username autocomplete=username
   style="position:fixed;left:0;top:0;width:100%;height:50%;font:24px system-ui">
@@ -79,7 +88,7 @@ printf '%s' '<title>loading</title>
 <button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
 </form>
 <script>
-requestAnimationFrame(() => setTimeout(() => document.title = "login"));
+painted(() => document.title == "loading" && (document.title = "login"));
 let filled = false;
 pass.onchange = () => { if (pass.matches(":autofill") && pass.value) document.title = "chosen"; };
 setInterval(() => {
@@ -90,7 +99,7 @@ setInterval(() => {
 }, 100);
 </script>' > "$out/site/login.html"
 # A sign-up form, laid out as the login is, whose password field asks for a new password. Its title
-# says "signup" once it's drawn, "offered" while Chrome's popup previews a password in that field,
+# says "signup" once it has painted, "offered" while Chrome's popup previews a password in that field,
 # "own" once the preview goes with the field left empty, as Choose Your Own leaves it, and
 # "generated" once the field holds a password as long as Chrome's, 15 characters.
 printf '%s' '<title>loading</title>
@@ -101,9 +110,10 @@ printf '%s' '<title>loading</title>
   style="position:fixed;left:0;top:50%;width:100%;height:50%;font:24px system-ui">
 <button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
 </form>
+<script src="painted.js"></script>
 <script>
 let state = "loading";
-requestAnimationFrame(() => setTimeout(() => document.title = state = "signup"));
+painted(() => state == "loading" && (document.title = state = "signup"));
 setInterval(() => {
   const now = pass.value.length >= 15 ? "generated" : pass.matches(":autofill") ? "offered" :
     state == "offered" ? "own" : state;
@@ -143,16 +153,13 @@ onkeydown = e => {
 </script>' > "$out/site/dialogs.html"
 # The cookie page's title says whether it finds its cookie, c, never a value, since the app logs
 # every title, and how many times the server has sent its script, which the cache keeps for an
-# hour. Another run's cookies on the site don't count. "c" in it sets the cookie. Chromium drops a
-# key that comes before a page it loaded first shows, for up to half a second (paint holding), so
-# the title comes once the page has painted, which it does once it has something to draw.
+# hour, once it has painted. Another run's cookies on the site don't count. "c" in it sets the
+# cookie.
 printf '%s' '<title>loading</title><p>c sets a cookie.</p><script src="count.js"></script>
+<script src="painted.js"></script>
 <script>
-new PerformanceObserver((entries, observer) => {
-  observer.disconnect();
-  document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
-    " cache " + count;
-}).observe({type: "paint", buffered: true});
+painted(() => document.title = "cookie " +
+  (document.cookie.split("; ").includes("c=1") ? "c" : "none") + " cache " + count);
 onkeydown = e => {
   if (e.key == "c") {
     document.cookie = "c=1";

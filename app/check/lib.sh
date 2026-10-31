@@ -170,10 +170,11 @@ post() {
 # with none its one Share… for the share sheet, dimmed for a page with no link, or nothing on Linux,
 # which has neither. A check reads past them and never chooses one.
 share='\(, Share…\( (disabled)\)\?\|, Share › [^,]*\(, Share › [^,]*\)*\)\?'
-# Waits for a line matching $1 logged after the last command was sent.
+# Waits for a line matching $1 logged after the last command was sent, or after command $3, and
+# fails with $2.
 expect() {
   for _ in $(seq 100); do
-    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
+    sed -n "/^browser: drive ${3:-$step}: /,\$p" "$log" | grep -q "$1" && return 0
     sleep 0.1
   done
   fail "$2"
@@ -406,6 +407,17 @@ with open(sys.argv[1], "w") as f:
 # Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
+}
+# Waits up to 3 s for the clipboard to hold the text $1, off the Mac, where a run's clipboard is its
+# headless session's, which wl-paste reads, Xwayland's too, as sway hands it over. The Mac's
+# pasteboard is the run's own, which nothing else reads, so it passes there, as under Xvfb.
+clipboard_holds() {
+  case "${BROWSER_HEADLESS:-xvfb}" in xvfb) return 0 ;; esac
+  for _ in $(seq 30); do
+    [ "$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" wl-paste -n 2>/dev/null)" = "$1" ] && return 0
+    sleep 0.1
+  done
+  return 1
 }
 # Waits for the check's server to log a request matching $1, as site.sh writes them.
 served() {
