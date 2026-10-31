@@ -2083,6 +2083,9 @@ impl Shell {
             let tiles = self.drawn();
             if self.end_drag(false) {
                 self.move_tiles(tiles, Curve::Slide);
+            } else if let Some(position) = self.drag_position() {
+                // A row carried over the new lists finds its place in them where the pointer is.
+                self.drag_to(position, cx);
             }
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
