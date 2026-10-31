@@ -250,6 +250,7 @@ for i in 1 2 3 4; do
   launched=$(python3 -I -c 'import time; print(time.time())')
   BROWSER_DRIVE=1 BROWSER_URL="${site}probe.html?$i" BROWSER_PROFILE_DIR="$profile_dir" \
     "$browser" --ad-block-filters="$filters" --enable-logging=stderr --v=0 \
+    --vmodule='*extension_host*=2,*process_manager*=2,*background*=2,*extension_registrar*=2' \
     < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
