@@ -527,7 +527,8 @@ send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"
 # The driver's done for a click that closes its window can be lost with the window, as it always
 # was in a VM, so the click isn't waited for; Settings going is.
-post clickkey 16 16
+settings_close
+post clickkey $close
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"

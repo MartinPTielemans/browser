@@ -824,14 +824,17 @@ pub fn refresh(cx: &mut App) {
     }
 }
 
-/// The window's close button, where the browser window's is, for a window without a frame to draw
-/// it. Settings can't be minimized or zoomed, so it's alone.
-fn close_button() -> impl IntoElement {
+/// The window's close button, for a window without a frame to draw it: where the browser window's
+/// is on Linux, and in the top right corner on Windows, where Windows puts close. Settings can't be
+/// minimized or zoomed, so it's alone. `at` logs where it's drawn.
+fn close_button(at: gpui::Canvas<()>) -> impl IntoElement {
     let (x, colour) = shell::WINDOW_BUTTONS[0];
-    div()
-        .id("close")
-        .absolute()
-        .left(px(x - WINDOW_BUTTON_SIZE / 2.))
+    let button = div().id("close").absolute();
+    let button = match cfg!(target_os = "windows") {
+        true => button.right(px(x - WINDOW_BUTTON_SIZE / 2.)),
+        false => button.left(px(x - WINDOW_BUTTON_SIZE / 2.)),
+    };
+    button
         .top(px((TITLE_BAR - WINDOW_BUTTON_SIZE) / 2.))
         .size(px(WINDOW_BUTTON_SIZE))
         .rounded_full()
@@ -847,6 +850,7 @@ fn close_button() -> impl IntoElement {
                 .text_color(gpui::transparent_black())
                 .group_hover("close", |style| style.text_color(rgba(WINDOW_BUTTON_GLYPH))),
         )
+        .child(at)
 }
 
 fn hide(_: &mut App) {
@@ -934,7 +938,7 @@ impl Settings {
             .border_color(rgb(BAR_LINE))
             .relative()
             .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
-            .children(frameless.then(close_button))
+            .children(frameless.then(|| close_button(self.drawn("close".into()))))
             .child(
                 div()
                     .h(px(TITLE_BAR))
@@ -2659,8 +2663,10 @@ impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The app's window, not a Space's, so ilo green rather than a Space's accent (#319).
         let accent = rgb(browser::palette::NO_THEME_ACCENT);
-        // As Linux's client-side decorations leave it; AppKit's frame is always there.
-        let frameless = matches!(window.window_decorations(), gpui::Decorations::Client { .. });
+        // As Linux's client-side decorations leave it, and Windows', where GPUI hides the system's
+        // title bar and its buttons for a transparent one; AppKit's frame is always there.
+        let frameless = cfg!(target_os = "windows")
+            || matches!(window.window_decorations(), gpui::Decorations::Client { .. });
         if self.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE) {
             window.request_animation_frame();
         }
