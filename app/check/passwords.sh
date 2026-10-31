@@ -76,6 +76,10 @@ offered() {
   expect "^browser: offer $tab $1 check@example.test " "the login brought no offer to $1"
   expect '^browser: offer shown$' "the offer to $1 wasn't shown"
   expect "^browser: offer $tab takes input\$" "the offer to $1 never took input"
+  offer_place
+}
+# Sets $ox and $oy to where the offer's card is in the browser window.
+offer_place() {
   send layout
   child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: layout child' |
     grep ' 320x180$' | head -1 | sed 's/^browser: layout child //')
@@ -84,7 +88,7 @@ offered() {
   oy=${child#*,}
   oy=${oy%% *}
 }
-# The offer's window has the keyboard, in its username field.
+# The offer's window has the keyboard, in its username field for a login.
 in_offer() {
   [ "$key" = GPUIPanel ] && [ "$focus" = GPUIView ] ||
     fail "$1: the keyboard is in $key, on $focus"
@@ -368,8 +372,9 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar"
 sed -n "/^browser: drive $off: /,\$p" "$log" | grep -q "^browser: offer $tab " &&
   fail "the login brought an offer with Offer to save passwords off"
 
-# A form's address brings Chrome's offer to save it, in the same card with its lines to read and
-# the keyboard on the card, where return saves it; the form then offers it in Chrome's dropdown.
+# A form's address brings Chrome's offer to save it, in the same card with its lines to read,
+# which takes the keyboard when clicked, and return saves it; the form then offers it in Chrome's
+# dropdown.
 # A card's offer names it by its last four digits, and escape declines it. Made-up data only.
 # Types $1 in the form's first field, then each of the rest after a tab, and submits it.
 submit_form() {
@@ -382,11 +387,15 @@ submit_form() {
   done
   send key return
 }
-# Waits for the page's form to bring an offer of kind $1, and for its card to take input.
+# Waits for the page's form to bring an offer of kind $1, and for its card to take input, then
+# gives the card the keyboard with a click on its title, as the login's takes it.
 offered_to_save() {
   expect "^browser: offer $tab $1 [0-9]*\$" "the $1 form brought no offer to save it"
   expect '^browser: offer shown$' "the offer to save the $1 wasn't shown"
   expect "^browser: offer $tab takes input\$" "the offer to save the $1 never took input"
+  offer_place
+  send click $((ox + 160)) $((oy + 24))
+  in_offer "after a click on the offer to save the $1"
 }
 go_from_bar "${site#http://}address.html"
 expect "^browser: title $tab address\$" "the address page didn't load"
