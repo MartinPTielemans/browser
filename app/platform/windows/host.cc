@@ -215,6 +215,7 @@ void Adopt(Floating& floating, void* view, bool mouse_through, void (*dismissed)
   DwmSetWindowAttribute(floating.hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof corners);
 }
 
+void WatchOwner(HWND root);
 // Puts |hwnd| at |x|, |y|, |width| by |height| over the others and on screen. It's shown with
 // ShowWindow rather than SWP_SHOWWINDOW, which doesn't send WM_SHOWWINDOW, the message GPUI learns
 // its window is on screen from (window.is_visible()), where an overlay's motion starts.
@@ -239,6 +240,7 @@ void Show(Floating& floating, void* ui_view, double left, double top, double wid
   POINT origin{static_cast<LONG>(left * scale), static_cast<LONG>(top * scale)};
   ClientToScreen(root, &origin);
   SetWindowLongPtrW(floating.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
+  WatchOwner(root);
   PlaceAndShow(floating.hwnd, origin.x, origin.y, static_cast<int>(width * scale),
                static_cast<int>(height * scale), keyboard);
   if (keyboard) {
@@ -265,7 +267,8 @@ void Hide(Floating& floating) {
   floating.hiding = true;
   ShowWindow(floating.hwnd, SW_HIDE);
   floating.hiding = false;
-  if (had_keyboard && owner) {
+  // Not to a browser window that's hiding to close.
+  if (had_keyboard && owner && IsWindowVisible(owner)) {
     SetForegroundWindow(owner);
   }
 }
@@ -829,6 +832,45 @@ void PostMenuDismiss(bool give_back) {
   if (void (*dismissed)(void) = g_menu.dismissed) {
     Later([dismissed] { dismissed(); });
   }
+}
+
+// Takes the app's windows off |root|, hidden: the menu, the overlays and the window's own panels.
+// Windows destroys a window's owned windows with it, before it says it's going, and these are GPUI
+// windows the app goes on using, shared between browser windows or closed by the app itself, so a
+// quit with the command bar up crashed in one freed under it (#1058).
+void Disown(HWND root) {
+  // The menu may be over a reveal, which root owns.
+  if (HWND owner = g_menu.hwnd ? GetWindow(g_menu.hwnd, GW_OWNER) : nullptr;
+      owner && (owner == root || GetWindow(owner, GW_OWNER) == root)) {
+    ShowWindow(g_menu.hwnd, SW_HIDE);
+    SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, 0);
+    PostMenuDismiss(false);
+  }
+  for (auto& [hwnd, floating] : FloatingByHwnd()) {
+    if (GetWindow(hwnd, GW_OWNER) == root) {
+      Hide(*floating);
+      SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, 0);
+    }
+  }
+}
+
+UINT_PTR const kOwner = 3;
+
+// A browser window the app's windows are over. Windows hides one before it destroys it and the
+// windows it owns, so they leave it as it hides.
+LRESULT CALLBACK OwnerProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
+                           DWORD_PTR) {
+  if (message == WM_WINDOWPOSCHANGED &&
+      (reinterpret_cast<const WINDOWPOS*>(lparam)->flags & SWP_HIDEWINDOW)) {
+    Disown(hwnd);
+  } else if (message == WM_NCDESTROY) {
+    RemoveWindowSubclass(hwnd, OwnerProc, kOwner);
+  }
+  return DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
+void WatchOwner(HWND root) {
+  SetWindowSubclass(root, OwnerProc, kOwner, 0);
 }
 
 // Every pointer event in the app, before the window under the pointer hears it: the menu takes
@@ -1696,13 +1738,7 @@ double host_since_launch(void) {
 }
 
 void host_forget_window(void* ui_view) {
-  HWND root = Root(ui_view);
-  for (auto& [hwnd, floating] : FloatingByHwnd()) {
-    if (GetWindow(hwnd, GW_OWNER) == root) {
-      Hide(*floating);
-      SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, 0);
-    }
-  }
+  Disown(Root(ui_view));
   g_find_bars.erase(ui_view);
   g_offers.erase(ui_view);
   g_reveals.erase(ui_view);
@@ -2267,6 +2303,7 @@ void host_show_menu_window(void* ui_view,
       return;
     }
     SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
+    WatchOwner(root);
     PlaceAndShow(g_menu.hwnd, frame.left, frame.top, frame.right - frame.left,
                  frame.bottom - frame.top, true);
     SetForegroundWindow(g_menu.hwnd);

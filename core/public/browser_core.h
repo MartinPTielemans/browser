@@ -890,10 +890,11 @@ BC_EXPORT void* bc_window_wayland_surface(bc_id window, double* width, double* h
 // On Linux under Wayland, where every key reaches both the browser window, for its pages, and the
 // app's UI: gives the keyboard in |window| to the UI, as a click in the UI does, and the page that
 // had it lets it go. A click in a page, or the core focusing one, takes it back. On X11 the X
-// server's focus says whose the keys are, and the core follows it.
+// server's focus says whose the keys are, and the core follows it. On Windows the app calls it
+// before it focuses the UI, so the core knows whether the UI kept the keyboard already.
 BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
 
-// On Linux, as |window| shows no page: gives the keyboard to the app's UI, as
+// On Linux and Windows, as |window| shows no page: gives the keyboard to the app's UI, as
 // bc_window_ui_takes_keyboard does, until a page shows, which then has it, as the Mac's window
 // holds the keys for the next page shown.
 BC_EXPORT void bc_window_ui_holds_keyboard(bc_id window);
@@ -2300,6 +2301,12 @@ BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
 // (bc_window_keyboard_in_child), such as a tab's dialog, copied into |title| as bc_space_name does,
 // or an empty string. For the test driver, as the X server has none for it.
 BC_EXPORT size_t bc_window_child_title(bc_id window, char* title, size_t capacity);
+
+// On Linux, under X11: answers the requests for the clipboard's contents that other clients have
+// sent Chromium, from what it holds, and dispatches no other event of its. The UI calls it while its
+// own read of the clipboard waits, as the owner it asks can be Chromium, which answers on the UI's
+// thread.
+BC_EXPORT void bc_answer_clipboard_requests(void);
 
 #ifdef __cplusplus
 }

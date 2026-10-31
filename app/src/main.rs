@@ -1871,18 +1871,22 @@ unsafe extern "C" fn tab_link_target(
 
 /// Gives the keyboard in `window` to the UI, whose GPUI view is `view`, to keep or, with
 /// `until_page`, until a page shows. On Linux the core says whose the keys are, and takes them from
-/// the page.
+/// the page. On Windows it hears first, while the focus still says whether the UI had them.
 fn focus_ui(window: bc::bc_id, view: *mut c_void, until_page: bool) {
-    unsafe { platform::host_focus(view) };
-    #[cfg(target_os = "linux")]
-    unsafe {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let tell_core = || unsafe {
         if until_page {
             bc::bc_window_ui_holds_keyboard(window)
         } else {
             bc::bc_window_ui_takes_keyboard(window)
         }
     };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    tell_core();
+    unsafe { platform::host_focus(view) };
+    #[cfg(target_os = "linux")]
+    tell_core();
+    #[cfg(target_os = "macos")]
     let _ = (window, until_page);
 }
 
@@ -2972,14 +2976,14 @@ impl Browser for Engine {
     fn toast_button(
         &self,
         text: &str,
-        (label, name): (&'static str, &'static str),
+        (label, name): (Option<&'static str>, &'static str),
         run: Rc<dyn Fn(&mut App)>,
         time: Duration,
         cx: &mut App,
     ) {
         let text = text.to_string();
         let button = toast::Button {
-            label: toast::Label::Text(label.into()),
+            label: label.map_or(toast::Label::Plate, |label| toast::Label::Text(label.into())),
             name,
             run: Rc::new(move |_, cx| run(cx)),
         };
@@ -3770,6 +3774,12 @@ extern "C" fn file_preview(
         let png = Arc::new(Image::from_bytes(ImageFormat::Png, png));
         FilePreview { image: png, width: width as f32, height: height as f32, photo: image }
     });
+    let kind = match preview {
+        Some(_) if image => "picture",
+        Some(_) => "icon",
+        None => "none",
+    };
+    log!("browser: download {download} preview {kind} {width}x{height}");
     update_shells(|shell, cx| shell.set_download_preview(download, preview.clone(), cx));
 }
 
@@ -4353,7 +4363,14 @@ unsafe extern "C" fn started(_: *mut c_void) {
         match display.is_null() {
             // GPUI's X11 scale is its own guess otherwise, from Xft.dpi, where Chromium also
             // follows GDK_SCALE.
-            true => gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32),
+            true => {
+                gpui_linux::embed_x11(unsafe { bc::bc_display_scale() } as f32);
+                // The clipboard's owner can be Chromium, which answers on this thread, so the UI's
+                // read has it answer while it waits (#999).
+                gpui_linux::answer_clipboard_reads_with(|| unsafe {
+                    bc::bc_answer_clipboard_requests()
+                });
+            }
             false => {
                 gpui_linux::embed_wayland(display, keyboard);
                 gpui_linux::watch_embedder_swipes(system::swiped);
