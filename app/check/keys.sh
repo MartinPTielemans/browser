@@ -19,9 +19,10 @@
 # gives New Tab ⌃⌘T, which stays reserved and reaches
 # the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
 # Settings' About tab, with Settings key and with About already showing. The Shortcuts tab lists
-# the sidebar's commands, and Focus Sidebar given ⌃⌘K there takes the keyboard from the page. Go
-# to Space 1 given ⌃⌘1 there shows the first Space, and ⌃1 no longer does. Include Favorites in
-# ⌘1–⌘8 turned off there has ⌘1 show the first tab that isn't a favorite, until Restore Defaults.
+# the sidebar's commands, and Focus Sidebar given ⌃⌘K there takes the keyboard from the page, as
+# its own F6 does once Restore Defaults gives it back. Go to Space 1 given ⌃⌘1 there shows the
+# first Space, and ⌃1 no longer does. Include Favorites in ⌘1–⌘8 turned off there has ⌘1 show the
+# first tab that isn't a favorite, until Restore Defaults.
 # ⌘T as the window comes on screen, before the overlays' windows are made, makes them and opens
 # the bar.
 
@@ -428,9 +429,9 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 
-# The sidebar's commands are in Settings › Shortcuts, where Focus Sidebar gets the key Arc's isn't
-# measured for (#676). Given ⌃⌘K, it gives the sidebar the keyboard from the page, and Restore
-# Defaults takes the key away again.
+# The sidebar's commands are in Settings › Shortcuts, where Focus Sidebar, on F6 at first, Chrome's
+# key out of the page (#676), can get another. Given ⌃⌘K, it gives the sidebar the keyboard from
+# the page, and Restore Defaults gives F6 back, which does the same.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 401 60
@@ -479,12 +480,17 @@ expect '^browser: shortcuts search "focus sidebar" finds Focus Sidebar$' \
 # the key's name's off the Mac. New Tab has its default already.
 send clickkey 126 246
 expect '^browser: shortcuts restored$' "a click on Restore Defaults didn't restore the keys"
-expect '^browser: shortcut focus-sidebar none$' \
-  "Restore Defaults didn't take Focus Sidebar's key away"
+expect '^browser: shortcut focus-sidebar f6$' \
+  "Restore Defaults didn't give Focus Sidebar F6 back"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after a click on the page"
+send key f6
+expect '^browser: sidebar keyed ' "F6 with the page focused didn't give the sidebar the keyboard"
+send key escape
+expect '^browser: sidebar keys left by escape$' "escape didn't take F6's sidebar keyboard away"
+in_browser RenderWidgetHostViewCocoa "after escape left the sidebar F6 gave the keyboard"
 
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
