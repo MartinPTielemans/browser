@@ -1094,6 +1094,8 @@ impl Settings {
                 .on_click(cx.listener(move |settings, _, window, cx| {
                     settings.show_tab(tab, window, cx)
                 }))
+                .relative()
+                .child(self.drawn(format!("tab {}", tab.name())))
                 .child(svg().path(tab.icon()).size(px(ICON)).mt(px(ICON_TOP)).text_color(color))
                 .child(
                     div()

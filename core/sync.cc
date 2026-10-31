@@ -75,6 +75,7 @@
 #include "components/sync/service/sync_service_observer.h"
 #include "components/sync/service/sync_user_settings.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "crypto/hash.h"
@@ -259,6 +260,12 @@ class SignInWindow : public views::WidgetObserver, public content::WebContentsOb
   void DidStartNavigation(content::NavigationHandle* navigation) override { Caught(navigation); }
   void DidRedirectNavigation(content::NavigationHandle* navigation) override {
     Caught(navigation);
+  }
+  // For the checks, which type in the page once it's there.
+  void DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) override {
+    if (frame->IsInPrimaryMainFrame()) {
+      LOG(ERROR) << "browser: sync sign-in loaded " << url.path();
+    }
   }
 
   // views::WidgetObserver:

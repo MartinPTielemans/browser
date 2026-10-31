@@ -577,7 +577,7 @@ expect '^browser: icon picker hidden$' "picking an emoji didn't close the icon p
 # tabs as Markdown links, the folder a list of what it holds.
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
-send clickkey 519 60
+send clickkey $(drawn "tab Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 # On the Mac and Linux, where the host hears ⌥ alone, its switch row is 42 under the other three.
 case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac

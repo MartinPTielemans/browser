@@ -564,9 +564,19 @@ impl Account {
     }
 
     /// Records where what it's in is drawn, by `name`.
+    /// Logs it as "browser: settings sync `name` at x y", its centre, each time it moves, for
+    /// check.sh to click it there.
     fn place(&self, name: String) -> impl IntoElement + use<> {
         let drawn = self.drawn.clone();
-        canvas(move |bounds, _, _| _ = drawn.borrow_mut().insert(name, bounds), |_, _, _, _| {})
+        canvas(
+            move |bounds, _, _| {
+                if drawn.borrow_mut().insert(name.clone(), bounds) != Some(bounds) {
+                    let (x, y) = (f32::from(bounds.center().x), f32::from(bounds.center().y));
+                    log!("browser: settings sync {name} at {x:.0} {y:.0}");
+                }
+            },
+            |_, _, _, _| {},
+        )
             .absolute()
             .top_0()
             .left_0()
