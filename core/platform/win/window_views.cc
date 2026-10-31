@@ -6,12 +6,15 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "base/auto_reset.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
+#include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
@@ -21,6 +24,9 @@
 #include "chrome/installer/util/shell_util.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
+#include "ui/aura/client/window_types.h"
+#include "ui/aura/env.h"
+#include "ui/aura/env_observer.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
@@ -31,6 +37,7 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/views/focus/native_view_focus_manager.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -43,6 +50,68 @@
 namespace browser_core::platform {
 
 namespace {
+
+// A native view in the logs below: its widget's name, and its own.
+std::string Describe(aura::Window* window) {
+  if (!window) {
+    return "nothing";
+  }
+  views::Widget* widget = views::Widget::GetWidgetForNativeView(window);
+  return (widget ? widget->GetName() : std::string("no widget")) + " / " + window->GetName();
+}
+
+// A window's class, in the logs below.
+std::string ClassOf(HWND hwnd) {
+  char name[64] = "";
+  if (hwnd) {
+    GetClassNameA(hwnd, name, sizeof(name));
+  }
+  return name;
+}
+
+// With --vmodule=window_views=1, what can close Chrome's dropdown under a page's field (#1037):
+// Chrome hides it on any native focus that isn't its own, and as the widget it hangs from moves,
+// which here is the page's pane's. It logs each popup's showing and hiding, and each native focus.
+class PopupLog : public views::NativeViewFocusChangeListener,
+                 public aura::EnvObserver,
+                 public aura::WindowObserver {
+ public:
+  PopupLog() {
+    views::NativeViewFocusManager::GetInstance()->AddFocusChangeListener(this);
+    aura::Env::GetInstance()->AddObserver(this);
+  }
+
+  // views::NativeViewFocusChangeListener: what Chrome's dropdown hears.
+  void OnNativeFocusChanged(gfx::NativeView focused_now) override {
+    VLOG(1) << "native focus now " << Describe(focused_now);
+  }
+
+  // aura::EnvObserver:
+  void OnWindowInitialized(aura::Window* window) override {
+    if (window->GetType() == aura::client::WINDOW_TYPE_POPUP ||
+        window->GetType() == aura::client::WINDOW_TYPE_MENU) {
+      popups_.insert(window);
+      window->AddObserver(this);
+    }
+  }
+
+  // aura::WindowObserver: heard for a popup's own windows too, which aren't logged.
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override {
+    if (popups_.contains(window)) {
+      VLOG(1) << "popup " << Describe(window) << (visible ? " shown at " : " hidden at ")
+              << window->GetBoundsInScreen().ToString();
+    }
+  }
+
+  void OnWindowDestroying(aura::Window* window) override {
+    if (popups_.erase(window)) {
+      window->RemoveObserver(this);
+    }
+  }
+
+ private:
+  std::set<raw_ptr<aura::Window>> popups_;
+};
 
 // Gives a slot's HWND the keyboard while a page in it has aura's focus, and takes the page's focus
 // as the HWND loses it. Windows sends keys and the input method's messages only to the focused
@@ -71,7 +140,11 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
   // HWND focused, which it needs to take the input method's text. Not while another of the app's
   // windows is in front, such as the command bar.
   void OnWindowFocused(aura::Window* gained_focus, aura::Window*) override {
-    if (gained_focus && GetFocus() != hwnd_ && GetActiveWindow() == GetAncestor(hwnd_, GA_ROOT)) {
+    const bool take =
+        gained_focus && GetFocus() != hwnd_ && GetActiveWindow() == GetAncestor(hwnd_, GA_ROOT);
+    VLOG(1) << "pane " << hwnd_ << " focuses " << Describe(gained_focus)
+            << (take ? ", taking the keyboard" : "");
+    if (take) {
       base::AutoReset<bool> taking(&taking_, true);
       SetFocus(hwnd_);
     }
@@ -87,6 +160,8 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
       }
       // A page focused while another window was in front hears again, to take the input method.
       aura::Window* focused = client_ && !taking_ ? client_->GetFocusedWindow() : nullptr;
+      VLOG(1) << "pane " << hwnd_ << " has the keyboard"
+              << (focused ? ", focusing again " + Describe(focused) : std::string());
       if (focused) {
         aura::WindowTracker tracker;
         tracker.Add(focused);
@@ -100,6 +175,8 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
       if (to && IsChild(hwnd_, to)) {
         return false;
       }
+      VLOG(1) << "pane " << hwnd_ << " loses the keyboard to " << to << " " << ClassOf(to)
+              << ", blurring its page";
       if (input_method) {
         input_method->OnBlur();
       }
@@ -114,6 +191,11 @@ class PaneKeyboard : public aura::client::FocusChangeObserver,
 
   // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget*) override { Stop(); }
+
+  // What a dropdown hung from the pane hears, and closes for.
+  void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect& bounds) override {
+    VLOG(1) << "pane " << hwnd_ << " bounds now " << bounds.ToString();
+  }
 
  private:
   void Stop() {
@@ -429,6 +511,9 @@ void AddWindowViews(views::Widget* widget, void* ui_view) {
                      (GetWindowLongPtr(ui, GWL_STYLE) & ~WS_POPUP) | WS_CHILD | WS_VISIBLE);
     SetParent(ui, window);
   }
+  if (VLOG_IS_ON(1)) {
+    static base::NoDestructor<PopupLog> popup_log;
+  }
   auto views = std::make_unique<WindowViews>(widget, ui);
   WindowViews* raw = views.get();
   AllWindowViews()[widget] = std::move(views);
@@ -491,6 +576,17 @@ void ShowPages(views::Widget* widget,
     if (devtools) {
       Hold(parent, devtools, hidden);
       slot.page_in_devtools = pane.devtools->page_frame;
+    }
+    if (slot.page != pane.page && VLOG_IS_ON(1)) {
+      // What Chrome's dropdown takes for the page's window, and the window it keeps within.
+      views::Widget* top = views::Widget::GetTopLevelWidgetForNativeView(pane.page);
+      views::Widget* root = top;
+      while (root && root->parent()) {
+        root = root->parent();
+      }
+      VLOG(1) << "pane " << i << " page " << Describe(pane.page) << ": top-level widget "
+              << (top ? top->GetName() : std::string("none")) << ", in "
+              << (root ? root->GetName() : std::string("none"));
     }
     Hold(parent, pane.page, hidden);
     if (devtools) {
