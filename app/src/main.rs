@@ -1099,8 +1099,9 @@ impl link_preview::Host for LinkPreviewHost {
     }
 
     fn page_under(&self) -> bool {
-        // No window of the app's holds a page on Linux (link_preview_window.rs).
-        cfg!(target_os = "linux")
+        // No window of the app's holds a page on Linux (link_preview_window.rs) or Windows
+        // (platform/windows/host.cc).
+        cfg!(any(target_os = "linux", target_os = "windows"))
     }
 
     fn release(&self) {
@@ -1134,7 +1135,7 @@ extern "C" fn link_preview_dismissed() {
 }
 
 thread_local! {
-    /// Whether the host has a view for a link preview's page, which only the Mac's has so far.
+    /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
 }
 
