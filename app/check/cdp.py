@@ -1,6 +1,8 @@
 """The passkeys and passwords runs' DevTools client (check/passkeys.sh, check/passwords.sh), over
 the pipe --remote-debugging-pipe gives the browser: the browser reads from IN and writes to OUT,
-each message JSON ending in NUL.
+each message JSON ending in NUL. Or, with --port, over the WebSocket of --remote-debugging-port,
+whose port and path the browser writes in the file PORTS, DevToolsActivePort in its profile: on
+Windows the pipe is handles, which Git Bash can't give the browser.
 
 It attaches to the page whose address ends in PAGE, logging "cdp: attached", then takes a command
 a line on its standard input:
@@ -19,16 +21,95 @@ a line on its standard input:
                   none for no such page, such as Chrome's password manager page, a WebUI page
 The domains are for the checks alone. Agents never get DevTools: it runs any script in any page.
 
-Usage: cdp.py IN OUT PAGE
+Usage: cdp.py IN OUT PAGE | cdp.py --port PORTS PAGE
 """
 
+import base64
 import json
+import os
+import socket
+import struct
 import sys
 import threading
+import time
 
-to_browser = open(sys.argv[1], "wb")
-from_browser = open(sys.argv[2], "rb")
 page = sys.argv[3]
+if sys.argv[1] == "--port":
+    for _ in range(300):
+        try:
+            with open(sys.argv[2]) as ports:
+                lines = ports.read().split()
+        except FileNotFoundError:
+            lines = []
+        if len(lines) == 2:
+            break
+        time.sleep(0.1)
+    else:
+        raise SystemExit("cdp: the browser wrote no DevToolsActivePort")
+    port, path = int(lines[0]), lines[1]
+    connection = socket.create_connection(("127.0.0.1", port))
+    from_socket = connection.makefile("rb")
+    # A request with no Origin, which DevTools takes without --remote-allow-origins.
+    connection.sendall(("GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nUpgrade: websocket\r\n"
+                        "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
+                        "Sec-WebSocket-Version: 13\r\n\r\n"
+                        % (path, port, base64.b64encode(os.urandom(16)).decode())).encode())
+    status = from_socket.readline()
+    if b" 101 " not in status:
+        raise SystemExit("cdp: DevTools refused the WebSocket: %r" % status)
+    while from_socket.readline() not in (b"\r\n", b""):
+        pass
+
+    def send(raw):
+        # A client's frames are masked; one text frame for each message.
+        size = len(raw)
+        header = b"\x81" + (bytes([0x80 | size]) if size < 126
+                             else b"\xfe" + struct.pack(">H", size) if size < 65536
+                             else b"\xff" + struct.pack(">Q", size))
+        mask = os.urandom(4)
+        connection.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(raw)))
+
+    def receive():
+        """Each message the browser sends, until it closes the socket."""
+        message = b""
+        while True:
+            head = from_socket.read(2)
+            if len(head) < 2:
+                return
+            size = head[1] & 0x7F
+            if size == 126:
+                size = struct.unpack(">H", from_socket.read(2))[0]
+            elif size == 127:
+                size = struct.unpack(">Q", from_socket.read(8))[0]
+            payload = from_socket.read(size)
+            opcode = head[0] & 0x0F
+            if opcode == 8:
+                return
+            if opcode in (0, 1, 2):
+                message += payload
+                if head[0] & 0x80:
+                    yield message
+                    message = b""
+else:
+    to_browser = open(sys.argv[1], "wb")
+    from_browser = open(sys.argv[2], "rb")
+
+    def send(raw):
+        to_browser.write(raw + b"\0")
+        to_browser.flush()
+
+    def receive():
+        """Each message the browser sends, until it closes the pipe."""
+        buffer = b""
+        while True:
+            chunk = from_browser.read1(65536)
+            if not chunk:
+                return
+            buffer += chunk
+            while b"\0" in buffer:
+                raw, buffer = buffer.split(b"\0", 1)
+                yield raw
+
 lock = threading.Lock()
 replies = {}
 answered = threading.Condition(lock)
@@ -48,8 +129,7 @@ def call(method, params=None, session=None):
     message = {"id": number, "method": method, "params": params or {}}
     if session:
         message["sessionId"] = session
-    to_browser.write(json.dumps(message).encode() + b"\0")
-    to_browser.flush()
+    send(json.dumps(message).encode())
     with answered:
         answered.wait_for(lambda: number in replies)
         reply = replies.pop(number)
@@ -59,28 +139,21 @@ def call(method, params=None, session=None):
 
 
 def read():
-    buffer = b""
-    while True:
-        chunk = from_browser.read1(65536)
-        if not chunk:
-            with answered:
-                events.append(None)
-                answered.notify_all()
-            return
-        buffer += chunk
-        while b"\0" in buffer:
-            raw, buffer = buffer.split(b"\0", 1)
-            message = json.loads(raw)
-            with answered:
-                if "id" in message:
-                    replies[message["id"]] = message
-                else:
-                    events.append(message)
-                    if message["method"] == "WebAuthn.credentialAdded":
-                        log("credential added")
-                    elif message["method"] == "WebAuthn.credentialAsserted":
-                        log("credential asserted")
-                answered.notify_all()
+    for raw in receive():
+        message = json.loads(raw)
+        with answered:
+            if "id" in message:
+                replies[message["id"]] = message
+            else:
+                events.append(message)
+                if message["method"] == "WebAuthn.credentialAdded":
+                    log("credential added")
+                elif message["method"] == "WebAuthn.credentialAsserted":
+                    log("credential asserted")
+            answered.notify_all()
+    with answered:
+        events.append(None)
+        answered.notify_all()
 
 
 threading.Thread(target=read, daemon=True).start()
