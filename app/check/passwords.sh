@@ -25,16 +25,31 @@ cdp_log="$out/passwords-cdp.log"
 step=0
 passwords_profile="$PWD/$out/passwords-profile"
 scratch=$(mktemp -d)
-mkfifo "$scratch/to-browser" "$scratch/from-browser" "$scratch/cdp"
-# Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
-# DevTools pipe, then cdp.py's input.
-BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
-  "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
-  4> "$scratch/from-browser" > "$log" 2>&1 &
-pid=$!
-python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /login.html \
-  < "$scratch/cdp" > "$cdp_log" 2>&1 &
-exec 3> "$out/drive"
+mkfifo "$scratch/cdp"
+if windows; then
+  # Chrome on Windows takes its DevTools pipe as handles, which Git Bash can't give it, so DevTools
+  # listens on a loopback port instead, as in the passkeys run, which the browser says on its
+  # standard error. A native program can't read Git Bash's fifo, so cat passes cdp.py its commands.
+  BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
+    "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
+  pid=$!
+  exec 3> "$out/drive"
+  await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
+  socket=$(grep -m1 '^DevTools listening on ws://' "$log" | cut -d' ' -f4 | tr -d '\r')
+  cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" /login.html \
+    > "$cdp_log" 2>&1 &
+else
+  mkfifo "$scratch/to-browser" "$scratch/from-browser"
+  # Each end of a pipe waits for the other to open, in this order: the driver's, the browser's
+  # DevTools pipe, then cdp.py's input.
+  BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
+    "$browser" --remote-debugging-pipe < "$out/drive" 3< "$scratch/to-browser" \
+    4> "$scratch/from-browser" > "$log" 2>&1 &
+  pid=$!
+  python3 -I -u check/cdp.py "$scratch/to-browser" "$scratch/from-browser" /login.html \
+    < "$scratch/cdp" > "$cdp_log" 2>&1 &
+  exec 3> "$out/drive"
+fi
 exec 5> "$scratch/cdp"
 await_load
 await '^browser: title [0-9]* login$' || fail "the login page didn't draw"
