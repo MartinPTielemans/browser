@@ -12,7 +12,7 @@ fail() {
 }
 
 # What starts each file this changes, as GPL 3 asks of a changed file.
-changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser, and it doesn't reload as it first starts."
+changed="// Changed by ilo's app/fetch-ublock.sh: its housekeeping doesn't wake an idle browser, and it doesn't reload as it first starts. Diag (#744): it logs."
 
 # Puts $3, which may be several lines or none, in place of the line $2 of uBlock Origin's file $1,
 # and fails unless that line is there once, so a new release is read again before it ships.
@@ -73,6 +73,13 @@ if [ ! -f "$dir/manifest.json" ] || ! grep -qF "\"key\": \"$key\"" "$dir/manifes
   # URL loader factories, dropping a subresource they were asking for (#954).
   edit js/start.js "    if ( lastVersionInt === 0 && vAPI.webextFlavor.soup.has('chromium') ) {" \
     '    if ( false ) {'
+  # Diag (#744), not for merging: its log on stderr, with the time each line was logged.
+  edit js/console.js "    console.info('[uBO]', ...args);" \
+    "    console.error('[uBO] ' + Date.now() + ' ' + args.join(' '));"
+  edit js/console.js '        pending.push(args);' '        ubologDo(...args);'
+  edit js/console.js 'function ubologIgnore() {' 'function ubologIgnore(...args) { ubologDo(...args);'
+  edit js/start.js '    lastVersionInt = vAPI.app.intFromVersion(lastVersion);' \
+    '    lastVersionInt = vAPI.app.intFromVersion(lastVersion); ubolog(`Last version ${lastVersion}`);'
   mv "$dir.part/uBlock0.chromium" "$dir"
   rm -rf "$dir.part"
   # Earlier versions go.
