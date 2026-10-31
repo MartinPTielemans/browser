@@ -2,7 +2,9 @@
 # beside it, never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile
 # named Work as Arc's Local State names it, their pinned tabs and folders, and its favorites; from
 # Chrome and from Firefox their bookmarks as a Space named after each and their history, which the
-# core adds. Run again, each adds nothing. Then a passwords file, made up here, comes in through
+# core adds. Run again, each adds nothing. A bookmarks file, made up here in the format browsers
+# export, comes in as a Space named Bookmarks, and a second time adds nothing. Then a passwords
+# file, made up here, comes in through
 # Chrome's password importer: the view says how many came in, deletes the file when asked, and a
 # second file with a login's password changed says it conflicted and kept the saved one. Settings'
 # Passwords tab lists what came in, and the app menu's Import from Other Browsers… shows Import
@@ -81,7 +83,15 @@ passwords="$out/passwords.csv"
 printf '%s\n' 'name,url,username,password,note' \
   'login,https://login.example.test/,check@example.test,made-up-one,' \
   'mail,https://mail.example.test/,check@example.test,made-up-two,' > "$passwords"
-BROWSER_IMPORT_HOME="$home" BROWSER_IMPORT_PASSWORDS="$passwords" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
+# And the bookmarks file, as a browser exports it.
+bookmarks="$out/bookmarks.html"
+printf '%s\n' '<!DOCTYPE NETSCAPE-Bookmark-file-1>' '<TITLE>Bookmarks</TITLE>' \
+  '<H1>Bookmarks</H1>' '<DL><p>' '<DT><H3 PERSONAL_TOOLBAR_FOLDER="true">Bookmarks bar</H3>' \
+  '<DL><p>' '<DT><A HREF="https://bar.example.test/">Bar &amp; Grill</A>' '</DL><p>' \
+  '<DT><H3>Reading</H3>' '<DL><p>' '<DT><A HREF="https://read.example.test/">Read</A>' \
+  '</DL><p>' '</DL><p>' > "$bookmarks"
+BROWSER_IMPORT_HOME="$home" BROWSER_IMPORT_PASSWORDS="$passwords" \
+  BROWSER_IMPORT_BOOKMARKS="$bookmarks" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
   "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -104,12 +114,13 @@ fi
 # The toolbar's tabs, 55 wide or as wide as their names, 1 apart, centred: Import is the fourth of
 # eight. Its list has a row for each browser, its Import… button at the row's end, about 62 apart;
 # then a browser's choices, a row each, with Back and Import under them. The Passwords box is under
-# the browsers' box.
+# the browsers' box, its Bookmarks row first.
 if [ -n "$arc" ]; then
-  found="Arc, Chrome, Firefox" chrome_row=198 firefox_row=258 passwords_row=328
+  found="Arc, Chrome, Firefox" chrome_row=198 firefox_row=258 bookmarks_row=328
 else
-  found="Chrome, Firefox" chrome_row=134 firefox_row=196 passwords_row=266
+  found="Chrome, Firefox" chrome_row=134 firefox_row=196 bookmarks_row=266
 fi
+passwords_row=$((bookmarks_row + 62))
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 342 60
@@ -201,9 +212,26 @@ send clickkey 590 270
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Firefox's pages again"
 expect '^browser: import done: Everything from Firefox is here already\.$' \
   "the second import from Firefox said it added something"
-# The Passwords box is under the browsers' box, its Choose File… at its row's end. Done's line
-# offers to delete the file, with Delete File before Done.
+# The files' box is under the browsers' box, each Choose File… at its row's end: the bookmarks
+# file comes in as a Space named Bookmarks, its bar's tab loose and its folder as one, and a
+# second time adds nothing.
 expect '^browser: import drawn done$' "the import's end didn't draw"
+send clickkey 590 145
+expect '^browser: import drawn list$' "Done didn't go back to the list"
+send clickkey 590 $bookmarks_row
+expect '^browser: import bookmarks file bookmarks\.html$' "Choose File… didn't import the bookmarks file"
+await '^browser: import done: 1 Space and 2 pinned tabs came in from bookmarks\.html\.$' ||
+  fail "the bookmarks file didn't come in: $(grep '^browser: import done' "$log" | tail -1)"
+expect '^browser: import drawn done$' "the bookmarks file's end didn't draw"
+../tools/window-screenshot.sh "$pid" "$out/import-bookmarks.png" || fail "no window to capture"
+send clickkey 590 145
+expect '^browser: import drawn list$' "Done didn't go back to the list"
+send clickkey 590 $bookmarks_row
+await '^browser: import done: Everything from bookmarks\.html is here already\.$' ||
+  fail "the bookmarks file came in twice: $(grep '^browser: import done' "$log" | tail -1)"
+expect '^browser: import drawn done$' "the second bookmarks file's end didn't draw"
+rm -f "$bookmarks"
+# Then the passwords file. Done's line offers to delete it, with Delete File before Done.
 send clickkey 590 145
 expect '^browser: import drawn list$' "Done didn't go back to the list"
 send clickkey 590 $passwords_row
@@ -254,10 +282,12 @@ quit
 echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
 echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
+echo "  A bookmarks file comes in as a Space named Bookmarks, and a second time adds nothing."
 echo "  A passwords file comes in, says how many, and is deleted when asked; a second one says its"
 echo "  changed login conflicted and kept the saved one; Settings' Passwords tab lists the three,"
 echo "  and the app menu's Import from Other Browsers… shows Import again."
 echo "  With the sidebar hidden, Arc's two Spaces say so in a toast."
 echo "  Windows: $out/import-list.png, $out/import-pick.png, $out/import-done.png,"
 echo "  $out/import-again.png, $out/import-chrome.png, $out/import-firefox.png,"
-echo "  $out/import-passwords.png, $out/import-passwords-conflict.png, $out/import-personal.png"
+echo "  $out/import-bookmarks.png, $out/import-passwords.png,"
+echo "  $out/import-passwords-conflict.png, $out/import-personal.png"
