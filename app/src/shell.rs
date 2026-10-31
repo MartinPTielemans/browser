@@ -449,12 +449,13 @@ use crate::tokens::shell::REVEAL_BORDER;
 // show while the pointer is over any of them, as AppKit's do.
 pub const WINDOW_BUTTONS: [(f32, u32); 3] =
     [(20., WINDOW_BUTTON_CLOSE), (43., WINDOW_BUTTON_MINIMIZE), (66., WINDOW_BUTTON_ZOOM)];
-// On Linux the browser window is Chromium's without a frame, so nothing else draws its buttons: the
-// UI draws them where AppKit's show.
-const DRAWS_WINDOW_BUTTONS: bool = cfg!(target_os = "linux");
-// The third button maximizes on Linux, as on every Linux desktop, where on the Mac it goes full
-// screen.
-const ZOOM_GLYPH: &str = match cfg!(target_os = "linux") {
+// On Linux the browser window is Chromium's without a frame, and on Windows the host takes its
+// title bar away (platform/windows/host.cc), so nothing else draws its buttons: the UI draws them
+// where AppKit's show.
+const DRAWS_WINDOW_BUTTONS: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+// The third button maximizes on Linux and Windows, as their title bars' does, where on the Mac it
+// goes full screen.
+const ZOOM_GLYPH: &str = match cfg!(any(target_os = "linux", target_os = "windows")) {
     true => "icons/window-maximize.svg",
     false => "icons/window-full-screen.svg",
 };
@@ -1016,8 +1017,15 @@ pub struct Shell {
     /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
     button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
     /// The icon slots the Library's Space cards were last drawn with, by Space, for their
-    /// tooltips to hang from.
+    /// tooltips and the icon picker to hang from.
     slot_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// The brushes the Library's Space cards were last drawn with, by Space, for the theme picker
+    /// to open beside.
+    brush_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// Whether the press on a card's icon slot or brush came while its own picker showed, so the
+    /// click closes it rather than opening it again: the press outside the picker has closed it,
+    /// but the picker hears so only after the press.
+    card_press_closes: bool,
     /// Whether each Space card's field was last drawn with its plate, for its log lines.
     fields_drawn: Rc<RefCell<HashMap<u64, bool>>>,
     /// Where the Library's empty line was last laid out, for its log line.
@@ -1355,6 +1363,12 @@ pub struct Shell {
     /// The Space with no icon the icon picker shows for, whose name row holds the icon's place
     /// with a placeholder until the picker closes, and the watch on the picker that tells it so.
     icon_placeholder: Option<(u64, Subscription)>,
+    /// The Space whose card in the Library a picker opened from, whose field stays lit while the
+    /// picker shows for it, as while its name is typed over; and the watch on the picker.
+    card_picker: Option<(u64, Subscription)>,
+    /// The watch on a picker that showed for another card when a card's slot or brush was
+    /// clicked, which opens it from that card once it has closed.
+    card_move: Option<Subscription>,
     /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
     private: bool,
 }
@@ -1416,6 +1430,8 @@ impl Shell {
             beside_frames: Rc::default(),
             button_frames: Rc::default(),
             slot_frames: Rc::default(),
+            brush_frames: Rc::default(),
+            card_press_closes: false,
             fields_drawn: Rc::default(),
             empty_drawn: Rc::default(),
             scrolled: false,
@@ -1571,6 +1587,8 @@ impl Shell {
             tile_icons_drawn: Rc::default(),
             name_row_before: None,
             icon_placeholder: None,
+            card_picker: None,
+            card_move: None,
             switching: None,
             background_pressed: false,
             palette: Palette::default(),
@@ -2120,6 +2138,9 @@ impl Shell {
             let tiles = self.drawn();
             if self.end_drag(false) {
                 self.move_tiles(tiles, Curve::Slide);
+            } else if let Some(position) = self.drag_position() {
+                // A row carried over the new lists finds its place in them where the pointer is.
+                self.drag_to(position, cx);
             }
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
@@ -2445,15 +2466,17 @@ impl Shell {
             log!("browser: page {tab} share instead {}", flag(page.share_instead));
         }
         let media = |page: &Page| {
-            (page.media, page.media_playing, page.media_next, page.media_title.clone())
+            let pip = page.media_picture_in_picture;
+            (page.media, page.media_playing, page.media_next, pip, page.media_title.clone())
         };
         if media(&page) != media(&entry.page) {
             // check.sh waits for this line.
             log!(
-                "browser: page {tab} media {} playing {} next {} {}",
+                "browser: page {tab} media {} playing {} next {} pip {} {}",
                 flag(page.media),
                 flag(page.media_playing),
                 flag(page.media_next),
+                flag(page.media_picture_in_picture),
                 page.media_title
             );
         }
@@ -2732,9 +2755,10 @@ impl Shell {
             self.run(Command::NewTab, "sidebar", cx);
         } else if self.empty_card_hit(at) {
             // The empty card is a button, not a title bar: its first click opened the command bar.
-        } else if cfg!(target_os = "linux") {
-            // The browser window is Chromium's, out of GPUI's reach, and every Linux desktop's
-            // double-click on a title bar maximizes or restores it, as its third button does.
+        } else if cfg!(any(target_os = "linux", target_os = "windows")) {
+            // The browser window is Chromium's, out of GPUI's reach, and on Windows and every
+            // Linux desktop a double-click on a title bar maximizes or restores it, as its third
+            // button does.
             self.browser.press_window_button(WindowButton::Zoom, cx);
         } else {
             window.titlebar_double_click();
@@ -3222,10 +3246,11 @@ impl Render for Shell {
                     // check.sh reads this line.
                     log!("browser: window move");
                     window.start_window_move();
-                    // GPUI's window is inside the browser window on Linux, so the core moves that.
-                    // GPUI's own still lets go of the X server's pointer grab its press took,
-                    // which would keep the window manager from taking the pointer.
-                    #[cfg(target_os = "linux")]
+                    // GPUI's window is inside the browser window on Linux and Windows, so the
+                    // browser moves that. On Linux GPUI's own still lets go of the X server's
+                    // pointer grab its press took, which would keep the window manager from taking
+                    // the pointer.
+                    #[cfg(any(target_os = "linux", target_os = "windows"))]
                     shell.browser.start_window_move(cx);
                 }
                 shell.pointer_at(event.position.x.into(), cx);

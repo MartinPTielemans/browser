@@ -247,6 +247,10 @@ mod platform {
         pub fn host_focus(view: *mut c_void);
         pub fn host_show_window_buttons(ui_view: *mut c_void, shown: bool);
         pub fn host_press_window_button(ui_view: *mut c_void, button: i32);
+        #[cfg(target_os = "windows")]
+        pub fn host_start_window_move(ui_view: *mut c_void);
+        #[cfg(target_os = "windows")]
+        pub fn host_window_maximized(ui_view: *mut c_void) -> bool;
         pub fn host_add_reveal(
             ui_view: *mut c_void,
             reveal_view: *mut c_void,
@@ -2093,6 +2097,7 @@ impl Browser for Engine {
             MediaAction::Play => bc::BC_MEDIA_PLAY,
             MediaAction::Pause => bc::BC_MEDIA_PAUSE,
             MediaAction::Next => bc::BC_MEDIA_NEXT,
+            MediaAction::PictureInPicture => bc::BC_MEDIA_PICTURE_IN_PICTURE,
         };
         unsafe { bc::bc_tab_media(tab, action as i32) };
     }
@@ -2853,11 +2858,18 @@ impl Browser for Engine {
     }
 
     fn start_window_move(&self, _: &mut App) {
+        // The core moves a window on Linux alone; on Windows the host does, from the app.
+        #[cfg(target_os = "windows")]
+        unsafe { platform::host_start_window_move(self.ui_view) };
+        #[cfg(not(target_os = "windows"))]
         unsafe { bc::bc_window_start_move(self.window) };
     }
 
     fn window_maximized(&self) -> bool {
-        cfg!(target_os = "linux") && unsafe { bc::bc_window_is_maximized(self.window) }
+        #[cfg(target_os = "windows")]
+        return unsafe { platform::host_window_maximized(self.ui_view) };
+        #[cfg(not(target_os = "windows"))]
+        return cfg!(target_os = "linux") && unsafe { bc::bc_window_is_maximized(self.window) };
     }
 
     fn window_full_screen(&self) -> bool {
@@ -5357,6 +5369,7 @@ unsafe extern "C" fn tab_state_changed(
             .into_owned()
             .into(),
         media_next: state.media_next,
+        media_picture_in_picture: state.media_picture_in_picture,
         developer_mode: state.developer_mode,
     };
     if unsafe { bc::bc_tab_window(tab) } == 0 {
