@@ -100,7 +100,7 @@ log="$out/extensions.log"
 step=0
 rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" \
-  --load-extension="$clicked_dir,$extensions/popup,$extensions/third,$extensions/panel" \
+  --load-extension="$(app_path "$clicked_dir"),$(app_path "$extensions/popup"),$(app_path "$extensions/third"),$(app_path "$extensions/panel")" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
