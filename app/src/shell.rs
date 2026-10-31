@@ -1365,6 +1365,9 @@ pub struct Shell {
     /// The Space whose card in the Library a picker opened from, whose field stays lit while the
     /// picker shows for it, as while its name is typed over; and the watch on the picker.
     card_picker: Option<(u64, Subscription)>,
+    /// The watch on a picker that showed for another card when a card's slot or brush was
+    /// clicked, which opens it from that card once it has closed.
+    card_move: Option<Subscription>,
     /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
     private: bool,
 }
@@ -1584,6 +1587,7 @@ impl Shell {
             name_row_before: None,
             icon_placeholder: None,
             card_picker: None,
+            card_move: None,
             switching: None,
             background_pressed: false,
             palette: Palette::default(),
