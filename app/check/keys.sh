@@ -318,6 +318,10 @@ send type cmd t
 expect '^browser: shortcuts search "cmd t" finds New Tab, Restore Last Closed Tab$' \
   "the search didn't find ⌘T and ⇧⌘T by their keys"
 ../tools/window-screenshot.sh "$pid" "$out/shortcuts-search.png" || fail "no window to capture"
+send key a cmd
+send type copy
+expect '^browser: shortcuts search "copy" finds ' "the search for copy didn't end"
+../tools/window-screenshot.sh "$pid" "$out/shortcuts-rows.png" || fail "no window to capture"
 # Every command the user can give keys has a row (#1062), these among them.
 for name in "Duplicate Current Tab" "Favorite Tab" "Rename Current Tab" Share "Capture Full Page" \
   "Site Controls" "Export Space as Markdown" "View Media" "About $app_name" "Check for Updates" \
@@ -330,10 +334,6 @@ for name in "Duplicate Current Tab" "Favorite Tab" "Rename Current Tab" Share "C
     grep -q -e "finds $name\$" -e "finds $name, " -e ", $name\$" -e ", $name, " ||
     fail "Settings › Shortcuts has no row $name"
 done
-send key a cmd
-send type copy
-expect '^browser: shortcuts search "copy" finds ' "the search for copy didn't end"
-../tools/window-screenshot.sh "$pid" "$out/shortcuts-rows.png" || fail "no window to capture"
 send key a cmd
 send key backspace
 expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
