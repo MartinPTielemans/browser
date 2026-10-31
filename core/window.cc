@@ -43,6 +43,7 @@
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/api/side_panel/side_panel_service.h"
 #include "chrome/browser/extensions/extension_action_runner.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -1039,16 +1040,7 @@ BrowserWindowInterface* Window::BrowserFor(Profile* profile) {
   if (auto* elements = BrowserElements::From(browser)->AsA<BrowserElementsViewsImpl>()) {
     elements->Init(widget_->GetRootView());
   }
-  browsers_[profile] = Held{
-      browser, browser->RegisterBrowserCloseCancelled(base::BindRepeating(
-                   [](base::WeakPtr<Window> window, BrowserWindowInterface*,
-                      BrowserWindowInterface::ClosingStatus) {
-                     // A page's beforeunload handler or the user kept it open.
-                     if (window) {
-                       window->closing_ = false;
-                     }
-                   },
-                   weak_factory_.GetWeakPtr()))};
+  browsers_[profile] = Held{browser};
   return browser;
 }
 
@@ -2063,6 +2055,10 @@ void Window::Close() {
     HandOver(*to);
   }
   closing_ = true;
+  // Not Chrome's close-cancelled callback: it fires too as the pages' unload handlers hold the
+  // close, which then goes on, and the tabs it closed were archived and the window stayed (#870).
+  close_stopped_ = chrome::AddClosingAllBrowsersCallback(
+      base::BindRepeating(&Window::OnCloseStopped, base::Unretained(this)));
   if (hand_over) {
     AdoptFreedPages();
   }
@@ -2077,6 +2073,16 @@ void Window::Close() {
   for (BrowserWindowInterface* browser : browsers) {
     browser->GetWindow()->Close();
   }
+}
+
+void Window::OnCloseStopped(bool closing) {
+  if (closing || browsers_.empty() || std::ranges::any_of(browsers_, [](const auto& entry) {
+        return entry.second.browser->capabilities()->IsAttemptingToCloseBrowser();
+      })) {
+    return;
+  }
+  closing_ = false;
+  close_stopped_ = {};
 }
 
 bool Window::KeepsBrowsers() const {
@@ -2356,8 +2362,11 @@ void Window::OverlayTakesKeyboard(bool takes) {
   // The overlay showed another tab, as the command bar does going to a page: its page takes the
   // keyboard, as a press that shows a tab gives it. On X11 the window isn't active while the
   // overlay has the input focus, so FocusPage passed the page over as it showed, and the window
-  // holds the keyboard for it until it's active again.
-  if (std::exchange(selected_under_overlay_, 0) != selected_ && shown_) {
+  // holds the keyboard for it until it's active again. Not when the tab it showed closed, as a
+  // Space the dialog deleted did: what shows then comes of that, and the UI keeps the keyboard, as
+  // the Mac's does.
+  const bc_id under = std::exchange(selected_under_overlay_, 0);
+  if (under != selected_ && shown_ && (!under || Tab::Get(under))) {
     page_had_keyboard_ = true;
     GiveKeyboardToPage();
   }
