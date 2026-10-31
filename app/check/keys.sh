@@ -15,7 +15,8 @@
 # and commits in the page and in the command bar, where return and escape go to the input method
 # while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
 # history page from the page and the UI. A page whose renderer crashes leaves the browser running,
-# and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
+# and ⌘R loads it again. Settings › Shortcuts lists every command the user can give keys, and
+# gives New Tab ⌃⌘T, which stays reserved and reaches
 # the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
 # Settings' About tab, with Settings key and with About already showing. ⌘T as the window comes on
 # screen, before the overlays' windows are made, makes them and opens the bar.
@@ -317,6 +318,22 @@ send type cmd t
 expect '^browser: shortcuts search "cmd t" finds New Tab, Restore Last Closed Tab$' \
   "the search didn't find ⌘T and ⇧⌘T by their keys"
 ../tools/window-screenshot.sh "$pid" "$out/shortcuts-search.png" || fail "no window to capture"
+# Every command the user can give keys has a row (#1062), these among them.
+for name in "Duplicate Current Tab" "Favorite Tab" "Rename Current Tab" Share "Capture Full Page" \
+  "Site Controls" "Export Space as Markdown" "View Media" "About $app_name" "Check for Updates" \
+  "Import from Other Browsers" Passwords "Site Search Settings" "Welcome to $app_name" \
+  "Help Center" "What's New" "Report a Problem" "Copy Build Info"; do
+  send key a cmd
+  send type $name
+  expect "^browser: shortcuts search \"$name\" finds " "the search for $name didn't end"
+  grep "^browser: shortcuts search \"$name\" finds " "$log" | tail -1 |
+    grep -q -e "finds $name\$" -e "finds $name, " -e ", $name\$" -e ", $name, " ||
+    fail "Settings › Shortcuts has no row $name"
+done
+send key a cmd
+send type copy
+expect '^browser: shortcuts search "copy" finds ' "the search for copy didn't end"
+../tools/window-screenshot.sh "$pid" "$out/shortcuts-rows.png" || fail "no window to capture"
 send key a cmd
 send key backspace
 expect '^browser: shortcuts search cleared$' "⌫ didn't clear the search"
@@ -510,5 +527,5 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, names docs.new typed and opens it in a new tab, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/new-document.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts.png, $out/about.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, a held escape that closes it doesn't repeat into the page, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, names docs.new typed and opens it in a new tab, and a page it opens in a new tab has the keyboard, its autofocused field and the browser's shortcuts too, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, Settings › Shortcuts' search finds New Tab by name and ⌘T's rows by their keys, and the rows of the commands it lacked, and New Tab rebound to ⌃⌘T there stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, About ilo shows Settings' About tab with Settings key and again with About showing, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/new-document.png, $out/ime.png, $out/shortcuts-search.png, $out/shortcuts-rows.png, $out/shortcuts.png, $out/about.png"
 echo "$launch_bar"
