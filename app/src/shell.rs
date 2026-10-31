@@ -1283,6 +1283,9 @@ pub struct Shell {
     /// (agent_bar.rs).
     agent_status: Vec<crate::agents::Status>,
     agent_bar_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// Whether a tooltip the agent bar asked for may be up, and whether its bar showed the agent
+    /// at work, so it ends once that bar is gone (agent_bar.rs).
+    agent_tip: Cell<Option<bool>>,
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
@@ -1531,6 +1534,7 @@ impl Shell {
             agent_question_drawn: Rc::default(),
             agent_status: Vec::new(),
             agent_bar_drawn: Rc::default(),
+            agent_tip: Cell::default(),
             drm_notes: HashMap::new(),
             keys: HashMap::new(),
             drm_drawn: Rc::default(),

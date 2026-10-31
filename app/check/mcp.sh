@@ -468,6 +468,17 @@ BAR
   logins() {
     grep -c "^browser: title $opened_tab login\$" "$log" || true
   }
+  # Waits until no tooltip is up, its window faded out too, so it isn't counted as a child window.
+  no_tooltip() {
+    for _ in $(seq 50); do
+      case "$(grep '^browser: tooltip \(shown\|hidden\)' "$log" | tail -1)" in
+        "browser: tooltip shown "*) sleep 0.1 ;;
+        # Its window fades out in 270 ms (tooltip.rs FADE_OUT).
+        *) sleep 0.4; return 0 ;;
+      esac
+    done
+    return 1
+  }
   call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/welcome.html\"}" > /dev/null
   await_log "^browser: title $opened_tab welcome\$" "the welcome page didn't load in the agent's tab"
   take_over "to save a login"
@@ -500,11 +511,16 @@ BAR
   bar
   send click $((bx + 30)) $((by + bh - 26))
   await_more "$handed" "$before" || fail "the bar's Hand Back didn't hand the login's tab back"
+  # Off the bar, which comes back with Stop under where Hand Back was, and Stop's tooltip would
+  # count below as a dropdown's child window.
+  send move $((bx + bw / 2)) $((by - 40))
+  tips=$(grep -c '^browser: tooltip shown ' "$log" || true)
 
   before=$(logins)
   call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/login.html\"}" > /dev/null
   await_more "^browser: title $opened_tab login\$" "$before" ||
     fail "the login page didn't load in the agent's tab"
+  no_tooltip || fail "a tooltip stayed up with the pointer off the agent bar"
   shown=$(children)
   # A click in the username field, where Chrome's dropdown would offer the login.
   send click 600 60
@@ -513,6 +529,8 @@ BAR
   sleep 1
   ../tools/window-screenshot.sh "$pid" "$out/agent-login-empty.png" || fail "no window to capture"
   [ "$(children)" = "$shown" ] || fail "the agent's tab offered the saved login in a dropdown"
+  [ "$(grep -c '^browser: tooltip shown ' "$log" || true)" = "$tips" ] ||
+    fail "a tooltip showed with the pointer off the agent bar: $(grep '^browser: tooltip shown ' "$log" | tail -1)"
   grep -q "^browser: title $opened_tab filled\$" "$log" &&
     fail "Chrome filled the saved password in the agent's tab"
   outline=$(call snapshot "{\"tab\":$opened_tab}")
