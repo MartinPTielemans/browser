@@ -2448,9 +2448,9 @@ impl Shell {
         if !fullscreen && !self.page_fullscreen {
             return;
         }
-        // On Linux GPUI's window is the UI's, inside Chromium's, and never full screen itself; the
-        // shell hears of Chromium's as it resizes.
-        let full_screen = match cfg!(target_os = "linux") {
+        // On Linux and Windows GPUI's window is the UI's, inside Chromium's, and never full screen
+        // itself; the shell hears of Chromium's as it resizes.
+        let full_screen = match cfg!(any(target_os = "linux", target_os = "windows")) {
             true => self.full_screen,
             false => window.is_fullscreen(),
         };
