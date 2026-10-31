@@ -462,7 +462,7 @@ recorded
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type clear
-expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Cookies and Refresh, Clear Archive, Collapse All Folders$' "the command bar didn't find the four commands that start with \"clear\", then Collapse All Folders: $(grep '^browser: command bar commands' "$log" | tail -1)"
+expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Cookies and Refresh, Clear Archive, Clear Browsing Data…, Collapse All Folders$' "the command bar didn't find the five commands that start with \"clear\", then Collapse All Folders: $(grep '^browser: command bar commands' "$log" | tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/command-bar-commands.png" || fail "no window to capture"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
