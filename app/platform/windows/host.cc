@@ -86,12 +86,24 @@ void ContentSize(HWND root, double* width, double* height) {
 }
 
 // A window's size in points.
+// What Windows' frame takes round |hwnd|'s client area, in pixels. An overlapped window keeps a
+// frame on its left, right and bottom, invisible on Windows 11, which GPUI's windows don't draw in.
+RECT FrameInsets(HWND hwnd) {
+  RECT window{}, client{};
+  GetWindowRect(hwnd, &window);
+  GetClientRect(hwnd, &client);
+  MapWindowPoints(hwnd, HWND_DESKTOP, reinterpret_cast<POINT*>(&client), 2);
+  return {client.left - window.left, client.top - window.top, window.right - client.right,
+          window.bottom - client.bottom};
+}
+
+// |hwnd|'s client area's size in points: what it draws, without the frame.
 void WindowSize(HWND hwnd, double* width, double* height) {
   RECT rect{};
-  GetWindowRect(hwnd, &rect);
+  GetClientRect(hwnd, &rect);
   const double scale = Scale(hwnd);
-  *width = (rect.right - rect.left) / scale;
-  *height = (rect.bottom - rect.top) / scale;
+  *width = rect.right / scale;
+  *height = rect.bottom / scale;
 }
 
 // Runs |task| on the main thread after the event being handled, as AppKit's "after the event" does.
@@ -301,8 +313,11 @@ void Show(Floating& floating, void* ui_view, double left, double top, double wid
   ClientToScreen(root, &origin);
   SetWindowLongPtrW(floating.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
   WatchOwner(root);
-  PlaceAndShow(floating.hwnd, origin.x, origin.y, static_cast<int>(std::lround(width * scale)),
-               static_cast<int>(std::lround(height * scale)), keyboard);
+  // The point and size are what it draws, its client area, which its frame is round.
+  const RECT frame = FrameInsets(floating.hwnd);
+  PlaceAndShow(floating.hwnd, origin.x - frame.left, origin.y - frame.top,
+               static_cast<int>(std::lround(width * scale)) + frame.left + frame.right,
+               static_cast<int>(std::lround(height * scale)) + frame.top + frame.bottom, keyboard);
   if (keyboard) {
     SetForegroundWindow(floating.hwnd);
     SetFocus(floating.hwnd);
@@ -337,10 +352,13 @@ void Resize(Floating& floating, double height) {
   if (!floating.hwnd) {
     return;
   }
+  // |height| is its client area's, which its frame is round.
   RECT rect{};
   GetWindowRect(floating.hwnd, &rect);
+  const RECT frame = FrameInsets(floating.hwnd);
   SetWindowPos(floating.hwnd, nullptr, 0, 0, rect.right - rect.left,
-               static_cast<int>(std::lround(height * Scale(floating.hwnd))),
+               static_cast<int>(std::lround(height * Scale(floating.hwnd))) + frame.top +
+                   frame.bottom,
                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
   SizeAgainLater(floating.hwnd);
 }
@@ -2034,8 +2052,8 @@ void host_set_overlay_height(int overlay, double height) {
   }
   // In pixels, as Resize sets it.
   RECT rect{};
-  GetWindowRect(floating.hwnd, &rect);
-  if (rect.bottom - rect.top == static_cast<int>(std::lround(height * Scale(floating.hwnd)))) {
+  GetClientRect(floating.hwnd, &rect);
+  if (rect.bottom == static_cast<int>(std::lround(height * Scale(floating.hwnd)))) {
     return;
   }
   Resize(floating, height);
