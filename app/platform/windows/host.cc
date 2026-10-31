@@ -525,6 +525,20 @@ void WatchForeground() {
 }
 
 Floating g_overlays[4];
+// What check.sh calls each overlay, as the Mac's and Linux's hosts do.
+const char* const kOverlayNames[std::size(g_overlays)] = {"command bar", "icon picker",
+                                                         "theme picker", "folder preview"};
+// Hides overlay |index| if it's shown, saying so, and whether it was.
+bool HideOverlay(int index) {
+  Floating& floating = g_overlays[index];
+  if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    return false;
+  }
+  Hide(floating);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: %s hidden\n", kOverlayNames[index]);
+  return true;
+}
 struct Corner {
   Floating floating;
   double right = 0;
@@ -703,16 +717,17 @@ LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
 // Keys typed right after a shortcut that opens the command bar or the find bar belong in its field
 // (Ardia P7), but the bar takes the keyboard only once it has drawn, and a shortcut the page gets
 // first, such as Ctrl+L, comes back only after the keys behind it reached the page. So from the
-// shortcut until the bar has the keyboard, keys are held and then given to it in the order typed. A
-// hold lasts kHoldKeys at most, which is the page keeping the shortcut. They're posted to our own
-// window only; SendInput would reach whatever app is in front (platform/host.h's warning).
+// shortcut until the bar has the keyboard, keys are held and then given to it in the order typed.
+// For a shortcut the page gets first, the core says if the page kept it and no bar opens
+// (host_release_held_keys). A hold lasts kHoldKeysMs at most, as the core's does. They're posted to
+// our own window only; SendInput would reach whatever app is in front (platform/host.h's warning).
 std::vector<MSG> g_held_keys;
 bool g_holding_keys = false;
 // The window the keys wait for, or null for whichever bar opens.
 HWND g_keys_for = nullptr;
 HHOOK g_held_hook = nullptr;
 UINT_PTR g_hold_timer = 0;
-constexpr UINT kHoldKeysMs = 400;
+constexpr UINT kHoldKeysMs = 1000;
 
 // Gives the keys held to the window that now has the keyboard, unless they wait for another bar.
 void ReleaseKeys(HWND from) {
@@ -1589,8 +1604,18 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   WatchForeground();
 }
 
-// shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
+// The window is Chromium's, which goes full screen through the core (bc_window_toggle_full_screen),
+// and the app hears of it as the window's bounds change, as on Linux.
 void host_watch_full_screen(void (*)(void*, bool)) {}
+
+static std::map<void*, uint64_t>& WindowIds() {
+  static std::map<void*, uint64_t> ids;
+  return ids;
+}
+
+void host_window_opened(void* ui_view, uint64_t window) {
+  WindowIds()[ui_view] = window;
+}
 
 // Windows delivers a touchpad's swipes to the page as scrolls, which it takes, so there's nothing
 // here for the host to watch.
@@ -1693,8 +1718,7 @@ void host_show_overlay(int overlay,
                        double width) {
   for (int each = 0; each < int(std::size(g_overlays)); ++each) {
     Floating& other = g_overlays[each];
-    if (each != overlay && other.hwnd && IsWindowVisible(other.hwnd)) {
-      Hide(other);
+    if (each != overlay && HideOverlay(each)) {
       if (other.dismissed) {
         void (*dismissed)(void) = other.dismissed;
         Later([dismissed] { dismissed(); });
@@ -1709,13 +1733,38 @@ void host_show_overlay(int overlay,
   } else if (left + width > content_width - 8) {
     left = content_width - 8 - width;
   }
-  Show(g_overlays[overlay], ui_view, left, top, width, -1, true);
+  Floating& floating = g_overlays[overlay];
+  const bool was_shown = floating.hwnd && IsWindowVisible(floating.hwnd);
+  Show(floating, ui_view, left, top, width, -1, true);
   // The bar now has the keyboard, so the keys held since the shortcut go to it.
-  ReleaseKeys(g_overlays[overlay].hwnd);
+  ReleaseKeys(floating.hwnd);
+  if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    return;
+  }
+  double own_width, own_height;
+  WindowSize(floating.hwnd, &own_width, &own_height);
+  // check.sh reads these lines.
+  fprintf(stderr, "browser: %s at %g %g %g %g\n", kOverlayNames[overlay], left, top, width,
+          own_height);
+  if (!was_shown) {
+    fprintf(stderr, "browser: %s shown\n", kOverlayNames[overlay]);
+  }
 }
 
 void host_set_overlay_height(int overlay, double height) {
-  Resize(g_overlays[overlay], height);
+  Floating& floating = g_overlays[overlay];
+  if (!floating.hwnd) {
+    return;
+  }
+  // In pixels, as Resize sets it.
+  RECT rect{};
+  GetWindowRect(floating.hwnd, &rect);
+  if (rect.bottom - rect.top == static_cast<int>(height * Scale(floating.hwnd))) {
+    return;
+  }
+  Resize(floating, height);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: %s height %g\n", kOverlayNames[overlay], height);
 }
 
 // shortcut: Segoe UI Emoji is taken to draw every emoji; check with DirectWrite's glyphs when an
@@ -1725,19 +1774,27 @@ bool host_can_draw_emoji(const char*) {
 }
 
 void host_hide_overlay(int overlay) {
-  Hide(g_overlays[overlay]);
+  HideOverlay(overlay);
 }
 
 void host_dismiss_overlay(int overlay) {
-  Floating& floating = g_overlays[overlay];
-  Hide(floating);
-  if (floating.dismissed) {
-    floating.dismissed();
+  // Posted: the UI may be handling the event that closed the overlay, as Esc's action is, and
+  // would borrow the app again.
+  if (HideOverlay(overlay) && g_overlays[overlay].dismissed) {
+    void (*dismissed)(void) = g_overlays[overlay].dismissed;
+    Later([dismissed] { dismissed(); });
   }
 }
 
 void host_hold_keys(void) {
   HoldKeys(nullptr);
+}
+
+void host_release_held_keys(void) {
+  // Unless a bar opened since, which holds them for itself.
+  if (g_holding_keys && !g_keys_for) {
+    ReleaseKeys(nullptr);
+  }
 }
 
 void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {
@@ -2625,6 +2682,16 @@ void* host_browser_window(size_t index) {
   }
   HWND root = Root(MadeUiViews()[index]);
   return root != MadeUiViews()[index] && IsWindowVisible(root) ? root : nullptr;
+}
+
+// The core's id for that browser window, for the driver's commands that act on it through the core,
+// or 0.
+uint64_t host_browser_window_id(size_t index) {
+  if (index >= MadeUiViews().size()) {
+    return 0;
+  }
+  auto it = WindowIds().find(MadeUiViews()[index]);
+  return it == WindowIds().end() ? 0 : it->second;
 }
 
 // For the driver (drive.cc), whose input is posted to the app's windows, which the thread hooks

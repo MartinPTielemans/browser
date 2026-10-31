@@ -248,6 +248,22 @@ bool bc_window_keyboard_in_child(bc_id id) {
 #endif
 }
 
+bool bc_window_keyboard_page(bc_id id, bc_rect* frame) {
+#if BUILDFLAG(IS_LINUX)
+  views::Widget* widget = OpenWidget(id);
+  const std::optional<gfx::Rect> page =
+      widget ? browser_core::platform::KeyboardPageFrame(widget) : std::nullopt;
+  if (!page) {
+    return false;
+  }
+  *frame = {static_cast<double>(page->x()), static_cast<double>(page->y()),
+            static_cast<double>(page->width()), static_cast<double>(page->height())};
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool bc_window_focus_ring(bc_id id, bc_rect* frame) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
@@ -336,8 +352,8 @@ void bc_window_ui_text_input(bc_id id, bool focused, double x, double y, double 
 #endif
 }
 
-void bc_hold_keys(void) {
-  browser_core::held_keys::Hold();
+void bc_hold_keys(bool in_core) {
+  browser_core::held_keys::Hold(in_core);
 }
 
 void bc_give_held_keys(void (*take)(void* context, const bc_key* keys, size_t count),
@@ -2020,7 +2036,7 @@ bool bc_window_is_maximized(bc_id id) {
 }
 
 bool bc_window_is_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   return widget && widget->IsFullscreen();
 #else
@@ -2029,7 +2045,7 @@ bool bc_window_is_full_screen(bc_id id) {
 }
 
 void bc_window_toggle_full_screen(bc_id id) {
-#if BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   views::Widget* widget = OpenWidget(id);
   if (!widget) {
     return;

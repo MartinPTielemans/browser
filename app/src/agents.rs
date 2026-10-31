@@ -320,6 +320,8 @@ pub struct Agents {
     server: Option<(server::Server, Task<()>)>,
     /// Why the server isn't running, though on.
     trouble: Option<SharedString>,
+    /// The clients on this computer, as Settings › Agents last looked.
+    found: Vec<Client>,
     /// The client whose Connect is writing its config, and the client whose last failed, and why.
     connecting: Option<Client>,
     failed: Option<(Client, SharedString)>,
@@ -426,6 +428,7 @@ impl Agents {
             tokens: Arc::default(),
             server: None,
             trouble: None,
+            found: Vec::new(),
             connecting: None,
             failed: None,
             live: HashSet::new(),
@@ -519,6 +522,27 @@ impl Agents {
     /// Why the server isn't running, though on.
     pub fn trouble(&self) -> Option<SharedString> {
         self.trouble.clone()
+    }
+
+    /// Looks again for the clients on this computer, as Settings › Agents shows: one installed
+    /// since the last look is listed.
+    pub fn look_for_clients(&mut self, cx: &mut Context<Self>) {
+        let found: Vec<Client> =
+            (Client::ALL.into_iter()).filter(|client| self.clients.found(*client)).collect();
+        if found != self.found {
+            self.found = found;
+            cx.notify();
+        }
+    }
+
+    /// The clients Settings › Agents lists: those found here, any connected, whose Disconnect
+    /// stays though the client has gone, and any other MCP client.
+    pub fn listed(&self) -> Vec<Client> {
+        (Client::ALL.into_iter())
+            .filter(|client| {
+                *client == Client::Other || self.found.contains(client) || self.is_connected(*client)
+            })
+            .collect()
     }
 
     pub fn is_connected(&self, client: Client) -> bool {

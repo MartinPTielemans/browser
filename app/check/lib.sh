@@ -66,6 +66,14 @@ cleanup() {
     sleep 1
   done
   cp "$profile_dir"/Crashpad/*/*.dmp "$out/" 2>/dev/null || true
+  kill -0 "$pid" 2>/dev/null || return 0
+  if windows; then
+    # Git Bash's kill ends a Windows program by starting ExitProcess in it and in each process it
+    # started, and chrome.dll faults as that thread unloads it, so each helper would leave a crash
+    # report and the run would read as a crash after its failure (#1017). taskkill /F ends them.
+    taskkill //F //T //PID "$(cat "/proc/$pid/winpid")" > /dev/null 2>&1 || true
+    return 0
+  fi
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -130,6 +138,9 @@ exited() {
       why="the app quit late, within $(((late + 1) / 2)) s after the ${1:-10} s it had"
     else
       why="the app didn't quit in ${1:-10} s, nor in the 10 s after"
+      # Windows has no sample, but the windows the app has left say what's keeping it.
+      ! windows || python3 -I check/app-windows.py list "$(cat "/proc/$pid/winpid")" \
+        > "$out/hang.txt" 2>&1 || true
     fi
     if [ -s "$out/hang.txt" ]; then
       fail "$why. Where it was: $out/hang.txt"
@@ -155,12 +166,13 @@ exited() {
   return 0
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
-# user logs out. On Windows taskkill without /F closes the app's windows, as the user would, and
-# Chromium quits with its last one. On Linux SIGINT is that way: Chromium quits as from its menu,
-# where SIGTERM ends the session at once, without the startup trace tabs.sh reads.
+# user logs out. On Windows each browser window is asked to close, as its close button does, and
+# Chromium quits with its last one: taskkill without /F closed one of two (#1017). On Linux SIGINT
+# is that way: Chromium quits as from its menu, where SIGTERM ends the session at once, without the
+# startup trace tabs.sh reads.
 quit_app() {
   if windows; then
-    taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null
+    python3 -I check/app-windows.py close "$(cat "/proc/$pid/winpid")"
   elif [ "$(uname)" = Linux ]; then
     kill -INT "$pid"
   else
@@ -204,7 +216,8 @@ share='\(, Share…\( (disabled)\)\?\|, Share › [^,]*\(, Share › [^,]*\)*\)\
 # fails with $2.
 expect() {
   for _ in $(seq 100); do
-    sed -n "/^browser: drive ${3:-$step}: /,\$p" "$log" | grep -q "$1" && return 0
+    logged "$1" "${3:-}" && return 0
+    exited_without "$1" "$2" "${3:-}"
     sleep 0.1
   done
   fail "$2"
@@ -220,10 +233,20 @@ expect_late() {
 # expect, looking every 10 ms, for a press that has to land within the first frames of a motion.
 expect_soon() {
   for _ in $(seq 1000); do
-    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
+    logged "$1" && return 0
+    exited_without "$1" "$2"
     sleep 0.01
   done
   fail "$2"
+}
+# A line matching $1 was logged after the last command was sent, or after command $2.
+logged() {
+  sed -n "/^browser: drive ${2:-$step}: /,\$p" "$log" | grep -q "$1"
+}
+# The app that was to log $1 is gone without it, which says why the step $2 failed. It's looked
+# for again, as the app may have logged it as it went.
+exited_without() {
+  [ -z "${pid:-}" ] || kill -0 "$pid" 2>/dev/null || logged "$1" "${3:-}" || fail "the app exited: $2"
 }
 # Where Settings last drew its control $1, "x y" for clickkey, once it has: it logs each place it
 # draws one ("browser: settings $1 at x y").

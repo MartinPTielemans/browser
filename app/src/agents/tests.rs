@@ -196,6 +196,8 @@ struct Configs {
     disconnected: Mutex<Vec<(Client, String)>>,
     /// Why the next Connect fails, as when Claude Code isn't installed.
     failing: Mutex<Option<String>>,
+    /// The clients on the computer, besides any other MCP client.
+    found: Mutex<Vec<Client>>,
 }
 
 impl Clients for Configs {
@@ -213,6 +215,10 @@ impl Clients for Configs {
             .unwrap()
             .push((client, name.into()));
         Ok(())
+    }
+
+    fn found(&self, client: Client) -> bool {
+        client == Client::Other || self.found.lock().unwrap().contains(&client)
     }
 }
 
@@ -337,6 +343,30 @@ fn connect_gives_the_client_a_token_the_server_takes(cx: &mut TestAppContext) {
     assert_ne!(again, entry.token);
     assert_eq!(tokens(cx).len(), 1);
     assert!(tokens(cx).contains_key(&again));
+}
+
+/// Settings › Agents lists the clients on this computer and any other MCP client, finds one
+/// installed since it last looked, and keeps one connected after its client has gone, for its
+/// Disconnect.
+#[gpui::test]
+fn settings_lists_the_clients_found_here(cx: &mut TestAppContext) {
+    let (browser, configs) = (Made::with_agent_space(), Arc::new(Configs::default()));
+    let agents = agents(&browser, &configs, None, cx);
+    let look = |cx: &mut TestAppContext| {
+        agents.update(cx, |agents, cx| agents.look_for_clients(cx));
+        agents.read_with(cx, |agents, _| agents.listed())
+    };
+    assert_eq!(look(cx), [Client::Other]);
+    configs.found.lock().unwrap().push(Client::Codex);
+    assert_eq!(look(cx), [Client::Codex, Client::Other]);
+
+    agents.update(cx, |agents, cx| agents.connect(Client::Codex, cx));
+    cx.run_until_parked();
+    configs.found.lock().unwrap().clear();
+    assert_eq!(look(cx), [Client::Codex, Client::Other]);
+    agents.update(cx, |agents, cx| agents.disconnect(Client::Codex, cx));
+    cx.run_until_parked();
+    assert_eq!(look(cx), [Client::Other]);
 }
 
 /// A Connect that fails, as when the client isn't installed, connects nothing and says why on
