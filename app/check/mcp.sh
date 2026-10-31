@@ -201,8 +201,9 @@ if [ "$driven" = 1 ]; then
   # typed it, the page filled it in as autofill does, or it's a password.
   serve
   # The page names itself once its fields and their handlers are there, which its title in the
-  # head, read before them, wouldn't say.
-  printf '%s' '<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
+  # head, read before them, wouldn't say, and it has painted (painted.js, site.sh).
+  printf '%s' '<script src="painted.js"></script>
+<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
 <label>Name <input id=typed style="position:fixed;inset:0;width:100%;height:100%"></label>
 <label>Password <input id=password type=password></label>
 <label>Email <input id=email autocomplete=email></label>
@@ -215,7 +216,7 @@ password.value = "hunter2-by-ada";
 email.value = "ada@example.com";
 typed.oninput = () => document.title = "typed";
 note.oninput = () => document.title = "noted";
-document.title = "fields";
+painted(() => document.title = "fields");
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
@@ -275,16 +276,20 @@ document.title = "fields";
 
   # A page's frames are part of it: the outline has what's in a frame of the page's site and in
   # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
-  # password field in a frame is as off limits as one in the page.
+  # password field in a frame is as off limits as one in the page. The page names itself once the
+  # other site's frame has painted: until then Chromium hasn't the frame's drawing to find what's
+  # under a click in, and gives the click to the page around it.
   printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
     > "$out/site/inner.html"
   printf '%s' '<p>Cross text</p>
 <button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
-<input type=password aria-label="Cross password">' > "$out/site/cross.html"
-  printf '%s' "<title>frames</title><p>Top text</p><iframe src=inner.html></iframe>
+<input type=password aria-label="Cross password"><script src="painted.js"></script>
+<script>painted(() => parent.postMessage("painted", "*"));</script>' > "$out/site/cross.html"
+  printf '%s' "<title>loading</title><p>Top text</p><iframe src=inner.html></iframe>
 <iframe src=http://127.0.0.1:$port/cross.html></iframe>
 <script>addEventListener('message', (event) => {
+  if (event.data === 'painted') document.title = 'frames';
   if (event.data === 'extension frame') document.title = 'frames with extension';
 });</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
@@ -294,6 +299,7 @@ document.title = "fields";
     *) fail "the page with frames was outlined as: $outline" ;;
   esac
   frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  await_log "^browser: title $frames_tab frames\$" "the other site's frame didn't paint"
   inner=$(ref_of button "Inner button")
   cross=$(ref_of button "Cross button")
   [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
