@@ -1209,6 +1209,12 @@ BC_EXPORT double bc_profile_archive_after(bc_id profile);
 // positive. The tabs that have waited that long go in the archive at once.
 BC_EXPORT bool bc_profile_set_archive_after(bc_id profile, double seconds);
 
+// Copies the profile's notes service, which New Note opens a new document in, into |service| as
+// bc_space_name does: the app's name for it, as bc_profile_set_notes_service was given, or "" for
+// none picked. The app keeps the services and their URLs; the profile keeps the name.
+BC_EXPORT size_t bc_profile_notes_service(bc_id profile, char* service, size_t capacity);
+BC_EXPORT void bc_profile_set_notes_service(bc_id profile, const char* service);
+
 // A page of another browser's history, for bc_profile_add_history. Strings are UTF-8.
 typedef struct bc_history_page {
   const char* url;
