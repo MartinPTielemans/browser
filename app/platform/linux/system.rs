@@ -84,6 +84,29 @@ pub extern "C" fn host_watch_control(released: extern "C" fn()) {
     gpui_linux::watch_control(move || crate::overlays::later(released));
 }
 
+/// Calls `tapped` with the UI's view of the browser window with the keyboard each time ⌥ is pressed
+/// and let go alone, as host.h says. GPUI hears it in the UI; on X11 not in the page, whose keys
+/// are Chromium's window's alone.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_watch_option_taps(tapped: extern "C" fn(ui_view: *mut c_void)) {
+    gpui_linux::watch_alt_taps(move || {
+        let Some(cx) = crate::CX.with_borrow(Clone::clone) else { return };
+        // After the event, out of the display's handling. Not in an overlay or Settings, which
+        // are other windows.
+        cx.spawn(async move |cx| {
+            let active = cx.update(|cx| cx.active_window());
+            let view = crate::WINDOWS.with_borrow(|windows| {
+                let window = windows.iter().find(|window| Some(window.handle) == active)?;
+                Some(window.ui_view)
+            });
+            if let Some(view) = view {
+                tapped(view);
+            }
+        })
+        .detach();
+    });
+}
+
 /// A touchpad swipe over the page in the browser window whose Wayland surface is `surface`
 /// (gpui_linux::watch_embedder_swipes).
 pub fn swiped(surface: *mut c_void, x: f32, y: f32, back: bool) {

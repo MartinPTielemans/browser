@@ -102,6 +102,7 @@ pub mod icon_picker;
 pub mod import;
 pub mod launch;
 pub mod link_preview;
+pub mod link_rules;
 pub mod link_target;
 pub mod menu;
 pub mod offer;
