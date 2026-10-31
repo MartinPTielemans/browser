@@ -25,7 +25,7 @@ use browser::window_frames::{self, Frame};
 use browser::widevine::Widevine;
 use browser::{
     capture, command_bar, dialog, dock_dot, elevation::Level, folder_preview, hover_card,
-    icon_picker, link_preview, link_target, log, menu, offer, passwords, site_controls,
+    icon_picker, launch, link_preview, link_target, log, menu, offer, passwords, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -1099,8 +1099,9 @@ impl link_preview::Host for LinkPreviewHost {
     }
 
     fn page_under(&self) -> bool {
-        // No window of the app's holds a page on Linux (link_preview_window.rs).
-        cfg!(target_os = "linux")
+        // No window of the app's holds a page on Linux (link_preview_window.rs) or Windows
+        // (platform/windows/host.cc).
+        cfg!(any(target_os = "linux", target_os = "windows"))
     }
 
     fn release(&self) {
@@ -1134,7 +1135,7 @@ extern "C" fn link_preview_dismissed() {
 }
 
 thread_local! {
-    /// Whether the host has a view for a link preview's page, which only the Mac's has so far.
+    /// Whether the host has a view for a link preview's page.
     static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -2611,6 +2612,21 @@ impl Browser for Engine {
 
     fn open_page(&self, url: &str, _: &mut App) {
         open_tab(self.window, url);
+    }
+
+    fn new_note(&self, space: u64, beside: Option<u64>, cx: &mut App) {
+        let profile = unsafe { bc::bc_space_profile(space) };
+        let url = browser::notes::new_document(&name(bc::bc_profile_notes_service, profile));
+        // check.sh waits for this line.
+        log!("browser: new note {url}{}", if beside.is_some() { " split" } else { "" });
+        match beside {
+            // Outside the shell's update, which the split's layout updates.
+            Some(with) => {
+                let window = self.window;
+                cx.defer(move |cx| open_split(window, url, with, cx));
+            }
+            None => open_tab(self.window, url),
+        }
     }
 
     fn site_search_settings(&self, _: &mut App) {
@@ -4428,11 +4444,12 @@ fn start_updates(cx: &mut App) {
             };
             log!("browser: updater started");
             let restarting = portal.clone();
-            cx.update(|cx| {
+            let retries = cx.update(|cx| {
                 flatpak::on_restart(move |cx| restart_into_newest(restarting.clone(), cx), cx);
                 flatpak::changed(flatpak::State::Current, cx);
+                flatpak::retries(cx)
             });
-            flatpak::watch(&portal, events, |state| {
+            flatpak::watch(&portal, events, retries, flatpak::ANSWER, |state| {
                 log!("browser: update {state:?}");
                 cx.update(|cx| flatpak::changed(state.clone(), cx));
             })
@@ -6109,10 +6126,8 @@ fn profile_dir() -> String {
 /// What the app gives the core to start with: Chromium's switches, from the arguments the process
 /// was `given`, and the callbacks.
 fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
-    let mut given = given.into_iter();
-    let mut args: Vec<String> = given.next().into_iter().collect();
     let profile = profile_dir();
-    args.extend([
+    let mut args: Vec<String> = vec![
         format!("--user-data-dir={profile}"),
         // Chrome would copy the app bundle to check its signature against, which an
         // ad-hoc-signed build doesn't need.
@@ -6122,7 +6137,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         // back.
         "--disable-stack-profiler".into(),
         "--enable-features=PartitionAllocAdaptiveMemoryReclaimInterval".into(),
-    ]);
+    ];
     // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed dev build asking
     // for it gets a password prompt after every build, and every request that uses cookies waits.
     // The prod build is signed alike every time (tools/install.sh), so macOS asks once.
@@ -6152,11 +6167,12 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
     if cfg!(feature = "prod") && !collector.is_empty() {
         args.push(format!("--crash-upload-url={collector}"));
     }
-    // Switches given to the app come after, so they override these: Chromium keeps a repeated
-    // switch's last value.
-    args.extend(given.filter(|arg| {
+    let given = given.into_iter().filter(|arg| {
         !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
-    }));
+    });
+    // On Windows and Linux Chromium has started already, with what it was given.
+    let chromium_started = cfg!(any(target_os = "windows", target_os = "linux"));
+    let args = launch::chromium_args(given.collect(), args, chromium_started);
     let args: Vec<CString> = args
         .into_iter()
         .filter_map(|arg| CString::new(arg).ok())
