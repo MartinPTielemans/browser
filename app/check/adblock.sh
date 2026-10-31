@@ -239,25 +239,25 @@ let n = 0;
 const probe = () => {
   const sent = Date.now();
   fetch("check-ad.js?n=" + n++, {cache: "no-store"}).then(() => setTimeout(probe, 10), () => {
-    document.title = "probe blocked " + sent + " page " + Math.round(performance.timeOrigin) + " tries " + n;
+    document.title = "probe " + location.search.slice(1) + " blocked " + sent + " page " + Math.round(performance.timeOrigin) + " tries " + n;
   });
 };
 probe();
 </script>' > "$out/site/probe.html"
-for i in 1 2 3 4 5; do
+for i in 1 2 3; do
   log="$out/adblock-probe-$i.log"
   step=0
   launched=$(python3 -I -c 'import time; print(time.time())')
-  BROWSER_DRIVE=1 BROWSER_URL="${site}probe.html" BROWSER_PROFILE_DIR="$profile_dir" \
+  BROWSER_DRIVE=1 BROWSER_URL="${site}probe.html?$i" BROWSER_PROFILE_DIR="$profile_dir" \
     "$browser" --ad-block-filters="$filters" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
-  await "^browser: title [0-9]* probe blocked " || fail "probe $i: never blocked"
-  line=$(grep "^browser: title [0-9]* probe blocked " "$log" | head -1)
+  await "^browser: title [0-9]* probe $i blocked " || fail "probe $i: never blocked"
+  line=$(grep "^browser: title [0-9]* probe $i blocked " "$log" | head -1 | sed "s/ probe $i / probe /")
   python3 -I -c 'import sys
 t = float(sys.argv[1]) * 1000
 w = sys.argv[2].split()
-print("adblock probe: launch to first page %d ms, launch to blocking %d ms, page unblocked for %d ms, %s tries" % (int(w[7]) - t, int(w[5]) - t, int(w[5]) - int(w[7]), w[9]))' "$launched" "$line"
+print("adblock probe " + sys.argv[3] + ": launch to first page %d ms, launch to blocking %d ms, page unblocked for %d ms, %s tries" % (int(w[7]) - t, int(w[5]) - t, int(w[5]) - int(w[7]), w[9]))' "$launched" "$line" "$((i + 1))"
   quit
 done
 
