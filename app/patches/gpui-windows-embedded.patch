@@ -1,5 +1,5 @@
 diff --git a/crates/gpui_windows/src/events.rs b/crates/gpui_windows/src/events.rs
-index 08f91bd626..45a77e4727 100644
+index 08f91bd626..a6160835fe 100644
 --- a/crates/gpui_windows/src/events.rs
 +++ b/crates/gpui_windows/src/events.rs
 @@ -146,11 +146,18 @@ impl WindowsWindowInner {
@@ -126,14 +126,58 @@ index 08f91bd626..45a77e4727 100644
      fn handle_ime_composition(&self, handle: HWND, lparam: LPARAM) -> Option<isize> {
          let ctx = ImeContext::get(handle)?;
          self.handle_ime_composition_inner(*ctx, lparam)
+@@ -1823,3 +1921,42 @@ fn notify_frame_changed(handle: HWND) {
+         .log_err();
+     }
+ }
++
++/// For an embedder's test driver, which types as a Japanese input method would where there's none:
++/// in the text field with the keys in GPUI's window `hwnd`, marks `text`, with `selected` of it
++/// selected, in place of what was composed, or with `text` empty takes the composition out, as
++/// cancelling one does. Returns whether the window has a field with the keys.
++pub fn drive_compose(
++    hwnd: *mut std::ffi::c_void,
++    text: &str,
++    selected: Option<std::ops::Range<usize>>,
++) -> bool {
++    window_from_hwnd(HWND(hwnd))
++        .and_then(|window| {
++            window.with_input_handler(|handler| match text.is_empty() {
++                true => {
++                    if let Some(marked) = handler.marked_text_range() {
++                        handler.replace_text_in_range(Some(marked), "");
++                    }
++                }
++                false => handler.replace_and_mark_text_in_range(None, text, selected),
++            })
++        })
++        .is_some()
++}
++
++/// As `drive_compose`: commits `text` in place of what was composed.
++pub fn drive_commit(hwnd: *mut std::ffi::c_void, text: &str) -> bool {
++    window_from_hwnd(HWND(hwnd))
++        .and_then(|window| {
++            window.with_input_handler(|handler| handler.replace_text_in_range(None, text))
++        })
++        .is_some()
++}
++
++/// What the text field with the keys in GPUI's window `hwnd` has marked, in UTF-16.
++pub fn marked_range(hwnd: *mut std::ffi::c_void) -> Option<std::ops::Range<usize>> {
++    window_from_hwnd(HWND(hwnd))?
++        .with_input_handler(|handler| handler.marked_text_range())
++        .flatten()
++}
 diff --git a/crates/gpui_windows/src/gpui_windows.rs b/crates/gpui_windows/src/gpui_windows.rs
-index e7a45a034d..0f2c31b687 100644
+index e7a45a034d..63c4e0675b 100644
 --- a/crates/gpui_windows/src/gpui_windows.rs
 +++ b/crates/gpui_windows/src/gpui_windows.rs
-@@ -20,6 +20,9 @@ mod vsync;
+@@ -20,6 +20,10 @@ mod vsync;
  mod window;
  mod wrapper;
  
++pub use events::{drive_commit, drive_compose, marked_range};
 +pub use platform::embed;
 +pub use window::open_next_window_in;
 +
