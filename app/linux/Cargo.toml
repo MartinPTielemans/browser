@@ -25,11 +25,29 @@ browser = { path = ".." }
 gpui = { path = "../.deps/zed/crates/gpui" }
 gpui_platform = { path = "../.deps/zed/crates/gpui_platform", features = ["wayland", "x11"] }
 gpui_linux = { path = "../.deps/zed/crates/gpui_linux" }
+# The version GPUI decodes with, as the browser crate has, for a video tile's frame (src/main.rs)
+# and a photo's preview (platform/linux/previews.rs), in the formats GPUI decodes.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 raw-window-handle = "0.6"
-# The test driver's X connection (platform/linux/drive.rs), and the held Escape's
-# (platform/linux/held_escape.rs).
-x11rb = { version = "0.13", features = ["xkb"] }
+# The icon theme the desktop's settings portal names, for a file's icon (platform/linux/previews.rs),
+# as ../Cargo.toml has it.
+zbus = { version = "5.13", default-features = false, features = ["async-io"] }
+# The test driver's X connection (platform/linux/drive.rs), the held Escape's
+# (platform/linux/held_escape.rs) and the windows' frames' (platform/linux/frames.rs).
+x11rb = { version = "0.13", features = ["xkb", "randr"] }
+# The driver's pointer and keyboard in the headless sway session, and sway's answers
+# (platform/linux/drive_wayland.rs), as ../Cargo.toml has them.
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+xkbcommon = "0.8"
+serde_json = "1"
 
 # Its own, apart from the browser crate's, which has no workspace: Zed's crates in ../.deps would join one.
 # Seeded from ../Cargo.lock, so the two build the same versions.
 [workspace]
+
+# AT-SPI's adapter with the expanded state, as ../Cargo.toml has it
+# (patches/accesskit-atspi-expanded.patch).
+[patch.crates-io]
+accesskit_atspi_common = { path = "../.deps/accesskit_atspi_common" }

@@ -564,6 +564,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "gpui_windows",
+ "image",
  "raw-window-handle",
 ]
 

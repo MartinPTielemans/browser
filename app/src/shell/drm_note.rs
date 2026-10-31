@@ -229,7 +229,7 @@ impl Shell {
         if !self.widevine_offer().is_some_and(Widevine::downloadable) {
             return;
         }
-        // check-widevine.sh reads this line.
+        // check/widevine.sh reads this line.
         log!("browser: widevine download");
         self.browser.download_widevine(cx);
     }

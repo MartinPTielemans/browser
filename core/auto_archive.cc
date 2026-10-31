@@ -1,6 +1,7 @@
 #include "browser_core/auto_archive.h"
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -13,11 +14,20 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/wall_clock_timer.h"
+#include "browser_core/profiles.h"
+#include "browser_core/host.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "components/keyed_service/core/keyed_service.h"
+#include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 
 namespace browser_core {
@@ -27,7 +37,36 @@ namespace {
 // For the app's check, which can't wait 12 hours. It wins over the user's settings.
 constexpr char kArchiveAfterSwitch[] = "archive-tabs-after";
 
-base::TimeDelta ArchiveAfter() {
+// The profile's own time, in seconds, which it takes from Settings' default the first time the
+// core uses it once the Spaces are read.
+constexpr char kArchiveAfter[] = "browser_core.archive_after";
+
+// Builds no service: Chrome registers a profile's prefs through its factories.
+class PrefsFactory : public ProfileKeyedServiceFactory {
+ public:
+  static PrefsFactory* GetInstance() {
+    static base::NoDestructor<PrefsFactory> instance;
+    return instance.get();
+  }
+
+  PrefsFactory() : ProfileKeyedServiceFactory("BrowserCoreAutoArchive") {}
+
+ private:
+  std::unique_ptr<KeyedService> BuildServiceInstanceForBrowserContext(
+      content::BrowserContext* context) const override {
+    return nullptr;
+  }
+
+  void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) override {
+    registry->RegisterDoublePref(kArchiveAfter, 0);
+  }
+};
+
+// Whether the Spaces, and with them the default, have been read.
+bool g_default_read = false;
+
+// |space|'s time: its profile's own, or for one not loaded, the profile its tabs open in.
+base::TimeDelta ArchiveAfter(const Space& space) {
   static const std::optional<base::TimeDelta> given = []() -> std::optional<base::TimeDelta> {
     int seconds = 0;
     const std::string value =
@@ -37,7 +76,7 @@ base::TimeDelta ArchiveAfter() {
     }
     return std::nullopt;
   }();
-  return given.value_or(UserSettings().archive_after);
+  return given.value_or(ProfileArchiveAfter(ProfileFor(space.profile())));
 }
 
 base::WallClockTimer& Timer() {
@@ -48,13 +87,14 @@ base::WallClockTimer& Timer() {
 bool g_schedule_posted = false;
 
 // Each Today tab no window shows, with its page or without.
-void ForEachUnseen(base::FunctionRef<void(bc_id, Tab*)> each) {
+void ForEachUnseen(base::FunctionRef<void(bc_id, Tab*, base::TimeDelta)> each) {
   for (Space* space : Space::All()) {
+    const base::TimeDelta after = ArchiveAfter(*space);
     // A copy, as closing a tab takes it out.
     for (bc_id id : std::vector<bc_id>(space->today())) {
       Tab* tab = Tab::Get(id);
       if (tab && !Window::Showing(id)) {
-        each(id, tab);
+        each(id, tab, after);
       }
     }
   }
@@ -62,14 +102,23 @@ void ForEachUnseen(base::FunctionRef<void(bc_id, Tab*)> each) {
 
 void Schedule();
 
+// Whether auto-archive has taken tabs since the launch, for the note on them.
+bool g_archived = false;
+
+void NoteChanged() {
+  if (Host().archive_note_changed) {
+    Host().archive_note_changed(Host().context);
+  }
+}
+
 void ArchiveDue() {
   if (browser_shutdown::IsTryingToQuit()) {
     return;
   }
   const base::Time now = base::Time::Now();
   std::vector<bc_id> due;
-  ForEachUnseen([&](bc_id id, Tab* tab) {
-    if (tab->last_seen() + ArchiveAfter() > now) {
+  ForEachUnseen([&](bc_id id, Tab* tab, base::TimeDelta after) {
+    if (tab->last_seen() + after > now) {
       return;
     }
     // Seen now, so one playing sound, or one its page keeps open, waits another interval.
@@ -81,14 +130,20 @@ void ArchiveDue() {
   for (bc_id id : due) {
     Window::CloseTab(id);
   }
+  if (!due.empty() && !g_archived) {
+    g_archived = true;
+    if (!UserSettings().archive_noted) {
+      NoteChanged();
+    }
+  }
   Schedule();
 }
 
 void Schedule() {
   g_schedule_posted = false;
   std::optional<base::Time> next;
-  ForEachUnseen([&](bc_id, Tab* tab) {
-    const base::Time due = tab->last_seen() + ArchiveAfter();
+  ForEachUnseen([&](bc_id, Tab* tab, base::TimeDelta after) {
+    const base::Time due = tab->last_seen() + after;
     next = next ? std::min(*next, due) : due;
   });
   if (next) {
@@ -99,6 +154,53 @@ void Schedule() {
 }
 
 }  // namespace
+
+void RegisterArchivePrefs() {
+  PrefsFactory::GetInstance();
+}
+
+void GiveArchiveDefault(Profile* profile) {
+  PrefService* prefs = profile->GetOriginalProfile()->GetPrefs();
+  if (g_default_read && !prefs->HasPrefPath(kArchiveAfter)) {
+    prefs->SetDouble(kArchiveAfter, UserSettings().archive_after.InSecondsF());
+  }
+}
+
+void ArchiveDefaultRead() {
+  g_default_read = true;
+  // The profile the browser started in loaded before the Spaces were read.
+  for (Profile* profile : g_browser_process->profile_manager()->GetLoadedProfiles()) {
+    GiveArchiveDefault(profile);
+  }
+}
+
+base::TimeDelta ProfileArchiveAfter(Profile* profile) {
+  const double seconds =
+      profile ? profile->GetOriginalProfile()->GetPrefs()->GetDouble(kArchiveAfter) : 0;
+  return seconds > 0 ? base::Seconds(seconds) : UserSettings().archive_after;
+}
+
+bool SetProfileArchiveAfter(Profile* profile, base::TimeDelta after) {
+  if (!profile || !after.is_positive()) {
+    return false;
+  }
+  profile->GetOriginalProfile()->GetPrefs()->SetDouble(kArchiveAfter, after.InSecondsF());
+  ScheduleAutoArchive();
+  return true;
+}
+
+bool ArchiveNoteShown() {
+  return g_archived && !UserSettings().archive_noted;
+}
+
+void DismissArchiveNote() {
+  if (!ArchiveNoteShown()) {
+    return;
+  }
+  UserSettings().archive_noted = true;
+  SessionChanged();
+  NoteChanged();
+}
 
 void ScheduleAutoArchive() {
   if (g_schedule_posted) {

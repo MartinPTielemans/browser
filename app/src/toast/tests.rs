@@ -172,6 +172,66 @@ fn a_question_stays_until_a_button_answers_it(cx: &mut TestAppContext) {
     assert_eq!(after(cx, &host, LEAVE), ["hide"]);
 }
 
+/// A question asked again while it shows, as the archive's note at launch, is the one showing,
+/// and once answered or replaced by another toast it's no longer.
+#[gpui::test]
+fn a_question_shows_until_answered_or_replaced(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let note = "Tabs unseen for 12 hours went to the archive.";
+    let ask = |cx: &mut TestAppContext| {
+        let dismiss = Button {
+            label: Label::Text("Dismiss".into()),
+            name: "dismiss",
+            run: Rc::new(|_, _| {}),
+        };
+        cx.update(|cx| show_until_answered(note, vec![dismiss], cx));
+        cx.run_until_parked();
+    };
+    assert!(!cx.update(|cx| showing(note, cx)));
+    ask(cx);
+    assert!(cx.update(|cx| showing(note, cx)));
+    assert!(!cx.update(|cx| showing("Space deleted! Use", cx)));
+    cx.update(|cx| {
+        let window = cx.global::<ToastWindow>().0;
+        window.update(cx, |toast, _, cx| toast.press(0, point(px(0.), px(0.)), cx)).unwrap();
+    });
+    cx.run_until_parked();
+    assert!(!cx.update(|cx| showing(note, cx)), "an answered question is leaving");
+    after(cx, &host, LEAVE);
+    ask(cx);
+    show_deleted(cx);
+    assert!(!cx.update(|cx| showing(note, cx)), "another toast took its place");
+}
+
+#[gpui::test]
+fn a_resting_toast_comes_back_after_another_until_its_button_takes_it(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let stop = Button { label: Label::Text("Stop".into()), name: "stop", run: Rc::new(|_, _| {}) };
+    cx.update(|cx| show_resting("Recording a trace", vec![stop], cx));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks true", "show"]);
+    assert!(after(cx, &host, 60.).is_empty(), "it stays");
+    show_deleted(cx);
+    assert_eq!(host.0.take(), ["clicks false", "show"]);
+    assert_eq!(after(cx, &host, 5. + LEAVE), ["hide", "clicks true", "show"]);
+    let text = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let window = cx.global::<ToastWindow>().0;
+            window.read(cx).unwrap().shown.as_ref().map(|shown| shown.text.clone())
+        })
+    };
+    assert_eq!(text(cx).as_deref(), Some("Recording a trace"));
+    cx.update(|cx| {
+        let window = cx.global::<ToastWindow>().0;
+        window.update(cx, |toast, _, cx| toast.press(0, point(px(0.), px(0.)), cx)).unwrap();
+    });
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks false"]);
+    assert_eq!(after(cx, &host, LEAVE), ["hide"]);
+    assert!(after(cx, &host, 10.).is_empty(), "it doesn't come back");
+    assert_eq!(text(cx), None);
+}
+
 /// The toast's window ends below the plate, where its shadow falls, and the shadow fades out
 /// before the window's edge. Above and right of it the window's edge is the browser window's.
 #[test]
@@ -222,4 +282,46 @@ fn the_host_is_told_where_the_plate_is_once_it_is_at_rest(cx: &mut TestAppContex
     assert!(f32::from(plate.size.width) < WINDOW_WIDTH - RIGHT, "{plate:?}");
     // The margin where the shadow falls is left of it and under it.
     assert!(f32::from(plate.origin.x) > 0. && f32::from(plate.bottom()) < WINDOW_HEIGHT);
+}
+
+/// A toast that is itself its button, as New Tab Created is, takes clicks and draws no chip, and
+/// a click anywhere on its plate runs it, as VoiceOver can, the toast being a button.
+#[gpui::test]
+fn a_click_on_a_toast_that_is_its_button_runs_it(cx: &mut TestAppContext) {
+    use gpui::VisualTestContext;
+    let host = Rc::new(Recorder::default());
+    let window = cx.update(|cx| open(host.clone(), |_| (hsla(0., 0., 0., 1.), Default::default()), cx));
+    let window = window.expect("no toast window");
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.simulate_a11y_activation();
+    let clicked = Rc::new(Cell::new(0));
+    let counted = clicked.clone();
+    let button = Button {
+        label: Label::Plate,
+        name: "show",
+        run: Rc::new(move |_, _| counted.set(counted.get() + 1)),
+    };
+    cx.update(|cx| show_with_buttons("New Tab Created", vec![button], TIME, cx));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks true", "show"]);
+    cx.update(|cx| {
+        window
+            .update(cx, |toast, _, _| {
+                toast.shown.as_mut().unwrap().shown = Some(Instant::now() - Duration::from_secs(3));
+            })
+            .unwrap()
+    });
+    // Through the any-window handle, since drawing renders the toast the other would lease.
+    cx.update(|cx| {
+        cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx)).unwrap()
+    });
+    let tree = visual.a11y_tree().expect("GPUI built a tree");
+    let roles: Vec<_> = tree.nodes.iter().map(|(_, node)| node.role()).collect();
+    assert_eq!(roles.iter().filter(|&&role| role == Role::Button).count(), 1, "{roles:?}");
+    let plate = *host.1.borrow().last().expect("the plate wasn't told");
+    // Near its left end, over the words rather than a chip.
+    visual.simulate_click(point(plate.left() + px(20.), plate.center().y), Default::default());
+    visual.run_until_parked();
+    assert_eq!(clicked.get(), 1);
+    assert_eq!(after(cx, &host, LEAVE), ["clicks false", "hide"]);
 }

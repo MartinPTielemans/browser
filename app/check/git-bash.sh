@@ -1,12 +1,14 @@
 # What the runs use from the Mac that Git Bash lacks or has only for its own processes. check.sh
 # sources it on Windows.
 
-# The ids of the Windows processes whose command line, its backslashes as slashes, matches $1, as
-# pgrep -f finds them. Git Bash's ps shows a native process's executable, never its arguments.
+# The ids of the Windows processes whose executable's path and command line, their backslashes as
+# slashes, match $1, as pgrep -f finds them. Git Bash's ps shows a native process's executable,
+# never its arguments. The path is there for the app's own process, whose command line Git Bash
+# writes: after a failed run its helpers were killed, and it lived on and started new ones.
 windows_procs() {
   PATTERN="$1" powershell.exe -NoProfile -NonInteractive -Command '
     Get-CimInstance Win32_Process | Where-Object {
-      $_.CommandLine -and ($_.CommandLine -replace "\\", "/") -match $env:PATTERN
+      ("$($_.ExecutablePath) $($_.CommandLine)" -replace "\\", "/") -match $env:PATTERN
     } | ForEach-Object { $_.ProcessId }' | tr -d '\r'
 }
 # pgrep -f and pkill [-9 | -KILL] -f on those, ending them by id, never by image name, which would
@@ -26,10 +28,23 @@ pkill() {
     taskkill $force //PID "$id" > /dev/null 2>&1 || true
   done
 }
+# Git Bash rewrites what looks like a path in a native program's environment, and took the </script>
+# in a run's data: URL for one, so the page the app opened never ran its script (#872). The URLs a
+# run opens are never paths.
+export MSYS2_ENV_CONV_EXCL=BROWSER_URL
 # Runs the app. A native program can't read Git Bash's fifo, so cat passes the driver's commands on
-# through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid.
+# through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid. chrome_elf
+# starts Crashpad before the app adds its profile, in the folder chrome.exe's own --user-data-dir
+# names, or else the prod build's, so the profile the app will use, a run's own too, goes there
+# as well: the crash run's reports are then in its Crashpad folder, where the core works with them.
 windows_browser() {
-  exec "$app/chrome.exe" "$@" < <(cat)
+  exec "$app/chrome.exe" "--user-data-dir=$(cygpath -w "${BROWSER_PROFILE_DIR:-$profile_dir}")" \
+    "$@" < <(cat)
+}
+# Runs the bridge $1 for the server $2 on the fifos $3, its stdin, and $4, its stdout, which it
+# can't open itself, as windows_browser runs the app, so $! is the bridge's.
+windows_bridge() {
+  exec "$1" "$2" < <(cat "$3") > >(cat > "$4")
 }
 # Writes the image $1 as the BMP $2, as sips does on the Mac.
 to_bmp() {

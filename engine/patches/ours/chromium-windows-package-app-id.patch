@@ -1,0 +1,45 @@
+On Windows, an MSIX install's windows and notifications use its package's AppUserModelID. Chromium
+names them with ShellUtil::GetBrowserModelId: the base_app_id, ilo, plus the user's suffix for a
+per-user install. Under MSIX the executable is in Program Files\WindowsApps, so Chromium takes it
+for a system-level install and gives them plain "ilo". That isn't the package's ID, which its
+manifest gives the Start menu tile and the toast activator (app/platform/windows/package/
+AppxManifest.xml). So Windows doesn't put the notifications under the package's name, a click on
+one doesn't start the package's activator, and the windows don't group with the tile. A process
+with a package identity now gets that package's ID from Windows. The Inno Setup install has none,
+so it keeps the per-user ID its shortcut has (app/platform/windows/package/ilo.iss).
+
+--- a/chrome/installer/util/shell_util.cc
++++ b/chrome/installer/util/shell_util.cc
+@@ -9,6 +9,9 @@
+ 
+ #include "chrome/installer/util/shell_util.h"
+ 
++#include <windows.h>
++
++#include <appmodel.h>
+ #include <objbase.h>
+ 
+ #include <shobjidl.h>
+@@ -1783,6 +1786,22 @@
+ }
+ 
+ std::wstring ShellUtil::GetBrowserModelId(bool is_per_user_install) {
++  // browser_core: an MSIX's process has its package's AppUserModelID, the one
++  // its manifest gives the Start menu tile and the toast activator, so its
++  // windows and notifications use that instead of the base_app_id an
++  // unpackaged install's shortcut has.
++  UINT32 package_app_id_length = 0;
++  if (::GetCurrentApplicationUserModelId(&package_app_id_length, nullptr) ==
++      ERROR_INSUFFICIENT_BUFFER) {
++    std::wstring package_app_id(package_app_id_length, L'\0');
++    if (::GetCurrentApplicationUserModelId(&package_app_id_length,
++                                           package_app_id.data()) ==
++        ERROR_SUCCESS) {
++      package_app_id.resize(package_app_id_length - 1);
++      return package_app_id;
++    }
++  }
++
+   std::wstring app_id(install_static::GetBaseAppId());
+   std::wstring suffix;
+ 

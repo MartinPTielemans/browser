@@ -21,7 +21,7 @@ use super::{
 };
 use crate::default_browser::{self, Os};
 use crate::import::{ImportEvent, ImportView, Look};
-use crate::settings_rows::{SLIDE, switch};
+use crate::settings_rows::{SLIDE, checked_row, switch};
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
 use crate::tokens::palette::{INK, PAPER};
@@ -69,6 +69,9 @@ pub(super) enum Step {
     /// What comes along from another browser: the import view (crate::import), which Settings ›
     /// Import shows too; left out when it finds no browser to import from.
     Import,
+    /// The sites visited most in the history an import read, ticked, to make favorites (owner,
+    /// 2026-10-29); there only once an import begins, and left out when it offers none.
+    Favorites,
     /// Asks the system to open links with ilo; left out when it already does.
     DefaultBrowser,
     /// The first Space's colour, from the theme picker's swatches.
@@ -77,8 +80,14 @@ pub(super) enum Step {
     OptIns,
 }
 
-const STEPS: [Step; 5] =
-    [Step::Intro, Step::Import, Step::DefaultBrowser, Step::Color, Step::OptIns];
+const STEPS: [Step; 6] = [
+    Step::Intro,
+    Step::Import,
+    Step::Favorites,
+    Step::DefaultBrowser,
+    Step::Color,
+    Step::OptIns,
+];
 
 /// The opt-ins the first launch offers, each Settings' own switch.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -125,6 +134,7 @@ impl Step {
         match self {
             Step::Intro => "intro",
             Step::Import => "import",
+            Step::Favorites => "favorites",
             Step::DefaultBrowser => "default-browser",
             Step::Color => "color",
             Step::OptIns => "opt-ins",
@@ -141,6 +151,19 @@ impl Step {
                 "Spaces, pinned tabs, folders and favorites from the browser you used.",
                 "",
             ),
+            // Worked out from the pages the import read, here; the button is Continue while none
+            // is ticked (favorites_button).
+            Step::Favorites => {
+                let here = match os {
+                    Os::Mac => "this Mac",
+                    _ => "this computer",
+                };
+                let line = format!(
+                    "The sites you visit most, from the history you brought, worked out on {here}. \
+                     Nothing is sent anywhere."
+                );
+                return ("Your favorites.", line.into(), "Add Favorites");
+            }
             // What the system does and its way back are Settings' row's, each system's own. A
             // Flatpak can't set it, so the step says where the desktop does, and goes on.
             Step::DefaultBrowser => {
@@ -260,6 +283,8 @@ pub(super) struct Onboarding {
     pub(super) step: Step,
     /// The swatch picked at the colour step, if one is.
     pub(super) picked: Option<usize>,
+    /// The favorites offered that the user unticked, by URL.
+    pub(super) unticked: Vec<String>,
     /// The system it runs on, for the default browser's step.
     os: Os,
     /// The opt-in switch last turned, and when, for its knob's slide.
@@ -309,6 +334,8 @@ impl Shell {
             .into_iter()
             .filter(|&step| match step {
                 Step::Import => import,
+                // An import begun brings it in (import_event).
+                Step::Favorites => false,
                 Step::DefaultBrowser => !default_browser,
                 Step::OptIns => opt_ins,
                 _ => true,
@@ -323,6 +350,7 @@ impl Shell {
             steps,
             step: Step::Intro,
             picked: None,
+            unticked: Vec::new(),
             os: self.browser.os(),
             switched: None,
             since: Instant::now(),
@@ -353,11 +381,19 @@ impl Shell {
     /// Goes on from the step shown, to the next or out of the flow after the last, `how` saying
     /// what did it for check.sh.
     pub(super) fn onboarding_next(&mut self, how: &str, cx: &mut Context<Self>) {
+        // The favorites come only while an import has some to offer, or is reading its history.
+        let favorites = self.importing.as_ref().is_some_and(|importing| {
+            let view = importing.view.read(cx);
+            view.suggesting() || view.suggested().is_some_and(|tabs| !tabs.is_empty())
+        });
         let Some(onboarding) = self.onboarding.as_mut().filter(|o| o.ending.is_none()) else {
             return;
         };
         let step = onboarding.step;
         log!("browser: onboarding left {} via {how}", step.name());
+        if !favorites {
+            onboarding.steps.retain(|&each| each != Step::Favorites || each == step);
+        }
         let at = onboarding.steps.iter().position(|&each| each == step);
         match at.and_then(|at| onboarding.steps.get(at + 1)).copied() {
             Some(next) => {
@@ -382,6 +418,12 @@ impl Shell {
             (Step::DefaultBrowser, _) if default_browser::offers(onboarding.os, false) => {
                 self.browser.make_default_browser(cx)
             }
+            (Step::Favorites, _) => {
+                let ticked = self.favorites_ticked(cx);
+                if let Some(importing) = self.importing.as_ref().filter(|_| !ticked.is_empty()) {
+                    importing.view.read(cx).add_favorites(self.space, &ticked);
+                }
+            }
             (Step::Color, Some(picked)) => {
                 let color = SWATCHES[picked];
                 // check.sh reads this line.
@@ -402,12 +444,55 @@ impl Shell {
                 _ => importing.said.take(),
             };
         }
-        let on_it = self.onboarding.as_ref().is_some_and(|o| o.step == Step::Import);
+        let step = self.onboarding.as_ref().map(|onboarding| onboarding.step);
+        let on_it = step == Some(Step::Import);
+        if let Some(onboarding) = self.onboarding.as_mut().filter(|_| on_it)
+            && *event == ImportEvent::Started
+            && !onboarding.steps.contains(&Step::Favorites)
+        {
+            let at = onboarding.steps.iter().position(|&each| each == Step::Import);
+            onboarding.steps.insert(at.map_or(0, |at| at + 1), Step::Favorites);
+        }
+        // Waiting for what to offer, the step goes on by itself once it's none.
+        let none = self.importing.as_ref().is_some_and(|importing| {
+            importing.view.read(cx).suggested().is_some_and(|tabs| tabs.is_empty())
+        });
         match event {
             ImportEvent::Started | ImportEvent::Done if on_it => self.onboarding_next("import", cx),
             ImportEvent::Skipped if on_it => self.onboarding_next("skip", cx),
+            ImportEvent::Suggested | ImportEvent::Finished(_)
+                if step == Some(Step::Favorites) && none =>
+            {
+                self.onboarding_next("none", cx)
+            }
             _ => cx.notify(),
         }
+    }
+
+    /// The favorites offered that are ticked, as ↩ adds them.
+    fn favorites_ticked(&self, cx: &gpui::App) -> Vec<crate::import::found::Tab> {
+        let (Some(importing), Some(onboarding)) = (&self.importing, &self.onboarding) else {
+            return Vec::new();
+        };
+        let offered = importing.view.read(cx).suggested().unwrap_or_default();
+        let ticked = offered.iter().filter(|tab| !onboarding.unticked.contains(&tab.url));
+        ticked.cloned().collect()
+    }
+
+    /// Ticks or unticks the favorite offered at `url`.
+    fn onboarding_tick(&mut self, url: &str, cx: &mut Context<Self>) {
+        let Some(onboarding) = self.onboarding.as_mut() else {
+            return;
+        };
+        match onboarding.unticked.iter().position(|each| each == url) {
+            Some(at) => {
+                onboarding.unticked.remove(at);
+            }
+            None => onboarding.unticked.push(url.into()),
+        }
+        // check.sh reads this line.
+        log!("browser: onboarding unticked {}", onboarding.unticked.join(" "));
+        cx.notify();
     }
 
     /// The flow's quiet line about the import: what it's doing, or what it brought in.
@@ -541,7 +626,16 @@ impl Shell {
             let left = Duration::from_secs_f32((end - elapsed).max(0.));
             onboarding.hold = Some(cx.spawn(async move |shell, cx| {
                 cx.background_executor().timer(left).await;
-                shell.update(cx, |_, cx| cx.notify()).ok();
+                // A timer can end a little before the flow's clock does, as Windows' do (#1026),
+                // so the frame it wakes waits again for what's left.
+                shell
+                    .update(cx, |shell, cx| {
+                        if let Some(onboarding) = shell.onboarding.as_mut() {
+                            onboarding.hold = None;
+                        }
+                        cx.notify()
+                    })
+                    .ok();
             }));
         }
         let light = onboarding.light.unwrap_or_else(|| {
@@ -635,11 +729,17 @@ impl Shell {
         let os = self.onboarding.as_ref().map_or(Os::Mac, |onboarding| onboarding.os);
         let (title, line, button) = step.message(os);
         let switches = (step == Step::OptIns).then(|| self.opt_in_rows(colors, cx));
+        let favorites = (step == Step::Favorites).then(|| self.favorite_rows(colors, cx));
+        // Add Favorites with some ticked, else Continue, as ↩ then adds none.
+        let button = match step {
+            Step::Favorites if self.favorites_ticked(cx).is_empty() => "Continue",
+            _ => button,
+        };
         let swatches = (step == Step::Color).then(|| {
             let picked = self.onboarding.as_ref().and_then(|onboarding| onboarding.picked);
             swatch_row(picked, colors, cx)
         });
-        let chip = |keys: &'static str, fill: Rgba| {
+        let chip = |keys: String, fill: Rgba| {
             div()
                 .h(px(CHIP_HEIGHT))
                 .px(px(CHIP_INSET))
@@ -682,7 +782,10 @@ impl Shell {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|shell, _, _, cx| shell.onboarding_continue("button", cx)))
                     .child(button)
-                    .child(chip("↩", with_alpha(PAPER, CHIP)))
+                    .child(chip(
+                        super::key_name("enter", super::OFF_THE_MAC),
+                        with_alpha(PAPER, CHIP),
+                    ))
         });
         layer.child(
             div()
@@ -702,6 +805,7 @@ impl Shell {
                 )
                 .children(swatches)
                 .children(switches)
+                .children(favorites)
                 .children(import)
                 .children(button),
         )
@@ -749,6 +853,32 @@ impl Shell {
             .flex_col()
             .gap(px(OPT_IN_GAP))
             .children(rows)
+    }
+
+    /// The favorites offered, a row each with its box ticked in the green, which a click unticks;
+    /// a quiet line while the import is still reading its history.
+    fn favorite_rows(&self, colors: Colors, cx: &mut Context<Self>) -> gpui::Div {
+        let look = Look::on(colors.ground, colors.ink(1.));
+        let unticked = self.onboarding.as_ref().map(|o| o.unticked.clone()).unwrap_or_default();
+        let offered = self.importing.as_ref().and_then(|importing| {
+            importing.view.read(cx).suggested().map(<[crate::import::found::Tab]>::to_vec)
+        });
+        let list = div().mt(px(BUTTON_GAP)).w(px(OPT_IN_WIDTH)).flex().flex_col();
+        let Some(offered) = offered else {
+            let reading = div().text_center().text_color(colors.ink(QUIET));
+            return list.child(reading.child("Reading your history…"));
+        };
+        list.children(offered.into_iter().enumerate().map(|(index, tab)| {
+            let on = !unticked.contains(&tab.url);
+            let name = crate::import::suggested::site_name(&tab.url);
+            div()
+                .id(("onboarding-favorite", index))
+                .text_size(px(crate::tokens::text::BODY))
+                .text_color(colors.ink(1.))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |shell, _, _, cx| shell.onboarding_tick(&tab.url, cx)))
+                .child(checked_row(&look, on, name, rgb(SIGNAL), rgb(PAPER)))
+        }))
     }
 
     /// Skip, quiet at the window's bottom right, with Esc's chip.
