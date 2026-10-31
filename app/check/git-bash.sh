@@ -35,6 +35,11 @@ windows_browser() {
   exec "$app/chrome.exe" "--user-data-dir=$(cygpath -w "${BROWSER_PROFILE_DIR:-$profile_dir}")" \
     "$@" < <(cat)
 }
+# Runs the bridge $1 for the server $2 on the fifos $3, its stdin, and $4, its stdout, which it
+# can't open itself, as windows_browser runs the app, so $! is the bridge's.
+windows_bridge() {
+  exec "$1" "$2" < <(cat "$3") > >(cat > "$4")
+}
 # Writes the image $1 as the BMP $2, as sips does on the Mac.
 to_bmp() {
   IN="$(cygpath -w "$1")" OUT="$(cygpath -w "$2")" powershell.exe -NoProfile -NonInteractive \
