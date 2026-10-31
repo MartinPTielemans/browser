@@ -261,6 +261,8 @@ class WindowViews : public views::WidgetObserver,
   FocusRing& ring() { return ring_; }
   double corner_radius() const { return corner_radius_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  bool held() const { return held_; }
+  void set_held(bool held) { held_ = held; }
 
   // A slot's widget, made the first time it's needed.
   views::Widget* WidgetFor(Slot& slot) {
@@ -353,12 +355,17 @@ class WindowViews : public views::WidgetObserver,
     return gfx::ScaleToFlooredSize(gfx::Size(client.right, client.bottom), 1 / Scale());
   }
 
-  // Sizes the UI to the window's content, and each slot to its insets, over the UI.
-  void LayOut() {
+  // Sizes the UI to the window's content.
+  void SizeUI() {
     RECT client;
     GetClientRect(window(), &client);
     SetWindowPos(ui_, HWND_BOTTOM, 0, 0, client.right, client.bottom,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+  }
+
+  // Sizes the UI to the window's content, and each slot to its insets, over the UI.
+  void LayOut() {
+    SizeUI();
     const float scale = Scale();
     const gfx::Size size = ContentSize();
     for (Slot& slot : panes_) {
@@ -437,7 +444,13 @@ class WindowViews : public views::WidgetObserver,
   }
 
   // views::WidgetObserver:
-  void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override { LayOut(); }
+  void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override {
+    if (held_) {
+      SizeUI();
+    } else {
+      LayOut();
+    }
+  }
 
   void OnWidgetDestroying(views::Widget*) override {
     ring_.Hide();
@@ -486,6 +499,8 @@ class WindowViews : public views::WidgetObserver,
   // After the slots, so it leaves its holder before that goes.
   FocusRing ring_;
   double corner_radius_ = 0;
+  // The pages stay where they are as the window resizes, until ShowPages (HoldPagesForResize).
+  bool held_ = false;
   HWND had_keyboard_ = nullptr;
   // The pages DrawUnseen holds.
   aura::WindowTracker unseen_;
@@ -562,6 +577,7 @@ void ShowPages(views::Widget* widget,
     return;
   }
   views->set_corner_radius(corner_radius);
+  views->set_held(false);
   const bool hidden = !widget->IsVisible();
   const gfx::Size size = views->ContentSize();
 
@@ -657,10 +673,15 @@ void ShowPages(views::Widget* widget,
   views->LayOut();
 }
 
-void HoldPagesForResize(views::Widget*) {}
+void HoldPagesForResize(views::Widget* widget) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->set_held(true);
+  }
+}
 
-bool PagesHeldForResize(views::Widget*) {
-  return false;
+bool PagesHeldForResize(views::Widget* widget) {
+  WindowViews* views = ViewsOf(widget);
+  return views && views->held();
 }
 
 void HidePages(views::Widget* widget) {
