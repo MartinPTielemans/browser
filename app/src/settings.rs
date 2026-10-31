@@ -915,6 +915,9 @@ impl Settings {
                 .when(shown, |plate| {
                     plate.bg(rgb(PLATE_FILL)).border(px(0.5)).border_color(rgb(PLATE_EDGE))
                 })
+                // check.sh clicks a tab where this says, as its labels' widths differ by platform.
+                .relative()
+                .child(self.drawn(format!("toolbar {}", tab.name())))
                 // A press here picks the tab, and doesn't move the window.
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |settings, _, window, cx| {

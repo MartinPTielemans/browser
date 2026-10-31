@@ -99,6 +99,12 @@ home_row() {
   echo "100 $(($(pinned_row 0 | cut -d' ' -f2) + tiles))"
 }
 
+# Where Settings last drew what $1 names, as the platforms' fonts move its tabs and rows.
+settings_at() {
+  await "^browser: settings $1 at " || fail "Settings didn't draw its $1"
+  grep "^browser: settings $1 at " "$log" | tail -1 | sed "s/^browser: settings $1 at //"
+}
+
 # Pinned, the tab's links to other sites open in the preview, which grows from the link.
 send key d cmd
 expect '^browser: command toggle-pin via page$' "⌘D with the page focused didn't reach the UI"
@@ -223,10 +229,9 @@ send click $page_point
 expect "^browser: title $a pressed [0-9]*\$" "a click on the test page's lower part didn't reach it"
 send key , cmd
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
-send clickkey 519 60
+send clickkey $(settings_at "toolbar Advanced")
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
-# Its switch is the row under the haptics', as General's rows are 42 apart.
-send clickkey 592 168
+send clickkey $(settings_at "switch link previews")
 expect '^browser: link previews off$' "a click on the link previews switch didn't turn them off"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
@@ -253,9 +258,9 @@ expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the first S
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "the first Space didn't show the pinned tab again"
 send key , cmd
 expect '^browser: settings shown Advanced$' "⌘, didn't show Settings on its Advanced tab"
-send clickkey 592 168
+send clickkey $(settings_at "switch link previews")
 expect '^browser: link previews on$' "a click on the link previews switch didn't turn them on"
-send clickkey 162 60
+send clickkey $(settings_at "toolbar Links")
 expect '^browser: settings tab Links$' "a click on Links didn't show its tab"
 send clickkey 76 173
 expect '^browser: link rule 0 field has the keyboard$' "+ didn't give the new rule's field the keyboard"
