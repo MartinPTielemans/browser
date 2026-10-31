@@ -240,6 +240,14 @@ void Show(Floating& floating, void* ui_view, double left, double top, double wid
   }
 }
 
+// check.sh waits for |what|'s line once |floating| is on screen, as the Mac's and Linux's hosts
+// log it as its fade in ends.
+void LogShown(const Floating& floating, const char* what) {
+  if (floating.hwnd && IsWindowVisible(floating.hwnd)) {
+    fprintf(stderr, "browser: %s window shown\n", what);
+  }
+}
+
 // Hides |floating|, giving its browser window the keyboard back if it had it.
 void Hide(Floating& floating) {
   if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
@@ -2148,6 +2156,7 @@ void host_add_tooltip(void* tooltip_view, double margin, void (*)(void)) {
 // shortcut: tooltips and the link target show and hide at once, without their fade.
 void host_show_tooltip(void* ui_view, double left, double top, double) {
   Show(g_tooltip, ui_view, left - g_tooltip_margin, top - g_tooltip_margin, -1, -1, false);
+  LogShown(g_tooltip, "tooltip");
 }
 
 void host_hide_tooltip(double) {
@@ -2184,6 +2193,7 @@ void host_add_link_target(void* link_view, double margin, void (*pointer)(double
 void host_show_link_target(void* ui_view, double left, double top, double) {
   g_link_shown_over = ui_view;
   Show(g_link_target, ui_view, left - g_link_margin, top - g_link_margin, -1, -1, false);
+  LogShown(g_link_target, "link target");
   WatchPointer();
 }
 
