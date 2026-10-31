@@ -215,6 +215,14 @@ void Adopt(Floating& floating, void* view, bool mouse_through, void (*dismissed)
   DwmSetWindowAttribute(floating.hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof corners);
 }
 
+// Puts |hwnd| at |x|, |y|, |width| by |height| over the others and on screen. It's shown with
+// ShowWindow rather than SWP_SHOWWINDOW, which doesn't send WM_SHOWWINDOW, the message GPUI learns
+// its window is on screen from (window.is_visible()), where an overlay's motion starts.
+void PlaceAndShow(HWND hwnd, int x, int y, int width, int height, bool activate) {
+  SetWindowPos(hwnd, HWND_TOP, x, y, width, height, SWP_NOACTIVATE);
+  ShowWindow(hwnd, activate ? SW_SHOW : SW_SHOWNA);
+}
+
 // Shows |floating| over |ui_view|'s browser window at |left|, |top| points in its content, |width|
 // by |height| points, or its own size where one is negative, with the keyboard if |keyboard|.
 void Show(Floating& floating, void* ui_view, double left, double top, double width, double height,
@@ -231,9 +239,8 @@ void Show(Floating& floating, void* ui_view, double left, double top, double wid
   POINT origin{static_cast<LONG>(left * scale), static_cast<LONG>(top * scale)};
   ClientToScreen(root, &origin);
   SetWindowLongPtrW(floating.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(root));
-  SetWindowPos(floating.hwnd, HWND_TOP, origin.x, origin.y, static_cast<int>(width * scale),
-               static_cast<int>(height * scale),
-               SWP_SHOWWINDOW | (keyboard ? 0 : SWP_NOACTIVATE));
+  PlaceAndShow(floating.hwnd, origin.x, origin.y, static_cast<int>(width * scale),
+               static_cast<int>(height * scale), keyboard);
   if (keyboard) {
     SetForegroundWindow(floating.hwnd);
     SetFocus(floating.hwnd);
@@ -610,8 +617,7 @@ void PlaceLinkPreview() {
   }
   // The window owns the region from here.
   SetWindowRgn(hwnd, region, IsWindowVisible(hwnd));
-  SetWindowPos(hwnd, HWND_TOP, origin.x, origin.y, client.right, client.bottom,
-               SWP_SHOWWINDOW | SWP_NOACTIVATE);
+  PlaceAndShow(hwnd, origin.x, origin.y, client.right, client.bottom, false);
 }
 
 // The browser window under the preview moved or resized, which it follows, or is going.
@@ -2261,8 +2267,8 @@ void host_show_menu_window(void* ui_view,
       return;
     }
     SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
-    SetWindowPos(g_menu.hwnd, HWND_TOP, frame.left, frame.top, frame.right - frame.left,
-                 frame.bottom - frame.top, SWP_SHOWWINDOW);
+    PlaceAndShow(g_menu.hwnd, frame.left, frame.top, frame.right - frame.left,
+                 frame.bottom - frame.top, true);
     SetForegroundWindow(g_menu.hwnd);
     SetFocus(g_menu.hwnd);
     InstallMenuHooks();
