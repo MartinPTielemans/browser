@@ -1853,10 +1853,11 @@ void host_hide_overlay(int overlay) {
 }
 
 void host_dismiss_overlay(int overlay) {
-  Floating& floating = g_overlays[overlay];
-  HideOverlay(overlay);
-  if (floating.dismissed) {
-    floating.dismissed();
+  // Posted: the UI may be handling the event that closed the overlay, as Esc's action is, and
+  // would borrow the app again.
+  if (HideOverlay(overlay) && g_overlays[overlay].dismissed) {
+    void (*dismissed)(void) = g_overlays[overlay].dismissed;
+    Later([dismissed] { dismissed(); });
   }
 }
 
