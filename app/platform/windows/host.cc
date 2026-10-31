@@ -1773,6 +1773,8 @@ void host_add_offer(void* ui_view, void* offer_view, double right, double top) {
 void host_show_offer(void* ui_view) {
   if (auto it = g_offers.find(ui_view); it != g_offers.end()) {
     ShowCorner(it->second, ui_view, false);
+    // check.sh reads it, as the Mac's host logs it.
+    fprintf(stderr, "browser: offer shown\n");
   }
 }
 

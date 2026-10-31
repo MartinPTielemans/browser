@@ -154,8 +154,12 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
       ../tools/window-screenshot.sh "$pid" "$out/passkeys-dialog.png" ||
         fail "no window to capture"
       dialog= view=
-      echo "skip: passkeys' dialog placement. On Linux Chrome draws the dialog in its own window," \
-        "where the X server can't find it."
+      if windows; then
+        echo "skip: passkeys' dialog placement. Only the Mac's run measures it so far."
+      else
+        echo "skip: passkeys' dialog placement. On Linux Chrome draws the dialog in its own window," \
+          "where the X server can't find it."
+      fi
     fi
     # Where the dialog can't be seen, escape goes again until it's up and closes it: the page does
     # nothing with one.
