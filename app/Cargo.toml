@@ -73,9 +73,9 @@ zbus = { version = "5.13", default-features = false, features = ["async-io"] }
 futures-lite = "2"
 # The wait on the portal's answer (src/flatpak.rs), on the timers zbus already runs on.
 async-io = "2"
-# The driver's keys on X11 (platform/linux/drive.rs) and the windows' frames (frames.rs), as
-# linux/Cargo.toml has it for the library.
-x11rb = { version = "0.13", features = ["xkb", "randr"] }
+# The driver's keys and pointer on X11 (platform/linux/drive.rs) and the windows' frames
+# (frames.rs), as linux/Cargo.toml has it for the library.
+x11rb = { version = "0.13", features = ["xkb", "randr", "xtest"] }
 # The driver's pointer and keyboard in the headless sway session (platform/linux/drive_wayland.rs).
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }

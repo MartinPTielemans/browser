@@ -37,6 +37,7 @@
 #include "ui/events/event_handler.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
@@ -1186,8 +1187,9 @@ void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
   }
 }
 
-void StartMove(views::Widget* widget) {
-  ui::WmMoveResizeHandler* handler = ui::GetWmMoveResizeHandler(*PlatformWindowOf(widget));
+void StartMove(views::Widget* widget, std::optional<gfx::Point> press) {
+  ui::PlatformWindow* platform_window = PlatformWindowOf(widget);
+  ui::WmMoveResizeHandler* handler = ui::GetWmMoveResizeHandler(*platform_window);
   if (!handler) {
     return;
   }
@@ -1195,7 +1197,10 @@ void StartMove(views::Widget* widget) {
   // A compositor takes it from the press, which Chromium heard too (its serial).
   gfx::Point pointer;
   if (!OnWayland()) {
-    if (auto reply = x11::Connection::Get()->QueryPointer({XWindowOf(widget)}).Sync()) {
+    if (press) {
+      pointer = platform_window->GetBoundsInPixels().origin() +
+                gfx::ScaleToRoundedPoint(*press, ScaleOf(widget)).OffsetFromOrigin();
+    } else if (auto reply = x11::Connection::Get()->QueryPointer({XWindowOf(widget)}).Sync()) {
       pointer = gfx::Point(reply->root_x, reply->root_y);
     }
   }
