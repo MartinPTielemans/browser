@@ -37,6 +37,7 @@
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/notes.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/page_text.h"
 #include "browser_core/password_offer.h"
@@ -739,6 +740,18 @@ double bc_profile_archive_after(bc_id profile_id) {
 bool bc_profile_set_archive_after(bc_id profile, double seconds) {
   return seconds > 0 && browser_core::SetProfileArchiveAfter(browser_core::ProfileOrLoad(profile),
                                                               base::Seconds(seconds));
+}
+
+size_t bc_profile_notes_service(bc_id profile_id, char* service, size_t capacity) {
+  Profile* profile = LoadedProfile(profile_id);
+  return CopyString(profile ? browser_core::notes::Service(profile) : std::string(), service,
+                    capacity);
+}
+
+void bc_profile_set_notes_service(bc_id profile_id, const char* service) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && service) {
+    browser_core::notes::SetService(profile, service);
+  }
 }
 
 bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {

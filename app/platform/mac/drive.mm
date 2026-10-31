@@ -67,6 +67,11 @@
 //   hide                                  hides the app, as ⌘H does, or brings it back
 //   place <x> <y> <width> <height>        moves and resizes the window to that frame, in points
 //                                         from the main display's top-left corner
+//   screen                                logs the screen the app opens windows on, the main
+//                                         display or with BROWSER_DISPLAY=builtin the Mac's own
+//                                         (host_screens), as "browser: screen at <x> <y> <width>
+//                                         <height>" in place's terms, so a check places windows
+//                                         there and not on the main display it may be kept off
 //   order                                 logs the browser windows on screen front to back and
 //                                         the key one, as "browser: order window <n> window <m>
 //                                         …, key window <n>|none", numbered as window numbers
@@ -1461,6 +1466,27 @@ bool Run(const std::string& line, void (^done)(void)) {
     [window setFrame:NSMakeRect(x, top - y - height, width, height) display:YES];
     done();
     return true;
+  }
+  if (action == "screen") {
+    double visible[4];
+    if (host_screens(visible, 1) < 1) {
+      return false;
+    }
+    // host_screens gives the screen's visible area, from the main display's top-left; the screen
+    // holding its middle is the one.
+    const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
+    const NSPoint middle =
+        NSMakePoint(visible[0] + visible[2] / 2, top - visible[1] - visible[3] / 2);
+    for (NSScreen* screen in NSScreen.screens) {
+      const NSRect frame = screen.frame;
+      if (NSPointInRect(middle, frame)) {
+        fprintf(stderr, "browser: screen at %.0f %.0f %.0f %.0f\n", NSMinX(frame),
+                top - NSMaxY(frame), NSWidth(frame), NSHeight(frame));
+        done();
+        return true;
+      }
+    }
+    return false;
   }
   if (action == "order") {
     NSMutableString* order = [NSMutableString string];
