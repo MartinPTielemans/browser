@@ -232,7 +232,8 @@ expect_tabs "$c $a" "$a" "back in the first Space, its last-used tab"
 ../tools/window-screenshot.sh "$pid" "$out/space-last-used.png" || fail "no window to capture"
 # A row held at the sidebar's right edge pages to the next Space, and let go there it moves to it.
 # Held on another row's middle half, it doesn't join that row in a split on the way, whose rest is
-# shorter than the edge's wait (#1089). ⌘Z brings it back.
+# shorter than the edge's wait (#1089). ⌘Z puts it back in its Space, where the window doesn't go
+# with it, as the window shows another tab.
 send press $(row 0)
 send dragto 110 $(row 0 | cut -d' ' -f2)
 send dragto 220 $(row 1 | cut -d' ' -f2)
@@ -243,8 +244,11 @@ send release $(row 0)
 expect "^browser: dragged $c to space $second today\$" "a row let go in the next Space didn't move"
 send key z cmd
 expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo the drag to the next Space"
-expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌘Z didn't take the dragged tab back"
-expect "^browser: today $c $a\$" "⌘Z didn't put the dragged tab back: \"$(today)\""
+expect "^browser: today $b\$" "⌘Z didn't take the dragged tab back: \"$(today)\""
+send click 97 $dots_y
+expect '^browser: command select-space via sidebar$' "the first Space's dot didn't run select-space"
+expect "^browser: space $first in " "the first Space's dot didn't show it"
+expect_tabs "$c $a" "$a" "after ⌘Z put the dragged tab back"
 send click "$(row 0)"
 expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on the top row didn't show tab $c"
 send key w cmd
