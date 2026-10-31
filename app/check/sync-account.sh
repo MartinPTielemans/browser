@@ -89,6 +89,7 @@ sign_in_keys() {
 }
 # The page focuses its field once it's there.
 sign_in_keys type "$email"
+[ -z "$sign_in_window" ] || import -window "$sign_in_window" "$out/sync-sign-in-address.png" || true
 sign_in_keys key return
 await 'browser: sync sign-in loaded /authorize/email$' || fail "the server didn't take the address"
 code=

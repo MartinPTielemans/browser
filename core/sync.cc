@@ -197,6 +197,8 @@ class SignInWindow : public views::WidgetObserver, public content::WebContentsOb
     delegate_->SetCanResize(false);
     auto web_view = std::make_unique<views::WebView>(profile_);
     web_view_ = web_view.get();
+    // The page has the keyboard as the window opens, for the address its field asks for.
+    delegate_->SetInitiallyFocusedView(web_view_);
     delegate_->SetContentsView(std::move(web_view));
 
     // Over the front window, as the app's dialogs are.
