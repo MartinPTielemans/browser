@@ -80,7 +80,10 @@ jobs:
 
       - name: Browser.dll
         working-directory: app/windows
-        run: cargo build --release --features prod
+        run: |
+          cargo build --release --features prod
+          # The bridge an agent's MCP client runs, which package.sh puts beside Browser.dll.
+          cargo build --release --features prod --manifest-path ../Cargo.toml --bin mcp-bridge --target-dir target
 
       - name: Inno Setup
         run: |
