@@ -93,8 +93,42 @@ if [ "$(uname)" = Linux ]; then
   [ -n "${BROWSER_HEADLESS:-}" ] ||
     { echo "Captures only a session of tools/headless.sh --run or check.sh's Xvfb." >&2; exit 1; }
   kill -0 "$1" 2>/dev/null || { echo "process $1 isn't running" >&2; exit 1; }
+  # The process's biggest window shown, the browser window, as WxH+X+Y on the screen, so the
+  # picture is the window, as on the Mac: a check reads a pixel as a share of the window, which is
+  # the screen's only while the window fills it. With "all", or with no window found, the screen.
+  at=
+  if [ -z "${3:-}" ]; then
+    if [ -n "${DISPLAY:-}" ]; then
+      at=$(for window in $(xdotool search --onlyvisible --pid "$1" 2>/dev/null); do
+        xdotool getwindowgeometry --shell "$window"
+      done | awk -F= '
+        $1 == "X" { x = $2 } $1 == "Y" { y = $2 } $1 == "WIDTH" { w = $2 }
+        $1 == "HEIGHT" && w * $2 > most { most = w * $2; at = w "x" $2 "+" x "+" y }
+        END { print at }')
+    fi
+    if [ -z "$at" ] && [ "$BROWSER_HEADLESS" != xvfb ]; then
+      at=$(WAYLAND_DISPLAY="$BROWSER_HEADLESS" swaymsg -t get_tree 2>/dev/null |
+        python3 -I -c '
+import json, sys
+def views(node):
+    yield node
+    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+        yield from views(child)
+rects = [view["rect"] for view in views(json.load(sys.stdin))
+         if view.get("pid") == int(sys.argv[1]) and view.get("visible")]
+if rects:
+    r = max(rects, key=lambda r: r["width"] * r["height"])
+    print("%dx%d+%d+%d" % (r["width"], r["height"], r["x"], r["y"]))' "$1")
+    fi
+  fi
   # check.sh's Xvfb (BROWSER_XVFB), whose root window is its whole screen.
-  [ "$BROWSER_HEADLESS" != xvfb ] || exec import -window root "$2"
+  if [ "$BROWSER_HEADLESS" = xvfb ]; then
+    [ -z "$at" ] || exec import -window root -crop "$at" +repage "$2"
+    exec import -window root "$2"
+  fi
+  [ -z "$at" ] ||
+    exec env WAYLAND_DISPLAY="$BROWSER_HEADLESS" grim \
+      -g "$(echo "$at" | sed 's/\(.*\)x\(.*\)+\(.*\)+\(.*\)/\3,\4 \1x\2/')" "$2"
   exec env WAYLAND_DISPLAY="$BROWSER_HEADLESS" grim "$2"
 fi
 PID="$1" OUT="$2" ALL="${3:-}" swift - <<'SWIFT'
