@@ -35,6 +35,8 @@ import time
 
 # Windows' Python would end lines in \r\n, which the runs' greps for whole lines don't match.
 sys.stdout.reconfigure(newline="\n")
+sys.stderr.reconfigure(newline="\n")
+print("cdp.py: started with %s" % sys.argv[1:], file=sys.stderr, flush=True)
 
 
 def pipe(to_path, from_path):
@@ -72,6 +74,9 @@ def websocket(profile):
             time.sleep(0.1)
     else:
         raise SystemExit("cdp: the browser opened no DevTools port in " + profile)
+    # Where it got to, for a run that stops: not "cdp: ", which the runs read.
+    print("cdp.py: DevTools at 127.0.0.1:%s%s" % (port, path), file=sys.stderr, flush=True)
+    connection.settimeout(10)
     connection.sendall(
         (
             "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nUpgrade: websocket\r\n"
@@ -85,6 +90,8 @@ def websocket(profile):
         raise SystemExit("cdp: DevTools refused the WebSocket: %r" % status)
     while stream.readline() not in (b"\r\n", b""):
         pass
+    connection.settimeout(None)
+    print("cdp.py: WebSocket open", file=sys.stderr, flush=True)
 
     def send(raw):
         # A client masks its frames (RFC 6455 5.3).
@@ -174,6 +181,7 @@ def read():
 
 
 threading.Thread(target=read, daemon=True).start()
+print("cdp.py: reading", file=sys.stderr, flush=True)
 # The page's target, once it's there: the browser may start before the page has.
 call("Target.setDiscoverTargets", {"discover": True})
 
