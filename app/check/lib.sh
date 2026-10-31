@@ -261,6 +261,11 @@ drawn() {
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
 }
+# Nothing logged while the driver handled the last command matches $1: what it did at once, not
+# what a timer of the app's did after, which on Windows send's own greps can outlast.
+none_while() {
+  ! sed -n "/^browser: drive $step: /,/^browser: drive $step done/p" "$log" | grep -q "$1"
+}
 # How many detents the app has asked the trackpad for: one for each place a dragged row passes.
 detents() {
   grep -c '^browser: detent$' "$log" || true

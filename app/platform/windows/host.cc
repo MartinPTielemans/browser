@@ -2442,6 +2442,11 @@ void host_show_settings(void) {
   }
   ShowWindow(g_settings.hwnd, SW_SHOW);
   SetForegroundWindow(g_settings.hwnd);
+  // check.sh waits for this line. The window's title is its tab's name, as on the Mac. Read without
+  // WM_GETTEXT, which would reach GPUI's window procedure while the app is borrowed.
+  wchar_t title[128] = L"";
+  InternalGetWindowText(g_settings.hwnd, title, static_cast<int>(std::size(title)));
+  fprintf(stderr, "browser: settings shown %s\n", Utf8(title).c_str());
 }
 
 void host_hide_settings(void) {
