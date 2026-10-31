@@ -35,6 +35,7 @@
 #include "browser_core/platform/keychain.h"
 #include "browser_core/platform/native_hosts.h"
 #include "browser_core/profiles.h"
+#include "browser_core/search.h"
 #include "browser_core/session.h"
 #include "browser_core/sign_in_dialog.h"
 #include "browser_core/system_engine.h"
@@ -144,6 +145,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   // Before Chrome stops taking factories, as the first profile is made.
   void PreProfileInit() override {
     system_engine::RegisterProfilePrefs();
+    RegisterSearchPrefs();
     RegisterArchivePrefs();
     RegisterDownloadPrefs();
     developer_mode::RegisterProfilePrefs();

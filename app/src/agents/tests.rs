@@ -769,6 +769,30 @@ fn what_an_agent_may_not_do_is_refused_and_logged(cx: &mut TestAppContext) {
     assert_eq!(log(&agents, "claude-code", cx)[0].0, "navigate");
 }
 
+/// Chrome's password manager page shows and copies the user's passwords once the device's check
+/// passes, so an agent can neither open it nor take its own tab there, by any of its addresses.
+#[gpui::test]
+fn an_agent_never_reaches_chromes_password_manager(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let tabs = browser.tabs.borrow().len();
+    let refused = ToolResult::error("Agents may open only http and https pages.");
+    let addresses = [
+        "chrome://password-manager/passwords",
+        "chrome://settings/passwords",
+        "CHROME://PASSWORD-MANAGER",
+    ];
+    for url in addresses {
+        let answer = call(&agents, "claude-code", "open_tab", json!({ "url": url }), cx);
+        assert_eq!(answer.recv().unwrap(), refused, "{url}");
+        let going = json!({ "tab": 20, "url": url });
+        let answer = call(&agents, "claude-code", "navigate", going, cx);
+        assert_eq!(answer.recv().unwrap(), refused, "{url}");
+    }
+    assert_eq!(browser.tabs.borrow().len(), tabs, "an agent opened Chrome's password manager");
+    assert!(browser.navigated.borrow().is_empty(), "an agent went to Chrome's password manager");
+    assert!(browser.pages.borrow().is_empty());
+}
+
 /// An order asks the user first, in the card: Allow Once lets it go this time and asks again
 /// next time, Always Allow lets it go on the site from then on, and is saved.
 #[gpui::test]
