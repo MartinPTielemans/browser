@@ -50,6 +50,10 @@ bool KeyboardIsUI(views::Widget* widget);
 // popup or a tab's dialog (bc_window_keyboard_in_child). In window_views.cc.
 bool KeyboardInChild(views::Widget* widget);
 
+// The frame of |widget|'s pane whose page has the keyboard, in its window's content, or none
+// (bc_window_keyboard_page). In window_views.cc.
+std::optional<gfx::Rect> KeyboardPageFrame(views::Widget* widget);
+
 // The title of the window of Chromium's own in |widget|'s with the keys (KeyboardInChild), such as
 // a tab's dialog, or an empty one. In window_views.cc.
 std::u16string ChildTitle(views::Widget* widget);

@@ -341,6 +341,11 @@ void ShowPageIn(views::Widget*,
   UpdateOcclusion(holder.window);
 }
 
+bool PageDialogsInOwnWindow() {
+  // A child NSWindow either way.
+  return false;
+}
+
 bool KeyboardForPage(views::Widget* widget) {
   NSWindow* window = widget->GetNativeWindow().GetNativeNSWindow();
   // AppKit gives the keyboard to the window when the view that had it leaves, and views gives it to

@@ -7,6 +7,7 @@
 #include "base/auto_reset.h"
 #include "base/functional/bind.h"
 #include "browser_core/hooks.h"
+#include "chrome/browser/shell_integration_linux.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/hit_test.h"
@@ -94,6 +95,12 @@ void SetUpWindow(views::Widget::InitParams& params, views::WidgetDelegate& deleg
   // asks for none (_MOTIF_WM_HINTS), and under Wayland one would also make the compositor ignore
   // the input region.
   params.remove_standard_frame = true;
+  // Named as Chrome's BrowserView names its windows (browser_native_widget_aura_linux.cc), which
+  // the core's aren't: the dock matches the app id or WM_CLASS to the app's desktop file, and the
+  // Wayland driver tells a browser window from Settings, which has none, by it.
+  params.wm_class_name = shell_integration_linux::GetProgramClassName();
+  params.wm_class_class = shell_integration_linux::GetProgramClassClass();
+  params.wayland_app_id = params.wm_class_class;
   // A frame view that draws nothing, in place of GTK's title bar, with Chromium's own frameless
   // resizing: a press in the band at its edges asks the compositor or window manager to resize
   // the window (xdg_toplevel.resize, _NET_WM_MOVERESIZE), and the pointer there takes the edge's

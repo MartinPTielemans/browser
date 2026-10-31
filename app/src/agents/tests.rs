@@ -196,6 +196,8 @@ struct Configs {
     disconnected: Mutex<Vec<(Client, String)>>,
     /// Why the next Connect fails, as when Claude Code isn't installed.
     failing: Mutex<Option<String>>,
+    /// The clients on the computer, besides any other MCP client.
+    found: Mutex<Vec<Client>>,
 }
 
 impl Clients for Configs {
@@ -213,6 +215,10 @@ impl Clients for Configs {
             .unwrap()
             .push((client, name.into()));
         Ok(())
+    }
+
+    fn found(&self, client: Client) -> bool {
+        client == Client::Other || self.found.lock().unwrap().contains(&client)
     }
 }
 
@@ -337,6 +343,30 @@ fn connect_gives_the_client_a_token_the_server_takes(cx: &mut TestAppContext) {
     assert_ne!(again, entry.token);
     assert_eq!(tokens(cx).len(), 1);
     assert!(tokens(cx).contains_key(&again));
+}
+
+/// Settings › Agents lists the clients on this computer and any other MCP client, finds one
+/// installed since it last looked, and keeps one connected after its client has gone, for its
+/// Disconnect.
+#[gpui::test]
+fn settings_lists_the_clients_found_here(cx: &mut TestAppContext) {
+    let (browser, configs) = (Made::with_agent_space(), Arc::new(Configs::default()));
+    let agents = agents(&browser, &configs, None, cx);
+    let look = |cx: &mut TestAppContext| {
+        agents.update(cx, |agents, cx| agents.look_for_clients(cx));
+        agents.read_with(cx, |agents, _| agents.listed())
+    };
+    assert_eq!(look(cx), [Client::Other]);
+    configs.found.lock().unwrap().push(Client::Codex);
+    assert_eq!(look(cx), [Client::Codex, Client::Other]);
+
+    agents.update(cx, |agents, cx| agents.connect(Client::Codex, cx));
+    cx.run_until_parked();
+    configs.found.lock().unwrap().clear();
+    assert_eq!(look(cx), [Client::Codex, Client::Other]);
+    agents.update(cx, |agents, cx| agents.disconnect(Client::Codex, cx));
+    cx.run_until_parked();
+    assert_eq!(look(cx), [Client::Other]);
 }
 
 /// A Connect that fails, as when the client isn't installed, connects nothing and says why on
@@ -1196,6 +1226,76 @@ fn run_steps_runs_its_steps_in_order(cx: &mut TestAppContext) {
     assert!(stopped.text.starts_with("Step 2 would click “Place order” on example.com"));
     assert!(stopped.text.ends_with("1. Scrolled down."));
     assert_eq!(*browser.asked.borrow(), None, "the run left its question");
+}
+
+/// A run's wait step looks at the page until its text shows, checked as a snapshot and logged once
+/// as a wait, and fails once its time is up without it. Without text it waits its time, then looks.
+#[gpui::test]
+fn a_wait_step_waits_for_its_text_in_the_page(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    page_done(&agents, &browser, answer, shop_tree(), cx);
+    let look = |tree: String, cx: &mut TestAppContext| {
+        let request = browser.pages.borrow().last().unwrap().1;
+        agents.update(cx, |agents, cx| agents.page_done(request, tree, false, cx));
+    };
+    let looks = || browser.pages.borrow().len();
+    let thanks = json!([
+        { "nodeId": "1", "role": { "value": "RootWebArea" }, "name": { "value": "Shop" },
+          "childIds": ["2"] },
+        { "nodeId": "2", "role": { "value": "heading" }, "name": { "value": "Thanks for your order" } },
+    ])
+    .to_string();
+    for wrong in [json!({}), json!({ "seconds": 31 }), json!({ "text": "Thanks", "seconds": 0 })] {
+        let mut step = json!({ "action": "wait" });
+        step.as_object_mut().unwrap().extend(wrong.as_object().unwrap().clone());
+        let steps = json!({ "tab": 20, "steps": [step] });
+        let refused = call(&agents, "claude-code", "run_steps", steps, cx).recv().unwrap();
+        assert!(refused.text.starts_with("Step 1 failed: wait needs text"), "{}", refused.text);
+    }
+
+    let wait = json!({ "action": "wait", "text": "thanks", "seconds": 2 });
+    let steps = json!({ "tab": 20, "steps": [{ "action": "scroll" }, wait] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    shop_done(&agents, &browser, cx);
+    let before = looks();
+    look(shop_tree(), cx);
+    cx.run_until_parked();
+    assert_eq!(looks(), before, "the wait looked again before its time");
+    assert!(run.try_recv().is_err());
+    cx.executor().advance_clock(Duration::from_millis(500));
+    assert_eq!(looks(), before + 1);
+    look(thanks.clone(), cx);
+    let ran = run.recv().unwrap();
+    assert!(
+        ran.text.starts_with("Ran 2 steps.\n1. Scrolled down.\n2. “thanks” showed.\n\nTab 20"),
+        "{}",
+        ran.text
+    );
+    let entry = agents.read_with(cx, |agents, _| agents.recent().next().unwrap().clone());
+    let steps: Vec<&str> = entry.steps.iter().map(|step| step.action.as_ref()).collect();
+    assert_eq!(steps, ["scroll", "wait"]);
+    assert_eq!(browser.checked.borrow().last().unwrap(), "snapshot");
+
+    let steps = json!({ "tab": 20, "steps": [{ "action": "wait", "text": "Thanks", "seconds": 1 }] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    for _ in 0..2 {
+        look(shop_tree(), cx);
+        cx.executor().advance_clock(Duration::from_millis(500));
+    }
+    look(shop_tree(), cx);
+    let failed = run.recv().unwrap();
+    assert!(failed.error);
+    assert!(failed.text.starts_with("Step 1 failed: “Thanks” didn't show in 1 s."), "{}", failed.text);
+
+    let steps = json!({ "tab": 20, "steps": [{ "action": "wait", "seconds": 2 }] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    let before = looks();
+    cx.executor().advance_clock(Duration::from_millis(1900));
+    assert_eq!(looks(), before, "a wait without text looked before its time");
+    cx.executor().advance_clock(Duration::from_millis(100));
+    look(shop_tree(), cx);
+    assert!(run.recv().unwrap().text.starts_with("Ran 1 steps.\n1. Waited 2 s.\n\nTab 20"));
 }
 
 /// The actions the core lets an agent take in its tabs, agent_session.cc's RefusedAction: each a

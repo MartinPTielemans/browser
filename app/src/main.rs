@@ -55,6 +55,9 @@ mod import_host;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/drive_wayland.rs"]
+mod drive_wayland;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/drops.rs"]
 mod drops;
 #[cfg(target_os = "linux")]
@@ -138,7 +141,7 @@ mod platform {
         pub fn host_ui_view() -> *mut c_void;
         #[cfg(target_os = "linux")]
         pub fn host_watch_fd(fd: c_int, ready: extern "C" fn());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         pub fn host_window_opened(ui_view: *mut c_void, window: u64);
         #[cfg(target_os = "linux")]
         pub fn host_window_closed(ui_view: *mut c_void);
@@ -222,6 +225,7 @@ mod platform {
         pub fn host_can_draw_emoji(emoji: *const c_char) -> bool;
         pub fn host_dismiss_overlay(overlay: c_int);
         pub fn host_hold_keys();
+        pub fn host_release_held_keys();
         pub fn host_add_find_bar(
             ui_view: *mut c_void,
             find_bar_view: *mut c_void,
@@ -2805,6 +2809,15 @@ impl Browser for Engine {
     }
 
     fn press_window_button(&self, button: WindowButton, _: &mut App) {
+        // Windows' own zoom button maximizes, and its window has no full screen of its own, so the
+        // zoom Escape presses in full screen takes the window out through the core.
+        if cfg!(target_os = "windows")
+            && matches!(button, WindowButton::Zoom)
+            && self.window_full_screen()
+        {
+            unsafe { bc::bc_window_toggle_full_screen(self.window) };
+            return;
+        }
         let button = match button {
             WindowButton::Close => 0,
             WindowButton::Minimize => 1,
@@ -2822,7 +2835,8 @@ impl Browser for Engine {
     }
 
     fn window_full_screen(&self) -> bool {
-        cfg!(target_os = "linux") && unsafe { bc::bc_window_is_full_screen(self.window) }
+        cfg!(any(target_os = "linux", target_os = "windows"))
+            && unsafe { bc::bc_window_is_full_screen(self.window) }
     }
 
     fn show_reveal(&self, width: f32, _: &mut App) {
@@ -3250,8 +3264,7 @@ impl Browser for Engine {
         cx.defer(save_launch_picture);
         // With no window to ask over, there's nothing open to lose.
         if !unsafe { bc::bc_warn_before_quitting() } || front().1.is_null() {
-            unsafe { bc::bc_quit() };
-            return;
+            return quit_because("the user's Quit, which had nothing to ask");
         }
         let question = dialog::Question {
             icon: None,
@@ -3266,17 +3279,15 @@ impl Browser for Engine {
                 Box::new(|_| {
                     // check.sh waits for this line.
                     log!("browser: warn before quitting off");
-                    unsafe {
-                        bc::bc_set_warn_before_quitting(false);
-                        bc::bc_quit();
-                    }
+                    unsafe { bc::bc_set_warn_before_quitting(false) };
+                    quit_because("the user's Quit, answered");
                 }),
             )),
             fields: Vec::new(),
             check: None,
             return_cancels: false,
         };
-        dialog::pose(question, Box::new(|_, _| unsafe { bc::bc_quit() }), cx);
+        dialog::pose(question, Box::new(|_, _| quit_because("the user's Quit, answered")), cx);
     }
 }
 
@@ -3356,6 +3367,10 @@ unsafe extern "C" fn tab_key_before_page(
         return true;
     }
     let keystroke = keystroke(unsafe { &*key });
+    // ⌘. is the agent bar's Stop while it shows one, before the page could keep it.
+    if update_tab_window(tab, |shell, cx| shell.run_agent_key(&keystroke, cx)).unwrap_or(false) {
+        return true;
+    }
     if update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
         .unwrap_or(false)
     {
@@ -3367,6 +3382,9 @@ unsafe extern "C" fn tab_key_before_page(
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.holds_keys(&keystroke))
     });
     if holds == Some(true) {
+        // The core says when the page has answered the key and no field opens for it, and holds
+        // them itself where the host can't (bc_hold_keys).
+        unsafe { bc::bc_hold_keys(cfg!(target_os = "linux")) };
         unsafe { platform::host_hold_keys() };
         #[cfg(target_os = "linux")]
         gpui_linux::hold_keys(Some(&held_keystroke(unsafe { &*key })));
@@ -3432,6 +3450,12 @@ fn give_held_keys(view: *mut c_void) {
             })
         })
         .detach();
+}
+
+/// No field opens for the key the keys after it are held for (bc_hold_keys), so the host gives them
+/// to the page.
+unsafe extern "C" fn held_keys_unclaimed(_: *mut c_void) {
+    unsafe { platform::host_release_held_keys() };
 }
 
 unsafe extern "C" fn tab_key_unhandled(
@@ -3845,7 +3869,7 @@ fn open_window_as(
             false => (surface, Some(size(px(width as f32), px(height as f32)))),
         }
     };
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     unsafe { platform::host_window_opened(ui_view, id) };
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
     // Its Space, which the core made with the window.
@@ -3878,7 +3902,7 @@ fn open_window_as(
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, cx| {
                 let viewport = window.viewport_size();
                 // First, as a page's full screen can end with the window's.
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
                 shell.bounds_changed(cx);
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
@@ -3950,7 +3974,7 @@ fn open_window_as(
         Err(error) => {
             log!("couldn't open the window: {error}");
             if from.is_none() {
-                unsafe { bc::bc_quit() };
+                quit_because("the first window didn't open");
             } else {
                 unsafe { bc::bc_window_close(id) };
             }
@@ -4443,7 +4467,7 @@ fn start_updates(cx: &mut App) {
         _ = cx;
         // The installer WinSparkle started waits for the browser to quit, which needs no asking.
         extern "C" fn quit() {
-            unsafe { bc::bc_quit() };
+            quit_because("the updater's install");
         }
         unsafe { platform::host_start_updater(quit) };
     }
@@ -4492,7 +4516,7 @@ fn check_for_updates(cx: &mut App) {
 fn restart_into_newest(portal: flatpak::Portal, cx: &mut App) {
     let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
     cx.spawn(async move |_| match portal.restart(&lock).await {
-        Ok(()) => unsafe { bc::bc_quit() },
+        Ok(()) => quit_because("the restart into the newest build"),
         Err(error) => log!("browser: no restart: {error}"),
     })
     .detach();
@@ -4791,8 +4815,16 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
     // A private window alone doesn't keep the browser: the Spaces' pages closed with the last
     // regular window, which the next launch brings back, so the private ones close with them.
     if left == 0 || (!private && !regular) {
-        unsafe { bc::bc_quit() };
+        quit_because("the last window closed");
     }
+}
+
+/// Quits the browser, saying what asked, as each way the browser ends logs a line that names it:
+/// this, Chromium's shutdown (main_delegate.cc) and, on the Mac, a quit Apple Event (host.mm).
+fn quit_because(why: &str) {
+    // check.sh reads this line.
+    log!("browser: quit for {why}");
+    unsafe { bc::bc_quit() };
 }
 
 unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
@@ -6243,6 +6275,7 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
+        held_keys_unclaimed: Some(held_keys_unclaimed),
         tab_media_unsupported: Some(tab_media_unsupported),
         widevine_changed: Some(widevine_changed),
         tab_page_menu: Some(tab_page_menu),
@@ -6272,6 +6305,8 @@ fn switches_and_host(given: Vec<String>) -> (Vec<CString>, bc::bc_host) {
         archive_note_changed: Some(archive_note_changed),
         #[cfg(target_os = "linux")]
         window_activated: Some(window_activated),
+        #[cfg(target_os = "linux")]
+        window_option_tapped: Some(window_option_tapped),
         ..Default::default()
     };
     (args, host)
@@ -6302,6 +6337,8 @@ fn main() {
     let (args, host) = switches_and_host(std::env::args().collect());
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
+    // The quit's last stage the log can show: what's left is the process's exit (#959).
+    log!("browser: quit: chromium returned {code}");
     std::process::exit(code);
 }
 
@@ -6333,6 +6370,16 @@ unsafe extern "C" fn window_activated(_: *mut c_void, window: bc::bc_id) {
                 key_window_changed(ui_view);
             }
         };
+        cx.foreground_executor().spawn(later).detach();
+    }
+}
+
+/// ⌥ was pressed alone with the page in `window` focused, which GPUI doesn't hear under X11, as
+/// option_tapped is for the UI's. After, as window_activated.
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn window_option_tapped(_: *mut c_void, window: bc::bc_id) {
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let later = async move { update_window(window, |shell, cx| shell.option_tapped(cx)) };
         cx.foreground_executor().spawn(later).detach();
     }
 }
