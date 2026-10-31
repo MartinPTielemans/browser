@@ -4,7 +4,7 @@
 //! the page too, and each button's tooltip shows its key. It's a card at the sidebar's foot, which
 //! GPUI draws, as the window's question cards are.
 
-use gpui::{App, Context, FontWeight, SharedString, div, prelude::*, px, rgba};
+use gpui::{App, Context, FontWeight, MouseButton, SharedString, div, prelude::*, px, rgba};
 
 use super::{
     Command, FOOTER_HEIGHT, Shell, TITLE,
@@ -120,10 +120,26 @@ impl Shell {
             let keys = keys.into_iter().map(Into::into).collect();
             (Tip { text: text.into(), keys }, Anchor::under(frame, self.viewport))
         });
+        let working = matches!(self.agent_bar(), Some(Bar::Working { .. }));
+        self.agent_tip.set(tip.is_some().then_some(working));
         self.hover_tip(tip, cx);
     }
 
+    /// A click on a button ends its tooltip, as other buttons' do.
+    fn end_agent_tip(&self, cx: &mut Context<Self>) {
+        self.agent_tip.set(None);
+        self.browser.tooltip(None, cx);
+    }
+
     pub(super) fn agent_bar_card(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        // A button that goes from under the pointer, as Hand Back does once it's clicked, sends no
+        // hover-out, so its tooltip ends here, or it shows later hanging from nothing.
+        let working = self.agent_bar().map(|bar| matches!(bar, Bar::Working { .. }));
+        if self.agent_tip.get().is_some_and(|was| Some(was) != working) {
+            self.agent_tip.set(None);
+            let browser = self.browser.clone();
+            cx.defer(move |cx| browser.tooltip(None, cx));
+        }
         let Some(bar) = self.agent_bar() else {
             // Drawn again, it's logged again.
             self.agent_bar_drawn.set(None);
@@ -148,6 +164,7 @@ impl Shell {
             .on_hover(cx.listener(|shell, hovered: &bool, _, cx| {
                 shell.hover_agent_button(PRIMARY, *hovered, cx)
             }))
+            .on_mouse_down(MouseButton::Left, cx.listener(|shell, _, _, cx| shell.end_agent_tip(cx)))
             .on_click(cx.listener(|shell, _, _, cx| shell.agent_bar_primary(cx)));
         let stop = match &bar {
             Bar::Working { agent, .. } => {
@@ -155,7 +172,10 @@ impl Shell {
                 let stop = card_button(&self.palette, STOP, "Stop").relative();
                 Some(stop.child(self.button_frame(STOP)).on_hover(cx.listener(
                     |shell, hovered: &bool, _, cx| shell.hover_agent_button(STOP, *hovered, cx),
-                )).on_click(cx.listener(move |shell, _, _, cx| {
+                )).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|shell, _, _, cx| shell.end_agent_tip(cx)),
+                ).on_click(cx.listener(move |shell, _, _, cx| {
                     shell.browser.stop_agent(agent.clone(), cx)
                 })))
             }
@@ -317,6 +337,26 @@ mod tests {
         shell.update(cx, |shell, cx| shell.set_agent_status(status(held), cx));
         cx.run_until_parked();
         assert_eq!(tip(cx, PRIMARY), Some(format!("tooltip Hand Back {back}")));
+
+        // The click hands the tab back, and the bar goes from under the pointer with no hover-out,
+        // so the click itself ends the tooltip.
+        let at = shell.read_with(cx, |shell, _| shell.button_frames.borrow()[PRIMARY].center());
+        cx.simulate_click(at, Modifiers::none());
+        cx.run_until_parked();
+        let asked = host.take();
+        let ended = asked.iter().position(|line| line == "tooltip none");
+        let handed = asked.iter().position(|line| line == "hand back 21");
+        assert!(ended.is_some() && handed.is_some(), "{asked:?}");
+
+        // A bar that changes under the pointer with no click, as when the agent hands the tab
+        // back itself, ends the tooltip of the button that went too.
+        let held = vec![(21, "Sign in to example.com".into())];
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(held), cx));
+        cx.run_until_parked();
+        assert_eq!(tip(cx, PRIMARY), Some(format!("tooltip Hand Back {back}")));
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(Vec::new()), cx));
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["tooltip none"]);
     }
 
     /// On a tab the user holds the bar says so, the row's mark is a hollow ring, and Hand Back, or
