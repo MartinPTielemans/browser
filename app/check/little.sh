@@ -98,11 +98,16 @@ page=$(sed -n "s|^browser: window $little shows \([0-9]*\)\$|\1|p" "$log" | tail
 # Chromium drops a click on a page that hasn't drawn yet.
 expect "^browser: title $page ready\$" "the second Little ilo window's page didn't draw"
 send layout
-frame=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
-  grep -o 'WebContentsViewCocoa [0-9,]*' | head -1 | cut -d' ' -f2)
-x=${frame%%,*}
-y=${frame#*,}
-send click $((x + 20)) $((y + 20)) cmd
+# The layout's frames are from the content's bottom-left corner, as the Mac's views are, so the
+# page's top is the content's height less its bottom and height: under the bar, not at its foot.
+layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout')
+content=$(echo "$layout" | grep -o 'content [0-9]*x[0-9]*' | cut -d' ' -f2)
+frame=$(echo "$layout" | grep -o 'WebContentsViewCocoa [0-9,]* [0-9]*x[0-9]*' | head -1)
+origin=$(echo "$frame" | cut -d' ' -f2)
+size=$(echo "$frame" | cut -d' ' -f3)
+x=${origin%%,*}
+top=$((${content#*x} - ${origin#*,} - ${size#*x}))
+send click $((x + 20)) $((top + 20)) cmd
 expect "^browser: tab [0-9]* opened by $page in the background\$" \
   "a ⌘-click on the Little ilo window's link didn't open a tab"
 behind=$(grep "^browser: tab [0-9]* opened by $page" "$log" | tail -1 | cut -d' ' -f3)
