@@ -323,15 +323,29 @@ record() {
   recorder=$!
   for _ in $(seq 300); do
     grep -q '^recording$' "$out/$1-record.log" && return 0
-    kill -0 "$recorder" 2> /dev/null ||
-      fail "the window's recording didn't start: $(tail -1 "$out/$1-record.log")"
+    if ! kill -0 "$recorder" 2> /dev/null; then
+      unrecorded || fail "the window's recording didn't start: $(tail -1 "$out/$1-record.log")"
+      return 0
+    fi
     sleep 0.1
   done
   fail "the window's recording didn't start in 30 s"
 }
 recorded() {
   [ -n "$recording" ] || return 0
-  wait "$recorder" || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
+  wait "$recorder" && return 0
+  unrecorded || fail "the window's recording didn't finish: $(tail -1 "${recording%.mp4}-record.log")"
+}
+# GitHub's hosted Mac starts a recording and never gets its first frame, ReplayKit's -5822 (#1108),
+# so there the run goes on without it, saying so. Anywhere else a failed recording fails the run.
+unrecorded() {
+  said=$(tail -1 "${recording%.mp4}-record.log")
+  case "${GITHUB_ACTIONS:-}: $said" in
+  true:*Code=-5822*) ;;
+  *) return 1 ;;
+  esac
+  echo "skip: recording $(basename "$recording" .mp4), as the hosted Mac's recording got no first frame: $said"
+  recording=""
 }
 # The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
 # where the sidebar last saw the pointer depends on the steps before. This moves it to the page and
