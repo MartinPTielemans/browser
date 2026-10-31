@@ -591,11 +591,12 @@ send clickkey 581 203
 expect '^browser: shortcut recording select-space-1$' \
   "a click on Go to Space 1's keys didn't record them"
 send key 1 cmd ctrl
+# Off the Mac the driver presses ⌃ as Alt, which a recorded key is named by, but the default the
+# keymap gives back is named as the Mac's on each.
 space_key=ctrl-cmd-1
 first_key=ctrl-1
 if [ "$(uname)" = Linux ]; then
   space_key=alt-cmd-1
-  first_key=alt-1
 fi
 expect "^browser: shortcut select-space-1 $space_key\$" "⌃⌘1 didn't become Go to Space 1's key"
 send key w cmd
