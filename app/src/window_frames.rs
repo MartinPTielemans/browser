@@ -55,6 +55,22 @@ pub fn place(saved: Frame, screens: &[Frame]) -> Option<Frame> {
     })
 }
 
+/// Where a Little ilo window opens from `centered`, centred on its screen: a little above the
+/// middle, four tenths of the room over it rather than half, on the screen holding its centre
+/// (ux-spec.md › Little Arc). Unmoved with no screens, as under Wayland.
+pub fn raised(centered: Frame, screens: &[Frame]) -> Frame {
+    let (x, y) = (centered.x + centered.width / 2., centered.y + centered.height / 2.);
+    let holds = |screen: &&Frame| {
+        (screen.x..screen.x + screen.width).contains(&x)
+            && (screen.y..screen.y + screen.height).contains(&y)
+    };
+    let Some(screen) = screens.iter().find(holds) else {
+        return centered;
+    };
+    let room = (screen.height - centered.height).max(0.);
+    Frame { y: screen.y + room * 0.4, ..centered }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +132,15 @@ mod tests {
     fn with_no_screens_a_frame_stays_as_saved() {
         let saved = frame(10., 10., 800., 600.);
         assert_eq!(place(saved, &[]), Some(saved));
+    }
+
+    #[test]
+    fn a_little_window_opens_a_little_above_the_middle() {
+        // 900 by 640, centred on the laptop: 158.5 of room above and below it.
+        let centered = frame(306., 183.5, 900., 640.);
+        assert_eq!(raised(centered, &[LAPTOP, DISPLAY]), frame(306., 25. + 317. * 0.4, 900., 640.));
+        let centered = frame(2342., 412.5, 900., 640.);
+        assert_eq!(raised(centered, &[LAPTOP, DISPLAY]).y, 25. + 775. * 0.4);
+        assert_eq!(raised(centered, &[]), centered);
     }
 }

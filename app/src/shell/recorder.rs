@@ -1232,4 +1232,12 @@ impl Browser for Recorder {
     }
 
     fn new_private_window(&self, _: &mut App) {}
+
+    fn new_little_window(&self, home: u64, _: &mut App) {
+        self.record(format!("new little window {home}"))
+    }
+
+    fn open_in_main_window(&self, tab: u64, home: u64, _: &mut App) {
+        self.record(format!("open in main window {tab} {home}"))
+    }
 }

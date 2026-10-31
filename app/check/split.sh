@@ -1,7 +1,7 @@
 # Add Split View, from the menu, ⌃+ from the page, ⌥-click on "+ New Tab" and the tab menu, narrows
 # the page at once for a pane on its right, with the command bar over it, which takes typing and
-# escape takes back. ⌥- and ⌥⌘-click on a link, and the link menu's Open Link in Split View, open it
-# in a pane on the right.
+# escape takes back. ⌥-click on a link, and the link menu's Open Link in Split View, open it in a
+# pane on the right; ⌥⌘-click opens it in Little ilo (check/little.sh).
 # The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in a
 # window as ⌘N's and in a private one as ⇧⌘N's. A link dragged onto the page's right target opens in
 # a pane there. A URL typed in the command bar opens in the pane, focused. The panes share the card
@@ -139,25 +139,22 @@ expect '^browser: command bar hidden$' "escape didn't close the tab menu's comma
 read_pages
 [ "$pages" = "$whole" ] || fail "escape after the tab menu's Add Split View left the page at $pages"
 send click $page_point
-# ⌥-click on a link opens it in a pane on the right, focused, as Arc's does, not Chrome's download,
-# and so does ⌥⌘-click, as Chrome's does.
-for modifiers in alt "alt cmd"; do
-  send click $((x + 20)) $((y + 20)) $modifiers
-  expect "^browser: splits $a+[0-9][0-9]*\$" \
-    "a click on a link with $modifiers didn't open it beside the page: \"$(splits)\""
-  n=$(splits | cut -d+ -f2)
-  expect "^browser: selected $n\( in .*\)\{0,1\}\$" "the link's pane isn't focused"
-  expect "^browser: panes $a $n\$" "the window doesn't show the link beside the page"
-  # Before read_keyboard's layout, which expect would read past: the page loads within it.
-  expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in its pane"
-  read_keyboard
-  [ "$keyboard" = "$right" ] ||
-    fail "the link's pane didn't get the keyboard at once: ${keyboard:-none} has it"
-  send key w cmd
-  expect "^browser: tab $n closed\$" "⌘W didn't close the link's pane"
-  expect "^browser: panes $a\$" "⌘W on the link's pane didn't leave the page alone"
-  send click $page_point
-done
+# ⌥-click on a link opens it in a pane on the right, focused, as Arc's does, not Chrome's download.
+send click $((x + 20)) $((y + 20)) alt
+expect "^browser: splits $a+[0-9][0-9]*\$" \
+  "a click on a link with ⌥ didn't open it beside the page: \"$(splits)\""
+n=$(splits | cut -d+ -f2)
+expect "^browser: selected $n\( in .*\)\{0,1\}\$" "the link's pane isn't focused"
+expect "^browser: panes $a $n\$" "the window doesn't show the link beside the page"
+# Before read_keyboard's layout, which expect would read past: the page loads within it.
+expect "^browser: loaded $n ${site}notes.txt\$" "the link didn't load in its pane"
+read_keyboard
+[ "$keyboard" = "$right" ] ||
+  fail "the link's pane didn't get the keyboard at once: ${keyboard:-none} has it"
+send key w cmd
+expect "^browser: tab $n closed\$" "⌘W didn't close the link's pane"
+expect "^browser: panes $a\$" "⌘W on the link's pane didn't leave the page alone"
+send click $page_point
 # A link dragged over the page brings the targets, which the page doesn't see, and let go on the
 # right one it opens in a pane there, as a tab let go there does. The link comes from another app,
 # as the driver hands it to the page's view: a drag the page starts is AppKit's, which follows the
