@@ -169,6 +169,21 @@ fn the_buttons_make_the_menus_calls(cx: &mut TestAppContext) {
     assert_eq!(act(cx, 3, Action::Split), ["split 3 2 false"]);
 }
 
+/// The sidebar shown over the page while hidden has the cards it has docked, Split and all.
+#[gpui::test]
+fn a_hidden_sidebars_card_splits(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tabs(cx);
+    shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.sidebar_hidden));
+    host.take();
+    assert_eq!(rest_on(&shell, cx, &host, 3), "card rest 3 pin favorite split picture");
+    let rest = host.card.borrow().clone().unwrap();
+    cx.update(|_, cx| (rest.events)(3, Event::Act(Action::Split), cx));
+    cx.run_until_parked();
+    assert_eq!(host.take_edits(), ["split 3 2 false"]);
+}
+
 /// The tabs a run of switches hides are pictured once it's over, never on a switch; the tab shown
 /// and an unloaded one aren't.
 #[gpui::test]
