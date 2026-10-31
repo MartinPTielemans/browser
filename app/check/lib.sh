@@ -71,7 +71,9 @@ cleanup() {
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
   done
-  kill -9 "$pid" 2>/dev/null
+  # Most often the app ended at the kill above, and this one fails, which would end the trap before
+  # the helpers go, and before what a run's own trap does after cleanup, such as mcp's forget_login.
+  kill -9 "$pid" 2>/dev/null || true
   pkill -9 -f "$procs" || true
 }
 fail() {
