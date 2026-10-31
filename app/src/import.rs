@@ -396,9 +396,9 @@ pub struct ImportView {
     /// The step last drawn. A click before a step draws lands on the one before it, so check.sh
     /// waits for the line each one logs.
     drawn: Option<&'static str>,
-    /// Where Done was logged as drawn, emptied with each step so each logs it anew: check.sh clicks
-    /// it there, as a summary that wraps moves it.
-    done_at: Rc<RefCell<Vec<String>>>,
+    /// Where Import and Done were logged as drawn, emptied with each step so each logs them anew:
+    /// check.sh clicks them there, as a summary that wraps, or a taller row, moves them.
+    drawn_at: Rc<RefCell<Vec<String>>>,
     /// The system it runs on, for where the browsers it names export their passwords.
     os: Os,
     /// The bookmark folders of the browser picked, to choose from.
@@ -436,7 +436,7 @@ impl ImportView {
             switched: None,
             passwords_file: None,
             drawn: None,
-            done_at: Rc::default(),
+            drawn_at: Rc::default(),
             os: roots.os,
             folders: Folders::default(),
             suggested: None,
@@ -1190,7 +1190,10 @@ impl ImportView {
                     .justify_end()
                     .gap(px(PADDING))
                     .child(back)
-                    .child(import),
+                    .child(div().relative().child(import).child(drawn(
+                        "import-go".into(),
+                        self.drawn_at.clone(),
+                    ))),
             )
             .into_any_element()
     }
@@ -1377,7 +1380,7 @@ impl Render for ImportView {
         };
         if self.drawn != Some(step) {
             self.drawn = Some(step);
-            self.done_at.borrow_mut().clear();
+            self.drawn_at.borrow_mut().clear();
             log!("browser: import drawn {step}");
         }
         let look = self.look;
@@ -1418,7 +1421,7 @@ impl Render for ImportView {
                             .children(delete)
                             .child(div().relative().child(done).child(drawn(
                                 "import-done".into(),
-                                self.done_at.clone(),
+                                self.drawn_at.clone(),
                             ))),
                     )
                     .into_any_element()
