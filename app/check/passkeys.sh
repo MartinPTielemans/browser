@@ -56,14 +56,15 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
   if windows; then
     # Chrome on Windows takes its DevTools pipe as handles, which Git Bash can't give it, so
     # DevTools listens on a loopback port instead, which the browser says on its standard error. A
-    # native program can't read Git Bash's fifo, so cat passes cdp.py its commands.
+    # native program can't read Git Bash's fifo, so cat passes cdp.py its commands, and the page is
+    # named without its slash, which Git Bash would make a path of Git's own.
     BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$scratch/profile" \
       "$browser" --remote-debugging-port=0 < "$out/drive" > "$log" 2>&1 &
     pid=$!
     exec 3> "$out/drive"
     await '^DevTools listening on ws://' || fail "DevTools didn't say where it listens"
     socket=$(grep -m1 '^DevTools listening on ws://' "$log" | cut -d' ' -f4 | tr -d '\r')
-    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" /passkey.html \
+    cat "$scratch/cdp" | python3 -I -u check/cdp.py --socket "$socket" passkey.html \
       > "$cdp_log" 2>&1 &
     helper=$!
   else
