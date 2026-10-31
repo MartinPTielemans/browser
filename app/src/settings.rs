@@ -2331,7 +2331,7 @@ impl Settings {
                         (_, text) => chip(text.unwrap_or_default().into(), rgb(DETAIL))
                             .into_any_element(),
                     };
-                    row(None, *name, control)
+                    row(None, shown(name), control)
                 })
                 .collect();
             (!rows.is_empty()).then(|| {
@@ -2804,16 +2804,25 @@ fn found(typed: &str, cx: &App) -> Vec<&'static str> {
             Keys::FavoritesNumbered => None,
             _ => keys.fixed(),
         };
-        shell::shortcut_found(typed, name, label.as_deref())
+        shell::shortcut_found(typed, &shown(name), label.as_deref())
     });
     found.map(|(name, _)| *name).collect()
+}
+
+/// A row's name as the tab shows it, with ⌘1–⌘8 in this OS's keys, Ctrl+1–Ctrl+8 off the Mac.
+fn shown(name: &str) -> String {
+    let tabs = format!("{}–{}", shell::keystroke_label("cmd-1"), shell::keystroke_label("cmd-8"));
+    name.replace("⌘1–⌘8", &tabs)
 }
 
 fn log_found(typed: &str, cx: &App) {
     // check.sh waits for this line.
     match typed {
         "" => log!("browser: shortcuts search cleared"),
-        _ => log!("browser: shortcuts search {typed:?} finds {}", found(typed, cx).join(", ")),
+        _ => {
+            let found: Vec<String> = found(typed, cx).into_iter().map(shown).collect();
+            log!("browser: shortcuts search {typed:?} finds {}", found.join(", "))
+        }
     }
 }
 
