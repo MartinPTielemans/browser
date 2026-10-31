@@ -5,7 +5,7 @@
 # Each runs the app in a headless sway session (tools/headless.sh) with an fcitx5 of its own, its
 # configuration made here, in a D-Bus session that starts nothing else, so the user's input method
 # and screens are untouched. fcitx5's quick phrase (Ctrl+;) composes what's typed inline, as
-# Japanese input does, and commits it on Enter; Escape cancels it. vkbd ($VKBD) types and clicks
+# Japanese input does, and commits it on Enter; Escape cancels it. check/vkbd types and clicks
 # through the session's virtual keyboard and pointer, which a headless seat has no other of.
 # It checks:
 # - The page's textarea composes "abc" (its title follows its composition events and value), and
@@ -18,7 +18,7 @@
 # Under Wayland the bar composes through the core's input method (bc_window_ui_text_input), so its
 # steps need an engine with that core. Leaves the captures of each composition and the logs in
 # build/check/ime/.
-# Needs sway, grim, ImageMagick, fcitx5, dbus-run-session and vkbd.
+# Needs sway, grim, ImageMagick, fcitx5, dbus-run-session, xkbcli and cargo, which builds check/vkbd.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -42,12 +42,14 @@ if [ "${1:-}" = --steps ]; then
   click() { "$VKBD" --click "$1" "$2"; }
   key() { "$VKBD" "$1"; }
   compose() { key '^;'; key "$1"; }
-  # A seat with no keyboard left sends the app a keyboard leave, which closes an overlay as the
-  # user leaving it, so one keyboard stays for the whole run, as a real seat's does.
-  "$VKBD" --hold 120 &
-  hold=$!
-  trap 'kill $hold 2>/dev/null || true' EXIT
-  sleep 0.5
+  # Under X11 the seat's keyboard for the run is this one, as run.sh has no Wayland display to
+  # make it on: with none left the app gets a keyboard leave, which closes an overlay.
+  if [ "$mode" = x11 ]; then
+    "$VKBD" --hold 120 &
+    hold=$!
+    trap 'kill $hold 2>/dev/null || true' EXIT
+    sleep 0.5
+  fi
 
   # The page's textarea.
   click 330 40
@@ -93,12 +95,12 @@ if [ "${1:-}" = --steps ]; then
 fi
 
 modes=${1:-"wayland x11"}
-export VKBD=${VKBD:-$(command -v vkbd || echo "$HOME/.cache/ilo-tools/vkbd/target/release/vkbd")}
-[ -x "$VKBD" ] || { echo "FAIL: needs vkbd; set VKBD to it" >&2; exit 1; }
-for tool in sway grim magick fcitx5 dbus-run-session; do
+for tool in sway grim magick fcitx5 dbus-run-session xkbcli cargo; do
   command -v "$tool" >/dev/null || { echo "FAIL: needs $tool" >&2; exit 1; }
 done
 [ -x build/Browser/chrome ] || { echo "FAIL: no build/Browser/chrome; run ./build.sh" >&2; exit 1; }
+cargo build -q --release --manifest-path check/vkbd/Cargo.toml --target-dir target
+export VKBD=$PWD/target/release/vkbd
 out=$PWD/build/check/ime
 rm -rf "$out"
 mkdir -p "$out"
@@ -138,8 +140,13 @@ cat > "$home/bus.conf" <<EOF
 </busconfig>
 EOF
 # What headless.sh runs: fcitx5 on the session's displays, then the app, in its process group.
+# Under Wayland, first a keyboard on the seat for the whole run, as a desk has: fcitx5's own virtual
+# keyboard takes its keymap from it, and with none the app gets a keyboard with no keymap, on which
+# Chromium crashes. A seat with no keyboard left would also send the app a keyboard leave, which
+# closes an overlay as the user leaving it.
 cat > "$home/run.sh" <<EOF
 #!/bin/bash
+[ -z "\${WAYLAND_DISPLAY:-}" ] || "$VKBD" --hold 600 &
 env XDG_CONFIG_HOME=$home/config XDG_DATA_HOME=$home/data XDG_CACHE_HOME=$home/cache \\
   fcitx5 --disable=notificationitem,notifications,kimpanel,clipboard,fcitx4frontend \\
   > "$out/\$1-fcitx5.log" 2>&1 &

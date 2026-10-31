@@ -121,8 +121,9 @@ saved="$profile_dir/Spaces.json"
 # The frame the launch window opens at, which the app keeps next to them. A run that starts without
 # the Spaces starts without it too, so its launch window isn't at the last run's frame.
 launch_frame="$(dirname "$saved")/launch-frame"
-# The mcp run turns agents on with a token of its own, which a failed one left.
-rm -f "$(dirname "$saved")/Agents"
+# The mcp run turns agents on with a token of its own, which a failed one left. The keys run gives
+# Go to Space 1 ⌃⌘1 and leaves the favorites out of ⌘1–⌘8, which a failed one left for the runs after.
+rm -f "$(dirname "$saved")/Agents" "$(dirname "$saved")/Shortcuts"
 # DevTools open where the profile last had them, so an undocked try would leave them in a window.
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
