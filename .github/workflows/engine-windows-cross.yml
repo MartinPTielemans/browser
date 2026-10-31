@@ -42,7 +42,7 @@ jobs:
     # As long as the Linux engine's first build, or longer: the first build compiles all of Chrome.
     timeout-minutes: 1440
     permissions:
-      contents: write
+      contents: read
     env:
       # As engine-linux.yml: a job per 3 GB of the job's 22 GB.
       BUILD_JOBS: 7
@@ -56,6 +56,16 @@ jobs:
         with:
           go-version: '1.26'
           cache: false
+      # The engine goes to the repository prebuilt.ini names, with a token for it alone, which is
+      # checked before hours of build.
+      - name: Check the release token
+        env:
+          ENGINE_RELEASE_TOKEN: ${{ secrets.ENGINE_RELEASE_TOKEN }}
+        run: |
+          [ -n "$ENGINE_RELEASE_TOKEN" ] || {
+            echo "::error::No ENGINE_RELEASE_TOKEN secret: a fine-grained token with Contents read and write on $(git config -f engine/prebuilt.ini prebuilt.repository) alone, which the engine is released in."
+            exit 1
+          }
       - name: Prepare
         run: |
           [ -n "${ILO_ENGINE_ROOT:-}" ] || { echo "The runner doesn't set ILO_ENGINE_ROOT."; exit 1; }
@@ -81,18 +91,22 @@ jobs:
       - name: Package
         run: |
           engine/windows/cross/package.sh "$ILO_ENGINE_ROOT/windows" "$RUNNER_TEMP/Chromium-windows-x64.zip"
-      # A release named after the commit, which holds the engine's source. fetch.sh takes the
-      # newest one in the checkout's history whose core API matches the checkout's.
+      # A release in prebuilt.ini's repository, named after the commit, which holds the engine's
+      # source. fetch.sh takes the newest one in the checkout's history whose core API matches.
       - name: Publish
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ENGINE_RELEASE_TOKEN }}
         run: |
+          repo=$(git config -f engine/prebuilt.ini prebuilt.repository)
+          repo=${repo#https://github.com/}
           tag=engine-windows-${GITHUB_SHA::12}
           tag_ucw=$(git config -f engine/pins.ini ungoogled-chromium-windows.tag)
-          # Never GitHub's Latest, which releases/latest/download/<name> links mean as ilo's own (#804).
-          gh release view "$tag" >/dev/null 2>&1 ||
-            gh release create "$tag" --target "$GITHUB_SHA" --title "Windows engine ${GITHUB_SHA::12}" --latest=false \
-              --notes "The Windows engine (ungoogled-chromium-windows $tag_ucw, x64, cross-compiled) built from $GITHUB_SHA, which holds its source."
-          gh release upload "$tag" --clobber "$RUNNER_TEMP"/Chromium-windows-x64.zip "$RUNNER_TEMP"/Chromium-windows-x64.zip.sha256 \
+          # Never GitHub's Latest, which releases/latest/download/<name> links mean as a release of
+          # its repository's own (#804). The tag is on that repository's history, which hasn't this
+          # commit: the name carries it.
+          gh release view "$tag" -R "$repo" >/dev/null 2>&1 ||
+            gh release create "$tag" -R "$repo" --title "Windows engine ${GITHUB_SHA::12}" --latest=false \
+              --notes "The Windows engine (ungoogled-chromium-windows $tag_ucw, x64, cross-compiled) built from $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA, which holds its source."
+          gh release upload "$tag" -R "$repo" --clobber "$RUNNER_TEMP"/Chromium-windows-x64.zip "$RUNNER_TEMP"/Chromium-windows-x64.zip.sha256 \
             "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip "$RUNNER_TEMP"/Chromium-windows-x64-symbols.zip.sha256
           rm "$RUNNER_TEMP"/Chromium-windows-x64*.zip*
