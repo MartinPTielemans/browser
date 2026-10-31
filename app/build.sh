@@ -39,10 +39,13 @@ case "$(uname -s)" in
     [ "${1:-}" != prod ] || features="--features prod"
     # shellcheck disable=SC2086 # no features, or one flag and its value
     cargo build --release --manifest-path windows/Cargo.toml --target-dir target $features
+    # The bridge an agent's MCP client runs, which finds the browser's pipe (src/agents/bridge.rs).
+    # shellcheck disable=SC2086
+    cargo build --release --bin mcp-bridge $features
     rm -rf build/Browser
     mkdir -p build
     cp -al .deps/engine build/Browser
-    cp target/release/Browser.dll build/Browser/
+    cp target/release/Browser.dll target/release/mcp-bridge.exe build/Browser/
     cp -R "$(./fetch-ublock.sh)" build/Browser/ublock
     # shellcheck disable=SC2086
     ../tools/licences.sh build/Browser windows/Cargo.toml "$(rustc -vV | sed -n 's/^host: //p')" $features

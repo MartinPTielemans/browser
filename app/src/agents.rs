@@ -1,23 +1,27 @@
 //! Agents: Claude Code, Codex or any other MCP client works in the browser, each in a Space of its
 //! own, through the browser's MCP server (decision 8). Settings › Agents turns the server on, which
 //! it isn't at first, connects the clients and lists what each agent did. The server is a Unix
-//! socket in the profile directory, which a client reaches through the bridge it launches. Its
-//! threads sleep in the kernel between messages, so an idle browser wakes for none of it, and nothing here
-//! runs on tab switch, new tab or launch: the saved settings are read after the first window shows.
+//! socket in the profile directory, or a named pipe on Windows, which a client reaches through the
+//! bridge it launches. Its threads sleep in the kernel between messages, so an idle browser wakes
+//! for none of it, and nothing here runs on tab switch, new tab or launch: the saved settings are
+//! read after the first window shows.
 //!
 //! A client proves which agent it is with the token Connect wrote into its config, which its bridge
-//! hands the server first. Each tool call
-//! reaches the UI thread as an event, and the tools answer through the core, which checks each
-//! call on a tab with bc_agent_may_act. That check's answer is the call's activity-log entry.
-//! A payment, an order, a message sent or a bank's site asks the user first, in a card in each
-//! window: once, always or never on that site, for that agent. Settings › Agents and the agent's
-//! Space's menu list what the user answered for good, to revoke.
+//! hands the server first. Each tool call reaches the UI thread as an event, and the tools answer
+//! through the core, which checks each call on a tab with bc_agent_may_act. That check's answer is
+//! the call's activity-log entry. A payment, an order, a message sent or a bank's site asks the
+//! user first, in a card in each window: once, always or never on that site, for that agent.
+//! Settings › Agents and the agent's Space's menu list what the user answered for good, to revoke.
 
 pub mod bridge;
 pub mod clients;
 pub mod page;
+#[cfg(windows)]
+mod pipe;
 mod server;
 pub mod tools;
+
+pub use server::address;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -1721,6 +1725,5 @@ pub fn ago(at: SystemTime, now: SystemTime) -> String {
     }
 }
 
-// The tests run the server, which is a Unix socket until Windows has its named pipe.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;
