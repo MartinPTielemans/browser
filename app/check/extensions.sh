@@ -508,8 +508,10 @@ BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$home/profile" \
 pid=$!
 exec 3> "$out/drive"
 await_load
-await '^browser: extensions menu [a-p]*$' || fail "the Extensions menu didn't list Check Native"
-native=$(grep -m1 '^browser: extensions menu [a-p]*$' "$log" | cut -d' ' -f4)
+# Check Native, then uBlock Origin, last by name, which no longer reloads itself away (#954).
+await "^browser: extensions menu [a-p]* $ublock\$" ||
+  fail "the Extensions menu didn't list Check Native"
+native=$(grep -m1 "^browser: extensions menu [a-p]* $ublock\$" "$log" | cut -d' ' -f4)
 # The host allows only the extension, whose id comes from its folder.
 printf '{"name": "dev.browser.check", "description": "Check", "path": "%s", "type": "stdio",
  "allowed_origins": ["chrome-extension://%s/"]}\n' "$home/host.sh" "$native" \
