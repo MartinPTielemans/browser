@@ -37,7 +37,7 @@ use crate::tokens::capture::MARGIN;
 use crate::tokens::menu::{GAP, LINE, PADDING, RADIUS, ROW, ROW_RADIUS, ROW_X, TEXT};
 use crate::tokens::menu::MIN_WIDTH as MENU_WIDTH;
 /// How far the pointer moves with the button down before a click is a drag (ours).
-const DRAG: f32 = 4.;
+pub const DRAG: f32 = 4.;
 /// How long the toast after a capture stays, and longer while the pointer is over it (ours).
 const TOAST_TIME: Duration = Duration::from_secs(5);
 /// How long "Capture in Progress" can stay, which the capture's toast replaces when it comes.
@@ -287,18 +287,19 @@ fn update(cx: &mut App, change: impl FnOnce(&mut Capture, &mut Window, &mut Cont
 /// Starts capture mode over `tab`'s page, at `frame` in the browser window's content with corners
 /// of `radius`, once the core has a picture of it, its menu offering Save to Library with
 /// `library`, in the window's menus' `look`. If it's on, leaves it instead, as ⇧⌘2's second press
-/// does.
+/// does. With `press`, a ⇧⌘-drag on the page from there, it starts dragging (`page_dragged`).
 pub fn start(
     tab: u64,
     frame: Bounds<Pixels>,
     radius: f32,
     library: bool,
     look: Look,
+    press: Option<Point<Pixels>>,
     cx: &mut App,
 ) {
     // Once the update that asked is over, as off the Mac ⇧⌘2's second press comes from capture
     // mode's own window, which can't be updated inside its own update.
-    cx.defer(move |cx| start_now(tab, frame, radius, library, look, cx));
+    cx.defer(move |cx| start_now(tab, frame, radius, library, look, press, cx));
 }
 
 fn start_now(
@@ -307,11 +308,15 @@ fn start_now(
     radius: f32,
     library: bool,
     look: Look,
+    press: Option<Point<Pixels>>,
     cx: &mut App,
 ) {
     update(cx, |capture, window, cx| {
         if capture.session.is_some() {
-            return capture.leave("toggle", window, cx);
+            if press.is_none() {
+                capture.leave("toggle", window, cx);
+            }
+            return;
         }
         let request = capture.request();
         capture.session = Some(Session {
@@ -321,7 +326,7 @@ fn start_now(
             snapshot_request: request,
             snapshot: None,
             hover: None,
-            press: None,
+            press,
             drag: None,
             chosen: None,
             pending: None,
@@ -332,6 +337,25 @@ fn start_now(
         // check.sh reads this line.
         log!("browser: capture started");
         capture.host.capture(tab, request, false, None);
+    });
+}
+
+/// The pointer of a ⇧⌘-drag on `tab`'s page moved to `at`, in the page. The page's window keeps
+/// the pointer from the press on, so the core hands its moves to capture mode, as its own.
+pub fn page_dragged(tab: u64, at: Point<Pixels>, cx: &mut App) {
+    update(cx, |capture, _, cx| {
+        if capture.session.as_ref().is_some_and(|session| session.tab == tab) {
+            capture.moved(at, cx);
+        }
+    });
+}
+
+/// The ⇧⌘-drag on `tab`'s page was let go: what it dragged is chosen.
+pub fn page_released(tab: u64, cx: &mut App) {
+    update(cx, |capture, _, cx| {
+        if capture.session.as_ref().is_some_and(|session| session.tab == tab) {
+            capture.released(cx);
+        }
     });
 }
 
