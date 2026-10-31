@@ -267,6 +267,13 @@ none_since() {
 none_while() {
   ! sed -n "/^browser: drive $step: /,/^browser: drive $step done/p" "$log" | grep -q "$1"
 }
+# Kills the app's pages' renderers, as macOS kills one under memory pressure. Not an extension's,
+# which is a renderer too and whose death shows Chromium's balloon saying the extension crashed.
+kill_pages() {
+  renderers=$(ps -Ao pid=,args= | grep -e "$procs.*--type=rendere[r]" |
+    grep -v -e '--extension-process' | awk '{ print $1 }')
+  [ -n "$renderers" ] && kill -KILL $renderers
+}
 # Where Settings' close button is, in $close: AppKit's on the Mac, else where Settings drew its own,
 # which on Windows is in the top right corner.
 settings_close() {

@@ -677,7 +677,7 @@ send menu Collapse Pinned Tabs
 expect '^browser: command collapse-pinned via ui$' "View › Collapse Pinned Tabs didn't run collapse-pinned"
 expect "^browser: outline -\\[$e $c\\]\$" "Collapse Pinned Tabs didn't collapse the pinned rows: $(outline)"
 
-# Focus Sidebar, which has no key until the user binds one, gives the sidebar the keyboard and rings
+# Focus Sidebar, on F6 unless the user gives it another key, gives the sidebar the keyboard and rings
 # the tab shown's row, the first ⌘1 counts. ↑ there stays, past the collapsed pinned rows, ↓ moves
 # the ring down, and return shows the ringed tab with its page holding the keyboard. From the View
 # menu, a key in the page clicked ends the ring, and escape gives the page the keyboard back
