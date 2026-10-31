@@ -3218,7 +3218,10 @@ impl Browser for Engine {
             check: None,
             return_cancels: false,
         };
-        dialog::pose(question, Box::new(|_, _| unsafe { bc::bc_quit() }), cx);
+        // A Quit as the window comes on screen, before its overlays are made, asks too (#905):
+        // with no dialog to ask in, pose would drop it and the app would never quit.
+        let quit = Box::new(|_: Vec<String>, _: &mut App| unsafe { bc::bc_quit() });
+        with_overlays(move |cx| dialog::pose(question, quit, cx), cx);
     }
 }
 
