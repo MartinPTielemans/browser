@@ -1286,7 +1286,9 @@ class Account : public syncer::SyncServiceObserver,
   // syncer::ProtocolEventObserver:
   void OnProtocolEvent(const syncer::ProtocolEvent& event) override {
     // Its type alone, such as "Commit Request": ProtocolEvent keeps GetType private.
-    const std::string* type = event.ToValue(/*include_specifics=*/false).FindString("type");
+    // The dict outlives the line, as the string FindString points to is the dict's.
+    const base::DictValue value = event.ToValue(/*include_specifics=*/false);
+    const std::string* type = value.FindString("type");
     LOG(ERROR) << "browser: sync engine " << (type ? *type : "event");
   }
 
