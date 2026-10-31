@@ -1955,8 +1955,8 @@ impl Settings {
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
         let option = unsafe { bc::bc_option_reveals_sidebar() };
         let option = self.toggle("option reveals sidebar", option, set_option_reveals, accent, cx);
-        // The Mac's alone so far (host_watch_option_taps).
-        let option = cfg!(target_os = "macos").then(|| {
+        // Where the host watches for it (host_watch_option_taps).
+        let option = cfg!(any(target_os = "macos", target_os = "linux")).then(|| {
             row(
                 Some(("icons/panel-left.svg", OPTION_REVEAL_TILE)),
                 "Show the hidden sidebar when ⌥ is pressed alone",
