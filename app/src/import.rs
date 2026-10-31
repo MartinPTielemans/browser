@@ -396,8 +396,8 @@ pub struct ImportView {
     /// The step last drawn. A click before a step draws lands on the one before it, so check.sh
     /// waits for the line each one logs.
     drawn: Option<&'static str>,
-    /// Where Import and Done were logged as drawn, emptied with each step so each logs them anew:
-    /// check.sh clicks them there, as a summary that wraps, or a taller row, moves them.
+    /// Where the controls check.sh clicks were logged as drawn (placed), emptied with each step so
+    /// each logs them anew.
     drawn_at: Rc<RefCell<Vec<String>>>,
     /// The system it runs on, for where the browsers it names export their passwords.
     os: Os,
@@ -560,6 +560,13 @@ impl ImportView {
         }
         log!("browser: import leaves out {}", left_out.join(", "));
         cx.notify();
+    }
+
+    /// `element`, with where it's drawn logged as "browser: settings `what` at x y" for check.sh to
+    /// click it there, as rows above it, such as a summary that wraps or the extensions listed,
+    /// move it.
+    fn placed(&self, what: &str, element: impl IntoElement) -> gpui::Div {
+        div().relative().child(element).child(drawn(what.into(), self.drawn_at.clone()))
     }
 
     /// Takes extension `id` off the list and opens its Web Store page, where the user adds it.
@@ -1057,6 +1064,7 @@ impl ImportView {
             .on_click(cx.listener(|view, _, _, cx| view.choose_folders(cx)))
             .child("Choose folders")
             .child(svg().path(glyph).size(px(DISCLOSURE_GLYPH)).text_color(look.detail));
+        let disclosure = self.placed("import-choose-folders", disclosure);
         let names = folders.open.then_some(folders.names.as_deref());
         let chosen = match names {
             None => None,
@@ -1066,7 +1074,7 @@ impl ImportView {
                 let rows = names.iter().enumerate().map(|(index, name)| {
                     let on = !folders.left_out.contains(name);
                     let toggled = name.clone();
-                    div()
+                    let row = div()
                         .id(("import-folder", index))
                         .on_click(cx.listener(move |view, _, _, cx| {
                             view.toggle_folder(&toggled, cx)
@@ -1077,7 +1085,8 @@ impl ImportView {
                             name.clone(),
                             rgb(NO_THEME_ACCENT),
                             rgb(CHECK_TICK),
-                        ))
+                        ));
+                    self.placed(&format!("import-folder {name}"), row)
                 });
                 Some(group(look, rows.map(|row| div().child(row))))
             }
@@ -1124,7 +1133,7 @@ impl ImportView {
             look,
             "Passwords".into(),
             format!("Export them from {from} as a file, then choose it here.").into(),
-            choose.into_any_element(),
+            self.placed("import-passwords", choose).into_any_element(),
         );
         let choose = button(look, "import-bookmarks", "Choose File…")
             .on_click(cx.listener(|view, _, _, cx| view.choose_bookmarks(cx)));
@@ -1132,7 +1141,7 @@ impl ImportView {
             look,
             "Bookmarks".into(),
             "A bookmarks file, in HTML, which every browser exports.".into(),
-            choose.into_any_element(),
+            self.placed("import-bookmarks", choose).into_any_element(),
         );
         let places = export_places(&self.sources, self.os).into_iter().map(|place| {
             line(place)
@@ -1190,10 +1199,7 @@ impl ImportView {
                     .justify_end()
                     .gap(px(PADDING))
                     .child(back)
-                    .child(div().relative().child(import).child(drawn(
-                        "import-go".into(),
-                        self.drawn_at.clone(),
-                    ))),
+                    .child(self.placed("import-go", import)),
             )
             .into_any_element()
     }
@@ -1418,11 +1424,8 @@ impl Render for ImportView {
                             .flex()
                             .justify_end()
                             .gap(px(PADDING))
-                            .children(delete)
-                            .child(div().relative().child(done).child(drawn(
-                                "import-done".into(),
-                                self.drawn_at.clone(),
-                            ))),
+                            .children(delete.map(|delete| self.placed("import-delete-passwords", delete)))
+                            .child(self.placed("import-done", done)),
                     )
                     .into_any_element()
             }
