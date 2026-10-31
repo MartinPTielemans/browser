@@ -1,5 +1,6 @@
 #include "browser_core/agent_autofill.h"
 
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -126,6 +127,10 @@ bool IsAgentTab(content::WebContents* contents) {
 
 bool RefuseAgentPasskey(content::WebContents* contents, bool asks) {
   const Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr;
+  // For #611, until its fix: whether Chrome means to show its dialog, which never shows on Windows.
+  fprintf(stderr, "browser: passkey request in tab %llu, %s\n",
+          static_cast<unsigned long long>(tab ? tab->id() : 0),
+          asks ? "in Chrome's dialog" : "asking nobody");
   if (!tab || !IsAgentTab(tab->id())) {
     return false;
   }

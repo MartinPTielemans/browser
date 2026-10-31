@@ -2207,7 +2207,13 @@ gfx::NativeView Window::GetHostView() const {
 gfx::Point Window::GetDialogPosition(const gfx::Size& size) {
   // As in Chrome's window: a tab's dialog, such as print preview, is centred over the page, at its
   // top. In a split view, over the focused page.
-  return gfx::Point(focused_frame_.CenterPoint().x() - size.width() / 2, focused_frame_.y());
+  const gfx::Point at(focused_frame_.CenterPoint().x() - size.width() / 2, focused_frame_.y());
+  // For #611, until its fix: where a dialog such as Chrome's passkey dialog goes, and whether the
+  // widget it goes in is shown, as on Windows the passkey dialog never shows.
+  fprintf(stderr, "browser: tab dialog %s at %s, in a %s window at %s\n", size.ToString().c_str(),
+          at.ToString().c_str(), widget_->IsVisible() ? "shown" : "hidden",
+          widget_->GetWindowBoundsInScreen().ToString().c_str());
+  return at;
 }
 
 gfx::Size Window::GetMaximumDialogSize() {
