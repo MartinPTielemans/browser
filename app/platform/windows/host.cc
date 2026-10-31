@@ -525,6 +525,20 @@ void WatchForeground() {
 }
 
 Floating g_overlays[4];
+// What check.sh calls each overlay, as the Mac's and Linux's hosts do.
+const char* const kOverlayNames[std::size(g_overlays)] = {"command bar", "icon picker",
+                                                         "theme picker", "folder preview"};
+// Hides overlay |index| if it's shown, saying so, and whether it was.
+bool HideOverlay(int index) {
+  Floating& floating = g_overlays[index];
+  if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    return false;
+  }
+  Hide(floating);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: %s hidden\n", kOverlayNames[index]);
+  return true;
+}
 struct Corner {
   Floating floating;
   double right = 0;
@@ -1693,8 +1707,7 @@ void host_show_overlay(int overlay,
                        double width) {
   for (int each = 0; each < int(std::size(g_overlays)); ++each) {
     Floating& other = g_overlays[each];
-    if (each != overlay && other.hwnd && IsWindowVisible(other.hwnd)) {
-      Hide(other);
+    if (each != overlay && HideOverlay(each)) {
       if (other.dismissed) {
         void (*dismissed)(void) = other.dismissed;
         Later([dismissed] { dismissed(); });
@@ -1709,13 +1722,38 @@ void host_show_overlay(int overlay,
   } else if (left + width > content_width - 8) {
     left = content_width - 8 - width;
   }
-  Show(g_overlays[overlay], ui_view, left, top, width, -1, true);
+  Floating& floating = g_overlays[overlay];
+  const bool was_shown = floating.hwnd && IsWindowVisible(floating.hwnd);
+  Show(floating, ui_view, left, top, width, -1, true);
   // The bar now has the keyboard, so the keys held since the shortcut go to it.
-  ReleaseKeys(g_overlays[overlay].hwnd);
+  ReleaseKeys(floating.hwnd);
+  if (!floating.hwnd || !IsWindowVisible(floating.hwnd)) {
+    return;
+  }
+  double own_width, own_height;
+  WindowSize(floating.hwnd, &own_width, &own_height);
+  // check.sh reads these lines.
+  fprintf(stderr, "browser: %s at %g %g %g %g\n", kOverlayNames[overlay], left, top, width,
+          own_height);
+  if (!was_shown) {
+    fprintf(stderr, "browser: %s shown\n", kOverlayNames[overlay]);
+  }
 }
 
 void host_set_overlay_height(int overlay, double height) {
-  Resize(g_overlays[overlay], height);
+  Floating& floating = g_overlays[overlay];
+  if (!floating.hwnd) {
+    return;
+  }
+  // In pixels, as Resize sets it.
+  RECT rect{};
+  GetWindowRect(floating.hwnd, &rect);
+  if (rect.bottom - rect.top == static_cast<int>(height * Scale(floating.hwnd))) {
+    return;
+  }
+  Resize(floating, height);
+  // check.sh reads this line.
+  fprintf(stderr, "browser: %s height %g\n", kOverlayNames[overlay], height);
 }
 
 // shortcut: Segoe UI Emoji is taken to draw every emoji; check with DirectWrite's glyphs when an
@@ -1725,12 +1763,12 @@ bool host_can_draw_emoji(const char*) {
 }
 
 void host_hide_overlay(int overlay) {
-  Hide(g_overlays[overlay]);
+  HideOverlay(overlay);
 }
 
 void host_dismiss_overlay(int overlay) {
   Floating& floating = g_overlays[overlay];
-  Hide(floating);
+  HideOverlay(overlay);
   if (floating.dismissed) {
     floating.dismissed();
   }
