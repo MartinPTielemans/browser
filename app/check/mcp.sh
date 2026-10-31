@@ -201,8 +201,9 @@ if [ "$driven" = 1 ]; then
   # typed it, the page filled it in as autofill does, or it's a password.
   serve
   # The page names itself once its fields and their handlers are there, which its title in the
-  # head, read before them, wouldn't say.
-  printf '%s' '<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
+  # head, read before them, wouldn't say, and it has painted (painted.js, site.sh).
+  printf '%s' '<script src="painted.js"></script>
+<p style="position:relative;z-index:1;pointer-events:none">Fields for the agents check.</p>
 <label>Name <input id=typed style="position:fixed;inset:0;width:100%;height:100%"></label>
 <label>Password <input id=password type=password></label>
 <label>Email <input id=email autocomplete=email></label>
@@ -215,7 +216,7 @@ password.value = "hunter2-by-ada";
 email.value = "ada@example.com";
 typed.oninput = () => document.title = "typed";
 note.oninput = () => document.title = "noted";
-document.title = "fields";
+painted(() => document.title = "fields");
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
@@ -275,16 +276,20 @@ document.title = "fields";
 
   # A page's frames are part of it: the outline has what's in a frame of the page's site and in
   # one of another, which Chromium puts in a process of its own, and the agent acts in both. A
-  # password field in a frame is as off limits as one in the page.
+  # password field in a frame is as off limits as one in the page. The page names itself once the
+  # other site's frame has painted: until then Chromium hasn't the frame's drawing to find what's
+  # under a click in, and gives the click to the page around it.
   printf '%s' '<p>Inner text</p><button>Inner button</button><input aria-label="Inner field">' \
     > "$out/site/inner.html"
   printf '%s' '<p>Cross text</p>
 <button onclick="document.body.append(&quot;cross clicked&quot;)">Cross button</button>
 <input aria-label="Cross field" oninput="document.body.append(&quot;cross typed&quot;)">
-<input type=password aria-label="Cross password">' > "$out/site/cross.html"
-  printf '%s' "<title>frames</title><p>Top text</p><iframe src=inner.html></iframe>
+<input type=password aria-label="Cross password"><script src="painted.js"></script>
+<script>painted(() => parent.postMessage("painted", "*"));</script>' > "$out/site/cross.html"
+  printf '%s' "<title>loading</title><p>Top text</p><iframe src=inner.html></iframe>
 <iframe src=http://127.0.0.1:$port/cross.html></iframe>
 <script>addEventListener('message', (event) => {
+  if (event.data === 'painted') document.title = 'frames';
   if (event.data === 'extension frame') document.title = 'frames with extension';
 });</script>" > "$out/site/frames.html"
   outline=$(call open_tab "{\"url\":\"localhost:$port/frames.html\"}")
@@ -294,6 +299,7 @@ document.title = "fields";
     *) fail "the page with frames was outlined as: $outline" ;;
   esac
   frames_tab=$(printf '%s\n' "$outline" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  await_log "^browser: title $frames_tab frames\$" "the other site's frame didn't paint"
   inner=$(ref_of button "Inner button")
   cross=$(ref_of button "Cross button")
   [ -n "$inner" ] && [ -n "$cross" ] && [ "$inner" != "$cross" ] ||
@@ -358,10 +364,10 @@ document.title = "fields";
   listed=$(call list_tabs '{}')
   printf '%s\n' "$listed" | grep -q "^. $closing  " && fail "list_tabs listed the closed tab"
 
-  # run_steps takes several actions in one call, in order.
-  ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"}]}")
+  # run_steps takes several actions in one call, in order, and waits for a page's text.
+  ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"},{\"action\":\"wait\",\"text\":\"example domain\"}]}")
   case "$ran" in
-    "Ran 2 steps."*"1. Scrolled up."*"2. Tab $opened_tab:"*) ;;
+    "Ran 3 steps."*"1. Scrolled up."*"2. Tab $opened_tab:"*"3. “example domain” showed."*) ;;
     *) fail "run_steps answered: $ran" ;;
   esac
 
@@ -394,6 +400,15 @@ CARD
 $(grep '^browser: agent bar [0-9]* at ' "$log" | tail -1 | cut -d' ' -f6-)
 BAR
   ../tools/window-screenshot.sh "$pid" "$out/agent-bar.png" || fail "no window to capture"
+  # Stop's tooltip shows its key, as Take Over's does Back to Pinned URL's.
+  hidden=$(grep -c '^browser: tooltip hidden$' "$log" || true)
+  faded=$(grep -c '^browser: tooltip window shown$' "$log" || true)
+  send move $((bx + bw / 4)) $((by + bh - 26))
+  await_log '^browser: tooltip shown Stop \(⌘\.\|Ctrl+\.\)$' "resting on Stop didn't show its key"
+  await_more '^browser: tooltip window shown$' "$faded" || fail "Stop's tooltip didn't fade in"
+  ../tools/window-screenshot.sh "$pid" "$out/agent-bar-tooltip.png" || fail "no window to capture"
+  send move $((bx + bw / 2)) $((by - 40))
+  await_more '^browser: tooltip hidden$' "$hidden" || fail "leaving Stop didn't hide its tooltip"
   send click $((bx + bw - 16)) $((by + bh - 26))
   await_log "^browser: agent mcp-client taken over in $opened_tab\$" "Take Over didn't take the tab"
   refused=$(call scroll "{\"tab\":$opened_tab}")
@@ -453,6 +468,17 @@ BAR
   logins() {
     grep -c "^browser: title $opened_tab login\$" "$log" || true
   }
+  # Waits until no tooltip is up, its window faded out too, so it isn't counted as a child window.
+  no_tooltip() {
+    for _ in $(seq 50); do
+      case "$(grep '^browser: tooltip \(shown\|hidden\)' "$log" | tail -1)" in
+        "browser: tooltip shown "*) sleep 0.1 ;;
+        # Its window fades out in 270 ms (tooltip.rs FADE_OUT).
+        *) sleep 0.4; return 0 ;;
+      esac
+    done
+    return 1
+  }
   call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/welcome.html\"}" > /dev/null
   await_log "^browser: title $opened_tab welcome\$" "the welcome page didn't load in the agent's tab"
   take_over "to save a login"
@@ -485,11 +511,16 @@ BAR
   bar
   send click $((bx + 30)) $((by + bh - 26))
   await_more "$handed" "$before" || fail "the bar's Hand Back didn't hand the login's tab back"
+  # Off the bar, which comes back with Stop under where Hand Back was, and Stop's tooltip would
+  # count below as a dropdown's child window.
+  send move $((bx + bw / 2)) $((by - 40))
+  tips=$(grep -c '^browser: tooltip shown ' "$log" || true)
 
   before=$(logins)
   call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/login.html\"}" > /dev/null
   await_more "^browser: title $opened_tab login\$" "$before" ||
     fail "the login page didn't load in the agent's tab"
+  no_tooltip || fail "a tooltip stayed up with the pointer off the agent bar"
   shown=$(children)
   # A click in the username field, where Chrome's dropdown would offer the login.
   send click 600 60
@@ -498,6 +529,8 @@ BAR
   sleep 1
   ../tools/window-screenshot.sh "$pid" "$out/agent-login-empty.png" || fail "no window to capture"
   [ "$(children)" = "$shown" ] || fail "the agent's tab offered the saved login in a dropdown"
+  [ "$(grep -c '^browser: tooltip shown ' "$log" || true)" = "$tips" ] ||
+    fail "a tooltip showed with the pointer off the agent bar: $(grep '^browser: tooltip shown ' "$log" | tail -1)"
   grep -q "^browser: title $opened_tab filled\$" "$log" &&
     fail "Chrome filled the saved password in the agent's tab"
   outline=$(call snapshot "{\"tab\":$opened_tab}")
@@ -606,7 +639,7 @@ forget_login
 trap cleanup EXIT
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, closes its own tab, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, its bar's Stop naming ⌘. in its tooltip, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi

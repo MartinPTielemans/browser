@@ -114,15 +114,17 @@ expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't sh
 # the header's sidebar button under it; each goes when the pointer leaves.
 check_layout "before the buttons' tooltips"
 send move 24 $((height - 25))
-expect '^browser: tooltip shown View Library ⇧⌘L$' \
-  "resting on the Library button didn't show View Library and ⇧⌘L"
+library_keys=⇧⌘L sidebar_keys=⌘S
+[ "$(uname)" = Darwin ] || { library_keys=Ctrl+Shift+L; sidebar_keys=Ctrl+S; }
+expect "^browser: tooltip shown View Library $library_keys\$" \
+  "resting on the Library button didn't show View Library and $library_keys"
 expect '^browser: tooltip window shown$' "the Library button's tooltip didn't fade in"
 ../tools/window-screenshot.sh "$pid" "$out/library-tooltip.png" || fail "no window to capture"
 send move 100 400
 expect '^browser: tooltip hidden$' "the pointer leaving the Library button didn't hide its tooltip"
 send move 93 23
-expect '^browser: tooltip shown Hide Sidebar ⌘S$' \
-  "resting on the sidebar button didn't show Hide Sidebar and ⌘S"
+expect "^browser: tooltip shown Hide Sidebar $sidebar_keys\$" \
+  "resting on the sidebar button didn't show Hide Sidebar and $sidebar_keys"
 expect '^browser: tooltip window shown$' "the sidebar button's tooltip didn't fade in"
 ../tools/window-screenshot.sh "$pid" "$out/header-tooltip.png" || fail "no window to capture"
 send move 100 400
@@ -530,8 +532,8 @@ expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
 # More Settings… sits under Advanced's box of three switch rows, the haptics', the link previews'
-# and restoring windows', and on the Mac ⌥'s 42 under them, and the box of Export…'s row.
-[ "$(uname)" = Darwin ] && option_row=42 || option_row=0
+# and restoring windows', and on the Mac and Linux ⌥'s 42 under them, and the box of Export…'s row.
+case $(uname) in Darwin | Linux) option_row=42 ;; *) option_row=0 ;; esac
 send clickkey 120 $((303 + option_row))
 expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
