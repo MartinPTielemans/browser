@@ -45,6 +45,10 @@ namespace extensions {
 class InstallPromptData;
 }
 
+namespace media_router {
+class MediaRouterDialogController;
+}
+
 namespace mojo {
 template <typename ContextType>
 class BinderMapWithContext;
@@ -66,6 +70,12 @@ class SimpleMenuModel;
 // chrome/browser/ui/navigator/browser_navigator.cc: changes where a navigation opens, before Chrome
 // picks the Browser for it.
 extern void (*g_browser_core_adjust_navigate)(NavigateParams& params);
+
+// chrome/browser/ui/views/chrome_browser_main_extra_parts_views.cc: |contents|'s Cast dialog, the
+// core's, which Chrome's page menu Cast…, a page asking to cast and bc_tab_cast show, in place of
+// the Views one. Chrome sets its media router's factory to it once, as the profile starts.
+extern media_router::MediaRouterDialogController* (*g_browser_core_cast_dialog)(
+    content::WebContents* contents);
 
 // chrome/browser/devtools/devtools_window.cc: the core docks DevTools in its windows, which have no
 // DevtoolsUIController. Whether |browser|'s window can, and the call as the docked DevTools of

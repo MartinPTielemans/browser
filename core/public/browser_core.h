@@ -620,6 +620,10 @@ typedef struct bc_host {
   // The tab's page didn't keep a key, such as ⌘F on a page without a find of its own. Return true
   // if the app used it; otherwise the window's menus get it, as ⌘M does on the Mac.
   bool (*tab_key_unhandled)(void* context, bc_id tab, const bc_key* key);
+  // No field of the app's opens for the key the keys typed after it are held for (bc_hold_keys):
+  // the page kept it, neither the page nor the app used it, or it got no answer in a second. A host
+  // that holds them itself gives them to the page now.
+  void (*held_keys_unclaimed)(void* context);
   // The archive changed, or what the last launch archived was read: |tabs| is all of it, newest
   // first.
   void (*archive_changed)(void* context, const bc_archived_tab* tabs, size_t count);
@@ -980,11 +984,13 @@ BC_EXPORT void bc_window_ui_text_input(bc_id window, bool focused, double x, dou
 // During tab_key_before_page: holds the keys typed in the tab's page after the one asked about,
 // which opens a field of the app's, such as ⌃L's address field. A shortcut the page gets first
 // comes back to the app only after the keys typed behind it reached the page, and they belong in
-// the field. bc_give_held_keys gives them to the field once it has the keyboard. If nothing takes
-// them in 400 ms, the page kept the shortcut, and it gets them as typed. Keys an input method
-// composes aren't held. For hosts that can't hold the keys themselves, as on Linux, where a page's
-// keys reach Chromium's window first.
-BC_EXPORT void bc_hold_keys(void);
+// the field. They're held until the page has answered the key: if the page kept it, or the app
+// didn't use it, they go to the page as typed (held_keys_unclaimed), and if the app used it, until
+// the field has the keyboard, however long that takes. Keys an input method composes aren't held.
+// With |in_core| the core holds them, and bc_give_held_keys gives them to the field once it has the
+// keyboard, for hosts that can't, as on Linux, where a page's keys reach Chromium's window first.
+// Otherwise the host holds them, and the core only tells it when no field takes them.
+BC_EXPORT void bc_hold_keys(bool in_core);
 
 // Ends a hold (bc_hold_keys): |take| gets the keys held, |count| of them in the order typed, during
 // the call, for the field that now has the keyboard. Not called if nothing was held.

@@ -703,16 +703,17 @@ LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
 // Keys typed right after a shortcut that opens the command bar or the find bar belong in its field
 // (Ardia P7), but the bar takes the keyboard only once it has drawn, and a shortcut the page gets
 // first, such as Ctrl+L, comes back only after the keys behind it reached the page. So from the
-// shortcut until the bar has the keyboard, keys are held and then given to it in the order typed. A
-// hold lasts kHoldKeys at most, which is the page keeping the shortcut. They're posted to our own
-// window only; SendInput would reach whatever app is in front (platform/host.h's warning).
+// shortcut until the bar has the keyboard, keys are held and then given to it in the order typed.
+// For a shortcut the page gets first, the core says if the page kept it and no bar opens
+// (host_release_held_keys). A hold lasts kHoldKeysMs at most, as the core's does. They're posted to
+// our own window only; SendInput would reach whatever app is in front (platform/host.h's warning).
 std::vector<MSG> g_held_keys;
 bool g_holding_keys = false;
 // The window the keys wait for, or null for whichever bar opens.
 HWND g_keys_for = nullptr;
 HHOOK g_held_hook = nullptr;
 UINT_PTR g_hold_timer = 0;
-constexpr UINT kHoldKeysMs = 400;
+constexpr UINT kHoldKeysMs = 1000;
 
 // Gives the keys held to the window that now has the keyboard, unless they wait for another bar.
 void ReleaseKeys(HWND from) {
@@ -1738,6 +1739,13 @@ void host_dismiss_overlay(int overlay) {
 
 void host_hold_keys(void) {
   HoldKeys(nullptr);
+}
+
+void host_release_held_keys(void) {
+  // Unless a bar opened since, which holds them for itself.
+  if (g_holding_keys && !g_keys_for) {
+    ReleaseKeys(nullptr);
+  }
 }
 
 void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {

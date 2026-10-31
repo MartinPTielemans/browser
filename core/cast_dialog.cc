@@ -59,12 +59,9 @@ std::optional<MediaCastMode> ModeFor(const media_router::UIMediaSink& sink) {
 }  // namespace
 
 // static
-void CastDialog::Install() {
-  // After Chrome's Views set theirs, before the first page could ask.
-  SetGetOrCreate(base::BindRepeating([](content::WebContents* contents) {
-    CastDialog::CreateForWebContents(contents);
-    return static_cast<MediaRouterDialogController*>(CastDialog::FromWebContents(contents));
-  }));
+media_router::MediaRouterDialogController* CastDialog::For(content::WebContents* contents) {
+  CreateForWebContents(contents);
+  return FromWebContents(contents);
 }
 
 // static
@@ -73,7 +70,7 @@ void CastDialog::Open(bc_id tab) {
   if (!contents || !media_router::MediaRouterEnabled(contents->GetBrowserContext())) {
     return;
   }
-  // Chrome's, through the factory Install set, as WebContentsUserData has one of its own.
+  // Chrome's, through the factory For is, as WebContentsUserData has one of its own.
   MediaRouterDialogController::GetOrCreateForWebContents(contents)->ShowMediaRouterDialog(
       media_router::MediaRouterDialogActivationLocation::APP_MENU);
 }
