@@ -19,9 +19,10 @@
 # gives New Tab ⌃⌘T, which stays reserved and reaches
 # the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. About ilo shows
 # Settings' About tab, with Settings key and with About already showing. The Shortcuts tab lists
-# the sidebar's commands, and Focus Sidebar given ⌃⌘K there takes the keyboard from the page. Go
-# to Space 1 given ⌃⌘1 there shows the first Space, and ⌃1 no longer does. Include Favorites in
-# ⌘1–⌘8 turned off there has ⌘1 show the first tab that isn't a favorite, until Restore Defaults.
+# the sidebar's commands, and Focus Sidebar given ⌃⌘K there takes the keyboard from the page, as
+# its own F6 does once Restore Defaults gives it back. Go to Space 1 given ⌃⌘1 there shows the
+# first Space, and ⌃1 no longer does. Include Favorites in ⌘1–⌘8 turned off there has ⌘1 show the
+# first tab that isn't a favorite, until Restore Defaults.
 # ⌘T as the window comes on screen, before the overlays' windows are made, makes them and opens
 # the bar.
 
@@ -227,6 +228,16 @@ typed_after() {
 drew() {
   grep "^browser: $1 drew" "$log" | tail -1
 }
+# The bar asks the core for nothing typed as it opens, and logs the answer's time from then, not
+# from an ask before, which here is seconds earlier, as the bar was made at launch (#1072).
+send key t cmd
+expect '^browser: command bar suggestions "" in ' "the command bar didn't ask for nothing typed"
+ms=$(grep '^browser: command bar suggestions "" in ' "$log" | tail -1 |
+  sed 's/.* in \([0-9]*\).*/\1/')
+[ "$ms" -lt 1000 ] || fail "the command bar's suggestions for nothing typed logged $ms ms"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 for shortcut in t l; do
   typed_after $shortcut abc
   expect '^browser: command bar drew "abc"$' \
@@ -259,6 +270,25 @@ for shortcut in t l; do
   send key escape
   expect '^browser: command bar hidden$' "escape didn't close the command bar"
 done
+# ⌥⌫ deletes the word before the caret in the bar's field, and ⌘⌫ all before it, as in any Mac
+# field. Off the Mac the word's is Ctrl+Backspace, and on Linux all's is Ctrl+Shift+Backspace, as
+# in Chrome's fields there (#1076).
+word=alt start=cmd
+[ "$(uname)" = Darwin ] || word=cmd start="cmd shift"
+typed_after t "abc def"
+expect '^browser: command bar drew "abc def"$' "the command bar didn't take \"abc def\""
+send key backspace $word
+expect '^browser: command bar drew "abc "$' \
+  "⌥⌫ in the command bar didn't delete the word before the caret: $(drew 'command bar')"
+if windows; then
+  echo "skip: ⌘⌫ in the command bar: Windows' fields have no key for it."
+else
+  send key backspace $start
+  expect '^browser: command bar drew ""$' \
+    "⌘⌫ in the command bar didn't delete what was before the caret: $(drew 'command bar')"
+fi
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 # Closed first: the find bar opened from the UI before stays open, and ⌘F would make it key at once.
 send key f cmd
 send key escape
@@ -409,9 +439,9 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 
-# The sidebar's commands are in Settings › Shortcuts, where Focus Sidebar gets the key Arc's isn't
-# measured for (#676). Given ⌃⌘K, it gives the sidebar the keyboard from the page, and Restore
-# Defaults takes the key away again.
+# The sidebar's commands are in Settings › Shortcuts, where Focus Sidebar, on F6 at first, Chrome's
+# key out of the page (#676), can get another. Given ⌃⌘K, it gives the sidebar the keyboard from
+# the page, and Restore Defaults gives F6 back, which does the same.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 401 60
@@ -460,12 +490,17 @@ expect '^browser: shortcuts search "focus sidebar" finds Focus Sidebar$' \
 # the key's name's off the Mac. New Tab has its default already.
 send clickkey 126 246
 expect '^browser: shortcuts restored$' "a click on Restore Defaults didn't restore the keys"
-expect '^browser: shortcut focus-sidebar none$' \
-  "Restore Defaults didn't take Focus Sidebar's key away"
+expect '^browser: shortcut focus-sidebar f6$' \
+  "Restore Defaults didn't give Focus Sidebar F6 back"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after a click on the page"
+send key f6
+expect '^browser: sidebar keyed ' "F6 with the page focused didn't give the sidebar the keyboard"
+send key escape
+expect '^browser: sidebar keys left by escape$' "escape didn't take F6's sidebar keyboard away"
+in_browser RenderWidgetHostViewCocoa "after escape left the sidebar F6 gave the keyboard"
 
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
@@ -559,11 +594,13 @@ awk -v after_shown="$after_shown" '
 # macOS kills one under memory pressure, it takes Chrome's sad tab path a crash takes; a SIGSEGV
 # sent from here only prints a stack, and the command bar completes chrome://crash to another page.
 # The core's line comes through Chromium's log, after its prefix.
-pkill -KILL -f "$procs.*--type=renderer" || fail "no renderer to kill"
+kill_pages || fail "no renderer to kill"
 expect 'browser: tab [0-9]* page gone' "a killed renderer didn't report its page gone"
 send click $sidebar_point
 send key r cmd
 expect '^browser: loaded [0-9]* ' "⌘R didn't load the crashed page again"
+# The bundled extension's process lives on, so it stays in the Extensions menu (#1091).
+none_since '^browser: extensions menu $' || fail "the pages' renderers took the extension with them"
 send click $page_point
 
 # Go to Space 1, given ⌃⌘1 in Settings › Shortcuts, shows the first Space, and ⌃1 no longer does,

@@ -28,7 +28,7 @@ pub(super) const EDGE_WAIT: Duration = Duration::from_millis(500);
 /// How long the pointer rests on the middle half of another tab's row before the dragged tab
 /// would join it in a split view, so passing rows still reorders (ours, interim: Arc's isn't
 /// measured).
-const SPLIT_REST: Duration = Duration::from_millis(400);
+pub(super) const SPLIT_REST: Duration = Duration::from_millis(400);
 
 impl Shell {
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
@@ -376,8 +376,12 @@ impl Shell {
             (place, span, line.filter(|_| !stays))
         };
         // Rested on another tab's row, it would join it, so the gap it would go to stays where it
-        // was. Off the row's middle, it no longer would, and reordering carries on.
-        let middle = (!incoming && !over_favorites).then(|| self.split_onto(tab, pointer.y)).flatten();
+        // was. Off the row's middle, it no longer would, and reordering carries on. Held at an
+        // edge that pages, it's going to another Space, so it rests on no row there, whose wait is
+        // the shorter (#1089).
+        let paging = self.drag.as_ref().is_some_and(|drag| drag.edge.is_some());
+        let rests = !incoming && !over_favorites && !paging;
+        let middle = rests.then(|| self.split_onto(tab, pointer.y)).flatten();
         let resting = self.drag.as_ref().and_then(|drag| drag.resting.as_ref().map(|rest| rest.0));
         if middle != resting {
             let rest = middle.map(|row| {
