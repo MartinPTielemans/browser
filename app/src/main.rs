@@ -468,6 +468,9 @@ thread_local! {
     // The links other apps sent before the first window had brought back the Spaces, which they
     // open over; None after.
     static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
+    // The account as the core last said, which it says first as it starts, before GPUI has: the
+    // first window hands it to Settings.
+    static SYNC_STATE: RefCell<Option<account::State>> = const { RefCell::new(None) };
     // What the menu bar was last built from, so a change to one part rebuilds it with the others.
     static MENUS: RefCell<Menus> = RefCell::default();
     // Whether a menu bar built from MENUS waits for the menu open to close.
@@ -3959,6 +3962,9 @@ fn open_window_as(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
+        if let Some(state) = SYNC_STATE.with_borrow_mut(Option::take) {
+            settings::sync_changed(state, cx);
+        }
         #[cfg(target_os = "linux")]
         emoji::keep(cx);
         // In front, as it's about to be key, or a saved one behind the others.
@@ -5884,6 +5890,10 @@ unsafe extern "C" fn sync_changed(_: *mut c_void, state: *const bc::bc_sync_stat
         email: core_text(state.email),
         code: core_text(state.code),
     };
+    if CX.with_borrow(Option::is_none) {
+        SYNC_STATE.set(Some(state));
+        return;
+    }
     update_app_later(move |cx| settings::sync_changed(state, cx));
 }
 
