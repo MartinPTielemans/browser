@@ -1324,7 +1324,7 @@ mod tests {
         super::{
             CLOSE_RIGHT, CLOSE_SIZE, FAVICON_SIZE, FAVICON_X, Folders, NAME_HEIGHT, PLATE_INSET,
             PRESS_SCALE, PRESS_TIME, Page, ROW_HEIGHT, ROW_PITCH, Row, SELECTED_UNHOVER,
-            SPACE_ICON_PLATE, Shell, Slot, Swapped,
+            SPACE_ICON_PLATE, Shell, Slot, Swapped, URL_BUTTON_SIZE,
             commands::{Command, bind_keys},
             drag::detents::shell_with,
             recorder::Recorder,
@@ -1410,6 +1410,41 @@ mod tests {
         assert!(press(cx, middle + point(px(edge), px(0.))), "on the plate, past the glyph");
         let above = (SPACE_ICON_PLATE / 2. + NAME_HEIGHT / 2.) / 2.;
         assert!(!press(cx, middle - point(px(0.), px(above))), "above the plate");
+    }
+
+    /// The … at the end of the Space's name row, under the pointer, opens the Space's menu where
+    /// it's pressed, as a right-click on the name does (#1090), with the pinned rows' caret beside
+    /// it or without.
+    #[gpui::test]
+    fn the_name_rows_edit_button_shows_the_spaces_menu(cx: &mut TestAppContext) {
+        for (pinned, a11y) in [(&[][..], false), (&[5][..], false), (&[5][..], true)] {
+            let host = Rc::new(Recorder::default());
+            let browser = host.clone();
+            let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+            if a11y {
+                cx.simulate_a11y_activation();
+            }
+            shell.update(cx, |shell, cx| {
+                let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+                shell.set_spaces(vec![space], cx);
+                shell.set_space(1, cx);
+                shell.set_tabs(1, pinned.to_vec(), vec![2], Vec::new(), Folders::default(), cx);
+                shell.set_selected(2, cx);
+            });
+            cx.run_until_parked();
+            let row = shell.read_with(cx, |shell, _| shell.name_row_drawn.get()).expect("a row");
+            let at = point(row.right() - px(FAVICON_X + URL_BUTTON_SIZE / 2.), row.center().y);
+            cx.simulate_mouse_move(at, None, Modifiers::none());
+            cx.run_until_parked();
+            host.menus.take();
+            cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+            cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+            let menus = host.menus.take();
+            let first = menus.last().and_then(|menu| menu.first()).map(|(title, _)| title.clone());
+            assert_eq!(first.as_deref(), Some("Rename Space"), "pinned {pinned:?}, a11y {a11y}");
+            assert_eq!(host.menu_at.get(), Some(at), "pinned {pinned:?}, a11y {a11y}");
+        }
     }
 
     /// Change Icon… on a tab asks for the icon picker under that tab's row, which draws where the
