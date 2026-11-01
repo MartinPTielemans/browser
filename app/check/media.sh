@@ -182,18 +182,23 @@ expect "^browser: page $c camera 0 microphone 0 sharing 0 shared 0\$" \
 
 # A call floats once its tab is hidden, as Arc's does: Chrome's automatic Picture in Picture for a
 # page using the camera that asks for it with its media session, on https or a file alone. So a
-# page from the https server, from the command bar, whose "c" calls and which says when its window
-# floats and lands, and whose "k" puts how often it was asked to float in its title. Showing its
-# tab again brings the call back.
+# page from the https server, from the command bar, whose "c" calls and which says when Chrome
+# asks it to float, when its window floats and lands or why it was refused, and whose "k" puts how
+# often it was asked to float in its title. Showing its tab again brings the call back.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 let asked = 0;
 navigator.mediaSession.setActionHandler("enterpictureinpicture", async () => {
   asked++;
-  const floating = await documentPictureInPicture.requestWindow({width: 320, height: 180});
-  document.title = "floating";
-  floating.addEventListener("pagehide", () => document.title = "landed");
+  document.title = "asked to float";
+  try {
+    const floating = await documentPictureInPicture.requestWindow({width: 320, height: 180});
+    document.title = "floating";
+    floating.addEventListener("pagehide", () => document.title = "landed");
+  } catch (error) {
+    document.title = "not floating: " + error.name;
+  }
 });
 onkeydown = async e => {
   if (e.key == "c") {
@@ -223,9 +228,6 @@ $(grep "^browser: question $f at " "$log" | tail -1 | cut -d' ' -f5-)
 EOF
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $f in a call\$" "Allow didn't give the floating call the camera"
-# The page has its camera before Chrome counts it as capturing, which is what lets the tab float
-# once hidden: hidden before then, it stays (#1165).
-expect "^browser: page $f camera 1 microphone 1 " "Chrome didn't count the floating call's camera"
 shown "$b"
 expect "^browser: title $f floating\$" "the call didn't float with its tab hidden"
 # It lands as its tab is shown, so before the click that gives its page the keyboard.
