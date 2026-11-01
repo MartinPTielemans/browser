@@ -4,9 +4,10 @@
 # Linux), never the Mac's own browsers; Esc or Skip goes on from a step, the colour step's Return
 # gives the first Space the swatch picked, and the last step leaves the flow for the first Space's
 # welcome with the command bar up and a line under it. The default browser's step shows only while
-# ilo isn't the default, and is only ever skipped, so the run never changes the Mac's default
-# browser. The opt-ins' shows always, with the agents' switch, as every build has their server,
-# and the dark pass turns it on in its new profile and sees the server start. Help › Welcome to ilo
+# ilo isn't the default, and is skipped everywhere but a Linux CI VM, where its button makes ilo
+# the default for a moment, so the run never changes a desk's. The opt-ins' shows always, with
+# the agents' switch, as every build has their server, and the dark pass turns it on in its new
+# profile and sees the server start. Help › Welcome to ilo
 # plays it again, in the window while it shows no page and in a new window while it shows one. A
 # launch that brings Spaces back never starts it. Every other run sets BROWSER_ONBOARDING=skip
 # (check.sh); this one sets the appearance instead.
@@ -165,9 +166,50 @@ case " $steps " in
   *" default-browser "*)
     expect '^browser: onboarding step default-browser settled$' "dark: the default browser's step didn't come"
     capture_step dark-default-browser
-    send key escape
-    expect '^browser: onboarding left default-browser via escape$' \
-      "dark: Esc didn't leave the default browser's step"
+    # Only a Linux CI VM, where no one browses, lets Return make ilo the default: xdg-settings
+    # reads it back, and the VM's own lists of defaults come back after, for the replay's steps.
+    # xdg-settings takes a desktop entry only for a program it can run, so this one runs the build.
+    if [ "$(uname)" = Linux ] && [ -n "${GITHUB_ACTIONS:-}" ] && command -v xdg-settings > /dev/null
+    then
+      apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+      lists="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list $apps/mimeapps.list"
+      at=0
+      for list in $lists; do
+        at=$((at + 1))
+        rm -f "$out/mimeapps-$at.list"
+        [ ! -f "$list" ] || cp "$list" "$out/mimeapps-$at.list"
+      done
+      entry="$apps/$(cat branding/id).desktop"
+      mkdir -p "$apps"
+      printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s %%U\n' "$app_name" "$browser" \
+        > "$entry"
+      send key return
+      expect '^browser: onboarding left default-browser via return$' \
+        "dark: Return didn't leave the default browser's step"
+      for _ in $(seq 50); do
+        made=$(xdg-settings get default-web-browser 2> /dev/null || true)
+        [ "$made" = "${entry##*/}" ] && break
+        sleep 0.1
+      done
+      [ "$made" = "${entry##*/}" ] ||
+        fail "dark: the default browser's button left the default '$made', not ${entry##*/}"
+      at=0
+      for list in $lists; do
+        at=$((at + 1))
+        if [ -f "$out/mimeapps-$at.list" ]; then
+          mv "$out/mimeapps-$at.list" "$list"
+        else
+          rm -f "$list"
+        fi
+      done
+      rm -f "$entry"
+    else
+      send key escape
+      expect '^browser: onboarding left default-browser via escape$' \
+        "dark: Esc didn't leave the default browser's step"
+      [ "$(uname)" != Linux ] || [ -z "${GITHUB_ACTIONS:-}" ] ||
+        echo "skip: onboarding's default browser button. The VM has no xdg-settings."
+    fi
     ;;
 esac
 expect '^browser: onboarding step color settled$' "dark: the colour step didn't come"
