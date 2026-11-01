@@ -8,9 +8,10 @@
 #   SHA256SUMS, and appcast.xml  the updates feed's next state (tools/appcast.sh)
 #   ilo-demo.tar.gz              the site's live demo, when the commit has one (demo.yml)
 # and, in the run rather than the release, winget's manifests for the Windows installer.
-# On a pushed v* tag, or by hand with the tag's name. The tag must be app/Cargo.toml's version, and
-# its message is the release's notes. By hand before the tag exists, it's a try: it skips, and says so
-# in the run, what needs the owner (the Store's identity, the Developer ID, notarization, the appcast)
+# On a pushed v* tag, or by hand with the tag's name. The tag must be app/Cargo.toml's version and
+# annotated, with a one-line message; the release's notes are that version's section of CHANGELOG.md
+# (tools/changelog.sh), and the run stops without one. By hand before the tag exists, it's a try:
+# it skips, and says so in the run, what needs the owner (the Store's identity, the Developer ID, notarization, the appcast)
 # and makes no release, leaving its packages as the run's artifact release-try. Each job builds on
 # its OS's prebuilt engine for the commit, which engine/fetch.sh finds or fails on; a release never builds an engine. The Windows engine is
 # built nightly, not for each core change, so before pushing the tag, dispatch Engine on Windows
@@ -18,7 +19,7 @@
 # that commit) and wait for its release engine-windows-<commit>; otherwise the Windows job stops at
 # "No Windows engine release for this commit", or packs an older core. The owner publishes
 # the draft, which puts its Linux build in the Flatpak repository (the publish job) and the release
-# on ilobrowser.com (the site job). README.md › Releases names the secrets it needs. GitHub's
+# on ilobrowser.com (the site job). docs/releasing.md names the secrets it needs. GitHub's
 # hosted runners only.
 name: Release
 
@@ -47,7 +48,7 @@ jobs:
       version: ${{ steps.check.outputs.version }}
       trial: ${{ steps.check.outputs.trial }}
     steps:
-      # With the tags, for the tag's message.
+      # With the tags, to tell an annotated tag from a lightweight one.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -64,22 +65,31 @@ jobs:
           mkdir -p "$RUNNER_TEMP/notes"
           notes=$RUNNER_TEMP/notes/notes.md
           # On a tag push, checkout writes the tag it ran for as a lightweight one on the commit
-          # (actions/checkout#290), so the annotated tag, and its message, comes again from the
-          # remote. A run by hand before the tag exists finds none, and stays a trial.
+          # (actions/checkout#290), so the annotated tag comes again from the remote. A run by hand
+          # before the tag exists finds none, and stays a trial.
           git fetch -q --force origin "+refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
           if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null)" = tag ]; then
             if [ "$(git rev-parse "$TAG^{commit}")" != "$GITHUB_SHA" ]; then
               echo "::error::$TAG is on another commit. Run the workflow from the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG"
               exit 1
             fi
-            git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$TAG" > "$notes"
+            # The notes the owner reviewed: a section still marked draft stops the release.
+            tools/changelog.sh "$version" --final > "$notes" 2> "$RUNNER_TEMP/changelog.err" || {
+              echo "::error::$(cat "$RUNNER_TEMP/changelog.err")"
+              exit 1
+            }
             echo "trial=false" >> "$GITHUB_OUTPUT"
           elif git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
-            echo "::error::$TAG is a lightweight tag. A release's notes are its tag's message: git tag -a $TAG"
+            echo "::error::$TAG is a lightweight tag. Tag it annotated, with a one-line message: git tag -a $TAG -m 'ilo $version'"
             exit 1
           else
-            # A run by hand before the tag exists, to try the release: its notes say so.
-            printf '%s\n' "ilo $version, built by hand from $GITHUB_REF_NAME (${GITHUB_SHA:0:12}) to try the release. Not for publishing." > "$notes"
+            # A run by hand before the tag exists, to try the release: its notes say so, over the
+            # section as it stands, draft or not.
+            printf '%s\n\n' "ilo $version, built by hand from $GITHUB_REF_NAME (${GITHUB_SHA:0:12}) to try the release. Not for publishing." > "$notes"
+            tools/changelog.sh "$version" >> "$notes" 2> "$RUNNER_TEMP/changelog.err" || {
+              echo "::error::$(cat "$RUNNER_TEMP/changelog.err")"
+              exit 1
+            }
             echo "trial=true" >> "$GITHUB_OUTPUT"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -142,7 +152,7 @@ jobs:
           CARGO_PROFILE_RELEASE_STRIP: none
         run: |
           if [ -z "$UPDATE_PUBLIC_KEY" ] && [ -z "$(tr -d '[:space:]' < ../branding/update-key)" ]; then
-            echo "::error::app/branding/update-key is empty, so ilo couldn't update itself (README.md › Releases)."
+            echo "::error::app/branding/update-key is empty, so ilo couldn't update itself (docs/releasing.md)."
             exit 1
           fi
           cargo build --release --features prod
@@ -175,7 +185,7 @@ jobs:
 
       # winget's manifests for the installer at the URL this release publishes it at, which the
       # owner puts in a pull request to microsoft/winget-pkgs once the draft is published
-      # (README.md › Releases). They're the run's, not the release's: users never need them.
+      # (docs/releasing.md). They're the run's, not the release's: users never need them.
       - name: winget manifests
         env:
           version: ${{ needs.version.outputs.version }}
@@ -257,7 +267,7 @@ jobs:
             echo "::notice::No$missing: this try signs the Flatpak repository with a key of its own and keeps it in the run."
             echo "sync=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::The Linux release needs$missing (README.md › Releases). Without them nothing goes to the Flatpak repository and the draft isn't made."
+            echo "::error::The Linux release needs$missing (docs/releasing.md). Without them nothing goes to the Flatpak repository and the draft isn't made."
             exit 1
           fi
 
@@ -373,7 +383,7 @@ jobs:
             echo "::notice title=Skipped: Developer ID signing and notarization::No$missing, which the owner holds: this try signs ad hoc and makes no DMG, appcast or Mac upload."
             echo "signed=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::The Mac's DMG needs the repository secrets$missing (README.md › Releases). Without them it isn't built, and no unsigned DMG is uploaded."
+            echo "::error::The Mac's DMG needs the repository secrets$missing (docs/releasing.md). Without them it isn't built, and no unsigned DMG is uploaded."
             exit 1
           fi
 
@@ -592,7 +602,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           if [ -z "$R2_BUCKET" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-            echo "::error::No R2 secrets (README.md › Releases), so $TAG's Linux build isn't in the Flatpak repository."
+            echo "::error::No R2 secrets (docs/releasing.md), so $TAG's Linux build isn't in the Flatpak repository."
             exit 1
           fi
           bucket=s3://$R2_BUCKET
@@ -612,7 +622,7 @@ jobs:
   # The owner published a draft: ilobrowser.com's release workflow puts its demo on the site and
   # deploys it now, rather than at its next half-hourly check. GitHub's own token can't start
   # another repository's workflow, so SITE_DISPATCH_TOKEN is a fine-grained token with Contents
-  # read and write on MartinPTielemans/ilo-site alone (README.md › Releases).
+  # read and write on MartinPTielemans/ilo-site alone (docs/releasing.md).
   site:
     if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
     runs-on: ubuntu-24.04
@@ -622,7 +632,7 @@ jobs:
           GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::notice::No SITE_DISPATCH_TOKEN (README.md › Releases), so the site takes $TAG at its next half-hourly check."
+            echo "::notice::No SITE_DISPATCH_TOKEN (docs/releasing.md), so the site takes $TAG at its next half-hourly check."
             exit 0
           fi
           gh api repos/MartinPTielemans/ilo-site/dispatches -f event_type=ilo-release -f "client_payload[tag]=$TAG"

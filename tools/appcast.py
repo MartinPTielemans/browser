@@ -94,7 +94,8 @@ def finish(appcast, aside_path, windows):
         ET.SubElement(item, "pubDate").text = email.utils.formatdate(usegmt=True)
         ET.SubElement(item, s("version")).text = build
         ET.SubElement(item, s("shortVersionString")).text = version
-        # WinSparkle shows HTML, not the Mac's Markdown, so it gets the release's page.
+        # WinSparkle shows HTML, not the Mac's Markdown, so it gets the site's notes page, whose
+        # anchor for the version its web view scrolls to.
         ET.SubElement(item, s("releaseNotesLink")).text = notes
         ET.SubElement(item, "enclosure", {
             "url": url,
