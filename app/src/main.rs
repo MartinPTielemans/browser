@@ -3487,6 +3487,10 @@ unsafe extern "C" fn tab_key_before_page(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    // An agent's key comes from inside the Agents' update, where an update of ours would abort.
+    if browser::agents::pressing_key() {
+        return false;
+    }
     #[cfg(target_os = "linux")]
     if held_escape::keeps_from_page(unsafe { &*key }) {
         return true;
@@ -3611,6 +3615,9 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    if browser::agents::pressing_key() {
+        return false;
+    }
     SECOND_PRESS.with_borrow_mut(|second| second.declined(&keystroke(unsafe { &*key })));
     link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
