@@ -71,7 +71,8 @@ onkeydown = async e => {
 # The same pages over https, for the floating call: Chrome floats a call on https or a file alone,
 # and its page info, the Site Controls, lists no permissions for a file. The certificate is made
 # for this run, and the browser takes it by its key alone, so no other site's errors are let by.
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
+# Git Bash would pass the subject to Windows' openssl as a path under its own folder (#872).
+MSYS2_ARG_CONV_EXCL=/CN= openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
   -addext subjectAltName=IP:127.0.0.1 -keyout "$out/tls.key" -out "$out/tls.pem" 2> /dev/null ||
   fail "openssl didn't make the floating call's certificate"
 spki=$(openssl x509 -in "$out/tls.pem" -pubkey -noout | openssl pkey -pubin -outform der |
